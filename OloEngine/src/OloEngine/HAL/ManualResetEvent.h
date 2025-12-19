@@ -32,9 +32,7 @@ namespace OloEngine
 		FPlatformManualResetEvent(const FPlatformManualResetEvent&) = delete;
 		FPlatformManualResetEvent& operator=(const FPlatformManualResetEvent&) = delete;
 
-		/**
-		 * Reset the event to the unsignaled state.
-		 */
+// Reset the event to the unsignaled state.
 		void Reset()
 		{
 #if defined(OLO_PLATFORM_LINUX)
@@ -44,11 +42,9 @@ namespace OloEngine
 #endif
 		}
 
-		/**
-		 * Polls whether the event is in the notified state.
-		 *
-		 * @return True if notified, otherwise false.
-		 */
+// Polls whether the event is in the notified state.
+        //
+        // @return True if notified, otherwise false.
 		bool Poll()
 		{
 #if defined(OLO_PLATFORM_LINUX)
@@ -58,9 +54,7 @@ namespace OloEngine
 #endif
 		}
 
-		/**
-		 * Wait for the event to be signaled.
-		 */
+// Wait for the event to be signaled.
 		void Wait()
 		{
 #if defined(OLO_PLATFORM_LINUX)
@@ -77,14 +71,12 @@ namespace OloEngine
 			WaitSlow();
 		}
 
-		/**
-		 * Waits for the wait time for Notify() to be called.
-		 *
-		 * Notify() may be called prior to WaitFor(), and this will return immediately in that case.
-		 *
-		 * @param WaitTime   Relative time after which waiting is canceled and the thread wakes.
-		 * @return True if Notify() was called before the wait time elapsed, otherwise false.
-		 */
+// Waits for the wait time for Notify() to be called.
+        //
+        // Notify() may be called prior to WaitFor(), and this will return immediately in that case.
+        //
+        // @param WaitTime   Relative time after which waiting is canceled and the thread wakes.
+        // @return True if Notify() was called before the wait time elapsed, otherwise false.
 		bool WaitFor(FMonotonicTimeSpan WaitTime)
 		{
 #if defined(OLO_PLATFORM_LINUX)
@@ -94,14 +86,12 @@ namespace OloEngine
 #endif
 		}
 
-		/**
-		 * Waits until the wait time for Notify() to be called.
-		 *
-		 * Notify() may be called prior to WaitUntil(), and this will return immediately in that case.
-		 *
-		 * @param WaitTime   Absolute time after which waiting is canceled and the thread wakes.
-		 * @return True if Notify() was called before the wait time elapsed, otherwise false.
-		 */
+// Waits until the wait time for Notify() to be called.
+        //
+        // Notify() may be called prior to WaitUntil(), and this will return immediately in that case.
+        //
+        // @param WaitTime   Absolute time after which waiting is canceled and the thread wakes.
+        // @return True if Notify() was called before the wait time elapsed, otherwise false.
 		bool WaitUntil(FMonotonicTimePoint WaitTime)
 		{
 #if defined(OLO_PLATFORM_LINUX)
@@ -111,9 +101,7 @@ namespace OloEngine
 #endif
 		}
 
-		/**
-		 * Signal the event, waking waiting threads.
-		 */
+// Signal the event, waking waiting threads.
 		void Notify();
 
 	private:

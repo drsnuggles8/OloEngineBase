@@ -3,16 +3,14 @@
 
 #pragma once
 
-/**
- * @file SharedMutex.h
- * @brief A four-byte shared mutex (reader-writer lock)
- * 
- * This mutex allows multiple readers to hold the lock simultaneously,
- * but only one writer can hold the lock at a time. Writers have priority
- * over new readers when waiting.
- * 
- * Ported from Unreal Engine's Async/SharedMutex.h
- */
+// @file SharedMutex.h
+// @brief A four-byte shared mutex (reader-writer lock)
+// 
+// This mutex allows multiple readers to hold the lock simultaneously,
+// but only one writer can hold the lock at a time. Writers have priority
+// over new readers when waiting.
+// 
+// Ported from Unreal Engine's Async/SharedMutex.h
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Threading/IntrusiveMutex.h"
@@ -25,20 +23,18 @@
 
 namespace OloEngine
 {
-    /**
-     * @class FSharedMutex
-     * @brief A four-byte shared mutex that is not fair and does not support recursive locking.
-     *
-     * Prefer FMutex when shared locking is not required.
-     * All new shared locks will wait when any thread is waiting to take an exclusive lock.
-     * An exclusive lock and a shared lock may not be simultaneously held by the same thread.
-     * 
-     * State bits layout:
-     * - Bit 0: IsLockedFlag - set when exclusively locked
-     * - Bit 1: MayHaveWaitingLockFlag - set when threads are waiting for exclusive lock
-     * - Bit 2: MayHaveWaitingSharedLockFlag - set when threads are waiting for shared lock
-     * - Bits 3-31: SharedLockCount - number of shared locks held
-     */
+    // @class FSharedMutex
+    // @brief A four-byte shared mutex that is not fair and does not support recursive locking.
+    //
+    // Prefer FMutex when shared locking is not required.
+    // All new shared locks will wait when any thread is waiting to take an exclusive lock.
+    // An exclusive lock and a shared lock may not be simultaneously held by the same thread.
+    // 
+    // State bits layout:
+    // - Bit 0: IsLockedFlag - set when exclusively locked
+    // - Bit 1: MayHaveWaitingLockFlag - set when threads are waiting for exclusive lock
+    // - Bit 2: MayHaveWaitingSharedLockFlag - set when threads are waiting for shared lock
+    // - Bits 3-31: SharedLockCount - number of shared locks held
     class FSharedMutex final
     {
     public:
@@ -51,18 +47,14 @@ namespace OloEngine
         // Exclusive (Write) Lock Operations
         // ============================================================================
 
-        /**
-         * @brief Check if the mutex is exclusively locked
-         */
+        // @brief Check if the mutex is exclusively locked
         [[nodiscard]] inline bool IsLocked() const
         {
             return !!(m_State.load(std::memory_order_relaxed) & IsLockedFlag);
         }
 
-        /**
-         * @brief Try to acquire an exclusive lock without blocking
-         * @return true if lock was acquired
-         */
+        // @brief Try to acquire an exclusive lock without blocking
+        // @return true if lock was acquired
         [[nodiscard]] inline bool TryLock()
         {
             u32 Expected = m_State.load(std::memory_order_relaxed);
@@ -71,9 +63,7 @@ namespace OloEngine
                     std::memory_order_acquire, std::memory_order_relaxed);
         }
 
-        /**
-         * @brief Acquire an exclusive lock, blocking until available
-         */
+        // @brief Acquire an exclusive lock, blocking until available
         inline void Lock()
         {
             u32 Expected = 0;
@@ -85,9 +75,7 @@ namespace OloEngine
             LockSlow();
         }
 
-        /**
-         * @brief Release an exclusive lock
-         */
+        // @brief Release an exclusive lock
         inline void Unlock()
         {
             // Unlock immediately to allow other threads to acquire the lock while this thread 
@@ -105,18 +93,14 @@ namespace OloEngine
         // Shared (Read) Lock Operations
         // ============================================================================
 
-        /**
-         * @brief Check if the mutex has any shared locks
-         */
+        // @brief Check if the mutex has any shared locks
         [[nodiscard]] inline bool IsLockedShared() const
         {
             return !!(m_State.load(std::memory_order_relaxed) & SharedLockCountMask);
         }
 
-        /**
-         * @brief Try to acquire a shared lock without blocking
-         * @return true if lock was acquired
-         */
+        // @brief Try to acquire a shared lock without blocking
+        // @return true if lock was acquired
         [[nodiscard]] inline bool TryLockShared()
         {
             u32 Expected = m_State.load(std::memory_order_relaxed);
@@ -131,9 +115,7 @@ namespace OloEngine
             return false;
         }
 
-        /**
-         * @brief Acquire a shared lock, blocking until available
-         */
+        // @brief Acquire a shared lock, blocking until available
         inline void LockShared()
         {
             u32 Expected = m_State.load(std::memory_order_relaxed);
@@ -146,9 +128,7 @@ namespace OloEngine
             LockSharedSlow();
         }
 
-        /**
-         * @brief Release a shared lock
-         */
+        // @brief Release a shared lock
         inline void UnlockShared()
         {
             // Unlock immediately to allow other threads to acquire the lock while this thread 

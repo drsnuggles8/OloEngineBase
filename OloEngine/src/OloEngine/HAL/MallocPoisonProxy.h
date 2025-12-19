@@ -3,17 +3,15 @@
 
 #pragma once
 
-/**
- * @file MallocPoisonProxy.h
- * @brief FMalloc proxy that poisons new and freed allocations
- * 
- * Helps catch code that relies on uninitialized or freed memory by filling:
- * - New allocations with OLO_DEBUG_FILL_NEW (0xCD)
- * - Freed allocations with OLO_DEBUG_FILL_FREED (0xDD)
- * 
- * When you see 0xCDCDCDCD in memory, it means uninitialized.
- * When you see 0xDDDDDDDD in memory, it means use-after-free.
- */
+// @file MallocPoisonProxy.h
+// @brief FMalloc proxy that poisons new and freed allocations
+// 
+// Helps catch code that relies on uninitialized or freed memory by filling:
+// - New allocations with OLO_DEBUG_FILL_NEW (0xCD)
+// - Freed allocations with OLO_DEBUG_FILL_FREED (0xDD)
+// 
+// When you see 0xCDCDCDCD in memory, it means uninitialized.
+// When you see 0xDDDDDDDD in memory, it means use-after-free.
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Memory/MemoryBase.h"
@@ -22,7 +20,7 @@
 namespace OloEngine
 {
 
-/** Governs when malloc that poisons the allocations is enabled. */
+// Governs when malloc that poisons the allocations is enabled.
 #if !defined(OLO_USE_MALLOC_FILL_BYTES)
     #if defined(OLO_DEBUG) || defined(OLO_RELEASE)
         #define OLO_USE_MALLOC_FILL_BYTES 1
@@ -31,24 +29,22 @@ namespace OloEngine
     #endif
 #endif
 
-/** Value that a freed memory block will be filled with. */
+// Value that a freed memory block will be filled with.
 #define OLO_DEBUG_FILL_FREED (0xdd)
 
-/** Value that a new memory block will be filled with. */
+// Value that a new memory block will be filled with.
 #define OLO_DEBUG_FILL_NEW (0xcd)
 
-/**
- * @class FMallocPoisonProxy
- * @brief FMalloc proxy that poisons new and freed allocations
- * 
- * This helps catch:
- * - Use of uninitialized memory (will contain 0xCDCDCDCD pattern)
- * - Use-after-free bugs (will contain 0xDDDDDDDD pattern)
- */
+// @class FMallocPoisonProxy
+// @brief FMalloc proxy that poisons new and freed allocations
+// 
+// This helps catch:
+// - Use of uninitialized memory (will contain 0xCDCDCDCD pattern)
+// - Use-after-free bugs (will contain 0xDDDDDDDD pattern)
 class FMallocPoisonProxy : public FMalloc
 {
 private:
-    /** Malloc we're based on, aka using under the hood */
+    // Malloc we're based on, aka using under the hood
     FMalloc* m_UsedMalloc;
 
 public:

@@ -16,42 +16,38 @@ namespace OloEngine {
 
 #if OLO_ENABLE_ALLOCATION_TRACKING
 
-/**
- * @brief Lightweight allocation tracker for object lifetime debugging
- * 
- * This tracker uses the CRTP (Curiously Recurring Template Pattern) to track
- * object creation and destruction counts per type. Each class gets its own
- * independent counter, allowing precise leak detection at the class level.
- * 
- * Usage:
- *   class MyClass : public AllocationTracker<MyClass> {
- *       // Your class implementation
- *   };
- * 
- *   // In tests or debug code:
- *   auto initial = MyClass::GetLiveCount();
- *   {
- *       MyClass obj1, obj2;
- *       assert(MyClass::GetLiveCount() == initial + 2);
- *   }
- *   assert(MyClass::GetLiveCount() == initial);  // No leaks!
- * 
- * Based on the allocation tracker pattern from:
- * https://solidean.com/blog/2025/minimal-allocation-tracker-cpp/
- * 
- * Performance considerations:
- * - Uses relaxed memory ordering for optimal performance
- * - Zero overhead when disabled (complete elimination in release builds)
- * - Thread-safe atomic operations
- * - Empty base class optimization ensures no memory overhead
- */
+// @brief Lightweight allocation tracker for object lifetime debugging
+// 
+// This tracker uses the CRTP (Curiously Recurring Template Pattern) to track
+// object creation and destruction counts per type. Each class gets its own
+// independent counter, allowing precise leak detection at the class level.
+// 
+// Usage:
+//   class MyClass : public AllocationTracker<MyClass> {
+//       // Your class implementation
+//   };
+// 
+//   // In tests or debug code:
+//   auto initial = MyClass::GetLiveCount();
+//   {
+//       MyClass obj1, obj2;
+//       assert(MyClass::GetLiveCount() == initial + 2);
+//   }
+//   assert(MyClass::GetLiveCount() == initial);  // No leaks!
+// 
+// Based on the allocation tracker pattern from:
+// https://solidean.com/blog/2025/minimal-allocation-tracker-cpp/
+// 
+// Performance considerations:
+// - Uses relaxed memory ordering for optimal performance
+// - Zero overhead when disabled (complete elimination in release builds)
+// - Thread-safe atomic operations
+// - Empty base class optimization ensures no memory overhead
 template <class Tag>
 class AllocationTracker
 {
 public:
-    /**
-     * @brief Default constructor - increments live object count
-     */
+    // @brief Default constructor - increments live object count
     AllocationTracker() noexcept
     {
         // Use relaxed ordering for best performance
@@ -61,10 +57,8 @@ public:
         UpdatePeakCount(newLiveCount);
     }
     
-    /**
-     * @brief Copy constructor - increments live object count
-     * Each copy is a new object that needs tracking
-     */
+    // @brief Copy constructor - increments live object count
+    // Each copy is a new object that needs tracking
     AllocationTracker(AllocationTracker const&) noexcept
     {
         sizet newLiveCount = s_LiveCount.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -72,10 +66,8 @@ public:
         UpdatePeakCount(newLiveCount);
     }
     
-    /**
-     * @brief Move constructor - increments live object count
-     * Even though data is moved, we still have a new object instance
-     */
+    // @brief Move constructor - increments live object count
+    // Even though data is moved, we still have a new object instance
     AllocationTracker(AllocationTracker&&) noexcept
     {
         sizet newLiveCount = s_LiveCount.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -83,58 +75,44 @@ public:
         UpdatePeakCount(newLiveCount);
     }
     
-    /**
-     * @brief Copy assignment operator
-     * Defaulted because assignment doesn't create/destroy objects
-     */
+    // @brief Copy assignment operator
+    // Defaulted because assignment doesn't create/destroy objects
     AllocationTracker& operator=(AllocationTracker const&) noexcept = default;
     
-    /**
-     * @brief Move assignment operator  
-     * Defaulted because assignment doesn't create/destroy objects
-     */
+    // @brief Move assignment operator  
+    // Defaulted because assignment doesn't create/destroy objects
     AllocationTracker& operator=(AllocationTracker&&) noexcept = default;
     
-    /**
-     * @brief Destructor - decrements live object count
-     */
+    // @brief Destructor - decrements live object count
     ~AllocationTracker() noexcept
     {
         // Use relaxed ordering for best performance
         s_LiveCount.fetch_sub(1, std::memory_order_relaxed);
     }
     
-    /**
-     * @brief Get the current number of live objects of this type
-     * @return Current count of objects that have been constructed but not yet destroyed
-     */
+    // @brief Get the current number of live objects of this type
+    // @return Current count of objects that have been constructed but not yet destroyed
     static sizet GetLiveCount() noexcept
     {
         return s_LiveCount.load(std::memory_order_relaxed);
     }
     
-    /**
-     * @brief Get the peak number of live objects of this type
-     * @return Maximum number of objects that were alive simultaneously
-     */
+    // @brief Get the peak number of live objects of this type
+    // @return Maximum number of objects that were alive simultaneously
     static sizet GetPeakCount() noexcept
     {
         return s_PeakCount.load(std::memory_order_relaxed);
     }
     
-    /**
-     * @brief Get the total number of objects ever created of this type
-     * @return Cumulative count of all objects ever constructed
-     */
+    // @brief Get the total number of objects ever created of this type
+    // @return Cumulative count of all objects ever constructed
     static sizet GetTotalCreated() noexcept
     {
         return s_TotalCreated.load(std::memory_order_relaxed);
     }
     
-    /**
-     * @brief Reset all counters to zero
-     * @warning Only call this when you're certain no objects of this type exist!
-     */
+    // @brief Reset all counters to zero
+    // @warning Only call this when you're certain no objects of this type exist!
     static void ResetCounters() noexcept
     {
         s_LiveCount.store(0, std::memory_order_relaxed);
@@ -142,10 +120,8 @@ public:
         s_TotalCreated.store(0, std::memory_order_relaxed);
     }
     
-    /**
-     * @brief Get a formatted string with allocation statistics
-     * @return Human-readable string with current, peak, and total counts
-     */
+    // @brief Get a formatted string with allocation statistics
+    // @return Human-readable string with current, peak, and total counts
     static std::string GetStatsString()
     {
         sizet live = GetLiveCount();
@@ -159,10 +135,8 @@ public:
     }
 
 private:
-    /**
-     * @brief Update peak count if current count is higher
-     * Called by constructors to track peak usage
-     */
+    // @brief Update peak count if current count is higher
+    // Called by constructors to track peak usage
     static void UpdatePeakCount(sizet currentCount) noexcept
     {
         sizet currentPeak = s_PeakCount.load(std::memory_order_relaxed);
@@ -199,13 +173,11 @@ std::atomic<sizet> AllocationTracker<Tag>::s_TotalCreated{0};
 
 #else // OLO_ENABLE_ALLOCATION_TRACKING == 0
 
-/**
- * @brief Empty allocation tracker for release builds
- * 
- * This version provides the same interface but does absolutely nothing.
- * All methods are constexpr or empty, allowing complete optimization away.
- * The class itself has no data members and will be optimized away entirely.
- */
+// @brief Empty allocation tracker for release builds
+// 
+// This version provides the same interface but does absolutely nothing.
+// All methods are constexpr or empty, allowing complete optimization away.
+// The class itself has no data members and will be optimized away entirely.
 template <class Tag>
 class AllocationTracker
 {

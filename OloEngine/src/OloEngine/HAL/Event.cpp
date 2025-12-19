@@ -1,15 +1,13 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 // Ported to OloEngine
 
-/**
- * @file Event.cpp
- * @brief Implementation of FEvent base class and FEventRef
- * 
- * Contains the implementations for event statistics tracking and
- * the RAII FEventRef wrapper.
- * 
- * Ported from Unreal Engine's HAL/Event.cpp and related files
- */
+// @file Event.cpp
+// @brief Implementation of FEvent base class and FEventRef
+// 
+// Contains the implementations for event statistics tracking and
+// the RAII FEventRef wrapper.
+// 
+// Ported from Unreal Engine's HAL/Event.cpp and related files
 
 #include "OloEngine/HAL/Event.h"
 #include "OloEngine/HAL/EventPool.h"

@@ -3,18 +3,16 @@
 
 #pragma once
 
-/**
- * @file LocalWorkQueue.h
- * @brief Local work queue for work-stealing task parallelism
- *
- * TLocalWorkQueue provides a pattern for parallel task execution where:
- * - A main thread creates initial work items
- * - Worker tasks can be spawned to process items concurrently
- * - Workers can add more work items as they discover them
- * - The main thread runs until all work is complete
- *
- * Ported from Unreal Engine 5.7
- */
+// @file LocalWorkQueue.h
+// @brief Local work queue for work-stealing task parallelism
+// 
+// TLocalWorkQueue provides a pattern for parallel task execution where:
+// - A main thread creates initial work items
+// - Worker tasks can be spawned to process items concurrently
+// - Workers can add more work items as they discover them
+// - The main thread runs until all work is complete
+// 
+// Ported from Unreal Engine 5.7
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/FAAArrayQueue.h"
@@ -31,22 +29,20 @@
 
 namespace OloEngine
 {
-    /**
-     * @class TYCombinator
-     * @brief Y-combinator for creating recursive lambdas
-     *
-     * Enables writing recursive lambdas by passing the combinator as the first argument.
-     *
-     * Example:
-     * @code
-     *     auto Factorial = MakeYCombinator([](auto Self, int N) -> int {
-     *         return N <= 1 ? 1 : N * Self(N - 1);
-     *     });
-     *     int Result = Factorial(5);  // 120
-     * @endcode
-     *
-     * @tparam LAMBDA The lambda type
-     */
+    // @class TYCombinator
+    // @brief Y-combinator for creating recursive lambdas
+    // 
+    // Enables writing recursive lambdas by passing the combinator as the first argument.
+    // 
+    // Example:
+    // @code
+    //     auto Factorial = MakeYCombinator([](auto Self, int N) -> int {
+    //         return N <= 1 ? 1 : N * Self(N - 1);
+    //     });
+    //     int Result = Factorial(5);  // 120
+    // @endcode
+    // 
+    // @tparam LAMBDA The lambda type
     template<typename LAMBDA>
     class TYCombinator
     {
@@ -78,62 +74,56 @@ namespace OloEngine
         }
     };
 
-    /**
-     * @brief Create a Y-combinator from a lambda
-     * @param Lambda The lambda to wrap
-     * @return A Y-combinator that can be called recursively
-     */
+    // @brief Create a Y-combinator from a lambda
+    // @param Lambda The lambda to wrap
+    // @return A Y-combinator that can be called recursively
     template<typename LAMBDA>
     constexpr auto MakeYCombinator(LAMBDA&& Lambda)
     {
         return TYCombinator<std::decay_t<LAMBDA>>(Forward<LAMBDA>(Lambda));
     }
 
-    /**
-     * @class TLocalWorkQueue
-     * @brief A work queue for parallel task execution with work-stealing
-     *
-     * This class provides a mechanism for parallel work distribution where:
-     * - The main thread creates an initial work item
-     * - Additional workers can be spawned to process work concurrently
-     * - Any thread (main or worker) can add new work items
-     * - The main thread runs until all work is complete
-     *
-     * Usage:
-     * @code
-     *     struct FMyTask { int Data; };
-     *     
-     *     FMyTask InitialTask{42};
-     *     TLocalWorkQueue<FMyTask> WorkQueue(&InitialTask, LowLevelTasks::ETaskPriority::Normal);
-     *     
-     *     // Add more workers if needed
-     *     WorkQueue.AddWorkers(4);
-     *     
-     *     // Run until all work is done
-     *     WorkQueue.Run([&](FMyTask* Task) {
-     *         ProcessTask(Task);
-     *         // Can add more work: WorkQueue.AddTask(NewTask);
-     *     });
-     * @endcode
-     *
-     * @tparam TaskType The type of work items (must be a pointer-like type)
-     */
+    // @class TLocalWorkQueue
+    // @brief A work queue for parallel task execution with work-stealing
+    //
+    // This class provides a mechanism for parallel work distribution where:
+    // - The main thread creates an initial work item
+    // - Additional workers can be spawned to process work concurrently
+    // - Any thread (main or worker) can add new work items
+    // - The main thread runs until all work is complete
+    //
+    // Usage:
+    // @code
+    //     struct FMyTask { int Data; };
+    //     
+    //     FMyTask InitialTask{42};
+    //     TLocalWorkQueue<FMyTask> WorkQueue(&InitialTask, LowLevelTasks::ETaskPriority::Normal);
+    //     
+    //     // Add more workers if needed
+    //     WorkQueue.AddWorkers(4);
+    //     
+    //     // Run until all work is done
+    //     WorkQueue.Run([&](FMyTask* Task) {
+    //         ProcessTask(Task);
+    //         // Can add more work: WorkQueue.AddTask(NewTask);
+    //     });
+    // @endcode
+    //
+    // @tparam TaskType The type of work items (must be a pointer-like type)
     template<typename TaskType>
     class TLocalWorkQueue
     {
         OLO_NONCOPYABLE(TLocalWorkQueue);
 
-        /**
-         * @struct FInternalData
-         * @brief Shared internal state for the work queue
-         *
-         * Reference-counted to ensure lifetime extends beyond the TLocalWorkQueue
-         * if workers are still running when Run() returns.
-         * 
-         * @note UE5.7 also inherits from TConcurrentLinearObject<FInternalData, FTaskGraphBlockAllocationTag>
-         * for pooled allocation. This is a potential optimization for high-frequency
-         * TLocalWorkQueue creation/destruction scenarios.
-         */
+        // @struct FInternalData
+        // @brief Shared internal state for the work queue
+        // 
+        // Reference-counted to ensure lifetime extends beyond the TLocalWorkQueue
+        // if workers are still running when Run() returns.
+        // 
+        // @note UE5.7 also inherits from TConcurrentLinearObject<FInternalData, FTaskGraphBlockAllocationTag>
+        // for pooled allocation. This is a potential optimization for high-frequency
+        // TLocalWorkQueue creation/destruction scenarios.
         struct FInternalData : public FThreadSafeRefCountedObject
         {
             FAAArrayQueue<TaskType> TaskQueue;
@@ -153,11 +143,9 @@ namespace OloEngine
         TFunctionRef<void(TaskType*)>* m_DoWork = nullptr;
 
     public:
-        /**
-         * @brief Construct a local work queue with initial work
-         * @param InitialWork The first work item to process
-         * @param InPriority Task priority (Count = inherit from current task)
-         */
+        // @brief Construct a local work queue with initial work
+        // @param InitialWork The first work item to process
+        // @param InPriority Task priority (Count = inherit from current task)
         TLocalWorkQueue(TaskType* InitialWork, LowLevelTasks::ETaskPriority InPriority = LowLevelTasks::ETaskPriority::Count)
             : m_Priority(InPriority)
         {
@@ -188,13 +176,11 @@ namespace OloEngine
             AddTask(InitialWork);
         }
 
-        /**
-         * @brief Add a new work item to the queue
-         * @param NewWork The work item to add
-         *
-         * Can be called from any thread (main or worker).
-         * Must not be called after Run() has started checking for completion.
-         */
+        // @brief Add a new work item to the queue
+        // @param NewWork The work item to add
+        // 
+        // Can be called from any thread (main or worker).
+        // Must not be called after Run() has started checking for completion.
         void AddTask(TaskType* NewWork)
         {
             OLO_CORE_ASSERT(!m_InternalData->CheckDone.load(std::memory_order_relaxed), 
@@ -202,13 +188,11 @@ namespace OloEngine
             m_InternalData->TaskQueue.Enqueue(NewWork);
         }
 
-        /**
-         * @brief Spawn additional worker tasks
-         * @param NumWorkers Number of workers to add
-         *
-         * Workers will dequeue and process items until the queue is empty.
-         * Must be called after m_DoWork is set (i.e., from within Run()).
-         */
+        // @brief Spawn additional worker tasks
+        // @param NumWorkers Number of workers to add
+        // 
+        // Workers will dequeue and process items until the queue is empty.
+        // Must be called after m_DoWork is set (i.e., from within Run()).
         void AddWorkers(u16 NumWorkers)
         {
             OLO_CORE_ASSERT(!m_InternalData->CheckDone.load(std::memory_order_relaxed),
@@ -247,17 +231,15 @@ namespace OloEngine
             }
         }
 
-        /**
-         * @brief Run the work queue until all items are processed
-         * @param InDoWork Callback to process each work item
-         *
-         * This method blocks until:
-         * - The queue is empty AND
-         * - All workers have finished
-         *
-         * The callback can add new work items via AddTask() and spawn
-         * additional workers via AddWorkers().
-         */
+        // @brief Run the work queue until all items are processed
+        // @param InDoWork Callback to process each work item
+        // 
+        // This method blocks until:
+        // - The queue is empty AND
+        // - All workers have finished
+        // 
+        // The callback can add new work items via AddTask() and spawn
+        // additional workers via AddWorkers().
         void Run(TFunctionRef<void(TaskType*)> InDoWork)
         {
             m_DoWork = &InDoWork;

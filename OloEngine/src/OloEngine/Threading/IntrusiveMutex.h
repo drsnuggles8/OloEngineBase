@@ -32,12 +32,10 @@ namespace OloEngine
 		{ ParamsType::MayHaveWaitingLockFlag } -> std::convertible_to<StateType>;
 	};
 
-	/**
-	 * A 2-bit intrusive mutex that is not fair and does not support recursive locking.
-	 *
-	 * All bits of the state referenced by IsLockedFlag, IsLockedMask, and MayHaveWaitingLockFlag
-	 * must be initialized to 0 or to values that are consistent with the functions being called.
-	 */
+	// A 2-bit intrusive mutex that is not fair and does not support recursive locking.
+	//
+	// All bits of the state referenced by IsLockedFlag, IsLockedMask, and MayHaveWaitingLockFlag
+	// must be initialized to 0 or to values that are consistent with the functions being called.
 	template <CIntrusiveMutexParams ParamsType>
 	class TIntrusiveMutex
 	{

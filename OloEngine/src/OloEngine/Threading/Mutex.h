@@ -9,15 +9,13 @@
 
 namespace OloEngine
 {
-    /**
-     * A one-byte mutex that is not fair and does not support recursive locking.
-     */
+    // A one-byte mutex that is not fair and does not support recursive locking.
     class FMutex final
     {
     public:
         constexpr FMutex() = default;
 
-        /** Construct in a locked state. Avoids an expensive compare-and-swap at creation time. */
+        // Construct in a locked state. Avoids an expensive compare-and-swap at creation time.
         OLO_FINLINE explicit FMutex(FAcquireLock)
             : m_State(IsLockedFlag)
         {
@@ -60,9 +58,7 @@ namespace OloEngine
             WakeWaitingThread();
         }
 
-        /**
-         * Try to wake a waiting thread. Returns true if a thread was woken.
-         */
+        // Try to wake a waiting thread. Returns true if a thread was woken.
         [[nodiscard]] bool TryWakeWaitingThread();
 
     private:

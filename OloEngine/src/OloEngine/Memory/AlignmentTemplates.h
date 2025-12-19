@@ -1,17 +1,15 @@
 #pragma once
 
-/**
- * @file AlignmentTemplates.h
- * @brief Memory alignment utility templates for OloEngine
- * 
- * Provides compile-time and runtime utilities for:
- * - Aligning values up to a boundary
- * - Aligning values down to a boundary
- * - Checking alignment
- * - Power-of-two utilities
- * 
- * Ported from Unreal Engine's AlignmentTemplates.h
- */
+// @file AlignmentTemplates.h
+// @brief Memory alignment utility templates for OloEngine
+// 
+// Provides compile-time and runtime utilities for:
+// - Aligning values up to a boundary
+// - Aligning values down to a boundary
+// - Checking alignment
+// - Power-of-two utilities
+// 
+// Ported from Unreal Engine's AlignmentTemplates.h
 
 #include "OloEngine/Core/Base.h"
 #include <type_traits>
@@ -22,12 +20,10 @@ namespace OloEngine
     // Power of Two Utilities
     // ========================================================================
 
-    /**
-     * @brief Check if a value is a power of two
-     * @tparam T Integral type
-     * @param Value The value to check
-     * @return true if Value is a power of two, false otherwise
-     */
+    // @brief Check if a value is a power of two
+    // @tparam T Integral type
+    // @param Value The value to check
+    // @return true if Value is a power of two, false otherwise
     template<typename T>
     constexpr bool IsPowerOfTwo(T Value)
     {
@@ -35,12 +31,10 @@ namespace OloEngine
         return Value > 0 && (Value & (Value - 1)) == 0;
     }
 
-    /**
-     * @brief Round up to the next power of two
-     * @tparam T Integral type
-     * @param Value The value to round up
-     * @return The smallest power of two >= Value
-     */
+    // @brief Round up to the next power of two
+    // @tparam T Integral type
+    // @param Value The value to round up
+    // @return The smallest power of two >= Value
     template<typename T>
     constexpr T RoundUpToPowerOfTwo(T Value)
     {
@@ -61,12 +55,10 @@ namespace OloEngine
         return Value;
     }
 
-    /**
-     * @brief Compute the ceiling of log2 for an integer
-     * @tparam T Integral type
-     * @param Value The value to compute log2 of
-     * @return Ceiling of log2(Value)
-     */
+    // @brief Compute the ceiling of log2 for an integer
+    // @tparam T Integral type
+    // @param Value The value to compute log2 of
+    // @return Ceiling of log2(Value)
     template<typename T>
     constexpr u32 CeilLogTwo(T Value)
     {
@@ -85,12 +77,10 @@ namespace OloEngine
         return Result;
     }
 
-    /**
-     * @brief Compute the floor of log2 for an integer
-     * @tparam T Integral type
-     * @param Value The value to compute log2 of
-     * @return Floor of log2(Value)
-     */
+    // @brief Compute the floor of log2 for an integer
+    // @tparam T Integral type
+    // @param Value The value to compute log2 of
+    // @return Floor of log2(Value)
     template<typename T>
     constexpr u32 FloorLogTwo(T Value)
     {
@@ -112,19 +102,17 @@ namespace OloEngine
     // Alignment Utilities
     // ========================================================================
 
-    /**
-     * @brief Align a value to the nearest higher multiple of 'Alignment'
-     * 
-     * @tparam T The type of value to align (must be integral or pointer)
-     * @param Val The value to align
-     * @param Alignment The alignment boundary (must be a power of two)
-     * @return The value aligned up to the specified alignment
-     * 
-     * @example
-     *   Align(5, 4) == 8
-     *   Align(8, 4) == 8
-     *   Align(0, 4) == 0
-     */
+    // @brief Align a value to the nearest higher multiple of 'Alignment'
+    // 
+    // @tparam T The type of value to align (must be integral or pointer)
+    // @param Val The value to align
+    // @param Alignment The alignment boundary (must be a power of two)
+    // @return The value aligned up to the specified alignment
+    // 
+    // @example
+    //   Align(5, 4) == 8
+    //   Align(8, 4) == 8
+    //   Align(0, 4) == 0
     template<typename T>
     OLO_FINLINE constexpr T Align(T Val, u64 Alignment)
     {
@@ -134,14 +122,12 @@ namespace OloEngine
         return static_cast<T>(((static_cast<u64>(Val) + Alignment - 1) & ~(Alignment - 1)));
     }
 
-    /**
-     * @brief Align a pointer to the nearest higher multiple of 'Alignment'
-     * 
-     * @tparam T The pointer type
-     * @param Ptr The pointer to align
-     * @param Alignment The alignment boundary (must be a power of two)
-     * @return The pointer aligned up to the specified alignment
-     */
+    // @brief Align a pointer to the nearest higher multiple of 'Alignment'
+    // 
+    // @tparam T The pointer type
+    // @param Ptr The pointer to align
+    // @param Alignment The alignment boundary (must be a power of two)
+    // @return The pointer aligned up to the specified alignment
     template<typename T>
     OLO_FINLINE T* Align(T* Ptr, sizet Alignment)
     {
@@ -150,19 +136,17 @@ namespace OloEngine
         );
     }
 
-    /**
-     * @brief Align a value to the nearest lower multiple of 'Alignment'
-     * 
-     * @tparam T The type of value to align (must be integral or pointer)
-     * @param Val The value to align
-     * @param Alignment The alignment boundary (must be a power of two)
-     * @return The value aligned down to the specified alignment
-     * 
-     * @example
-     *   AlignDown(5, 4) == 4
-     *   AlignDown(8, 4) == 8
-     *   AlignDown(3, 4) == 0
-     */
+    // @brief Align a value to the nearest lower multiple of 'Alignment'
+    // 
+    // @tparam T The type of value to align (must be integral or pointer)
+    // @param Val The value to align
+    // @param Alignment The alignment boundary (must be a power of two)
+    // @return The value aligned down to the specified alignment
+    // 
+    // @example
+    //   AlignDown(5, 4) == 4
+    //   AlignDown(8, 4) == 8
+    //   AlignDown(3, 4) == 0
     template<typename T>
     OLO_FINLINE constexpr T AlignDown(T Val, u64 Alignment)
     {
@@ -172,14 +156,12 @@ namespace OloEngine
         return static_cast<T>((static_cast<u64>(Val)) & ~(Alignment - 1));
     }
 
-    /**
-     * @brief Align a pointer to the nearest lower multiple of 'Alignment'
-     * 
-     * @tparam T The pointer type
-     * @param Ptr The pointer to align
-     * @param Alignment The alignment boundary (must be a power of two)
-     * @return The pointer aligned down to the specified alignment
-     */
+    // @brief Align a pointer to the nearest lower multiple of 'Alignment'
+    // 
+    // @tparam T The pointer type
+    // @param Ptr The pointer to align
+    // @param Alignment The alignment boundary (must be a power of two)
+    // @return The pointer aligned down to the specified alignment
     template<typename T>
     OLO_FINLINE T* AlignDown(T* Ptr, sizet Alignment)
     {
@@ -188,14 +170,12 @@ namespace OloEngine
         );
     }
 
-    /**
-     * @brief Check if a value is aligned to the specified alignment
-     * 
-     * @tparam T The type of value to check (must be integral or pointer)
-     * @param Val The value to check
-     * @param Alignment The alignment boundary (must be a power of two)
-     * @return true if the value is aligned, false otherwise
-     */
+    // @brief Check if a value is aligned to the specified alignment
+    // 
+    // @tparam T The type of value to check (must be integral or pointer)
+    // @param Val The value to check
+    // @param Alignment The alignment boundary (must be a power of two)
+    // @return true if the value is aligned, false otherwise
     template<typename T>
     OLO_FINLINE constexpr bool IsAligned(T Val, u64 Alignment)
     {
@@ -205,28 +185,24 @@ namespace OloEngine
         return !(static_cast<u64>(Val) & (Alignment - 1));
     }
 
-    /**
-     * @brief Check if a pointer is aligned to the specified alignment
-     * 
-     * @tparam T The pointer type
-     * @param Ptr The pointer to check
-     * @param Alignment The alignment boundary (must be a power of two)
-     * @return true if the pointer is aligned, false otherwise
-     */
+    // @brief Check if a pointer is aligned to the specified alignment
+    // 
+    // @tparam T The pointer type
+    // @param Ptr The pointer to check
+    // @param Alignment The alignment boundary (must be a power of two)
+    // @return true if the pointer is aligned, false otherwise
     template<typename T>
     OLO_FINLINE bool IsAligned(T* Ptr, sizet Alignment)
     {
         return !(reinterpret_cast<sizet>(Ptr) & (Alignment - 1));
     }
 
-    /**
-     * @brief Align a value to the nearest higher multiple of 'Alignment' (arbitrary, not necessarily power of two)
-     * 
-     * @tparam T The type of value to align (must be integral or pointer)
-     * @param Val The value to align
-     * @param Alignment The alignment boundary (can be any positive value)
-     * @return The value aligned up to the specified alignment
-     */
+    // @brief Align a value to the nearest higher multiple of 'Alignment' (arbitrary, not necessarily power of two)
+    // 
+    // @tparam T The type of value to align (must be integral or pointer)
+    // @param Val The value to align
+    // @param Alignment The alignment boundary (can be any positive value)
+    // @return The value aligned up to the specified alignment
     template<typename T>
     OLO_FINLINE constexpr T AlignArbitrary(T Val, u64 Alignment)
     {

@@ -1,9 +1,7 @@
-/**
- * @file QueuedThreadPool.cpp
- * @brief Thread pool implementation using the low-level scheduler
- * 
- * Ported from Unreal Engine 5.7 - Epic Games, Inc.
- */
+// @file QueuedThreadPool.cpp
+// @brief Thread pool implementation using the low-level scheduler
+// 
+// Ported from Unreal Engine 5.7 - Epic Games, Inc.
 
 #include "OloEngine/Async/QueuedThreadPool.h"
 #include "OloEngine/Core/Log.h"

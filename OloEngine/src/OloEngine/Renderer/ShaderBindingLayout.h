@@ -10,12 +10,10 @@ namespace OloEngine
     // UNIFORM BUFFER OBJECT STRUCTURES
     // =============================================================================
     
-    /**
-     * @brief Namespace containing all UBO structure definitions for shader binding
-     * 
-     * These structures define the exact memory layout expected by shaders and must
-     * match the corresponding GLSL uniform block layouts for proper data binding.
-     */
+    // @brief Namespace containing all UBO structure definitions for shader binding
+    // 
+    // These structures define the exact memory layout expected by shaders and must
+    // match the corresponding GLSL uniform block layouts for proper data binding.
     namespace UBOStructures
     {
         struct CameraUBO
@@ -43,10 +41,8 @@ namespace OloEngine
             static constexpr u32 GetSize() { return sizeof(LightUBO); }
         };
 
-        /**
-         * @brief Multi-light UBO structure for advanced lighting scenarios
-         * Aligned with LightBuffer::LightData for consistency
-         */
+        // @brief Multi-light UBO structure for advanced lighting scenarios
+        // Aligned with LightBuffer::LightData for consistency
         struct MultiLightData
         {
             glm::vec4 Position;         // Position in world space (w = 1.0 for point/spot, 0.0 for directional)
@@ -71,10 +67,8 @@ namespace OloEngine
             static constexpr u32 GetSize() { return sizeof(MultiLightUBO); }
         };
 
-        /**
-         * @brief Animation limits and constants for bone matrix uploads
-         * Must match the corresponding GLSL shader array sizes
-         */
+        // @brief Animation limits and constants for bone matrix uploads
+        // Must match the corresponding GLSL shader array sizes
         struct AnimationConstants
         {
             static constexpr u32 MAX_BONES = 100;                    // Maximum bone matrices per animated mesh
@@ -139,10 +133,8 @@ namespace OloEngine
             static_assert(sizeof(BoneMatrices) == MAX_BONES * sizeof(glm::mat4), "BoneMatrices array size mismatch");
         };
         
-        /**
-         * @brief Shader constant generation utilities
-         * These functions generate GLSL preprocessor defines to inject C++ constants into shaders
-         */
+        // @brief Shader constant generation utilities
+        // These functions generate GLSL preprocessor defines to inject C++ constants into shaders
         struct ShaderConstantGenerator
         {
             static std::string GetAnimationDefines()
@@ -172,11 +164,9 @@ namespace OloEngine
         };
     }
 
-    /**
-     * Standardized shader binding layout for consistent resource sharing
-     * across all shaders in the engine. This ensures efficient data sharing
-     * and eliminates binding conflicts.
-     */
+    // Standardized shader binding layout for consistent resource sharing
+    // across all shaders in the engine. This ensures efficient data sharing
+    // and eliminates binding conflicts.
     class ShaderBindingLayout
     {
     public:

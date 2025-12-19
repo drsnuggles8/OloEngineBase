@@ -3,13 +3,11 @@
 
 #pragma once
 
-/**
- * @file SharedPointer.h
- * @brief Thread-safe reference-counted smart pointers
- * 
- * Provides TSharedPtr, TSharedRef, TWeakPtr, and TSharedFromThis that wrap
- * the standard library's shared_ptr, weak_ptr, and enable_shared_from_this.
- */
+// @file SharedPointer.h
+// @brief Thread-safe reference-counted smart pointers
+// 
+// Provides TSharedPtr, TSharedRef, TWeakPtr, and TSharedFromThis that wrap
+// the standard library's shared_ptr, weak_ptr, and enable_shared_from_this.
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Assert.h"
@@ -29,39 +27,31 @@ namespace OloEngine
     template <typename ObjectType>
     class TWeakPtr;
 
-    /**
-     * @class TSharedFromThis
-     * @brief Enables safe creation of TSharedPtr from 'this' pointer
-     * 
-     * Inherit from this class to enable calling AsShared() to get a TSharedPtr
-     * to the current object from within member functions.
-     */
+    // @class TSharedFromThis
+    // @brief Enables safe creation of TSharedPtr from 'this' pointer
+    // 
+    // Inherit from this class to enable calling AsShared() to get a TSharedPtr
+    // to the current object from within member functions.
     template <typename ObjectType>
     class TSharedFromThis : public std::enable_shared_from_this<ObjectType>
     {
     public:
-        /**
-         * @brief Get a shared pointer to this object
-         * @return TSharedPtr to this object
-         */
+        // @brief Get a shared pointer to this object
+        // @return TSharedPtr to this object
         TSharedPtr<ObjectType> AsShared()
         {
             return TSharedPtr<ObjectType>(std::enable_shared_from_this<ObjectType>::shared_from_this());
         }
 
-        /**
-         * @brief Get a shared pointer to this object (const version)
-         * @return TSharedPtr to const this object
-         */
+        // @brief Get a shared pointer to this object (const version)
+        // @return TSharedPtr to const this object
         TSharedPtr<const ObjectType> AsShared() const
         {
             return TSharedPtr<const ObjectType>(std::enable_shared_from_this<ObjectType>::shared_from_this());
         }
 
-        /**
-         * @brief Try to get a weak pointer to this object
-         * @return TWeakPtr to this object
-         */
+        // @brief Try to get a weak pointer to this object
+        // @return TWeakPtr to this object
         TWeakPtr<ObjectType> AsWeak()
         {
             return TWeakPtr<ObjectType>(std::enable_shared_from_this<ObjectType>::weak_from_this());
@@ -74,10 +64,8 @@ namespace OloEngine
         ~TSharedFromThis() = default;
     };
 
-    /**
-     * @class TSharedPtr
-     * @brief Reference-counted smart pointer (nullable)
-     */
+    // @class TSharedPtr
+    // @brief Reference-counted smart pointer (nullable)
     template <typename ObjectType>
     class TSharedPtr
     {
@@ -113,28 +101,28 @@ namespace OloEngine
 
         ~TSharedPtr() = default;
 
-        /** Access the object */
+        // Access the object
         ObjectType* Get() const { return m_Ptr.get(); }
         ObjectType* operator->() const { return m_Ptr.get(); }
         ObjectType& operator*() const { return *m_Ptr; }
 
-        /** Check validity */
+        // Check validity
         bool IsValid() const { return m_Ptr != nullptr; }
         explicit operator bool() const { return IsValid(); }
 
-        /** Reset the pointer */
+        // Reset the pointer
         void Reset() { m_Ptr.reset(); }
 
-        /** Get the reference count */
+        // Get the reference count
         i64 GetSharedReferenceCount() const { return m_Ptr.use_count(); }
 
-        /** Comparison operators */
+        // Comparison operators
         bool operator==(const TSharedPtr& Other) const { return m_Ptr == Other.m_Ptr; }
         bool operator!=(const TSharedPtr& Other) const { return m_Ptr != Other.m_Ptr; }
         bool operator==(std::nullptr_t) const { return m_Ptr == nullptr; }
         bool operator!=(std::nullptr_t) const { return m_Ptr != nullptr; }
 
-        /** Get the underlying shared_ptr */
+        // Get the underlying shared_ptr
         const std::shared_ptr<ObjectType>& GetSharedPtr() const { return m_Ptr; }
 
     private:
@@ -153,10 +141,8 @@ namespace OloEngine
         std::shared_ptr<ObjectType> m_Ptr;
     };
 
-    /**
-     * @class TSharedRef
-     * @brief Reference-counted smart pointer that is never null
-     */
+    // @class TSharedRef
+    // @brief Reference-counted smart pointer that is never null
     template <typename ObjectType>
     class TSharedRef
     {
@@ -204,19 +190,19 @@ namespace OloEngine
 
         ~TSharedRef() = default;
 
-        /** Access the object */
+        // Access the object
         ObjectType* Get() const { return m_Ptr.get(); }
         ObjectType* operator->() const { return m_Ptr.get(); }
         ObjectType& operator*() const { return *m_Ptr; }
 
-        /** Get the reference count */
+        // Get the reference count
         i64 GetSharedReferenceCount() const { return m_Ptr.use_count(); }
 
-        /** Comparison operators */
+        // Comparison operators
         bool operator==(const TSharedRef& Other) const { return m_Ptr == Other.m_Ptr; }
         bool operator!=(const TSharedRef& Other) const { return m_Ptr != Other.m_Ptr; }
 
-        /** Convert to TSharedPtr */
+        // Convert to TSharedPtr
         TSharedPtr<ObjectType> ToSharedPtr() const { return TSharedPtr<ObjectType>(m_Ptr); }
         operator TSharedPtr<ObjectType>() const { return ToSharedPtr(); }
 
@@ -233,10 +219,8 @@ namespace OloEngine
         std::shared_ptr<ObjectType> m_Ptr;
     };
 
-    /**
-     * @class TWeakPtr
-     * @brief Weak reference to a shared object
-     */
+    // @class TWeakPtr
+    // @brief Weak reference to a shared object
     template <typename ObjectType>
     class TWeakPtr
     {
@@ -263,34 +247,30 @@ namespace OloEngine
 
         ~TWeakPtr() = default;
 
-        /** Get a shared pointer if still valid */
+        // Get a shared pointer if still valid
         TSharedPtr<ObjectType> Pin() const
         {
             return TSharedPtr<ObjectType>(m_Ptr.lock());
         }
 
-        /** Check if the referenced object still exists */
+        // Check if the referenced object still exists
         bool IsValid() const { return !m_Ptr.expired(); }
 
-        /** Reset the weak reference */
+        // Reset the weak reference
         void Reset() { m_Ptr.reset(); }
 
     private:
         std::weak_ptr<ObjectType> m_Ptr;
     };
 
-    /**
-     * @brief Create a shared pointer with in-place construction
-     */
+    // @brief Create a shared pointer with in-place construction
     template <typename ObjectType, typename... ArgTypes>
     TSharedPtr<ObjectType> MakeShared(ArgTypes&&... Args)
     {
         return TSharedPtr<ObjectType>(std::make_shared<ObjectType>(std::forward<ArgTypes>(Args)...));
     }
 
-    /**
-     * @brief Create a shared ref with in-place construction
-     */
+    // @brief Create a shared ref with in-place construction
     template <typename ObjectType, typename... ArgTypes>
     TSharedRef<ObjectType> MakeShareable(ArgTypes&&... Args)
     {

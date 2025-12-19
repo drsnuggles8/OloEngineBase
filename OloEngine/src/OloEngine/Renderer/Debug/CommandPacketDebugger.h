@@ -13,59 +13,43 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Debug visualization tool for command packets and draw keys
-     * 
-     * Provides functionality to visualize command packets, their sorting keys,
-     * memory usage, and performance metrics in the ImGui interface.
-     */
+    // @brief Debug visualization tool for command packets and draw keys
+    // 
+    // Provides functionality to visualize command packets, their sorting keys,
+    // memory usage, and performance metrics in the ImGui interface.
     class CommandPacketDebugger
     {
     public:
         CommandPacketDebugger() = default;
         ~CommandPacketDebugger() = default;
         
-        /**
-         * @brief Renders a debug view of command packets in an ImGui window
-         * 
-         * @param bucket The command bucket to visualize
-         * @param open Pointer to a boolean that controls the visibility of the window
-         * @param title The title of the ImGui window
-         */
+        // @brief Renders a debug view of command packets in an ImGui window
+        // 
+        // @param bucket The command bucket to visualize
+        // @param open Pointer to a boolean that controls the visibility of the window
+        // @param title The title of the ImGui window
         void RenderDebugView(const CommandBucket* bucket, bool* open = nullptr, const char* title = "Command Packet Debugger");
         
-        /**
-         * @brief Updates frame statistics for performance tracking
-         */
+        // @brief Updates frame statistics for performance tracking
         void UpdateFrameStats();
         
-        /**
-         * @brief Renders memory usage statistics
-         */
+        // @brief Renders memory usage statistics
         void RenderMemoryStats();
         
-        /**
-         * @brief Renders performance metrics
-         */
+        // @brief Renders performance metrics
         void RenderPerformanceStats();
         
-        /**
-         * @brief Renders detailed command packet list
-         */
+        // @brief Renders detailed command packet list
         void RenderCommandPacketList(const CommandBucket* bucket);
         
-        /**
-         * @brief Renders draw key analysis
-         */
+        // @brief Renders draw key analysis
         void RenderDrawKeyAnalysis(const CommandBucket* bucket);
         
-        /**
-         * @brief Exports command packet data to CSV for external analysis
-         * 
-         * @param bucket The command bucket to export
-         * @param outputPath The file path to save the CSV file
-         * @return True if the export was successful, false otherwise
-         */
+        // @brief Exports command packet data to CSV for external analysis
+        // 
+        // @param bucket The command bucket to export
+        // @param outputPath The file path to save the CSV file
+        // @return True if the export was successful, false otherwise
         bool ExportToCSV(const CommandBucket* bucket, const std::string& outputPath) const;
         
     private:

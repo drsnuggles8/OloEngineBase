@@ -40,12 +40,10 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief GPU Resource Inspector for debugging GPU resources
-     * 
-     * Provides detailed inspection of GPU resources including textures, buffers,
-     * and their properties. Supports real-time preview and content visualization.
-     */
+    // @brief GPU Resource Inspector for debugging GPU resources
+    // 
+    // Provides detailed inspection of GPU resources including textures, buffers,
+    // and their properties. Supports real-time preview and content visualization.
     class GPUResourceInspector
     {
     public:
@@ -130,101 +128,71 @@ namespace OloEngine
         // Singleton access
         static GPUResourceInspector& GetInstance();
 
-        /**
-         * @brief Initialize the GPU resource inspector
-         */
+        // @brief Initialize the GPU resource inspector
         void Initialize();
 
-        /**
-         * @brief Shutdown and cleanup resources
-         */
+        // @brief Shutdown and cleanup resources
         void Shutdown();
 
-        /**
-         * @brief Register a texture resource for tracking
-         * @param rendererID OpenGL texture ID
-         * @param name Resource name/path
-         * @param debugName Optional debug name
-         */
+        // @brief Register a texture resource for tracking
+        // @param rendererID OpenGL texture ID
+        // @param name Resource name/path
+        // @param debugName Optional debug name
         void RegisterTexture(u32 rendererID, const std::string& name, const std::string& debugName = "");
 
-        /**
-         * @brief Register a texture cubemap resource for tracking
-         * @param rendererID OpenGL texture ID
-         * @param name Resource name/path
-         * @param debugName Optional debug name
-         */
+        // @brief Register a texture cubemap resource for tracking
+        // @param rendererID OpenGL texture ID
+        // @param name Resource name/path
+        // @param debugName Optional debug name
         void RegisterTextureCubemap(u32 rendererID, const std::string& name, const std::string& debugName = "");
 
-        /**
-         * @brief Register a framebuffer resource for tracking
-         * @param rendererID OpenGL framebuffer ID
-         * @param name Resource name
-         * @param debugName Optional debug name
-         */
+        // @brief Register a framebuffer resource for tracking
+        // @param rendererID OpenGL framebuffer ID
+        // @param name Resource name
+        // @param debugName Optional debug name
         void RegisterFramebuffer(u32 rendererID, const std::string& name, const std::string& debugName = "");
 
-        /**
-         * @brief Register a buffer resource for tracking
-         * @param rendererID OpenGL buffer ID
-         * @param target Buffer target (GL_ARRAY_BUFFER, etc.)
-         * @param name Resource name
-         * @param debugName Optional debug name
-         */
+        // @brief Register a buffer resource for tracking
+        // @param rendererID OpenGL buffer ID
+        // @param target Buffer target (GL_ARRAY_BUFFER, etc.)
+        // @param name Resource name
+        // @param debugName Optional debug name
         void RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName = "");
 
-        /**
-         * @brief Update a resource's active state
-         * @param rendererID OpenGL resource ID
-         * @param isActive Whether the resource is currently active
-         */
+        // @brief Update a resource's active state
+        // @param rendererID OpenGL resource ID
+        // @param isActive Whether the resource is currently active
         void UpdateResourceActiveState(u32 rendererID, bool isActive);
 
-        /**
-         * @brief Update resource binding information
-         * @param rendererID OpenGL resource ID
-         * @param isBound Whether the resource is currently bound
-         * @param bindingSlot The binding slot/unit (for textures, uniform buffers, etc.)
-         */
+        // @brief Update resource binding information
+        // @param rendererID OpenGL resource ID
+        // @param isBound Whether the resource is currently bound
+        // @param bindingSlot The binding slot/unit (for textures, uniform buffers, etc.)
         void UpdateResourceBinding(u32 rendererID, bool isBound, u32 bindingSlot = 0);
 
-        /**
-         * @brief Unregister a resource (called when resource is destroyed)
-         * @param rendererID OpenGL resource ID
-         */
+        // @brief Unregister a resource (called when resource is destroyed)
+        // @param rendererID OpenGL resource ID
         void UnregisterResource(u32 rendererID);
 
-        /**
-         * @brief Update resource binding states
-         */
+        // @brief Update resource binding states
         void UpdateBindingStates();
 
-        /**
-         * @brief Render the debug view in ImGui
-         * @param open Pointer to boolean controlling window visibility
-         * @param title Window title
-         */
+        // @brief Render the debug view in ImGui
+        // @param open Pointer to boolean controlling window visibility
+        // @param title Window title
         void RenderDebugView(bool* open = nullptr, const char* title = "GPU Resource Inspector");
 
-        /**
-         * @brief Export resource information to CSV
-         * @param filename Output filename
-         */
+        // @brief Export resource information to CSV
+        // @param filename Output filename
         void ExportToCSV(const std::string& filename);
 
-        /**
-         * @brief Get total number of tracked resources
-         */
+        // @brief Get total number of tracked resources
         u32 GetResourceCount() const { return static_cast<u32>(m_Resources.size()); }
 
-        /**
-         * @brief Get memory usage for a specific resource type
-         */
+        // @brief Get memory usage for a specific resource type
         sizet GetMemoryUsage(ResourceType type) const;
 
-        /**
-         * @brief Get total memory usage of all tracked resources
-         */
+        // @brief Get total memory usage of all tracked resources
         sizet GetTotalMemoryUsage() const;
 
     private:

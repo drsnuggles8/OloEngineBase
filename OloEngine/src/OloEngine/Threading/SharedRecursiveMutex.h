@@ -14,9 +14,7 @@ namespace OloEngine
 
 	namespace Private
 	{
-		/**
-		 * Link node for tracking shared locks per thread
-		 */
+		// Link node for tracking shared locks per thread
 		struct FSharedRecursiveMutexLink
 		{
 			[[nodiscard]] static bool Owns(const FSharedRecursiveMutex* Mutex);
@@ -29,14 +27,12 @@ namespace OloEngine
 
 	} // namespace Private
 
-	/**
-	 * An eight-byte shared mutex that is not fair and supports recursive locking.
-	 *
-	 * Prefer FRecursiveMutex when shared locking is not required.
-	 * Prefer FSharedMutex when recursive locking is not required.
-	 * All non-recursive shared locks will wait when any thread is waiting to take an exclusive lock.
-	 * An exclusive lock and a shared lock may not be simultaneously held by the same thread.
-	 */
+	// An eight-byte shared mutex that is not fair and supports recursive locking.
+	//
+	// Prefer FRecursiveMutex when shared locking is not required.
+	// Prefer FSharedMutex when recursive locking is not required.
+	// All non-recursive shared locks will wait when any thread is waiting to take an exclusive lock.
+	// An exclusive lock and a shared lock may not be simultaneously held by the same thread.
 	class FSharedRecursiveMutex final
 	{
 	public:

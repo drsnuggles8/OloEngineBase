@@ -13,12 +13,10 @@ namespace OloEngine::Tasks::Private
 	// Task Retraction Tracking (TLS)
 	// ============================================================================
 
-	/**
-	 * @brief Thread-local counter for nested retraction calls
-	 * 
-	 * This tracks how deep we are in TryRetractAndExecute calls on the current
-	 * thread. Used to detect and prevent re-entrant retraction scenarios.
-	 */
+	// @brief Thread-local counter for nested retraction calls
+	// 
+	// This tracks how deep we are in TryRetractAndExecute calls on the current
+	// thread. Used to detect and prevent re-entrant retraction scenarios.
 	static thread_local u32 TaskRetractionRecursion = 0;
 
 	bool IsThreadRetractingTask()
@@ -38,20 +36,18 @@ namespace OloEngine::Tasks::Private
 		OLO_CORE_ASSERT(TaskRetractionRecursion != 0, "TaskRetractionRecursion underflow");
 		--TaskRetractionRecursion;
 	}
-	/**
-	 * @brief Translate task priorities to named thread dispatch parameters
-	 * 
-	 * This function matches UE5.7's TranslatePriority behavior - it determines
-	 * if a task should be routed to a named thread queue based on its
-	 * EExtendedTaskPriority.
-	 * 
-	 * @param Priority The base task priority (currently unused but kept for API compatibility)
-	 * @param ExtendedPriority The extended priority which may specify a named thread
-	 * @param OutNamedThread [out] The named thread this task should execute on
-	 * @param OutIsHighPriority [out] Whether this is a high-priority task
-	 * @param OutIsLocalQueue [out] Whether this uses the thread-local queue
-	 * @return true if this task should be routed to a named thread
-	 */
+	// @brief Translate task priorities to named thread dispatch parameters
+	// 
+	// This function matches UE5.7's TranslatePriority behavior - it determines
+	// if a task should be routed to a named thread queue based on its
+	// EExtendedTaskPriority.
+	// 
+	// @param Priority The base task priority (currently unused but kept for API compatibility)
+	// @param ExtendedPriority The extended priority which may specify a named thread
+	// @param OutNamedThread [out] The named thread this task should execute on
+	// @param OutIsHighPriority [out] Whether this is a high-priority task
+	// @param OutIsLocalQueue [out] Whether this uses the thread-local queue
+	// @return true if this task should be routed to a named thread
 	bool TranslatePriority(
 		ETaskPriority Priority,
 		EExtendedTaskPriority ExtendedPriority,
@@ -81,16 +77,14 @@ namespace OloEngine::Tasks::Private
 		return true;
 	}
 
-	/**
-	 * @brief Check if we're currently on the rendering thread
-	 * 
-	 * This matches UE5.7's IsInRenderingThread() behavior, used to avoid
-	 * incorrect CPU profiler event nesting. In UE, the RenderThread emits
-	 * BeginFrameRenderThread/EndFrameRenderThread events, and task execution
-	 * events would incorrectly close these frame events.
-	 * 
-	 * @return true if executing on the render thread
-	 */
+	// @brief Check if we're currently on the rendering thread
+	// 
+	// This matches UE5.7's IsInRenderingThread() behavior, used to avoid
+	// incorrect CPU profiler event nesting. In UE, the RenderThread emits
+	// BeginFrameRenderThread/EndFrameRenderThread events, and task execution
+	// events would incorrectly close these frame events.
+	// 
+	// @return true if executing on the render thread
 	bool IsInRenderingThread()
 	{
 		// Check if current thread is the render thread

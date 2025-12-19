@@ -13,12 +13,10 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Real-time memory usage tracker for renderer resources
-     * 
-     * Tracks GPU and CPU memory allocations, provides leak detection,
-     * and offers detailed memory usage visualization.
-     */
+    // @brief Real-time memory usage tracker for renderer resources
+    // 
+    // Tracks GPU and CPU memory allocations, provides leak detection,
+    // and offers detailed memory usage visualization.
     class RendererMemoryTracker
     {
     public:
@@ -76,66 +74,42 @@ namespace OloEngine
         // Debug function to track when memory gets corrupted
         void DebugDumpTypeUsage(const std::string& context);
         
-        /**
-         * @brief Initialize the memory tracker
-         */
+        // @brief Initialize the memory tracker
         void Initialize();
         
-        /**
-         * @brief Shutdown the memory tracker
-         */
+        // @brief Shutdown the memory tracker
         void Shutdown();
         
-        /**
-         * @brief Reset all tracking data and statistics
-         */
+        // @brief Reset all tracking data and statistics
         void Reset();
         
-        /**
-         * @brief Track a memory allocation
-         */
+        // @brief Track a memory allocation
         void TrackAllocation(void* address, sizet size, ResourceType type, 
                            const std::string& name, bool isGPU = false,
                            const char* file = __FILE__, u32 line = __LINE__);
         
-        /**
-         * @brief Track a memory deallocation
-         */
+        // @brief Track a memory deallocation
         void TrackDeallocation(void* address);
         
-        /**
-         * @brief Update memory statistics (call once per frame)
-         */
+        // @brief Update memory statistics (call once per frame)
         void UpdateStats();
         
-        /**
-         * @brief Render the memory tracker UI
-         */
+        // @brief Render the memory tracker UI
         void RenderUI(bool* open = nullptr);
         
-        /**
-         * @brief Get current memory usage by type
-         */
+        // @brief Get current memory usage by type
         sizet GetMemoryUsage(ResourceType type) const;
         
-        /**
-         * @brief Get total memory usage
-         */
+        // @brief Get total memory usage
         sizet GetTotalMemoryUsage() const;
         
-        /**
-         * @brief Get allocation count by type
-         */
+        // @brief Get allocation count by type
         u32 GetAllocationCount(ResourceType type) const;
         
-        /**
-         * @brief Detect potential memory leaks
-         */
+        // @brief Detect potential memory leaks
         std::vector<LeakInfo> DetectLeaks() const;
         
-        /**
-         * @brief Export memory report to file
-         */
+        // @brief Export memory report to file
         bool ExportReport(const std::string& filePath) const;
         
     private:

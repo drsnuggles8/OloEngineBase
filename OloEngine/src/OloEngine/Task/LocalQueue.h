@@ -24,13 +24,11 @@ namespace OloEngine::LowLevelTasks
 {
     namespace LocalQueue_Impl
     {
-        /**
-         * @class TWorkStealingQueueBase2
-         * @brief Lock-free work stealing queue base implementation
-         * 
-         * Each node has one array but we don't search for a vacant entry. 
-         * Instead, we use FAA to obtain an index in the array, for enqueueing or dequeuing.
-         */
+        // @class TWorkStealingQueueBase2
+        // @brief Lock-free work stealing queue base implementation
+        // 
+        // Each node has one array but we don't search for a vacant entry. 
+        // Instead, we use FAA to obtain an index in the array, for enqueueing or dequeuing.
         template<u32 NumItems>
         class TWorkStealingQueueBase2
         {
@@ -41,9 +39,7 @@ namespace OloEngine::LowLevelTasks
             };
 
         protected:
-            /**
-             * @brief Insert an item at the head position (only safe on a single thread, shared with Get)
-             */
+            // @brief Insert an item at the head position (only safe on a single thread, shared with Get)
             OLO_FINLINE bool Put(uptr Item)
             {
                 OLO_CORE_ASSERT(Item != uptr(ESlotState::Free), "Cannot put Free sentinel");
@@ -62,9 +58,7 @@ namespace OloEngine::LowLevelTasks
                 return false;
             }
 
-            /**
-             * @brief Remove an item at the head position in FIFO order (only safe on a single thread, shared with Put)
-             */
+            // @brief Remove an item at the head position in FIFO order (only safe on a single thread, shared with Put)
             OLO_FINLINE bool Get(uptr& Item)
             {
                 u32 Idx = m_Head % NumItems;
@@ -80,9 +74,7 @@ namespace OloEngine::LowLevelTasks
                 return false;
             }
 
-            /**
-             * @brief Remove an item at the tail position in LIFO order (can be done from any thread including the one that accesses the head)
-             */
+            // @brief Remove an item at the tail position in LIFO order (can be done from any thread including the one that accesses the head)
             OLO_FINLINE bool Steal(uptr& Item)
             {
                 do
@@ -129,10 +121,8 @@ namespace OloEngine::LowLevelTasks
             alignas(OLO_PLATFORM_CACHE_LINE_SIZE * 2) FAlignedElement m_ItemSlots[NumItems] = {};
         };
 
-        /**
-         * @class TWorkStealingQueue2
-         * @brief Typed wrapper for the work stealing queue
-         */
+        // @class TWorkStealingQueue2
+        // @brief Typed wrapper for the work stealing queue
         template<typename Type, u32 NumItems>
         class TWorkStealingQueue2 final : protected TWorkStealingQueueBase2<NumItems>
         {
@@ -159,30 +149,26 @@ namespace OloEngine::LowLevelTasks
 
     namespace Private
     {
-        /**
-         * @enum ELocalQueueType
-         * @brief Type of local queue (foreground or background worker)
-         */
+        // @enum ELocalQueueType
+        // @brief Type of local queue (foreground or background worker)
         enum class ELocalQueueType
         {
             EBackground,
             EForeground,
         };
 
-        /**
-         * @class TLocalQueueRegistry
-         * @brief A collection of lock-free queues for work distribution
-         * 
-         * LocalQueues can only be Enqueued and Dequeued by the current Thread they were installed on. 
-         * But Items can be stolen from any Thread.
-         * 
-         * There is a global OverflowQueue that is used when a LocalQueue goes out of scope to dump all 
-         * remaining Items, or when a Thread has no LocalQueue installed or when the LocalQueue is at capacity. 
-         * A new LocalQueue registers itself always.
-         * 
-         * A Dequeue Operation can only be done starting from a LocalQueue, then the GlobalQueue will be checked.
-         * Finally Items might get Stolen from other LocalQueues that are registered with the LocalQueueRegistry.
-         */
+        // @class TLocalQueueRegistry
+        // @brief A collection of lock-free queues for work distribution
+        // 
+        // LocalQueues can only be Enqueued and Dequeued by the current Thread they were installed on. 
+        // But Items can be stolen from any Thread.
+        // 
+        // There is a global OverflowQueue that is used when a LocalQueue goes out of scope to dump all 
+        // remaining Items, or when a Thread has no LocalQueue installed or when the LocalQueue is at capacity. 
+        // A new LocalQueue registers itself always.
+        // 
+        // A Dequeue Operation can only be done starting from a LocalQueue, then the GlobalQueue will be checked.
+        // Finally Items might get Stolen from other LocalQueues that are registered with the LocalQueueRegistry.
         template<u32 NumLocalItems = LOCALQUEUEREGISTRYDEFAULTS_MAX_ITEMCOUNT, u32 MaxLocalQueues = LOCALQUEUEREGISTRYDEFAULTS_MAX_LOCALQUEUES>
         class TLocalQueueRegistry
         {
@@ -204,10 +190,8 @@ namespace OloEngine::LowLevelTasks
             using DequeueHazard      = typename FOverflowQueueType::DequeueHazard;
 
         public:
-            /**
-             * @class TLocalQueue
-             * @brief Thread-local work queue with work stealing support
-             */
+            // @class TLocalQueue
+            // @brief Thread-local work queue with work stealing support
             class TLocalQueue
             {
                 template<u32, u32>
@@ -260,9 +244,7 @@ namespace OloEngine::LowLevelTasks
                     }
                 }
 
-                /**
-                 * @brief Add an item to the local queue and overflow into the global queue if full
-                 */
+                // @brief Add an item to the local queue and overflow into the global queue if full
                 OLO_FINLINE void Enqueue(FTask* Item, u32 PriorityIndex)
                 {
                     OLO_CORE_ASSERT(m_Registry != nullptr, "Registry not initialized");
@@ -275,9 +257,7 @@ namespace OloEngine::LowLevelTasks
                     }
                 }
 
-                /**
-                 * @brief Steal from own local queue
-                 */
+                // @brief Steal from own local queue
                 OLO_FINLINE FTask* StealLocal(bool GetBackGroundTasks)
                 {
                     const i32 MaxPriority = GetBackGroundTasks ? i32(ETaskPriority::Count) : i32(ETaskPriority::ForegroundCount);
@@ -293,9 +273,7 @@ namespace OloEngine::LowLevelTasks
                     return nullptr;
                 }
 
-                /**
-                 * @brief Check both the local and global queue in priority order
-                 */
+                // @brief Check both the local and global queue in priority order
                 OLO_FINLINE FTask* Dequeue(bool GetBackGroundTasks)
                 {
                     const i32 MaxPriority = GetBackGroundTasks ? i32(ETaskPriority::Count) : i32(ETaskPriority::ForegroundCount);
@@ -317,9 +295,7 @@ namespace OloEngine::LowLevelTasks
                     return nullptr;
                 }
 
-                /**
-                 * @brief Dequeue with work stealing from other queues
-                 */
+                // @brief Dequeue with work stealing from other queues
                 OLO_FINLINE FTask* DequeueSteal(bool GetBackGroundTasks)
                 {
                     if (m_CachedRandomIndex == InvalidIndex)
@@ -373,9 +349,7 @@ namespace OloEngine::LowLevelTasks
             TLocalQueueRegistry() = default;
 
         private:
-            /**
-             * @brief Add a queue to the Registry. Thread-safe.
-             */
+            // @brief Add a queue to the Registry. Thread-safe.
             void AddLocalQueue(TLocalQueue* QueueToAdd)
             {
                 u32 Index = m_NumLocalQueues.fetch_add(1, std::memory_order_relaxed);
@@ -385,10 +359,8 @@ namespace OloEngine::LowLevelTasks
                 m_LocalQueues[Index].store(QueueToAdd, std::memory_order_release);
             }
 
-            /**
-             * @brief StealItem tries to steal an Item from a Registered LocalQueue
-             * Thread-safe with AddLocalQueue
-             */
+            // @brief StealItem tries to steal an Item from a Registered LocalQueue
+            // Thread-safe with AddLocalQueue
             FTask* StealItem(u32& CachedRandomIndex, u32& CachedPriorityIndex, bool GetBackGroundTasks)
             {
                 u32 NumQueues   = m_NumLocalQueues.load(std::memory_order_relaxed);
@@ -418,9 +390,7 @@ namespace OloEngine::LowLevelTasks
             }
 
         public:
-            /**
-             * @brief Enqueue an Item directly into the Global OverflowQueue
-             */
+            // @brief Enqueue an Item directly into the Global OverflowQueue
             void Enqueue(FTask* Item, u32 PriorityIndex)
             {
                 OLO_CORE_ASSERT(PriorityIndex < i32(ETaskPriority::Count), "Priority index out of range");
@@ -429,9 +399,7 @@ namespace OloEngine::LowLevelTasks
                 m_OverflowQueues[PriorityIndex].Enqueue(Item);
             }
 
-            /**
-             * @brief Grab an Item directly from the Global OverflowQueue
-             */
+            // @brief Grab an Item directly from the Global OverflowQueue
             FTask* DequeueGlobal(bool GetBackGroundTasks = true)
             {
                 const i32 MaxPriority = GetBackGroundTasks ? i32(ETaskPriority::Count) : i32(ETaskPriority::ForegroundCount);
@@ -458,9 +426,7 @@ namespace OloEngine::LowLevelTasks
                 return nullptr;
             }
 
-            /**
-             * @brief Reset the registry. Not thread-safe.
-             */
+            // @brief Reset the registry. Not thread-safe.
             void Reset()
             {
                 u32 NumQueues = m_NumLocalQueues.load(std::memory_order_relaxed);

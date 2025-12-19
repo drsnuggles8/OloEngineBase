@@ -7,14 +7,12 @@
 
 namespace OloEngine {
 
-	/**
-	 * @brief Material presets utility class for common material configurations
-	 * 
-	 * This class provides factory methods for creating commonly used materials
-	 * without cluttering the core Material class. These are essentially
-	 * convenience presets that use the standard Material::CreatePBR method
-	 * with predefined realistic PBR values.
-	 */
+	// @brief Material presets utility class for common material configurations
+	// 
+	// This class provides factory methods for creating commonly used materials
+	// without cluttering the core Material class. These are essentially
+	// convenience presets that use the standard Material::CreatePBR method
+	// with predefined realistic PBR values.
 	class MaterialPresets
 	{
 	public:

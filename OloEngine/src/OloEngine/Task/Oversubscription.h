@@ -9,14 +9,12 @@ namespace OloEngine::LowLevelTasks
 {
     namespace Private
     {
-        /**
-         * @class FOversubscriptionTls
-         * @brief Thread-local storage for oversubscription state
-         * 
-         * Tracks whether oversubscription is allowed on the current thread.
-         * This is used to control whether additional worker threads can be
-         * spawned during blocking operations.
-         */
+        // @class FOversubscriptionTls
+        // @brief Thread-local storage for oversubscription state
+        // 
+        // Tracks whether oversubscription is allowed on the current thread.
+        // This is used to control whether additional worker threads can be
+        // spawned during blocking operations.
         class FOversubscriptionTls
         {
             static thread_local bool s_bIsOversubscriptionAllowed;
@@ -29,10 +27,8 @@ namespace OloEngine::LowLevelTasks
             static bool IsOversubscriptionAllowed() { return s_bIsOversubscriptionAllowed; }
         };
 
-        /**
-         * @class FOversubscriptionAllowedScope
-         * @brief RAII scope guard for temporarily changing oversubscription permission
-         */
+        // @class FOversubscriptionAllowedScope
+        // @brief RAII scope guard for temporarily changing oversubscription permission
         class FOversubscriptionAllowedScope
         {
         public:
@@ -58,13 +54,11 @@ namespace OloEngine::LowLevelTasks
 
     } // namespace Private
 
-    /**
-     * @class FOversubscriptionScope
-     * @brief RAII scope guard for incrementing/decrementing oversubscription count
-     * 
-     * When a blocking operation occurs (like waiting for I/O), this scope can be
-     * used to allow additional worker threads to be spawned to maintain throughput.
-     */
+    // @class FOversubscriptionScope
+    // @brief RAII scope guard for incrementing/decrementing oversubscription count
+    // 
+    // When a blocking operation occurs (like waiting for I/O), this scope can be
+    // used to allow additional worker threads to be spawned to maintain throughput.
     class FOversubscriptionScope
     {
     public:

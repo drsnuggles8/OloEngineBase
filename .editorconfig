@@ -73,3 +73,12 @@ cpp_space_around_assignment_operator = insert
 cpp_space_pointer_reference_alignment = left
 cpp_space_around_ternary_operator = insert
 cpp_wrap_preserve_blocks = one_liners
+
+# General repository defaults
+[*]
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.md]
+# Markdown may intentionally use trailing spaces as hard line breaks; keep them
+trim_trailing_whitespace = false

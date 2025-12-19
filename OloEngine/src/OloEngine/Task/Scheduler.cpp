@@ -41,19 +41,17 @@ namespace OloEngine::LowLevelTasks
     static bool g_TaskGraphUseDynamicThreadCreation = false;
     static bool g_TaskGraphConfigInitialized = false;
 
-    /**
-     * @brief Parse command-line or environment configuration for task graph settings
-     * 
-     * This mirrors UE5.7's approach of parsing command-line arguments like:
-     * - TaskGraphUseDynamicPrioritization=0|1
-     * - TaskGraphUseDynamicThreadCreation=0|1
-     * 
-     * Since OloEngine may not have a unified command-line parser yet, we also support
-     * environment variables:
-     * - OLO_TASK_GRAPH_DYNAMIC_PRIORITIZATION=0|1
-     * - OLO_TASK_GRAPH_DYNAMIC_THREAD_CREATION=0|1
-     * - OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO=<float>
-     */
+    // @brief Parse command-line or environment configuration for task graph settings
+    // 
+    // This mirrors UE5.7's approach of parsing command-line arguments like:
+    // - TaskGraphUseDynamicPrioritization=0|1
+    // - TaskGraphUseDynamicThreadCreation=0|1
+    // 
+    // Since OloEngine may not have a unified command-line parser yet, we also support
+    // environment variables:
+    // - OLO_TASK_GRAPH_DYNAMIC_PRIORITIZATION=0|1
+    // - OLO_TASK_GRAPH_DYNAMIC_THREAD_CREATION=0|1
+    // - OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO=<float>
     static void InitializeTaskGraphConfiguration()
     {
         if (g_TaskGraphConfigInitialized)
@@ -259,18 +257,14 @@ namespace OloEngine::LowLevelTasks
     // Singleton instance
     FScheduler FScheduler::s_Singleton;
 
-    /**
-     * @brief Platform-specific function to get the number of worker threads to spawn
-     */
+    // @brief Platform-specific function to get the number of worker threads to spawn
     static u32 NumberOfWorkerThreadsToSpawn()
     {
         u32 NumCores = std::thread::hardware_concurrency();
         return NumCores > 0 ? NumCores : 4;
     }
 
-    /**
-     * @brief Convert LowLevelTasks::EThreadPriority to OloEngine::EThreadPriority
-     */
+    // @brief Convert LowLevelTasks::EThreadPriority to OloEngine::EThreadPriority
     static OloEngine::EThreadPriority ConvertToPlatformPriority(EThreadPriority Priority)
     {
         switch (Priority)

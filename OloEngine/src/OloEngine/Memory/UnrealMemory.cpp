@@ -121,7 +121,7 @@ void FMemory::EnablePoisonTests()
     }
 }
 
-/** Helper function called on first allocation to create and initialize GMalloc */
+// Helper function called on first allocation to create and initialize GMalloc
 static int FMemory_GCreateMalloc_ThreadUnsafe()
 {
     Private::GMalloc = FPlatformMemory::BaseAllocator();

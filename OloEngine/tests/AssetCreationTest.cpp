@@ -4,16 +4,12 @@
 
 using namespace OloEngine;
 
-/**
- * @brief Tests for asset creation and basic functionality
- */
-class AssetCreationTest : public ::testing::Test
+// @brief Tests for asset creation and basic functionality
+    class AssetCreationTest : public ::testing::Test
 {
 };
 
-/**
- * @brief Test MeshColliderAsset creation and property access
- */
+// @brief Test MeshColliderAsset creation and property access
 TEST_F(AssetCreationTest, MeshColliderAsset_Creation)
 {
     // Test asset creation
@@ -38,9 +34,7 @@ TEST_F(AssetCreationTest, MeshColliderAsset_Creation)
     EXPECT_EQ(meshCollider->m_ColliderScale.x, 2.0f) << "Collider scale X should be set correctly";
 }
 
-/**
- * @brief Test ScriptFileAsset creation and getter/setter methods
- */
+// @brief Test ScriptFileAsset creation and getter/setter methods
 TEST_F(AssetCreationTest, ScriptFileAsset_Creation)
 {
     // Test asset creation
@@ -56,9 +50,7 @@ TEST_F(AssetCreationTest, ScriptFileAsset_Creation)
     EXPECT_EQ(scriptAsset->GetClassName(), "PlayerController") << "Class name should be set correctly";
 }
 
-/**
- * @brief Test ColliderMaterial structure
- */
+// @brief Test ColliderMaterial structure
 TEST_F(AssetCreationTest, ColliderMaterial_Basic)
 {
     ColliderMaterial material;
@@ -75,9 +67,7 @@ TEST_F(AssetCreationTest, ColliderMaterial_Basic)
     EXPECT_FLOAT_EQ(material.GetRestitution(), 0.2f) << "Restitution should be assignable";
 }
 
-/**
- * @brief Test AssetType enum values
- */
+// @brief Test AssetType enum values
 TEST_F(AssetCreationTest, AssetType_Values)
 {
     // Verify our asset type enum values match expected values

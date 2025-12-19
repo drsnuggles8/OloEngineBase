@@ -1,19 +1,17 @@
-/**
- * @file RefCounting.h
- * @brief Thread-safe reference counting utilities
- * 
- * Provides base classes and smart pointers for reference-counted objects:
- * - FReturnedRefCountValue: Wrapper for refcount values (deprecated access)
- * - TTransactionalAtomicRefCount: Core atomic refcount with transactional support
- * - IRefCountedObject: Virtual interface for ref-counted objects
- * - FRefCountBase: Base class with virtual destructor
- * - FRefCountedObject: Non-atomic ref-counted base (legacy)
- * - FThreadSafeRefCountedObject: Atomic ref-counted base
- * - TRefCountingMixin: CRTP mixin for adding ref-counting
- * - TRefCountPtr<T>: Smart pointer for ref-counted objects
- * 
- * Ported from Unreal Engine 5.7's Templates/RefCounting.h
- */
+// @file RefCounting.h
+// @brief Thread-safe reference counting utilities
+// 
+// Provides base classes and smart pointers for reference-counted objects:
+// - FReturnedRefCountValue: Wrapper for refcount values (deprecated access)
+// - TTransactionalAtomicRefCount: Core atomic refcount with transactional support
+// - IRefCountedObject: Virtual interface for ref-counted objects
+// - FRefCountBase: Base class with virtual destructor
+// - FRefCountedObject: Non-atomic ref-counted base (legacy)
+// - FThreadSafeRefCountedObject: Atomic ref-counted base
+// - TRefCountingMixin: CRTP mixin for adding ref-counting
+// - TRefCountPtr<T>: Smart pointer for ref-counted objects
+// 
+// Ported from Unreal Engine 5.7's Templates/RefCounting.h
 
 #pragma once
 
@@ -34,13 +32,11 @@ namespace OloEngine
 	// FReturnedRefCountValue
 	// ========================================================================
 
-	/**
-	 * Simple wrapper class which holds a refcount; emits a deprecation warning when accessed.
-	 * 
-	 * It is unsafe to rely on the value of a refcount for any logic, and a non-deprecated
-	 * getter function should never be added. In a multi-threaded context, the refcount could
-	 * change after inspection.
-	 */
+	// Simple wrapper class which holds a refcount; emits a deprecation warning when accessed.
+	// 
+	// It is unsafe to rely on the value of a refcount for any logic, and a non-deprecated
+	// getter function should never be added. In a multi-threaded context, the refcount could
+	// change after inspection.
 	struct FReturnedRefCountValue
 	{
 		explicit FReturnedRefCountValue(u32 InRefCount)
@@ -53,19 +49,15 @@ namespace OloEngine
 		FReturnedRefCountValue& operator=(const FReturnedRefCountValue& Other) = default;
 		FReturnedRefCountValue& operator=(FReturnedRefCountValue&& Other) = default;
 
-		/**
-		 * Implicit conversion to u32 - deprecated but provided for compatibility
-		 * @note Inspecting an object's refcount is deprecated.
-		 */
+		// @brief Implicit conversion to u32 - deprecated but provided for compatibility
+		// @note Inspecting an object's refcount is deprecated.
 		operator u32() const
 		{
 			return RefCount;
 		}
 
-		/**
-		 * Check that refcount is at least a certain value.
-		 * @note It's harmless to check if your refcount is at least a certain amount.
-		 */
+		// @brief Check that refcount is at least a certain value.
+		// @note It's harmless to check if your refcount is at least a certain amount.
 		void CheckAtLeast(u32 N) const
 		{
 			OLO_CORE_ASSERT(RefCount >= N, "RefCount check failed");
@@ -81,13 +73,11 @@ namespace OloEngine
 
 	namespace Private
 	{
-		/**
-		 * TTransactionalAtomicRefCount manages an atomic refcount value.
-		 * This is used by FRefCountBase, FThreadSafeRefCountedObject and TRefCountingMixin (in thread-safe mode).
-		 * 
-		 * @note AutoRTFM/transactional memory is not supported in OloEngine, so this is a 
-		 *       simplified version without transaction support.
-		 */
+		// TTransactionalAtomicRefCount manages an atomic refcount value.
+		// This is used by FRefCountBase, FThreadSafeRefCountedObject and TRefCountingMixin (in thread-safe mode).
+		// 
+		// @note AutoRTFM/transactional memory is not supported in OloEngine, so this is a 
+		//       simplified version without transaction support.
 		template <typename AtomicType>
 		class TTransactionalAtomicRefCount
 		{
@@ -151,9 +141,7 @@ namespace OloEngine
 	// IRefCountedObject
 	// ========================================================================
 
-	/**
-	 * A virtual interface for ref counted objects to implement.
-	 */
+	// A virtual interface for ref counted objects to implement.
 	class IRefCountedObject
 	{
 	public:
@@ -167,9 +155,7 @@ namespace OloEngine
 	// FRefCountBase
 	// ========================================================================
 
-	/**
-	 * Base class implementing thread-safe reference counting.
-	 */
+	// Base class implementing thread-safe reference counting.
 	class FRefCountBase : Private::TTransactionalAtomicRefCount<u32>
 	{
 	public:
@@ -207,12 +193,10 @@ namespace OloEngine
 	// FRefCountedObject
 	// ========================================================================
 
-	/**
-	 * The base class of reference counted objects.
-	 *
-	 * This class should not be used for new code as it does not use atomic operations to update 
-	 * the reference count.
-	 */
+	// The base class of reference counted objects.
+	// 
+	// This class should not be used for new code as it does not use atomic operations to update 
+	// the reference count.
 	class FRefCountedObject
 	{
 	public:
@@ -250,9 +234,7 @@ namespace OloEngine
 	// FThreadSafeRefCountedObject
 	// ========================================================================
 
-	/**
-	 * Like FRefCountedObject, but the reference count is thread-safe.
-	 */
+	// Like FRefCountedObject, but the reference count is thread-safe.
 	class FThreadSafeRefCountedObject : Private::TTransactionalAtomicRefCount<u32>
 	{
 	public:
@@ -294,16 +276,14 @@ namespace OloEngine
 	// ERefCountingMode
 	// ========================================================================
 
-	/**
-	 * ERefCountingMode is used select between either 'fast' or 'thread safe' ref-counting types.
-	 * This is only used at compile time to select between template specializations.
-	 */
+	// @brief ERefCountingMode is used select between either 'fast' or 'thread safe' ref-counting types.
+	// This is only used at compile time to select between template specializations.
 	enum class ERefCountingMode : u8
 	{
-		/** Forced to be not thread-safe. */
+		// Forced to be not thread-safe.
 		NotThreadSafe = 0,
 
-		/** Thread-safe: never spin locks, but slower. */
+		// Thread-safe: never spin locks, but slower.
 		ThreadSafe = 1
 	};
 
@@ -311,31 +291,27 @@ namespace OloEngine
 	// TRefCountingMixin
 	// ========================================================================
 
-	/**
-	 * Ref-counting mixin, designed to add ref-counting to an object without requiring a virtual destructor.
-	 * Is thread-safe by default, and can support custom deleters via T::StaticDestroyObject.
-	 * 
-	 * Basic Example:
-	 *  struct FMyRefCountedObject : public TRefCountingMixin<FMyRefCountedObject>
-	 *  {
-	 *      // ...
-	 *  };
-	 * 
-	 * Deleter Example:
-	 *  struct FMyRefCountedPooledObject : public TRefCountingMixin<FMyRefCountedPooledObject>
-	 *  {
-	 *      static void StaticDestroyObject(const FMyRefCountedPooledObject* Obj)
-	 *      {
-	 *          GPool->ReturnToPool(Obj);
-	 *      }
-	 *  };
-	 */
+	// @brief Ref-counting mixin, designed to add ref-counting to an object without requiring a virtual destructor.
+	// Is thread-safe by default, and can support custom deleters via T::StaticDestroyObject.
+	// 
+	// Basic Example:
+	//  struct FMyRefCountedObject : public TRefCountingMixin<FMyRefCountedObject>
+	//  {
+	//      // ...
+	//  };
+	// 
+	// Deleter Example:
+	//  struct FMyRefCountedPooledObject : public TRefCountingMixin<FMyRefCountedPooledObject>
+	//  {
+	//      static void StaticDestroyObject(const FMyRefCountedPooledObject* Obj)
+	//      {
+	//          GPool->ReturnToPool(Obj);
+	//      }
+	//  };
 	template <typename T, ERefCountingMode Mode = ERefCountingMode::ThreadSafe>
 	class TRefCountingMixin;
 
-	/**
-	 * Thread-safe specialization
-	 */
+	// Thread-safe specialization
 	template <typename T>
 	class TRefCountingMixin<T, ERefCountingMode::ThreadSafe> : Private::TTransactionalAtomicRefCount<u32>
 	{
@@ -376,9 +352,7 @@ namespace OloEngine
 		}
 	};
 
-	/**
-	 * Not-thread-safe specialization
-	 */
+	// Not-thread-safe specialization
 	template <typename T>
 	class TRefCountingMixin<T, ERefCountingMode::NotThreadSafe>
 	{
@@ -429,9 +403,7 @@ namespace OloEngine
 	// TRefCountPtr
 	// ========================================================================
 
-	/**
-	 * A smart pointer to an object which implements AddRef/Release.
-	 */
+	// @brief A smart pointer to an object which implements AddRef/Release.
 	template<typename ReferencedType>
 	class TRefCountPtr
 	{
@@ -652,14 +624,12 @@ namespace OloEngine
 		return GetTypeHash(InPtr.GetReference());
 	}
 
-	/**
-	 * Creates a new ref-counted object and returns it wrapped in a TRefCountPtr.
-	 * 
-	 * @tparam T The type to create
-	 * @tparam TArgs Constructor argument types
-	 * @param Args Constructor arguments
-	 * @return TRefCountPtr<T> owning the new object
-	 */
+	// @brief Creates a new ref-counted object and returns it wrapped in a TRefCountPtr.
+	// 
+	// @tparam T The type to create
+	// @tparam TArgs Constructor argument types
+	// @param Args Constructor arguments
+	// @return TRefCountPtr<T> owning the new object
 	template <
 		typename T,
 		typename... TArgs,

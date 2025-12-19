@@ -19,9 +19,7 @@ namespace OloEngine
     // Forward declarations
     class Shader;
 
-    /**
-     * @brief Shader resource variant - supports all bindable resource types
-     */
+    // @brief Shader resource variant - supports all bindable resource types
     using ShaderResource = std::variant<
         std::monostate,  // Represents "no resource"
         Ref<UniformBuffer>,
@@ -29,9 +27,7 @@ namespace OloEngine
         Ref<TextureCubemap>
     >;
 
-    /**
-     * @brief Shader resource input structure for legacy compatibility
-     */
+    // @brief Shader resource input structure for legacy compatibility
     struct ShaderResourceInput
     {
         ShaderResourceType Type = ShaderResourceType::None;
@@ -48,9 +44,7 @@ namespace OloEngine
             : Type(ShaderResourceType::TextureCube), Resource(texture) {}
     };
 
-    /**
-     * @brief Resource binding information
-     */
+    // @brief Resource binding information
     struct ResourceBinding
     {
         ShaderResource Resource;
@@ -64,12 +58,10 @@ namespace OloEngine
         u32 GetHandle() const;
     };
 
-    /**
-     * @brief Shader resource registry for managing all shader resource types
-     * 
-     * This class provides a unified system for managing uniform buffers, textures,
-     * and other shader resources with SPIR-V reflection and frame-in-flight support.
-     */
+    // @brief Shader resource registry for managing all shader resource types
+    // 
+    // This class provides a unified system for managing uniform buffers, textures,
+    // and other shader resources with SPIR-V reflection and frame-in-flight support.
     class ShaderResourceRegistry
     {
     public:
@@ -81,52 +73,34 @@ namespace OloEngine
         void Initialize();
         void Shutdown();
 
-        /**
-         * @brief Set the associated shader for this registry
-         */
+        // @brief Set the associated shader for this registry
         void SetShader(const Ref<Shader>& shader) { m_Shader = shader; }
 
-        /**
-         * @brief Get the associated shader
-         */
+        // @brief Get the associated shader
         Ref<Shader> GetShader() const { return m_Shader; }
 
         // Resource discovery from reflection
-        /**
-         * @brief Discover resources from SPIR-V reflection data
-         */
+        // @brief Discover resources from SPIR-V reflection data
         void DiscoverResources(u32 stage, const std::vector<u32>& spirvData, const std::string& filePath = "");
 
-        /**
-         * @brief Register all resources from reflection data
-         */
+        // @brief Register all resources from reflection data
         void RegisterFromReflection(const ShaderReflection& reflection);
 
         // Resource management
-        /**
-         * @brief Set a uniform buffer
-         */
+        // @brief Set a uniform buffer
         void SetUniformBuffer(const std::string& name, Ref<UniformBuffer> buffer);
 
-        /**
-         * @brief Set a texture resource
-         */
+        // @brief Set a texture resource
         void SetTexture(const std::string& name, Ref<Texture2D> texture);
         void SetTexture(const std::string& name, Ref<TextureCubemap> texture);
 
-        /**
-         * @brief Generic resource setter (using variant)
-         */
+        // @brief Generic resource setter (using variant)
         void SetResource(const std::string& name, const ShaderResource& resource);
 
-        /**
-         * @brief Set resource using input structure (legacy compatibility)
-         */
+        // @brief Set resource using input structure (legacy compatibility)
         bool SetResource(const std::string& name, const ShaderResourceInput& input);
 
-        /**
-         * @brief Template method for type-safe resource setting
-         */
+        // @brief Template method for type-safe resource setting
         template<typename T>
         bool SetResource(const std::string& name, const Ref<T>& resource)
         {
@@ -153,89 +127,57 @@ namespace OloEngine
         }
 
         // Resource retrieval
-        /**
-         * @brief Get uniform buffer by name
-         */
+        // @brief Get uniform buffer by name
         Ref<UniformBuffer> GetUniformBuffer(const std::string& name) const;
 
-        /**
-         * @brief Get texture by name (returns as variant)
-         */
+        // @brief Get texture by name (returns as variant)
         ShaderResource GetResource(const std::string& name) const;
 
         // Binding operations
-        /**
-         * @brief Bind all registered resources
-         */
+        // @brief Bind all registered resources
         void BindAll();
 
-        /**
-         * @brief Bind specific resource by name
-         */
+        // @brief Bind specific resource by name
         void BindResource(const std::string& name);
 
-        /**
-         * @brief Check if resource is bound
-         */
+        // @brief Check if resource is bound
         bool IsResourceBound(const std::string& name) const;
 
         // Legacy compatibility methods
-        /**
-         * @brief Get bound resources for sharing between registries
-         */
+        // @brief Get bound resources for sharing between registries
         std::unordered_map<std::string, ShaderResource> GetBoundResources() const;
 
-        /**
-         * @brief Get binding information for a resource name
-         */
+        // @brief Get binding information for a resource name
         const ResourceBinding* GetBindingInfo(const std::string& resourceName) const;
 
-        /**
-         * @brief Apply all bindings (legacy compatibility)
-         */
+        // @brief Apply all bindings (legacy compatibility)
         void ApplyBindings() { BindAll(); }
 
         // Frame-in-flight management
-        /**
-         * @brief Set frame-in-flight manager for multi-frame buffering
-         */
+        // @brief Set frame-in-flight manager for multi-frame buffering
         void SetInflightFrameManager(Ref<InflightFrameManager> manager);
 
-        /**
-         * @brief Called at the beginning of each frame
-         */
+        // @brief Called at the beginning of each frame
         void OnFrameBegin(u32 frameIndex);
 
         // Validation and debug
-        /**
-         * @brief Validate that all required resources are bound
-         */
+        // @brief Validate that all required resources are bound
         bool Validate() const;
 
-        /**
-         * @brief Get binding information for a resource
-         */
+        // @brief Get binding information for a resource
         const ResourceBinding* GetBinding(const std::string& name) const;
 
-        /**
-         * @brief Get all bindings
-         */
+        // @brief Get all bindings
         const std::unordered_map<std::string, ResourceBinding>& GetBindings() const { return m_Bindings; }
 
         // Standardized Binding Layout Validation
-        /**
-         * @brief Validate shader binding layout against standards
-         */
+        // @brief Validate shader binding layout against standards
         bool ValidateStandardBindings() const;
 
-        /**
-         * @brief Check if UBO binding matches standard layout
-         */
+        // @brief Check if UBO binding matches standard layout
         bool IsStandardUBOBinding(u32 binding, const std::string& name) const;
 
-        /**
-         * @brief Check if texture binding matches standard layout
-         */
+        // @brief Check if texture binding matches standard layout
         bool IsStandardTextureBinding(u32 binding, const std::string& name) const;
 
     private:

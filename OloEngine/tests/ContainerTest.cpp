@@ -1,7 +1,4 @@
-/**
- * @file ContainerTest.cpp
- * @brief Unit tests for TBitArray, TSparseArray, TSet, TMap containers
- */
+// @brief Unit tests for TBitArray, TSparseArray, TSet, TMap containers
 
 #include <gtest/gtest.h>
 #include "OloEngine/Containers/BitArray.h"

@@ -4,9 +4,7 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Shader data types for uniform buffer layouts
-     */
+    // @brief Shader data types for uniform buffer layouts
     enum class ShaderDataType
     {
         None = 0,
@@ -17,9 +15,7 @@ namespace OloEngine
         Sampler2D, SamplerCube
     };
 
-    /**
-     * @brief Shader uniform declaration with layout information
-     */
+    // @brief Shader uniform declaration with layout information
     struct ShaderUniformDeclaration
     {
         std::string Name;
@@ -32,9 +28,7 @@ namespace OloEngine
         static u32 ShaderDataTypeSize(ShaderDataType type);
     };
 
-    /**
-     * @brief Get the size in bytes of a shader data type
-     */
+    // @brief Get the size in bytes of a shader data type
     inline u32 ShaderUniformDeclaration::ShaderDataTypeSize(ShaderDataType type)
     {
         switch (type)

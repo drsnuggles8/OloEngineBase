@@ -8,10 +8,8 @@
 
 namespace OloEngine
 {
-	/**
-	 * An intrusive mutex wrapper that locks on construction and unlocks on destruction.
-	 * For details on how to set up an intrusive mutex, see the IntrusiveMutex.h header.
-	 */
+	// An intrusive mutex wrapper that locks on construction and unlocks on destruction.
+	// For details on how to set up an intrusive mutex, see the IntrusiveMutex.h header.
 	template <CIntrusiveMutexParams ParamsType>
 	class TIntrusiveUniqueLock
 	{

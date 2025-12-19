@@ -92,12 +92,10 @@ namespace OloEngine {
 		constexpr u32 Debris = 7;
 	}
 
-	/**
-	 * @brief Converts a layer index to a bitmask for physics layer operations.
-	 * @param layerIndex The physics layer index (valid range: 0-31)
-	 * @return Bitmask with the corresponding bit set, or throws if layerIndex >= 32
-	 * @note Now enforces bounds checking - will throw std::out_of_range for indices >= 32
-	 */
+	// @brief Converts a layer index to a bitmask for physics layer operations.
+	// @param layerIndex The physics layer index (valid range: 0-31)
+	// @return Bitmask with the corresponding bit set, or throws if layerIndex >= 32
+	// @note Now enforces bounds checking - will throw std::out_of_range for indices >= 32
 	constexpr inline u32 ToLayerMask(u32 layerIndex)
 	{
 		if (layerIndex >= 32)

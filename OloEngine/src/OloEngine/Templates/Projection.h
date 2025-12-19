@@ -1,14 +1,12 @@
 #pragma once
 
-/**
- * @file Projection.h
- * @brief Projection utilities for applying transformations to elements
- * 
- * Provides projection helpers for algorithms that need to transform/access
- * elements. Supports member pointers, callable objects, and composition.
- * 
- * Ported from Unreal Engine's Templates/Projection.h
- */
+// @file Projection.h
+// @brief Projection utilities for applying transformations to elements
+// 
+// Provides projection helpers for algorithms that need to transform/access
+// elements. Supports member pointers, callable objects, and composition.
+// 
+// Ported from Unreal Engine's Templates/Projection.h
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Templates/Invoke.h"
@@ -22,9 +20,7 @@ namespace OloEngine
 
     namespace Private
     {
-        /**
-         * @brief Helper for member function pointers
-         */
+        // @brief Helper for member function pointers
         template <typename InvocableType>
         struct TProjectionMemberFunction;
 
@@ -48,9 +44,7 @@ namespace OloEngine
             }
         };
 
-        /**
-         * @brief Helper for member data pointers
-         */
+        // @brief Helper for member data pointers
         template <typename InvocableType>
         struct TProjectionMemberData;
 
@@ -74,9 +68,7 @@ namespace OloEngine
             }
         };
 
-        /**
-         * @brief Check if a member pointer points to a function
-         */
+        // @brief Check if a member pointer points to a function
         template <typename Class, typename MemberType>
         inline constexpr bool TIsMemberPointerToFunction(MemberType Class::*)
         {
@@ -88,27 +80,25 @@ namespace OloEngine
     // Projection Function
     // ========================================================================
 
-    /**
-     * @brief Transform an invocable into a callable
-     * 
-     * Projection() handles member pointers and other invocables, turning them
-     * into callable objects that can be used with algorithms like SortBy.
-     * 
-     * Examples:
-     * @code
-     * struct FInner { FString Name; };
-     * struct FOuter { FInner Inner; };
-     * 
-     * // Member function pointer
-     * Algo::SortBy(Items, Projection(&FOuter::Inner));
-     * 
-     * // Member data access
-     * Algo::SortBy(Items, Projection(&FInner::Name));
-     * 
-     * // Regular callable - passed through unchanged
-     * Algo::SortBy(Items, Projection([](const auto& x) { return x.Priority; }));
-     * @endcode
-     */
+    // @brief Transform an invocable into a callable
+    // 
+    // Projection() handles member pointers and other invocables, turning them
+    // into callable objects that can be used with algorithms like SortBy.
+    // 
+    // Examples:
+    // @code
+    // struct FInner { FString Name; };
+    // struct FOuter { FInner Inner; };
+    // 
+    // // Member function pointer
+    // Algo::SortBy(Items, Projection(&FOuter::Inner));
+    // 
+    // // Member data access
+    // Algo::SortBy(Items, Projection(&FInner::Name));
+    // 
+    // // Regular callable - passed through unchanged
+    // Algo::SortBy(Items, Projection([](const auto& x) { return x.Priority; }));
+    // @endcode
     template <typename Invocable0Type>
     constexpr auto Projection(Invocable0Type&& Invocable0)
     {

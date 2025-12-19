@@ -36,18 +36,14 @@ namespace OloEngine
 	extern i32 GParallelForBackgroundYieldingTimeoutMs;
 	extern bool GParallelForDisableOversubscription;
 
-	/**
-	 * @brief Returns true if the application should use threading for performance.
-	 * 
-	 * This is analogous to UE5.7's FApp::ShouldUseThreadingForPerformance().
-	 * Returns false if threading is disabled (e.g., single-core systems, debugging).
-	 */
+	// @brief Returns true if the application should use threading for performance.
+	// 
+	// This is analogous to UE5.7's FApp::ShouldUseThreadingForPerformance().
+	// Returns false if threading is disabled (e.g., single-core systems, debugging).
 	bool ShouldUseThreadingForPerformance();
 
-	/**
-	 * @enum EParallelForFlags
-	 * @brief Flags controlling ParallelFor behavior
-	 */
+	// @enum EParallelForFlags
+	// @brief Flags controlling ParallelFor behavior
 	enum class EParallelForFlags
 	{
 		// Default behavior
@@ -111,17 +107,15 @@ namespace OloEngine
 			return FMath::Max(NumThreadTasks, 1);
 		}
 
-		/**
-		 * @brief Internal parallel for implementation with all UE5.7 optimizations
-		 * 
-		 * Features:
-		 * - Dynamic worker launch (workers launched as needed)
-		 * - Save last batch for master (avoids event wait in many cases)
-		 * - Background priority yielding (reschedules after timeout)
-		 * - Per-worker context support
-		 * - Prework support
-		 * - Priority inheritance from task tags (latency-sensitive detection)
-		 */
+		// @brief Internal parallel for implementation with all UE5.7 optimizations
+		// 
+		// Features:
+		// - Dynamic worker launch (workers launched as needed)
+		// - Save last batch for master (avoids event wait in many cases)
+		// - Background priority yielding (reschedules after timeout)
+		// - Per-worker context support
+		// - Prework support
+		// - Priority inheritance from task tags (latency-sensitive detection)
 		template<typename BodyType, typename PreWorkType, typename ContextType>
 		void ParallelForInternal(
 			const char* DebugName,
@@ -474,40 +468,34 @@ namespace OloEngine
 	// Basic ParallelFor overloads
 	// ========================================================================
 
-	/**
-	 * @brief Execute a function in parallel for each index in a range
-	 * 
-	 * @param Num Number of iterations (0 to Num-1)
-	 * @param Body Function to call for each index, signature: void(i32 Index)
-	 * @param Flags Optional flags to control execution
-	 * 
-	 * Example:
-	 * @code
-	 * TArray<float> Data(1000);
-	 * ParallelFor(Data.Num(), [&Data](i32 Index)
-	 * {
-	 *     Data[Index] = FMath::Sqrt(static_cast<float>(Index));
-	 * });
-	 * @endcode
-	 */
+	// @brief Execute a function in parallel for each index in a range
+	// 
+	// @param Num Number of iterations (0 to Num-1)
+	// @param Body Function to call for each index, signature: void(i32 Index)
+	// @param Flags Optional flags to control execution
+	// 
+	// Example:
+	// @code
+	// TArray<float> Data(1000);
+	// ParallelFor(Data.Num(), [&Data](i32 Index)
+	// {
+	//     Data[Index] = FMath::Sqrt(static_cast<float>(Index));
+	// });
+	// @endcode
 	template<typename BodyType>
 	void ParallelFor(i32 Num, BodyType&& Body, EParallelForFlags Flags = EParallelForFlags::None)
 	{
 		ParallelForImpl::ParallelForInternal("ParallelFor", Num, 1, Forward<BodyType>(Body), [](){}, Flags, TArrayView<TYPE_OF_NULLPTR>());
 	}
 
-	/**
-	 * @brief Execute a function in parallel with debug name
-	 */
+	// @brief Execute a function in parallel with debug name
 	template<typename BodyType>
 	void ParallelFor(const char* DebugName, i32 Num, BodyType&& Body, EParallelForFlags Flags = EParallelForFlags::None)
 	{
 		ParallelForImpl::ParallelForInternal(DebugName, Num, 1, Forward<BodyType>(Body), [](){}, Flags, TArrayView<TYPE_OF_NULLPTR>());
 	}
 
-	/**
-	 * @brief Execute a function in parallel with specified minimum batch size
-	 */
+	// @brief Execute a function in parallel with specified minimum batch size
 	template<typename BodyType>
 	void ParallelFor(const char* DebugName, i32 Num, i32 MinBatchSize, BodyType&& Body, EParallelForFlags Flags = EParallelForFlags::None)
 	{
@@ -518,17 +506,15 @@ namespace OloEngine
 	// ParallelForWithPreWork - execute prework on master before helping
 	// ========================================================================
 
-	/**
-	 * @brief Execute a function in parallel with prework on the master thread
-	 * 
-	 * The prework function is executed on the calling thread before it starts
-	 * helping with the parallel work. This is useful for setup operations.
-	 * 
-	 * @param Num Number of iterations
-	 * @param Body Function to call for each index
-	 * @param CurrentThreadWorkToDoBeforeHelping Prework function
-	 * @param Flags Optional flags
-	 */
+	// @brief Execute a function in parallel with prework on the master thread
+	// 
+	// The prework function is executed on the calling thread before it starts
+	// helping with the parallel work. This is useful for setup operations.
+	// 
+	// @param Num Number of iterations
+	// @param Body Function to call for each index
+	// @param CurrentThreadWorkToDoBeforeHelping Prework function
+	// @param Flags Optional flags
 	template<typename BodyType, typename PreWorkType>
 	void ParallelForWithPreWork(i32 Num, BodyType&& Body, PreWorkType&& CurrentThreadWorkToDoBeforeHelping, EParallelForFlags Flags = EParallelForFlags::None)
 	{
@@ -545,31 +531,29 @@ namespace OloEngine
 	// ParallelForWithTaskContext - per-worker context accumulation
 	// ========================================================================
 
-	/**
-	 * @brief Execute a function in parallel with per-worker context objects
-	 * 
-	 * This variant constructs a user-defined context object for each task that may
-	 * get spawned. The context is passed to the loop body, giving it a task-local
-	 * "workspace" that can be mutated without need for synchronization primitives.
-	 * 
-	 * @param OutContexts Array that will hold the task-level context objects
-	 * @param Num Number of iterations
-	 * @param Body Function signature: void(ContextType& Context, i32 Index)
-	 * @param Flags Optional flags
-	 * 
-	 * Example:
-	 * @code
-	 * struct FAccumulator { i64 Sum = 0; };
-	 * TArray<FAccumulator> Contexts;
-	 * ParallelForWithTaskContext(Contexts, Data.Num(), [&Data](FAccumulator& Ctx, i32 Index)
-	 * {
-	 *     Ctx.Sum += Data[Index];
-	 * });
-	 * // Reduce the per-worker results
-	 * i64 TotalSum = 0;
-	 * for (const auto& Ctx : Contexts) TotalSum += Ctx.Sum;
-	 * @endcode
-	 */
+	// @brief Execute a function in parallel with per-worker context objects
+	// 
+	// This variant constructs a user-defined context object for each task that may
+	// get spawned. The context is passed to the loop body, giving it a task-local
+	// "workspace" that can be mutated without need for synchronization primitives.
+	// 
+	// @param OutContexts Array that will hold the task-level context objects
+	// @param Num Number of iterations
+	// @param Body Function signature: void(ContextType& Context, i32 Index)
+	// @param Flags Optional flags
+	// 
+	// Example:
+	// @code
+	// struct FAccumulator { i64 Sum = 0; };
+	// TArray<FAccumulator> Contexts;
+	// ParallelForWithTaskContext(Contexts, Data.Num(), [&Data](FAccumulator& Ctx, i32 Index)
+	// {
+	//     Ctx.Sum += Data[Index];
+	// });
+	// // Reduce the per-worker results
+	// i64 TotalSum = 0;
+	// for (const auto& Ctx : Contexts) TotalSum += Ctx.Sum;
+	// @endcode
 	template<typename ContextType, typename BodyType>
 	void ParallelForWithTaskContext(TArray<ContextType>& OutContexts, i32 Num, BodyType&& Body, EParallelForFlags Flags = EParallelForFlags::None)
 	{
@@ -582,15 +566,13 @@ namespace OloEngine
 		}
 	}
 
-	/**
-	 * @brief Execute a function in parallel with per-worker context objects and custom constructor
-	 * 
-	 * @param OutContexts Array that will hold the task-level context objects
-	 * @param Num Number of iterations
-	 * @param ContextConstructor Function to construct each context: ContextType(i32 ContextIndex, i32 NumContexts)
-	 * @param Body Function signature: void(ContextType& Context, i32 Index)
-	 * @param Flags Optional flags
-	 */
+	// @brief Execute a function in parallel with per-worker context objects and custom constructor
+	// 
+	// @param OutContexts Array that will hold the task-level context objects
+	// @param Num Number of iterations
+	// @param ContextConstructor Function to construct each context: ContextType(i32 ContextIndex, i32 NumContexts)
+	// @param Body Function signature: void(ContextType& Context, i32 Index)
+	// @param Flags Optional flags
 	template<typename ContextType, typename ContextConstructorType, typename BodyType>
 	void ParallelForWithTaskContext(TArray<ContextType>& OutContexts, i32 Num, ContextConstructorType&& ContextConstructor, BodyType&& Body, EParallelForFlags Flags = EParallelForFlags::None)
 	{
@@ -607,9 +589,7 @@ namespace OloEngine
 		}
 	}
 
-	/**
-	 * @brief Execute a function in parallel with per-worker context objects (named)
-	 */
+	// @brief Execute a function in parallel with per-worker context objects (named)
 	template<typename ContextType, typename BodyType>
 	void ParallelForWithTaskContext(const char* DebugName, TArray<ContextType>& OutContexts, i32 Num, BodyType&& Body, EParallelForFlags Flags = EParallelForFlags::None)
 	{
@@ -622,9 +602,7 @@ namespace OloEngine
 		}
 	}
 
-	/**
-	 * @brief Execute a function in parallel with per-worker context objects (named, with batch size)
-	 */
+	// @brief Execute a function in parallel with per-worker context objects (named, with batch size)
 	template<typename ContextType, typename BodyType>
 	void ParallelForWithTaskContext(const char* DebugName, TArray<ContextType>& OutContexts, i32 Num, i32 MinBatchSize, BodyType&& Body, EParallelForFlags Flags = EParallelForFlags::None)
 	{
@@ -637,9 +615,7 @@ namespace OloEngine
 		}
 	}
 
-	/**
-	 * @brief Execute a function in parallel with per-worker context objects (named, with batch size and constructor)
-	 */
+	// @brief Execute a function in parallel with per-worker context objects (named, with batch size and constructor)
 	template<typename ContextType, typename ContextConstructorType, typename BodyType>
 	void ParallelForWithTaskContext(const char* DebugName, TArray<ContextType>& OutContexts, i32 Num, i32 MinBatchSize, ContextConstructorType&& ContextConstructor, BodyType&& Body, EParallelForFlags Flags = EParallelForFlags::None)
 	{
@@ -660,26 +636,22 @@ namespace OloEngine
 	// ParallelForWithExistingTaskContext - use pre-allocated contexts
 	// ========================================================================
 
-	/**
-	 * @brief Execute a function in parallel with user-provided context objects
-	 * 
-	 * This variant takes a pre-allocated array of contexts rather than creating them.
-	 * 
-	 * @param Contexts User-provided array of context objects (one task per context at most)
-	 * @param Num Number of iterations
-	 * @param MinBatchSize Minimum batch size
-	 * @param Body Function signature: void(ContextType& Context, i32 Index)
-	 * @param Flags Optional flags
-	 */
+	// @brief Execute a function in parallel with user-provided context objects
+	// 
+	// This variant takes a pre-allocated array of contexts rather than creating them.
+	// 
+	// @param Contexts User-provided array of context objects (one task per context at most)
+	// @param Num Number of iterations
+	// @param MinBatchSize Minimum batch size
+	// @param Body Function signature: void(ContextType& Context, i32 Index)
+	// @param Flags Optional flags
 	template<typename ContextType, typename BodyType>
 	void ParallelForWithExistingTaskContext(TArrayView<ContextType> Contexts, i32 Num, i32 MinBatchSize, BodyType&& Body, EParallelForFlags Flags = EParallelForFlags::None)
 	{
 		ParallelForImpl::ParallelForInternal("ParallelFor", Num, MinBatchSize, Forward<BodyType>(Body), [](){}, Flags, Contexts);
 	}
 
-	/**
-	 * @brief Execute a function in parallel with user-provided context objects (named)
-	 */
+	// @brief Execute a function in parallel with user-provided context objects (named)
 	template<typename ContextType, typename BodyType>
 	void ParallelForWithExistingTaskContext(const char* DebugName, TArrayView<ContextType> Contexts, i32 Num, i32 MinBatchSize, BodyType&& Body, EParallelForFlags Flags = EParallelForFlags::None)
 	{
@@ -690,9 +662,7 @@ namespace OloEngine
 	// ParallelForWithPreWorkWithTaskContext - combined prework + context
 	// ========================================================================
 
-	/**
-	 * @brief Execute a function in parallel with prework and per-worker context objects
-	 */
+	// @brief Execute a function in parallel with prework and per-worker context objects
 	template<typename ContextType, typename ContextConstructorType, typename BodyType, typename PreWorkType>
 	void ParallelForWithPreWorkWithTaskContext(
 		const char* DebugName,
@@ -717,9 +687,7 @@ namespace OloEngine
 		}
 	}
 
-	/**
-	 * @brief Execute a function in parallel with prework and per-worker context objects (default construction)
-	 */
+	// @brief Execute a function in parallel with prework and per-worker context objects (default construction)
 	template<typename ContextType, typename BodyType, typename PreWorkType>
 	void ParallelForWithPreWorkWithTaskContext(
 		const char* DebugName,
@@ -739,9 +707,7 @@ namespace OloEngine
 		}
 	}
 
-	/**
-	 * @brief Execute a function in parallel with prework and user-provided context objects
-	 */
+	// @brief Execute a function in parallel with prework and user-provided context objects
 	template<typename ContextType, typename BodyType, typename PreWorkType>
 	void ParallelForWithPreWorkWithExistingTaskContext(
 		const char* DebugName,
@@ -760,16 +726,14 @@ namespace OloEngine
 	// These match UE5.7's legacy API with bool parameters
 	// ========================================================================
 
-	/**
-	 * @brief Legacy ParallelFor overload with bool parameters
-	 * 
-	 * @param Num Number of iterations
-	 * @param Body Function to call for each index
-	 * @param bForceSingleThread If true, execute single-threaded
-	 * @param bPumpRenderingThread If true, pump rendering thread while waiting
-	 * 
-	 * @note Prefer the EParallelForFlags version for new code
-	 */
+	// @brief Legacy ParallelFor overload with bool parameters
+	// 
+	// @param Num Number of iterations
+	// @param Body Function to call for each index
+	// @param bForceSingleThread If true, execute single-threaded
+	// @param bPumpRenderingThread If true, pump rendering thread while waiting
+	// 
+	// @note Prefer the EParallelForFlags version for new code
 	template<typename BodyType>
 	void ParallelFor(i32 Num, BodyType&& Body, bool bForceSingleThread, bool bPumpRenderingThread = false)
 	{
@@ -785,14 +749,12 @@ namespace OloEngine
 		ParallelForImpl::ParallelForInternal("ParallelFor", Num, 1, Forward<BodyType>(Body), [](){}, Flags, TArrayView<TYPE_OF_NULLPTR>());
 	}
 
-	/**
-	 * @brief Template version of ParallelFor for explicit function type
-	 * 
-	 * @tparam FunctionType The callable type
-	 * @param Num Number of iterations
-	 * @param Body Function to call for each index
-	 * @param Flags Optional flags
-	 */
+	// @brief Template version of ParallelFor for explicit function type
+	// 
+	// @tparam FunctionType The callable type
+	// @param Num Number of iterations
+	// @param Body Function to call for each index
+	// @param Flags Optional flags
 	template<typename FunctionType>
 	void ParallelForTemplate(i32 Num, const FunctionType& Body, EParallelForFlags Flags = EParallelForFlags::None)
 	{
@@ -803,15 +765,13 @@ namespace OloEngine
 	// AutoRTFM (Real-Time Finite Memory) Transaction Check
 	// ========================================================================
 
-	/**
-	 * @brief Check if we're in an AutoRTFM transaction
-	 * 
-	 * UE5.7 checks AutoRTFM::IsClosed() before ParallelFor and forces single-thread
-	 * if inside a transaction to prevent data races. OloEngine doesn't have RTFM
-	 * yet, so this is a stub that always returns false.
-	 * 
-	 * @return true if in an RTFM transaction (always false for now)
-	 */
+	// @brief Check if we're in an AutoRTFM transaction
+	// 
+	// UE5.7 checks AutoRTFM::IsClosed() before ParallelFor and forces single-thread
+	// if inside a transaction to prevent data races. OloEngine doesn't have RTFM
+	// yet, so this is a stub that always returns false.
+	// 
+	// @return true if in an RTFM transaction (always false for now)
 	inline bool IsInAutoRTFMTransaction()
 	{
 		// Stub - OloEngine doesn't have AutoRTFM yet
@@ -819,14 +779,12 @@ namespace OloEngine
 		return false;
 	}
 
-	/**
-	 * @brief Apply AutoRTFM flags to ParallelFor flags
-	 * 
-	 * If inside an RTFM transaction, forces single-threaded execution.
-	 * 
-	 * @param Flags The original flags
-	 * @return Modified flags with ForceSingleThread if in transaction
-	 */
+	// @brief Apply AutoRTFM flags to ParallelFor flags
+	// 
+	// If inside an RTFM transaction, forces single-threaded execution.
+	// 
+	// @param Flags The original flags
+	// @return Modified flags with ForceSingleThread if in transaction
 	inline EParallelForFlags ApplyAutoRTFMFlags(EParallelForFlags Flags)
 	{
 		if (IsInAutoRTFMTransaction())

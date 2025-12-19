@@ -1,21 +1,19 @@
 #pragma once
 
-/**
- * @file JoltShapes.h
- * @brief Utility functions for creating and converting Jolt collision shapes for the 3D physics system.
- * 
- * This header defines the JoltShapes class which provides static utility functions to convert engine
- * component data (BoxCollider3DComponent, SphereCollider3DComponent, etc.) into Jolt Physics shape objects.
- * It serves as the primary interface for mapping high-level engine collider components to low-level 
- * Jolt shape representations used by the physics simulation.
- * 
- * Key Usage Notes:
- * - Thread Safety: Shape creation functions are thread-safe. Shape caching uses shared_mutex for concurrent reads.
- * - Memory Management: Returns JPH::Ref<JPH::Shape> smart pointers - Jolt handles lifetime automatically.
- * - Coordinate Space: Expects engine world coordinates; shapes are created in Jolt's coordinate system.
- * - Scaling: Scale parameters are applied during shape creation and baked into the final shape geometry.
- * - Validation: All shape parameters are validated against s_MinShapeSize/s_MaxShapeSize bounds.
- */
+// @file JoltShapes.h
+// @brief Utility functions for creating and converting Jolt collision shapes for the 3D physics system.
+// 
+// This header defines the JoltShapes class which provides static utility functions to convert engine
+// component data (BoxCollider3DComponent, SphereCollider3DComponent, etc.) into Jolt Physics shape objects.
+// It serves as the primary interface for mapping high-level engine collider components to low-level 
+// Jolt shape representations used by the physics simulation.
+// 
+// Key Usage Notes:
+// - Thread Safety: Shape creation functions are thread-safe. Shape caching uses shared_mutex for concurrent reads.
+// - Memory Management: Returns JPH::Ref<JPH::Shape> smart pointers - Jolt handles lifetime automatically.
+// - Coordinate Space: Expects engine world coordinates; shapes are created in Jolt's coordinate system.
+// - Scaling: Scale parameters are applied during shape creation and baked into the final shape geometry.
+// - Validation: All shape parameters are validated against s_MinShapeSize/s_MaxShapeSize bounds.
 
 #include "Physics3DTypes.h"
 #include "JoltUtils.h"

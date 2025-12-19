@@ -8,16 +8,14 @@
 
 namespace OloEngine::Tasks
 {
-    /**
-     * @enum EExtendedTaskPriority
-     * @brief Extended task priorities including inline execution and named threads
-     * 
-     * These priorities extend the basic ETaskPriority with special execution modes:
-     * - None: Use the regular task priority
-     * - Inline: Execute immediately on the calling thread (no scheduling)
-     * - TaskEvent: Optimized for synchronization events (no execution body)
-     * - Named thread priorities: For integration with game/render thread model
-     */
+    // @enum EExtendedTaskPriority
+    // @brief Extended task priorities including inline execution and named threads
+    // 
+    // These priorities extend the basic ETaskPriority with special execution modes:
+    // - None: Use the regular task priority
+    // - Inline: Execute immediately on the calling thread (no scheduling)
+    // - TaskEvent: Optimized for synchronization events (no execution body)
+    // - Named thread priorities: For integration with game/render thread model
     enum class EExtendedTaskPriority : i8
     {
         None,           ///< Use regular task priority
@@ -43,9 +41,7 @@ namespace OloEngine::Tasks
         Count
     };
 
-    /**
-     * @brief Convert extended priority to string
-     */
+    // @brief Convert extended priority to string
     inline const char* ToString(EExtendedTaskPriority ExtendedPriority)
     {
         if (ExtendedPriority < EExtendedTaskPriority::None || ExtendedPriority >= EExtendedTaskPriority::Count)
@@ -77,9 +73,7 @@ namespace OloEngine::Tasks
         return ExtendedTaskPriorityToStr[static_cast<i32>(ExtendedPriority)];
     }
 
-    /**
-     * @brief Parse string to extended priority
-     */
+    // @brief Parse string to extended priority
     inline bool ToExtendedTaskPriority(const char* ExtendedPriorityStr, EExtendedTaskPriority& OutExtendedPriority)
     {
         if (!ExtendedPriorityStr)
@@ -133,25 +127,19 @@ namespace OloEngine::Tasks
         return false;
     }
 
-    /**
-     * @brief Check if the extended priority is for a named thread
-     */
+    // @brief Check if the extended priority is for a named thread
     inline bool IsNamedThreadPriority(EExtendedTaskPriority ExtendedPriority)
     {
         return ExtendedPriority >= EExtendedTaskPriority::GameThreadNormalPri;
     }
 
-    /**
-     * @brief Check if the extended priority should execute inline
-     */
+    // @brief Check if the extended priority should execute inline
     inline bool IsInlinePriority(EExtendedTaskPriority ExtendedPriority)
     {
         return ExtendedPriority == EExtendedTaskPriority::Inline;
     }
 
-    /**
-     * @brief Check if the extended priority is for a task event
-     */
+    // @brief Check if the extended priority is for a task event
     inline bool IsTaskEventPriority(EExtendedTaskPriority ExtendedPriority)
     {
         return ExtendedPriority == EExtendedTaskPriority::TaskEvent;

@@ -3,21 +3,19 @@
 
 #pragma once
 
-/**
- * @file ConcurrentLinearAllocator.h
- * @brief Fast linear allocator for temporary allocations
- * 
- * This fast linear allocator can be used for temporary allocations, and is best suited
- * for allocations that are produced and consumed on different threads and within the
- * lifetime of a frame. Although the lifetime of any individual allocation is not hard-tied
- * to a frame (tracking is done using atomic counters), the application will eventually
- * run OOM if allocations are not cleaned up in a timely manner.
- * 
- * The allocator works by allocating a larger block in TLS which has a Header at the front
- * containing an atomic counter, and all allocations are then allocated from this block.
- * 
- * Ported from UE5.7's Experimental/ConcurrentLinearAllocator.h
- */
+// @file ConcurrentLinearAllocator.h
+// @brief Fast linear allocator for temporary allocations
+// 
+// This fast linear allocator can be used for temporary allocations, and is best suited
+// for allocations that are produced and consumed on different threads and within the
+// lifetime of a frame. Although the lifetime of any individual allocation is not hard-tied
+// to a frame (tracking is done using atomic counters), the application will eventually
+// run OOM if allocations are not cleaned up in a timely manner.
+// 
+// The allocator works by allocating a larger block in TLS which has a Header at the front
+// containing an atomic counter, and all allocations are then allocated from this block.
+// 
+// Ported from UE5.7's Experimental/ConcurrentLinearAllocator.h
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Memory/UnrealMemory.h"
@@ -45,10 +43,8 @@ namespace OloEngine
     // Block Allocation Tags
     // ============================================================================
 
-    /**
-     * @struct FDefaultBlockAllocationTag
-     * @brief Default configuration for the linear allocator
-     */
+    // @struct FDefaultBlockAllocationTag
+    // @brief Default configuration for the linear allocator
     struct FDefaultBlockAllocationTag
     {
         static constexpr u32 BlockSize = 64 * 1024;          // Block size used to allocate from
@@ -63,12 +59,10 @@ namespace OloEngine
     template <typename BlockAllocationTag, ELinearAllocatorThreadPolicy ThreadPolicy>
     class TLinearAllocatorBase;
 
-    /**
-     * @struct TBlockAllocationCache
-     * @brief TLS cache for single-block reuse to avoid allocator round-trips
-     * 
-     * @tparam BlockSize Size of blocks to cache
-     */
+    // @struct TBlockAllocationCache
+    // @brief TLS cache for single-block reuse to avoid allocator round-trips
+    // 
+    // @tparam BlockSize Size of blocks to cache
     template<u32 BlockSize>
     class TBlockAllocationCache
     {
@@ -125,12 +119,10 @@ namespace OloEngine
         }
     };
 
-    /**
-     * @struct FLowLevelTasksBlockAllocationTag
-     * @brief Configuration optimized for LowLevelTasks allocations
-     * 
-     * Uses TBlockAllocationCache for TLS caching to reduce allocator round-trips.
-     */
+    // @struct FLowLevelTasksBlockAllocationTag
+    // @brief Configuration optimized for LowLevelTasks allocations
+    // 
+    // Uses TBlockAllocationCache for TLS caching to reduce allocator round-trips.
     struct FLowLevelTasksBlockAllocationTag : FDefaultBlockAllocationTag
     {
         static constexpr u32 BlockSize = 64 * 1024;
@@ -147,13 +139,11 @@ namespace OloEngine
     // TLinearAllocatorBase Implementation
     // ============================================================================
 
-    /**
-     * @class TLinearAllocatorBase
-     * @brief Core linear allocator implementation
-     * 
-     * @tparam BlockAllocationTag Configuration tag for block sizes and behavior
-     * @tparam ThreadPolicy Thread safety policy
-     */
+    // @class TLinearAllocatorBase
+    // @brief Core linear allocator implementation
+    // 
+    // @tparam BlockAllocationTag Configuration tag for block sizes and behavior
+    // @tparam ThreadPolicy Thread safety policy
     template <typename BlockAllocationTag, ELinearAllocatorThreadPolicy ThreadPolicy>
     class TLinearAllocatorBase
     {
@@ -167,10 +157,8 @@ namespace OloEngine
 
         struct FBlockHeader;
 
-        /**
-         * @class FAllocationHeader
-         * @brief Header stored before each allocation (slow path only)
-         */
+        // @class FAllocationHeader
+        // @brief Header stored before each allocation (slow path only)
         class FAllocationHeader
         {
         public:
@@ -211,10 +199,8 @@ namespace OloEngine
             }
         }
 
-        /**
-         * @struct FBlockHeader
-         * @brief Header at the start of each allocation block
-         */
+        // @struct FBlockHeader
+        // @brief Header at the start of each allocation block
         struct FBlockHeader
         {
             OLO_FINLINE FBlockHeader()
@@ -265,10 +251,8 @@ namespace OloEngine
             unsigned int Num = 0;    // TLS local number of allocations from this block
         };
 
-        /**
-         * @struct FTLSCleanup
-         * @brief Handles cleanup of TLS block on thread exit
-         */
+        // @struct FTLSCleanup
+        // @brief Handles cleanup of TLS block on thread exit
         struct FTLSCleanup
         {
             FBlockHeader* Header = nullptr;
@@ -521,21 +505,15 @@ namespace OloEngine
     // Type Aliases
     // ============================================================================
 
-    /**
-     * @brief Thread-safe concurrent linear allocator
-     * @tparam T Block allocation tag for configuration
-     */
+    // @brief Thread-safe concurrent linear allocator
+    // @tparam T Block allocation tag for configuration
     template <typename T>
     using TConcurrentLinearAllocator = TLinearAllocatorBase<T, ELinearAllocatorThreadPolicy::ThreadSafe>;
 
-    /**
-     * @brief Default thread-safe concurrent linear allocator
-     */
+    // @brief Default thread-safe concurrent linear allocator
     using FConcurrentLinearAllocator = TLinearAllocatorBase<FDefaultBlockAllocationTag, ELinearAllocatorThreadPolicy::ThreadSafe>;
 
-    /**
-     * @brief Single-threaded linear allocator
-     */
+    // @brief Single-threaded linear allocator
     using FNonconcurrentLinearAllocator = TLinearAllocatorBase<FDefaultBlockAllocationTag, ELinearAllocatorThreadPolicy::NotThreadSafe>;
 
 } // namespace OloEngine

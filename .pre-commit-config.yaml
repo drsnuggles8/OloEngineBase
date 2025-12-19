@@ -1,0 +1,21 @@
+# Skip vendor and common IDE/build metadata
+# pre-commit paths are matched against repository-relative file paths; the regex below
+# excludes common third-party / generated directories we don't want to modify.
+exclude: '^(vendor/|\.vs/|\.vscode/|build/|bin/|\.github/workflows/|\.vs/|\.idea/)'
+
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.6.0
+  hooks:
+    - id: trailing-whitespace
+    - id: end-of-file-fixer
+    - id: check-yaml
+
+- repo: https://github.com/pre-commit/mirrors-clang-format
+  rev: v16.0.0
+  hooks:
+    - id: clang-format
+      name: clang-format
+      files: "\\.(c|cc|cpp|cxx|h|hh|hpp|ipp|inl)$"
+      args: ["--style=file"]
+

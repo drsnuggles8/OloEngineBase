@@ -19,32 +19,26 @@
 
 namespace OloEngine::LowLevelTasks
 {
-    /**
-     * @brief Thread-safe multicast delegate for oversubscription limit reached events
-     * 
-     * This delegate is broadcasted when all worker threads are waiting and we've reached
-     * the oversubscription limit. The receiver needs to be thread-safe.
-     */
+    // @brief Thread-safe multicast delegate for oversubscription limit reached events
+    // 
+    // This delegate is broadcasted when all worker threads are waiting and we've reached
+    // the oversubscription limit. The receiver needs to be thread-safe.
     class FOversubscriptionLimitReached
     {
     public:
         using FCallback = TFunction<void()>;
 
-        /**
-         * @brief Add a callback to be invoked when oversubscription limit is reached
-         * @param Callback The callback function
-         */
+        // @brief Add a callback to be invoked when oversubscription limit is reached
+        // @param Callback The callback function
         void Add(FCallback Callback)
         {
             TUniqueLock<FMutex> Lock(m_Mutex);
             m_Callbacks.Add(MoveTemp(Callback));
         }
 
-        /**
-         * @brief Broadcast to all registered callbacks
-         * 
-         * Thread-safe - can be called from any thread.
-         */
+        // @brief Broadcast to all registered callbacks
+        // 
+        // Thread-safe - can be called from any thread.
         void Broadcast()
         {
             TUniqueLock<FMutex> Lock(m_Mutex);
@@ -57,9 +51,7 @@ namespace OloEngine::LowLevelTasks
             }
         }
 
-        /**
-         * @brief Clear all registered callbacks
-         */
+        // @brief Clear all registered callbacks
         void Clear()
         {
             TUniqueLock<FMutex> Lock(m_Mutex);
@@ -71,26 +63,22 @@ namespace OloEngine::LowLevelTasks
         TArray<FCallback> m_Callbacks;
     };
 
-    /**
-     * @brief Aligned array type for cache-line aligned allocations
-     * 
-     * Used for worker events and local queues to avoid false sharing.
-     * Note: Element types must be movable for reallocation to work.
-     * For types with std::atomic members, provide explicit move constructor
-     * that loads/stores the atomic values.
-     */
+    // @brief Aligned array type for cache-line aligned allocations
+    // 
+    // Used for worker events and local queues to avoid false sharing.
+    // Note: Element types must be movable for reallocation to work.
+    // For types with std::atomic members, provide explicit move constructor
+    // that loads/stores the atomic values.
     template<typename NodeType>
     using TAlignedArray = TArray<NodeType, TAlignedHeapAllocator<alignof(NodeType)>>;
 
     namespace Private
     {
-        /**
-         * @class FOutOfWork
-         * @brief Tracks when a worker is actively looking for work
-         * 
-         * Used for profiling to understand when workers are idle vs active.
-         * When Tracy profiling is enabled, emits events to visualize worker idle time.
-         */
+        // @class FOutOfWork
+        // @brief Tracks when a worker is actively looking for work
+        // 
+        // Used for profiling to understand when workers are idle vs active.
+        // When Tracy profiling is enabled, emits events to visualize worker idle time.
         class FOutOfWork
         {
         private:
@@ -105,14 +93,12 @@ namespace OloEngine::LowLevelTasks
                 Stop();
             }
 
-            /**
-             * @brief Mark the start of looking for work
-             * @return true if this is a new start, false if already looking
-             */
+            // @brief Mark the start of looking for work
+            // @return true if this is a new start, false if already looking
             OLO_FINLINE bool Start()
             {
                 if (!m_ActivelyLookingForWork)
-                {
+                { 
 #if TRACY_ENABLE
                     // Emit Tracy event for worker looking for work
                     // This creates a visual marker in Tracy when workers are idle
@@ -132,10 +118,8 @@ namespace OloEngine::LowLevelTasks
                 return false;
             }
 
-            /**
-             * @brief Mark the end of looking for work
-             * @return true if we were looking and have now stopped, false otherwise
-             */
+            // @brief Mark the end of looking for work
+            // @return true if we were looking and have now stopped, false otherwise
             OLO_FINLINE bool Stop()
             {
                 if (m_ActivelyLookingForWork)
@@ -151,9 +135,7 @@ namespace OloEngine::LowLevelTasks
                 return false;
             }
 
-            /**
-             * @brief Check if currently looking for work
-             */
+            // @brief Check if currently looking for work
             OLO_FINLINE bool IsLookingForWork() const
             {
                 return m_ActivelyLookingForWork;

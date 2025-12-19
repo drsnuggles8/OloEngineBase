@@ -32,38 +32,32 @@ namespace OloEngine
 
     #if OLO_ALLOW_EXEC_COMMANDS
 
-        /**
-         * Exec handler
-         *
-         * @param Cmd Command to parse
-         * @param Ar Output device to log to
-         *
-         * @return true if command was handled, false otherwise
-         */
+        // Exec handler
+        //
+        // @param Cmd Command to parse
+        // @param Ar Output device to log to
+        //
+        // @return true if command was handled, false otherwise
         virtual bool Exec(const char* Cmd, FOutputDevice& Ar);
 
     #else // OLO_ALLOW_EXEC_COMMANDS
 
-        /**
-         * final override of Exec that asserts if called
-         */
+        // final override of Exec that asserts if called
         virtual bool Exec(const char* Cmd, FOutputDevice& Ar) final;
 
-        /**
-         * final override of Exec to replace overrides where a default value for Ar is provided
-         */
+        // final override of Exec to replace overrides where a default value for Ar is provided
         virtual bool Exec(const char* Cmd) final;
 
     #endif // !OLO_ALLOW_EXEC_COMMANDS
 
     protected:
-        /** Implementation of Exec that is called on all targets where OLO_ALLOW_EXEC_COMMANDS is true */
+        // Implementation of Exec that is called on all targets where OLO_ALLOW_EXEC_COMMANDS is true
         virtual bool Exec_Runtime(const char* Cmd, FOutputDevice& Ar) { (void)Cmd; (void)Ar; return false; }
 
-        /** Implementation of Exec that is only called in non-shipping targets */
+        // Implementation of Exec that is only called in non-shipping targets
         virtual bool Exec_Dev(const char* Cmd, FOutputDevice& Ar) { (void)Cmd; (void)Ar; return false; }
 
-        /** Implementation of Exec that is only called in editor */
+        // Implementation of Exec that is only called in editor
         virtual bool Exec_Editor(const char* Cmd, FOutputDevice& Ar) { (void)Cmd; (void)Ar; return false; }
     };
 

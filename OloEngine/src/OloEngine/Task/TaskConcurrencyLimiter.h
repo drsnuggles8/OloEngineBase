@@ -22,17 +22,15 @@ namespace OloEngine::Tasks
 {
     namespace Private
     {
-        /**
-         * @class FConcurrencySlots
-         * @brief A bounded lock-free FIFO queue of free slots in range [0 .. max_concurrency)
-         * 
-         * This uses atomic_queue::AtomicQueueB<uint32> matching UE5.7's implementation.
-         * FIFO ordering ensures fair slot acquisition under contention (unlike LIFO which
-         * can cause starvation).
-         * 
-         * Initially contains all slots in the range [0, max_concurrency).
-         * Used to limit how many tasks can run concurrently.
-         */
+        // @class FConcurrencySlots
+        // @brief A bounded lock-free FIFO queue of free slots in range [0 .. max_concurrency)
+        // 
+        // This uses atomic_queue::AtomicQueueB<uint32> matching UE5.7's implementation.
+        // FIFO ordering ensures fair slot acquisition under contention (unlike LIFO which
+        // can cause starvation).
+        // 
+        // Initially contains all slots in the range [0, max_concurrency).
+        // Used to limit how many tasks can run concurrently.
         class FConcurrencySlots
         {
         public:
@@ -46,11 +44,9 @@ namespace OloEngine::Tasks
                 }
             }
 
-            /**
-             * @brief Try to allocate a slot (lock-free FIFO)
-             * @param OutSlot Receives the allocated slot index
-             * @return true if a slot was allocated
-             */
+            // @brief Try to allocate a slot (lock-free FIFO)
+            // @param OutSlot Receives the allocated slot index
+            // @return true if a slot was allocated
             bool Alloc(u32& OutSlot)
             {
                 if (FreeSlots.try_pop(OutSlot))
@@ -61,9 +57,7 @@ namespace OloEngine::Tasks
                 return false;
             }
 
-            /**
-             * @brief Release a previously allocated slot (lock-free FIFO)
-             */
+            // @brief Release a previously allocated slot (lock-free FIFO)
             void Release(u32 Slot)
             {
                 FreeSlots.push(Slot + IndexOffset);
@@ -78,12 +72,10 @@ namespace OloEngine::Tasks
             atomic_queue::AtomicQueueB<u32> FreeSlots;
         };
 
-        /**
-         * @class FTaskConcurrencyLimiterImpl
-         * @brief Lock-free implementation of FTaskConcurrencyLimiter
-         * 
-         * Uses lock-free lists for both slot allocation and work queue.
-         */
+        // @class FTaskConcurrencyLimiterImpl
+        // @brief Lock-free implementation of FTaskConcurrencyLimiter
+        // 
+        // Uses lock-free lists for both slot allocation and work queue.
         class FTaskConcurrencyLimiterImpl : public TSharedFromThis<FTaskConcurrencyLimiterImpl>
         {
         public:
@@ -107,11 +99,9 @@ namespace OloEngine::Tasks
                 }
             }
 
-            /**
-             * @brief Push a new task into the limiter (lock-free)
-             */
+            // @brief Push a new task into the limiter (lock-free)
             template<typename TaskFunctionType>
-            void Push(const char* DebugName, TaskFunctionType&& TaskFunction)
+            void Push(const char* DebugName, TaskFunctionType&& TaskFunction)  
             {
                 // Create a wrapper that captures the task function
                 TSharedPtr<LowLevelTasks::FTask> Task = MakeShared<LowLevelTasks::FTask>();
@@ -139,11 +129,9 @@ namespace OloEngine::Tasks
                 AddWorkItem(Task.Get());
             }
 
-            /**
-             * @brief Wait for all tasks to complete
-             * @param Timeout Maximum time to wait
-             * @return true if all tasks completed, false on timeout
-             */
+            // @brief Wait for all tasks to complete
+            // @param Timeout Maximum time to wait
+            // @return true if all tasks completed, false on timeout
             bool Wait(FMonotonicTimeSpan Timeout)
             {
                 // Relaxed ordering is sufficient here since we're just checking if work is pending.
@@ -273,81 +261,74 @@ namespace OloEngine::Tasks
 
     } // namespace Private
 
-    /**
-     * @class FTaskConcurrencyLimiter
-     * @brief A lightweight lock-free construct that limits the concurrency of tasks pushed into it
-     *
-     * This is useful when you have many tasks that access a shared resource and want
-     * to limit how many can run at the same time. Each task receives a "slot" index
-     * that can be used to index into per-slot buffers.
-     *
-     * @note This class supports being destroyed before the tasks it contains are finished.
-     * @note This implementation is lock-free using indexed pointers with ABA counters.
-     *
-     * Example:
-     * @code
-     * // Allow at most 4 concurrent tasks
-     * FTaskConcurrencyLimiter Limiter(4);
-     * 
-     * // Per-slot accumulator buffers
-     * std::array<int, 4> Accumulators = {};
-     * 
-     * for (int i = 0; i < 1000; ++i)
-     * {
-     *     Limiter.Push("Accumulate", [&Accumulators, i](u32 Slot) 
-     *     {
-     *         // Use Slot to index into a per-slot buffer without synchronization
-     *         Accumulators[Slot] += i;
-     *     });
-     * }
-     * 
-     * Limiter.Wait();
-     * 
-     * // Sum all per-slot accumulators
-     * int Total = 0;
-     * for (int Acc : Accumulators)
-     * {
-     *     Total += Acc;
-     * }
-     * @endcode
-     */
+    // @class FTaskConcurrencyLimiter
+    // @brief A lightweight lock-free construct that limits the concurrency of tasks pushed into it
+    //
+    // This is useful when you have many tasks that access a shared resource and want
+    // to limit how many can run at the same time. Each task receives a "slot" index
+    // that can be used to index into per-slot buffers.
+    //
+    // @note This class supports being destroyed before the tasks it contains are finished.
+    // @note This implementation is lock-free using indexed pointers with ABA counters.
+    //
+    // Example:
+    // @code
+    // // Allow at most 4 concurrent tasks
+    // FTaskConcurrencyLimiter Limiter(4);
+    // 
+    // // Per-slot accumulator buffers
+    // std::array<int, 4> Accumulators = {};
+    // 
+    // for (int i = 0; i < 1000; ++i)
+    // {
+    //     Limiter.Push("Accumulate", [&Accumulators, i](u32 Slot) 
+    //     {
+    //         // Use Slot to index into a per-slot buffer without synchronization
+    //     //     Accumulators[Slot] += i;
+    //     // });
+    // }
+    // 
+    // Limiter.Wait();
+    // 
+    // // Sum all per-slot accumulators
+    // int Total = 0;
+    // for (int Acc : Accumulators)
+    // {
+    //     Total += Acc;
+    // }
+    // @endcode
+    // */
     class FTaskConcurrencyLimiter
     {
     public:
-        /**
-         * @brief Constructor
-         * @param MaxConcurrency How wide the processing can go (number of concurrent tasks)
-         * @param TaskPriority Priority the tasks will be launched with
-         */
+        // @brief Constructor
+        // @param MaxConcurrency How wide the processing can go (number of concurrent tasks)
+        // @param TaskPriority Priority the tasks will be launched with
         explicit FTaskConcurrencyLimiter(u32 MaxConcurrency, 
             LowLevelTasks::ETaskPriority TaskPriority = LowLevelTasks::ETaskPriority::Default)
             : m_Impl(MakeShared<Private::FTaskConcurrencyLimiterImpl>(MaxConcurrency, TaskPriority))
         {
         }
 
-        /**
-         * @brief Push a new task
-         * 
-         * @param DebugName Helps to identify the task in debugger and profiler
-         * @param TaskFunction A callable with a slot parameter (u32). The slot parameter 
-         *                     is an index in [0..max_concurrency) range, unique at any 
-         *                     moment of time, that can be used to index a fixed-size buffer.
-         */
+        // @brief Push a new task
+        // 
+        // @param DebugName Helps to identify the task in debugger and profiler
+        // @param TaskFunction A callable with a slot parameter (u32). The slot parameter 
+        //                     is an index in [0..max_concurrency) range, unique at any 
+        //                     moment of time, that can be used to index a fixed-size buffer.
         template<typename TaskFunctionType>
         void Push(const char* DebugName, TaskFunctionType&& TaskFunction)
         {
             m_Impl->Push(DebugName, Forward<TaskFunctionType>(TaskFunction));
         }
 
-        /**
-         * @brief Wait for all tasks to complete
-         * 
-         * @param Timeout Maximum amount of time to wait for tasks to finish
-         * @return true if all tasks completed, false on timeout
-         * 
-         * @note A wait is satisfied once the internal task counter reaches 0 and is 
-         *       never reset afterward when more tasks are added.
-         */
+        // @brief Wait for all tasks to complete
+        // 
+        // @param Timeout Maximum amount of time to wait for tasks to finish
+        // @return true if all tasks completed, false on timeout
+        // 
+        // @note A wait is satisfied once the internal task counter reaches 0 and is 
+        //       never reset afterward when more tasks are added.
         bool Wait(FMonotonicTimeSpan Timeout = FMonotonicTimeSpan::Infinity())
         {
             return m_Impl->Wait(Timeout);

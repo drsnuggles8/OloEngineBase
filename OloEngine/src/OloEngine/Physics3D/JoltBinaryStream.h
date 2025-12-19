@@ -19,37 +19,31 @@ namespace JPH {
 
 namespace OloEngine {
 
-	/**
-	 * @brief Binary stream reader for Jolt Physics serialization
-	 * 
-	 * Reads binary data from OloEngine Buffer objects for deserializing physics shapes.
-	 */
+	// @brief Binary stream reader for Jolt Physics serialization
+	// 
+	// Reads binary data from OloEngine Buffer objects for deserializing physics shapes.
 	class JoltBinaryStreamReader
 	{
 	public:
-		/**
-		 * @brief Constructs a reader from a Buffer.
-		 * @warning The reader does NOT take ownership of the memory. The caller must ensure 
-		 *          the provided buffer outlives this reader instance to avoid dangling pointers.
-		 * @note For safe usage: pass an owning Buffer, use std::shared_ptr/unique_ptr for dynamic data,
-		 *       or ensure stack/temporary data remains valid during reader lifetime.
-		 * @param buffer The buffer to read from (must remain valid during reader lifetime)
-		 */
+		// @brief Constructs a reader from a Buffer.
+		// @warning The reader does NOT take ownership of the memory. The caller must ensure 
+		//          the provided buffer outlives this reader instance to avoid dangling pointers.
+		// @note For safe usage: pass an owning Buffer, use std::shared_ptr/unique_ptr for dynamic data,
+		//       or ensure stack/temporary data remains valid during reader lifetime.
+		// @param buffer The buffer to read from (must remain valid during reader lifetime)
 		explicit JoltBinaryStreamReader(const Buffer& buffer)
 			: m_Data(buffer.Data), m_Size(buffer.Size), m_ReadBytes(0), m_Failed(false)
 		{
 			OLO_CORE_ASSERT(buffer.Data != nullptr && buffer.Size > 0, "Invalid buffer provided to JoltBinaryStreamReader");
 		}
 
-		/**
-		 * @brief Constructs a reader from raw pointer and size.
-		 * @warning The reader does NOT take ownership of the memory. The caller must ensure 
-		 *          the provided data outlives this reader instance to avoid dangling pointers.
-		 * @note For safe usage: use with stack arrays, string literals, or ensure dynamic memory
-		 *       remains valid. For untrusted input, consider copying into an owned buffer first.
-		 * @param data Pointer to data to read from (must remain valid during reader lifetime)
-		 * @param size Size of the data in bytes
-		 */
+		// @brief Constructs a reader from raw pointer and size.
+		// @warning The reader does NOT take ownership of the memory. The caller must ensure 
+		//          the provided data outlives this reader instance to avoid dangling pointers.
+		// @note For safe usage: use with stack arrays, string literals, or ensure dynamic memory
+		//       remains valid. For untrusted input, consider copying into an owned buffer first.
+		// @param data Pointer to data to read from (must remain valid during reader lifetime)
+		// @param size Size of the data in bytes
 		explicit JoltBinaryStreamReader(const u8* data, u64 size)
 			: m_Data(data), m_Size(size), m_ReadBytes(0), m_Failed(false)
 		{
@@ -175,11 +169,9 @@ namespace OloEngine {
 		bool m_Failed = false;
 	};
 
-	/**
-	 * @brief Binary stream writer for Jolt Physics serialization
-	 * 
-	 * Writes binary data to expandable buffer for serializing physics shapes.
-	 */
+	// @brief Binary stream writer for Jolt Physics serialization
+	// 
+	// Writes binary data to expandable buffer for serializing physics shapes.
 	class JoltBinaryStreamWriter
 	{
 	public:
@@ -283,9 +275,7 @@ namespace OloEngine {
 		bool m_Failed = false;
 	};
 
-	/**
-	 * @brief Utility functions for Jolt shape serialization using binary streams
-	 */
+	// @brief Utility functions for Jolt shape serialization using binary streams
 	namespace JoltBinaryStreamUtils {
 
 		// Shape serialization functions
@@ -304,15 +294,13 @@ namespace OloEngine {
 		sizet CalculateShapeMemoryUsage(const Buffer& buffer);
 		
 		// Optional compression support (for future use)
-		/**
-		 * @brief Compress shape data using RLE compression
-		 * 
-		 * @param inputBuffer Input buffer to compress
-		 * @return Always returns an owning Buffer - either compressed data or a copy of input buffer
-		 * 
-		 * @note MEMORY SAFETY: Always returns an owning Buffer to prevent UAF issues.
-		 *       When compression is not beneficial, returns a copy of inputBuffer.
-		 */
+		// @brief Compress shape data using RLE compression
+		// 
+		// @param inputBuffer Input buffer to compress
+		// @return Always returns an owning Buffer - either compressed data or a copy of input buffer
+		// 
+		// @note MEMORY SAFETY: Always returns an owning Buffer to prevent UAF issues.
+		//       When compression is not beneficial, returns a copy of inputBuffer.
 		Buffer CompressShapeData(const Buffer& inputBuffer, bool forceCompression = false);
 		Buffer DecompressShapeData(const Buffer& compressedBuffer);
 

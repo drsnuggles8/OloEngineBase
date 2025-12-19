@@ -21,10 +21,8 @@
 
 namespace OloEngine::LowLevelTasks
 {
-    /**
-     * @enum EQueuePreference
-     * @brief Preference for which queue to use when launching tasks
-     */
+    // @enum EQueuePreference
+    // @brief Preference for which queue to use when launching tasks
     enum class EQueuePreference
     {
         GlobalQueuePreference,
@@ -32,10 +30,8 @@ namespace OloEngine::LowLevelTasks
         DefaultPreference = LocalQueuePreference,
     };
 
-    /**
-     * @enum EThreadPriority
-     * @brief Thread priority levels for worker threads
-     */
+    // @enum EThreadPriority
+    // @brief Thread priority levels for worker threads
     enum class EThreadPriority
     {
         TPri_Normal,
@@ -48,32 +44,24 @@ namespace OloEngine::LowLevelTasks
         TPri_Num,
     };
 
-    /**
-     * @enum EForkable
-     * @brief Controls fork behavior for worker threads
-     */
+    // @enum EForkable
+    // @brief Controls fork behavior for worker threads
     enum class EForkable
     {
         NonForkable,
         Forkable,
     };
 
-    /**
-     * @brief Check if current thread is the game/main thread.
-     * Matching UE5.7's IsInGameThread() validation.
-     * @return true if on the game thread
-     */
+    // @brief Check if current thread is the game/main thread.
+    // Matching UE5.7's IsInGameThread() validation.
+    // @return true if on the game thread
     bool IsInGameThread();
 
-    /**
-     * @brief Initialize the game thread ID. Call from main() before starting workers.
-     */
+    // @brief Initialize the game thread ID. Call from main() before starting workers.
     void InitGameThreadId();
 
-    /**
-     * @class FSchedulerTls
-     * @brief Thread-local storage management for the scheduler
-     */
+    // @class FSchedulerTls
+    // @brief Thread-local storage management for the scheduler
     class FSchedulerTls
     {
     protected:
@@ -89,10 +77,8 @@ namespace OloEngine::LowLevelTasks
             Foreground,
         };
 
-        /**
-         * @struct FTlsValues
-         * @brief Per-thread values stored in TLS for scheduler state
-         */
+        // @struct FTlsValues
+        // @brief Per-thread values stored in TLS for scheduler state
         struct FTlsValues : public TIntrusiveLinkedList<FTlsValues>
         {
             FSchedulerTls*         ActiveScheduler = nullptr;
@@ -121,10 +107,8 @@ namespace OloEngine::LowLevelTasks
             static void operator delete(void* Ptr);
         };
 
-        /**
-         * @struct FTlsValuesHolder
-         * @brief RAII holder for FTlsValues in thread-local storage
-         */
+        // @struct FTlsValuesHolder
+        // @brief RAII holder for FTlsValues in thread-local storage
         struct FTlsValuesHolder
         {
             FTlsValuesHolder();
@@ -145,14 +129,12 @@ namespace OloEngine::LowLevelTasks
         static FTlsValues& GetTlsValuesRef();
     };
 
-    /**
-     * @class FScheduler
-     * @brief Main task scheduler for managing worker threads and task execution
-     * 
-     * The scheduler manages a pool of worker threads that execute tasks from
-     * work-stealing queues. It supports both foreground and background workers
-     * with different priorities and oversubscription for blocking operations.
-     */
+    // @class FScheduler
+    // @brief Main task scheduler for managing worker threads and task execution
+    // 
+    // The scheduler manages a pool of worker threads that execute tasks from
+    // work-stealing queues. It supports both foreground and background workers
+    // with different priorities and oversubscription for blocking operations.
     class FScheduler final : public FSchedulerTls
     {
     public:
@@ -170,75 +152,55 @@ namespace OloEngine::LowLevelTasks
     public: // Public Interface of the Scheduler
         OLO_FINLINE static FScheduler& Get();
 
-        /**
-         * @brief Start worker threads
-         * @param NumForegroundWorkers Number of foreground workers (0 = system default)
-         * @param NumBackgroundWorkers Number of background workers (0 = system default)
-         * @param IsForkable Fork behavior for worker threads (NonForkable by default)
-         * @param InWorkerPriority Thread priority for foreground workers
-         * @param InBackgroundPriority Thread priority for background workers
-         * @param InWorkerAffinity CPU affinity mask for foreground workers
-         * @param InBackgroundAffinity CPU affinity mask for background workers
-         */
+        // @brief Start worker threads
+        // @param NumForegroundWorkers Number of foreground workers (0 = system default)
+        // @param NumBackgroundWorkers Number of background workers (0 = system default)
+        // @param IsForkable Fork behavior for worker threads (NonForkable by default)
+        // @param InWorkerPriority Thread priority for foreground workers
+        // @param InBackgroundPriority Thread priority for background workers
+        // @param InWorkerAffinity CPU affinity mask for foreground workers
+        // @param InBackgroundAffinity CPU affinity mask for background workers
         void StartWorkers(u32 NumForegroundWorkers = 0, u32 NumBackgroundWorkers = 0, 
                           EForkable IsForkable = EForkable::NonForkable,
                           EThreadPriority InWorkerPriority = EThreadPriority::TPri_Normal, 
                           EThreadPriority InBackgroundPriority = EThreadPriority::TPri_BelowNormal, 
                           u64 InWorkerAffinity = 0, u64 InBackgroundAffinity = 0);
 
-        /**
-         * @brief Stop all worker threads
-         * @param DrainGlobalQueue If true, execute remaining tasks before stopping
-         */
+        // @brief Stop all worker threads
+        // @param DrainGlobalQueue If true, execute remaining tasks before stopping
         void StopWorkers(bool DrainGlobalQueue = true);
 
-        /**
-         * @brief Restart workers with new configuration
-         */
+        // @brief Restart workers with new configuration
         void RestartWorkers(u32 NumForegroundWorkers = 0, u32 NumBackgroundWorkers = 0, 
                            EForkable IsForkable = EForkable::NonForkable,
                            EThreadPriority WorkerPriority = EThreadPriority::TPri_Normal, 
                            EThreadPriority BackgroundPriority = EThreadPriority::TPri_BelowNormal, 
                            u64 InWorkerAffinity = 0, u64 InBackgroundAffinity = 0);
 
-        /**
-         * @brief Try to launch a task
-         * @param Task The task to launch
-         * @param QueuePreference Which queue to prefer for the task
-         * @param bWakeUpWorker Whether to wake up a worker thread
-         * @return true if the task was in the ready state and has been launched
-         */
+        // @brief Try to launch a task
+        // @param Task The task to launch
+        // @param QueuePreference Which queue to prefer for the task
+        // @param bWakeUpWorker Whether to wake up a worker thread
+        // @return true if the task was in the ready state and has been launched
         OLO_FINLINE bool TryLaunch(FTask& Task, EQueuePreference QueuePreference = EQueuePreference::DefaultPreference, bool bWakeUpWorker = true);
 
-        /**
-         * @brief Get number of active workers
-         */
+        // @brief Get number of active workers
         OLO_FINLINE u32 GetNumWorkers() const;
 
-        /**
-         * @brief Get maximum number of workers including standby workers
-         */
+        // @brief Get maximum number of workers including standby workers
         OLO_FINLINE u32 GetMaxNumWorkers() const;
 
-        /**
-         * @brief Get foreground worker thread priority
-         */
+        // @brief Get foreground worker thread priority
         OLO_FINLINE EThreadPriority GetWorkerPriority() const { return m_WorkerPriority; }
 
-        /**
-         * @brief Get background worker thread priority
-         */
+        // @brief Get background worker thread priority
         OLO_FINLINE EThreadPriority GetBackgroundPriority() const { return m_BackgroundPriority; }
 
-        /**
-         * @brief Check if we're out of workers for a given task priority
-         */
+        // @brief Check if we're out of workers for a given task priority
         bool IsOversubscriptionLimitReached(ETaskPriority TaskPriority) const;
 
-        /**
-         * @brief Get the event that fires when oversubscription limit is reached
-         * @note This event can be broadcasted from any thread so the receiver needs to be thread-safe
-         */
+        // @brief Get the event that fires when oversubscription limit is reached
+        // @note This event can be broadcasted from any thread so the receiver needs to be thread-safe
         FOversubscriptionLimitReached& GetOversubscriptionLimitReachedEvent();
 
     public:
@@ -298,17 +260,15 @@ namespace OloEngine::LowLevelTasks
         std::atomic_bool                                          m_TemporaryShutdown{ false };
     };
 
-    /**
-     * @brief Free function to launch a task on the default scheduler
-     */
+    // @brief Free function to launch a task on the default scheduler
     OLO_FINLINE bool TryLaunch(FTask& Task, EQueuePreference QueuePreference = EQueuePreference::DefaultPreference, bool bWakeUpWorker = true)
     {
         return FScheduler::Get().TryLaunch(Task, QueuePreference, bWakeUpWorker);
     }
 
-    /******************
-    * IMPLEMENTATION *
-    ******************/
+    // ******************
+    // * IMPLEMENTATION *
+    // ******************
     OLO_FINLINE bool FScheduler::TryLaunch(FTask& Task, EQueuePreference QueuePreference, bool bWakeUpWorker)
     {
         if (Task.TryPrepareLaunch())

@@ -23,14 +23,12 @@ namespace OloEngine {
 
 namespace OloEngine
 {
-    /**
-     * @brief High-level 3D rendering API with scene and material management
-     * 
-     * @warning Thread Safety: This class is NOT thread-safe. All methods should be called
-     * from the main rendering thread only. The static data members (s_Data, m_ShaderLibrary)
-     * are accessed without synchronization and concurrent access will lead to undefined behavior.
-     * If multi-threaded rendering is required, external synchronization must be provided.
-     */
+    // @brief High-level 3D rendering API with scene and material management
+    // 
+    // @warning Thread Safety: This class is NOT thread-safe. All methods should be called
+    // from the main rendering thread only. The static data members (s_Data, m_ShaderLibrary)
+    // are accessed without synchronization and concurrent access will lead to undefined behavior.
+    // If multi-threaded rendering is required, external synchronization must be provided.
 	class ShaderLibrary;
 
 	class Renderer3D

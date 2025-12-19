@@ -3,19 +3,17 @@
 
 #pragma once
 
-/**
- * @file MallocPurgatoryProxy.h
- * @brief FMalloc proxy that detects use-after-free bugs
- * 
- * When memory is freed, instead of immediately returning it to the allocator:
- * 1. Fill the memory with a canary byte pattern (0xDC)
- * 2. Add to a "purgatory" queue for several frames
- * 3. After N frames, verify the canary bytes are unchanged
- * 4. If modified, someone wrote to freed memory -> log error
- * 5. Actually free the memory
- * 
- * This detects use-after-free bugs that occur within a few frames of the free.
- */
+// @file MallocPurgatoryProxy.h
+// @brief FMalloc proxy that detects use-after-free bugs
+// 
+// When memory is freed, instead of immediately returning it to the allocator:
+// 1. Fill the memory with a canary byte pattern (0xDC)
+// 2. Add to a "purgatory" queue for several frames
+// 3. After N frames, verify the canary bytes are unchanged
+// 4. If modified, someone wrote to freed memory -> log error
+// 5. Actually free the memory
+// 
+// This detects use-after-free bugs that occur within a few frames of the free.
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Memory/MemoryBase.h"
@@ -26,7 +24,7 @@
 namespace OloEngine
 {
 
-/** Enable/disable purgatory proxy at compile time */
+// Enable/disable purgatory proxy at compile time
 #if !defined(OLO_MALLOC_PURGATORY)
     #if defined(OLO_DEBUG) || defined(OLO_RELEASE)
         #define OLO_MALLOC_PURGATORY 1
@@ -43,34 +41,34 @@ namespace OloEngine
  */
 class FMallocPurgatoryProxy : public FMalloc
 {
-    /** Malloc we're based on, aka using under the hood */
+    // Malloc we're based on, aka using under the hood
     FMalloc* m_UsedMalloc;
     
     enum
     {
-        /** Number of frames to keep freed memory in purgatory */
+        // Number of frames to keep freed memory in purgatory
         PURGATORY_FRAMES = 4,
         
-        /** Maximum total memory to keep in purgatory (100 MB) */
+        // Maximum total memory to keep in purgatory (100 MB)
         PURGATORY_MAX_MEM = 100 * 1024 * 1024,
         
-        /** Canary byte used to detect writes to freed memory */
+        // Canary byte used to detect writes to freed memory
         PURGATORY_CANARY_BYTE = 0xdc,
     };
     
-    /** Frame number when we last checked/freed from purgatory */
+    // Frame number when we last checked/freed from purgatory
     u32 m_LastCheckFrame;
     
-    /** Outstanding size in KB in purgatory */
+    // Outstanding size in KB in purgatory
     std::atomic<i32> m_OutstandingSizeInKB{0};
     
-    /** Counter for oversize clearing */
+    // Counter for oversize clearing
     std::atomic<i32> m_NextOversizeClear{0};
     
-    /** Per-frame purgatory queues (lock-free LIFO stacks) */
+    // Per-frame purgatory queues (lock-free LIFO stacks)
     TLockFreePointerListUnordered<void, OLO_PLATFORM_CACHE_LINE_SIZE> m_Purgatory[PURGATORY_FRAMES];
 
-    /** Global frame counter - should be updated by engine each frame */
+    // Global frame counter - should be updated by engine each frame
     static inline std::atomic<u32> s_FrameNumber{0};
 
 public:

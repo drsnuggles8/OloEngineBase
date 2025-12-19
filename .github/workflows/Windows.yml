@@ -56,4 +56,4 @@ jobs:
       with:
         name: googletest_results_xml
         path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
-        if-no-files-found: 'warn' 
+        if-no-files-found: 'warn'

@@ -3,16 +3,14 @@
 
 #pragma once
 
-/**
- * @file WordMutex.h
- * @brief A mutex that is the size of a pointer and does not depend on ParkingLot.
- * 
- * This mutex uses an intrusive linked list of waiting threads instead of the
- * global ParkingLot hash table. It's useful when you need a mutex that has
- * minimal dependencies and a predictable size.
- * 
- * Ported from Unreal Engine's Async/WordMutex.h
- */
+// @file WordMutex.h
+// @brief A mutex that is the size of a pointer and does not depend on ParkingLot.
+// 
+// This mutex uses an intrusive linked list of waiting threads instead of the
+// global ParkingLot hash table. It's useful when you need a mutex that has
+// minimal dependencies and a predictable size.
+// 
+// Ported from Unreal Engine's Async/WordMutex.h
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/HAL/ManualResetEvent.h"
@@ -23,20 +21,18 @@
 
 namespace OloEngine
 {
-    /**
-     * @class FWordMutex
-     * @brief A mutex that is the size of a pointer and does not depend on ParkingLot.
-     *
-     * Prefer FMutex to FWordMutex whenever possible. FMutex is typically more
-     * efficient due to ParkingLot optimizations.
-     * 
-     * This mutex is not fair and does not support recursive locking.
-     * 
-     * State layout:
-     * - Bit 0: IsLockedFlag - set when the mutex is locked
-     * - Bit 1: IsQueueLockedFlag - set when a thread is traversing the wait queue
-     * - Bits 2+: QueueMask - pointer to the tail of the intrusive wait queue
-     */
+    // @class FWordMutex
+    // @brief A mutex that is the size of a pointer and does not depend on ParkingLot.
+    //
+    // Prefer FMutex to FWordMutex whenever possible. FMutex is typically more
+    // efficient due to ParkingLot optimizations.
+    // 
+    // This mutex is not fair and does not support recursive locking.
+    // 
+    // State layout:
+    // - Bit 0: IsLockedFlag - set when the mutex is locked
+    // - Bit 1: IsQueueLockedFlag - set when a thread is traversing the wait queue
+    // - Bits 2+: QueueMask - pointer to the tail of the intrusive wait queue
     class FWordMutex final
     {
     public:
@@ -45,10 +41,8 @@ namespace OloEngine
         FWordMutex(const FWordMutex&) = delete;
         FWordMutex& operator=(const FWordMutex&) = delete;
 
-        /**
-         * @brief Try to acquire the lock without blocking
-         * @return true if lock was acquired
-         */
+        // @brief Try to acquire the lock without blocking
+        // @return true if lock was acquired
         [[nodiscard]] inline bool TryLock()
         {
             uptr Expected = 0;
@@ -56,9 +50,7 @@ namespace OloEngine
                 std::memory_order_acquire, std::memory_order_relaxed);
         }
 
-        /**
-         * @brief Acquire the lock, blocking until available
-         */
+        // @brief Acquire the lock, blocking until available
         inline void Lock()
         {
             uptr Expected = 0;
@@ -71,9 +63,7 @@ namespace OloEngine
             LockSlow();
         }
 
-        /**
-         * @brief Release the lock
-         */
+        // @brief Release the lock
         inline void Unlock()
         {
             // Unlock immediately to allow other threads to acquire the lock 
@@ -95,13 +85,11 @@ namespace OloEngine
         }
 
     private:
-        /**
-         * @brief Node for the intrusive wait queue
-         * 
-         * This is a doubly-linked list where:
-         * - Prev: points from tail toward head (set when enqueuing)
-         * - Next: points from head toward tail (set when dequeuing)
-         */
+        // @brief Node for the intrusive wait queue
+        // 
+        // This is a doubly-linked list where:
+        // - Prev: points from tail toward head (set when enqueuing)
+        // - Next: points from head toward tail (set when dequeuing)
         struct FQueueNode
         {
             // Points to the next node in the tail-to-head direction. Only null for the current tail.

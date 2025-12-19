@@ -3,14 +3,12 @@
 
 #pragma once
 
-/**
- * @file LowLevelMemTrackerDefines.h
- * @brief Configuration defines for the Low-Level Memory Tracker
- * 
- * This header configures compile-time settings for LLM based on build configuration.
- * LLM provides detailed memory tracking at the allocation level, useful for debugging
- * memory issues and profiling memory usage.
- */
+// @file LowLevelMemTrackerDefines.h
+// @brief Configuration defines for the Low-Level Memory Tracker
+// 
+// This header configures compile-time settings for LLM based on build configuration.
+// LLM provides detailed memory tracking at the allocation level, useful for debugging
+// memory issues and profiling memory usage.
 
 // ============================================================================
 // Build Configuration

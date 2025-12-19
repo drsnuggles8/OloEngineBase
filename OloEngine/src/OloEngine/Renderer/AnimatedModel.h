@@ -21,12 +21,10 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief AnimatedModel class for loading and managing skeletal animated models
-     * 
-     * This class handles loading of skeletal animated models from various formats (glTF, FBX, etc.)
-     * using Assimp. It creates MeshSource objects with separated bone influences, Skeleton data, and AnimationClip objects.
-     */
+    // @brief AnimatedModel class for loading and managing skeletal animated models
+    // 
+    // This class handles loading of skeletal animated models from various formats (glTF, FBX, etc.)
+    // using Assimp. It creates MeshSource objects with separated bone influences, Skeleton data, and AnimationClip objects.
     class AnimatedModel : public RefCounted
     {
     public:

@@ -1,0 +1,38 @@
+# Normalize text files and let Git detect text files automatically
+* text=auto
+
+# Explicit binaries
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.lib binary
+*.dat binary
+
+# Force LF for docs and scripts that should be LF
+*.md text eol=lf
+*.markdown text eol=lf
+*.sh  text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Windows scripts keep CRLF
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Mark vendor as vendored (hides from GitHub linguist and other tooling)
+vendor/** linguist-vendored
+
+# Don't include build artifacts and binary outputs in `git archive` packages
+build/** export-ignore
+bin/** export-ignore
+
+# Ensure generated Visual Studio files are treated as binary where appropriate
+*.vcxproj binary
+*.sln binary
+
+# Make sure large generated files don't get diffs
+*.pbxproj -diff

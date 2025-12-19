@@ -15,9 +15,7 @@ namespace OloEngine
 	// Forward declaration
 	class FGenericPlatformMallocCrash;
 
-	/**
-	 * Pool configuration descriptor
-	 */
+	// @brief Pool configuration descriptor
 	struct FPoolDesc
 	{
 		constexpr FPoolDesc(u32 InSize, u32 InNumAllocs)
@@ -27,9 +25,7 @@ namespace OloEngine
 		const u32 NumAllocs;  // Maximum number of allocations
 	};
 
-	/**
-	 * Allocation descriptor - tracks size and pointer for each allocation in a pool
-	 */
+	// @brief Allocation descriptor - tracks size and pointer for each allocation in a pool
 	struct FPtrInfo
 	{
 		u64 Size;        // Size of the allocation (0 means free)
@@ -43,10 +39,8 @@ namespace OloEngine
 		explicit FPtrInfo(void* NewPtr) : Size(0), Ptr(static_cast<u8*>(NewPtr)) {}
 	};
 
-	/**
-	 * Fixed-size memory pool for crash allocator.
-	 * Uses linear search for allocation, O(1) free via pointer arithmetic.
-	 */
+	// @brief Fixed-size memory pool for crash allocator.
+	// Uses linear search for allocation, O(1) free via pointer arithmetic.
 	struct FMallocCrashPool
 	{
 		u32 NumUsed = 0;           // Current number of used allocations
@@ -67,50 +61,38 @@ namespace OloEngine
 
 		FMallocCrashPool() = default;
 
-		/**
-		 * Initialize the pool with the given descriptor
-		 */
+		// Initialize the pool with the given descriptor
 		void Initialize(const FPoolDesc& PoolDesc, FGenericPlatformMallocCrash& Outer);
 
-		/**
-		 * Allocate from pool - linear search for free slot (Size == 0)
-		 * @return Allocated pointer or nullptr if pool is exhausted
-		 */
+		// Allocate from pool - linear search for free slot (Size == 0)
+		// @return Allocated pointer or nullptr if pool is exhausted
 		u8* AllocateFromPool(u32 InAllocationSize);
 
-		/**
-		 * Free - O(1) using pointer arithmetic: Index = (Ptr - AllocBase) / AllocationSize
-		 * @return true if freed, false if pointer not from this pool
-		 */
+		// Free - O(1) using pointer arithmetic: Index = (Ptr - AllocBase) / AllocationSize
+		// @return true if freed, false if pointer not from this pool
 		bool TryFreeFromPool(u8* Ptr);
 
-		/**
-		 * Get allocation size for a pointer
-		 * @return Size stored in FPtrInfo for this allocation
-		 */
+		// Get allocation size for a pointer
+		// @return Size stored in FPtrInfo for this allocation
 		u64 GetAllocationSize(u8* Ptr) const;
 
-		/**
-		 * Check if pointer belongs to this pool
-		 */
+		// @brief Check if pointer belongs to this pool
 		bool ContainsPointer(u8* Ptr) const;
 
 		// Debug verification (no-op in release)
 		void DebugVerify() const {}
 	};
 
-	/**
-	 * Pool-based allocator used during crash handling.
-	 * Provides thread-safe memory allocation that doesn't rely on the main allocator
-	 * which may be in a corrupted state during a crash.
-	 *
-	 * Key features:
-	 * - Preallocated memory pools (no OS calls during crash)
-	 * - Locks to the crashed thread
-	 * - 14 fixed-size pools for small allocations (64 bytes to 32KB)
-	 * - Bump allocator for large allocations (>32KB)
-	 * - FPtrInfo bookkeeping for O(1) free and size queries
-	 */
+	// Pool-based allocator used during crash handling.
+	// Provides thread-safe memory allocation that doesn't rely on the main allocator
+	// which may be in a corrupted state during a crash.
+	// 
+	// Key features:
+	// - Preallocated memory pools (no OS calls during crash)
+	// - Locks to the crashed thread
+	// - 14 fixed-size pools for small allocations (64 bytes to 32KB)
+	// - Bump allocator for large allocations (>32KB)
+	// - FPtrInfo bookkeeping for O(1) free and size queries
 	class FGenericPlatformMallocCrash
 	{
 		friend struct FMallocCrashPool;
@@ -126,65 +108,49 @@ namespace OloEngine
 			MEM_WIPETAG = 0xcd,
 		};
 
-		/**
-		 * Gets the crash malloc singleton instance.
-		 * @param MainMalloc The main allocator to fall back to (only used on first call)
-		 */
+		// Gets the crash malloc singleton instance.
+		// @param MainMalloc The main allocator to fall back to (only used on first call)
 		static FGenericPlatformMallocCrash& Get(void* MainMalloc = nullptr);
 
-		/**
-		 * Checks if crash malloc is currently active.
-		 * Used to skip certain operations (like TLS cleanup) during crash handling.
-		 */
+		// Checks if crash malloc is currently active.
+		// Used to skip certain operations (like TLS cleanup) during crash handling.
 		static bool IsActive();
 
-		/**
-		 * Activates crash malloc and sets it as the global allocator.
-		 * After this call, all memory operations go through the crash malloc.
-		 */
+		// Activates crash malloc and sets it as the global allocator.
+		// After this call, all memory operations go through the crash malloc.
 		void SetAsGMalloc();
 
-		/**
-		 * Allocates memory from the crash pool.
-		 * First tries small pools, then falls back to large pool.
-		 * @param Size Size of allocation in bytes
-		 * @param Alignment Required alignment (max 16)
-		 * @return Pointer to allocated memory, or nullptr if failed
-		 */
+		// Allocates memory from the crash pool.
+		// First tries small pools, then falls back to large pool.
+		// @param Size Size of allocation in bytes
+		// @param Alignment Required alignment (max 16)
+		// @return Pointer to allocated memory, or nullptr if failed
 		void* Malloc(sizet Size, u32 Alignment = REQUIRED_ALIGNMENT);
 
-		/**
-		 * Frees memory back to the crash pool.
-		 * Returns allocation to appropriate pool for reuse.
-		 * @param Ptr Pointer to free
-		 */
+		// Frees memory back to the crash pool.
+		// Returns allocation to appropriate pool for reuse.
+		// @param Ptr Pointer to free
 		void Free(void* Ptr);
 
-		/**
-		 * Reallocates memory.
-		 * Uses GetAllocationSize() to copy old data correctly.
-		 * @param Ptr Pointer to existing allocation
-		 * @param NewSize New size in bytes
-		 * @param Alignment Required alignment
-		 * @return Pointer to reallocated memory
-		 */
+		// Reallocates memory.
+		// Uses GetAllocationSize() to copy old data correctly.
+		// @param Ptr Pointer to existing allocation
+		// @param NewSize New size in bytes
+		// @param Alignment Required alignment
+		// @return Pointer to reallocated memory
 		void* Realloc(void* Ptr, sizet NewSize, u32 Alignment = REQUIRED_ALIGNMENT);
 
-		/**
-		 * Get the size of an allocation.
-		 */
+		// @brief Get the size of an allocation.
 		sizet GetAllocationSize(void* Ptr) const;
 
-		/** @return true if Ptr is within our managed pools */
+		// @return true if Ptr is within our managed pools
 		bool IsOwnedPointer(void* Ptr) const;
 
-		/** @return true if this is the crashed thread */
+		// @return true if this is the crashed thread
 		bool IsOnCrashedThread() const;
 
-		/**
-		 * Print pool usage statistics (debug only).
-		 * Outputs current pool usage to help tune pool sizes.
-		 */
+		// Print pool usage statistics (debug only).
+		// Outputs current pool usage to help tune pool sizes.
 		void PrintPoolsUsage() const;
 
 		// Pool memory allocation (used during initialization)
@@ -199,64 +165,42 @@ namespace OloEngine
 		FGenericPlatformMallocCrash(const FGenericPlatformMallocCrash&) = delete;
 		FGenericPlatformMallocCrash& operator=(const FGenericPlatformMallocCrash&) = delete;
 
-		/**
-		 * Initializes all memory pools.
-		 * Called on first access to Get().
-		 */
+		// Initializes all memory pools.
+		// Called on first access to Get().
 		void Initialize();
 
-		/**
-		 * Initialize the small pools (FMallocCrashPool instances).
-		 */
+		// Initialize the small pools (FMallocCrashPool instances).
 		void InitializeSmallPools();
 
-		/**
-		 * Checks if the current thread is allowed to allocate.
-		 * Non-crashed threads will be blocked.
-		 */
+		// Checks if the current thread is allowed to allocate.
+		// Non-crashed threads will be blocked.
 		bool CheckThreadForAllocation() const;
 
-		/**
-		 * Checks if the current thread is allowed to free.
-		 * Non-crashed threads may skip or block.
-		 */
+		// Checks if the current thread is allowed to free.
+		// Non-crashed threads may skip or block.
 		bool CheckThreadForFree() const;
 
-		/**
-		 * Allocates from the large memory pool (bump allocator).
-		 */
+		// Allocates from the large memory pool (bump allocator).
 		void* AllocateFromLargePool(sizet Size, u32 Alignment);
 
-		/**
-		 * Choose the appropriate pool for the given size.
-		 * Tries pools in order, skipping exhausted ones.
-		 */
+		// Choose the appropriate pool for the given size.
+		// Tries pools in order, skipping exhausted ones.
 		FMallocCrashPool* ChoosePoolForSize(u32 AllocationSize);
 
-		/**
-		 * Find the pool that contains the given pointer.
-		 * Uses binary search by AllocBase.
-		 */
+		// Find the pool that contains the given pointer.
+		// Uses binary search by AllocBase.
 		FMallocCrashPool* FindPoolForAlloc(void* Ptr);
 
-		/**
-		 * Checks if pointer is in the small pool range.
-		 */
+		// Checks if pointer is in the small pool range.
 		bool IsPtrInSmallPool(void* Ptr) const;
 
-		/**
-		 * Checks if pointer is in the large pool range.
-		 */
+		// Checks if pointer is in the large pool range.
 		bool IsPtrInLargePool(void* Ptr) const;
 
-		/**
-		 * Calculate total size needed for small pools.
-		 */
+		// Calculate total size needed for small pools.
 		static u32 CalculateSmallPoolTotalSize();
 
-		/**
-		 * Calculate total size needed for bookkeeping.
-		 */
+		// Calculate total size needed for bookkeeping.
 		static u32 CalculateBookkeepingPoolTotalSize();
 
 	protected:

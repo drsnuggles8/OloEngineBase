@@ -1,17 +1,16 @@
 #pragma once
 
-/**
- * @file TypeTraits.h
- * @brief Type trait utilities for OloEngine's memory and template systems
- * 
- * Provides type traits for:
- * - Inheritance checking
- * - Trivial type detection
- * - Zero-constructability
- * - Move/copy semantics detection
- * 
- * Ported from Unreal Engine's Templates/UnrealTypeTraits.h
- */
+// @file TypeTraits.h
+// @brief Type trait utilities for OloEngine's memory and template systems
+// 
+// Provides type traits for:
+// - Inheritance checking
+// - Trivial type detection
+// - Zero-constructability
+// - Move/copy semantics detection
+// 
+// Ported from Unreal Engine's Templates/UnrealTypeTraits.h
+
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
@@ -33,16 +32,14 @@ namespace OloEngine
     // Inheritance Traits
     // ========================================================================
 
-    /**
-     * @struct TIsDerivedFrom
-     * @brief Check if DerivedType is derived from BaseType
-     * 
-     * @tparam DerivedType The potentially derived type
-     * @tparam BaseType The potential base type
-     * 
-     * @note This is similar to std::is_base_of but with a more intuitive name
-     *       and matches UE's naming convention
-     */
+    // @struct TIsDerivedFrom
+    // @brief Check if DerivedType is derived from BaseType
+    // 
+    // @tparam DerivedType The potentially derived type
+    // @tparam BaseType The potential base type
+    // 
+    // @note This is similar to std::is_base_of but with a more intuitive name
+    //       and matches UE's naming convention
     template<typename DerivedType, typename BaseType>
     struct TIsDerivedFrom
     {
@@ -57,13 +54,11 @@ namespace OloEngine
     // Parameter Pack Utilities
     // ========================================================================
 
-    /**
-     * @struct TNthTypeFromParameterPack
-     * @brief Gets the Nth type in a template parameter pack
-     * 
-     * @tparam N Index (0-based). N must be less than sizeof...(Types)
-     * @tparam Types The parameter pack
-     */
+    // @struct TNthTypeFromParameterPack
+    // @brief Gets the Nth type in a template parameter pack
+    // 
+    // @tparam N Index (0-based). N must be less than sizeof...(Types)
+    // @tparam Types The parameter pack
     template <i32 N, typename... Types>
     struct TNthTypeFromParameterPack;
 
@@ -86,10 +81,8 @@ namespace OloEngine
     // Trivial Type Traits
     // ========================================================================
 
-    /**
-     * @struct TIsTriviallyCopyable
-     * @brief Check if a type can be copied with memcpy
-     */
+    // @struct TIsTriviallyCopyable
+    // @brief Check if a type can be copied with memcpy
     template<typename T>
     struct TIsTriviallyCopyable
     {
@@ -100,10 +93,8 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsTriviallyCopyable_V = TIsTriviallyCopyable<T>::value;
 
-    /**
-     * @struct TIsTriviallyDestructible
-     * @brief Check if a type has a trivial destructor (no cleanup needed)
-     */
+    // @struct TIsTriviallyDestructible
+    // @brief Check if a type has a trivial destructor (no cleanup needed)
     template<typename T>
     struct TIsTriviallyDestructible
     {
@@ -114,10 +105,8 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsTriviallyDestructible_V = TIsTriviallyDestructible<T>::value;
 
-    /**
-     * @struct TIsTriviallyConstructible
-     * @brief Check if a type has a trivial default constructor
-     */
+    // @struct TIsTriviallyConstructible
+    // @brief Check if a type has a trivial default constructor
     template<typename T>
     struct TIsTriviallyConstructible
     {
@@ -128,10 +117,8 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsTriviallyConstructible_V = TIsTriviallyConstructible<T>::value;
 
-    /**
-     * @struct TIsTriviallyCopyConstructible
-     * @brief Check if a type has a trivial copy constructor
-     */
+    // @struct TIsTriviallyCopyConstructible
+    // @brief Check if a type has a trivial copy constructor
     template<typename T>
     struct TIsTriviallyCopyConstructible
     {
@@ -142,10 +129,8 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsTriviallyCopyConstructible_V = TIsTriviallyCopyConstructible<T>::value;
 
-    /**
-     * @struct TIsTriviallyMoveConstructible
-     * @brief Check if a type has a trivial move constructor
-     */
+    // @struct TIsTriviallyMoveConstructible
+    // @brief Check if a type has a trivial move constructor
     template<typename T>
     struct TIsTriviallyMoveConstructible
     {
@@ -156,10 +141,8 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsTriviallyMoveConstructible_V = TIsTriviallyMoveConstructible<T>::value;
 
-    /**
-     * @struct TIsTriviallyMoveAssignable
-     * @brief Check if a type has a trivial move assignment operator
-     */
+    // @struct TIsTriviallyMoveAssignable
+    // @brief Check if a type has a trivial move assignment operator
     template<typename T>
     struct TIsTriviallyMoveAssignable
     {
@@ -170,10 +153,8 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsTriviallyMoveAssignable_V = TIsTriviallyMoveAssignable<T>::value;
 
-    /**
-     * @struct TIsTriviallyCopyAssignable
-     * @brief Check if a type has a trivial copy assignment operator
-     */
+    // @struct TIsTriviallyCopyAssignable
+    // @brief Check if a type has a trivial copy assignment operator
     template<typename T>
     struct TIsTriviallyCopyAssignable
     {
@@ -188,16 +169,14 @@ namespace OloEngine
     // Zero Construction Traits
     // ========================================================================
 
-    /**
-     * @struct TIsZeroConstructType
-     * @brief Check if a type can be "constructed" by simply zeroing its memory
-     * 
-     * This is true for types where zero-initialization produces a valid object.
-     * Used to optimize bulk allocations by using memset(0) instead of calling constructors.
-     * 
-     * By default, this is true for arithmetic types and pointers.
-     * Specialize this trait for your own types if zeroing produces a valid default state.
-     */
+    // @struct TIsZeroConstructType
+    // @brief Check if a type can be "constructed" by simply zeroing its memory
+    // 
+    // This is true for types where zero-initialization produces a valid object.
+    // Used to optimize bulk allocations by using memset(0) instead of calling constructors.
+    // 
+    // By default, this is true for arithmetic types and pointers.
+    // Specialize this trait for your own types if zeroing produces a valid default state.
     template<typename T>
     struct TIsZeroConstructType
     {
@@ -224,15 +203,13 @@ namespace OloEngine
     // POD Traits
     // ========================================================================
 
-    /**
-     * @struct TIsPODType
-     * @brief Check if a type is a POD (Plain Old Data) type
-     * 
-     * POD types can be:
-     * - Copied with memcpy
-     * - Zeroed with memset
-     * - Don't need constructor/destructor calls
-     */
+    // @struct TIsPODType
+    // @brief Check if a type is a POD (Plain Old Data) type
+    // 
+    // POD types can be:
+    // - Copied with memcpy
+    // - Zeroed with memset
+    // - Don't need constructor/destructor calls
     template<typename T>
     struct TIsPODType
     {
@@ -247,13 +224,11 @@ namespace OloEngine
     // Format Specifier Traits
     // ========================================================================
 
-    /**
-     * @struct TFormatSpecifier
-     * @brief Get printf-style format specifier for numeric types
-     * 
-     * The primary template will static_assert for unknown types.
-     * Use Expose_TFormatSpecifier macro to add support for custom types.
-     */
+    // @struct TFormatSpecifier
+    // @brief Get printf-style format specifier for numeric types
+    // 
+    // The primary template will static_assert for unknown types.
+    // Use Expose_TFormatSpecifier macro to add support for custom types.
     template<typename T>
     struct TFormatSpecifier
     {
@@ -265,10 +240,8 @@ namespace OloEngine
         }
     };
 
-    /**
-     * @def Expose_TFormatSpecifier
-     * @brief Macro to expose a format specifier for a type
-     */
+    // @def Expose_TFormatSpecifier
+    // @brief Macro to expose a format specifier for a type
     #define Expose_TFormatSpecifier(type, format) \
     template<> \
     struct TFormatSpecifier<type> \
@@ -299,13 +272,11 @@ namespace OloEngine
     // Type Name Traits
     // ========================================================================
 
-    /**
-     * @struct TNameOf
-     * @brief Get the name of a type as a string
-     * 
-     * The primary template will assert for unknown types.
-     * Use Expose_TNameOf macro to add support for custom types.
-     */
+    // @struct TNameOf
+    // @brief Get the name of a type as a string
+    // 
+    // The primary template will assert for unknown types.
+    // Use Expose_TNameOf macro to add support for custom types.
     template<typename T>
     struct TNameOf
     {
@@ -316,10 +287,8 @@ namespace OloEngine
         }
     };
 
-    /**
-     * @def Expose_TNameOf
-     * @brief Macro to expose a type name
-     */
+    // @def Expose_TNameOf
+    // @brief Macro to expose a type name
     #define Expose_TNameOf(type) \
     template<> \
     struct TNameOf<type> \
@@ -346,10 +315,8 @@ namespace OloEngine
     // Reference/Pointer Manipulation
     // ========================================================================
 
-    /**
-     * @struct TRemoveReference
-     * @brief Remove reference qualifiers from a type
-     */
+    // @struct TRemoveReference
+    // @brief Remove reference qualifiers from a type
     template<typename T>
     struct TRemoveReference
     {
@@ -361,10 +328,8 @@ namespace OloEngine
 
     // TRemovePointer is defined in Templates/UnrealTemplate.h
 
-    /**
-     * @struct TRemoveCV
-     * @brief Remove const/volatile qualifiers from a type
-     */
+    // @struct TRemoveCV
+    // @brief Remove const/volatile qualifiers from a type
     template<typename T>
     struct TRemoveCV
     {
@@ -374,10 +339,8 @@ namespace OloEngine
     template<typename T>
     using TRemoveCV_T = typename TRemoveCV<T>::Type;
 
-    /**
-     * @struct TDecay
-     * @brief Decay a type (remove references, remove cv, array-to-pointer, function-to-pointer)
-     */
+    // @struct TDecay
+    // @brief Decay a type (remove references, remove cv, array-to-pointer, function-to-pointer)
     template<typename T>
     struct TDecay
     {
@@ -391,10 +354,8 @@ namespace OloEngine
     // Conditional Type Selection
     // ========================================================================
 
-    /**
-     * @struct TConditional
-     * @brief Select between two types based on a condition
-     */
+    // @struct TConditional
+    // @brief Select between two types based on a condition
     template<bool Condition, typename TrueType, typename FalseType>
     struct TConditional
     {
@@ -404,10 +365,8 @@ namespace OloEngine
     template<bool Condition, typename TrueType, typename FalseType>
     using TConditional_T = typename TConditional<Condition, TrueType, FalseType>::Type;
 
-    /**
-     * @struct TEnableIf
-     * @brief SFINAE helper - type only valid if condition is true
-     */
+    // @struct TEnableIf
+    // @brief SFINAE helper - type only valid if condition is true
     template<bool Condition, typename T = void>
     struct TEnableIf
     {
@@ -421,10 +380,8 @@ namespace OloEngine
     // Type Identity
     // ========================================================================
 
-    /**
-     * @struct TTypeIdentity
-     * @brief Returns the type unchanged - useful to prevent type deduction
-     */
+    // @struct TTypeIdentity
+    // @brief Returns the type unchanged - useful to prevent type deduction
     template<typename T>
     struct TTypeIdentity
     {
@@ -438,10 +395,8 @@ namespace OloEngine
     // Same Type Check
     // ========================================================================
 
-    /**
-     * @struct TIsSame
-     * @brief Check if two types are the same
-     */
+    // @struct TIsSame
+    // @brief Check if two types are the same
     template<typename A, typename B>
     struct TIsSame
     {
@@ -456,12 +411,10 @@ namespace OloEngine
     // Allocator/Container Support Traits
     // ========================================================================
 
-    /**
-     * @struct TTypeCompatibleBytes
-     * @brief Provides storage suitable for holding a type T, with proper alignment
-     * 
-     * Useful for placement new and type-erased storage.
-     */
+    // @struct TTypeCompatibleBytes
+    // @brief Provides storage suitable for holding a type T, with proper alignment
+    // 
+    // Useful for placement new and type-erased storage.
     template<typename T>
     struct alignas(alignof(T)) TTypeCompatibleBytes
     {
@@ -471,23 +424,19 @@ namespace OloEngine
         const T* GetTypedPtr() const { return reinterpret_cast<const T*>(Bytes); }
     };
 
-    /**
-     * @struct TAlignedBytes
-     * @brief Provides storage of specified size and alignment
-     * 
-     * @tparam Size Size in bytes
-     * @tparam Alignment Alignment requirement
-     */
+    // @struct TAlignedBytes
+    // @brief Provides storage of specified size and alignment
+    // 
+    // @tparam Size Size in bytes
+    // @tparam Alignment Alignment requirement
     template<sizet Size, sizet Alignment>
     struct alignas(Alignment) TAlignedBytes
     {
         u8 Bytes[Size];
     };
 
-    /**
-     * @struct TChooseClass
-     * @brief Select between two classes based on a condition (similar to TConditional)
-     */
+    // @struct TChooseClass
+    // @brief Select between two classes based on a condition (similar to TConditional)
     template<bool Predicate, typename TrueClass, typename FalseClass>
     struct TChooseClass
     {
@@ -507,10 +456,8 @@ namespace OloEngine
     // Void Type for SFINAE
     // ========================================================================
 
-    /**
-     * @struct TVoid
-     * @brief Helper for creating void_t pattern in pre-C++17 style
-     */
+    // @struct TVoid
+    // @brief Helper for creating void_t pattern in pre-C++17 style
     template<typename...>
     using TVoid = void;
 
@@ -527,20 +474,18 @@ namespace OloEngine
         struct THasGetTypeHash<T, TVoid<decltype(GetTypeHash(std::declval<T>()))>> : std::true_type {};
     }
 
-    /**
-     * @struct TIsTriviallyRelocatable
-     * @brief Trait to mark types as trivially relocatable (memcpy'able for moves)
-     * 
-     * Types that are trivially relocatable can have their instances moved in memory
-     * by using memcpy instead of calling their move constructor and destructor.
-     * This is a significant optimization for containers.
-     * 
-     * By default, types are assumed to be trivially relocatable. If your type
-     * contains pointers/references to itself (e.g., std::list nodes), you should
-     * specialize this to false.
-     * 
-     * @note UE assumes all types are trivially relocatable by default for performance.
-     */
+    // @struct TIsTriviallyRelocatable
+    // @brief Trait to mark types as trivially relocatable (memcpy'able for moves)
+    // 
+    // Types that are trivially relocatable can have their instances moved in memory
+    // by using memcpy instead of calling their move constructor and destructor.
+    // This is a significant optimization for containers.
+    // 
+    // By default, types are assumed to be trivially relocatable. If your type
+    // contains pointers/references to itself (e.g., std::list nodes), you should
+    // specialize this to false.
+    // 
+    // @note UE assumes all types are trivially relocatable by default for performance.
     template <typename T>
     struct TIsTriviallyRelocatable
     {
@@ -555,17 +500,15 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsTriviallyRelocatable_V = TIsTriviallyRelocatable<T>::Value;
 
-    /**
-     * @struct TUseBitwiseSwap
-     * @brief Determines if bitwise operations (memcpy/memswap) should be used for relocation
-     * 
-     * For small 'register' types (pointers, integers, floats, enums), using memcpy
-     * forces them into memory and is slower than direct register moves.
-     * For larger types (structs, classes), memcpy is more efficient.
-     * 
-     * This is checked in RelocateConstructItem for single-element relocations.
-     * Bulk operations always use memcpy due to loop overhead.
-     */
+    // @struct TUseBitwiseSwap
+    // @brief Determines if bitwise operations (memcpy/memswap) should be used for relocation
+    // 
+    // For small 'register' types (pointers, integers, floats, enums), using memcpy
+    // forces them into memory and is slower than direct register moves.
+    // For larger types (structs, classes), memcpy is more efficient.
+    // 
+    // This is checked in RelocateConstructItem for single-element relocations.
+    // Bulk operations always use memcpy due to loop overhead.
     template <typename T>
     struct TUseBitwiseSwap
     {
@@ -576,14 +519,12 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TUseBitwiseSwap_V = TUseBitwiseSwap<T>::Value;
 
-    /**
-     * @struct TCanBitwiseRelocate
-     * @brief Check if a type can be relocated using memcpy (move + destroy in one step)
-     * 
-     * Types that can be bitwise relocated:
-     * - Are trivially copyable and trivially destructible, OR
-     * - Have been explicitly marked as relocatable
-     */
+    // @struct TCanBitwiseRelocate
+    // @brief Check if a type can be relocated using memcpy (move + destroy in one step)
+    // 
+    // Types that can be bitwise relocated:
+    // - Are trivially copyable and trivially destructible, OR
+    // - Have been explicitly marked as relocatable
     template<typename T>
     struct TCanBitwiseRelocate
     {
@@ -601,10 +542,8 @@ namespace OloEngine
     // Reference Type Traits (needed by TIsBitwiseConstructible)
     // ========================================================================
 
-    /**
-     * @struct TIsReferenceType
-     * @brief Check if a type is a reference (lvalue or rvalue)
-     */
+    // @struct TIsReferenceType
+    // @brief Check if a type is a reference (lvalue or rvalue)
     template<typename T> struct TIsReferenceType      { enum { Value = false }; };
     template<typename T> struct TIsReferenceType<T&>  { enum { Value = true  }; };
     template<typename T> struct TIsReferenceType<T&&> { enum { Value = true  }; };
@@ -612,10 +551,8 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsReferenceType_V = TIsReferenceType<T>::Value;
 
-    /**
-     * @struct TIsFundamentalType
-     * @brief Check if a type is a fundamental type (arithmetic or void)
-     */
+    // @struct TIsFundamentalType
+    // @brief Check if a type is a fundamental type (arithmetic or void)
     template<typename T>
     struct TIsFundamentalType
     {
@@ -626,10 +563,8 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsFundamentalType_V = TIsFundamentalType<T>::Value;
 
-    /**
-     * @struct TIsFunction
-     * @brief Check if a type is a function type
-     */
+    // @struct TIsFunction
+    // @brief Check if a type is a function type
     template <typename T>
     struct TIsFunction
     {
@@ -645,30 +580,24 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsFunction_V = TIsFunction<T>::Value;
 
-    /**
-     * @struct TIsLValueReferenceType
-     * @brief Check if a type is an lvalue reference
-     */
+    // @struct TIsLValueReferenceType
+    // @brief Check if a type is an lvalue reference
     template<typename T> struct TIsLValueReferenceType     { enum { Value = false }; };
     template<typename T> struct TIsLValueReferenceType<T&> { enum { Value = true  }; };
 
     template<typename T>
     inline constexpr bool TIsLValueReferenceType_V = TIsLValueReferenceType<T>::Value;
 
-    /**
-     * @struct TIsRValueReferenceType
-     * @brief Check if a type is an rvalue reference
-     */
+    // @struct TIsRValueReferenceType
+    // @brief Check if a type is an rvalue reference
     template<typename T> struct TIsRValueReferenceType      { enum { Value = false }; };
     template<typename T> struct TIsRValueReferenceType<T&&> { enum { Value = true  }; };
 
     template<typename T>
     inline constexpr bool TIsRValueReferenceType_V = TIsRValueReferenceType<T>::Value;
 
-    /**
-     * @struct TIsArithmetic
-     * @brief Check if a type is an arithmetic type (integral or floating point)
-     */
+    // @struct TIsArithmetic
+    // @brief Check if a type is an arithmetic type (integral or floating point)
     template<typename T>
     struct TIsArithmetic
     {
@@ -679,10 +608,8 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsArithmetic_V = TIsArithmetic<T>::Value;
 
-    /**
-     * @struct TIsEnum
-     * @brief Check if a type is an enumeration
-     */
+    // @struct TIsEnum
+    // @brief Check if a type is an enumeration
     template<typename T>
     struct TIsEnum
     {
@@ -693,10 +620,8 @@ namespace OloEngine
     template<typename T>
     inline constexpr bool TIsEnum_V = TIsEnum<T>::Value;
 
-    /**
-     * @struct TIsPointer
-     * @brief Check if a type is a pointer
-     */
+    // @struct TIsPointer
+    // @brief Check if a type is a pointer
     template<typename T>
     struct TIsPointer
     {
@@ -711,10 +636,8 @@ namespace OloEngine
     // Logical Combinators (needed by TCallTraits)
     // ========================================================================
 
-    /**
-     * @struct TAnd
-     * @brief Logical AND of type traits
-     */
+    // @struct TAnd
+    // @brief Logical AND of type traits
     template<typename... Args>
     struct TAnd;
 
@@ -730,10 +653,8 @@ namespace OloEngine
         enum { Value = First::Value && TAnd<Rest...>::Value };
     };
 
-    /**
-     * @struct TOr
-     * @brief Logical OR of type traits
-     */
+    // @struct TOr
+    // @brief Logical OR of type traits
     template<typename... Args>
     struct TOr;
 
@@ -749,20 +670,16 @@ namespace OloEngine
         enum { Value = First::Value || TOr<Rest...>::Value };
     };
 
-    /**
-     * @struct TNot
-     * @brief Logical NOT of a type trait
-     */
+    // @struct TNot
+    // @brief Logical NOT of a type trait
     template<typename T>
     struct TNot
     {
         enum { Value = !T::Value };
     };
 
-    /**
-     * @struct TAndValue
-     * @brief Helper to combine a boolean value with type traits in TAnd/TOr
-     */
+    // @struct TAndValue
+    // @brief Helper to combine a boolean value with type traits in TAnd/TOr
     template<bool Val, typename... Args>
     struct TAndValue
     {
@@ -773,10 +690,8 @@ namespace OloEngine
     // Call Traits (UE-specific optimization for parameter passing)
     // ========================================================================
 
-    /**
-     * @struct TCallTraitsParamTypeHelper
-     * @brief Helper for determining optimal parameter type
-     */
+    // @struct TCallTraitsParamTypeHelper
+    // @brief Helper for determining optimal parameter type
     template <typename T, bool TypeIsSmall>
     struct TCallTraitsParamTypeHelper
     {
@@ -798,13 +713,11 @@ namespace OloEngine
         using ConstParamType = const T*;
     };
 
-    /**
-     * @struct TCallTraitsBase
-     * @brief Base class for call traits
-     * 
-     * Determines the optimal way to pass a type as a function parameter.
-     * Small POD types are passed by value, larger types by const reference.
-     */
+    // @struct TCallTraitsBase
+    // @brief Base class for call traits
+    // 
+    // Determines the optimal way to pass a type as a function parameter.
+    // Small POD types are passed by value, larger types by const reference.
     template <typename T>
     struct TCallTraitsBase
     {
@@ -819,15 +732,13 @@ namespace OloEngine
         using ConstPointerType = typename TCallTraitsParamTypeHelper<T, PassByValue>::ConstParamType;
     };
 
-    /**
-     * @struct TCallTraits
-     * @brief Determines optimal parameter passing conventions for a type
-     * 
-     * The main member to note is ParamType, which specifies the optimal
-     * form to pass the type as a parameter to a function.
-     * 
-     * Has a small-value optimization when a type is POD and as small as a pointer.
-     */
+    // @struct TCallTraits
+    // @brief Determines optimal parameter passing conventions for a type
+    // 
+    // The main member to note is ParamType, which specifies the optimal
+    // form to pass the type as a parameter to a function.
+    // 
+    // Has a small-value optimization when a type is POD and as small as a pointer.
     template <typename T>
     struct TCallTraits : public TCallTraitsBase<T> {};
 
@@ -874,14 +785,12 @@ namespace OloEngine
     // Type Traits for Containers (UE-specific)
     // ========================================================================
 
-    /**
-     * @struct TTypeTraitsBase
-     * @brief Base traits for container element types
-     * 
-     * Provides:
-     * - ConstInitType: Optimal type for initialization parameters
-     * - IsBytewiseComparable: Whether memcmp can be used for comparison
-     */
+    // @struct TTypeTraitsBase
+    // @brief Base traits for container element types
+    // 
+    // Provides:
+    // - ConstInitType: Optimal type for initialization parameters
+    // - IsBytewiseComparable: Whether memcmp can be used for comparison
     template<typename T>
     struct TTypeTraitsBase
     {
@@ -893,10 +802,8 @@ namespace OloEngine
         enum { IsBytewiseComparable = TOr<TIsEnum<T>, TIsArithmetic<T>, TIsPointer<T>>::Value };
     };
 
-    /**
-     * @struct TTypeTraits
-     * @brief Traits for types used in containers
-     */
+    // @struct TTypeTraits
+    // @brief Traits for types used in containers
     template<typename T>
     struct TTypeTraits : public TTypeTraitsBase<T> {};
 
@@ -904,10 +811,8 @@ namespace OloEngine
     // Move Support Traits (UE-specific optimization)
     // ========================================================================
 
-    /**
-     * @struct TMoveSupportTraitsBase
-     * @brief Base for move support traits
-     */
+    // @struct TMoveSupportTraitsBase
+    // @brief Base for move support traits
     template <typename T, typename U>
     struct TMoveSupportTraitsBase
     {
@@ -925,21 +830,19 @@ namespace OloEngine
         using Move = T&&;
     };
 
-    /**
-     * @struct TMoveSupportTraits
-     * @brief Traits for efficient move-aware function overloads
-     * 
-     * Usage:
-     * @code
-     * template <typename T>
-     * void Func(typename TMoveSupportTraits<T>::Copy Obj) { // Copy Obj }
-     * 
-     * template <typename T>
-     * void Func(typename TMoveSupportTraits<T>::Move Obj) { // Move from Obj }
-     * @endcode
-     * 
-     * This handles pass-by-value types (ints, floats) which should never have a reference overload.
-     */
+    // @struct TMoveSupportTraits
+    // @brief Traits for efficient move-aware function overloads
+    // 
+    // Usage:
+    // @code
+    // template <typename T>
+    // void Func(typename TMoveSupportTraits<T>::Copy Obj) { // Copy Obj }
+    // 
+    // template <typename T>
+    // void Func(typename TMoveSupportTraits<T>::Move Obj) { // Move from Obj }
+    // @endcode
+    // 
+    // This handles pass-by-value types (ints, floats) which should never have a reference overload.
     template <typename T>
     struct TMoveSupportTraits : TMoveSupportTraitsBase<T, typename TCallTraits<T>::ParamType>
     {
@@ -949,18 +852,16 @@ namespace OloEngine
     // Bitwise Constructible (UE-specific container optimization)
     // ========================================================================
 
-    /**
-     * @struct TIsBitwiseConstructible
-     * @brief Tests if type T can be constructed from type U using memcpy
-     * 
-     * This is used by containers to optimize construction when possible.
-     * 
-     * Examples:
-     * - TIsBitwiseConstructible<PODType, PODType>::Value == true  (PODs can be trivially copied)
-     * - TIsBitwiseConstructible<const int*, int*>::Value == true  (non-const to const pointer)
-     * - TIsBitwiseConstructible<int*, const int*>::Value == false (const-correctness violation)
-     * - TIsBitwiseConstructible<i32, u32>::Value == true  (signed/unsigned conversion)
-     */
+    // @struct TIsBitwiseConstructible
+    // @brief Tests if type T can be constructed from type U using memcpy
+    // 
+    // This is used by containers to optimize construction when possible.
+    // 
+    // Examples:
+    // - TIsBitwiseConstructible<PODType, PODType>::Value == true  (PODs can be trivially copied)
+    // - TIsBitwiseConstructible<const int*, int*>::Value == true  (non-const to const pointer)
+    // - TIsBitwiseConstructible<int*, const int*>::Value == false (const-correctness violation)
+    // - TIsBitwiseConstructible<i32, u32>::Value == true  (signed/unsigned conversion)
     template <typename T, typename Arg>
     struct TIsBitwiseConstructible
     {
@@ -1019,12 +920,10 @@ namespace OloEngine
     // Weak Pointer Type Trait
     // ========================================================================
 
-    /**
-     * @struct TIsWeakPointerType
-     * @brief Check if a type is a weak pointer type
-     * 
-     * Specialize this for your weak pointer types.
-     */
+    // @struct TIsWeakPointerType
+    // @brief Check if a type is a weak pointer type
+    // 
+    // Specialize this for your weak pointer types.
     template<typename T>
     struct TIsWeakPointerType
     {
@@ -1038,10 +937,8 @@ namespace OloEngine
     // Virtual Destructor Helper
     // ========================================================================
 
-    /**
-     * @struct FVirtualDestructor
-     * @brief Base class that provides a virtual destructor
-     */
+    // @struct FVirtualDestructor
+    // @brief Base class that provides a virtual destructor
     struct FVirtualDestructor
     {
         virtual ~FVirtualDestructor() = default;
@@ -1051,16 +948,14 @@ namespace OloEngine
     // Member Function Detection Macro
     // ========================================================================
 
-    /**
-     * @def GENERATE_MEMBER_FUNCTION_CHECK
-     * @brief Generates a trait class to detect if a type has a specific member function
-     * 
-     * Usage:
-     * @code
-     * GENERATE_MEMBER_FUNCTION_CHECK(Serialize, void, const, FArchive&)
-     * // Creates THasMemberFunction_Serialize<T> which has ::Value = true/false
-     * @endcode
-     */
+    // @def GENERATE_MEMBER_FUNCTION_CHECK
+    // @brief Generates a trait class to detect if a type has a specific member function
+    // 
+    // Usage:
+    // @code
+    // GENERATE_MEMBER_FUNCTION_CHECK(Serialize, void, const, FArchive&)
+    // // Creates THasMemberFunction_Serialize<T> which has ::Value = true/false
+    // @endcode
     #define GENERATE_MEMBER_FUNCTION_CHECK(MemberName, Result, ConstModifier, ...)                              \
     template <typename T>                                                                                       \
     class THasMemberFunction_##MemberName                                                                       \
@@ -1076,12 +971,10 @@ namespace OloEngine
     // Comparison Functors
     // ========================================================================
 
-    /**
-     * @struct TLess
-     * @brief Binary predicate that returns true if the first argument is less than the second
-     * 
-     * Used as default predicate for sorting and heap operations.
-     */
+    // @struct TLess
+    // @brief Binary predicate that returns true if the first argument is less than the second
+    // 
+    // Used as default predicate for sorting and heap operations.
     template <typename T = void>
     struct TLess
     {
@@ -1091,7 +984,7 @@ namespace OloEngine
         }
     };
 
-    /** Specialization for void - allows heterogeneous comparisons */
+    // Specialization for void - allows heterogeneous comparisons
     template <>
     struct TLess<void>
     {
@@ -1102,10 +995,8 @@ namespace OloEngine
         }
     };
 
-    /**
-     * @struct TGreater
-     * @brief Binary predicate that returns true if the first argument is greater than the second
-     */
+    // @struct TGreater
+    // @brief Binary predicate that returns true if the first argument is greater than the second
     template <typename T = void>
     struct TGreater
     {
@@ -1115,7 +1006,7 @@ namespace OloEngine
         }
     };
 
-    /** Specialization for void - allows heterogeneous comparisons */
+    // Specialization for void - allows heterogeneous comparisons
     template <>
     struct TGreater<void>
     {

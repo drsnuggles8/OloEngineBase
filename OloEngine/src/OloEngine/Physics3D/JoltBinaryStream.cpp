@@ -16,9 +16,7 @@ namespace OloEngine {
 
 	namespace JoltBinaryStreamUtils {
 
-		/**
-		 * @brief Adapter to bridge OloEngine JoltBinaryStreamWriter to Jolt's StreamOut interface
-		 */
+		// @brief Adapter to bridge OloEngine JoltBinaryStreamWriter to Jolt's StreamOut interface
 		class JoltStreamOutAdapter : public JPH::StreamOut
 		{
 		public:
@@ -38,9 +36,7 @@ namespace OloEngine {
 			JoltBinaryStreamWriter& m_Writer;
 		};
 
-		/**
-		 * @brief Adapter to bridge OloEngine JoltBinaryStreamReader to Jolt's StreamIn interface
-		 */
+		// @brief Adapter to bridge OloEngine JoltBinaryStreamReader to Jolt's StreamIn interface
 		class JoltStreamInAdapter : public JPH::StreamIn
 		{
 		public:
@@ -65,13 +61,11 @@ namespace OloEngine {
 			JoltBinaryStreamReader& m_Reader;
 		};
 
-		/**
-		 * @brief Serialize a Jolt shape to binary data using Jolt's native binary serialization
-		 * 
-		 * @param shape The Jolt shape to serialize
-		 * @param outWriter The binary stream writer to write to
-		 * @return true if serialization was successful
-		 */
+		// @brief Serialize a Jolt shape to binary data using Jolt's native binary serialization
+		// 
+		// @param shape The Jolt shape to serialize
+		// @param outWriter The binary stream writer to write to
+		// @return true if serialization was successful
 		bool SerializeShape(const JPH::Shape* shape, JoltBinaryStreamWriter& outWriter)
 		{
 			if (!shape)
@@ -136,12 +130,10 @@ namespace OloEngine {
 			}
 		}
 
-		/**
-		 * @brief Deserialize a Jolt shape from binary data using Jolt's native binary deserialization
-		 * 
-		 * @param inReader The binary stream reader to read from
-		 * @return The deserialized shape, or nullptr if deserialization failed
-		 */
+		// @brief Deserialize a Jolt shape from binary data using Jolt's native binary deserialization
+		// 
+		// @param inReader The binary stream reader to read from
+		// @return The deserialized shape, or nullptr if deserialization failed
 		JPH::Ref<JPH::Shape> DeserializeShape(JoltBinaryStreamReader& inReader)
 		{
 			if (inReader.IsFailed() || inReader.IsEOF())
@@ -257,12 +249,10 @@ namespace OloEngine {
 			}
 		}
 
-		/**
-		 * @brief Serialize a shape to a Buffer
-		 * 
-		 * @param shape The shape to serialize
-		 * @return Buffer containing the serialized data, or empty buffer on failure
-		 */
+		// @brief Serialize a shape to a Buffer
+		// 
+		// @param shape The shape to serialize
+		// @return Buffer containing the serialized data, or empty buffer on failure
 		Buffer SerializeShapeToBuffer(const JPH::Shape* shape)
 		{
 			if (!shape)
@@ -286,12 +276,10 @@ namespace OloEngine {
 			return Buffer();
 		}
 
-		/**
-		 * @brief Deserialize a shape from a Buffer
-		 * 
-		 * @param buffer The buffer containing serialized shape data
-		 * @return The deserialized shape, or nullptr on failure
-		 */
+		// @brief Deserialize a shape from a Buffer
+		// 
+		// @param buffer The buffer containing serialized shape data
+		// @return The deserialized shape, or nullptr on failure
 		JPH::Ref<JPH::Shape> DeserializeShapeFromBuffer(const Buffer& buffer)
 		{
 			if (!buffer.Data || buffer.Size == 0)
@@ -301,13 +289,11 @@ namespace OloEngine {
 			return DeserializeShape(reader);
 		}
 
-		/**
-		 * @brief Validate serialized shape data
-		 * 
-		 * @param buffer The buffer to validate
-		 * @param deepValidation If true, performs full deserialization for thorough validation
-		 * @return true if the buffer contains valid shape data
-		 */
+		// @brief Validate serialized shape data
+		// 
+		// @param buffer The buffer to validate
+		// @param deepValidation If true, performs full deserialization for thorough validation
+		// @return true if the buffer contains valid shape data
 		bool ValidateShapeData(const Buffer& buffer, bool deepValidation)
 		{
 			if (!buffer.Data || buffer.Size == 0)
@@ -334,14 +320,12 @@ namespace OloEngine {
 		return true;
 		}
 
-		/**
-		 * @brief Get information about serialized shape data
-		 * 
-		 * @param buffer The buffer containing serialized shape data
-		 * @param outShapeType Will contain the shape type if successful
-		 * @param outDataSize Will contain the data size
-		 * @return true if information was successfully extracted
-		 */
+		// @brief Get information about serialized shape data
+		// 
+		// @param buffer The buffer containing serialized shape data
+		// @param outShapeType Will contain the shape type if successful
+		// @param outDataSize Will contain the data size
+		// @return true if information was successfully extracted
 		bool GetShapeInfo(const Buffer& buffer, JPH::EShapeType& outShapeType, sizet& outDataSize)
 		{
 			if (!buffer.Data || buffer.Size < sizeof(JPH::EShapeType))
@@ -367,12 +351,10 @@ namespace OloEngine {
 			}
 		}
 
-		/**
-		 * @brief Calculate approximate memory usage of serialized shape
-		 * 
-		 * @param buffer The buffer containing serialized shape data
-		 * @return Approximate memory usage in bytes
-		 */
+		// @brief Calculate approximate memory usage of serialized shape
+		// 
+		// @param buffer The buffer containing serialized shape data
+		// @return Approximate memory usage in bytes
 		sizet CalculateShapeMemoryUsage(const Buffer& buffer)
 		{
 			if (!buffer.Data || buffer.Size == 0)
@@ -438,13 +420,11 @@ namespace OloEngine {
 			return totalMemory;
 		}
 
-		/**
-		 * @brief Compress shape data using simple RLE compression (opt-in for suitable content)
-		 * 
-		 * @param inputBuffer The uncompressed shape data
-		 * @param forceCompression If true, attempts compression regardless of content heuristics
-		 * @return Always returns an owning Buffer - either compressed data or a copy of input buffer
-		 */
+		// @brief Compress shape data using simple RLE compression (opt-in for suitable content)
+		// 
+		// @param inputBuffer The uncompressed shape data
+		// @param forceCompression If true, attempts compression regardless of content heuristics
+		// @return Always returns an owning Buffer - either compressed data or a copy of input buffer
 		Buffer CompressShapeData(const Buffer& inputBuffer, bool forceCompression)
 		{
 			if (!inputBuffer.Data || inputBuffer.Size == 0)
@@ -586,12 +566,10 @@ namespace OloEngine {
 			}
 		}
 
-		/**
-		 * @brief Decompress shape data using RLE decompression
-		 * 
-		 * @param compressedBuffer The compressed shape data
-		 * @return Decompressed buffer, or original buffer if not compressed or decompression fails
-		 */
+		// @brief Decompress shape data using RLE decompression
+		// 
+		// @param compressedBuffer The compressed shape data
+		// @return Decompressed buffer, or original buffer if not compressed or decompression fails
 		Buffer DecompressShapeData(const Buffer& compressedBuffer)
 		{
 			if (!compressedBuffer.Data || compressedBuffer.Size == 0)

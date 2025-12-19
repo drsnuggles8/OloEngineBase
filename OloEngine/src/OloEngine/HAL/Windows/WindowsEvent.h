@@ -3,15 +3,13 @@
 
 #pragma once
 
-/**
- * @file WindowsEvent.h
- * @brief Windows-specific implementation of FEvent
- * 
- * Implements the Windows version of the FEvent interface using
- * native Win32 event handles.
- * 
- * Ported from Unreal Engine's Windows/WindowsEvent.h
- */
+// @file WindowsEvent.h
+// @brief Windows-specific implementation of FEvent
+// 
+// Implements the Windows version of the FEvent interface using
+// native Win32 event handles.
+// 
+// Ported from Unreal Engine's Windows/WindowsEvent.h
 
 #include "OloEngine/HAL/Event.h"
 
@@ -19,23 +17,21 @@
 
 namespace OloEngine
 {
-    /**
-     * @class FEventWin
-     * @brief Windows implementation of FEvent interface
-     * 
-     * Uses Win32 CreateEvent/SetEvent/ResetEvent/WaitForSingleObject
-     */
+    // @class FEventWin
+    // @brief Windows implementation of FEvent interface
+    // 
+    // Uses Win32 CreateEvent/SetEvent/ResetEvent/WaitForSingleObject
     class FEventWin : public FEvent
     {
     public:
-        /** @brief Default constructor */
+        // @brief Default constructor
         FEventWin()
             : m_Event(nullptr)
             , m_ManualReset(false)
         {
         }
 
-        /** @brief Virtual destructor */
+        // @brief Virtual destructor
         ~FEventWin() override
         {
             if (m_Event != nullptr)
@@ -46,11 +42,9 @@ namespace OloEngine
 
         // FEvent interface
 
-        /**
-         * @brief Creates the Windows event
-         * @param bIsManualReset Whether the event requires manual reseting
-         * @return true if the event was created successfully
-         */
+        // @brief Creates the Windows event
+        // @param bIsManualReset Whether the event requires manual reseting
+        // @return true if the event was created successfully
         [[deprecated("Direct creation of FEvent is discouraged. Use FEventRef instead.")]]
         bool Create(bool bIsManualReset = false) override
         {
@@ -61,18 +55,14 @@ namespace OloEngine
             return m_Event != nullptr;
         }
 
-        /**
-         * @brief Whether the event needs manual reset
-         * @return true if manual reset is required
-         */
+        // @brief Whether the event needs manual reset
+        // @return true if manual reset is required
         bool IsManualReset() override
         {
             return m_ManualReset;
         }
 
-        /**
-         * @brief Triggers (signals) the event
-         */
+        // @brief Triggers (signals) the event
         void Trigger() override
         {
             TriggerForStats();
@@ -80,9 +70,7 @@ namespace OloEngine
             SetEvent(m_Event);
         }
 
-        /**
-         * @brief Resets the event to non-signaled state
-         */
+        // @brief Resets the event to non-signaled state
         void Reset() override
         {
             ResetForStats();
@@ -90,12 +78,10 @@ namespace OloEngine
             ResetEvent(m_Event);
         }
 
-        /**
-         * @brief Waits for the event to be triggered
-         * @param WaitTime The time to wait in milliseconds
-         * @param bIgnoreThreadIdleStats Ignored in OloEngine
-         * @return true if the event was signaled, false on timeout
-         */
+        // @brief Waits for the event to be triggered
+        // @param WaitTime The time to wait in milliseconds
+        // @param bIgnoreThreadIdleStats Ignored in OloEngine
+        // @return true if the event was signaled, false on timeout
         bool Wait(u32 WaitTime, bool bIgnoreThreadIdleStats = false) override
         {
             WaitForStats();
@@ -110,10 +96,10 @@ namespace OloEngine
         }
 
     private:
-        /** @brief Handle to the Win32 event */
+        // @brief Handle to the Win32 event
         HANDLE m_Event;
 
-        /** @brief Whether manual reset is required */
+        // @brief Whether manual reset is required
         bool m_ManualReset;
     };
 

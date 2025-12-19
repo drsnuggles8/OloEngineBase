@@ -1,14 +1,12 @@
 #pragma once
 
-/**
- * @file Sorting.h
- * @brief Helper class for dereferencing pointer types in Sort functions
- * 
- * Provides TDereferenceWrapper which automatically dereferences raw pointers
- * when sorting, so predicates receive references to objects rather than pointers.
- * 
- * Ported from Unreal Engine's Templates/Sorting.h
- */
+// @file Sorting.h
+// @brief Helper class for dereferencing pointer types in Sort functions
+// 
+// Provides TDereferenceWrapper which automatically dereferences raw pointers
+// when sorting, so predicates receive references to objects rather than pointers.
+// 
+// Ported from Unreal Engine's Templates/Sorting.h
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Templates/UnrealTypeTraits.h"
@@ -16,12 +14,10 @@
 
 namespace OloEngine
 {
-    /**
-     * Helper class for dereferencing pointer types in Sort function.
-     * 
-     * For non-pointer types, it passes through unchanged.
-     * For pointer types, it dereferences before passing to the predicate.
-     */
+    // @brief Helper class for dereferencing pointer types in Sort function.
+    // 
+    // For non-pointer types, it passes through unchanged.
+    // For pointer types, it dereferences before passing to the predicate.
     template <typename T, typename PredicateType>
     struct TDereferenceWrapper
     {
@@ -32,7 +28,7 @@ namespace OloEngine
         {
         }
 
-        /** Pass through for non-pointer types */
+        // Pass through for non-pointer types
         OLO_FINLINE bool operator()(T& A, T& B)
         {
             return Predicate(A, B);
@@ -44,10 +40,8 @@ namespace OloEngine
         }
     };
 
-    /**
-     * Partially specialized version for pointer types.
-     * Dereferences pointers before passing to the predicate.
-     */
+    // @brief Partially specialized version for pointer types.
+    // Dereferences pointers before passing to the predicate.
     template <typename T, typename PredicateType>
     struct TDereferenceWrapper<T*, PredicateType>
     {
@@ -58,17 +52,15 @@ namespace OloEngine
         {
         }
 
-        /** Dereference pointers */
+        // Dereference pointers
         OLO_FINLINE bool operator()(T* A, T* B) const
         {
             return Predicate(*A, *B);
         }
     };
 
-    /**
-     * Wraps a range into a container like interface to satisfy the GetData and GetNum global functions.
-     * We're not using TArrayView since it calls ::Sort creating a circular dependency.
-     */
+    // @brief Wraps a range into a container like interface to satisfy the GetData and GetNum global functions.
+    // We're not using TArrayView since it calls ::Sort creating a circular dependency.
     template <typename T>
     struct TArrayRange
     {

@@ -1,16 +1,14 @@
-/**
- * @file LockFreeList.cpp
- * @brief Implementation of lock-free list utilities
- * 
- * Contains:
- * - Error handlers for lock-free list edge cases
- * - TLS-cached link allocator for high-performance allocation
- * - Static member definitions for FLockFreeLinkPolicy
- * - Critical stall testing for livelock detection
- * - Memory statistics tracking
- * 
- * Ported from Unreal Engine's LockFreeList.cpp
- */
+// @file LockFreeList.cpp
+// @brief Implementation of lock-free list utilities
+// 
+// Contains:
+// - Error handlers for lock-free list edge cases
+// - TLS-cached link allocator for high-performance allocation
+// - Static member definitions for FLockFreeLinkPolicy
+// - Critical stall testing for livelock detection
+// - Memory statistics tracking
+// 
+// Ported from Unreal Engine's LockFreeList.cpp
 
 #include "OloEngine/Memory/LockFreeList.h"
 #include "OloEngine/Core/Log.h"
@@ -106,21 +104,19 @@ namespace OloEngine
     // TLS-Based Link Allocator Cache
     // ========================================================================
 
-    /**
-     * @class LockFreeLinkAllocator_TLSCache
-     * @brief Thread-local caching layer for lock-free link allocation
-     * 
-     * Each thread maintains a bundle of 64 links to reduce contention
-     * on the global free list.
-     * 
-     * Uses manual TLS slots instead of C++ thread_local to:
-     * 1. Avoid destructor ordering issues during thread exit
-     * 2. Avoid DLL boundary problems on Windows
-     * 3. Match UE5.7's implementation pattern
-     * 
-     * IMPORTANT: Thread caches are intentionally NOT cleaned up on thread exit.
-     * This matches UE5.7 and avoids potential issues during thread teardown.
-     */
+    // @class LockFreeLinkAllocator_TLSCache
+    // @brief Thread-local caching layer for lock-free link allocation
+    // 
+    // Each thread maintains a bundle of 64 links to reduce contention
+    // on the global free list.
+    // 
+    // Uses manual TLS slots instead of C++ thread_local to:
+    // 1. Avoid destructor ordering issues during thread exit
+    // 2. Avoid DLL boundary problems on Windows
+    // 3. Match UE5.7's implementation pattern
+    // 
+    // IMPORTANT: Thread caches are intentionally NOT cleaned up on thread exit.
+    // This matches UE5.7 and avoids potential issues during thread teardown.
     class LockFreeLinkAllocator_TLSCache
     {
         enum
@@ -153,13 +149,11 @@ namespace OloEngine
             m_TlsSlot = FPlatformTLS::InvalidTlsSlot;
         }
 
-        /**
-         * @brief Allocate a lock-free link (Pop from cache)
-         * @return Index of allocated link
-         * 
-         * Named "Pop" to match UE5.7 naming convention.
-         * Uses Payload field to chain free links.
-         */
+        // @brief Allocate a lock-free link (Pop from cache)
+        // @return Index of allocated link
+        // 
+        // Named "Pop" to match UE5.7 naming convention.
+        // Uses Payload field to chain free links.
         [[nodiscard]] TLinkPtr Pop()
         {
             FThreadLocalCache& TLS = GetTLS();
@@ -211,12 +205,10 @@ namespace OloEngine
             return Result;
         }
 
-        /**
-         * @brief Free a lock-free link (Push to cache)
-         * @param Item Index of link to free
-         * 
-         * Named "Push" to match UE5.7 naming convention.
-         */
+        // @brief Free a lock-free link (Push to cache)
+        // @param Item Index of link to free
+        // 
+        // Named "Push" to match UE5.7 naming convention.
         void Push(TLinkPtr Item)
         {
             FThreadLocalCache& TLS = GetTLS();
@@ -246,14 +238,12 @@ namespace OloEngine
             TLS.NumPartial++;
         }
 
-        /**
-         * @brief Get singleton instance
-         * 
-         * Uses placement new into static storage to ensure the allocator is NEVER destructed.
-         * This is critical because lock-free lists may still be in use during static destruction
-         * (e.g., other static objects freeing links in their destructors).
-         * Matches UE5.7's approach: "make memory that will not go away"
-         */
+        // @brief Get singleton instance
+        // 
+        // Uses placement new into static storage to ensure the allocator is NEVER destructed.
+        // This is critical because lock-free lists may still be in use during static destruction
+        // (e.g., other static objects freeing links in their destructors).
+        // Matches UE5.7's approach: "make memory that will not go away"
         static LockFreeLinkAllocator_TLSCache& Get()
         {
             // Make memory that will not go away, a replacement for TLazySingleton
@@ -285,13 +275,11 @@ namespace OloEngine
         }
 
     private:
-        /**
-         * @struct FThreadLocalCache
-         * @brief Per-thread cache of lock-free links
-         * 
-         * Matches UE5.7's FThreadLocalCache structure.
-         * Note: NO destructor - we intentionally leak on thread exit.
-         */
+        // @struct FThreadLocalCache
+        // @brief Per-thread cache of lock-free links
+        // 
+        // Matches UE5.7's FThreadLocalCache structure.
+        // Note: NO destructor - we intentionally leak on thread exit.
         struct FThreadLocalCache
         {
             TLinkPtr FullBundle;
@@ -321,10 +309,10 @@ namespace OloEngine
             return *TLS;
         }
 
-        /** Slot for TLS struct */
+        // Slot for TLS struct
         u32 m_TlsSlot;
 
-        /** Lock free list of free memory blocks, these are all linked into a bundle of NUM_PER_BUNDLE */
+        // Lock free list of free memory blocks, these are all linked into a bundle of NUM_PER_BUNDLE
         FLockFreePointerListLIFORoot<OLO_PLATFORM_CACHE_LINE_SIZE> m_GlobalFreeListBundles;
     };
 

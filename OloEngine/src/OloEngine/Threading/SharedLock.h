@@ -11,13 +11,11 @@ namespace OloEngine
 	// Forward declaration - FSharedRecursiveMutex has specialized versions
 	class FSharedRecursiveMutex;
 
-	/**
-	 * A basic shared mutex ownership wrapper that locks on construction and unlocks on destruction.
-	 *
-	 * LockType must contain LockShared() and UnlockShared() functions.
-	 * 
-	 * Use with mutex types like FSharedMutex and FSharedRecursiveMutex.
-	 */
+	// A basic shared mutex ownership wrapper that locks on construction and unlocks on destruction.
+	//
+	// LockType must contain LockShared() and UnlockShared() functions.
+	// 
+	// Use with mutex types like FSharedMutex and FSharedRecursiveMutex.
 	template <typename LockType>
 	class TSharedLock final
 	{
@@ -40,13 +38,11 @@ namespace OloEngine
 		LockType& m_Mutex;
 	};
 
-	/**
-	 * A shared mutex ownership wrapper that allows dynamic locking, unlocking, and deferred locking.
-	 *
-	 * LockType must contain LockShared() and UnlockShared() functions.
-	 * 
-	 * Use with mutex types like FSharedMutex and FSharedRecursiveMutex.
-	 */
+	// A shared mutex ownership wrapper that allows dynamic locking, unlocking, and deferred locking.
+	//
+	// LockType must contain LockShared() and UnlockShared() functions.
+	// 
+	// Use with mutex types like FSharedMutex and FSharedRecursiveMutex.
 	template <typename LockType>
 	class TDynamicSharedLock final
 	{
@@ -56,7 +52,7 @@ namespace OloEngine
 		TDynamicSharedLock(const TDynamicSharedLock&) = delete;
 		TDynamicSharedLock& operator=(const TDynamicSharedLock&) = delete;
 
-		/** Wrap a mutex and lock it in shared mode. */
+		// Wrap a mutex and lock it in shared mode.
 		[[nodiscard]] explicit TDynamicSharedLock(LockType& Lock)
 			: m_Mutex(&Lock)
 		{
@@ -64,13 +60,13 @@ namespace OloEngine
 			m_bLocked = true;
 		}
 
-		/** Wrap a mutex without locking it in shared mode. */
+		// Wrap a mutex without locking it in shared mode.
 		[[nodiscard]] explicit TDynamicSharedLock(LockType& Lock, FDeferLock)
 			: m_Mutex(&Lock)
 		{
 		}
 
-		/** Move from another lock, transferring any ownership to this lock. */
+		// Move from another lock, transferring any ownership to this lock.
 		[[nodiscard]] TDynamicSharedLock(TDynamicSharedLock&& Other)
 			: m_Mutex(Other.m_Mutex)
 			, m_bLocked(Other.m_bLocked)
@@ -79,7 +75,7 @@ namespace OloEngine
 			Other.m_bLocked = false;
 		}
 
-		/** Move from another lock, transferring any ownership to this lock, and unlocking the previous mutex if locked. */
+		// Move from another lock, transferring any ownership to this lock, and unlocking the previous mutex if locked.
 		TDynamicSharedLock& operator=(TDynamicSharedLock&& Other)
 		{
 			if (m_bLocked)
@@ -93,7 +89,7 @@ namespace OloEngine
 			return *this;
 		}
 
-		/** Unlock the mutex if locked. */
+		// Unlock the mutex if locked.
 		~TDynamicSharedLock()
 		{
 			if (m_bLocked)
@@ -102,7 +98,7 @@ namespace OloEngine
 			}
 		}
 
-		/** Try to lock the associated mutex in shared mode. This lock must have a mutex and must not be locked. */
+		// Try to lock the associated mutex in shared mode. This lock must have a mutex and must not be locked.
 		bool TryLock()
 		{
 			OLO_CORE_ASSERT(!m_bLocked, "Already locked");
@@ -111,7 +107,7 @@ namespace OloEngine
 			return m_bLocked;
 		}
 
-		/** Lock the associated mutex in shared mode. This lock must have a mutex and must not be locked. */
+		// Lock the associated mutex in shared mode. This lock must have a mutex and must not be locked.
 		void Lock()
 		{
 			OLO_CORE_ASSERT(!m_bLocked, "Already locked");
@@ -120,7 +116,7 @@ namespace OloEngine
 			m_bLocked = true;
 		}
 
-		/** Unlock the associated mutex in shared mode. This lock must have a mutex and must be locked. */
+		// Unlock the associated mutex in shared mode. This lock must have a mutex and must be locked.
 		void Unlock()
 		{
 			OLO_CORE_ASSERT(m_bLocked, "Not locked");
@@ -128,13 +124,13 @@ namespace OloEngine
 			m_Mutex->UnlockShared();
 		}
 
-		/** Returns true if this lock has its associated mutex locked. */
+		// Returns true if this lock has its associated mutex locked.
 		bool OwnsLock() const
 		{
 			return m_bLocked;
 		}
 
-		/** Returns true if this lock has its associated mutex locked. */
+		// Returns true if this lock has its associated mutex locked.
 		explicit operator bool() const
 		{
 			return OwnsLock();

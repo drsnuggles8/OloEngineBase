@@ -97,7 +97,7 @@ struct FScopedMallocTimer
 
 struct FMemory
 {
-    /** Some allocators can be given hints to treat allocations differently depending on how the memory is used, it's lifetime etc. */
+    // Some allocators can be given hints to treat allocations differently depending on how the memory is used, it's lifetime etc.
     enum AllocationHints
     {
         None = -1,
@@ -108,7 +108,7 @@ struct FMemory
         Max
     };
 
-    /** @name Memory functions (wrapper for FPlatformMemory) */
+    // @name Memory functions (wrapper for FPlatformMemory)
 
     static OLO_FINLINE void* Memmove(void* Dest, const void* Src, sizet Count)
     {
@@ -137,7 +137,7 @@ struct FMemory
         return FPlatformMemory::Memzero(Dest, Count);
     }
 
-    /** Returns true if memory is zeroes, false otherwise. */
+    // Returns true if memory is zeroes, false otherwise.
     static inline bool MemIsZero(const void* Ptr, sizet Count)
     {
         // first pass implementation
@@ -217,63 +217,43 @@ struct FMemory
 
     [[nodiscard]] static OLO_NOINLINE void* MallocZeroed(sizet Count, u32 Alignment = DEFAULT_ALIGNMENT);
 
-    /**
-     * For some allocators this will return the actual size that should be requested to eliminate
-     * internal fragmentation. The return value will always be >= Count. This can be used to grow
-     * and shrink containers to optimal sizes.
-     * This call is always fast and threadsafe with no locking.
-     */
+    // For some allocators this will return the actual size that should be requested to eliminate
+    // internal fragmentation. The return value will always be >= Count. This can be used to grow
+    // and shrink containers to optimal sizes.
+    // This call is always fast and threadsafe with no locking.
     static OLO_NOINLINE sizet QuantizeSize(sizet Count, u32 Alignment = DEFAULT_ALIGNMENT);
 
-    /**
-     * Releases as much memory as possible. Must be called from the main thread.
-     */
+    // Releases as much memory as possible. Must be called from the main thread.
     static void Trim(bool bTrimThreadCaches = true);
 
-    /**
-     * Set up TLS caches on the current thread. These are the threads that we can trim.
-     */
+    // Set up TLS caches on the current thread. These are the threads that we can trim.
     static void SetupTLSCachesOnCurrentThread();
 
-    /**
-     * Clears the TLS caches on the current thread and disables any future caching.
-     */
+    // Clears the TLS caches on the current thread and disables any future caching.
     static void ClearAndDisableTLSCachesOnCurrentThread();
 
-    /**
-     * Mark TLS caches for the current thread as used. Thread has woken up to do some processing and needs its TLS caches back.
-     */
+    // Mark TLS caches for the current thread as used. Thread has woken up to do some processing and needs its TLS caches back.
     static void MarkTLSCachesAsUsedOnCurrentThread();
 
-    /**
-     * Mark TLS caches for current thread as unused. Typically before going to sleep. These are the threads that we can trim without waking them up.
-     */
+    // Mark TLS caches for current thread as unused. Typically before going to sleep. These are the threads that we can trim without waking them up.
     static void MarkTLSCachesAsUnusedOnCurrentThread();
 
-    /**
-     * A helper function that will perform a series of random heap allocations to test
-     * the internal validity of the heap. Note, this function will "leak" memory, but another call
-     * will clean up previously allocated blocks before returning. This will help to A/B testing
-     * where you call it in a good state, do something to corrupt memory, then call this again
-     * and hopefully freeing some pointers will trigger a crash.
-     */
+    // A helper function that will perform a series of random heap allocations to test
+    // the internal validity of the heap. Note, this function will "leak" memory, but another call
+    // will clean up previously allocated blocks before returning. This will help to A/B testing
+    // where you call it in a good state, do something to corrupt memory, then call this again
+    // and hopefully freeing some pointers will trigger a crash.
     static void TestMemory();
 
-    /**
-     * Called once main is started and we have -purgatorymallocproxy.
-     * This uses the purgatory malloc proxy to check if things are writing to stale pointers.
-     */
+    // Called once main is started and we have -purgatorymallocproxy.
+    // This uses the purgatory malloc proxy to check if things are writing to stale pointers.
     static void EnablePurgatoryTests();
 
-    /**
-     * Called once main is started and we have -poisonmallocproxy.
-     */
+    // Called once main is started and we have -poisonmallocproxy.
     static void EnablePoisonTests();
 
-    /**
-     * Set global allocator instead of creating it lazily on first allocation.
-     * Must only be called once and only if lazy init is disabled via a macro.
-     */
+    // Set global allocator instead of creating it lazily on first allocation.
+    // Must only be called once and only if lazy init is disabled via a macro.
     static void ExplicitInit(FMalloc& Allocator);
 
     // These versions are called either at startup or in the event of a crash

@@ -16,22 +16,18 @@ namespace OloEngine
 template <typename CounterType>
 class TEventCount;
 
-/**
- * @class TEventCountToken
- * @brief A token used to wait on TEventCount
- * 
- * Acquiring a token before checking the condition avoids a race because 
- * Wait returns immediately when the token no longer matches the notification count.
- */
+// @class TEventCountToken
+// @brief A token used to wait on TEventCount
+// 
+// Acquiring a token before checking the condition avoids a race because 
+// Wait returns immediately when the token no longer matches the notification count.
 template <typename CounterType>
 class TEventCountToken
 {
     static_assert(std::is_unsigned_v<CounterType>);
 
 public:
-    /**
-     * @brief Returns true if the token has been assigned by PrepareWait()
-     */
+    // @brief Returns true if the token has been assigned by PrepareWait()
     inline explicit operator bool() const { return !(Value & 1); }
 
 private:
@@ -41,36 +37,34 @@ private:
     friend TEventCount<CounterType>;
 };
 
-/**
- * @class TEventCount
- * @brief A type of event that avoids missed notifications by maintaining a notification count
- *
- * This type of event is suited to waiting on another thread conditionally.
- * Typical usage looks similar to this example:
- *
- * @code
- *     FEventCount Event;
- *     std::atomic<u32> CurrentValue = 0;
- *
- * On the waiting thread:
- *
- *     FEventCountToken Token = Event.PrepareWait();
- *     if (CurrentValue < TargetValue)
- *     {
- *         Event.Wait(Token);
- *     }
- *
- * On the notifying thread:
- *
- *     if (++CurrentValue == TargetValue)
- *     {
- *         Event.Notify();
- *     }
- * @endcode
- *
- * Acquiring a token before checking the condition avoids a race because Wait returns immediately
- * when the token no longer matches the notification count.
- */
+// @class TEventCount
+// @brief A type of event that avoids missed notifications by maintaining a notification count
+//
+// This type of event is suited to waiting on another thread conditionally.
+// Typical usage looks similar to this example:
+//
+// @code
+//     FEventCount Event;
+//     std::atomic<u32> CurrentValue = 0;
+//
+// On the waiting thread:
+//
+//     FEventCountToken Token = Event.PrepareWait();
+//     if (CurrentValue < TargetValue)
+//     {
+//         Event.Wait(Token);
+//     }
+//
+// On the notifying thread:
+//
+//     if (++CurrentValue == TargetValue)
+//     {
+//         Event.Notify();
+//     }
+// @endcode
+//
+// Acquiring a token before checking the condition avoids a race because Wait returns immediately
+// when the token no longer matches the notification count.
 template <typename CounterType>
 class TEventCount
 {
@@ -82,13 +76,11 @@ public:
     TEventCount(const TEventCount&) = delete;
     TEventCount& operator=(const TEventCount&) = delete;
 
-    /**
-     * @brief Prepare to wait
-     *
-     * Call this before any logic that must re-execute if the event is notified in the meantime.
-     *
-     * @return A token to pass to one of the wait functions to abort the wait if the event has been notified since.
-     */
+    // @brief Prepare to wait
+    //
+    // Call this before any logic that must re-execute if the event is notified in the meantime.
+    //
+    // @return A token to pass to one of the wait functions to abort the wait if the event has been notified since.
     inline TEventCountToken<CounterType> PrepareWait()
     {
         TEventCountToken<CounterType> Token;
@@ -106,13 +98,11 @@ public:
         return Token;
     }
 
-    /**
-     * @brief Wait until the event is notified
-     * 
-     * Returns immediately if notified since the token was acquired.
-     *
-     * @param Compare A token acquired from PrepareWait() before checking the conditions for this wait.
-     */
+    // @brief Wait until the event is notified
+    // 
+    // Returns immediately if notified since the token was acquired.
+    //
+    // @param Compare A token acquired from PrepareWait() before checking the conditions for this wait.
     inline void Wait(TEventCountToken<CounterType> Compare)
     {
         if ((m_Count.load(std::memory_order_acquire) & ~CounterType(1)) == Compare.Value)
@@ -135,15 +125,13 @@ public:
         }
     }
 
-    /**
-     * @brief Wait until the event is notified, with timeout
-     * 
-     * Returns immediately if notified since the token was acquired.
-     *
-     * @param Compare   A token acquired from PrepareWait() before checking the conditions for this wait.
-     * @param WaitTime  Relative time after which waiting is automatically canceled and the thread wakes.
-     * @return True if the event was notified before the wait time elapsed, otherwise false.
-     */
+    // @brief Wait until the event is notified, with timeout
+    // 
+    // Returns immediately if notified since the token was acquired.
+    //
+    // @param Compare   A token acquired from PrepareWait() before checking the conditions for this wait.
+    // @param WaitTime  Relative time after which waiting is automatically canceled and the thread wakes.
+    // @return True if the event was notified before the wait time elapsed, otherwise false.
     inline bool WaitFor(TEventCountToken<CounterType> Compare, FMonotonicTimeSpan WaitTime)
     {
         if ((m_Count.load(std::memory_order_acquire) & ~CounterType(1)) == Compare.Value)
@@ -178,15 +166,13 @@ public:
         return true;
     }
 
-    /**
-     * @brief Wait until the event is notified, until absolute time
-     * 
-     * Returns immediately if notified since the token was acquired.
-     *
-     * @param Compare   A token acquired from PrepareWait() before checking the conditions for this wait.
-     * @param WaitTime  Absolute time after which waiting is automatically canceled and the thread wakes.
-     * @return True if the event was notified before the wait time elapsed, otherwise false.
-     */
+    // @brief Wait until the event is notified, until absolute time
+    // 
+    // Returns immediately if notified since the token was acquired.
+    //
+    // @param Compare   A token acquired from PrepareWait() before checking the conditions for this wait.
+    // @param WaitTime  Absolute time after which waiting is automatically canceled and the thread wakes.
+    // @return True if the event was notified before the wait time elapsed, otherwise false.
     inline bool WaitUntil(TEventCountToken<CounterType> Compare, FMonotonicTimePoint WaitTime)
     {
         if ((m_Count.load(std::memory_order_acquire) & ~CounterType(1)) == Compare.Value)
@@ -221,12 +207,10 @@ public:
         return true;
     }
 
-    /**
-     * @brief Notifies all waiting threads
-     *
-     * Any threads that have called PrepareWait() and not yet waited will be notified immediately
-     * if they do wait on a token from a call to PrepareWait() that preceded this call.
-     */
+    // @brief Notifies all waiting threads
+    //
+    // Any threads that have called PrepareWait() and not yet waited will be notified immediately
+    // if they do wait on a token from a call to PrepareWait() that preceded this call.
     inline void Notify()
     {
         // .fetch_add(0, acq_rel) is used to have a StoreLoad barrier,

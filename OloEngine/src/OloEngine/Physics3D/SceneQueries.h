@@ -18,12 +18,10 @@ namespace OloEngine {
 	class JoltBody;
 	class PhysicsShape;
 
-	/**
-	 * @brief Detailed information about a physics query hit
-	 * 
-	 * Contains comprehensive information about collision detection results,
-	 * including hit position, normal, distance, and references to the hit entities.
-	 */
+	// @brief Detailed information about a physics query hit
+	// 
+	// Contains comprehensive information about collision detection results,
+	// including hit position, normal, distance, and references to the hit entities.
 	struct SceneQueryHit
 	{
 		UUID m_HitEntity = 0;
@@ -52,12 +50,10 @@ namespace OloEngine {
 	// Migration: Replace std::vector<UUID> with ExcludedEntitySet in physics query code.
 	using ExcludedEntityMap = std::vector<UUID>;
 
-	/**
-	 * @brief Information for performing ray casting queries
-	 * 
-	 * Defines the parameters for casting a ray through the physics world,
-	 * including origin, direction, distance limits, and entity filtering.
-	 */
+	// @brief Information for performing ray casting queries
+	// 
+	// Defines the parameters for casting a ray through the physics world,
+	// including origin, direction, distance limits, and entity filtering.
 	struct RayCastInfo
 	{
 		glm::vec3 m_Origin = glm::vec3(0.0f);
@@ -71,11 +67,9 @@ namespace OloEngine {
 			: m_Origin(origin), m_Direction(direction), m_MaxDistance(maxDistance) {}
 	};
 
-	/**
-	 * @brief Base information for shape casting queries
-	 * 
-	 * Common parameters shared across different shape casting operations.
-	 */
+	// @brief Base information for shape casting queries
+	// 
+	// Common parameters shared across different shape casting operations.
 	enum class ShapeCastType { Box, Sphere, Capsule };
 
 	struct ShapeCastInfo
@@ -100,11 +94,9 @@ namespace OloEngine {
 		ShapeCastType m_Type;
 	};
 
-	/**
-	 * @brief Box shape casting parameters
-	 * 
-	 * Performs a sweep test using a box shape through the physics world.
-	 */
+	// @brief Box shape casting parameters
+	// 
+	// Performs a sweep test using a box shape through the physics world.
 	struct BoxCastInfo : public ShapeCastInfo
 	{
 		BoxCastInfo() : ShapeCastInfo(ShapeCastType::Box) {}
@@ -116,11 +108,9 @@ namespace OloEngine {
 		glm::vec3 m_HalfExtent = glm::vec3(0.5f);
 	};
 
-	/**
-	 * @brief Sphere shape casting parameters
-	 * 
-	 * Performs a sweep test using a sphere shape through the physics world.
-	 */
+	// @brief Sphere shape casting parameters
+	// 
+	// Performs a sweep test using a sphere shape through the physics world.
 	struct SphereCastInfo : public ShapeCastInfo
 	{
 		SphereCastInfo() : ShapeCastInfo(ShapeCastType::Sphere) {}
@@ -132,11 +122,9 @@ namespace OloEngine {
 		f32 m_Radius = 0.5f;
 	};
 
-	/**
-	 * @brief Capsule shape casting parameters
-	 * 
-	 * Performs a sweep test using a capsule shape through the physics world.
-	 */
+	// @brief Capsule shape casting parameters
+	// 
+	// Performs a sweep test using a capsule shape through the physics world.
 	struct CapsuleCastInfo : public ShapeCastInfo
 	{
 		CapsuleCastInfo() : ShapeCastInfo(ShapeCastType::Capsule) {}
@@ -149,11 +137,9 @@ namespace OloEngine {
 		f32 m_Radius = 0.5f;
 	};
 
-	/**
-	 * @brief Base information for shape overlap queries
-	 * 
-	 * Common parameters for detecting overlapping objects with a given shape.
-	 */
+	// @brief Base information for shape overlap queries
+	// 
+	// Common parameters for detecting overlapping objects with a given shape.
 	struct ShapeOverlapInfo
 	{
 		ShapeOverlapInfo(ShapeCastType castType) : m_Type(castType) {}
@@ -172,11 +158,9 @@ namespace OloEngine {
 		ShapeCastType m_Type;
 	};
 
-	/**
-	 * @brief Box overlap query parameters
-	 * 
-	 * Detects all objects overlapping with a box shape at a specific position.
-	 */
+	// @brief Box overlap query parameters
+	// 
+	// Detects all objects overlapping with a box shape at a specific position.
 	struct BoxOverlapInfo : public ShapeOverlapInfo
 	{
 		BoxOverlapInfo() : ShapeOverlapInfo(ShapeCastType::Box) {}
@@ -188,11 +172,9 @@ namespace OloEngine {
 		glm::vec3 m_HalfExtent = glm::vec3(0.5f);
 	};
 
-	/**
-	 * @brief Sphere overlap query parameters
-	 * 
-	 * Detects all objects overlapping with a sphere shape at a specific position.
-	 */
+	// @brief Sphere overlap query parameters
+	// 
+	// Detects all objects overlapping with a sphere shape at a specific position.
 	struct SphereOverlapInfo : public ShapeOverlapInfo
 	{
 		SphereOverlapInfo() : ShapeOverlapInfo(ShapeCastType::Sphere) {}
@@ -204,11 +186,9 @@ namespace OloEngine {
 		f32 m_Radius = 0.5f;
 	};
 
-	/**
-	 * @brief Capsule overlap query parameters
-	 * 
-	 * Detects all objects overlapping with a capsule shape at a specific position.
-	 */
+	// @brief Capsule overlap query parameters
+	// 
+	// Detects all objects overlapping with a capsule shape at a specific position.
 	struct CapsuleOverlapInfo : public ShapeOverlapInfo
 	{
 		CapsuleOverlapInfo() : ShapeOverlapInfo(ShapeCastType::Capsule) {}
@@ -221,13 +201,11 @@ namespace OloEngine {
 		f32 m_Radius = 0.5f;
 	};
 
-	/**
-	 * @brief Scene query interface for physics world queries
-	 * 
-	 * Provides methods for performing various types of spatial queries
-	 * against the physics world, including ray casting, shape casting,
-	 * and overlap detection.
-	 */
+	// @brief Scene query interface for physics world queries
+	// 
+	// Provides methods for performing various types of spatial queries
+	// against the physics world, including ray casting, shape casting,
+	// and overlap detection.
 	class SceneQueries
 	{
 	public:
@@ -258,9 +236,7 @@ namespace OloEngine {
 		virtual i32 CastCapsuleMultiple(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit* outHits, i32 maxHits) = 0;
 	};
 
-	/**
-	 * @brief Utility functions for scene queries
-	 */
+	// @brief Utility functions for scene queries
 	namespace SceneQueryUtils
 	{
 		// Helper functions for creating common query types

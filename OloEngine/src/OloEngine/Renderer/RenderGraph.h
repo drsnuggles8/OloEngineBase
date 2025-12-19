@@ -10,9 +10,7 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Manages a graph of render passes forming a complete rendering pipeline.
-     */
+    // @brief Manages a graph of render passes forming a complete rendering pipeline.
     class RenderGraph : public RefCounted
     {
     public:
@@ -36,10 +34,8 @@ namespace OloEngine
         // Set the final pass in the graph
         void SetFinalPass(const std::string& passName);
         
-        /**
-         * @brief Get all render passes in the graph for debugging or inspection.
-         * @return Vector of render passes in the execution order
-         */
+        // @brief Get all render passes in the graph for debugging or inspection.
+        // @return Vector of render passes in the execution order
         [[nodiscard]] std::vector<Ref<RenderPass>> GetAllPasses() const;
         
         // Get a pass by name and cast to the requested type

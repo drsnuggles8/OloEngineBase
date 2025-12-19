@@ -39,22 +39,18 @@ namespace OloEngine::Tasks
 
 	namespace Private
 	{
-		/**
-		 * @brief Check if the current thread is retracting a task
-		 * 
-		 * Used to detect and prevent re-entrant retraction scenarios.
-		 * Matches UE5.7's IsThreadRetractingTask() pattern.
-		 * 
-		 * @return true if current thread is inside TryRetractAndExecute
-		 */
+// @brief Check if the current thread is retracting a task
+        // 
+        // Used to detect and prevent re-entrant retraction scenarios.
+        // Matches UE5.7's IsThreadRetractingTask() pattern.
+        // 
+        // @return true if current thread is inside TryRetractAndExecute
 		bool IsThreadRetractingTask();
 
-		/**
-		 * @brief RAII scope for tracking task retraction
-		 * 
-		 * Increments thread-local retraction counter on construction,
-		 * decrements on destruction. Used by TryRetractAndExecute.
-		 */
+		// @brief RAII scope for tracking task retraction
+		// 
+		// Increments thread-local retraction counter on construction,
+		// decrements on destruction. Used by TryRetractAndExecute.
 		struct FThreadLocalRetractionScope
 		{
 			FThreadLocalRetractionScope();
@@ -68,15 +64,13 @@ namespace OloEngine::Tasks
 
 	namespace Private
 	{
-		/**
-		 * @brief Translate regular priority and extended priority to named thread dispatch
-		 * @param Priority Base task priority
-		 * @param ExtendedPriority Extended priority (may include named thread targets)
-		 * @param OutNamedThread Output named thread if this is a named thread task
-		 * @param OutIsHighPriority Output whether this is high priority
-		 * @param OutIsLocalQueue Output whether this uses the local queue
-		 * @return true if this is a named thread task that should be routed specially
-		 */
+		// @brief Translate regular priority and extended priority to named thread dispatch
+		// @param Priority Base task priority
+		// @param ExtendedPriority Extended priority (may include named thread targets)
+		// @param OutNamedThread Output named thread if this is a named thread task
+		// @param OutIsHighPriority Output whether this is high priority
+		// @param OutIsLocalQueue Output whether this uses the local queue
+		// @return true if this is a named thread task that should be routed specially
 		bool TranslatePriority(
 			ETaskPriority Priority,
 			EExtendedTaskPriority ExtendedPriority,
@@ -85,17 +79,13 @@ namespace OloEngine::Tasks
 			bool& OutIsLocalQueue
 		);
 
-		/**
-		 * @brief Check if currently executing on the rendering thread
-		 * @return true if on render thread
-		 */
+		// @brief Check if currently executing on the rendering thread
+		// @return true if on render thread
 		bool IsInRenderingThread();
 	}
 
-	/**
-	 * @enum ETaskFlags
-	 * @brief Configuration options for high-level tasks
-	 */
+	// @enum ETaskFlags
+	// @brief Configuration options for high-level tasks
 	enum class ETaskFlags
 	{
 		None = 0,
@@ -111,9 +101,7 @@ namespace OloEngine::Tasks
 		// Current Task Tracking (TLS)
 		// ============================================================================
 
-		/**
-		 * @brief Get the task currently being executed by this thread
-		 */
+		// @brief Get the task currently being executed by this thread
 		inline FTaskBase*& GetCurrentTaskRef()
 		{
 			static thread_local FTaskBase* s_CurrentTask = nullptr;
@@ -137,22 +125,20 @@ namespace OloEngine::Tasks
 		// FTaskBase - Core task implementation
 		// ============================================================================
 
-		/**
-		 * @class FTaskBase
-		 * @brief Abstract base class for task implementation
-		 * 
-		 * Implements:
-		 * - Intrusive ref-counting
-		 * - Prerequisites and subsequents for dependency tracking
-		 * - Nested task support
-		 * - Pipe integration
-		 * - Task retraction
-		 * - Inherited context
-		 * 
-		 * The NumLocks field serves dual purpose:
-		 * - Before execution: counts prerequisites blocking execution
-		 * - After ExecutionFlag is set: counts nested tasks blocking completion
-		 */
+		// @class FTaskBase
+		// @brief Abstract base class for task implementation
+		// 
+		// Implements:
+		// - Intrusive ref-counting
+		// - Prerequisites and subsequents for dependency tracking
+		// - Nested task support
+		// - Pipe integration
+		// - Task retraction
+		// - Inherited context
+		// 
+		// The NumLocks field serves dual purpose:
+		// - Before execution: counts prerequisites blocking execution
+		// - After ExecutionFlag is set: counts nested tasks blocking completion
 		class FTaskBase : private FInheritedContextBase
 		{
 			OLO_NONCOPYABLE(FTaskBase);
@@ -256,10 +242,8 @@ namespace OloEngine::Tasks
 
 			// ====== Prerequisites ======
 
-			/**
-			 * @brief Add a single prerequisite task
-			 * @return true if successfully added, false if prerequisite already completed
-			 */
+			// @brief Add a single prerequisite task
+			// @return true if successfully added, false if prerequisite already completed
 			bool AddPrerequisites(FTaskBase& Prerequisite)
 			{
 				OLO_CORE_ASSERT(m_NumLocks.load(std::memory_order_relaxed) >= NumInitialLocks && 
@@ -282,18 +266,14 @@ namespace OloEngine::Tasks
 				return true;
 			}
 
-			/**
-			 * @brief Add prerequisites from a higher-level task handle
-			 */
+			// @brief Add prerequisites from a higher-level task handle
 			template<typename HigherLevelTaskType, decltype(std::declval<HigherLevelTaskType>().Pimpl)* = nullptr>
 			bool AddPrerequisites(const HigherLevelTaskType& Prerequisite)
 			{
 				return Prerequisite.IsValid() ? AddPrerequisites(*Prerequisite.Pimpl) : false;
 			}
 
-			/**
-			 * @brief Add prerequisites from an iterable collection
-			 */
+			// @brief Add prerequisites from an iterable collection
 			template<typename PrerequisiteCollectionType, decltype(std::declval<PrerequisiteCollectionType>().begin())* = nullptr>
 			void AddPrerequisites(const PrerequisiteCollectionType& InPrerequisites)
 			{
@@ -366,10 +346,8 @@ namespace OloEngine::Tasks
 				}
 			}
 
-			/**
-			 * @brief Add a subsequent task that depends on this one
-			 * @return false if this task is already completed
-			 */
+			// @brief Add a subsequent task that depends on this one
+			// @return false if this task is already completed
 			bool AddSubsequent(FTaskBase& Subsequent)
 			{
 				if (m_Subsequents.PushIfNotClosed(&Subsequent))
@@ -396,9 +374,7 @@ namespace OloEngine::Tasks
 
 			// ====== Nested Tasks ======
 
-			/**
-			 * @brief Add a nested task that must complete before this task completes
-			 */
+			// @brief Add a nested task that must complete before this task completes
 			void AddNested(FTaskBase& Nested)
 			{
 				u32 PrevNumLocks = m_NumLocks.fetch_add(1, std::memory_order_relaxed);
@@ -418,10 +394,8 @@ namespace OloEngine::Tasks
 
 			// ====== Launching ======
 
-			/**
-			 * @brief Try to schedule task execution
-			 * @return false if blocked by prerequisites
-			 */
+			// @brief Try to schedule task execution
+			// @return false if blocked by prerequisites
 			bool TryLaunch(u64 TaskSize)
 			{
 				TaskTrace::Launched(GetTraceId(), m_LowLevelTask.GetDebugName(), true, 
@@ -431,9 +405,7 @@ namespace OloEngine::Tasks
 				return TryUnlock(bWakeUpWorker);
 			}
 
-			/**
-			 * @brief Try to trigger the task (for task events that can be triggered multiple times)
-			 */
+			// @brief Try to trigger the task (for task events that can be triggered multiple times)
 			bool Trigger(u64 TaskSize)
 			{
 				if (m_TaskTriggered.exchange(true, std::memory_order_relaxed))
@@ -447,9 +419,7 @@ namespace OloEngine::Tasks
 
 			// ====== Waiting ======
 
-			/**
-			 * @brief Wait for task completion with timeout
-			 */
+// @brief Wait for task completion with timeout
 			bool Wait(FTimeout Timeout)
 			{
 				if (IsCompleted())
@@ -466,13 +436,11 @@ namespace OloEngine::Tasks
 				return WaitImpl(Timeout);
 			}
 
-			/**
-			 * @brief Wait for task completion without timeout
-			 * 
-			 * Uses GTaskGraphAlwaysWaitWithNamedThreadSupport to determine whether
-			 * to process named thread tasks while waiting. This can be overridden
-			 * for specific task priorities via ShouldForceWaitWithNamedThreadsSupport.
-			 */
+			// @brief Wait for task completion without timeout
+			// 
+			// Uses GTaskGraphAlwaysWaitWithNamedThreadSupport to determine whether
+			// to process named thread tasks while waiting. This can be overridden
+			// for specific task priorities via ShouldForceWaitWithNamedThreadsSupport.
 			void Wait()
 			{
 				if (IsCompleted())
@@ -493,16 +461,14 @@ namespace OloEngine::Tasks
 				}
 			}
 
-			/**
-			 * @brief Wait with named thread support
-			 * 
-			 * Mimics UE5.7's FTaskBase::WaitWithNamedThreadsSupport behavior:
-			 * When waiting on a named thread (GameThread, RenderThread, etc.), this
-			 * processes other tasks from that thread's queue while waiting, which
-			 * helps prevent deadlocks.
-			 * 
-			 * On worker threads, this behaves like regular Wait().
-			 */
+			// @brief Wait with named thread support
+			// 
+			// Mimics UE5.7's FTaskBase::WaitWithNamedThreadsSupport behavior:
+			// When waiting on a named thread (GameThread, RenderThread, etc.), this
+			// processes other tasks from that thread's queue while waiting, which
+			// helps prevent deadlocks.
+			// 
+			// On worker threads, this behaves like regular Wait().
 			void WaitWithNamedThreadsSupport()
 			{
 				if (IsCompleted())
@@ -526,9 +492,7 @@ namespace OloEngine::Tasks
 				}
 			}
 
-			/**
-			 * @brief Try to retract and execute the task inline
-			 */
+			// @brief Try to retract and execute the task inline
 			bool TryRetractAndExecute(FTimeout Timeout, u32 RecursionDepth = 0)
 			{
 				if (IsCompleted() || Timeout.IsExpired())
@@ -707,20 +671,16 @@ namespace OloEngine::Tasks
 				return false;
 			}
 
-			/**
-			 * @brief Release internal reference for unlaunched tasks
-			 */
+// @brief Release internal reference for unlaunched tasks
 			void ReleaseInternalReference()
 			{
 				OLO_CORE_VERIFY_SLOW(m_LowLevelTask.TryCancel(), "Failed to cancel unlaunched task");
 			}
 
-			/**
-			 * @brief Try to set the execution flag atomically
-			 * 
-			 * Only one thread can successfully set execution flag, that grants task execution permission.
-			 * @returns false if another thread got execution permission first
-			 */
+// @brief Try to set the execution flag atomically
+		// 
+		// Only one thread can successfully set execution flag, that grants task execution permission.
+		// @returns false if another thread got execution permission first
 			bool TrySetExecutionFlag()
 			{
 				u32 ExpectedUnlocked = 0;
@@ -990,19 +950,17 @@ namespace OloEngine::Tasks
 				return static_cast<u32>(std::hash<std::thread::id>{}(std::this_thread::get_id()) & 0xFFFFFFFF);
 			}
 
-			/**
-			 * @brief Try to wait while processing named thread tasks
-			 * 
-			 * If called from a named thread (GameThread, RenderThread, RHIThread),
-			 * this processes tasks from that thread's queue while waiting for the
-			 * task to complete. This helps prevent deadlocks when a named thread
-			 * waits on a task that might schedule work back to that same thread.
-			 * 
-			 * This follows the UE5.7 pattern of keeping the named thread productive
-			 * while waiting, rather than blocking.
-			 * 
-			 * @return true if wait was handled on a named thread, false otherwise
-			 */
+			// @brief Try to wait while processing named thread tasks
+			// 
+			// If called from a named thread (GameThread, RenderThread, RHIThread),
+			// this processes tasks from that thread's queue while waiting for the
+			// task to complete. This helps prevent deadlocks when a named thread
+			// waits on a task that might schedule work back to that same thread.
+			// 
+			// This follows the UE5.7 pattern of keeping the named thread productive
+			// while waiting, rather than blocking.
+			// 
+			// @return true if wait was handled on a named thread, false otherwise
 			bool TryWaitOnNamedThread()
 			{
 				FNamedThreadManager& Manager = FNamedThreadManager::Get();
@@ -1147,13 +1105,11 @@ namespace OloEngine::Tasks
 		// TTaskWithResult - Task with result storage
 		// ============================================================================
 
-		/**
-		 * @class TTaskWithResult
-		 * @brief Extension of FTaskBase for tasks that return a result
-		 * 
-		 * Stores task execution result using TTypeCompatibleBytes for proper alignment.
-		 * Result is constructed during ExecuteTask() and destructed in the destructor.
-		 */
+		// @class TTaskWithResult
+		// @brief Extension of FTaskBase for tasks that return a result
+		// 
+		// Stores task execution result using TTypeCompatibleBytes for proper alignment.
+		// Result is constructed during ExecuteTask() and destructed in the destructor.
 		template<typename ResultType>
 		class TTaskWithResult : public FTaskBase
 		{
@@ -1186,13 +1142,11 @@ namespace OloEngine::Tasks
 		// TExecutableTaskBase - Task with body storage
 		// ============================================================================
 
-		/**
-		 * @class TExecutableTaskBase
-		 * @brief Task implementation that stores and executes a callable body
-		 * 
-		 * Generic version for tasks that return non-void results.
-		 * Stores the task body and executes it, storing the result in TTaskWithResult::m_ResultStorage.
-		 */
+		// @class TExecutableTaskBase
+		// @brief Task implementation that stores and executes a callable body
+		// 
+		// Generic version for tasks that return non-void results.
+		// Stores the task body and executes it, storing the result in TTaskWithResult::m_ResultStorage.
 		template<typename TaskBodyType, typename ResultType = TInvokeResult_T<TaskBodyType>, typename Enable = void>
 		class TExecutableTaskBase : public TTaskWithResult<ResultType>
 		{
@@ -1224,9 +1178,7 @@ namespace OloEngine::Tasks
 			TTypeCompatibleBytes<TaskBodyType> m_TaskBodyStorage;
 		};
 
-		/**
-		 * @brief Specialization for tasks that don't return results (void)
-		 */
+		// @brief Specialization for tasks that don't return results (void)
 		template<typename TaskBodyType>
 		class TExecutableTaskBase<TaskBodyType, typename TEnableIf<std::is_same_v<TInvokeResult_T<TaskBodyType>, void>>::Type>
 			: public FTaskBase

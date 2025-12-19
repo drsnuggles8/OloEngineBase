@@ -8,13 +8,11 @@
 
 namespace OloEngine
 {
-    /**
-     * A basic mutex ownership wrapper that locks on construction and unlocks on destruction.
-     *
-     * LockType must contain Lock() and Unlock() functions.
-     * 
-     * Use with mutex types like FMutex and FRecursiveMutex.
-     */
+    // A basic mutex ownership wrapper that locks on construction and unlocks on destruction.
+    //
+    // LockType must contain Lock() and Unlock() functions.
+    // 
+    // Use with mutex types like FMutex and FRecursiveMutex.
     template <typename LockType>
     class TUniqueLock final
     {
@@ -37,13 +35,11 @@ namespace OloEngine
         LockType& m_Mutex;
     };
 
-    /**
-     * A mutex ownership wrapper that allows dynamic locking, unlocking, and deferred locking.
-     *
-     * LockType must contain Lock() and Unlock() functions.
-     * 
-     * Use with mutex types like FMutex and FRecursiveMutex.
-     */
+    // A mutex ownership wrapper that allows dynamic locking, unlocking, and deferred locking.
+    //
+    // LockType must contain Lock() and Unlock() functions.
+    // 
+    // Use with mutex types like FMutex and FRecursiveMutex.
     template <typename LockType>
     class TDynamicUniqueLock final
     {
@@ -53,7 +49,7 @@ namespace OloEngine
         TDynamicUniqueLock(const TDynamicUniqueLock&) = delete;
         TDynamicUniqueLock& operator=(const TDynamicUniqueLock&) = delete;
 
-        /** Wrap a mutex and lock it. */
+        // Wrap a mutex and lock it.
         [[nodiscard]] OLO_FINLINE explicit TDynamicUniqueLock(LockType& Lock)
             : m_Mutex(&Lock)
         {
@@ -61,13 +57,13 @@ namespace OloEngine
             m_bLocked = true;
         }
 
-        /** Wrap a mutex without locking it. */
+        // Wrap a mutex without locking it.
         [[nodiscard]] OLO_FINLINE explicit TDynamicUniqueLock(LockType& Lock, FDeferLock)
             : m_Mutex(&Lock)
         {
         }
 
-        /** Move from another lock, transferring any ownership to this lock. */
+        // Move from another lock, transferring any ownership to this lock.
         [[nodiscard]] OLO_FINLINE TDynamicUniqueLock(TDynamicUniqueLock&& Other)
             : m_Mutex(Other.m_Mutex)
             , m_bLocked(Other.m_bLocked)
@@ -76,7 +72,7 @@ namespace OloEngine
             Other.m_bLocked = false;
         }
 
-        /** Move from another lock, transferring any ownership to this lock, and unlocking the previous mutex if locked. */
+        // Move from another lock, transferring any ownership to this lock, and unlocking the previous mutex if locked.
         OLO_FINLINE TDynamicUniqueLock& operator=(TDynamicUniqueLock&& Other)
         {
             if (m_bLocked)
@@ -90,7 +86,7 @@ namespace OloEngine
             return *this;
         }
 
-        /** Unlock the mutex if locked. */
+        // Unlock the mutex if locked.
         OLO_FINLINE ~TDynamicUniqueLock()
         {
             if (m_bLocked)
@@ -99,7 +95,7 @@ namespace OloEngine
             }
         }
 
-        /** Lock the associated mutex. This lock must have a mutex and must not be locked. */
+        // Lock the associated mutex. This lock must have a mutex and must not be locked.
         void Lock()
         {
             OLO_CORE_ASSERT(!m_bLocked, "Lock is already locked");
@@ -108,7 +104,7 @@ namespace OloEngine
             m_bLocked = true;
         }
 
-        /** Unlock the associated mutex. This lock must have a mutex and must be locked. */
+        // Unlock the associated mutex. This lock must have a mutex and must be locked.
         void Unlock()
         {
             OLO_CORE_ASSERT(m_bLocked, "Lock is not locked");
@@ -116,13 +112,13 @@ namespace OloEngine
             m_Mutex->Unlock();
         }
 
-        /** Returns true if this lock has its associated mutex locked. */
+        // Returns true if this lock has its associated mutex locked.
         OLO_FINLINE bool OwnsLock() const
         {
             return m_bLocked;
         }
 
-        /** Returns true if this lock has its associated mutex locked. */
+        // Returns true if this lock has its associated mutex locked.
         OLO_FINLINE explicit operator bool() const
         {
             return OwnsLock();

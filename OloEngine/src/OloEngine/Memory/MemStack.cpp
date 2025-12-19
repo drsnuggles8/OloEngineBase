@@ -1,9 +1,7 @@
-/**
- * @file MemStack.cpp
- * @brief Implementation of FMemStackBase
- * 
- * Ported from Unreal Engine's MemStack.cpp
- */
+// @file MemStack.cpp
+// @brief Implementation of FMemStackBase
+// 
+// Ported from Unreal Engine's MemStack.cpp
 
 #include "OloEngine/Memory/MemStack.h"
 

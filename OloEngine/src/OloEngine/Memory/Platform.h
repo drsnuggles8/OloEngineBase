@@ -1,17 +1,15 @@
 #pragma once
 
-/**
- * @file Platform.h
- * @brief Platform-specific definitions for the OloEngine memory system
- * 
- * This file provides platform abstractions for:
- * - Cache line size
- * - Memory alignment requirements
- * - Compiler-specific attributes
- * - Platform detection macros
- * 
- * Ported from Unreal Engine's platform abstraction layer.
- */
+// @file Platform.h
+// @brief Platform-specific definitions for the OloEngine memory system
+// 
+// This file provides platform abstractions for:
+// - Cache line size
+// - Memory alignment requirements
+// - Compiler-specific attributes
+// - Platform detection macros
+// 
+// Ported from Unreal Engine's platform abstraction layer.
 
 #include "OloEngine/Core/Base.h"
 
@@ -136,36 +134,28 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Platform-specific property queries
-     * 
-     * Provides static methods to query platform capabilities and properties
-     * at compile-time and runtime.
-     */
+    // @brief Platform-specific property queries
+    // 
+    // Provides static methods to query platform capabilities and properties
+    // at compile-time and runtime.
     struct PlatformProperties
     {
-        /**
-         * @brief Get the maximum supported virtual memory alignment
-         * @return Maximum alignment in bytes that the platform can support for virtual allocations
-         */
+        // @brief Get the maximum supported virtual memory alignment
+        // @return Maximum alignment in bytes that the platform can support for virtual allocations
         static constexpr sizet GetMaxSupportedVirtualMemoryAlignment()
         {
             return OLO_MAX_VIRTUAL_MEMORY_ALIGNMENT;
         }
 
-        /**
-         * @brief Get the cache line size for the current platform
-         * @return Cache line size in bytes
-         */
+        // @brief Get the cache line size for the current platform
+        // @return Cache line size in bytes
         static constexpr sizet GetCacheLineSize()
         {
             return OLO_PLATFORM_CACHE_LINE_SIZE;
         }
 
-        /**
-         * @brief Get the default memory alignment
-         * @return Default alignment in bytes
-         */
+        // @brief Get the default memory alignment
+        // @return Default alignment in bytes
         static constexpr sizet GetDefaultAlignment()
         {
             return OLO_DEFAULT_ALIGNMENT;

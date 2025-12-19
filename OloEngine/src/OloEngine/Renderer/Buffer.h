@@ -6,9 +6,7 @@
 
 namespace OloEngine
 {
-	/**
-	 * @brief Buffer usage patterns for optimization hints
-	 */
+	// @brief Buffer usage patterns for optimization hints
 	enum class BufferUsage
 	{
 		Static = 0,  // Data will be modified once and used many times

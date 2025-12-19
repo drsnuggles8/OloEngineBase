@@ -1,13 +1,11 @@
-/**
- * @file QueuedThreadPool.h
- * @brief Thread pool interfaces and implementations for queued work
- * 
- * Ported from Unreal Engine 5.7 - Epic Games, Inc.
- * 
- * This file provides several thread pool implementations:
- * - FQueuedThreadPool: Abstract interface
- * - FQueuedThreadPoolScheduler: Uses the low-level scheduler (recommended)
- */
+// @file QueuedThreadPool.h
+// @brief Thread pool interfaces and implementations for queued work
+// 
+// Ported from Unreal Engine 5.7 - Epic Games, Inc.
+// 
+// This file provides several thread pool implementations:
+// - FQueuedThreadPool: Abstract interface
+// - FQueuedThreadPoolScheduler: Uses the low-level scheduler (recommended)
 
 #pragma once
 
@@ -28,7 +26,7 @@
 
 namespace OLO
 {
-	/** Higher priority work is picked up first by the thread pool. */
+	// Higher priority work is picked up first by the thread pool.
 	enum class EQueuedWorkPriority : u8
 	{
 		Blocking = 0,  // Highest - for blocking operations
@@ -54,10 +52,8 @@ namespace OLO
 		}
 	}
 
-	/**
-	 * Priority queue for thread pool work items.
-	 * This class is NOT thread-safe and must be properly protected.
-	 */
+	// @brief Priority queue for thread pool work items.
+	// This class is NOT thread-safe and must be properly protected.
 	class FThreadPoolPriorityQueue
 	{
 	public:

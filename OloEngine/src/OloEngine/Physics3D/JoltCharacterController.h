@@ -35,13 +35,11 @@ namespace OloEngine
         Below = OloBit8(2),
     };
 
-    /**
-     * @brief Jolt Physics character controller implementation
-     * 
-     * Provides character movement with proper collision detection, gravity,
-     * jumping, and air control. Uses Jolt's CharacterVirtual system for
-     * smooth movement and ground detection.
-     */
+    // @brief Jolt Physics character controller implementation
+    // 
+    // Provides character movement with proper collision detection, gravity,
+    // jumping, and air control. Uses Jolt's CharacterVirtual system for
+    // smooth movement and ground detection.
     class JoltCharacterController : public RefCounted, public JPH::CharacterContactListener
     {
     public:

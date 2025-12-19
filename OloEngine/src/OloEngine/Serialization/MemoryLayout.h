@@ -1,23 +1,21 @@
 #pragma once
 
-/**
- * @file MemoryLayout.h
- * @brief Memory layout declarations for serialization and type layout
- *
- * Provides a complete type layout system for memory image serialization:
- * - FTypeLayoutDesc: Runtime type descriptor with function pointers
- * - FFieldLayoutDesc: Field metadata for struct/class members
- * - Freeze namespace: Serialization/deserialization helpers
- * - Declaration/implementation macros for types with layout
- *
- * The memory layout system enables:
- * - Frozen memory images (pre-cooked assets)
- * - Cross-platform binary serialization
- * - Type-safe asset hot-reloading
- * - Runtime type introspection
- *
- * Ported from Unreal Engine 5.7's Serialization/MemoryLayout.h
- */
+// @file MemoryLayout.h
+// @brief Memory layout declarations for serialization and type layout
+//
+// Provides a complete type layout system for memory image serialization:
+// - FTypeLayoutDesc: Runtime type descriptor with function pointers
+// - FFieldLayoutDesc: Field metadata for struct/class members
+// - Freeze namespace: Serialization/deserialization helpers
+// - Declaration/implementation macros for types with layout
+//
+// The memory layout system enables:
+// - Frozen memory images (pre-cooked assets)
+// - Cross-platform binary serialization
+// - Type-safe asset hot-reloading
+// - Runtime type introspection
+//
+// Ported from Unreal Engine 5.7's Serialization/MemoryLayout.h
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Templates/UnrealTypeTraits.h"
@@ -83,41 +81,39 @@ namespace OloEngine
     // Function Pointer Typedefs
     // ============================================================================
 
-    /** Destroys an object given its type layout */
+    // Destroys an object given its type layout
     using FDestroyFunc = void(void* Object, const FTypeLayoutDesc& TypeDesc, const FPointerTableBase* PtrTable, bool bIsFrozen);
 
-    /** Writes an object to a frozen memory image */
+    // Writes an object to a frozen memory image
     using FWriteFrozenMemoryImageFunc = void(FMemoryImageWriter& Writer, const void* Object, const FTypeLayoutDesc& TypeDesc, const FTypeLayoutDesc& DerivedTypeDesc);
 
-    /** Copies from frozen memory back to a live object */
+    // Copies from frozen memory back to a live object
     using FUnfrozenCopyFunc = u32(const FMemoryUnfreezeContent& Context, const void* Object, const FTypeLayoutDesc& TypeDesc, void* OutDst);
 
-    /** Computes hash for type layout versioning */
+    // Computes hash for type layout versioning
     using FAppendHashFunc = u32(const FTypeLayoutDesc& TypeDesc, const FPlatformTypeLayoutParameters& LayoutParams, FSHA1& Hasher);
 
-    /** Returns target alignment for a type on a given platform */
+    // Returns target alignment for a type on a given platform
     using FGetTargetAlignmentFunc = u32(const FTypeLayoutDesc& TypeDesc, const FPlatformTypeLayoutParameters& LayoutParams);
 
-    /** Converts an object to a debug string representation */
+    // Converts an object to a debug string representation
     using FToStringFunc = void(const void* Object, const FTypeLayoutDesc& TypeDesc, const FPlatformTypeLayoutParameters& LayoutParams, FMemoryToStringContext& OutContext);
 
-    /** Returns a pointer to a default-constructed object of the type */
+    // Returns a pointer to a default-constructed object of the type
     using FGetDefaultObjectFunc = const void*();
 
     // ============================================================================
     // FFieldLayoutDesc - Field Metadata
     // ============================================================================
 
-    /**
-     * @struct FFieldLayoutDesc
-     * @brief Describes a single field within a type's memory layout
-     *
-     * Fields are stored as a linked list attached to their parent FTypeLayoutDesc.
-     * Each field has its own type layout, offset, and optional custom serialization.
-     */
+    // @struct FFieldLayoutDesc
+    // @brief Describes a single field within a type's memory layout
+    //
+    // Fields are stored as a linked list attached to their parent FTypeLayoutDesc.
+    // Each field has its own type layout, offset, and optional custom serialization.
     struct FFieldLayoutDesc
     {
-        /** Writes this specific field to a frozen memory image */
+        // Writes this specific field to a frozen memory image
         using FWriteFrozenMemoryImageFunc = void(FMemoryImageWriter& Writer, const void* Object, const void* FieldObject, const FTypeLayoutDesc& TypeDesc, const FTypeLayoutDesc& DerivedTypeDesc);
 
         const char*                 Name                       = nullptr;  ///< Field name (for debugging/reflection)
@@ -135,17 +131,15 @@ namespace OloEngine
     // FTypeLayoutDesc - Type Metadata
     // ============================================================================
 
-    /**
-     * @struct FTypeLayoutDesc
-     * @brief Complete runtime descriptor for a type's memory layout
-     *
-     * Contains all metadata needed to serialize, deserialize, copy, hash,
-     * and destroy objects of this type. Types are registered in a global
-     * hash table for lookup by name.
-     *
-     * @note This struct is typically created by DECLARE_TYPE_LAYOUT macros
-     *       and initialized lazily on first access via StaticGetTypeLayout().
-     */
+    // @struct FTypeLayoutDesc
+    // @brief Complete runtime descriptor for a type's memory layout
+    //
+    // Contains all metadata needed to serialize, deserialize, copy, hash,
+    // and destroy objects of this type. Types are registered in a global
+    // hash table for lookup by name.
+    //
+    // @note This struct is typically created by DECLARE_TYPE_LAYOUT macros
+    //       and initialized lazily on first access via StaticGetTypeLayout().
     struct FTypeLayoutDesc
     {
         // --- Hash Table Linkage ---
@@ -185,20 +179,16 @@ namespace OloEngine
 
         // --- Static Registration ---
 
-        /**
-         * @brief Gets an invalid type layout for error cases
-         * @return Reference to a static invalid FTypeLayoutDesc
-         */
+        // @brief Gets an invalid type layout for error cases
+        // @return Reference to a static invalid FTypeLayoutDesc
         [[nodiscard]] static const FTypeLayoutDesc& GetInvalidTypeLayout()
         {
             static FTypeLayoutDesc Invalid;
             return Invalid;
         }
 
-        /**
-         * @brief Registers this type in the global type registry
-         * @param TypeDesc The type descriptor to register
-         */
+        // @brief Registers this type in the global type registry
+        // @param TypeDesc The type descriptor to register
         static void Register(FTypeLayoutDesc& TypeDesc)
         {
             // Registration implementation would add to a global hash table
@@ -206,13 +196,11 @@ namespace OloEngine
             (void)TypeDesc;
         }
 
-        /**
-         * @brief Finalizes initialization of a type descriptor
-         * @param TypeDesc The type descriptor to finalize
-         *
-         * Called after all fields and bases have been added. Computes
-         * derived values like NameHash and SizeFromFields.
-         */
+        // @brief Finalizes initialization of a type descriptor
+        // @param TypeDesc The type descriptor to finalize
+        //
+        // Called after all fields and bases have been added. Computes
+        // derived values like NameHash and SizeFromFields.
         static void Initialize(FTypeLayoutDesc& TypeDesc)
         {
             // Compute name hash if we have a name
@@ -251,9 +239,7 @@ namespace OloEngine
 
     namespace Freeze
     {
-        /**
-         * @brief Default implementation for writing a field to a memory image
-         */
+        // @brief Default implementation for writing a field to a memory image
         inline void DefaultWriteMemoryImageField(
             FMemoryImageWriter& Writer,
             const void* Object,
@@ -265,9 +251,7 @@ namespace OloEngine
             (void)Writer; (void)Object; (void)FieldObject; (void)TypeDesc; (void)DerivedTypeDesc;
         }
 
-        /**
-         * @brief Default implementation for writing an object to a memory image
-         */
+        // @brief Default implementation for writing an object to a memory image
         inline void DefaultWriteMemoryImage(
             FMemoryImageWriter& Writer,
             const void* Object,
@@ -278,9 +262,7 @@ namespace OloEngine
             (void)Writer; (void)Object; (void)TypeDesc; (void)DerivedTypeDesc;
         }
 
-        /**
-         * @brief Default implementation for copying from frozen to live memory
-         */
+        // @brief Default implementation for copying from frozen to live memory
         inline u32 DefaultUnfrozenCopy(
             const FMemoryUnfreezeContent& Context,
             const void* Object,
@@ -292,9 +274,7 @@ namespace OloEngine
             return TypeDesc.Size;
         }
 
-        /**
-         * @brief Default implementation for appending to a hash
-         */
+        // @brief Default implementation for appending to a hash
         inline u32 DefaultAppendHash(
             const FTypeLayoutDesc& TypeDesc,
             const FPlatformTypeLayoutParameters& LayoutParams,
@@ -304,9 +284,7 @@ namespace OloEngine
             return TypeDesc.Alignment;
         }
 
-        /**
-         * @brief Appends hash for a specific type's layout
-         */
+        // @brief Appends hash for a specific type's layout
         template <typename T>
         inline u32 AppendHash(
             const FTypeLayoutDesc& TypeDesc,
@@ -316,9 +294,7 @@ namespace OloEngine
             return DefaultAppendHash(TypeDesc, LayoutParams, Hasher);
         }
 
-        /**
-         * @brief Non-template version for appending hash
-         */
+        // @brief Non-template version for appending hash
         inline u32 AppendHash(
             const FTypeLayoutDesc& TypeDesc,
             const FPlatformTypeLayoutParameters& LayoutParams,
@@ -327,9 +303,7 @@ namespace OloEngine
             return DefaultAppendHash(TypeDesc, LayoutParams, Hasher);
         }
 
-        /**
-         * @brief Default implementation for getting target alignment
-         */
+        // @brief Default implementation for getting target alignment
         inline u32 DefaultGetTargetAlignment(
             const FTypeLayoutDesc& TypeDesc,
             const FPlatformTypeLayoutParameters& LayoutParams)
@@ -338,9 +312,7 @@ namespace OloEngine
             return TypeDesc.Alignment;
         }
 
-        /**
-         * @brief Default implementation for converting to string
-         */
+        // @brief Default implementation for converting to string
         inline void DefaultToString(
             const void* Object,
             const FTypeLayoutDesc& TypeDesc,
@@ -350,9 +322,7 @@ namespace OloEngine
             (void)Object; (void)TypeDesc; (void)LayoutParams; (void)OutContext;
         }
 
-        /**
-         * @brief Writes raw intrinsic data to a memory image
-         */
+        // @brief Writes raw intrinsic data to a memory image
         inline void IntrinsicWriteMemoryImage(
             FMemoryImageWriter& Writer,
             const void* Object,
@@ -361,13 +331,11 @@ namespace OloEngine
             (void)Writer; (void)Object; (void)Size;
         }
 
-        /**
-         * @brief Destroys an object, handling frozen vs live appropriately
-         * @tparam T The object type
-         * @param Object Pointer to the object to destroy
-         * @param PtrTable Pointer table for frozen references (may be null)
-         * @param bIsFrozen True if this is frozen memory
-         */
+        // @brief Destroys an object, handling frozen vs live appropriately
+        // @tparam T The object type
+        // @param Object Pointer to the object to destroy
+        // @param PtrTable Pointer table for frozen references (may be null)
+        // @param bIsFrozen True if this is frozen memory
         template <typename T>
         inline void DestroyObject(T* Object, const FPointerTableBase* PtrTable, bool bIsFrozen)
         {
@@ -381,9 +349,7 @@ namespace OloEngine
             (void)PtrTable;
         }
 
-        /**
-         * @brief Intrinsic copy from frozen memory
-         */
+        // @brief Intrinsic copy from frozen memory
         template <typename T>
         inline u32 IntrinsicUnfrozenCopy(const FMemoryUnfreezeContent& Context, const T& Object, void* OutDst)
         {
@@ -392,9 +358,7 @@ namespace OloEngine
             return sizeof(T);
         }
 
-        /**
-         * @brief Finds the length of a field name, excluding _DEPRECATED suffix
-         */
+        // @brief Finds the length of a field name, excluding _DEPRECATED suffix
         inline u8 FindFieldNameLength(const char* Name)
         {
             if (!Name) return 0;
@@ -426,10 +390,8 @@ namespace OloEngine
     // Memory Image Support Types (Stub Implementations)
     // ============================================================================
 
-    /**
-     * @struct FPlatformTypeLayoutParameters
-     * @brief Platform-specific layout parameters for memory image serialization
-     */
+    // @struct FPlatformTypeLayoutParameters
+    // @brief Platform-specific layout parameters for memory image serialization
     struct FPlatformTypeLayoutParameters
     {
         enum Flags : u32
@@ -450,10 +412,8 @@ namespace OloEngine
         [[nodiscard]] u32 GetRawPointerSize() const { return Is32Bit() ? sizeof(u32) : sizeof(u64); }
     };
 
-    /**
-     * @class FMemoryImageWriter
-     * @brief Writer for memory image serialization (cooked data)
-     */
+    // @class FMemoryImageWriter
+    // @brief Writer for memory image serialization (cooked data)
     class FMemoryImageWriter
     {
     public:
@@ -484,10 +444,8 @@ namespace OloEngine
         bool m_bIs32BitTarget = false;
     };
 
-    /**
-     * @struct FMemoryUnfreezeContent
-     * @brief Context for unfreezing memory images
-     */
+    // @struct FMemoryUnfreezeContent
+    // @brief Context for unfreezing memory images
     struct FMemoryUnfreezeContent
     {
         template <typename T>
@@ -497,10 +455,8 @@ namespace OloEngine
         }
     };
 
-    /**
-     * @class FSHA1
-     * @brief SHA1 hash computation (stub)
-     */
+    // @class FSHA1
+    // @brief SHA1 hash computation (stub)
     class FSHA1
     {
     public:
@@ -509,28 +465,22 @@ namespace OloEngine
         void GetHash([[maybe_unused]] u8 OutHash[20]) {}
     };
 
-    /**
-     * @struct FSHAHash
-     * @brief SHA1 hash result (stub)
-     */
+    // @struct FSHAHash
+    // @brief SHA1 hash result (stub)
     struct FSHAHash
     {
         u8 Hash[20] = {};
     };
 
-    /**
-     * @struct FMemoryToStringContext
-     * @brief Context for converting memory layout to string (stub)
-     */
+    // @struct FMemoryToStringContext
+    // @brief Context for converting memory layout to string (stub)
     struct FMemoryToStringContext
     {
         // Stub implementation
     };
 
-    /**
-     * @struct FPointerTableBase
-     * @brief Base class for pointer tables used in frozen memory images (stub)
-     */
+    // @struct FPointerTableBase
+    // @brief Base class for pointer tables used in frozen memory images (stub)
     struct FPointerTableBase
     {
         virtual ~FPointerTableBase() = default;
@@ -540,14 +490,12 @@ namespace OloEngine
     // Type Trait Helpers
     // ============================================================================
 
-    /**
-     * @struct THasTypeLayout
-     * @brief Trait that determines if a type has type layout information
-     *
-     * By default, types don't have type layout. Types that declare
-     * DECLARE_TYPE_LAYOUT or DECLARE_INTRINSIC_TYPE_LAYOUT will
-     * have this trait specialized to true.
-     */
+    // @struct THasTypeLayout
+    // @brief Trait that determines if a type has type layout information
+    //
+    // By default, types don't have type layout. Types that declare
+    // DECLARE_TYPE_LAYOUT or DECLARE_INTRINSIC_TYPE_LAYOUT will
+    // have this trait specialized to true.
     template <typename T>
     struct THasTypeLayout
     {
@@ -580,43 +528,35 @@ namespace OloEngine
     // TStaticGetTypeLayoutHelper - Static Type Layout Access
     // ============================================================================
 
-    /**
-     * @struct TStaticGetTypeLayoutHelper
-     * @brief Helper for accessing a type's static type layout descriptor
-     *
-     * Default implementation calls T::StaticGetTypeLayout(). Specialized
-     * for intrinsic types to return inline-constructed descriptors.
-     */
+    // @struct TStaticGetTypeLayoutHelper
+    // @brief Helper for accessing a type's static type layout descriptor
+    //
+    // Default implementation calls T::StaticGetTypeLayout(). Specialized
+    // for intrinsic types to return inline-constructed descriptors.
     template <typename T>
     struct TStaticGetTypeLayoutHelper
     {
         static const FTypeLayoutDesc& Do() { return T::StaticGetTypeLayout(); }
     };
 
-    /**
-     * @struct TGetTypeLayoutHelper
-     * @brief Helper for getting type layout from an object instance
-     *
-     * For polymorphic types, returns the derived type's layout.
-     */
+    // @struct TGetTypeLayoutHelper
+    // @brief Helper for getting type layout from an object instance
+    //
+    // For polymorphic types, returns the derived type's layout.
     template <typename T>
     struct TGetTypeLayoutHelper
     {
         static const FTypeLayoutDesc& Do(const T& Object) { return Object.GetTypeLayout(); }
     };
 
-    /**
-     * @brief Get the static type layout for a type
-     */
+    // @brief Get the static type layout for a type
     template <typename T>
     [[nodiscard]] inline const FTypeLayoutDesc& StaticGetTypeLayoutDesc()
     {
         return TStaticGetTypeLayoutHelper<T>::Do();
     }
 
-    /**
-     * @brief Get the type layout from an object instance
-     */
+    // @brief Get the type layout from an object instance
     template <typename T>
     [[nodiscard]] inline const FTypeLayoutDesc& GetTypeLayoutDesc(const FPointerTableBase*, const T& Object)
     {
@@ -748,13 +688,11 @@ namespace OloEngine
 // Type Layout Declaration Macros
 // ============================================================================
 
-/**
- * @def DECLARE_INTRINSIC_TYPE_LAYOUT
- * @brief Declares that a type is an intrinsic type with type layout
- *
- * Use this for simple types like FSetElementId that are essentially just
- * wrappers around primitive types.
- */
+// @def DECLARE_INTRINSIC_TYPE_LAYOUT
+// @brief Declares that a type is an intrinsic type with type layout
+//
+// Use this for simple types like FSetElementId that are essentially just
+// wrappers around primitive types.
 #define DECLARE_INTRINSIC_TYPE_LAYOUT(T) \
     template <> struct OloEngine::THasTypeLayout<T> { static constexpr bool Value = true; }; \
     template <> struct OloEngine::TStaticGetTypeLayoutHelper<T> { \
@@ -784,13 +722,11 @@ namespace OloEngine
         UE_STATIC_ONLY(TGetTypeLayoutHelper); \
         static const OloEngine::FTypeLayoutDesc& Do(const T&) { return OloEngine::TStaticGetTypeLayoutHelper<T>::Do(); } }
 
-/**
- * @def DECLARE_TEMPLATE_INTRINSIC_TYPE_LAYOUT
- * @brief Declares that a template type is an intrinsic type with type layout
- *
- * @param TemplatePrefix  The template declaration (e.g., template<typename T>)
- * @param T               The full type expression
- */
+// @def DECLARE_TEMPLATE_INTRINSIC_TYPE_LAYOUT
+// @brief Declares that a template type is an intrinsic type with type layout
+//
+// @param TemplatePrefix  The template declaration (e.g., template<typename T>)
+// @param T               The full type expression
 #define DECLARE_TEMPLATE_INTRINSIC_TYPE_LAYOUT(TemplatePrefix, T) \
     TemplatePrefix struct OloEngine::THasTypeLayout<T> { static constexpr bool Value = true; }; \
     TemplatePrefix struct OloEngine::TStaticGetTypeLayoutHelper<T> { \
@@ -820,18 +756,14 @@ namespace OloEngine
         UE_STATIC_ONLY(TGetTypeLayoutHelper); \
         static const OloEngine::FTypeLayoutDesc& Do(const T&) { return OloEngine::TStaticGetTypeLayoutHelper<T>::Do(); } }
 
-/**
- * @def ALIAS_TEMPLATE_TYPE_LAYOUT
- * @brief Aliases one type's layout to another
- */
+// @def ALIAS_TEMPLATE_TYPE_LAYOUT
+// @brief Aliases one type's layout to another
 #define ALIAS_TEMPLATE_TYPE_LAYOUT(TemplatePrefix, T, Alias) \
     TemplatePrefix struct OloEngine::TStaticGetTypeLayoutHelper<T> : public OloEngine::TStaticGetTypeLayoutHelper<Alias> { UE_STATIC_ONLY(TStaticGetTypeLayoutHelper); }; \
     TemplatePrefix struct OloEngine::TGetTypeLayoutHelper<T> : public OloEngine::TGetTypeLayoutHelper<Alias> { UE_STATIC_ONLY(TGetTypeLayoutHelper); }
 
-/**
- * @def ALIAS_TYPE_LAYOUT
- * @brief Aliases one type's layout to another with size validation
- */
+// @def ALIAS_TYPE_LAYOUT
+// @brief Aliases one type's layout to another with size validation
 #define ALIAS_TYPE_LAYOUT(Type, Alias) \
     static_assert(sizeof(Type) == sizeof(Alias), "Using a type alias but the sizes don't match!"); \
     ALIAS_TEMPLATE_TYPE_LAYOUT(template<>, Type, Alias)
@@ -856,13 +788,11 @@ ALIAS_TEMPLATE_TYPE_LAYOUT(template <typename T>, T*, void*);
     private: using InternalBaseType = typename OloEngine::TGetBaseTypeHelper<T>::Type; \
     template <typename InternalType> static void InternalInitializeBases(OloEngine::FTypeLayoutDesc& TypeDesc) { OloEngine::TInitializeBaseHelper<InternalType, InternalBaseType>::Initialize(TypeDesc); }
 
-/**
- * @def DECLARE_INLINE_TYPE_LAYOUT
- * @brief Declares type layout for a class with inline implementation
- *
- * @param T              The type name
- * @param InterfaceType  One of: NonVirtual, Virtual, Abstract
- */
+// @def DECLARE_INLINE_TYPE_LAYOUT
+// @brief Declares type layout for a class with inline implementation
+//
+// @param T              The type name
+// @param InterfaceType  One of: NonVirtual, Virtual, Abstract
 #define DECLARE_INLINE_TYPE_LAYOUT(T, InInterface) \
     INTERNAL_DECLARE_LAYOUT_BASE(T); \
     private: static void InternalDestroy(void* Object, const OloEngine::FTypeLayoutDesc&, const OloEngine::FPointerTableBase* PtrTable, bool bIsFrozen) { \
@@ -894,13 +824,11 @@ ALIAS_TEMPLATE_TYPE_LAYOUT(template <typename T>, T*, void*);
     public: const OloEngine::FTypeLayoutDesc& GetTypeLayout() const { return StaticGetTypeLayout(); } \
     INTERNAL_DECLARE_TYPE_LAYOUT_COMMON(T, InInterface)
 
-/**
- * @def DECLARE_TYPE_LAYOUT
- * @brief Declares type layout for a class (requires IMPLEMENT_TYPE_LAYOUT in .cpp)
- *
- * @param T              The type name
- * @param InterfaceType  One of: NonVirtual, Virtual, Abstract
- */
+// @def DECLARE_TYPE_LAYOUT
+// @brief Declares type layout for a class (requires IMPLEMENT_TYPE_LAYOUT in .cpp)
+//
+// @param T              The type name
+// @param InterfaceType  One of: NonVirtual, Virtual, Abstract
 #define DECLARE_TYPE_LAYOUT(T, Interface) \
     INTERNAL_DECLARE_LAYOUT_BASE(T); \
     private: static void InternalDestroy(void* Object, const OloEngine::FTypeLayoutDesc&, const OloEngine::FPointerTableBase* PtrTable, bool bIsFrozen); \
@@ -908,10 +836,8 @@ ALIAS_TEMPLATE_TYPE_LAYOUT(template <typename T>, T*, void*);
     public: const OloEngine::FTypeLayoutDesc& GetTypeLayout() const; \
     INTERNAL_DECLARE_TYPE_LAYOUT_COMMON(T, Interface)
 
-/**
- * @def DECLARE_EXPORTED_TYPE_LAYOUT
- * @brief Declares type layout with DLL export specifier
- */
+// @def DECLARE_EXPORTED_TYPE_LAYOUT
+// @brief Declares type layout with DLL export specifier
 #define DECLARE_EXPORTED_TYPE_LAYOUT(T, RequiredAPI, Interface) \
     INTERNAL_DECLARE_LAYOUT_BASE(T); \
     private: static void InternalDestroy(void* Object, const OloEngine::FTypeLayoutDesc&, const OloEngine::FPointerTableBase* PtrTable, bool bIsFrozen); \
@@ -923,73 +849,51 @@ ALIAS_TEMPLATE_TYPE_LAYOUT(template <typename T>, T*, void*);
 // Field Declaration Macros
 // ============================================================================
 
-/**
- * @def LAYOUT_FIELD
- * @brief Declares a field in a type layout
- *
- * Use within a class that has DECLARE_TYPE_LAYOUT or DECLARE_INLINE_TYPE_LAYOUT.
- * The macro both declares the member and registers it in the type's field list.
- */
+// @def LAYOUT_FIELD
+// @brief Declares a field in a type layout
+//
+// Use within a class that has DECLARE_TYPE_LAYOUT or DECLARE_INLINE_TYPE_LAYOUT.
+// The macro both declares the member and registers it in the type's field list.
 #define LAYOUT_FIELD(Type, Name, ...) Type Name
 
-/**
- * @def LAYOUT_MUTABLE_FIELD
- * @brief Declares a mutable field in a type layout
- */
+// @def LAYOUT_MUTABLE_FIELD
+// @brief Declares a mutable field in a type layout
 #define LAYOUT_MUTABLE_FIELD(Type, Name, ...) mutable Type Name
 
-/**
- * @def LAYOUT_FIELD_INITIALIZED
- * @brief Declares a field with an initializer in a type layout
- */
+// @def LAYOUT_FIELD_INITIALIZED
+// @brief Declares a field with an initializer in a type layout
 #define LAYOUT_FIELD_INITIALIZED(Type, Name, Init, ...) Type Name = Init
 
-/**
- * @def LAYOUT_MUTABLE_FIELD_INITIALIZED
- * @brief Declares a mutable field with an initializer in a type layout
- */
+// @def LAYOUT_MUTABLE_FIELD_INITIALIZED
+// @brief Declares a mutable field with an initializer in a type layout
 #define LAYOUT_MUTABLE_FIELD_INITIALIZED(Type, Name, Init, ...) mutable Type Name = Init
 
-/**
- * @def LAYOUT_ARRAY
- * @brief Declares an array field in a type layout
- */
+// @def LAYOUT_ARRAY
+// @brief Declares an array field in a type layout
 #define LAYOUT_ARRAY(Type, Name, Count, ...) Type Name[Count]
 
-/**
- * @def LAYOUT_BITFIELD
- * @brief Declares a bitfield in a type layout
- */
+// @def LAYOUT_BITFIELD
+// @brief Declares a bitfield in a type layout
 #define LAYOUT_BITFIELD(Type, Name, Bits, ...) Type Name : Bits
 
-/**
- * @def LAYOUT_MUTABLE_BITFIELD
- * @brief Declares a mutable bitfield in a type layout
- */
+// @def LAYOUT_MUTABLE_BITFIELD
+// @brief Declares a mutable bitfield in a type layout
 #define LAYOUT_MUTABLE_BITFIELD(Type, Name, Bits, ...) mutable Type Name : Bits
 
-/**
- * @def LAYOUT_FIELD_WITH_WRITER
- * @brief Declares a field with a custom writer function
- */
+// @def LAYOUT_FIELD_WITH_WRITER
+// @brief Declares a field with a custom writer function
 #define LAYOUT_FIELD_WITH_WRITER(Type, Name, Func) Type Name
 
-/**
- * @def LAYOUT_MUTABLE_FIELD_WITH_WRITER
- * @brief Declares a mutable field with a custom writer function
- */
+// @def LAYOUT_MUTABLE_FIELD_WITH_WRITER
+// @brief Declares a mutable field with a custom writer function
 #define LAYOUT_MUTABLE_FIELD_WITH_WRITER(Type, Name, Func) mutable Type Name
 
-/**
- * @def LAYOUT_WRITE_MEMORY_IMAGE
- * @brief Declares a custom memory image writer for the type
- */
+// @def LAYOUT_WRITE_MEMORY_IMAGE
+// @brief Declares a custom memory image writer for the type
 #define LAYOUT_WRITE_MEMORY_IMAGE(Func) /* Custom writer: Func */
 
-/**
- * @def LAYOUT_TOSTRING
- * @brief Declares a custom to-string function for the type
- */
+// @def LAYOUT_TOSTRING
+// @brief Declares a custom to-string function for the type
 #define LAYOUT_TOSTRING(Func) /* Custom toString: Func */
 
 // Editor-only field variants
@@ -1007,10 +911,8 @@ ALIAS_TEMPLATE_TYPE_LAYOUT(template <typename T>, T*, void*);
 // Implementation Macros
 // ============================================================================
 
-/**
- * @def IMPLEMENT_TYPE_LAYOUT
- * @brief Implements type layout for a class declared with DECLARE_TYPE_LAYOUT
- */
+// @def IMPLEMENT_TYPE_LAYOUT
+// @brief Implements type layout for a class declared with DECLARE_TYPE_LAYOUT
 #define IMPLEMENT_TYPE_LAYOUT(T) \
     void T::InternalDestroy(void* Object, const OloEngine::FTypeLayoutDesc&, const OloEngine::FPointerTableBase* PtrTable, bool bIsFrozen) { \
         OloEngine::Freeze::DestroyObject(static_cast<T*>(Object), PtrTable, bIsFrozen); \
@@ -1040,10 +942,8 @@ ALIAS_TEMPLATE_TYPE_LAYOUT(template <typename T>, T*, void*);
         return TypeDesc; } \
     const OloEngine::FTypeLayoutDesc& T::GetTypeLayout() const { return StaticGetTypeLayout(); }
 
-/**
- * @def IMPLEMENT_ABSTRACT_TYPE_LAYOUT
- * @brief Implements type layout for an abstract class
- */
+// @def IMPLEMENT_ABSTRACT_TYPE_LAYOUT
+// @brief Implements type layout for an abstract class
 #define IMPLEMENT_ABSTRACT_TYPE_LAYOUT(T) \
     void T::InternalDestroy(void* Object, const OloEngine::FTypeLayoutDesc&, const OloEngine::FPointerTableBase* PtrTable, bool bIsFrozen) { \
         OloEngine::Freeze::DestroyObject(static_cast<T*>(Object), PtrTable, bIsFrozen); \
@@ -1071,10 +971,8 @@ ALIAS_TEMPLATE_TYPE_LAYOUT(template <typename T>, T*, void*);
         } \
         return TypeDesc; }
 
-/**
- * @def REGISTER_INLINE_TYPE_LAYOUT
- * @brief Registers an inline type layout with the global registry
- */
+// @def REGISTER_INLINE_TYPE_LAYOUT
+// @brief Registers an inline type layout with the global registry
 #define REGISTER_INLINE_TYPE_LAYOUT(T) \
     static struct ANONYMOUS_VARIABLE(RegisterTypeLayout) { \
         ANONYMOUS_VARIABLE(RegisterTypeLayout)() { \

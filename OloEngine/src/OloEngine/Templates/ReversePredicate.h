@@ -1,21 +1,17 @@
 #pragma once
 
-/**
- * @file ReversePredicate.h
- * @brief Wrapper for reversing a predicate
- * 
- * Ported from Unreal Engine's Templates/ReversePredicate.h
- */
+// @file ReversePredicate.h
+// @brief Wrapper for reversing a predicate
+// 
+// Ported from Unreal Engine's Templates/ReversePredicate.h
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Templates/Invoke.h"
 
 namespace OloEngine
 {
-    /**
-     * Wrapper for reversing a binary predicate.
-     * Returns the result of invoking the predicate with arguments swapped.
-     */
+    // @brief Wrapper for reversing a binary predicate.
+    // Returns the result of invoking the predicate with arguments swapped.
     template <typename PredicateType>
     class TReversePredicate
     {

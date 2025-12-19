@@ -4,9 +4,7 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Enum defining all supported shader resource types
-     */
+    // @brief Enum defining all supported shader resource types
     enum class ShaderResourceType : u8
     {
         None = 0,

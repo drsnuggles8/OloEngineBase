@@ -25,12 +25,10 @@ namespace OloEngine
 	// Whether s_bShouldUseThreadingForPerformance has been initialized
 	static bool s_bThreadingForPerformanceInitialized = false;
 
-	/**
-	 * @brief Initialize threading configuration from environment/command line
-	 * 
-	 * This matches UE5.7's approach of allowing runtime configuration via
-	 * command line parameters like -NoThreading, -ForceMultithread, etc.
-	 */
+	// @brief Initialize threading configuration from environment/command line
+	// 
+	// This matches UE5.7's approach of allowing runtime configuration via
+	// command line parameters like -NoThreading, -ForceMultithread, etc.
 	static void InitializeThreadingConfiguration()
 	{
 		if (s_bThreadingForPerformanceInitialized)

@@ -9,12 +9,10 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Performance profiler specifically for renderer operations
-     * 
-     * Tracks frame timing, draw calls, state changes, and provides
-     * detailed performance analysis for game developers.
-     */
+    // @brief Performance profiler specifically for renderer operations
+    // 
+    // Tracks frame timing, draw calls, state changes, and provides
+    // detailed performance analysis for game developers.
     class RendererProfiler
     {
     public:
@@ -138,121 +136,75 @@ namespace OloEngine
     public:
         static RendererProfiler& GetInstance();
         
-        /**
-         * @brief Initialize the profiler
-         */
+        // @brief Initialize the profiler
         void Initialize();
         
-        /**
-         * @brief Shutdown the profiler
-         */
+        // @brief Shutdown the profiler
         void Shutdown();
         
-        /**
-         * @brief Reset all profiling data and statistics
-         */
+        // @brief Reset all profiling data and statistics
         void Reset();
         
-        /**
-         * @brief Begin a new frame
-         */
+        // @brief Begin a new frame
         void BeginFrame();
         
-        /**
-         * @brief End the current frame and process metrics
-         */
+        // @brief End the current frame and process metrics
         void EndFrame();
         
-        /**
-         * @brief Add a timing sample
-         */
+        // @brief Add a timing sample
         void AddTimingSample(const std::string& name, f64 timeMs, MetricType type = MetricType::CPUTime);
         
-        /**
-         * @brief Increment a counter metric
-         */
+        // @brief Increment a counter metric
         void IncrementCounter(MetricType type, u32 value = 1);
         
-        /**
-         * @brief Set a value metric
-         */
+        // @brief Set a value metric
         void SetValue(MetricType type, f64 value);
         
-        /**
-         * @brief Render the profiler UI
-         */
+        // @brief Render the profiler UI
         void RenderUI(bool* open = nullptr);
         
-        /**
-         * @brief Get current frame data
-         */
+        // @brief Get current frame data
         const FrameData& GetCurrentFrameData() const { return m_CurrentFrame; }
         
-        /**
-         * @brief Get performance counter
-         */
+        // @brief Get performance counter
         const PerformanceCounter& GetCounter(MetricType type) const;
         
-        /**
-         * @brief Analyze performance bottlenecks
-         */
+        // @brief Analyze performance bottlenecks
         BottleneckInfo AnalyzeBottlenecks() const;
 
         // Frame Capture & Analysis Methods
-        /**
-         * @brief Capture the current frame for detailed analysis
-         */
+        // @brief Capture the current frame for detailed analysis
         void CaptureFrame(const std::string& notes = "");
 
-        /**
-         * @brief Begin tracking a render pass
-         */
+        // @brief Begin tracking a render pass
         void BeginRenderPass(const std::string& passName);
 
-        /**
-         * @brief End tracking a render pass
-         */
+        // @brief End tracking a render pass
         void EndRenderPass();
 
-        /**
-         * @brief Track a draw call within the current render pass
-         */
+        // @brief Track a draw call within the current render pass
         void TrackDrawCall(const std::string& name, const std::string& shaderName, 
                           u32 vertexCount, u32 indexCount, f64 cpuTime, f64 gpuTime = 0.0);
 
-        /**
-         * @brief Get captured frames for analysis
-         */
+        // @brief Get captured frames for analysis
         const std::vector<CapturedFrame>& GetCapturedFrames() const { return m_CapturedFrames; }
 
-        /**
-         * @brief Clear captured frames
-         */
+        // @brief Clear captured frames
         void ClearCapturedFrames() { m_CapturedFrames.clear(); }
 
-        /**
-         * @brief Compare two captured frames
-         */
+        // @brief Compare two captured frames
         std::string CompareFrames(const CapturedFrame& frame1, const CapturedFrame& frame2) const;
         
-        /**
-         * @brief Export performance data to CSV
-         */
+        // @brief Export performance data to CSV
         bool ExportToCSV(const std::string& filePath) const;
         
-        /**
-         * @brief Check if we're hitting target framerate
-         */
+        // @brief Check if we're hitting target framerate
         bool IsHittingTargetFramerate(f32 targetFPS = 60.0f) const;
         
-        /**
-         * @brief Get performance health score (0-100)
-         */
+        // @brief Get performance health score (0-100)
         f32 GetPerformanceHealthScore() const;
         
-        /**
-         * @brief Get optimization priority list for game developers
-         */
+        // @brief Get optimization priority list for game developers
         struct OptimizationPriority
         {
             enum Severity { Critical, High, Medium, Low };
@@ -263,9 +215,7 @@ namespace OloEngine
         };
         std::vector<OptimizationPriority> GetOptimizationPriorities() const;
         
-        /**
-         * @brief Generate ship readiness report
-         */
+        // @brief Generate ship readiness report
         struct ShipReadinessReport
         {
             f32 m_OverallScore; // 0-100

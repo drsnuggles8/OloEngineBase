@@ -8,12 +8,10 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Base class for render passes that use the command-based rendering system.
-     * 
-     * This class integrates with the command bucket system,
-     * allowing render passes to efficiently build and execute rendering commands.
-     */
+    // @brief Base class for render passes that use the command-based rendering system.
+    // 
+    // This class integrates with the command bucket system,
+    // allowing render passes to efficiently build and execute rendering commands.
     class RenderPass : public RefCounted
     {
     public:

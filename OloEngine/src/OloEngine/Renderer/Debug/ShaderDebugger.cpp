@@ -573,14 +573,12 @@ namespace OloEngine
         }
     }
 
-    /**
-     * @brief Analyzes SPIR-V binary data to count instructions
-     * @param spirvData SPIR-V binary data
-     * @param instructionCount Output parameter for instruction count
-     * 
-     * Parses SPIR-V binary format to count the number of instructions.
-     * This provides a meaningful metric for shader complexity analysis.
-     */
+    // @brief Analyzes SPIR-V binary data to count instructions
+    // @param spirvData SPIR-V binary data
+    // @param instructionCount Output parameter for instruction count
+    // 
+    // Parses SPIR-V binary format to count the number of instructions.
+    // This provides a meaningful metric for shader complexity analysis.
     void ShaderDebugger::AnalyzeSPIRV(const std::vector<u8>& spirvData, u32& instructionCount) const
     {
         instructionCount = 0;
@@ -609,14 +607,12 @@ namespace OloEngine
         }
     } 
     
-    /**
-     * @brief Analyzes SPIR-V word data to count instructions
-     * @param spirvWords SPIR-V data as 32-bit words
-     * @param instructionCount Output parameter for instruction count
-     * 
-     * More efficient version that works with pre-converted 32-bit word data.
-     * Used internally for instruction counting during shader compilation.
-     */
+    // @brief Analyzes SPIR-V word data to count instructions
+    // @param spirvWords SPIR-V data as 32-bit words
+    // @param instructionCount Output parameter for instruction count
+    // 
+    // More efficient version that works with pre-converted 32-bit word data.
+    // Used internally for instruction counting during shader compilation.
     void ShaderDebugger::AnalyzeSPIRVFromWords(const std::vector<u32>& spirvWords, u32& instructionCount) const
     {
         instructionCount = 0;
@@ -645,14 +641,12 @@ namespace OloEngine
         }
     }
 
-    /**
-     * @brief Exports a comprehensive shader debugging report to file
-     * @param filePath Path to output file
-     * @return True if export succeeded, false otherwise
-     * 
-     * Generates a detailed text report containing all shader information,
-     * compilation statistics, performance metrics, and error logs.
-     */
+    // @brief Exports a comprehensive shader debugging report to file
+    // @param filePath Path to output file
+    // @return True if export succeeded, false otherwise
+    // 
+    // Generates a detailed text report containing all shader information,
+    // compilation statistics, performance metrics, and error logs.
     bool ShaderDebugger::ExportReport(const std::string& filePath) const
     {
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
@@ -1615,14 +1609,12 @@ namespace OloEngine
         ImGui::EndChild();
     }
 
-    /**
-     * @brief Generates human-readable SPIR-V disassembly from binary data
-     * @param spirvData SPIR-V binary data
-     * @return GLSL representation of SPIR-V code for debugging
-     * 
-     * Uses spirv-cross to convert SPIR-V binary back to readable GLSL.
-     * This helps developers understand the compiled shader structure.
-     */
+    // @brief Generates human-readable SPIR-V disassembly from binary data
+    // @param spirvData SPIR-V binary data
+    // @return GLSL representation of SPIR-V code for debugging
+    // 
+    // Uses spirv-cross to convert SPIR-V binary back to readable GLSL.
+    // This helps developers understand the compiled shader structure.
     std::string ShaderDebugger::GenerateSPIRVDisassembly(const std::vector<u8>& spirvData) const
     {
         if (spirvData.empty())
@@ -1675,13 +1667,11 @@ namespace OloEngine
         }
     }
 
-    /**
-     * @brief Analyzes SPIR-V code for optimization opportunities
-     * @param spirvData SPIR-V binary data
-     * 
-     * Examines shader resources and instruction count to suggest performance
-     * optimizations such as reducing uniform buffer bindings or instruction count.
-     */
+    // @brief Analyzes SPIR-V code for optimization opportunities
+    // @param spirvData SPIR-V binary data
+    // 
+    // Examines shader resources and instruction count to suggest performance
+    // optimizations such as reducing uniform buffer bindings or instruction count.
     void ShaderDebugger::PerformOptimizationAnalysis(const std::vector<u8>& spirvData) const
     {
         if (spirvData.empty())

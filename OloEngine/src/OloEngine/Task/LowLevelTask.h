@@ -21,10 +21,8 @@ namespace OloEngine::Tasks::Private
 
 namespace OloEngine::LowLevelTasks
 {
-    /**
-     * @enum ETaskPriority
-     * @brief Priority levels for tasks
-     */
+    // @enum ETaskPriority
+    // @brief Priority levels for tasks
     enum class ETaskPriority : i8
     {
         High,
@@ -38,9 +36,7 @@ namespace OloEngine::LowLevelTasks
         Inherit, // Inherit the TaskPriority from the launching Task or the Default Priority if not launched from a Task.
     };
 
-    /**
-     * @brief Convert priority enum to string
-     */
+    // @brief Convert priority enum to string
     inline const char* ToString(ETaskPriority Priority)
     {
         if (Priority < ETaskPriority::High || Priority >= ETaskPriority::Count)
@@ -59,9 +55,7 @@ namespace OloEngine::LowLevelTasks
         return TaskPriorityToStr[static_cast<i32>(Priority)];
     }
 
-    /**
-     * @brief Parse priority string to enum
-     */
+    // @brief Parse priority string to enum
     inline bool ToTaskPriority(const char* PriorityStr, ETaskPriority& OutPriority)
     {
         if (!PriorityStr)
@@ -117,10 +111,8 @@ namespace OloEngine::LowLevelTasks
         return false;
     }
 
-    /**
-     * @enum ECancellationFlags
-     * @brief Flags controlling task cancellation behavior
-     */
+    // @enum ECancellationFlags
+    // @brief Flags controlling task cancellation behavior
     enum class ECancellationFlags : i8
     {
         None                    = 0 << 0,
@@ -130,10 +122,8 @@ namespace OloEngine::LowLevelTasks
     };
     ENUM_CLASS_FLAGS(ECancellationFlags)
 
-    /**
-     * @enum ETaskFlags
-     * @brief Flags controlling task behavior
-     */
+    // @enum ETaskFlags
+    // @brief Flags controlling task behavior
     enum class ETaskFlags : i8
     {
         AllowNothing        = 0 << 0,
@@ -144,13 +134,12 @@ namespace OloEngine::LowLevelTasks
     };
     ENUM_CLASS_FLAGS(ETaskFlags)
 
-    /**
-     * @enum ETaskState
-     * @brief State machine states for task execution
+    // @enum ETaskState
+    // @brief State machine states for task execution
      * 
-     * State transitions:
+    // State transitions:
      * 
-     * (I)nitThread:                                                        STORE(I)----------------------CAS(C)----------------------    
+    // (I)nitThread:                                                        STORE(I)----------------------CAS(C)----------------------    
      * (C)ancelingThread:                                                      --->|         Ready        |<-->|   CanceledAndReady   |   
      *                                                                              ----------------------      ----------------------    
      *                                                                                        |OR(L)                      |OR(L)               
@@ -194,13 +183,11 @@ namespace OloEngine::LowLevelTasks
     };
     ENUM_CLASS_FLAGS(ETaskState)
 
-    /**
-     * @class TDeleter
-     * @brief Generic implementation of a Deleter for cleanup after a Task finished
-     * 
-     * This can be done by capturing a TDeleter like so: 
-     * [Deleter(LowLevelTasks::TDeleter<Type, &Type::DeleteFunction>(value))](){}
-     */
+    // @class TDeleter
+    // @brief Generic implementation of a Deleter for cleanup after a Task finished
+    // 
+    // This can be done by capturing a TDeleter like so: 
+    // [Deleter(LowLevelTasks::TDeleter<Type, &Type::DeleteFunction>(value))](){ }
     template<typename Type, void (Type::*DeleteFunction)()>
     class TDeleter
     {
@@ -236,10 +223,8 @@ namespace OloEngine::LowLevelTasks
 
     namespace Tasks_Impl
     {
-        /**
-         * @class FTaskBase
-         * @brief Base class hiding implementation details from FScheduler
-         */
+        // @class FTaskBase
+        // @brief Base class hiding implementation details from FScheduler
         class FTaskBase
         {
             class FPackedDataAtomic;
@@ -362,10 +347,8 @@ namespace OloEngine::LowLevelTasks
         };
     } // namespace Tasks_Impl
 
-    /**
-     * @class FTask
-     * @brief Minimal low level task interface
-     */
+    // @class FTask
+    // @brief Minimal low level task interface
     class FTask final : private Tasks_Impl::FTaskBase
     {
         friend class FScheduler;
@@ -382,27 +365,21 @@ namespace OloEngine::LowLevelTasks
         static inline thread_local FTask* s_ActiveTask = nullptr;
 
     public:
-        /**
-         * @brief Check if the task is completed and this taskhandle can be recycled
-         */
+        // @brief Check if the task is completed and this taskhandle can be recycled
         OLO_FINLINE bool IsCompleted(std::memory_order MemoryOrder = std::memory_order_seq_cst) const
         {
             ETaskState State = PackedData.load(MemoryOrder).GetState();
             return EnumHasAnyFlags(State, ETaskState::CompletedFlag);
         }
 
-        /**
-         * @brief Check if the task was canceled but might still need to be launched
-         */
+        // @brief Check if the task was canceled but might still need to be launched
         OLO_FINLINE bool WasCanceled() const
         {
             ETaskState State = PackedData.load(std::memory_order_relaxed).GetState();
             return EnumHasAnyFlags(State, ETaskState::CanceledFlag);
         }
 
-        /**
-         * @brief Check if the task was expedited or that it already completed
-         */
+        // @brief Check if the task was expedited or that it already completed
         OLO_FINLINE bool WasExpedited() const
         {
             ETaskState State = PackedData.load(std::memory_order_acquire).GetState();
@@ -418,55 +395,43 @@ namespace OloEngine::LowLevelTasks
         }
 
     public:
-        /**
-         * @brief Check if the task is ready to be launched but might already been canceled
-         */
+        // @brief Check if the task is ready to be launched but might already been canceled
         OLO_FINLINE bool IsReady() const
         {
             ETaskState State = PackedData.load(std::memory_order_relaxed).GetState();
             return !EnumHasAnyFlags(State, ~ETaskState::CanceledFlag);
         }
 
-        /**
-         * @brief Get the currently active task if any
-         */
+        // @brief Get the currently active task if any
         static const FTask* GetActiveTask()
         {
             return s_ActiveTask;
         }
 
-        /**
-         * @brief Try to cancel the task if it has not been launched yet
-         */
+        // @brief Try to cancel the task if it has not been launched yet
         OLO_FINLINE bool TryCancel(ECancellationFlags CancellationFlags = ECancellationFlags::DefaultFlags);
 
-        /**
-         * @brief Try to revive a canceled task (reverting the cancellation as if it never happened)
-         * 
-         * If it had been canceled and the scheduler has not run it yet it succeeds.
-         */
+        // @brief Try to revive a canceled task (reverting the cancellation as if it never happened)
+        // 
+        // If it had been canceled and the scheduler has not run it yet it succeeds.
         OLO_FINLINE bool TryRevive();
 
-        /**
-         * @brief Try to expedite the task
-         * 
-         * If succeeded it will run immediately but it will not set the completed state until 
-         * the scheduler has executed it, because the scheduler still holds a reference.
-         * To check for completion in the context of expediting use WasExpedited. 
-         * The TaskHandle cannot be reused until IsCompleted returns true.
-         * 
-         * @param Continuation Optional Continuation that needs to be executed or scheduled by the caller 
-         *                     (can only be non null if the operation returned true)
-         */
+        // @brief Try to expedite the task
+        // 
+        // If succeeded it will run immediately but it will not set the completed state until 
+        // the scheduler has executed it, because the scheduler still holds a reference.
+        // To check for completion in the context of expediting use WasExpedited. 
+        // The TaskHandle cannot be reused until IsCompleted returns true.
+        // 
+        // @param Continuation Optional Continuation that needs to be executed or scheduled by the caller 
+        //                     (can only be non null if the operation returned true)
         OLO_FINLINE bool TryExpedite();
         OLO_FINLINE bool TryExpedite(FTask*& Continuation);
 
-        /**
-         * @brief Try to execute the task if it has not been launched yet the task will execute immediately
-         * 
-         * @param Continuation Optional Continuation that needs to be executed or scheduled by the caller 
-         *                     (can only be non null if the operation returned true)
-         */
+        // @brief Try to execute the task if it has not been launched yet the task will execute immediately
+        // 
+        // @param Continuation Optional Continuation that needs to be executed or scheduled by the caller 
+        //                     (can only be non null if the operation returned true)
         OLO_FINLINE bool TryExecute();
         OLO_FINLINE bool TryExecute(FTask*& Continuation);
 
@@ -512,9 +477,9 @@ namespace OloEngine::LowLevelTasks
         OLO_FINLINE void InheritParentData(ETaskPriority& Priority);
     };
 
-    /******************
-     * IMPLEMENTATION *
-     ******************/
+    // ******************
+    // * IMPLEMENTATION *
+    // ******************
 
     OLO_FINLINE ETaskPriority FTask::GetPriority() const
     {

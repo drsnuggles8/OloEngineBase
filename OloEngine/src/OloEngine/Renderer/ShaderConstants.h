@@ -5,12 +5,10 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Shared constants for shaders to replace magic numbers
-     * 
-     * This file contains all constants used across shaders to ensure
-     * consistency and eliminate magic numbers in shader code.
-     */
+    // @brief Shared constants for shaders to replace magic numbers
+    // 
+    // This file contains all constants used across shaders to ensure
+    // consistency and eliminate magic numbers in shader code.
     namespace ShaderConstants
     {
         // =============================================================================
@@ -126,10 +124,8 @@ const int TONEMAP_UNCHARTED2 = 3;
         // HELPER FUNCTIONS FOR SHADER GENERATION
         // =============================================================================
         
-        /**
-         * @brief Get GLSL preprocessor defines for constants
-         * @return String containing #define statements for all constants
-         */
+        // @brief Get GLSL preprocessor defines for constants
+        // @return String containing #define statements for all constants
         static std::string GetGLSLDefines()
         {
             return std::string(R"(

@@ -1,15 +1,13 @@
-/**
- * @file Function.h
- * @brief Function wrappers with inline storage optimization
- * 
- * Provides callable wrappers with configurable inline storage to avoid
- * heap allocation for small functors:
- * - TFunctionRef<T> : Non-owning reference to a callable (zero-copy, zero-alloc)
- * - TFunction<T> : Owning copy of a callable with inline storage
- * - TUniqueFunction<T> : Move-only owning callable with inline storage
- * 
- * Ported from Unreal Engine 5.7's Templates/Function.h
- */
+// @file Function.h
+// @brief Function wrappers with inline storage optimization
+// 
+// Provides callable wrappers with configurable inline storage to avoid
+// heap allocation for small functors:
+// - TFunctionRef<T> : Non-owning reference to a callable (zero-copy, zero-alloc)
+// - TFunction<T> : Owning copy of a callable with inline storage
+// - TUniqueFunction<T> : Move-only owning callable with inline storage
+// 
+// Ported from Unreal Engine 5.7's Templates/Function.h
 
 #pragma once
 
@@ -108,10 +106,8 @@ namespace OloEngine
 	// Configuration
 	// ========================================================================
 
-	/**
-	 * Define NUM_TFUNCTION_INLINE_BYTES to enable inline storage.
-	 * Common values: 32, 48, 64 bytes (enough for most lambdas with 1-3 captures)
-	 */
+	// Define NUM_TFUNCTION_INLINE_BYTES to enable inline storage.
+	// Common values: 32, 48, 64 bytes (enough for most lambdas with 1-3 captures)
 #if !defined(NUM_TFUNCTION_INLINE_BYTES) || NUM_TFUNCTION_INLINE_BYTES == 0
 	#define TFUNCTION_USES_INLINE_STORAGE 0
 #else
@@ -139,9 +135,7 @@ namespace OloEngine
 		template <bool bUnique>
 		struct TFunctionStorage;
 
-		/**
-		 * Interface for owned callable objects
-		 */
+		// Interface for owned callable objects
 		struct IFunction_OwnedObject
 		{
 			virtual void* CloneToEmptyStorage(FFunctionStorage* Storage) const = 0;
@@ -150,9 +144,7 @@ namespace OloEngine
 			virtual ~IFunction_OwnedObject() = default;
 		};
 
-		/**
-		 * Concrete owned object wrapper
-		 */
+		// Concrete owned object wrapper
 		template <typename T, bool bUnique, bool bOnHeap>
 		struct TFunction_OwnedObject : public IFunction_OwnedObject
 		{
@@ -188,9 +180,7 @@ namespace OloEngine
 			~TFunction_OwnedObject() override = default;
 		};
 
-		/**
-		 * Check if a callable is bound (not null)
-		 */
+		// @brief Check if a callable is bound (not null)
 		template <typename T>
 		OLO_FINLINE bool IsBound(const T& Func)
 		{
@@ -208,9 +198,7 @@ namespace OloEngine
 			}
 		}
 
-		/**
-		 * Function storage - manages heap or inline allocation
-		 */
+		// @brief Function storage - manages heap or inline allocation
 		struct FFunctionStorage
 		{
 			static constexpr bool bCanBeNull = true;
@@ -276,9 +264,7 @@ namespace OloEngine
 			void* HeapAllocation;
 		};
 
-		/**
-		 * Typed function storage with bind support
-		 */
+		// @brief Typed function storage with bind support
 		template <bool bUnique>
 		struct TFunctionStorage : FFunctionStorage
 		{
@@ -357,9 +343,7 @@ namespace OloEngine
 			}
 		}
 
-		/**
-		 * Generic caller for invoking the stored callable
-		 */
+		// @brief Generic caller for invoking the stored callable
 		template <typename Functor, typename Ret, typename... ParamTypes>
 		struct TFunctionRefCaller
 		{
@@ -376,9 +360,7 @@ namespace OloEngine
 			}
 		};
 
-		/**
-		 * Base class for all function types
-		 */
+		// @brief Base class for all function types
 		template <typename StorageType, typename FuncType>
 		struct TFunctionRefBase;
 
@@ -506,9 +488,7 @@ namespace OloEngine
 			StorageType Storage;
 		};
 
-		/**
-		 * Storage policy for TFunctionRef (non-owning)
-		 */
+		// @brief Storage policy for TFunctionRef (non-owning)
 		struct FFunctionRefStoragePolicy
 		{
 			static constexpr bool bCanBeNull = false;
@@ -546,13 +526,11 @@ namespace OloEngine
 	// TFunctionRef - Non-owning reference
 	// ========================================================================
 
-	/**
-	 * @class TFunctionRef
-	 * @brief A non-owning reference to a callable object
-	 *
-	 * TFunctionRef is lightweight and meant to be passed by value.
-	 * The callable must outlive the TFunctionRef.
-	 */
+	// @class TFunctionRef
+	// @brief A non-owning reference to a callable object
+	//
+	// TFunctionRef is lightweight and meant to be passed by value.
+	// The callable must outlive the TFunctionRef.
 	template <typename Ret, typename... ParamTypes>
 	class TFunctionRef<Ret(ParamTypes...)> final
 		: public Private::Function::TFunctionRefBase<Private::Function::FFunctionRefStoragePolicy, Ret(ParamTypes...)>
@@ -586,13 +564,11 @@ namespace OloEngine
 	// TFunction - Owning copyable callable with inline storage
 	// ========================================================================
 
-	/**
-	 * @class TFunction
-	 * @brief An owning, copyable wrapper for a callable object
-	 * 
-	 * Features inline storage optimization to avoid heap allocation for
-	 * small functors. Configure inline size with NUM_TFUNCTION_INLINE_BYTES.
-	 */
+	// @class TFunction
+	// @brief An owning, copyable wrapper for a callable object
+	// 
+	// Features inline storage optimization to avoid heap allocation for
+	// small functors. Configure inline size with NUM_TFUNCTION_INLINE_BYTES.
 	template <typename Ret, typename... ParamTypes>
 	class TFunction<Ret(ParamTypes...)> final
 		: public Private::Function::TFunctionRefBase<Private::Function::TFunctionStorage<false>, Ret(ParamTypes...)>
@@ -660,13 +636,11 @@ namespace OloEngine
 	// TUniqueFunction - Move-only owning callable with inline storage
 	// ========================================================================
 
-	/**
-	 * @class TUniqueFunction
-	 * @brief A move-only, owning wrapper for a callable object
-	 * 
-	 * Unlike TFunction, TUniqueFunction supports non-copyable functors.
-	 * Features inline storage optimization to avoid heap allocation.
-	 */
+	// @class TUniqueFunction
+	// @brief A move-only, owning wrapper for a callable object
+	// 
+	// Unlike TFunction, TUniqueFunction supports non-copyable functors.
+	// Features inline storage optimization to avoid heap allocation.
 	template <typename Ret, typename... ParamTypes>
 	class TUniqueFunction<Ret(ParamTypes...)> final
 		: public Private::Function::TFunctionRefBase<Private::Function::TFunctionStorage<true>, Ret(ParamTypes...)>

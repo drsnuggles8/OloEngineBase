@@ -53,12 +53,10 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Comprehensive shader debugging and analysis tool
-     * 
-     * Provides detailed inspection of shader compilation, uniforms, performance,
-     * source code viewing, hot-reload tracking, and SPIR-V analysis.
-     */
+    // @brief Comprehensive shader debugging and analysis tool
+    // 
+    // Provides detailed inspection of shader compilation, uniforms, performance,
+    // source code viewing, hot-reload tracking, and SPIR-V analysis.
     class ShaderDebugger
     {
     public:
@@ -159,135 +157,97 @@ namespace OloEngine
             std::chrono::steady_clock::time_point m_CreationTime;
         };
 
-        /**
-         * @brief Get the singleton instance
-         */
+        // @brief Get the singleton instance
         static ShaderDebugger& GetInstance();
 
-        /**
-         * @brief Initialize the shader debugger
-         */
+        // @brief Initialize the shader debugger
         void Initialize();
 
-        /**
-         * @brief Shutdown and cleanup
-         */
+        // @brief Shutdown and cleanup
         void Shutdown();
 
-        /**
-         * @brief Register a shader for debugging
-         * @param shader Asset reference to the shader
-         */
+        // @brief Register a shader for debugging
+        // @param shader Asset reference to the shader
         void RegisterShader(const Ref<Shader>& shader);
         void RegisterShader(u32 rendererID, const std::string& name, const std::string& filePath = "");
-        /**
-         * @brief Unregister a shader when it's destroyed
-         * @param rendererID OpenGL shader program ID
-         */
+        // @brief Unregister a shader when it's destroyed
+        // @param rendererID OpenGL shader program ID
         void UnregisterShader(u32 rendererID);
 
-        /**
-         * @brief Called when shader compilation starts
-         * @param name Shader name
-         * @param filepath Shader file path
-         */
+        // @brief Called when shader compilation starts
+        // @param name Shader name
+        // @param filepath Shader file path
         void OnCompilationStart(const std::string& name, const std::string& filepath);
 
-        /**
-         * @brief Called when shader compilation ends
-         * @param rendererID OpenGL shader program ID
-         * @param success Whether compilation succeeded
-         * @param errorMsg Error message if compilation failed
-         * @param compileTimeMs Compilation time in milliseconds
-         */
+        // @brief Called when shader compilation ends
+        // @param rendererID OpenGL shader program ID
+        // @param success Whether compilation succeeded
+        // @param errorMsg Error message if compilation failed
+        // @param compileTimeMs Compilation time in milliseconds
         void OnCompilationEnd(u32 rendererID, bool success, const std::string& errorMsg, f64 compileTimeMs);
 
-        /**
-         * @brief Called when shader reload starts
-         * @param rendererID OpenGL shader program ID
-         */
+        // @brief Called when shader reload starts
+        // @param rendererID OpenGL shader program ID
         void OnReloadStart(u32 rendererID);
 
-        /**
-         * @brief Called when shader reload ends
-         * @param rendererID OpenGL shader program ID
-         * @param success Whether reload succeeded
-         */
+        // @brief Called when shader reload ends
+        // @param rendererID OpenGL shader program ID
+        // @param success Whether reload succeeded
         void OnReloadEnd(u32 rendererID, bool success);
 
-        /**
-         * @brief Called when a shader is bound
-         * @param rendererID OpenGL shader program ID
-         */
+        // @brief Called when a shader is bound
+        // @param rendererID OpenGL shader program ID
         void OnShaderBind(u32 rendererID);
 
-        /**
-         * @brief Called when a uniform is set
-         * @param rendererID OpenGL shader program ID
-         * @param name Uniform name
-         * @param type Uniform type
-         */
+        // @brief Called when a uniform is set
+        // @param rendererID OpenGL shader program ID
+        // @param name Uniform name
+        // @param type Uniform type
         void OnUniformSet(u32 rendererID, const std::string& name, UniformType type);
 
-        /**
-         * @brief Update shader reflection data
-         * @param rendererID OpenGL shader program ID
-         * @param spirvData SPIR-V binary data
-         */
+        // @brief Update shader reflection data
+        // @param rendererID OpenGL shader program ID
+        // @param spirvData SPIR-V binary data
         void UpdateReflectionData(u32 rendererID, const std::vector<u32>& spirvData);
 
-        /**
-         * @brief Set shader source code
-         * @param rendererID OpenGL shader program ID
-         * @param stage Shader stage
-         * @param originalSource Original GLSL source
-         * @param generatedGLSL Generated OpenGL GLSL (if different)
-         * @param spirvBinary SPIR-V binary data
-         */
+        // @brief Set shader source code
+        // @param rendererID OpenGL shader program ID
+        // @param stage Shader stage
+        // @param originalSource Original GLSL source
+        // @param generatedGLSL Generated OpenGL GLSL (if different)
+        // @param spirvBinary SPIR-V binary data
         void SetShaderSource(u32 rendererID, ShaderStage stage, 
                            const std::string& originalSource, 
                            const std::string& generatedGLSL = "",
                            const std::vector<u8>& spirvBinary = {});
 
-        /**
-         * @brief Render the debug UI
-         * @param open Pointer to boolean controlling window visibility
-         * @param title Window title
-         */
+        // @brief Render the debug UI
+        // @param open Pointer to boolean controlling window visibility
+        // @param title Window title
         void RenderDebugView(bool* open = nullptr, const char* title = "Shader Debugger");
 
-        /**
-         * @brief Get shader information by renderer ID
-         * @param rendererID OpenGL shader program ID
-         * @return Pointer to shader info or nullptr if not found
-         */
+        // @brief Get shader information by renderer ID
+        // @param rendererID OpenGL shader program ID
+        // @return Pointer to shader info or nullptr if not found
         const ShaderInfo* GetShaderInfo(u32 rendererID) const;
 
-        /**
-         * @brief Get all tracked shaders
-         * @return Map of renderer ID to shader info
-         */
+        // @brief Get all tracked shaders
+        // @return Map of renderer ID to shader info
         const std::unordered_map<u32, ShaderInfo>& GetAllShaders() const { return m_Shaders; }
 
-        /**
-         * @brief Export shader debugging report
-         * @param filePath Output file path
-         * @return True if export succeeded
-         */
+        // @brief Export shader debugging report
+        // @param filePath Output file path
+        // @return True if export succeeded
         bool ExportReport(const std::string& filePath) const;
 
-        /**
-         * @brief Update resource binding information for a shader
-         * @param rendererID OpenGL shader program ID
-         * @param resourceName Name of the resource
-         * @param bindingInfo String description of the binding
-         */
+        // @brief Update resource binding information for a shader
+        // @param rendererID OpenGL shader program ID
+        // @param resourceName Name of the resource
+        // @param bindingInfo String description of the binding
         void UpdateResourceBinding(u32 rendererID, const std::string& resourceName, ShaderResourceType type, u32 bindingPoint, bool isBound);
 
-        /**
-         * @brief Clear all resource bindings for a shader
-         * @param rendererID OpenGL shader program ID
-         */
+        // @brief Clear all resource bindings for a shader
+        // @param rendererID OpenGL shader program ID
         void ClearResourceBindings(u32 rendererID);
 
     private:

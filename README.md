@@ -117,6 +117,25 @@ All dependencies are automatically fetched via fetchcontent and CPM (CMake Packa
 * [filewatch](https://github.com/ThomasMonkman/filewatch) - File system monitoring for hot-reload
 * [tinyxml2](https://github.com/leethomason/tinyxml2) - Simple, small XML parser
 
+### Code formatting & pre-commit hooks ✅
+
+We trim trailing whitespace and enforce a few formatting rules via `pre-commit` hooks.
+
+- Install pre-commit locally (Python/pip required):
+  - `python -m pip install --user pre-commit`
+  - `pre-commit install` in the repo root to enable the git hook
+  - Optionally run `pre-commit run --all-files` to apply the hooks across the repo
+
+Included hooks/config:
+- `trailing-whitespace` (removes trailing spaces)
+- `end-of-file-fixer` (ensure final newline)
+- `clang-format` for C/C++ (configured to use `.clang-format` in the repo root)
+
+We also include a `.editorconfig` to configure editor behavior (trim trailing whitespace, insert final newline). The pre-commit hooks **ignore the `vendor/`, `.vs/`, `.vscode/`, `build/`, and other generated/IDE folders** to avoid touching third-party or editor metadata.
+
+A GitHub Action runs `pre-commit` on push and pull requests so formatting checks run on PRs automatically.
+
+
  ## Influences & References
   * [Hazel](https://github.com/TheCherno/Hazel) - As mentioned, this game engine follows The Cherno's game engine series as a foundation
   * [Lumos](https://github.com/jmorton06/Lumos) - Ideas for OpenGL rendering implementation and engine architecture

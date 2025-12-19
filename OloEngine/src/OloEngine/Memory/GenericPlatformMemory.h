@@ -29,13 +29,11 @@ namespace Memory::Private
 // Forward declarations
 class FMalloc;
 class FOutputDevice;
-/** Holds generic memory stats, internally implemented as a map. */
+// Holds generic memory stats, internally implemented as a map.
 struct FGenericMemoryStats;
 
-/**
- * Platform-dependent "bucket" for memory size, where Default is the normal, or possibly the largest.
- * This is generally used for texture LOD settings for how to fit in smaller memory devices
- */
+// Platform-dependent "bucket" for memory size, where Default is the normal, or possibly the largest.
+// This is generally used for texture LOD settings for how to fit in smaller memory devices
 #define PLATFORM_MEMORY_SIZE_BUCKET_LIST(XBUCKET) \
     /* not used with texture LODs (you can't use bigger textures than what is cooked out, which is what Default should map to) */ \
     XBUCKET(Largest)    \
@@ -76,78 +74,68 @@ enum class EMemcpyCachePolicy : u8
     StoreUncached,
 };
 
-/**
- * Struct used to hold common memory constants for all platforms.
- * These values don't change over the entire life of the executable.
- */
+// @brief Struct used to hold common memory constants for all platforms.
+// These values don't change over the entire life of the executable.
 struct FGenericPlatformMemoryConstants
 {
-    /** The amount of actual physical memory, in bytes (needs to handle >4GB for 64-bit devices running 32-bit code). */
+    // The amount of actual physical memory, in bytes (needs to handle >4GB for 64-bit devices running 32-bit code).
     u64 TotalPhysical = 0;
 
-    /** The amount of virtual memory, in bytes. */
+    // The amount of virtual memory, in bytes.
     u64 TotalVirtual = 0;
 
-    /** The size of a physical page, in bytes. This is also the granularity for PageProtect(), commitment and properties (e.g. ability to access) of the physical RAM. */
+    // The size of a physical page, in bytes. This is also the granularity for PageProtect(), commitment and properties (e.g. ability to access) of the physical RAM.
     sizet PageSize = 0;
 
-    /**
-     * Some platforms have advantages if memory is allocated in chunks larger than PageSize (e.g. VirtualAlloc() seems to have 64KB granularity as of now).
-     * This value is the minimum allocation size that the system will use behind the scenes.
-     */
+    // Some platforms have advantages if memory is allocated in chunks larger than PageSize (e.g. VirtualAlloc() seems to have 64KB granularity as of now).
+    // This value is the minimum allocation size that the system will use behind the scenes.
     sizet OsAllocationGranularity = 0;
 
-    /** The size of a "page" in Binned2 malloc terms, in bytes. Should be at least 64KB. BinnedMalloc expects memory returned from BinnedAllocFromOS() to be aligned on BinnedPageSize boundary. */
+    // The size of a "page" in Binned2 malloc terms, in bytes. Should be at least 64KB. BinnedMalloc expects memory returned from BinnedAllocFromOS() to be aligned on BinnedPageSize boundary.
     sizet BinnedPageSize = 0;
 
-    /** This is the "allocation granularity" in Binned malloc terms, i.e. BinnedMalloc will allocate the memory in increments of this value. If zero, Binned will use BinnedPageSize for this value. */
+    // This is the "allocation granularity" in Binned malloc terms, i.e. BinnedMalloc will allocate the memory in increments of this value. If zero, Binned will use BinnedPageSize for this value.
     sizet BinnedAllocationGranularity = 0;
 
-    /**
-     * Starting address for the available virtual address space.
-     * Can be used with AddressLimit to determine address space range for binned allocators
-     */
+    // Starting address for the available virtual address space.
+    // Can be used with AddressLimit to determine address space range for binned allocators
     u64 AddressStart = 0;
 
-    /**
-     * An estimate of the range of addresses expected to be returned by BinnedAllocFromOS(). Binned
-     * Malloc will adjust its internal structures to make lookups for memory allocations O(1) for this range.
-     * It is ok to go outside this range, lookups will just be a little slower
-     */
+    // An estimate of the range of addresses expected to be returned by BinnedAllocFromOS(). Binned
+    // Malloc will adjust its internal structures to make lookups for memory allocations O(1) for this range.
+    // It is ok to go outside this range, lookups will just be a little slower
     u64 AddressLimit = static_cast<u64>(0xffffffff) + 1;
 
-    /** Approximate physical RAM in GB; 1 on everything except PC. Used for "coarse tuning", like FPlatformMisc::NumberOfCores(). */
+    // Approximate physical RAM in GB; 1 on everything except PC. Used for "coarse tuning", like FPlatformMisc::NumberOfCores().
     u32 TotalPhysicalGB = 1;
 };
 
 using FPlatformMemoryConstants = FGenericPlatformMemoryConstants;
 
-/**
- * Struct used to hold common memory stats for all platforms.
- * These values may change over the entire life of the executable.
- */
+// @brief Struct used to hold common memory stats for all platforms.
+// These values may change over the entire life of the executable.
 struct FGenericPlatformMemoryStats : public FPlatformMemoryConstants
 {
-    /** The amount of physical memory currently available, in bytes. */
+    // The amount of physical memory currently available, in bytes.
     u64 AvailablePhysical;
 
-    /** The amount of virtual memory currently available, in bytes. */
+    // The amount of virtual memory currently available, in bytes.
     u64 AvailableVirtual;
 
-    /** The amount of physical memory used by the process, in bytes. */
+    // The amount of physical memory used by the process, in bytes.
     u64 UsedPhysical;
 
-    /** The peak amount of physical memory used by the process, in bytes. */
+    // The peak amount of physical memory used by the process, in bytes.
     u64 PeakUsedPhysical;
 
-    /** Total amount of virtual memory used by the process. */
+    // Total amount of virtual memory used by the process.
     u64 UsedVirtual;
 
-    /** The peak amount of virtual memory used by the process. */
+    // The peak amount of virtual memory used by the process.
     u64 PeakUsedVirtual;
 
-    /** Memory pressure states, useful for platforms in which the available memory estimate
-        may not take in to account memory reclaimable from closing inactive processes or resorting to swap. */
+    // Memory pressure states, useful for platforms in which the available memory estimate
+    // may not take in to account memory reclaimable from closing inactive processes or resorting to swap.
     enum class EMemoryPressureStatus : u8
     {
         Unknown,
@@ -158,7 +146,7 @@ struct FGenericPlatformMemoryStats : public FPlatformMemoryConstants
 
     EMemoryPressureStatus GetMemoryPressureStatus() const;
 
-    /** Default constructor, clears all variables. */
+    // Default constructor, clears all variables.
     FGenericPlatformMemoryStats();
 
     struct FPlatformSpecificStat
@@ -176,13 +164,13 @@ struct FGenericPlatformMemoryStats : public FPlatformMemoryConstants
 
     u64 GetAvailablePhysical(bool bExcludeExtraDevMemory) const;
 
-    /** Called by FCsvProfiler::EndFrame to set platform specific CSV stats. */
+    // Called by FCsvProfiler::EndFrame to set platform specific CSV stats.
     void SetEndFrameCsvStats() const {}
 };
 
 using FPlatformMemoryStats = FGenericPlatformMemoryStats;
 
-// Contains shared/private information for a single page allocation from the kernel. A page
+// @brief Contains shared/private information for a single page allocation from the kernel. A page
 // allocation may contain many pages.
 struct FForkedPageAllocation
 {
@@ -201,10 +189,8 @@ struct FForkedPageAllocation
     u64 PrivateDirtyKiB;
 };
 
-/**
- * FMemory_Alloca/alloca implementation. This can't be a function, even FORCEINLINE'd because there's no guarantee that
- * the memory returned in a function will stick around for the caller to use.
- */
+// @brief FMemory_Alloca/alloca implementation. This can't be a function, even FORCEINLINE'd because there's no guarantee that
+// the memory returned in a function will stick around for the caller to use.
 #ifdef OLO_PLATFORM_WINDOWS
     #define __OloMemory_Alloca_Func _alloca
 #else
@@ -216,31 +202,29 @@ struct FForkedPageAllocation
 // Version that supports alignment requirement. However since the old alignment was always forced to be 16, this continues to enforce a min alignment of 16 but allows a larger value.
 #define OloMemory_Alloca_Aligned(Size, Alignment) ((Size==0) ? 0 : ((Alignment <= 16) ? OloMemory_Alloca(Size) : (void*)(((uptr)__OloMemory_Alloca_Func(Size + Alignment-1) + Alignment-1) & ~(Alignment-1))))
 
-/** Generic implementation for most platforms, these tend to be unused and unimplemented. */
+// Generic implementation for most platforms, these tend to be unused and unimplemented.
 struct FGenericPlatformMemory
 {
-    /** Set to true if we encounters out of memory. */
+    // Set to true if we encounters out of memory.
     static bool bIsOOM;
 
-    /** Set to size of allocation that triggered out of memory, zero otherwise. */
+    // Set to size of allocation that triggered out of memory, zero otherwise.
     static u64 OOMAllocationSize;
 
-    /** Set to alignment of allocation that triggered out of memory, zero otherwise. */
+    // Set to alignment of allocation that triggered out of memory, zero otherwise.
     static u32 OOMAllocationAlignment;
 
-    /** Preallocated buffer to delete on out of memory. Used by OOM handling and crash reporting. */
+    // Preallocated buffer to delete on out of memory. Used by OOM handling and crash reporting.
     static void* BackupOOMMemoryPool;
 
-    /** Size of BackupOOMMemoryPool in bytes. */
+    // Size of BackupOOMMemoryPool in bytes.
     static u32 BackupOOMMemoryPoolSize;
 
-    /**
-     * Various memory regions that can be used with memory stats. The exact meaning of
-     * the enums are relatively platform-dependent, although the general ones (Physical, GPU)
-     * are straightforward. A platform can add more of these, and it won't affect other
-     * platforms, other than a minuscule amount of memory for the StatManager to track the
-     * max available memory for each region (uses an array FPlatformMemory::MCR_MAX big)
-     */
+    // Various memory regions that can be used with memory stats. The exact meaning of
+    // the enums are relatively platform-dependent, although the general ones (Physical, GPU)
+    // are straightforward. A platform can add more of these, and it won't affect other
+    // platforms, other than a minuscule amount of memory for the StatManager to track the
+    // max available memory for each region (uses an array FPlatformMemory::MCR_MAX big)
     enum EMemoryCounterRegion
     {
         MCR_Invalid, // not memory
@@ -255,7 +239,7 @@ struct FGenericPlatformMemory
         MCR_MAX
     };
 
-    /** Which allocator is being used */
+    // Which allocator is being used
     enum EMemoryAllocatorToUse
     {
         Ansi, // Default C allocator
@@ -270,33 +254,29 @@ struct FGenericPlatformMemory
         Libpas, // libpas
     };
 
-    /** Current allocator */
+    // Current allocator
     static EMemoryAllocatorToUse AllocatorToUse;
 
-    /**
-     * Flags used for shared memory creation/open
-     */
+    // Flags used for shared memory creation/open
     enum ESharedMemoryAccess
     {
         Read  = (1 << 1),
         Write = (1 << 2)
     };
 
-    /**
-     * Generic representation of a shared memory region
-     */
+    // Generic representation of a shared memory region
     struct FSharedMemoryRegion
     {
-        /** Returns the name of the region */
+        // Returns the name of the region
         const char* GetName() const { return Name; }
 
-        /** Returns the beginning of the region in process address space */
+        // Returns the beginning of the region in process address space
         void* GetAddress() { return Address; }
 
-        /** Returns the beginning of the region in process address space */
+        // Returns the beginning of the region in process address space
         const void* GetAddress() const { return Address; }
 
-        /** Returns size of the region in bytes */
+        // Returns size of the region in bytes
         sizet GetSize() const { return Size; }
 
         FSharedMemoryRegion(const std::string& InName, u32 InAccessMode, void* InAddress, sizet InSize);
@@ -307,146 +287,114 @@ struct FGenericPlatformMemory
             MaxSharedMemoryName = 128
         };
 
-        /** Name of the region */
+        // Name of the region
         char Name[MaxSharedMemoryName];
 
-        /** Access mode for the region */
+        // Access mode for the region
         u32 AccessMode;
 
-        /** The actual buffer */
+        // The actual buffer
         void* Address;
 
-        /** Size of the buffer */
+        // Size of the buffer
         sizet Size;
     };
 
-    /** Initializes platform memory specific constants. */
+    // @brief Initializes platform memory specific constants.
     static void Init();
 
     [[noreturn]] static void OnOutOfMemory(u64 Size, u32 Alignment);
 
-    /** Initializes the memory pools, should be called by the init function. */
+    // @brief Initializes the memory pools, should be called by the init function.
     static void SetupMemoryPools();
 
-    /**
-     * @return how much memory the platform should pre-allocate for crash handling (this will be allocated ahead of time, and freed when system runs out of memory).
-     */
+    // @return how much memory the platform should pre-allocate for crash handling (this will be allocated ahead of time, and freed when system runs out of memory).
     static u32 GetBackMemoryPoolSize()
     {
         // by default, don't create a backup memory buffer
         return 0;
     }
 
-    /**
-     * @return the default allocator.
-     */
+    // @return the default allocator.
     static FMalloc* BaseAllocator();
 
-    /**
-     * @return platform specific current memory statistics. Note: On some platforms, unused allocator cached memory is taken into account in AvailablePhysical.
-     */
+    // @return platform specific current memory statistics. Note: On some platforms, unused allocator cached memory is taken into account in AvailablePhysical.
     static FPlatformMemoryStats GetStats();
 
-    /**
-     * @return platform specific raw stats.
-     */
+    // @return platform specific raw stats.
     static FPlatformMemoryStats GetStatsRaw();
 
-    /**
-     * @return memory used for platforms that can do it quickly (without affecting stat unit much)
-     */
+    // @return memory used for platforms that can do it quickly (without affecting stat unit much)
     static u64 GetMemoryUsedFast();
 
-    /**
-     * Writes all platform specific current memory statistics in the format usable by the malloc profiler.
-     */
+    // Writes all platform specific current memory statistics in the format usable by the malloc profiler.
     static void GetStatsForMallocProfiler(FGenericMemoryStats& OutStats);
 
-    /**
-     * @return platform specific memory constants.
-     */
+    // @return platform specific memory constants.
     static const FPlatformMemoryConstants& GetConstants();
 
-    /**
-     * @return approximate physical RAM in GB.
-     */
+    // @return approximate physical RAM in GB.
     static u32 GetPhysicalGBRam();
 
-    /**
-     * Changes the protection on a region of committed pages in the virtual address space.
-     *
-     * @param Ptr Address to the starting page of the region of pages whose access protection attributes are to be changed.
-     * @param Size The size of the region whose access protection attributes are to be changed, in bytes.
-     * @param bCanRead Can the memory be read.
-     * @param bCanWrite Can the memory be written to.
-     * @return True if the specified pages' protection mode was changed.
-     */
+    // Changes the protection on a region of committed pages in the virtual address space.
+    //
+    // @param Ptr Address to the starting page of the region of pages whose access protection attributes are to be changed.
+    // @param Size The size of the region whose access protection attributes are to be changed, in bytes.
+    // @param bCanRead Can the memory be read.
+    // @param bCanWrite Can the memory be written to.
+    // @return True if the specified pages' protection mode was changed.
     static bool PageProtect(void* const Ptr, const sizet Size, const bool bCanRead, const bool bCanWrite);
 
-    /**
-     * Allocates pages from the OS.
-     *
-     * @param Size Size to allocate, not necessarily aligned
-     *
-     * @return OS allocated pointer for use by binned allocator
-     */
+    // Allocates pages from the OS.
+    //
+    // @param Size Size to allocate, not necessarily aligned
+    //
+    // @return OS allocated pointer for use by binned allocator
     static void* BinnedAllocFromOS(sizet Size);
 
-    /**
-     * Returns pages allocated by BinnedAllocFromOS to the OS.
-     *
-     * @param Ptr A pointer previously returned from BinnedAllocFromOS
-     * @param Size size of the allocation previously passed to BinnedAllocFromOS
-     */
+    // Returns pages allocated by BinnedAllocFromOS to the OS.
+    //
+    // @param Ptr A pointer previously returned from BinnedAllocFromOS
+    // @param Size size of the allocation previously passed to BinnedAllocFromOS
     static void BinnedFreeToOS(void* Ptr, sizet Size);
 
-    /**
-     * Performs initial setup for MiMalloc.
-     * This is a noop on platforms that do not support MiMalloc, or when MIMALLOC_ENABLED is not defined.
-     */
+    // Performs initial setup for MiMalloc.
+    // This is a noop on platforms that do not support MiMalloc, or when MIMALLOC_ENABLED is not defined.
     static void MiMallocInit()
     {
     }
 
-    /**
-     * Performs initial setup for Nano malloc.
-     * This is a noop on non-apple platforms
-     */
+    // Performs initial setup for Nano malloc.
+    // This is a noop on non-apple platforms
     static void NanoMallocInit()
     {
     }
 
-    /**
-     * Was this pointer allocated by the OS malloc?
-     * Currently only Apple platforms implement this to detect small block allocations.
-     *
-     * @param Ptr The pointer to query
-     * @return True if this pointer was allocated by the OS.
-     */
+    // Was this pointer allocated by the OS malloc?
+    // Currently only Apple platforms implement this to detect small block allocations.
+    //
+    // @param Ptr The pointer to query
+    // @return True if this pointer was allocated by the OS.
     static bool PtrIsOSMalloc(void* Ptr)
     {
         (void)Ptr;
         return false;
     }
 
-    /**
-     * Nano Malloc is Apple's tiny block allocator.
-     * Does the Nano malloc zone exist?
-     *
-     * @return True if Nano malloc is enabled and available.
-     */
+    // Nano Malloc is Apple's tiny block allocator.
+    // Does the Nano malloc zone exist?
+    //
+    // @return True if Nano malloc is enabled and available.
     static bool IsNanoMallocAvailable()
     {
         return false;
     }
 
-    /**
-     * Was this pointer allocated by in the Nano Malloc Zone?
-     * Currently only Apple platforms implement this to detect small block allocations.
-     *
-     * @param Ptr The pointer to query
-     * @return True if this pointer is in the Nano Malloc Region
-     */
+    // Was this pointer allocated by in the Nano Malloc Zone?
+    // Currently only Apple platforms implement this to detect small block allocations.
+    //
+    // @param Ptr The pointer to query
+    // @return True if this pointer is in the Nano Malloc Region
     static bool PtrIsFromNanoMalloc(void* Ptr)
     {
         (void)Ptr;
@@ -494,34 +442,29 @@ struct FGenericPlatformMemory
         // static sizet GetVirtualSizeAlignment();
     };
 
-    /**
-     * Some platforms may pool allocations of this size to reduce OS calls. This function
-     * serves as a hint for BinnedMalloc's CachedOSPageAllocator so it does not cache these allocations additionally
-     */
+    // Some platforms may pool allocations of this size to reduce OS calls. This function
+    // serves as a hint for BinnedMalloc's CachedOSPageAllocator so it does not cache these allocations additionally
     static bool BinnedPlatformHasMemoryPoolForThisSize(sizet Size)
     {
         (void)Size;
         return false;
     }
 
-    /** Dumps basic platform memory statistics into the specified output device. */
+    // Dumps basic platform memory statistics into the specified output device.
     static void DumpStats(FOutputDevice& Ar);
 
-    /** Dumps basic platform memory statistics and allocator specific statistics into the specified output device. */
+    // Dumps basic platform memory statistics and allocator specific statistics into the specified output device.
     static void DumpPlatformAndAllocatorStats(FOutputDevice& Ar);
 
-    /**
-     * Return which "high level", per platform, memory bucket we are in
-     */
+    // Return which "high level", per platform, memory bucket we are in
     static EPlatformMemorySizeBucket GetMemorySizeBucket();
 
-    /** @name Memory functions */
+    // @name Memory functions
 
-    /** Copies count bytes of characters from Src to Dest. If some regions of the source
-     * area and the destination overlap, memmove ensures that the original source bytes
-     * in the overlapping region are copied before being overwritten.  NOTE: make sure
-     * that the destination buffer is the same size or larger than the source buffer!
-     */
+    // Copies count bytes of characters from Src to Dest. If some regions of the source
+    // area and the destination overlap, memmove ensures that the original source bytes
+    // in the overlapping region are copied before being overwritten.  NOTE: make sure
+    // that the destination buffer is the same size or larger than the source buffer!
     static OLO_FINLINE void* Memmove(void* Dest, const void* Src, sizet Count)
     {
         return memmove(Dest, Src, Count);
@@ -547,19 +490,19 @@ struct FGenericPlatformMemory
         return memcpy(Dest, Src, Count);
     }
 
-    /** Memcpy optimized for big blocks. */
+    // Memcpy optimized for big blocks.
     static OLO_FINLINE void* BigBlockMemcpy(void* Dest, const void* Src, sizet Count)
     {
         return memcpy(Dest, Src, Count);
     }
 
-    /** On some platforms memcpy optimized for big blocks that avoid L2 cache pollution are available */
+    // On some platforms memcpy optimized for big blocks that avoid L2 cache pollution are available
     static OLO_FINLINE void* StreamingMemcpy(void* Dest, const void* Src, sizet Count)
     {
         return memcpy(Dest, Src, Count);
     }
 
-    /** On some platforms memcpy can be distributed over multiple threads for throughput. */
+    // On some platforms memcpy can be distributed over multiple threads for throughput.
     static inline void* ParallelMemcpy(void* Dest, const void* Src, sizet Count, EMemcpyCachePolicy Policy = EMemcpyCachePolicy::StoreCached)
     {
         (void)Policy;
@@ -637,12 +580,10 @@ public:
         }
     }
 
-    /**
-     * Loads a simple POD type from unaligned memory.
-     *
-     * @param Ptr unaligned memory of at least size sizeof(T)
-     * @return Value at Ptr
-     */
+    // Loads a simple POD type from unaligned memory.
+    //
+    // @param Ptr unaligned memory of at least size sizeof(T)
+    // @return Value at Ptr
     template <typename T>
     static inline T ReadUnaligned(const void* Ptr)
     {
@@ -651,139 +592,105 @@ public:
         return AlignedT;
     }
 
-    /**
-     * Stores a simple POD type to unaligned memory.
-     *
-     * @param Ptr unaligned memory of at least size sizeof(T)
-     * @param InValue value to write at Ptr
-     */
+    // Stores a simple POD type to unaligned memory.
+    //
+    // @param Ptr unaligned memory of at least size sizeof(T)
+    // @param InValue value to write at Ptr
     template <typename T>
     static OLO_FINLINE void WriteUnaligned(void* Ptr, const T& InValue)
     {
         memcpy(Ptr, &InValue, sizeof(T));
     }
 
-    /**
-     * Maps a named shared memory region into process address space (creates or opens it)
-     *
-     * @param Name unique name of the shared memory region (should not contain [back]slashes to remain cross-platform).
-     * @param bCreate whether we're creating it or just opening existing (created by some other process).
-     * @param AccessMode mode which we will be accessing it (use values from ESharedMemoryAccess)
-     * @param Size size of the buffer (should be >0. Also, the real size is subject to platform limitations and may be increased to match page size)
-     *
-     * @return pointer to FSharedMemoryRegion (or its descendants) if successful, nullptr if not.
-     */
+    // Maps a named shared memory region into process address space (creates or opens it)
+    //
+    // @param Name unique name of the shared memory region (should not contain [back]slashes to remain cross-platform).
+    // @param bCreate whether we're creating it or just opening existing (created by some other process).
+    // @param AccessMode mode which we will be accessing it (use values from ESharedMemoryAccess)
+    // @param Size size of the buffer (should be >0. Also, the real size is subject to platform limitations and may be increased to match page size)
+    //
+    // @return pointer to FSharedMemoryRegion (or its descendants) if successful, nullptr if not.
     static FSharedMemoryRegion* MapNamedSharedMemoryRegion(const std::string& Name, bool bCreate, u32 AccessMode, sizet Size);
 
-    /**
-     * Unmaps a name shared memory region
-     *
-     * @param MemoryRegion an object that encapsulates a shared memory region (will be destroyed even if function fails!)
-     *
-     * @return true if successful
-     */
+    // Unmaps a name shared memory region
+    //
+    // @param MemoryRegion an object that encapsulates a shared memory region (will be destroyed even if function fails!)
+    //
+    // @return true if successful
     static bool UnmapNamedSharedMemoryRegion(FSharedMemoryRegion* MemoryRegion);
 
-    /**
-     * Gets whether this platform supports Fast VRAM memory
-     *     Ie, whether TexCreate_FastVRAM flags actually mean something or not
-     *
-     * @return bool true if supported, false if not
-     */
+    // Gets whether this platform supports Fast VRAM memory
+    //     Ie, whether TexCreate_FastVRAM flags actually mean something or not
+    //
+    // @return bool true if supported, false if not
     static OLO_FINLINE bool SupportsFastVRAMMemory()
     {
         return false;
     }
 
-    /**
-     * Returns true if debug memory has been assigned to the title for general use.
-     * Only applies to platforms with fixed memory and no paging.
-     */
+    // Returns true if debug memory has been assigned to the title for general use.
+    // Only applies to platforms with fixed memory and no paging.
     static bool IsExtraDevelopmentMemoryAvailable();
 
-    /**
-     * Returns >0 if debug memory has been assigned to the title for general use.
-     * Only applies to platforms with fixed memory and no paging.
-     */
+    // Returns >0 if debug memory has been assigned to the title for general use.
+    // Only applies to platforms with fixed memory and no paging.
     static u64 GetExtraDevelopmentMemorySize();
 
-    /**
-     * Returns initial program size or 0 if the platform doesn't track initial program size
-     */
+    // Returns initial program size or 0 if the platform doesn't track initial program size
     static u64 GetProgramSize()
     {
         return ProgramSize;
     }
 
-    /**
-     * Sets the initial program size
-     */
+    // Sets the initial program size
     static void SetProgramSize(u64 InProgramSize)
     {
         ProgramSize = InProgramSize;
     }
 
-    /**
-     * This function sets AllocFunction and FreeFunction and returns true, or just returns false.
-     * These functions are the platform dependant low low low level functions that LLM uses to allocate memory.
-     */
+    // This function sets AllocFunction and FreeFunction and returns true, or just returns false.
+    // These functions are the platform dependant low low low level functions that LLM uses to allocate memory.
     static bool GetLLMAllocFunctions(void*(*&OutAllocFunction)(sizet), void(*&OutFreeFunction)(void*, sizet), i32& OutAlignment);
 
-    /**
-     * Called for all default tracker LLM allocations and frees, when LLM is enabled.
-     * Provides a single alloc/free hook that platforms can implement to support platform specific memory analysis tools.
-     */
+    // Called for all default tracker LLM allocations and frees, when LLM is enabled.
+    // Provides a single alloc/free hook that platforms can implement to support platform specific memory analysis tools.
     OLO_FINLINE static void OnLowLevelMemory_Alloc(void const* Pointer, u64 Size, u64 Tag) { (void)Pointer; (void)Size; (void)Tag; }
     OLO_FINLINE static void OnLowLevelMemory_Free(void const* Pointer, u64 Size, u64 Tag) { (void)Pointer; (void)Size; (void)Tag; }
 
-    /**
-     * Called once at LLM initialization time to let the platform add any custom tags
-     */
+    // Called once at LLM initialization time to let the platform add any custom tags
     static void RegisterCustomLLMTags() { }
 
-    /**
-     * Called once per frame when LLM is collating the data for the current frame.
-     * Can be used to set platform-specific calculated tag data via SetTagAmountForTracker
-     */
+    // Called once per frame when LLM is collating the data for the current frame.
+    // Can be used to set platform-specific calculated tag data via SetTagAmountForTracker
     static void UpdateCustomLLMTags() { }
 
-    /**
-     * Indicates whether LLM allocations are already accounted for with tracking and in GetStats.
-     * Returns true if LLM allocations come from a memory pool separate from the main engine's memory or
-     * are already tagged with tracking by the platform memory system.
-     * Returns false if LLM uses the regular memory shared with the engine and allocations are not tracked.
-     * @see GetLLMAllocFunctions
-     */
+    // Indicates whether LLM allocations are already accounted for with tracking and in GetStats.
+    // Returns true if LLM allocations come from a memory pool separate from the main engine's memory or
+    // are already tagged with tracking by the platform memory system.
+    // Returns false if LLM uses the regular memory shared with the engine and allocations are not tracked.
+    // @see GetLLMAllocFunctions
     static bool TracksLLMAllocations() { return false; }
 
-    /**
-     * Returns true if Protecting the parent processes pages has been enabled
-     * Only supported on platforms that support forking
-     */
+    // Returns true if Protecting the parent processes pages has been enabled
+    // Only supported on platforms that support forking
     static bool HasForkPageProtectorEnabled() { return false; }
 
-    /**
-     * Return the page allocations from the operating system (/proc/self/smaps). This only means something on
-     * platforms that can fork and have Copy On Write behavior.
-     */
+    // Return the page allocations from the operating system (/proc/self/smaps). This only means something on
+    // platforms that can fork and have Copy On Write behavior.
     static bool GetForkedPageAllocationInfo(std::vector<FForkedPageAllocation>& OutPageAllocationInfos)
     {
         (void)OutPageAllocationInfos;
         return false; // Most platforms do not implement this.
     }
 
-    /**
-     * Returns a pretty-string for an amount of memory given in bytes.
-     *
-     * @param Memory amount in bytes
-     * @return Memory in a pretty formatted string
-     */
+    // Returns a pretty-string for an amount of memory given in bytes.
+    //
+    // @param Memory amount in bytes
+    // @return Memory in a pretty formatted string
     static std::string PrettyMemory(u64 Memory);
 
-    /**
-     * Return true if the platform can allocate a lot more virtual memory than physical memory
-     * It's true for most platforms, but iOS needs a special entitlement and Linux a kernel config for this
-     */
+    // Return true if the platform can allocate a lot more virtual memory than physical memory
+    // It's true for most platforms, but iOS needs a special entitlement and Linux a kernel config for this
     OLO_FINLINE static bool CanOverallocateVirtualMemory()
     {
         return true;
@@ -802,10 +709,10 @@ public:
 protected:
     friend struct FGenericStatsUpdater;
 
-    /** Updates platform specific stats. This method is called through FGenericStatsUpdater from the task graph thread. */
+    // @brief Updates platform specific stats. This method is called through FGenericStatsUpdater from the task graph thread.
     static void InternalUpdateStats(const FPlatformMemoryStats& MemoryStats);
 
-    /** Program memory allocation in bytes. */
+    // @brief Program memory allocation in bytes.
     static u64 ProgramSize;
 };
 

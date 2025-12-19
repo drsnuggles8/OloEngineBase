@@ -11,10 +11,10 @@ namespace OloEngine
 template <typename DataType>
 class TMemoryView;
 
-/** A non-owning view of a contiguous region of memory. */
+// A non-owning view of a contiguous region of memory.
 using FMemoryView = TMemoryView<const void>;
 
-/** A non-owning mutable view of a contiguous region of memory. */
+// A non-owning mutable view of a contiguous region of memory.
 using FMutableMemoryView = TMemoryView<void>;
 
 // SharedBuffer

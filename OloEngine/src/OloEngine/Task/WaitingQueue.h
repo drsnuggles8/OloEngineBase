@@ -27,13 +27,11 @@ namespace OloEngine::LowLevelTasks::Private
         Signaled,
     };
 
-    /**
-     * @struct FWaitEvent
-     * @brief A node in the waiting queue representing a sleeping thread
-     * 
-     * The struct is naturally 64 bytes aligned, the extra alignment just
-     * re-enforces this assumption and will error if it changes in the future.
-     */
+    // @struct FWaitEvent
+    // @brief A node in the waiting queue representing a sleeping thread
+    // 
+    // The struct is naturally 64 bytes aligned, the extra alignment just
+    // re-enforces this assumption and will error if it changes in the future.
     struct alignas(64) FWaitEvent
     {
         std::atomic<u64>     Next{ 0 };
@@ -43,13 +41,11 @@ namespace OloEngine::LowLevelTasks::Private
         bool                 bIsStandby{ false };
     };
 
-    /**
-     * @class FWaitingQueue
-     * @brief A queue that manages sleeping and waking worker threads
-     * 
-     * This implements a parking lot pattern for efficient thread synchronization.
-     * Workers prepare to wait, commit to waiting, and can be woken up by notifications.
-     */
+    // @class FWaitingQueue
+    // @brief A queue that manages sleeping and waking worker threads
+    // 
+    // This implements a parking lot pattern for efficient thread synchronization.
+    // Workers prepare to wait, commit to waiting, and can be woken up by notifications.
     class FWaitingQueue
     {
         u32                            m_ThreadCount{ 0 };    // Normal amount of threads when there is no oversubscription.

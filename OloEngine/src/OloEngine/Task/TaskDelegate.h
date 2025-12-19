@@ -15,24 +15,18 @@ namespace OloEngine::LowLevelTasks
 {
     namespace Private
     {
-        /**
-         * @brief DeclVal implementation for IsInvocable checks
-         */
+        // @brief DeclVal implementation for IsInvocable checks
         template <typename T>
         T&& DeclVal();
 
-        /**
-         * @brief Void helper for SFINAE
-         */
+        // @brief Void helper for SFINAE
         template <typename T>
         struct TVoid
         {
             using Type = void;
         };
 
-        /**
-         * @brief IsInvocable implementation
-         */
+        // @brief IsInvocable implementation
         template <typename, typename CallableType, typename... ArgTypes>
         struct TIsInvocableImpl
         {
@@ -46,10 +40,8 @@ namespace OloEngine::LowLevelTasks
         };
     } // namespace Private
 
-    /**
-     * @brief Traits class which tests if an instance of CallableType can be invoked with
-     *        a list of the arguments of the types provided.
-     */
+    // @brief Traits class which tests if an instance of CallableType can be invoked with
+    //        a list of the arguments of the types provided.
     template <typename CallableType, typename... ArgTypes>
     struct TIsInvocable : Private::TIsInvocableImpl<void, CallableType, ArgTypes...>
     {
@@ -70,15 +62,13 @@ namespace OloEngine::LowLevelTasks
         }
     }
 
-    /**
-     * @class TTaskDelegate
-     * @brief Version of TUniqueFunction<ReturnType()> that is less wasteful with its memory
-     * 
-     * This class might be removed when TUniqueFunction<ReturnType()> is fixed.
-     * 
-     * @tparam ReturnType(ParamTypes...) Function signature
-     * @tparam TotalSize Total size of the delegate including inline storage
-     */
+    // @class TTaskDelegate
+    // @brief Version of TUniqueFunction<ReturnType()> that is less wasteful with its memory
+    // 
+    // This class might be removed when TUniqueFunction<ReturnType()> is fixed.
+    // 
+    // @tparam ReturnType(ParamTypes...) Function signature
+    // @tparam TotalSize Total size of the delegate including inline storage
     template<typename = void(), u32 = OLO_PLATFORM_CACHE_LINE_SIZE>
     class TTaskDelegate;
 

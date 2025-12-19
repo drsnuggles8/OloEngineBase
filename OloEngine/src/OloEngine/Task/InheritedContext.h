@@ -9,21 +9,19 @@
 #include <optional>
 #include <utility>
 
-/**
- * @file InheritedContext.h
- * @brief Extends inherited context to cover async execution
- * 
- * UE5.7 uses InheritedContext to capture and restore:
- * - LLM (Low-Level Memory) tracker tags for memory attribution
- * - Memory trace tags for profiler memory tracking
- * - Metadata trace IDs for call stack attribution
- * 
- * OloEngine uses Tracy for profiling which handles most of this automatically.
- * This implementation provides:
- * - Task tags (thread type identification)
- * - Stub structure for future LLM integration
- * - Stub structure for memory/metadata trace integration
- */
+// @file InheritedContext.h
+// @brief Extends inherited context to cover async execution
+// 
+// UE5.7 uses InheritedContext to capture and restore:
+// - LLM (Low-Level Memory) tracker tags for memory attribution
+// - Memory trace tags for profiler memory tracking
+// - Metadata trace IDs for call stack attribution
+// 
+// OloEngine uses Tracy for profiling which handles most of this automatically.
+// This implementation provides:
+// - Task tags (thread type identification)
+// - Stub structure for future LLM integration
+// - Stub structure for memory/metadata trace integration
 
 // ============================================================================
 // Configuration - Enable/disable inherited context features
@@ -59,10 +57,8 @@ namespace OloEngine
     // ============================================================================
 
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
-    /**
-     * @enum ELLMTagSet
-     * @brief Tag sets for LLM tracking (matches UE5.7's ELLMTagSet)
-     */
+    // @enum ELLMTagSet
+    // @brief Tag sets for LLM tracking (matches UE5.7's ELLMTagSet)
     enum class ELLMTagSet : u32
     {
         None = 0,
@@ -71,13 +67,11 @@ namespace OloEngine
         Max
     };
 
-    /**
-     * @struct FLLMActiveTagsCapture
-     * @brief Structure representing captured LLM Tags
-     * 
-     * UE5.7 captures pointers to active tag data. OloEngine uses a simplified
-     * version that stores tag indices for future integration.
-     */
+    // @struct FLLMActiveTagsCapture
+    // @brief Structure representing captured LLM Tags
+    // 
+    // UE5.7 captures pointers to active tag data. OloEngine uses a simplified
+    // version that stores tag indices for future integration.
     struct FLLMActiveTagsCapture
     {
         // Tag data for each tag set (simplified - stores tag indices)
@@ -100,10 +94,8 @@ namespace OloEngine
         }
     };
 
-    /**
-     * @struct FLLMActiveTagsScope
-     * @brief RAII scope for restoring LLM tags
-     */
+    // @struct FLLMActiveTagsScope
+    // @brief RAII scope for restoring LLM tags
     struct FLLMActiveTagsScope
     {
         explicit FLLMActiveTagsScope([[maybe_unused]] const FLLMActiveTagsCapture& InActiveTagsCapture)
@@ -123,20 +115,16 @@ namespace OloEngine
     // ============================================================================
 
 #if OLO_MEMORY_TAGS_TRACE_ENABLED
-    /**
-     * @brief Get the active memory trace tag
-     * @return Current memory tag ID
-     */
+    // @brief Get the active memory trace tag
+    // @return Current memory tag ID
     inline i32 MemoryTrace_GetActiveTag()
     {
         // TODO: Integrate with Tracy memory tracking
         return 0;
     }
 
-    /**
-     * @struct FMemScope
-     * @brief RAII scope for memory trace tags
-     */
+    // @struct FMemScope
+    // @brief RAII scope for memory trace tags
     struct FMemScope
     {
         explicit FMemScope([[maybe_unused]] i32 InMemTag)
@@ -166,20 +154,16 @@ namespace OloEngine
     // ============================================================================
 
 #if OLO_TRACE_METADATA_ENABLED
-    /**
-     * @brief Capture current trace metadata (call stack ID)
-     * @return Metadata ID representing current call stack
-     */
+    // @brief Capture current trace metadata (call stack ID)
+    // @return Metadata ID representing current call stack
     inline u32 TraceMetadata_SaveStack()
     {
         // TODO: Integrate with Tracy call stack capture
         return 0;
     }
 
-    /**
-     * @struct FMetadataRestoreScope
-     * @brief RAII scope for restoring trace metadata
-     */
+    // @struct FMetadataRestoreScope
+    // @brief RAII scope for restoring trace metadata
     struct FMetadataRestoreScope
     {
         explicit FMetadataRestoreScope([[maybe_unused]] u32 InMetadataId)
@@ -202,19 +186,17 @@ namespace OloEngine
     // FInheritedContextScope - RAII scope for restoring inherited context
     // ============================================================================
 
-    /**
-     * @class FInheritedContextScope
-     * @brief Restores an inherited context for the current scope
-     * 
-     * An instance must be obtained by calling FInheritedContextBase::RestoreInheritedContext()
-     * This is an RAII scope that automatically restores the captured context.
-     * 
-     * In OloEngine, this captures and restores:
-     * - Task tags (thread type identification)
-     * - LLM tags (when OLO_ENABLE_LOW_LEVEL_MEM_TRACKER is enabled)
-     * - Memory trace tags (when OLO_MEMORY_TAGS_TRACE_ENABLED is enabled)
-     * - Metadata trace IDs (when OLO_TRACE_METADATA_ENABLED is enabled)
-     */
+    // @class FInheritedContextScope
+    // @brief Restores an inherited context for the current scope
+    // 
+    // An instance must be obtained by calling FInheritedContextBase::RestoreInheritedContext()
+    // This is an RAII scope that automatically restores the captured context.
+    // 
+    // In OloEngine, this captures and restores:
+    // - Task tags (thread type identification)
+    // - LLM tags (when OLO_ENABLE_LOW_LEVEL_MEM_TRACKER is enabled)
+    // - Memory trace tags (when OLO_MEMORY_TAGS_TRACE_ENABLED is enabled)
+    // - Metadata trace IDs (when OLO_TRACE_METADATA_ENABLED is enabled)
     class FInheritedContextScope
     {
     public:
@@ -340,51 +322,47 @@ namespace OloEngine
     // FInheritedContextBase - Base class for capturing/restoring context
     // ============================================================================
 
-    /**
-     * @class FInheritedContextBase
-     * @brief Base class for capturing and restoring task execution context
-     * 
-     * This class extends inherited context (memory tags, profiling metadata) to cover
-     * async execution. It is intended to be used as a base class for task implementations.
-     * 
-     * When profiling/tracing is compiled out, this class has minimal overhead.
-     * 
-     * Usage:
-     * @code
-     * class FMyTask : public FInheritedContextBase
-     * {
-     * public:
-     *     void Launch()
-     *     {
-     *         CaptureInheritedContext(); // Capture at launch site
-     *     }
-     *     
-     *     void Execute()
-     *     {
-     *         FInheritedContextScope Scope = RestoreInheritedContext();
-     *         // Context is now restored for this execution
-     *         DoWork();
-     *     }
-     * };
-     * @endcode
-     * 
-     * Key integrations:
-     * - Task Tags: Captures which thread type spawned the task
-     * - LLM: Captures active Low-Level Memory tracker tags for attribution
-     * - Memory Trace: Captures memory tag for profiler
-     * - Metadata Trace: Captures call stack ID for attribution
-     */
+    // @class FInheritedContextBase
+    // @brief Base class for capturing and restoring task execution context
+    // 
+    // This class extends inherited context (memory tags, profiling metadata) to cover
+    // async execution. It is intended to be used as a base class for task implementations.
+    // 
+    // When profiling/tracing is compiled out, this class has minimal overhead.
+    // 
+    // Usage:
+    // @code
+    // class FMyTask : public FInheritedContextBase
+    // {
+    // public:
+    //     void Launch()
+    //     {
+    //         CaptureInheritedContext(); // Capture at launch site
+    //     }
+    //     
+    //     void Execute()
+    //     {
+    //         FInheritedContextScope Scope = RestoreInheritedContext();
+    //         // Context is now restored for this execution
+    //         DoWork();
+    //     }
+    // };
+    // @endcode
+    // 
+    // Key integrations:
+    // - Task Tags: Captures which thread type spawned the task
+    // - LLM: Captures active Low-Level Memory tracker tags for attribution
+    // - Memory Trace: Captures memory tag for profiler
+    // - Metadata Trace: Captures call stack ID for attribution
     class FInheritedContextBase
     {
     public:
         FInheritedContextBase() = default;
 
-        /**
-         * @brief Capture the current thread's context for later restoration
-         * 
-         * Must be called in the inherited context, e.g., on launching an async task.
-         * This captures memory tags, trace IDs, and other profiling metadata.
-         */
+        // @brief Capture the current thread's context for later restoration
+        // 
+        // Must be called in the inherited context, e.g., on launching an async task.
+        // This captures memory tags, trace IDs, and other profiling metadata.
         void CaptureInheritedContext()
         {
             // Capture the current thread's task tag
@@ -407,14 +385,12 @@ namespace OloEngine
 #endif
         }
 
-        /**
-         * @brief Restore the captured context for the current scope
-         * 
-         * Must be called where the inherited context should be restored,
-         * e.g., at the start of async task execution.
-         * 
-         * @return RAII scope that restores the context until it goes out of scope
-         */
+        // @brief Restore the captured context for the current scope
+        // 
+        // Must be called where the inherited context should be restored,
+        // e.g., at the start of async task execution.
+        // 
+        // @return RAII scope that restores the context until it goes out of scope
         [[nodiscard]] FInheritedContextScope RestoreInheritedContext()
         {
             return FInheritedContextScope(
@@ -432,16 +408,12 @@ namespace OloEngine
             );
         }
 
-        /**
-         * @brief Check if context was captured
-         * @return true if CaptureInheritedContext() was called
-         */
+        // @brief Check if context was captured
+        // @return true if CaptureInheritedContext() was called
         bool HasCapturedContext() const { return m_bContextCaptured; }
 
-        /**
-         * @brief Get the captured task tag
-         * @return The task tag that was active when context was captured
-         */
+        // @brief Get the captured task tag
+        // @return The task tag that was active when context was captured
         OLO::ETaskTag GetCapturedTaskTag() const { return m_CapturedTaskTag; }
 
     private:

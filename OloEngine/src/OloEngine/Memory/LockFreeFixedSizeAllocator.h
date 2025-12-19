@@ -1,16 +1,13 @@
 #pragma once
-
-/**
- * @file LockFreeFixedSizeAllocator.h
- * @brief Lock-free fixed-size block allocator for OloEngine
- * 
- * Provides efficient thread-safe allocation of fixed-size memory blocks:
- * - TLockFreeFixedSizeAllocator: Simple lock-free allocator with free list
- * - TLockFreeFixedSizeAllocator_TLSCacheBase: TLS-cached version for better performance
- * - TLockFreeClassAllocator: Type-safe wrapper for class instances
- * 
- * Ported from Unreal Engine's LockFreeFixedSizeAllocator.h
- */
+n// @file LockFreeFixedSizeAllocator.h
+// @brief Lock-free fixed-size block allocator for OloEngine
+// 
+// Provides efficient thread-safe allocation of fixed-size memory blocks:
+// - TLockFreeFixedSizeAllocator: Simple lock-free allocator with free list
+// - TLockFreeFixedSizeAllocator_TLSCacheBase: TLS-cached version for better performance
+// - TLockFreeClassAllocator: Type-safe wrapper for class instances
+// 
+// Ported from Unreal Engine's LockFreeFixedSizeAllocator.h
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Memory/Platform.h"
@@ -33,17 +30,15 @@ namespace OloEngine
     // TLS-Cached Fixed Size Allocator Base
     // ========================================================================
 
-    /**
-     * @class TLockFreeFixedSizeAllocator_TLSCacheBase
-     * @brief Thread safe, lock free pooling allocator with TLS caching
-     * 
-     * Never returns free space, even at shutdown.
-     * Alignment isn't handled; assumes FMemory::Malloc will work.
-     * 
-     * @tparam SIZE Size of each allocation block
-     * @tparam TBundleRecycler The type used for recycling bundles
-     * @tparam TTrackingCounter Counter type for tracking (FNoopCounter for release)
-     */
+    // @class TLockFreeFixedSizeAllocator_TLSCacheBase
+    // @brief Thread safe, lock free pooling allocator with TLS caching
+    // 
+    // Never returns free space, even at shutdown.
+    // Alignment isn't handled; assumes FMemory::Malloc will work.
+    // 
+    // @tparam SIZE Size of each allocation block
+    // @tparam TBundleRecycler The type used for recycling bundles
+    // @tparam TTrackingCounter Counter type for tracking (FNoopCounter for release)
     template<i32 SIZE, typename TBundleRecycler, typename TTrackingCounter = FNoopCounter>
     class TLockFreeFixedSizeAllocator_TLSCacheBase
     {
@@ -60,17 +55,15 @@ namespace OloEngine
                          "Blocks in TLockFreeFixedSizeAllocator must be at least the size of a pointer.");
         }
 
-        /** Destructor, leaks all of the memory */
+        // Destructor, leaks all of the memory
         ~TLockFreeFixedSizeAllocator_TLSCacheBase() = default;
 
         // Non-copyable
         TLockFreeFixedSizeAllocator_TLSCacheBase(const TLockFreeFixedSizeAllocator_TLSCacheBase&) = delete;
         TLockFreeFixedSizeAllocator_TLSCacheBase& operator=(const TLockFreeFixedSizeAllocator_TLSCacheBase&) = delete;
 
-        /**
-         * Allocates a memory block of size SIZE.
-         * @return Pointer to the allocated memory.
-         */
+        // Allocates a memory block of size SIZE.
+        // @return Pointer to the allocated memory.
         void* Allocate()
         {
 #if USE_NAIVE_TLockFreeFixedSizeAllocator_TLSCacheBase
@@ -114,10 +107,8 @@ namespace OloEngine
 #endif
         }
 
-        /**
-         * Puts a memory block previously obtained from Allocate() back on the free list.
-         * @param Item The item to free.
-         */
+        // Puts a memory block previously obtained from Allocate() back on the free list.
+        // @param Item The item to free.
         void Free(void* Item)
         {
 #if USE_NAIVE_TLockFreeFixedSizeAllocator_TLSCacheBase
@@ -143,26 +134,22 @@ namespace OloEngine
 #endif
         }
 
-        /**
-         * Gets the number of allocated memory blocks that are currently in use.
-         * @return Reference to the counter tracking used blocks.
-         */
+        // Gets the number of allocated memory blocks that are currently in use.
+        // @return Reference to the counter tracking used blocks.
         const TTrackingCounter& GetNumUsed() const
         {
             return m_NumUsed;
         }
 
-        /**
-         * Gets the number of allocated memory blocks that are currently unused.
-         * @return Reference to the counter tracking free blocks.
-         */
+        // Gets the number of allocated memory blocks that are currently unused.
+        // @return Reference to the counter tracking free blocks.
         const TTrackingCounter& GetNumFree() const
         {
             return m_NumFree;
         }
 
     private:
-        /** struct for the TLS cache. */
+        // struct for the TLS cache.
         struct FThreadLocalCache
         {
             void** FullBundle;
@@ -183,13 +170,13 @@ namespace OloEngine
             return TLS;
         }
 
-        /** Lock free list of free memory blocks, these are all linked into a bundle of NUM_PER_BUNDLE. */
+        // Lock free list of free memory blocks, these are all linked into a bundle of NUM_PER_BUNDLE.
         TBundleRecycler m_GlobalFreeListBundles;
 
-        /** Total number of blocks outstanding and not in the free list. */
+        // Total number of blocks outstanding and not in the free list.
         TTrackingCounter m_NumUsed;
 
-        /** Total number of blocks in the free list. */
+        // Total number of blocks in the free list.
         TTrackingCounter m_NumFree;
     };
 
@@ -197,24 +184,22 @@ namespace OloEngine
     // Lock-Free Fixed Size Allocator
     // ========================================================================
 
-    /**
-     * @class TLockFreeFixedSizeAllocator
-     * @brief Thread safe, lock free pooling allocator of fixed size blocks
-     * 
-     * Only returns free space when the allocator is destroyed or Trim() is called.
-     * Alignment isn't handled; assumes FMemory::Malloc will work.
-     * 
-     * @tparam SIZE Size of each allocation block
-     * @tparam TPaddingForCacheContention Cache line padding size (use PLATFORM_CACHE_LINE_SIZE)
-     * @tparam TTrackingCounter Counter type for tracking (FNoopCounter for release)
-     */
+    // @class TLockFreeFixedSizeAllocator
+    // @brief Thread safe, lock free pooling allocator of fixed size blocks
+    // 
+    // Only returns free space when the allocator is destroyed or Trim() is called.
+    // Alignment isn't handled; assumes FMemory::Malloc will work.
+    // 
+    // @tparam SIZE Size of each allocation block
+    // @tparam TPaddingForCacheContention Cache line padding size (use PLATFORM_CACHE_LINE_SIZE)
+    // @tparam TTrackingCounter Counter type for tracking (FNoopCounter for release)
     template<i32 SIZE, i32 TPaddingForCacheContention, typename TTrackingCounter = FNoopCounter>
     class TLockFreeFixedSizeAllocator
     {
     public:
         TLockFreeFixedSizeAllocator() = default;
 
-        /** Destructor, returns all memory via Memory::Free */
+        // Destructor, returns all memory via Memory::Free
         ~TLockFreeFixedSizeAllocator()
         {
             OLO_CORE_ASSERT(GetNumUsed() == 0);
@@ -225,11 +210,9 @@ namespace OloEngine
         TLockFreeFixedSizeAllocator(const TLockFreeFixedSizeAllocator&) = delete;
         TLockFreeFixedSizeAllocator& operator=(const TLockFreeFixedSizeAllocator&) = delete;
 
-        /**
-         * Allocates a memory block of size SIZE.
-         * @param Alignment Alignment requirement (default: MIN_ALIGNMENT)
-         * @return Pointer to the allocated memory.
-         */
+        // Allocates a memory block of size SIZE.
+        // @param Alignment Alignment requirement (default: MIN_ALIGNMENT)
+        // @return Pointer to the allocated memory.
         void* Allocate(i32 Alignment = OLO_DEFAULT_ALIGNMENT)
         {
             void* MemoryBlock = nullptr;
@@ -252,10 +235,8 @@ namespace OloEngine
             return MemoryBlock;
         }
 
-        /**
-         * Puts a memory block previously obtained from Allocate() back on the free list.
-         * @param Item The item to free.
-         */
+        // Puts a memory block previously obtained from Allocate() back on the free list.
+        // @param Item The item to free.
         void Free(void* Item)
         {
             m_NumUsed.Decrement();
@@ -263,9 +244,7 @@ namespace OloEngine
             m_NumFree.Increment();
         }
 
-        /**
-         * Returns all free memory to the heap.
-         */
+        // Returns all free memory to the heap.
         void Trim()
         {
             while (void* Mem = m_FreeList.Pop())
@@ -275,32 +254,28 @@ namespace OloEngine
             }
         }
 
-        /**
-         * Gets the number of allocated memory blocks that are currently in use.
-         * @return Number of used memory blocks.
-         */
+        // Gets the number of allocated memory blocks that are currently in use.
+        // @return Number of used memory blocks.
         typename TTrackingCounter::IntegerType GetNumUsed() const
         {
             return m_NumUsed.GetValue();
         }
 
-        /**
-         * Gets the number of allocated memory blocks that are currently unused.
-         * @return Number of unused memory blocks.
-         */
+        // Gets the number of allocated memory blocks that are currently unused.
+        // @return Number of unused memory blocks.
         typename TTrackingCounter::IntegerType GetNumFree() const
         {
             return m_NumFree.GetValue();
         }
 
     private:
-        /** Lock free list of free memory blocks. */
+        // Lock free list of free memory blocks.
         TLockFreePointerListUnordered<void, TPaddingForCacheContention> m_FreeList;
 
-        /** Total number of blocks outstanding and not in the free list. */
+        // Total number of blocks outstanding and not in the free list.
         TTrackingCounter m_NumUsed;
 
-        /** Total number of blocks in the free list. */
+        // Total number of blocks in the free list.
         TTrackingCounter m_NumFree;
     };
 
@@ -308,13 +283,11 @@ namespace OloEngine
     // TLS-Cached Version (using bundle recycler)
     // ========================================================================
 
-    /**
-     * @class TLockFreeFixedSizeAllocator_TLSCache
-     * @brief Thread safe, lock free pooling allocator with TLS caching
-     * 
-     * Never returns free space, even at shutdown.
-     * Alignment isn't handled, assumes FMemory::Malloc will work.
-     */
+    // @class TLockFreeFixedSizeAllocator_TLSCache
+    // @brief Thread safe, lock free pooling allocator with TLS caching
+    // 
+    // Never returns free space, even at shutdown.
+    // Alignment isn't handled, assumes FMemory::Malloc will work.
     template<i32 SIZE, i32 TPaddingForCacheContention, typename TTrackingCounter = FNoopCounter>
     class TLockFreeFixedSizeAllocator_TLSCache 
         : public TLockFreeFixedSizeAllocator_TLSCacheBase<
@@ -328,41 +301,33 @@ namespace OloEngine
     // Type-Safe Class Allocator
     // ========================================================================
 
-    /**
-     * @class TLockFreeClassAllocator
-     * @brief Thread safe, lock free pooling allocator of memory for instances of T
-     * 
-     * Never returns free space until program shutdown.
-     * 
-     * @tparam T The type to allocate
-     * @tparam TPaddingForCacheContention Cache line padding size
-     */
+    // @class TLockFreeClassAllocator
+    // @brief Thread safe, lock free pooling allocator of memory for instances of T
+    // 
+    // Never returns free space until program shutdown.
+    // 
+    // @tparam T The type to allocate
+    // @tparam TPaddingForCacheContention Cache line padding size
     template<class T, i32 TPaddingForCacheContention>
     class TLockFreeClassAllocator : private TLockFreeFixedSizeAllocator<sizeof(T), TPaddingForCacheContention, FNoopCounter>
     {
     public:
-        /**
-         * Returns a memory block of size sizeof(T).
-         * @return Pointer to the allocated memory.
-         */
+        // Returns a memory block of size sizeof(T).
+        // @return Pointer to the allocated memory.
         void* Allocate()
         {
             return TLockFreeFixedSizeAllocator<sizeof(T), TPaddingForCacheContention, FNoopCounter>::Allocate();
         }
 
-        /**
-         * Returns a new T using the default constructor.
-         * @return Pointer to the new object.
-         */
+        // Returns a new T using the default constructor.
+        // @return Pointer to the new object.
         T* New()
         {
             return ::new (Allocate()) T();
         }
 
-        /**
-         * Calls a destructor on Item and returns the memory to the free list.
-         * @param Item The item whose memory to free.
-         */
+        // Calls a destructor on Item and returns the memory to the free list.
+        // @param Item The item whose memory to free.
         void Free(T* Item)
         {
             Item->~T();
@@ -370,38 +335,30 @@ namespace OloEngine
         }
     };
 
-    /**
-     * @class TLockFreeClassAllocator_TLSCache
-     * @brief Thread safe, lock free pooling allocator for class T with TLS caching
-     * 
-     * Never returns free space until program shutdown.
-     */
+    // @class TLockFreeClassAllocator_TLSCache
+    // @brief Thread safe, lock free pooling allocator for class T with TLS caching
+    // 
+    // Never returns free space until program shutdown.
     template<class T, i32 TPaddingForCacheContention>
     class TLockFreeClassAllocator_TLSCache : private TLockFreeFixedSizeAllocator_TLSCache<sizeof(T), TPaddingForCacheContention, FNoopCounter>
     {
     public:
-        /**
-         * Returns a memory block of size sizeof(T).
-         * @return Pointer to the allocated memory.
-         */
+        // Returns a memory block of size sizeof(T).
+        // @return Pointer to the allocated memory.
         void* Allocate()
         {
             return TLockFreeFixedSizeAllocator_TLSCache<sizeof(T), TPaddingForCacheContention, FNoopCounter>::Allocate();
         }
 
-        /**
-         * Returns a new T using the default constructor.
-         * @return Pointer to the new object.
-         */
+        // Returns a new T using the default constructor.
+        // @return Pointer to the new object.
         T* New()
         {
             return ::new (Allocate()) T();
         }
 
-        /**
-         * Calls a destructor on Item and returns the memory to the free list.
-         * @param Item The item whose memory to free.
-         */
+        // Calls a destructor on Item and returns the memory to the free list.
+        // @param Item The item whose memory to free.
         void Free(T* Item)
         {
             Item->~T();

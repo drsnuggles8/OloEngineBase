@@ -7,13 +7,11 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Render pass for the final screen output.
-     * 
-     * This pass takes the output from a previous pass (typically the scene pass) and
-     * renders it to the default framebuffer (screen) using a fullscreen triangle.
-     * It can optionally apply post-processing effects.
-     */
+    // @brief Render pass for the final screen output.
+    // 
+    // This pass takes the output from a previous pass (typically the scene pass) and
+    // renders it to the default framebuffer (screen) using a fullscreen triangle.
+    // It can optionally apply post-processing effects.
     class FinalRenderPass : public RenderPass
     {
     public:

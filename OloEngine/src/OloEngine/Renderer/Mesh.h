@@ -10,13 +10,11 @@
 
 namespace OloEngine 
 {
-    /**
-     * @brief Mesh asset that references a MeshSource and specifies a submesh index
-     * 
-     * Similar to Hazel's Mesh class, this acts as a lightweight reference to a specific
-     * submesh within a MeshSource. Multiple Mesh assets can reference the same MeshSource
-     * but different submeshes.
-     */
+    // @brief Mesh asset that references a MeshSource and specifies a submesh index
+    // 
+    // Similar to Hazel's Mesh class, this acts as a lightweight reference to a specific
+    // submesh within a MeshSource. Multiple Mesh assets can reference the same MeshSource
+    // but different submeshes.
     class Mesh : public Asset
     {
     public:
@@ -63,14 +61,12 @@ namespace OloEngine
         u32 m_SubmeshIndex = 0;
     };
 
-    /**
-     * @brief Static mesh asset - a flattened mesh without skeletal animation support
-     * 
-     * StaticMesh represents a mesh optimized for static rendering. Unlike the dynamic Mesh class,
-     * StaticMesh doesn't retain the node hierarchy and doesn't support skeletal animation.
-     * It references a MeshSource and can specify multiple submeshes for rendering.
-     * This follows the Hazel pattern for compatibility.
-     */
+    // @brief Static mesh asset - a flattened mesh without skeletal animation support
+    // 
+    // StaticMesh represents a mesh optimized for static rendering. Unlike the dynamic Mesh class,
+    // StaticMesh doesn't retain the node hierarchy and doesn't support skeletal animation.
+    // It references a MeshSource and can specify multiple submeshes for rendering.
+    // This follows the Hazel pattern for compatibility.
     class StaticMesh : public Asset
     {
     public:

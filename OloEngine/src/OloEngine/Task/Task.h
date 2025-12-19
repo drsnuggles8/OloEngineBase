@@ -67,18 +67,14 @@ namespace OloEngine::Tasks
 				return !IsValid() || Pimpl->IsCompleted();
 			}
 
-			/**
-			 * @brief Wait for task completion with timeout
-			 * @return true if completed, false if timeout
-			 */
+			// @brief Wait for task completion with timeout
+			// @return true if completed, false if timeout
 			bool Wait(FMonotonicTimeSpan Timeout) const
 			{
 				return !IsValid() || Pimpl->Wait(FTimeout{ Timeout });
 			}
 
-			/**
-			 * @brief Wait for task completion without timeout
-			 */
+			// @brief Wait for task completion without timeout
 			bool Wait() const
 			{
 				if (IsValid())
@@ -88,9 +84,7 @@ namespace OloEngine::Tasks
 				return true;
 			}
 
-			/**
-			 * @brief Try to retract and execute inline
-			 */
+			// @brief Try to retract and execute inline
 			bool TryRetractAndExecute()
 			{
 				if (IsValid())
@@ -100,9 +94,7 @@ namespace OloEngine::Tasks
 				return IsCompleted();
 			}
 
-			/**
-			 * @brief Launch a task for async execution
-			 */
+			// @brief Launch a task for async execution
 			template<typename TaskBodyType>
 			void Launch(
 				const char* DebugName,
@@ -121,9 +113,7 @@ namespace OloEngine::Tasks
 				Task->TryLaunch(sizeof(*Task));
 			}
 
-			/**
-			 * @brief Launch a task with prerequisites
-			 */
+			// @brief Launch a task with prerequisites
 			template<typename TaskBodyType, typename PrerequisitesCollectionType>
 			void Launch(
 				const char* DebugName,
@@ -179,19 +169,15 @@ namespace OloEngine::Tasks
 	// TTask - Typed task handle
 	// ============================================================================
 
-	/**
-	 * @class TTask
-	 * @brief Movable/copyable handle to an async task with result retrieval
-	 */
+	// @class TTask
+	// @brief Movable/copyable handle to an async task with result retrieval
 	template<typename ResultType>
 	class TTask : public Private::FTaskHandle
 	{
 	public:
 		TTask() = default;
 
-		/**
-		 * @brief Wait and return the task result
-		 */
+		// @brief Wait and return the task result
 		ResultType& GetResult()
 		{
 			OLO_CORE_ASSERT(IsValid(), "Cannot get result from invalid task");
@@ -207,9 +193,7 @@ namespace OloEngine::Tasks
 		{}
 	};
 
-	/**
-	 * @brief Specialization for void tasks
-	 */
+	// @brief Specialization for void tasks
 	template<>
 	class TTask<void> : public Private::FTaskHandle
 	{
@@ -234,10 +218,8 @@ namespace OloEngine::Tasks
 	// FTaskEvent - Signaling primitive
 	// ============================================================================
 
-	/**
-	 * @class FTaskEvent
-	 * @brief Synchronization primitive that can be used as a task prerequisite
-	 */
+	// @class FTaskEvent
+	// @brief Synchronization primitive that can be used as a task prerequisite
 	class FTaskEvent : public Private::FTaskHandle
 	{
 	public:
@@ -268,9 +250,7 @@ namespace OloEngine::Tasks
 	// Free function Launch
 	// ============================================================================
 
-	/**
-	 * @brief Launch a task for async execution
-	 */
+	// @brief Launch a task for async execution
 	template<typename TaskBodyType>
 	TTask<TInvokeResult_T<TaskBodyType>> Launch(
 		const char* DebugName,
@@ -286,9 +266,7 @@ namespace OloEngine::Tasks
 		return Task;
 	}
 
-	/**
-	 * @brief Launch a task with prerequisites
-	 */
+	// @brief Launch a task with prerequisites
 	template<typename TaskBodyType, typename PrerequisitesCollectionType>
 	TTask<TInvokeResult_T<TaskBodyType>> Launch(
 		const char* DebugName,
@@ -327,9 +305,7 @@ namespace OloEngine::Tasks
 		}
 	}
 
-	/**
-	 * @brief Create a prerequisites array from variadic tasks
-	 */
+	// @brief Create a prerequisites array from variadic tasks
 	template<typename... TaskTypes,
 		typename std::decay_t<decltype(std::declval<std::tuple<TaskTypes...>>())>* = nullptr>
 	TStaticArray<Private::FTaskBase*, sizeof...(TaskTypes)> Prerequisites(TaskTypes&... Tasks)
@@ -339,9 +315,7 @@ namespace OloEngine::Tasks
 		return Res;
 	}
 
-	/**
-	 * @brief Pass through an existing prerequisites collection
-	 */
+	// @brief Pass through an existing prerequisites collection
 	template<typename TaskCollectionType>
 	const TaskCollectionType& Prerequisites(const TaskCollectionType& Tasks)
 	{
@@ -357,9 +331,7 @@ namespace OloEngine::Tasks
 		Task.Wait();
 	}
 
-	/**
-	 * @brief Wait for multiple tasks with timeout
-	 */
+	// @brief Wait for multiple tasks with timeout
 	template<typename TaskCollectionType>
 	bool Wait(const TaskCollectionType& Tasks, FMonotonicTimeSpan InTimeout = FMonotonicTimeSpan::Infinity())
 	{
@@ -377,10 +349,8 @@ namespace OloEngine::Tasks
 	// WaitAny / Any
 	// ============================================================================
 
-	/**
-	 * @brief Wait until any task completes
-	 * @return Index of first completed task, or INDEX_NONE on timeout or empty input
-	 */
+	// @brief Wait until any task completes
+	// @return Index of first completed task, or INDEX_NONE on timeout or empty input
 	template<typename TaskCollectionType>
 	i32 WaitAny(const TaskCollectionType& Tasks, FMonotonicTimeSpan Timeout = FMonotonicTimeSpan::Infinity())
 	{
@@ -433,9 +403,7 @@ namespace OloEngine::Tasks
 		return INDEX_NONE;
 	}
 
-	/**
-	 * @brief Create a task that completes when any input task completes
-	 */
+	// @brief Create a task that completes when any input task completes
 	template<typename TaskCollectionType>
 	FTask Any(const TaskCollectionType& Tasks)
 	{
@@ -491,9 +459,7 @@ namespace OloEngine::Tasks
 	// AddNested
 	// ============================================================================
 
-	/**
-	 * @brief Add a nested task to the currently executing task
-	 */
+	// @brief Add a nested task to the currently executing task
 	template<typename TaskType>
 	void AddNested(const TaskType& Nested)
 	{
@@ -506,9 +472,7 @@ namespace OloEngine::Tasks
 	// MakeCompletedTask
 	// ============================================================================
 
-	/**
-	 * @brief Create an already-completed task with a result value
-	 */
+	// @brief Create an already-completed task with a result value
 	template<typename ResultType, typename... ArgTypes>
 	TTask<ResultType> MakeCompletedTask(ArgTypes&&... Args)
 	{
@@ -520,9 +484,7 @@ namespace OloEngine::Tasks
 		);
 	}
 
-	/**
-	 * @brief Create an already-completed void task
-	 */
+	// @brief Create an already-completed void task
 	inline TTask<void> MakeCompletedTask()
 	{
 		return Launch(
@@ -537,9 +499,7 @@ namespace OloEngine::Tasks
 	// WaitAll
 	// ============================================================================
 
-	/**
-	 * @brief Wait for all tasks in a collection to complete
-	 */
+	// @brief Wait for all tasks in a collection to complete
 	template<typename TaskCollectionType>
 	void WaitAll(const TaskCollectionType& Tasks)
 	{
@@ -550,45 +510,37 @@ namespace OloEngine::Tasks
 	// FTaskPriorityCVar - Runtime configurable task priority
 	// ============================================================================
 
-	/**
-	 * @class FTaskPriorityCVar
-	 * @brief Console variable for configuring task priorities at runtime
-	 * 
-	 * This class mirrors UE5.7's FTaskPriorityCVar, allowing task priorities to be
-	 * configured via console variables. The console variable accepts a string
-	 * in the format "[TaskPriority] [ExtendedTaskPriority]".
-	 * 
-	 * Example usage:
-	 * @code
-	 * FTaskPriorityCVar CVar{ "r.MyFeature.Priority", "Help text", ETaskPriority::Normal, EExtendedTaskPriority::None };
-	 * Launch("MyTask", [] {}, CVar.GetTaskPriority(), CVar.GetExtendedTaskPriority()).Wait();
-	 * @endcode
-	 */
+	// @class FTaskPriorityCVar
+	// @brief Console variable for configuring task priorities at runtime
+	// 
+	// This class mirrors UE5.7's FTaskPriorityCVar, allowing task priorities to be
+	// configured via console variables. The console variable accepts a string
+	// in the format "[TaskPriority] [ExtendedTaskPriority]".
+	// 
+	// Example usage:
+	// @code
+	// FTaskPriorityCVar CVar{ "r.MyFeature.Priority", "Help text", ETaskPriority::Normal, EExtendedTaskPriority::None };
+	// Launch("MyTask", [] {}, CVar.GetTaskPriority(), CVar.GetExtendedTaskPriority()).Wait();
+	// @endcode
 	class FTaskPriorityCVar
 	{
 	public:
-		/**
-		 * @brief Construct a task priority console variable
-		 * 
-		 * @param Name The console variable name (e.g., "r.Feature.Priority")
-		 * @param Help Help text describing what this priority controls
-		 * @param DefaultPriority Default task priority
-		 * @param DefaultExtendedPriority Default extended priority
-		 */
+		// @brief Construct a task priority console variable
+		// 
+		// @param Name The console variable name (e.g., "r.Feature.Priority")
+		// @param Help Help text describing what this priority controls
+		// @param DefaultPriority Default task priority
+		// @param DefaultExtendedPriority Default extended priority
 		FTaskPriorityCVar(const char* Name, const char* Help, 
 			ETaskPriority DefaultPriority, EExtendedTaskPriority DefaultExtendedPriority);
 
-		/**
-		 * @brief Get the current task priority
-		 */
+		// @brief Get the current task priority
 		ETaskPriority GetTaskPriority() const
 		{
 			return m_Priority;
 		}
 
-		/**
-		 * @brief Get the current extended task priority
-		 */
+		// @brief Get the current extended task priority
 		EExtendedTaskPriority GetExtendedTaskPriority() const
 		{
 			return m_ExtendedPriority;

@@ -9,34 +9,28 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Debug visualization tool for render graphs
-     * 
-     * Provides functionality to visualize render graphs in the ImGui interface,
-     * showing passes, connections and framebuffer details.
-     */
+    // @brief Debug visualization tool for render graphs
+    // 
+    // Provides functionality to visualize render graphs in the ImGui interface,
+    // showing passes, connections and framebuffer details.
     class RenderGraphDebugger
     {
     public:
         RenderGraphDebugger() = default;
         ~RenderGraphDebugger() = default;
         
-        /**
-         * @brief Renders a debug view of the render graph in an ImGui window
-         * 
-         * @param graph The render graph to visualize
-         * @param open Pointer to a boolean that controls the visibility of the window
-         * @param title The title of the ImGui window
-         */
+        // @brief Renders a debug view of the render graph in an ImGui window
+        // 
+        // @param graph The render graph to visualize
+        // @param open Pointer to a boolean that controls the visibility of the window
+        // @param title The title of the ImGui window
         void RenderDebugView(const Ref<RenderGraph>& graph, bool* open = nullptr, const char* title = "Render Graph Debugger");
         
-        /**
-         * @brief Exports the render graph visualization to a DOT file for GraphViz
-         * 
-         * @param graph The render graph to export
-         * @param outputPath The file path to save the DOT file
-         * @return True if the export was successful, false otherwise
-         */
+        // @brief Exports the render graph visualization to a DOT file for GraphViz
+        // 
+        // @param graph The render graph to export
+        // @param outputPath The file path to save the DOT file
+        // @return True if the export was successful, false otherwise
         bool ExportGraphViz(const Ref<RenderGraph>& graph, const std::string& outputPath) const;
         
     private:

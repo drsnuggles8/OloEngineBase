@@ -2,36 +2,33 @@
 // Ported from UE5.7 HAL/LowLevelMemTracker.h
 
 #pragma once
-
-/**
- * @file LowLevelMemTracker.h
- * @brief Low-Level Memory Tracker (LLM) for tracking all memory allocations
- * 
- * LLM provides detailed per-allocation memory tracking with hierarchical tags.
- * It operates at the lowest level of memory allocation (before malloc wrappers)
- * to ensure accurate tracking of all memory usage.
- * 
- * Key Features:
- * - Per-allocation tagging with hierarchical categories
- * - Thread-local scope tracking with automatic inheritance
- * - Multiple trackers (Platform, Default) for different allocation sources
- * - Peak memory tracking per tag
- * - CSV export for detailed analysis
- * 
- * Usage:
- * @code
- *     // Simple scope tagging
- *     LLM_SCOPE(ELLMTag::Textures);
- *     void* ptr = Allocate(1024);  // Allocation tracked under Textures
- *     
- *     // Nested scopes
- *     LLM_SCOPE(ELLMTag::Audio);
- *     {
- *         LLM_SCOPE(ELLMTag::AudioMixer);
- *         // Allocations here tracked under AudioMixer (child of Audio)
- *     }
- * @endcode
- */
+n// @file LowLevelMemTracker.h
+// @brief Low-Level Memory Tracker (LLM) for tracking all memory allocations
+// 
+// LLM provides detailed per-allocation memory tracking with hierarchical tags.
+// It operates at the lowest level of memory allocation (before malloc wrappers)
+// to ensure accurate tracking of all memory usage.
+// 
+// Key Features:
+// - Per-allocation tagging with hierarchical categories
+// - Thread-local scope tracking with automatic inheritance
+// - Multiple trackers (Platform, Default) for different allocation sources
+// - Peak memory tracking per tag
+// - CSV export for detailed analysis
+// 
+// Usage:
+// @code
+//     // Simple scope tagging
+//     LLM_SCOPE(ELLMTag::Textures);
+//     void* ptr = Allocate(1024);  // Allocation tracked under Textures
+//     
+//     // Nested scopes
+//     LLM_SCOPE(ELLMTag::Audio);
+//     {
+//         LLM_SCOPE(ELLMTag::AudioMixer);
+//         // Allocations here tracked under AudioMixer (child of Audio)
+//     }
+// @endcode
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/HAL/LowLevelMemTrackerDefines.h"
@@ -53,10 +50,8 @@ namespace OloEngine
 // LLM Trackers
 // ============================================================================
 
-/**
- * @enum ELLMTracker
- * @brief Identifies which tracker an allocation belongs to
- */
+// @enum ELLMTracker
+// @brief Identifies which tracker an allocation belongs to
 enum class ELLMTracker : u8
 {
     Platform,   ///< Platform-level allocations (OS, graphics API)
@@ -68,10 +63,8 @@ enum class ELLMTracker : u8
 // LLM Tag Sets
 // ============================================================================
 
-/**
- * @enum ELLMTagSet
- * @brief Optional tag sets that can be enabled at runtime
- */
+// @enum ELLMTagSet
+// @brief Optional tag sets that can be enabled at runtime
 enum class ELLMTagSet : u8
 {
     None,           ///< Default tag set (always active)
@@ -84,10 +77,8 @@ enum class ELLMTagSet : u8
 // LLM Allocation Type
 // ============================================================================
 
-/**
- * @enum ELLMAllocType
- * @brief Type of allocation being tracked
- */
+// @enum ELLMAllocType
+// @brief Type of allocation being tracked
 enum class ELLMAllocType : u8
 {
     None = 0,
@@ -104,10 +95,8 @@ enum class ELLMAllocType : u8
 namespace LLM
 {
 
-/**
- * @enum ESizeParams
- * @brief Flags for size query operations
- */
+// @enum ESizeParams
+// @brief Flags for size query operations
 enum class ESizeParams : u8
 {
     Default = 0,
@@ -161,10 +150,8 @@ enum class ESizeParams : u8
     macro(LinearAllocator,      "LinearAllocator",  -1) \
     macro(MemStack,             "MemStack",         -1) \
 
-/**
- * @enum ELLMTag
- * @brief Enumeration of all built-in LLM tags
- */
+// @enum ELLMTag
+// @brief Enumeration of all built-in LLM tags
 enum class ELLMTag : LLM_TAG_TYPE
 {
 #define LLM_ENUM(Enum, Str, Parent) Enum,
@@ -194,9 +181,7 @@ constexpr u32 LLM_CUSTOM_TAG_COUNT = LLM_CUSTOM_TAG_END + 1 - LLM_CUSTOM_TAG_STA
 // LLM Tag Info
 // ============================================================================
 
-/**
- * @brief Get the display name for a tag
- */
+// @brief Get the display name for a tag
 const char* LLMGetTagNameANSI(ELLMTag Tag);
 
 #if ENABLE_LOW_LEVEL_MEM_TRACKER
@@ -216,10 +201,8 @@ class FLLMPauseScope;
 namespace LLMPrivate
 {
 
-/**
- * @struct FTagData
- * @brief Internal data structure for a tracked tag
- */
+// @struct FTagData
+// @brief Internal data structure for a tracked tag
 struct FTagData
 {
     const char* Name = nullptr;
@@ -229,10 +212,8 @@ struct FTagData
     std::atomic<i64> PeakSize{0};
 };
 
-/**
- * @class FLLMThreadState
- * @brief Thread-local LLM state
- */
+// @class FLLMThreadState
+// @brief Thread-local LLM state
 class FLLMThreadState
 {
 public:
@@ -259,73 +240,48 @@ private:
 // FLowLevelMemTracker
 // ============================================================================
 
-/**
- * @class FLowLevelMemTracker
- * @brief Main LLM singleton that manages all memory tracking
- */
+// @class FLowLevelMemTracker
+// @brief Main LLM singleton that manages all memory tracking
+//
 class FLowLevelMemTracker
 {
 public:
-    /**
-     * @brief Get the LLM singleton instance
-     */
+    // @brief Get the LLM singleton instance
     static FLowLevelMemTracker& Get();
 
-    /**
-     * @brief Check if LLM is currently enabled
-     */
+    // @brief Check if LLM is currently enabled
     static bool IsEnabled();
 
-    /**
-     * @brief Initialize LLM (called automatically on first use)
-     */
+    // @brief Initialize LLM (called automatically on first use)
     void Initialize();
 
-    /**
-     * @brief Shutdown LLM and release all tracking data
-     */
+    // @brief Shutdown LLM and release all tracking data
     void Shutdown();
 
-    /**
-     * @brief Called when memory is allocated
-     */
+    // @brief Called when memory is allocated
     void OnLowLevelAlloc(ELLMTracker Tracker, const void* Ptr, u64 Size, 
                          ELLMTag DefaultTag = ELLMTag::Untagged,
                          ELLMAllocType AllocType = ELLMAllocType::None);
 
-    /**
-     * @brief Called when memory is freed
-     */
+    // @brief Called when memory is freed
     void OnLowLevelFree(ELLMTracker Tracker, const void* Ptr);
 
-    /**
-     * @brief Get the current size for a tag
-     */
+    // @brief Get the current size for a tag
     i64 GetTagSize(ELLMTag Tag) const;
 
-    /**
-     * @brief Get the peak size for a tag
-     */
+    // @brief Get the peak size for a tag
     i64 GetTagPeakSize(ELLMTag Tag) const;
 
-    /**
-     * @brief Get all tag sizes as a snapshot
-     */
+    // @brief Get all tag sizes as a snapshot
     void GetAllTagSizes(i64* OutSizes, u32 MaxTags) const;
 
-    /**
-     * @brief Dump LLM stats to log
-     */
+    // @brief Dump LLM stats to log
     void DumpToLog();
 
-    /**
-     * @brief Get the thread-local state for the current thread
-     */
+    // @brief Get the thread-local state for the current thread
     LLMPrivate::FLLMThreadState& GetThreadState();
 
-    /**
-     * @brief Check if LLM is fully initialized
-     */
+    // @brief Check if LLM is fully initialized
     bool IsInitialized() const { return m_bInitialized.load(std::memory_order_acquire); }
 
 private:
@@ -347,10 +303,8 @@ private:
 // FLLMScope - RAII scope for tracking allocations under a tag
 // ============================================================================
 
-/**
- * @class FLLMScope
- * @brief RAII scope that tracks allocations under a specific tag
- */
+// @class FLLMScope
+// @brief RAII scope that tracks allocations under a specific tag
 class FLLMScope
 {
 public:
@@ -371,10 +325,8 @@ private:
 // FLLMPauseScope - RAII scope to pause LLM tracking
 // ============================================================================
 
-/**
- * @class FLLMPauseScope
- * @brief RAII scope that pauses LLM tracking
- */
+// @class FLLMPauseScope
+// @brief RAII scope that pauses LLM tracking
 class FLLMPauseScope
 {
 public:
@@ -397,27 +349,19 @@ private:
 #define LLM_IS_ENABLED() FLowLevelMemTracker::IsEnabled()
 #define LLM_SCOPE_NAME PREPROCESSOR_JOIN(LLMScope, __LINE__)
 
-/**
- * @brief Main LLM scope macro - tracks allocations under the specified tag
- */
+// @brief Main LLM scope macro - tracks allocations under the specified tag
 #define LLM_SCOPE(Tag) \
     OloEngine::FLLMScope LLM_SCOPE_NAME(Tag, false, OloEngine::ELLMTagSet::None, OloEngine::ELLMTracker::Default)
 
-/**
- * @brief LLM scope with specific tracker
- */
+// @brief LLM scope with specific tracker
 #define LLM_SCOPE_BYTRACKER(Tracker, Tag) \
     OloEngine::FLLMScope LLM_SCOPE_NAME(Tag, false, OloEngine::ELLMTagSet::None, Tracker)
 
-/**
- * @brief Pause LLM tracking in this scope
- */
+// @brief Pause LLM tracking in this scope
 #define LLM_SCOPED_PAUSE_TRACKING() \
     OloEngine::FLLMPauseScope LLM_SCOPE_NAME
 
-/**
- * @brief Track a specific allocation
- */
+// @brief Track a specific allocation
 #define LLM_PLATFORM_SCOPE(Tag) \
     OloEngine::FLLMScope LLM_SCOPE_NAME(Tag, false, OloEngine::ELLMTagSet::None, OloEngine::ELLMTracker::Platform)
 

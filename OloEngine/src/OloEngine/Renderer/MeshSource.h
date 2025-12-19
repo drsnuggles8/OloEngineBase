@@ -25,10 +25,8 @@ namespace OloEngine
     class VertexBuffer;
     class IndexBuffer;
     
-    /**
-     * @brief Submesh data structure for organizing mesh geometry
-     * Compatible with Hazel's Submesh class for asset compatibility
-     */
+    // @brief Submesh data structure for organizing mesh geometry
+    // Compatible with Hazel's Submesh class for asset compatibility
     struct Submesh
     {
         // Large fixed-size members first (64 bytes each)
@@ -57,10 +55,8 @@ namespace OloEngine
         // With proper member ordering, padding should be minimal
     };
 
-    /**
-     * @brief Bone info structure for mapping mesh vertices to skeleton bones
-     * Similar to Hazel's BoneInfo but adapted for OloEngine's architecture
-     */
+    // @brief Bone info structure for mapping mesh vertices to skeleton bones
+    // Similar to Hazel's BoneInfo but adapted for OloEngine's architecture
     struct BoneInfo
     {
         glm::mat4 m_InverseBindPose;  // Inverse bind pose matrix for skinning
@@ -71,10 +67,8 @@ namespace OloEngine
             : m_InverseBindPose(inverseBindPose), m_BoneIndex(boneIndex) {}
     };
 
-    /**
-     * @brief Bone influence structure for vertex skinning data (Hazel-style)
-     * This stores bone IDs and weights separately from vertex data
-     */
+    // @brief Bone influence structure for vertex skinning data (Hazel-style)
+    // This stores bone IDs and weights separately from vertex data
     struct BoneInfluence
     {
         u32 m_BoneIDs[4] = { 0, 0, 0, 0 };     // Up to 4 bone IDs affecting this vertex
@@ -116,13 +110,11 @@ namespace OloEngine
 
 
 
-    /**
-     * @brief Unified mesh source that can handle both static and animated meshes
-     * 
-     * This class replaces the previous separate Mesh/animated mesh distinction with a unified
-     * approach similar to Hazel's MeshSource. It can contain skeleton data for
-     * animated meshes but also works perfectly for static meshes.
-     */
+    // @brief Unified mesh source that can handle both static and animated meshes
+    // 
+    // This class replaces the previous separate Mesh/animated mesh distinction with a unified
+    // approach similar to Hazel's MeshSource. It can contain skeleton data for
+    // animated meshes but also works perfectly for static meshes.
     class MeshSource : public Asset
     {
     public:

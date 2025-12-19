@@ -3,16 +3,14 @@
 
 #pragma once
 
-/**
- * @file RecursiveWordMutex.h
- * @brief A recursive mutex that is the size of a pointer and does not depend on ParkingLot.
- * 
- * Prefer FRecursiveMutex to FRecursiveWordMutex whenever possible.
- * This mutex is not fair and supports recursive locking.
- * 
- * This type is valuable when a mutex must be trivially constructible, trivially
- * destructible, or must be functional before or after static initialization.
- */
+// @file RecursiveWordMutex.h
+// @brief A recursive mutex that is the size of a pointer and does not depend on ParkingLot.
+// 
+// Prefer FRecursiveMutex to FRecursiveWordMutex whenever possible.
+// This mutex is not fair and supports recursive locking.
+// 
+// This type is valuable when a mutex must be trivially constructible, trivially
+// destructible, or must be functional before or after static initialization.
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/PlatformTLS.h"
@@ -23,13 +21,11 @@
 namespace OloEngine
 {
 
-/**
- * @class FRecursiveWordMutex
- * @brief A recursive mutex that is the size of a pointer and does not depend on ParkingLot.
- *
- * Prefer FRecursiveMutex to FRecursiveWordMutex whenever possible.
- * This mutex is not fair and supports recursive locking.
- */
+// @class FRecursiveWordMutex
+// @brief A recursive mutex that is the size of a pointer and does not depend on ParkingLot.
+//
+// Prefer FRecursiveMutex to FRecursiveWordMutex whenever possible.
+// This mutex is not fair and supports recursive locking.
 class FRecursiveWordMutex final
 {
 public:
@@ -38,10 +34,8 @@ public:
     FRecursiveWordMutex(const FRecursiveWordMutex&) = delete;
     FRecursiveWordMutex& operator=(const FRecursiveWordMutex&) = delete;
 
-    /**
-     * @brief Try to acquire the lock without blocking
-     * @return true if lock was acquired
-     */
+    // @brief Try to acquire the lock without blocking
+    // @return true if lock was acquired
     [[nodiscard]] inline bool TryLock()
     {
         const u32 CurrentThreadId = FPlatformTLS::GetCurrentThreadId();
@@ -58,9 +52,7 @@ public:
         return false;
     }
 
-    /**
-     * @brief Acquire the lock, blocking until available
-     */
+    // @brief Acquire the lock, blocking until available
     inline void Lock()
     {
         const u32 CurrentThreadId = FPlatformTLS::GetCurrentThreadId();
@@ -75,9 +67,7 @@ public:
         }
     }
 
-    /**
-     * @brief Release the lock
-     */
+    // @brief Release the lock
     inline void Unlock()
     {
         if (m_RecursionCount > 0)
@@ -91,9 +81,7 @@ public:
         }
     }
 
-    /**
-     * @brief Check if the mutex is held by the current thread
-     */
+    // @brief Check if the mutex is held by the current thread
     [[nodiscard]] inline bool IsLockedByCurrentThread() const
     {
         return m_ThreadId.load(std::memory_order_relaxed) == FPlatformTLS::GetCurrentThreadId();

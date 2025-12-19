@@ -42,10 +42,8 @@ static thread_local LLMPrivate::FLLMThreadState* s_ThreadState = nullptr;
 namespace LLMPrivate
 {
 
-/**
- * @class FAllocationMap
- * @brief Thread-safe map tracking allocation sizes by pointer
- */
+// @class FAllocationMap
+// @brief Thread-safe map tracking allocation sizes by pointer
 class FAllocationMap
 {
 public:

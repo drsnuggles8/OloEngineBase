@@ -28,20 +28,18 @@ namespace OloEngine {
 		PBR = 1			// Physically Based Rendering material
 	};
 
-	/**
-	 * @brief Material class for handling PBR and legacy material properties
-	 * 
-	 * This class uses a consistent encapsulated design with getter/setter methods.
-	 * All material properties are accessed through typed methods that handle
-	 * both the uniform system and direct property access efficiently.
-	 * 
-	 * Features:
-	 * - Unified interface for both PBR and legacy materials
-	 * - Automatic uniform management for shader binding
-	 * - Type-safe property access with validation
-	 * - Efficient texture and parameter caching
-	 * - Asset dependency tracking integration
-	 */
+	// @brief Material class for handling PBR and legacy material properties
+	// 
+	// This class uses a consistent encapsulated design with getter/setter methods.
+	// All material properties are accessed through typed methods that handle
+	// both the uniform system and direct property access efficiently.
+	// 
+	// Features:
+	// - Unified interface for both PBR and legacy materials
+	// - Automatic uniform management for shader binding
+	// - Type-safe property access with validation
+	// - Efficient texture and parameter caching
+	// - Asset dependency tracking integration
 	class Material : public RendererResource
 	{
 	public:
