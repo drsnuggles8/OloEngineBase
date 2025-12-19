@@ -269,27 +269,7 @@ namespace OloEngine::Tasks
     // FTaskBase pipe-related method implementations
     // ============================================================================
 
-    namespace Private
-    {
-        inline FTaskBase* FTaskBase::TryPushIntoPipe()
-        {
-            return m_Pipe->PushIntoPipe(*this);
-        }
-
-        inline void FTaskBase::ClearPipe()
-        {
-            m_Pipe->ClearTask(*this);
-        }
-
-        inline void FTaskBase::StartPipeExecution()
-        {
-            m_Pipe->ExecutionStarted();
-        }
-
-        inline void FTaskBase::FinishPipeExecution()
-        {
-            m_Pipe->ExecutionFinished();
-        }
-    } // namespace Private
+    // Implementations moved to TaskPrivate.cpp to avoid circular dependency issues
+    // and ensure proper linkage.
 
 } // namespace OloEngine::Tasks

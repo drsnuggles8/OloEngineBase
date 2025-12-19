@@ -119,6 +119,7 @@ namespace OloEngine::Tasks
         GameThread = 0,
         RenderThread = 1,
         RHIThread = 2,
+        AudioThread = 3,
 
         Count,
         Invalid = -1
@@ -658,6 +659,15 @@ namespace OloEngine::Tasks
         }
 
         FNamedThreadManager::Get().EnqueueTask(Priority, Forward<TaskBody>(Task), DebugName);
+    }
+
+    // @brief Enqueue a task to the Audio thread
+    template<typename TaskBody>
+    void EnqueueAudioThreadTask(TaskBody&& Task, const char* DebugName = "AudioThreadTask")
+    {
+        // Audio thread currently only supports one priority queue via named thread manager
+        // We map it to "Normal" priority internally, but the thread itself runs at high priority
+        FNamedThreadManager::Get().EnqueueTask(ENamedThread::AudioThread, FNamedThreadTask(MoveTemp(Task), EExtendedTaskPriority::None, DebugName));
     }
 
     // ============================================================================

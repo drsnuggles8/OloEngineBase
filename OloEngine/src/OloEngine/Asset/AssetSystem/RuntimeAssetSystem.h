@@ -95,13 +95,8 @@ namespace OloEngine
         Ref<Asset> LoadAssetFromPack(AssetHandle handle);
 
       private:
-        Thread m_Thread;
         std::atomic<bool> m_Running = true;
-
-        // Asset loading queue
-        std::queue<RuntimeAssetLoadRequest> m_AssetLoadingQueue;
-        std::mutex m_AssetLoadingQueueMutex;
-        std::condition_variable m_AssetLoadingQueueCV;
+        std::atomic<sizet> m_ActiveTaskCount{ 0 };
 
         // Completed assets (ready for main thread pickup)
         std::queue<std::pair<AssetHandle, Ref<Asset>>> m_CompletedAssets;

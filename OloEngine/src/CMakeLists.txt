@@ -70,8 +70,6 @@
 		"OloEngine/Audio/AudioSource.h"
 		"OloEngine/Audio/AudioLoader.cpp"
 		"OloEngine/Audio/AudioLoader.h"
-		"OloEngine/Audio/AudioThread.h"
-		"OloEngine/Audio/AudioThread.cpp"
 		
 		# SoundGraph Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/ArrayNodes.h"
