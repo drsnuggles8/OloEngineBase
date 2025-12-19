@@ -14,6 +14,7 @@
 #include "OloEngine/Templates/Projection.h"
 #include "OloEngine/Templates/ReversePredicate.h"
 #include <type_traits>
+#include <limits>
 
 namespace OloEngine
 {
@@ -21,11 +22,23 @@ namespace OloEngine
      * Gets the index of the left child of node at Index.
      *
      * @param	Index Node for which the left child index is to be returned.
-     * @returns	Index of the left child.
+     * @returns	Index of the left child, or std::numeric_limits<IndexType>::max() if overflow would occur.
+     *
+     * @note For safety, this function checks for potential overflow in the calculation Index * 2 + 1.
+     *       If Index is too large, the function returns the maximum representable value as a sentinel
+     *       to indicate out-of-range input. Callers should validate that returned indices are valid.
      */
     template<typename IndexType>
     OLO_FINLINE IndexType HeapGetLeftChildIndex(IndexType Index)
     {
+        // Protect against overflow: check if Index is small enough that Index * 2 + 1 won't overflow
+        // The threshold is (max_value - 1) / 2
+        constexpr IndexType MaxSafeIndex = (std::numeric_limits<IndexType>::max() - 1) / 2;
+        if (Index > MaxSafeIndex)
+        {
+            // Return sentinel value to indicate overflow/invalid input
+            return std::numeric_limits<IndexType>::max();
+        }
         return Index * 2 + 1;
     }
 
@@ -118,13 +131,18 @@ namespace OloEngine
     }
 
     /**
-     * Builds an implicit min-heap from a range of elements.
+     * Builds an implicit heap from a range of elements according to the provided Predicate.
      * This is the internal function used by Heapify overrides.
      *
      * @param	First		pointer to the first element to heapify
      * @param	Num			the number of items to heapify
      * @param	Proj		The projection to apply to the elements.
      * @param	Predicate	A binary predicate object used to specify if one element should precede another.
+     *                  For example: std::less<> produces a min-heap (parent <= child),
+     *                  std::greater<> produces a max-heap (parent >= child).
+     *
+     * @note The heap property depends on the Predicate semantics. Callers should understand
+     *       that different predicates produce different heap types (min, max, or custom ordering).
      */
     template<typename RangeValueType, typename IndexType, typename ProjectionType, typename PredicateType>
     inline void HeapifyInternal(RangeValueType* First, IndexType Num, ProjectionType Proj, PredicateType Predicate)

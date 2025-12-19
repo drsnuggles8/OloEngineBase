@@ -245,9 +245,10 @@ namespace OloEngine::Audio
             // Read item from buffer
             outItem = m_Buffer[readIndex];
 
-            // Publish the read
+            // Publish the read with release semantics to synchronize with producer's acquire load
+            // This ensures the producer sees the updated read position when checking if queue is full
             const sizet nextReadIndex = (readIndex + 1) & (Capacity - 1);
-            m_ReadIndex.store(nextReadIndex, std::memory_order_relaxed);
+            m_ReadIndex.store(nextReadIndex, std::memory_order_release);
 
             return true;
         }

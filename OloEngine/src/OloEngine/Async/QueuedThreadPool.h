@@ -11,7 +11,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Async/QueuedWork.h"
-#include "OloEngine/Async/ManualResetEvent.h"
+#include "OloEngine/HAL/ManualResetEvent.h"
 #include "OloEngine/Task/LowLevelTask.h"
 #include "OloEngine/Task/Scheduler.h"
 
