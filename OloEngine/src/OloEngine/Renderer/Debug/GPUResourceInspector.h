@@ -14,39 +14,60 @@
 
 // Convenience macros for resource registration (only in debug builds)
 #ifdef OLO_DEBUG
-    #define OLO_GPU_REGISTER_TEXTURE(id, name, debugName) \
-        do { OloEngine::GPUResourceInspector::GetInstance().RegisterTexture(id, name, debugName); } while(false)
-    #define OLO_GPU_REGISTER_TEXTURE_CUBEMAP(id, name, debugName) \
-        do { OloEngine::GPUResourceInspector::GetInstance().RegisterTextureCubemap(id, name, debugName); } while(false)
-    #define OLO_GPU_REGISTER_BUFFER(id, target, name, debugName) \
-        do { OloEngine::GPUResourceInspector::GetInstance().RegisterBuffer(id, target, name, debugName); } while(false)
-    #define OLO_GPU_REGISTER_FRAMEBUFFER(id, name, debugName) \
-        do { OloEngine::GPUResourceInspector::GetInstance().RegisterFramebuffer(id, name, debugName); } while(false)
-    #define OLO_GPU_UNREGISTER_RESOURCE(id) \
-        do { OloEngine::GPUResourceInspector::GetInstance().UnregisterResource(id); } while(false)
-    #define OLO_GPU_UPDATE_BINDING(id, bound, slot) \
-        do { OloEngine::GPUResourceInspector::GetInstance().UpdateResourceBinding(id, bound, slot); } while(false)
-    #define OLO_GPU_UPDATE_ACTIVE(id, active) \
-        do { OloEngine::GPUResourceInspector::GetInstance().UpdateResourceActiveState(id, active); } while(false)
+#define OLO_GPU_REGISTER_TEXTURE(id, name, debugName)                                        \
+    do                                                                                       \
+    {                                                                                        \
+        OloEngine::GPUResourceInspector::GetInstance().RegisterTexture(id, name, debugName); \
+    } while (false)
+#define OLO_GPU_REGISTER_TEXTURE_CUBEMAP(id, name, debugName)                                       \
+    do                                                                                              \
+    {                                                                                               \
+        OloEngine::GPUResourceInspector::GetInstance().RegisterTextureCubemap(id, name, debugName); \
+    } while (false)
+#define OLO_GPU_REGISTER_BUFFER(id, target, name, debugName)                                        \
+    do                                                                                              \
+    {                                                                                               \
+        OloEngine::GPUResourceInspector::GetInstance().RegisterBuffer(id, target, name, debugName); \
+    } while (false)
+#define OLO_GPU_REGISTER_FRAMEBUFFER(id, name, debugName)                                        \
+    do                                                                                           \
+    {                                                                                            \
+        OloEngine::GPUResourceInspector::GetInstance().RegisterFramebuffer(id, name, debugName); \
+    } while (false)
+#define OLO_GPU_UNREGISTER_RESOURCE(id)                                        \
+    do                                                                         \
+    {                                                                          \
+        OloEngine::GPUResourceInspector::GetInstance().UnregisterResource(id); \
+    } while (false)
+#define OLO_GPU_UPDATE_BINDING(id, bound, slot)                                                \
+    do                                                                                         \
+    {                                                                                          \
+        OloEngine::GPUResourceInspector::GetInstance().UpdateResourceBinding(id, bound, slot); \
+    } while (false)
+#define OLO_GPU_UPDATE_ACTIVE(id, active)                                                     \
+    do                                                                                        \
+    {                                                                                         \
+        OloEngine::GPUResourceInspector::GetInstance().UpdateResourceActiveState(id, active); \
+    } while (false)
 #else
-    #define OLO_GPU_REGISTER_TEXTURE(id, name, debugName)
-    #define OLO_GPU_REGISTER_TEXTURE_CUBEMAP(id, name, debugName)
-    #define OLO_GPU_REGISTER_BUFFER(id, target, name, debugName)
-    #define OLO_GPU_REGISTER_FRAMEBUFFER(id, name, debugName)
-    #define OLO_GPU_UNREGISTER_RESOURCE(id)
-    #define OLO_GPU_UPDATE_BINDING(id, bound, slot)
-    #define OLO_GPU_UPDATE_ACTIVE(id, active)
+#define OLO_GPU_REGISTER_TEXTURE(id, name, debugName)
+#define OLO_GPU_REGISTER_TEXTURE_CUBEMAP(id, name, debugName)
+#define OLO_GPU_REGISTER_BUFFER(id, target, name, debugName)
+#define OLO_GPU_REGISTER_FRAMEBUFFER(id, name, debugName)
+#define OLO_GPU_UNREGISTER_RESOURCE(id)
+#define OLO_GPU_UPDATE_BINDING(id, bound, slot)
+#define OLO_GPU_UPDATE_ACTIVE(id, active)
 #endif
 
 namespace OloEngine
 {
     // @brief GPU Resource Inspector for debugging GPU resources
-    // 
+    //
     // Provides detailed inspection of GPU resources including textures, buffers,
     // and their properties. Supports real-time preview and content visualization.
     class GPUResourceInspector
     {
-    public:
+      public:
         enum class ResourceType : u8
         {
             Texture2D = 0,
@@ -95,7 +116,7 @@ namespace OloEngine
             bool m_ContentPreviewValid = false;
             u32 m_PreviewOffset = 0;
             u32 m_PreviewSize = 256; // Preview first 256 bytes by default
-            u32 m_Stride = 0; // For vertex buffers
+            u32 m_Stride = 0;        // For vertex buffers
         };
 
         struct FramebufferInfo : ResourceInfo
@@ -110,8 +131,8 @@ namespace OloEngine
             GLenum m_DepthAttachmentFormat = GL_NONE;
             GLenum m_StencilAttachmentFormat = GL_NONE;
         };
-		
-		// Async texture download data
+
+        // Async texture download data
         struct TextureDownloadRequest
         {
             u32 m_TextureID = 0;
@@ -187,7 +208,10 @@ namespace OloEngine
         void ExportToCSV(const std::string& filename);
 
         // @brief Get total number of tracked resources
-        u32 GetResourceCount() const { return static_cast<u32>(m_Resources.size()); }
+        u32 GetResourceCount() const
+        {
+            return static_cast<u32>(m_Resources.size());
+        }
 
         // @brief Get memory usage for a specific resource type
         sizet GetMemoryUsage(ResourceType type) const;
@@ -195,7 +219,7 @@ namespace OloEngine
         // @brief Get total memory usage of all tracked resources
         sizet GetTotalMemoryUsage() const;
 
-    private:
+      private:
         void QueryTextureInfo(TextureInfo& info);
         void QueryTextureCubemapInfo(TextureInfo& info);
         void QueryBufferInfo(BufferInfo& info);
@@ -205,25 +229,25 @@ namespace OloEngine
         void CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request);
         void UpdateTexturePreview(TextureInfo& info);
         void UpdateBufferPreview(BufferInfo& info);
-        
+
         void RenderResourceTree();
         void RenderResourceDetails();
         void RenderTexturePreview(TextureInfo& info);
         void RenderBufferContent(BufferInfo& info);
         void RenderFramebufferDetails(FramebufferInfo& info);
         void RenderResourceStatistics();
-        
+
         std::string FormatTextureFormat(GLenum format) const;
         std::string FormatBufferUsage(GLenum usage) const;
         std::string FormatMemorySize(sizet bytes) const;
         const char* GetResourceTypeName(ResourceType type) const;
         const char* GetBufferTargetName(GLenum target) const;
-        
+
         // Texture memory calculation utilities
-        sizet CalculateAccurateTextureMemoryUsage(u32 textureId, GLenum target, GLenum internalFormat, 
-                                                 u32 width, u32 height, u32 mipLevels) const;
-        sizet CalculateCompressedTextureMemory(u32 textureId, GLenum target, GLenum internalFormat, 
-                                              u32 /*width*/, u32 /*height*/, u32 mipLevels) const;
+        sizet CalculateAccurateTextureMemoryUsage(u32 textureId, GLenum target, GLenum internalFormat,
+                                                  u32 width, u32 height, u32 mipLevels) const;
+        sizet CalculateCompressedTextureMemory(u32 textureId, GLenum target, GLenum internalFormat,
+                                               u32 /*width*/, u32 /*height*/, u32 mipLevels) const;
         sizet CalculateUncompressedTextureMemory(u32 width, u32 height, u32 bytesPerPixel, u32 mipLevels) const;
         u32 GetUncompressedBytesPerPixel(GLenum internalFormat) const;
         u32 GetCompressedBlockSize(GLenum internalFormat) const;
@@ -231,23 +255,23 @@ namespace OloEngine
         // Buffer binding utility
         static GLenum GetBufferBindingQuery(GLenum target);
 
-    private:
+      private:
         std::unordered_map<u32, std::unique_ptr<ResourceInfo>> m_Resources;
         std::vector<TextureDownloadRequest> m_TextureDownloads;
-        
+
         // UI state
         u32 m_SelectedResourceID = 0;
         ResourceType m_FilterType = ResourceType::COUNT; // No filter by default
         std::string m_SearchFilter;
         bool m_ShowInactiveResources = true;
         bool m_AutoUpdatePreviews = true;
-        
+
         // Statistics
         std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_ResourceCounts{};
         std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> m_MemoryUsageByType{};
-          // Threading
+        // Threading
         mutable std::mutex m_ResourceMutex;
-        
+
         bool m_IsInitialized = false;
     };
-}
+} // namespace OloEngine

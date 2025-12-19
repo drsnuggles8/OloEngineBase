@@ -8,12 +8,17 @@
 #include <string_view>
 #include <type_traits>
 
-namespace OloEngine::Audio::SoundGraph {
+namespace OloEngine::Audio::SoundGraph
+{
 
     //==============================================================================
     /// Tags for distinguishing input/output descriptions
-    struct TagInputs {};
-    struct TagOutputs {};
+    struct TagInputs
+    {
+    };
+    struct TagOutputs
+    {
+    };
 
     //==============================================================================
     /// Node description template (specialized by macros)
@@ -24,35 +29,40 @@ namespace OloEngine::Audio::SoundGraph {
     /// Check if a node has description specializations
     /// Detects NodeDescription specializations by checking for Inputs/Outputs nested types
     template<typename T, typename = void>
-    struct IsDescribedNode : std::false_type {};
+    struct IsDescribedNode : std::false_type
+    {
+    };
 
     template<typename T>
     struct IsDescribedNode<T, std::void_t<
-        typename NodeDescription<std::remove_cvref_t<T>>::Inputs,
-        typename NodeDescription<std::remove_cvref_t<T>>::Outputs
-    >> : std::true_type {};
+                                  typename NodeDescription<std::remove_cvref_t<T>>::Inputs,
+                                  typename NodeDescription<std::remove_cvref_t<T>>::Outputs>> : std::true_type
+    {
+    };
 
     template<typename T>
     constexpr bool IsDescribedNode_v = IsDescribedNode<T>::value;
 
     //==============================================================================
     /// Endpoint utilities for automatic registration
-    namespace EndpointUtilities {
-        
-        namespace Impl {
-            
+    namespace EndpointUtilities
+    {
+
+        namespace Impl
+        {
+
             /// Register input endpoints from member descriptions
             template<typename TNodeType>
             bool RegisterEndpointInputs(TNodeType* node)
             {
                 OLO_PROFILE_FUNCTION();
-                
+
                 if constexpr (IsDescribedNode_v<TNodeType>)
                 {
                     using InputsDescription = typename NodeDescription<std::remove_cvref_t<TNodeType>>::Inputs;
-                    
+
                     return InputsDescription::MemberListType::ApplyToStaticType([node](const auto&... members)
-                    {
+                                                                                {
                         sizet memberIndex = 0;
                         auto registerInput = [node, &memberIndex](auto memberPtr)
                         {
@@ -111,8 +121,7 @@ namespace OloEngine::Audio::SoundGraph {
                             }
                             };
                             
-                            return (registerInput(members) && ...);
-                        });
+                            return (registerInput(members) && ...); });
                 }
                 else
                 {
@@ -120,7 +129,7 @@ namespace OloEngine::Audio::SoundGraph {
                     return false;
                 }
             }
-            
+
             /// Register output endpoints from member descriptions
             template<typename TNodeType>
             bool RegisterEndpointOutputs(TNodeType* node)
@@ -130,9 +139,9 @@ namespace OloEngine::Audio::SoundGraph {
                 if constexpr (IsDescribedNode_v<TNodeType>)
                 {
                     using OutputsDescription = typename NodeDescription<std::remove_cvref_t<TNodeType>>::Outputs;
-                
+
                     return OutputsDescription::MemberListType::ApplyToStaticType([node](const auto&... members)
-                    {
+                                                                                 {
                         sizet memberIndex = 0;
                         auto registerOutput = [node, &memberIndex](auto memberPtr)
                         {
@@ -166,8 +175,7 @@ namespace OloEngine::Audio::SoundGraph {
                             }
                     };
                         
-                    return (registerOutput(members) && ...);
-                    });
+                    return (registerOutput(members) && ...); });
                 }
                 else
                 {
@@ -175,7 +183,7 @@ namespace OloEngine::Audio::SoundGraph {
                     return false;
                 }
             }
-            
+
             /// Initialize input pointers to connect with parameter system
             template<typename TNodeType>
             bool InitializeInputs(TNodeType* node)
@@ -185,9 +193,9 @@ namespace OloEngine::Audio::SoundGraph {
                 if constexpr (IsDescribedNode_v<TNodeType>)
                 {
                     using InputsDescription = typename NodeDescription<std::remove_cvref_t<TNodeType>>::Inputs;
-                    
+
                     return InputsDescription::MemberListType::ApplyToStaticType([node](const auto&... members)
-                    {
+                                                                                {
                         auto initializeInput = [node, memberIndex = 0](auto memberPtr) mutable
                         {
                             using TMember = std::remove_reference_t<decltype(memberPtr)>;
@@ -220,38 +228,37 @@ namespace OloEngine::Audio::SoundGraph {
                             return true;
                         };
                         
-                        return (initializeInput(members) && ...);
-                    });
+                        return (initializeInput(members) && ...); });
                 }
                 else
                 {
                     return false;
                 }
             }
-        }
-        
+        } // namespace Impl
+
         /// Register all endpoints for a described node
         template<typename TNodeType>
         bool RegisterEndpoints(TNodeType* node)
         {
             // static_assert(IsDescribedNode_v<TNodeType>, "Node must have NodeDescription specialization");
-            
+
             bool success = true;
             success &= Impl::RegisterEndpointInputs(node);
             success &= Impl::RegisterEndpointOutputs(node);
-            
+
             return success;
         }
-        
+
         /// Initialize input pointers for a described node
         template<typename TNodeType>
         bool InitializeInputs(TNodeType* node)
         {
             // static_assert(IsDescribedNode_v<TNodeType>, "Node must have NodeDescription specialization");
-            
+
             return Impl::InitializeInputs(node);
         }
-    }
+    } // namespace EndpointUtilities
 
 } // namespace OloEngine::Audio::SoundGraph
 
@@ -262,7 +269,7 @@ namespace OloEngine::Audio::SoundGraph {
 #define NODE_INPUTS(...) __VA_ARGS__
 #endif
 
-#ifndef NODE_OUTPUTS  
+#ifndef NODE_OUTPUTS
 #define NODE_OUTPUTS(...) __VA_ARGS__
 #endif
 
@@ -273,13 +280,14 @@ namespace OloEngine::Audio::SoundGraph {
  * @param OutputList - NODE_OUTPUTS(...) with member pointers to output parameters
  */
 #ifndef DESCRIBE_NODE
-#define DESCRIBE_NODE(NodeType, InputList, OutputList)									\
-    OLO_DESCRIBE_TAGGED(NodeType, OloEngine::Audio::SoundGraph::TagInputs, InputList)	\
-    OLO_DESCRIBE_TAGGED(NodeType, OloEngine::Audio::SoundGraph::TagOutputs, OutputList)\
-                                                                                        \
-    template<> struct OloEngine::Audio::SoundGraph::NodeDescription<NodeType>			\
-    {																					\
-        using Inputs = OloEngine::Core::Reflection::Description<NodeType, OloEngine::Audio::SoundGraph::TagInputs>;	\
-        using Outputs = OloEngine::Core::Reflection::Description<NodeType, OloEngine::Audio::SoundGraph::TagOutputs>;	\
+#define DESCRIBE_NODE(NodeType, InputList, OutputList)                                                                \
+    OLO_DESCRIBE_TAGGED(NodeType, OloEngine::Audio::SoundGraph::TagInputs, InputList)                                 \
+    OLO_DESCRIBE_TAGGED(NodeType, OloEngine::Audio::SoundGraph::TagOutputs, OutputList)                               \
+                                                                                                                      \
+    template<>                                                                                                        \
+    struct OloEngine::Audio::SoundGraph::NodeDescription<NodeType>                                                    \
+    {                                                                                                                 \
+        using Inputs = OloEngine::Core::Reflection::Description<NodeType, OloEngine::Audio::SoundGraph::TagInputs>;   \
+        using Outputs = OloEngine::Core::Reflection::Description<NodeType, OloEngine::Audio::SoundGraph::TagOutputs>; \
     };
 #endif // !DESCRIBE_NODE

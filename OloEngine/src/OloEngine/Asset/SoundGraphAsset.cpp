@@ -16,11 +16,11 @@ namespace OloEngine
     SoundGraphNodeData* SoundGraphAsset::GetNode(const UUID& nodeId)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         // Debug validation: ensure cache is consistent with vector
-        OLO_CORE_ASSERT(m_NodeIdMap.size() == m_Nodes.size(), 
+        OLO_CORE_ASSERT(m_NodeIdMap.size() == m_Nodes.size(),
                         "Node ID map out of sync with nodes vector - did you modify m_Nodes directly without calling RebuildNodeIdMap()?");
-        
+
         auto it = m_NodeIdMap.find(nodeId);
         if (it != m_NodeIdMap.end())
         {
@@ -35,9 +35,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Debug validation: ensure cache is consistent with vector
-        OLO_CORE_ASSERT(m_NodeIdMap.size() == m_Nodes.size(), 
+        OLO_CORE_ASSERT(m_NodeIdMap.size() == m_Nodes.size(),
                         "Node ID map out of sync with nodes vector - did you modify m_Nodes directly without calling RebuildNodeIdMap()?");
-        
+
         auto it = m_NodeIdMap.find(nodeId);
         if (it != m_NodeIdMap.end())
         {
@@ -71,29 +71,29 @@ namespace OloEngine
             return false;
 
         sizet indexToRemove = mapIt->second;
-        
+
         // Erase from the vector
         m_Nodes.erase(m_Nodes.begin() + indexToRemove);
-        
+
         // Remove from the map
         m_NodeIdMap.erase(mapIt);
-        
+
         // Update indices in the map for all nodes after the removed one
         for (auto& [id, index] : m_NodeIdMap)
         {
             if (index > indexToRemove)
                 index--;
         }
-        
+
         // Remove all connections involving this node
         m_Connections.erase(
             std::remove_if(m_Connections.begin(), m_Connections.end(),
-                [nodeId](const SoundGraphConnection& conn) {
-                    return conn.m_SourceNodeID == nodeId || conn.m_TargetNodeID == nodeId;
-                }),
-            m_Connections.end()
-        );
-        
+                           [nodeId](const SoundGraphConnection& conn)
+                           {
+                               return conn.m_SourceNodeID == nodeId || conn.m_TargetNodeID == nodeId;
+                           }),
+            m_Connections.end());
+
         return true;
     }
 
@@ -111,20 +111,21 @@ namespace OloEngine
     }
 
     bool SoundGraphAsset::RemoveConnection(const UUID& sourceNodeId, const std::string& sourceEndpoint,
-                                         const UUID& targetNodeId, const std::string& targetEndpoint,
-                                         bool isEvent)
+                                           const UUID& targetNodeId, const std::string& targetEndpoint,
+                                           bool isEvent)
     {
         OLO_PROFILE_FUNCTION();
 
         auto it = std::find_if(m_Connections.begin(), m_Connections.end(),
-            [&](const SoundGraphConnection& conn) {
-                return conn.m_SourceNodeID == sourceNodeId &&
-                       conn.m_SourceEndpoint == sourceEndpoint &&
-                       conn.m_TargetNodeID == targetNodeId &&
-                       conn.m_TargetEndpoint == targetEndpoint &&
-                       conn.m_IsEvent == isEvent;
-            });
-        
+                               [&](const SoundGraphConnection& conn)
+                               {
+                                   return conn.m_SourceNodeID == sourceNodeId &&
+                                          conn.m_SourceEndpoint == sourceEndpoint &&
+                                          conn.m_TargetNodeID == targetNodeId &&
+                                          conn.m_TargetEndpoint == targetEndpoint &&
+                                          conn.m_IsEvent == isEvent;
+                               });
+
         if (it != m_Connections.end())
         {
             m_Connections.erase(it);
@@ -169,7 +170,7 @@ namespace OloEngine
         // Validate all connections reference existing nodes
         for (const auto& connection : m_Connections)
         {
-            if (nodeIds.find(connection.m_SourceNodeID) == nodeIds.end() || 
+            if (nodeIds.find(connection.m_SourceNodeID) == nodeIds.end() ||
                 nodeIds.find(connection.m_TargetNodeID) == nodeIds.end())
                 return false;
         }
@@ -180,7 +181,7 @@ namespace OloEngine
     std::vector<std::string> SoundGraphAsset::GetValidationErrors() const
     {
         OLO_PROFILE_FUNCTION();
-        
+
         std::vector<std::string> errors;
 
         if (m_Nodes.empty())
@@ -200,7 +201,7 @@ namespace OloEngine
         {
             if (!HasNode(connection.m_SourceNodeID))
                 errors.push_back("Connection references non-existent source node: " + std::to_string(static_cast<u64>(connection.m_SourceNodeID)));
-            
+
             if (!HasNode(connection.m_TargetNodeID))
                 errors.push_back("Connection references non-existent target node: " + std::to_string(static_cast<u64>(connection.m_TargetNodeID)));
         }
@@ -211,7 +212,7 @@ namespace OloEngine
     void SoundGraphAsset::RebuildNodeIdMap()
     {
         OLO_PROFILE_FUNCTION();
-        
+
         m_NodeIdMap.clear();
         for (sizet i = 0; i < m_Nodes.size(); ++i)
         {

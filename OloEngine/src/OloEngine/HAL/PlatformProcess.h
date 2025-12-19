@@ -10,42 +10,42 @@
 #include <thread>
 
 #ifdef _WIN32
-    #include "Platform/Windows/WindowsHWrapper.h"
-    #include <malloc.h>  // For _alloca
-    #include <intrin.h>  // For _mm_pause, __rdtsc
-    #if defined(_M_ARM64) || defined(_M_ARM)
-        #include <arm64intr.h>
-    #endif
+#include "Platform/Windows/WindowsHWrapper.h"
+#include <malloc.h> // For _alloca
+#include <intrin.h> // For _mm_pause, __rdtsc
+#if defined(_M_ARM64) || defined(_M_ARM)
+#include <arm64intr.h>
+#endif
 #elif defined(__linux__)
-    #include <pthread.h>
-    #include <sched.h>
-    #include <unistd.h>
-    #include <sys/syscall.h>
-    #include <cstring>  // For strncpy
-    #if defined(__x86_64__) || defined(__i386__)
-        #include <immintrin.h>
-    #endif
+#include <pthread.h>
+#include <sched.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <cstring> // For strncpy
+#if defined(__x86_64__) || defined(__i386__)
+#include <immintrin.h>
+#endif
 #elif defined(__APPLE__)
-    #include <pthread.h>
-    #include <mach/thread_policy.h>
-    #include <mach/thread_act.h>
-    #include <mach/mach_time.h>
-    #if defined(__x86_64__) || defined(__i386__)
-        #include <immintrin.h>
-    #endif
+#include <pthread.h>
+#include <mach/thread_policy.h>
+#include <mach/thread_act.h>
+#include <mach/mach_time.h>
+#if defined(__x86_64__) || defined(__i386__)
+#include <immintrin.h>
+#endif
 #endif
 
 // Detect CPU architecture
 #if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
-    #define OLO_PLATFORM_CPU_X86_FAMILY 1
+#define OLO_PLATFORM_CPU_X86_FAMILY 1
 #else
-    #define OLO_PLATFORM_CPU_X86_FAMILY 0
+#define OLO_PLATFORM_CPU_X86_FAMILY 0
 #endif
 
 #if defined(_M_ARM64) || defined(_M_ARM) || defined(__aarch64__) || defined(__arm__)
-    #define OLO_PLATFORM_CPU_ARM_FAMILY 1
+#define OLO_PLATFORM_CPU_ARM_FAMILY 1
 #else
-    #define OLO_PLATFORM_CPU_ARM_FAMILY 0
+#define OLO_PLATFORM_CPU_ARM_FAMILY 0
 #endif
 
 namespace OloEngine
@@ -72,7 +72,7 @@ namespace OloEngine
      */
     class FPlatformProcess
     {
-    public:
+      public:
         /**
          * @brief Check if the current platform supports multithreading
          * @return true on all modern platforms
@@ -113,7 +113,7 @@ namespace OloEngine
          * @brief Set the affinity mask and processor group for the current thread
          * @param AffinityMask Bitmask of allowed CPU cores within the group (0 = no affinity restriction)
          * @param ProcessorGroup The processor group index (for systems with >64 cores)
-         * 
+         *
          * On systems with more than 64 logical processors (Windows), processors are organized
          * into groups of up to 64. This function allows setting affinity within a specific group.
          * On other platforms or single-group systems, ProcessorGroup is ignored.
@@ -141,7 +141,7 @@ namespace OloEngine
 
         /**
          * @brief Tells the processor to pause for implementation-specific amount of time.
-         * 
+         *
          * Used for spin-loops to:
          * - Improve the speed at which the code detects the release of a lock
          * - Reduce power consumption during busy-wait
@@ -152,11 +152,11 @@ namespace OloEngine
 #if OLO_PLATFORM_CPU_X86_FAMILY
             _mm_pause();
 #elif OLO_PLATFORM_CPU_ARM_FAMILY
-    #if defined(_MSC_VER)
+#if defined(_MSC_VER)
             __isb(0);
-    #else
+#else
             __asm__ __volatile__("isb");
-    #endif
+#endif
 #else
             // Fallback for unknown architectures
             std::this_thread::yield();
@@ -165,13 +165,13 @@ namespace OloEngine
 
         /**
          * @brief Tells the processor to pause for at least the specified number of cycles.
-         * 
+         *
          * Used for spin-loops to:
          * - Improve the speed at which the code detects lock release
          * - Reduce power consumption during busy-wait
-         * 
+         *
          * @param Cycles Approximate number of CPU cycles to pause
-         * 
+         *
          * @note On x86, uses RDTSC for cycle counting.
          *       On ARM, issues yield instructions approximately Cycles times.
          */
@@ -180,17 +180,17 @@ namespace OloEngine
 #if OLO_PLATFORM_CPU_X86_FAMILY
             auto ReadCycleCounter = []() -> u64
             {
-    #if defined(_MSC_VER)
+#if defined(_MSC_VER)
                 return __rdtsc();
-    #elif defined(__APPLE__)
+#elif defined(__APPLE__)
                 return mach_absolute_time();
-    #elif __has_builtin(__builtin_readcyclecounter)
+#elif __has_builtin(__builtin_readcyclecounter)
                 return __builtin_readcyclecounter();
-    #else
+#else
                 u32 lo, hi;
                 __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
                 return (static_cast<u64>(hi) << 32) | lo;
-    #endif
+#endif
             };
 
             u64 start = ReadCycleCounter();
@@ -209,11 +209,11 @@ namespace OloEngine
             // So we just issue yield instructions approximately Cycles times
             for (u64 i = 0; i < Cycles; i++)
             {
-    #if defined(_MSC_VER)
+#if defined(_MSC_VER)
                 __yield();
-    #else
+#else
                 __builtin_arm_yield();
-    #endif
+#endif
             }
 #else
             // Fallback for unknown architectures - approximate with std::this_thread::yield
@@ -224,7 +224,7 @@ namespace OloEngine
 #endif
         }
 
-    private:
+      private:
 #ifdef _WIN32
         static int TranslateThreadPriority(EThreadPriority Priority);
 #elif defined(__linux__) || defined(__APPLE__)
@@ -242,17 +242,25 @@ namespace OloEngine
     {
         switch (Priority)
         {
-            case EThreadPriority::TPri_AboveNormal:       return THREAD_PRIORITY_ABOVE_NORMAL;
-            case EThreadPriority::TPri_Normal:            return THREAD_PRIORITY_NORMAL;
-            case EThreadPriority::TPri_BelowNormal:       return THREAD_PRIORITY_BELOW_NORMAL;
-            case EThreadPriority::TPri_Highest:           return THREAD_PRIORITY_HIGHEST;
-            case EThreadPriority::TPri_TimeCritical:      return THREAD_PRIORITY_HIGHEST;
-            case EThreadPriority::TPri_Lowest:            return THREAD_PRIORITY_LOWEST;
+            case EThreadPriority::TPri_AboveNormal:
+                return THREAD_PRIORITY_ABOVE_NORMAL;
+            case EThreadPriority::TPri_Normal:
+                return THREAD_PRIORITY_NORMAL;
+            case EThreadPriority::TPri_BelowNormal:
+                return THREAD_PRIORITY_BELOW_NORMAL;
+            case EThreadPriority::TPri_Highest:
+                return THREAD_PRIORITY_HIGHEST;
+            case EThreadPriority::TPri_TimeCritical:
+                return THREAD_PRIORITY_HIGHEST;
+            case EThreadPriority::TPri_Lowest:
+                return THREAD_PRIORITY_LOWEST;
             // There is no such thing as slightly below normal on Windows.
             // This can't be below normal since we don't want latency sensitive tasks
             // to go to efficient cores on Alder Lake (hybrid architecture).
-            case EThreadPriority::TPri_SlightlyBelowNormal: return THREAD_PRIORITY_NORMAL;
-            default: return THREAD_PRIORITY_NORMAL;
+            case EThreadPriority::TPri_SlightlyBelowNormal:
+                return THREAD_PRIORITY_NORMAL;
+            default:
+                return THREAD_PRIORITY_NORMAL;
         }
     }
 
@@ -295,13 +303,13 @@ namespace OloEngine
             {
                 wchar_t* WideName = static_cast<wchar_t*>(_alloca(WideLen * sizeof(wchar_t)));
                 ::MultiByteToWideChar(CP_UTF8, 0, Name, -1, WideName, WideLen);
-                
+
                 // SetThreadDescription is available on Windows 10 1607+
                 // We use GetProcAddress to avoid requiring the newer SDK
-                typedef HRESULT(WINAPI* SetThreadDescriptionFn)(HANDLE, PCWSTR);
+                typedef HRESULT(WINAPI * SetThreadDescriptionFn)(HANDLE, PCWSTR);
                 static SetThreadDescriptionFn SetThreadDescriptionPtr = nullptr;
                 static bool bChecked = false;
-                
+
                 if (!bChecked)
                 {
                     HMODULE hKernel32 = ::GetModuleHandleW(L"kernel32.dll");
@@ -312,7 +320,7 @@ namespace OloEngine
                     }
                     bChecked = true;
                 }
-                
+
                 if (SetThreadDescriptionPtr)
                 {
                     SetThreadDescriptionPtr(::GetCurrentThread(), WideName);
@@ -338,7 +346,7 @@ namespace OloEngine
         GROUP_AFFINITY GroupAffinity = {};
         GroupAffinity.Mask = static_cast<KAFFINITY>(AffinityMask);
         GroupAffinity.Group = ProcessorGroup;
-        
+
         ::SetThreadGroupAffinity(::GetCurrentThread(), &GroupAffinity, nullptr);
     }
 
@@ -351,14 +359,22 @@ namespace OloEngine
         // Note: Setting thread priority on Linux often requires root or CAP_SYS_NICE
         switch (Priority)
         {
-            case EThreadPriority::TPri_TimeCritical:      return -15;
-            case EThreadPriority::TPri_Highest:           return -10;
-            case EThreadPriority::TPri_AboveNormal:       return -5;
-            case EThreadPriority::TPri_Normal:            return 0;
-            case EThreadPriority::TPri_SlightlyBelowNormal: return 1;
-            case EThreadPriority::TPri_BelowNormal:       return 5;
-            case EThreadPriority::TPri_Lowest:            return 10;
-            default: return 0;
+            case EThreadPriority::TPri_TimeCritical:
+                return -15;
+            case EThreadPriority::TPri_Highest:
+                return -10;
+            case EThreadPriority::TPri_AboveNormal:
+                return -5;
+            case EThreadPriority::TPri_Normal:
+                return 0;
+            case EThreadPriority::TPri_SlightlyBelowNormal:
+                return 1;
+            case EThreadPriority::TPri_BelowNormal:
+                return 5;
+            case EThreadPriority::TPri_Lowest:
+                return 10;
+            default:
+                return 0;
         }
     }
 
@@ -402,10 +418,10 @@ namespace OloEngine
             int Policy;
             struct sched_param Param;
             pthread_getschedparam(Handle, &Policy, &Param);
-            
+
             // For SCHED_OTHER (normal scheduling), priority must be 0
             // We use SCHED_RR or SCHED_FIFO for elevated priorities (requires root)
-            if (Priority == EThreadPriority::TPri_TimeCritical || 
+            if (Priority == EThreadPriority::TPri_TimeCritical ||
                 Priority == EThreadPriority::TPri_Highest)
             {
                 Policy = SCHED_RR;
@@ -446,10 +462,10 @@ namespace OloEngine
         {
             cpu_set_t CpuSet;
             CPU_ZERO(&CpuSet);
-            
+
             // Calculate the base CPU offset for this "group" (64 CPUs per group)
             u32 BaseOffset = static_cast<u32>(ProcessorGroup) * 64;
-            
+
             for (u32 i = 0; i < 64; ++i)
             {
                 if (AffinityMask & (1ULL << i))
@@ -468,14 +484,22 @@ namespace OloEngine
         // macOS uses relative thread priority (0-63 for QoS)
         switch (Priority)
         {
-            case EThreadPriority::TPri_TimeCritical:      return 63;
-            case EThreadPriority::TPri_Highest:           return 55;
-            case EThreadPriority::TPri_AboveNormal:       return 45;
-            case EThreadPriority::TPri_Normal:            return 31;
-            case EThreadPriority::TPri_SlightlyBelowNormal: return 25;
-            case EThreadPriority::TPri_BelowNormal:       return 15;
-            case EThreadPriority::TPri_Lowest:            return 5;
-            default: return 31;
+            case EThreadPriority::TPri_TimeCritical:
+                return 63;
+            case EThreadPriority::TPri_Highest:
+                return 55;
+            case EThreadPriority::TPri_AboveNormal:
+                return 45;
+            case EThreadPriority::TPri_Normal:
+                return 31;
+            case EThreadPriority::TPri_SlightlyBelowNormal:
+                return 25;
+            case EThreadPriority::TPri_BelowNormal:
+                return 15;
+            case EThreadPriority::TPri_Lowest:
+                return 5;
+            default:
+                return 31;
         }
     }
 
@@ -490,10 +514,10 @@ namespace OloEngine
         {
             // macOS doesn't support direct CPU affinity, but we can use thread affinity policies
             thread_affinity_policy_data_t Policy = { static_cast<integer_t>(AffinityMask) };
-            thread_policy_set(pthread_mach_thread_np(pthread_self()), 
-                             THREAD_AFFINITY_POLICY, 
-                             reinterpret_cast<thread_policy_t>(&Policy), 
-                             THREAD_AFFINITY_POLICY_COUNT);
+            thread_policy_set(pthread_mach_thread_np(pthread_self()),
+                              THREAD_AFFINITY_POLICY,
+                              reinterpret_cast<thread_policy_t>(&Policy),
+                              THREAD_AFFINITY_POLICY_COUNT);
         }
     }
 

@@ -6,10 +6,10 @@
 /**
  * @file EventPool.h
  * @brief Pool of FEvent instances for efficient reuse
- * 
+ *
  * This template class manages a pool of FEvent instances to avoid
  * the overhead of constantly creating and destroying event objects.
- * 
+ *
  * Ported from Unreal Engine's HAL/EventPool.h
  */
 
@@ -28,7 +28,7 @@ namespace OloEngine
     template<EEventMode Mode>
     class TEventPool
     {
-    public:
+      public:
         /** @brief Destructor - destroys all pooled events */
         ~TEventPool()
         {
@@ -95,7 +95,7 @@ namespace OloEngine
             return TLazySingleton<TEventPool>::TearDown();
         }
 
-    private:
+      private:
         /** @brief Lock-free list of available events */
         TLockFreePointerListUnordered<FEvent, 0> m_Pool;
     };

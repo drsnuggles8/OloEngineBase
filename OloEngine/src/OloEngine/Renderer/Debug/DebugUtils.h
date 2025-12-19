@@ -8,7 +8,7 @@
 namespace OloEngine
 {
     // @brief Common utilities and helper functions for debugging tools
-    // 
+    //
     // Provides shared functionality to avoid code duplication across
     // all renderer debugging tools.
     namespace DebugUtils
@@ -48,7 +48,7 @@ namespace OloEngine
         // @param label Button label
         // @param confirmationText Confirmation dialog text
         // @return True if reset was confirmed
-		bool RenderResetButton(const char* label, const char* confirmationText = "Are you sure you want to reset all data?");
+        bool RenderResetButton(const char* label, const char* confirmationText = "Are you sure you want to reset all data?");
 
         // @brief Get current time as seconds since epoch
         // @return Time in seconds as floating point
@@ -58,14 +58,14 @@ namespace OloEngine
         }
 
         // @brief Get standard color for UI elements
-		namespace Colors
+        namespace Colors
         {
-            inline const ImVec4 Good = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);       // Green
-            inline const ImVec4 Success = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);    // Green
-            inline const ImVec4 Warning = ImVec4(1.0f, 0.8f, 0.0f, 1.0f);    // Yellow
-            inline const ImVec4 Critical = ImVec4(1.0f, 0.4f, 0.4f, 1.0f);   // Red
-            inline const ImVec4 Info = ImVec4(0.6f, 0.8f, 1.0f, 1.0f);       // Light blue
-            inline const ImVec4 Disabled = ImVec4(0.6f, 0.6f, 0.6f, 1.0f);   // Gray
-        }
-    }
-}
+            inline const ImVec4 Good = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);     // Green
+            inline const ImVec4 Success = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);  // Green
+            inline const ImVec4 Warning = ImVec4(1.0f, 0.8f, 0.0f, 1.0f);  // Yellow
+            inline const ImVec4 Critical = ImVec4(1.0f, 0.4f, 0.4f, 1.0f); // Red
+            inline const ImVec4 Info = ImVec4(0.6f, 0.8f, 1.0f, 1.0f);     // Light blue
+            inline const ImVec4 Disabled = ImVec4(0.6f, 0.6f, 0.6f, 1.0f); // Gray
+        } // namespace Colors
+    } // namespace DebugUtils
+} // namespace OloEngine

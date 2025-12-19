@@ -13,9 +13,9 @@ namespace OloEngine
     // @brief Manages multiple frames in flight to prevent GPU stalls
     class InflightFrameManager : public RefCounted
     {
-    public:
+      public:
         static constexpr u32 MAX_FRAMES_IN_FLIGHT = 3;
-        
+
         // @brief Data for a single frame in flight
         struct FrameData
         {
@@ -35,7 +35,10 @@ namespace OloEngine
         void EndFrame();
 
         // @brief Get current frame index
-        u32 GetCurrentFrameIndex() const { return m_CurrentFrameIndex; }
+        u32 GetCurrentFrameIndex() const
+        {
+            return m_CurrentFrameIndex;
+        }
 
         // @brief Get uniform buffer for current frame
         Ref<UniformBuffer> GetFrameUniformBuffer(const std::string& name, u32 size);
@@ -49,9 +52,9 @@ namespace OloEngine
         // @brief Check if frame is complete
         bool IsFrameComplete(u32 frameIndex) const;
 
-    private:
+      private:
         std::array<FrameData, MAX_FRAMES_IN_FLIGHT> m_Frames;
         u32 m_CurrentFrameIndex = 0;
         u32 m_CompletedFrames = 0;
     };
-}
+} // namespace OloEngine

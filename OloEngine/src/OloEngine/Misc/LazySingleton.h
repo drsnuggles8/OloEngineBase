@@ -5,7 +5,7 @@
 
 // @file LazySingleton.h
 // @brief Lazy singleton pattern that can be torn down explicitly
-// 
+//
 // Ported from Unreal Engine's Misc/LazySingleton.h
 
 #include "OloEngine/Core/Base.h"
@@ -16,7 +16,7 @@ namespace OloEngine
     // @brief Base class for lazy singletons - allows inline friend declaration
     class FLazySingleton
     {
-    protected:
+      protected:
         template<class T>
         static void Construct(void* Place)
         {
@@ -32,7 +32,7 @@ namespace OloEngine
 
     // @class TLazySingleton
     // @brief Lazy singleton that can be torn down explicitly
-    // 
+    //
     // T must be default constructible.
     //
     // Example use case:
@@ -42,19 +42,19 @@ namespace OloEngine
     // {
     //     static FFoo& Get();
     //     static void TearDown();
-    // 
+    //
     //     // If default constructor is private
     //     friend class FLazySingleton;
     // };
-    // 
+    //
     // // Only include in .cpp and do *not* inline Get() and TearDown()
     // #include "OloEngine/Misc/LazySingleton.h"
-    // 
+    //
     // FFoo& FFoo::Get()
     // {
     //     return TLazySingleton<FFoo>::Get();
     // }
-    // 
+    //
     // void FFoo::TearDown()
     // {
     //     TLazySingleton<FFoo>::TearDown();
@@ -63,18 +63,18 @@ namespace OloEngine
     template<class T>
     class TLazySingleton final : public FLazySingleton
     {
-    public:
+      public:
         // @brief Creates singleton once on first call
-        // 
+        //
         // Thread-safe w.r.t. other Get() calls.
-        // Do not call after TearDown(). 
+        // Do not call after TearDown().
         static T& Get()
         {
             return GetLazy(Construct<T>).GetValue();
         }
 
         // @brief Destroys singleton
-        // 
+        //
         // No thread must access the singleton during or after this call.
         static void TearDown()
         {
@@ -88,8 +88,8 @@ namespace OloEngine
             return GetLazy(Construct<T>).TryGetValue();
         }
 
-    private:
-        static TLazySingleton& GetLazy(void(*Constructor)(void*))
+      private:
+        static TLazySingleton& GetLazy(void (*Constructor)(void*))
         {
             static TLazySingleton Singleton(Constructor);
             return Singleton;
@@ -98,7 +98,7 @@ namespace OloEngine
         alignas(T) unsigned char Data[sizeof(T)];
         T* Ptr;
 
-        TLazySingleton(void(*Constructor)(void*))
+        TLazySingleton(void (*Constructor)(void*))
         {
             if (Constructor)
             {

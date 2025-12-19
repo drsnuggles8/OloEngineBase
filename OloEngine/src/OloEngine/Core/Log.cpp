@@ -127,14 +127,16 @@ namespace OloEngine
     bool Log::HasTag(const std::string& tag)
     {
         auto current = s_Tags.load(std::memory_order_acquire);
-        if (!current) return false;
+        if (!current)
+            return false;
         return current->find(tag) != current->end();
     }
 
     std::unordered_map<std::string, Log::TagDetails> Log::GetEnabledTags()
     {
         auto current = s_Tags.load(std::memory_order_acquire);
-        if (!current) return {};
+        if (!current)
+            return {};
         return *current; // copy-out
     }
 
@@ -166,7 +168,8 @@ namespace OloEngine
         for (;;)
         {
             auto snapshot = s_Tags.load(std::memory_order_acquire);
-            if (!snapshot) return;
+            if (!snapshot)
+                return;
 
             auto newMap = std::make_shared<TagMap>(*snapshot);
             newMap->erase(tag);

@@ -2,18 +2,18 @@
 
 // @file UnrealTemplate.h
 // @brief Core template utilities for OloEngine
-// 
+//
 // Provides UE-style template utilities:
 // - MoveTemp (std::move with compile-time safety)
 // - MoveTempIfPossible (std::move equivalent)
 // - Forward (std::forward equivalent)
 // - CopyTemp / CopyTempIfNecessary
 // - Swap
-// 
+//
 // Ported from Unreal Engine's Templates/UnrealTemplate.h
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Templates/UnrealTypeTraits.h"  // For TIsContiguousContainer
+#include "OloEngine/Templates/UnrealTypeTraits.h" // For TIsContiguousContainer
 #include <type_traits>
 
 namespace OloEngine
@@ -25,14 +25,14 @@ namespace OloEngine
     namespace Private
     {
         // @brief Implementation for GetData - containers with .GetData() member (UE-style)
-        template <typename T>
+        template<typename T>
         [[nodiscard]] constexpr auto GetDataImpl(T&& Container) -> decltype(Container.GetData())
         {
             return Container.GetData();
         }
 
         // @brief Implementation for GetData - containers with .data() member (STL-style)
-        template <typename T>
+        template<typename T>
             requires requires(T& c) { c.data(); } && (!requires(T& c) { c.GetData(); })
         [[nodiscard]] constexpr auto GetDataImpl(T&& Container) -> decltype(Container.data())
         {
@@ -40,22 +40,22 @@ namespace OloEngine
         }
 
         // @brief Implementation for GetData - C-style arrays
-        template <typename T>
-            requires (std::is_pointer_v<decltype(+std::declval<T>())>)
+        template<typename T>
+            requires(std::is_pointer_v<decltype(+std::declval<T>())>)
         [[nodiscard]] constexpr auto GetDataImpl(T&& Container)
         {
             return +Container;
         }
 
         // @brief Implementation for GetNum - containers with .Num() member (UE-style)
-        template <typename T>
+        template<typename T>
         [[nodiscard]] constexpr auto GetNumImpl(const T& Container) -> decltype(Container.Num())
         {
             return Container.Num();
         }
 
         // @brief Implementation for GetNum - containers with .size() member (STL-style)
-        template <typename T>
+        template<typename T>
             requires requires(const T& c) { c.size(); } && (!requires(const T& c) { c.Num(); })
         [[nodiscard]] constexpr auto GetNumImpl(const T& Container) -> decltype(static_cast<sizet>(Container.size()))
         {
@@ -63,8 +63,8 @@ namespace OloEngine
         }
 
         // @brief Implementation for GetNum - C-style arrays
-        template <typename T>
-            requires (std::is_pointer_v<decltype(+std::declval<T>())>)
+        template<typename T>
+            requires(std::is_pointer_v<decltype(+std::declval<T>())>)
         [[nodiscard]] constexpr auto GetNumImpl(const T& Container) -> sizet
         {
             return sizeof(Container) / sizeof(*Container);
@@ -74,8 +74,8 @@ namespace OloEngine
     // @brief Generically gets the data pointer of a contiguous container
     // @param Container The container to get data from
     // @returns Pointer to the first element
-    template <typename T>
-        requires (TIsContiguousContainer<T>::Value)
+    template<typename T>
+        requires(TIsContiguousContainer<T>::Value)
     [[nodiscard]] constexpr auto GetData(T&& Container) -> decltype(Private::GetDataImpl(static_cast<T&&>(Container)))
     {
         return Private::GetDataImpl(static_cast<T&&>(Container));
@@ -84,7 +84,7 @@ namespace OloEngine
     // @brief Gets the data pointer from an initializer list
     // @param List The initializer list
     // @returns Pointer to the first element
-    template <typename T>
+    template<typename T>
     [[nodiscard]] constexpr const T* GetData(std::initializer_list<T> List)
     {
         return List.begin();
@@ -93,21 +93,21 @@ namespace OloEngine
     // @brief Generically gets the number of items in a contiguous container
     // @param Container The container to get size from
     // @returns Number of elements
-    template <typename T>
-        requires (TIsContiguousContainer<T>::Value)
+    template<typename T>
+        requires(TIsContiguousContainer<T>::Value)
     [[nodiscard]] constexpr auto GetNum(const T& Container) -> decltype(Private::GetNumImpl(Container))
     {
         return Private::GetNumImpl(Container);
     }
 
     // @brief Gets the number of items in an initializer list
-    // 
+    //
     // The return type is i32 for compatibility with other code in the engine.
     // Realistically, an initializer list should not exceed the limits of i32.
-    // 
+    //
     // @param List The initializer list
     // @returns Number of elements
-    template <typename T>
+    template<typename T>
     [[nodiscard]] constexpr i32 GetNum(std::initializer_list<T> List)
     {
         return static_cast<i32>(List.size());
@@ -122,10 +122,18 @@ namespace OloEngine
     // TRemovePointer<      int32* >::Type == int32
     // TRemovePointer<      int32**>::Type == int32*
     // TRemovePointer<const int32* >::Type == const int32
-    template <typename T> struct TRemovePointer     { using Type = T; };
-    template <typename T> struct TRemovePointer<T*> { using Type = T; };
+    template<typename T>
+    struct TRemovePointer
+    {
+        using Type = T;
+    };
+    template<typename T>
+    struct TRemovePointer<T*>
+    {
+        using Type = T;
+    };
 
-    template <typename T>
+    template<typename T>
     using TRemovePointer_T = typename TRemovePointer<T>::Type;
 
     // ========================================================================
@@ -135,7 +143,7 @@ namespace OloEngine
     // MoveTemp will cast a reference to an rvalue reference.
     // This is UE's equivalent of std::move except that it will not compile when passed an rvalue or
     // const object, because we would prefer to be informed when MoveTemp will have no effect.
-    template <typename T>
+    template<typename T>
     [[nodiscard]] constexpr std::remove_reference_t<T>&& MoveTemp(T&& Obj) noexcept
     {
         using CastType = std::remove_reference_t<T>;
@@ -155,7 +163,7 @@ namespace OloEngine
     // This is UE's equivalent of std::move. It doesn't static assert like MoveTemp, because it is useful in
     // templates or macros where it's not obvious what the argument is, but you want to take advantage of move semantics
     // where you can but not stop compilation.
-    template <typename T>
+    template<typename T>
     [[nodiscard]] constexpr std::remove_reference_t<T>&& MoveTempIfPossible(T&& Obj) noexcept
     {
         using CastType = std::remove_reference_t<T>;
@@ -173,13 +181,13 @@ namespace OloEngine
     // CopyTemp(<rvalue>) is regarded as an error and will not compile, similarly to how MoveTemp(<rvalue>)
     // does not compile, and CopyTempIfNecessary should be used instead when the nature of the
     // argument is not known in advance.
-    template <typename T>
+    template<typename T>
     [[nodiscard]] T CopyTemp(T& Val)
     {
         return const_cast<const T&>(Val);
     }
 
-    template <typename T>
+    template<typename T>
     [[nodiscard]] T CopyTemp(const T& Val)
     {
         return Val;
@@ -195,7 +203,7 @@ namespace OloEngine
     // It doesn't static assert like CopyTemp, because it is useful in
     // templates or macros where it's not obvious what the argument is, but you want to
     // create a prvalue without stopping compilation.
-    template <typename T>
+    template<typename T>
     [[nodiscard]] constexpr std::decay_t<T> CopyTempIfNecessary(T&& Val)
     {
         return static_cast<T&&>(Val);
@@ -207,13 +215,13 @@ namespace OloEngine
 
     // @brief Forward will cast a reference to an rvalue reference.
     // This is UE's equivalent of std::forward.
-    template <typename T>
+    template<typename T>
     [[nodiscard]] constexpr T&& Forward(std::remove_reference_t<T>& Obj) noexcept
     {
         return static_cast<T&&>(Obj);
     }
 
-    template <typename T>
+    template<typename T>
     [[nodiscard]] constexpr T&& Forward(std::remove_reference_t<T>&& Obj) noexcept
     {
         return static_cast<T&&>(Obj);
@@ -224,7 +232,7 @@ namespace OloEngine
     // ========================================================================
 
     // @brief Swap two values. Assumes the types are trivially relocatable.
-    template <typename T>
+    template<typename T>
     constexpr void Swap(T& A, T& B)
     {
         // std::is_swappable isn't correct here, because we allow bitwise swapping of types containing e.g. const and reference members,
@@ -242,7 +250,7 @@ namespace OloEngine
     // ========================================================================
 
     // @brief Exchange will set 'Value' to 'NewValue' and return the old value.
-    template <typename T, typename U = T>
+    template<typename T, typename U = T>
     [[nodiscard]] T Exchange(T& Value, U&& NewValue)
     {
         T OldValue = MoveTempIfPossible(Value);
@@ -255,7 +263,7 @@ namespace OloEngine
     // ========================================================================
 
     // @brief Helper class to make it easy to use key/value pairs with a container.
-    template <typename KeyType, typename ValueType>
+    template<typename KeyType, typename ValueType>
     struct TKeyValuePair
     {
         TKeyValuePair(const KeyType& InKey, const ValueType& InValue)
@@ -307,14 +315,13 @@ namespace OloEngine
     };
 
     // @brief TGuardValue - RAII helper to save and restore a value
-    // 
+    //
     // Useful to make sure a value is reverted back to its original value when the current scope exits.
-    template <typename RefType, typename AssignedType = RefType>
+    template<typename RefType, typename AssignedType = RefType>
     struct TGuardValue : private FNoncopyable
     {
         [[nodiscard]] TGuardValue(RefType& ReferenceValue, const AssignedType& NewValue)
-            : RefValue(ReferenceValue)
-            , OriginalValue(ReferenceValue)
+            : RefValue(ReferenceValue), OriginalValue(ReferenceValue)
         {
             RefValue = NewValue;
         }
@@ -331,16 +338,16 @@ namespace OloEngine
             return OriginalValue;
         }
 
-    private:
+      private:
         RefType& RefValue;
         AssignedType OriginalValue;
     };
 
     // @brief TScopeCounter - Commonly used to make sure a value is incremented, and then decremented anyway the function can terminate.
-    // 
+    //
     // Usage:
     //     TScopeCounter<int32> BeginProcessing(ProcessingCount); // increments ProcessingCount, and decrements it in the dtor
-    template <typename Type>
+    template<typename Type>
     struct TScopeCounter : private FNoncopyable
     {
         [[nodiscard]] explicit TScopeCounter(Type& ReferenceValue)
@@ -354,7 +361,7 @@ namespace OloEngine
             --RefValue;
         }
 
-    private:
+      private:
         Type& RefValue;
     };
 

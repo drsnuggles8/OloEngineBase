@@ -39,24 +39,24 @@ namespace OloEngine
     //     };
     //
     //     std::atomic<uint8> MyState{0};
-    //     
+    //
     //     // Can use as temporary
     //     TExternalMutex<FMyParams>(MyState).Lock();
     //     // ... critical section ...
     //     TExternalMutex<FMyParams>(MyState).Unlock();
-    //     
+    //
     //     // Or construct once and reuse
     //     TExternalMutex<FMyParams> MyMutex(MyState);
     //     MyMutex.Lock();
     //     // ... critical section ...
     //     MyMutex.Unlock();
     // @endcode
-    template <CIntrusiveMutexParams ParamsType>
+    template<CIntrusiveMutexParams ParamsType>
     class TExternalMutex final
     {
         using StateType = TIntrusiveMutexStateType_T<ParamsType>;
 
-    public:
+      public:
         TExternalMutex(const TExternalMutex&) = delete;
         TExternalMutex& operator=(const TExternalMutex&) = delete;
 
@@ -93,7 +93,7 @@ namespace OloEngine
             TIntrusiveMutex<ParamsType>::Unlock(m_State);
         }
 
-    private:
+      private:
         std::atomic<StateType>& m_State;
     };
 
@@ -114,4 +114,3 @@ namespace OloEngine
     using FExternalMutex [[deprecated("Use TExternalMutex or TIntrusiveMutex.")]] = TExternalMutex<Private::FExternalMutexParams>;
 
 } // namespace OloEngine
-

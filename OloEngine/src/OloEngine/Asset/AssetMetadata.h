@@ -15,18 +15,18 @@ namespace OloEngine
 {
     enum class AssetStatus : u8
     {
-        None = 0,           // Asset metadata exists but no loading attempted
-        NotLoaded,          // Asset exists but not yet loaded into memory
-        Loading,            // Asset is currently being loaded asynchronously
-        Loaded,             // Asset successfully loaded and ready to use
-        Failed,             // Asset loading failed (file corruption, format error, etc.)
-        Missing,            // Asset file does not exist on disk
-        Invalid             // Asset metadata is corrupted or asset type mismatch
+        None = 0,  // Asset metadata exists but no loading attempted
+        NotLoaded, // Asset exists but not yet loaded into memory
+        Loading,   // Asset is currently being loaded asynchronously
+        Loaded,    // Asset successfully loaded and ready to use
+        Failed,    // Asset loading failed (file corruption, format error, etc.)
+        Missing,   // Asset file does not exist on disk
+        Invalid    // Asset metadata is corrupted or asset type mismatch
     };
 
     /**
      * @brief Asset metadata structure containing information about an asset
-     * 
+     *
      * This structure stores metadata for assets including their handle, type,
      * file path, and loading status. Used by the asset management system for
      * tracking and loading assets.
@@ -37,26 +37,50 @@ namespace OloEngine
         AssetType Type = AssetType::None;
         std::filesystem::path FilePath;
         AssetStatus Status = AssetStatus::None;
-        
+
         // File modification tracking for hot-reload
         std::filesystem::file_time_type LastWriteTime;
-        
+
         bool IsDataLoaded = false;
-        
+
         AssetMetadata() = default;
         AssetMetadata(AssetHandle handle, AssetType type)
             : Handle(handle), Type(type) {}
         AssetMetadata(AssetHandle handle, AssetType type, const std::filesystem::path& path)
             : Handle(handle), Type(type), FilePath(path) {}
 
-        bool IsValid() const { return Handle != 0; }
-        bool IsReady() const { return Status == AssetStatus::Loaded; }
-        bool IsLoading() const { return Status == AssetStatus::Loading; }
-        bool IsInvalid() const { return Status == AssetStatus::Invalid; }
-        bool IsFailed() const { return Status == AssetStatus::Failed; }
-        bool IsMissing() const { return Status == AssetStatus::Missing; }
-        bool IsLoaded() const { return Status == AssetStatus::Loaded; }
-        bool IsNotLoaded() const { return Status == AssetStatus::NotLoaded || Status == AssetStatus::None; }
+        bool IsValid() const
+        {
+            return Handle != 0;
+        }
+        bool IsReady() const
+        {
+            return Status == AssetStatus::Loaded;
+        }
+        bool IsLoading() const
+        {
+            return Status == AssetStatus::Loading;
+        }
+        bool IsInvalid() const
+        {
+            return Status == AssetStatus::Invalid;
+        }
+        bool IsFailed() const
+        {
+            return Status == AssetStatus::Failed;
+        }
+        bool IsMissing() const
+        {
+            return Status == AssetStatus::Missing;
+        }
+        bool IsLoaded() const
+        {
+            return Status == AssetStatus::Loaded;
+        }
+        bool IsNotLoaded() const
+        {
+            return Status == AssetStatus::NotLoaded || Status == AssetStatus::None;
+        }
     };
 
     /**
@@ -66,7 +90,7 @@ namespace OloEngine
     {
         AssetMetadata Metadata;
         Ref<Asset> AssetRef;
-        
+
         EditorAssetLoadResponse() = default;
         explicit EditorAssetLoadResponse(const AssetMetadata& metadata, Ref<Asset> asset = nullptr)
             : Metadata(metadata), AssetRef(asset) {}
@@ -79,7 +103,7 @@ namespace OloEngine
     {
         AssetHandle SceneHandle = 0;
         AssetHandle Handle = 0;
-        
+
         RuntimeAssetLoadRequest() = default;
         RuntimeAssetLoadRequest(AssetHandle sceneHandle, AssetHandle handle)
             : SceneHandle(sceneHandle), Handle(handle) {}
@@ -94,7 +118,7 @@ namespace OloEngine
         AssetHandle Handle = 0;
         u32 LoadTime = 0; // Load time in milliseconds
         std::string ErrorMessage;
-        
+
         // Static factory method for successful loads
         static RuntimeAssetLoadResponse Ok(AssetHandle handle, u32 loadTime = 0)
         {
@@ -104,7 +128,7 @@ namespace OloEngine
             response.LoadTime = loadTime;
             return response;
         }
-        
+
         // Static factory method for failed loads
         static RuntimeAssetLoadResponse Failure(const std::string& error)
         {
@@ -113,8 +137,8 @@ namespace OloEngine
             response.ErrorMessage = error;
             return response;
         }
-        
-    private:
+
+      private:
         // Private constructors to enforce use of factory methods
         RuntimeAssetLoadResponse() = default;
     };
@@ -127,15 +151,15 @@ namespace OloEngine
         inline constexpr const char* AssetStatusToString(AssetStatus status) noexcept
         {
             static constexpr std::array<const char*, 7> statusStrings = {
-                "None",         // AssetStatus::None = 0
-                "Not Loaded",   // AssetStatus::NotLoaded = 1
-                "Loading",      // AssetStatus::Loading = 2
-                "Loaded",       // AssetStatus::Loaded = 3
-                "Failed",       // AssetStatus::Failed = 4
-                "Missing",      // AssetStatus::Missing = 5
-                "Invalid"       // AssetStatus::Invalid = 6
+                "None",       // AssetStatus::None = 0
+                "Not Loaded", // AssetStatus::NotLoaded = 1
+                "Loading",    // AssetStatus::Loading = 2
+                "Loaded",     // AssetStatus::Loaded = 3
+                "Failed",     // AssetStatus::Failed = 4
+                "Missing",    // AssetStatus::Missing = 5
+                "Invalid"     // AssetStatus::Invalid = 6
             };
-            
+
             const auto index = static_cast<std::size_t>(status);
             return (index < statusStrings.size()) ? statusStrings[index] : "Unknown";
         }
@@ -143,23 +167,31 @@ namespace OloEngine
         inline AssetStatus AssetStatusFromString(const std::string& statusStr)
         {
             std::string lowerStr = statusStr;
-            std::transform(lowerStr.begin(), lowerStr.end(), lowerStr.begin(), 
-                          [](unsigned char c) { return std::tolower(c); });
-            
-            if (lowerStr == "none") return AssetStatus::None;
-            if (lowerStr == "not loaded" || lowerStr == "notloaded") return AssetStatus::NotLoaded;
-            if (lowerStr == "loading") return AssetStatus::Loading;
-            if (lowerStr == "loaded") return AssetStatus::Loaded;
-            if (lowerStr == "failed") return AssetStatus::Failed;
-            if (lowerStr == "missing") return AssetStatus::Missing;
-            if (lowerStr == "invalid") return AssetStatus::Invalid;
+            std::transform(lowerStr.begin(), lowerStr.end(), lowerStr.begin(),
+                           [](unsigned char c)
+                           { return std::tolower(c); });
+
+            if (lowerStr == "none")
+                return AssetStatus::None;
+            if (lowerStr == "not loaded" || lowerStr == "notloaded")
+                return AssetStatus::NotLoaded;
+            if (lowerStr == "loading")
+                return AssetStatus::Loading;
+            if (lowerStr == "loaded")
+                return AssetStatus::Loaded;
+            if (lowerStr == "failed")
+                return AssetStatus::Failed;
+            if (lowerStr == "missing")
+                return AssetStatus::Missing;
+            if (lowerStr == "invalid")
+                return AssetStatus::Invalid;
             return AssetStatus::None;
         }
 
         inline bool IsStatusError(AssetStatus status)
         {
-            return status == AssetStatus::Failed || 
-                   status == AssetStatus::Missing || 
+            return status == AssetStatus::Failed ||
+                   status == AssetStatus::Missing ||
                    status == AssetStatus::Invalid;
         }
 
@@ -167,6 +199,6 @@ namespace OloEngine
         {
             return status == AssetStatus::Loaded;
         }
-    }
+    } // namespace AssetStatusUtils
 
-}
+} // namespace OloEngine

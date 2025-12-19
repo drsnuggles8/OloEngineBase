@@ -5,16 +5,16 @@
 
 // @file ConcurrentLinearAllocator.h
 // @brief Fast linear allocator for temporary allocations
-// 
+//
 // This fast linear allocator can be used for temporary allocations, and is best suited
 // for allocations that are produced and consumed on different threads and within the
 // lifetime of a frame. Although the lifetime of any individual allocation is not hard-tied
 // to a frame (tracking is done using atomic counters), the application will eventually
 // run OOM if allocations are not cleaned up in a timely manner.
-// 
+//
 // The allocator works by allocating a larger block in TLS which has a Header at the front
 // containing an atomic counter, and all allocations are then allocated from this block.
-// 
+//
 // Ported from UE5.7's Experimental/ConcurrentLinearAllocator.h
 
 #include "OloEngine/Core/Base.h"
@@ -56,12 +56,12 @@ namespace OloEngine
     };
 
     // Forward declare allocator template for Allocator typedef
-    template <typename BlockAllocationTag, ELinearAllocatorThreadPolicy ThreadPolicy>
+    template<typename BlockAllocationTag, ELinearAllocatorThreadPolicy ThreadPolicy>
     class TLinearAllocatorBase;
 
     // @struct TBlockAllocationCache
     // @brief TLS cache for single-block reuse to avoid allocator round-trips
-    // 
+    //
     // @tparam BlockSize Size of blocks to cache
     template<u32 BlockSize>
     class TBlockAllocationCache
@@ -87,7 +87,7 @@ namespace OloEngine
             return Ret;
         }
 
-    public:
+      public:
         static constexpr bool SupportsAlignment = true;
         static constexpr bool UsesFMalloc = false;
         static constexpr u32 MaxAlignment = 256;
@@ -121,7 +121,7 @@ namespace OloEngine
 
     // @struct FLowLevelTasksBlockAllocationTag
     // @brief Configuration optimized for LowLevelTasks allocations
-    // 
+    //
     // Uses TBlockAllocationCache for TLS caching to reduce allocator round-trips.
     struct FLowLevelTasksBlockAllocationTag : FDefaultBlockAllocationTag
     {
@@ -130,7 +130,7 @@ namespace OloEngine
         static constexpr bool RequiresAccurateSize = false;
         static constexpr bool InlineBlockAllocation = true;
         static constexpr const char* TagName = "LowLevelTasksLinear";
-        
+
         // Use TBlockAllocationCache for TLS caching (matching UE5.7 behavior)
         using Allocator = TBlockAllocationCache<BlockSize>;
     };
@@ -141,15 +141,15 @@ namespace OloEngine
 
     // @class TLinearAllocatorBase
     // @brief Core linear allocator implementation
-    // 
+    //
     // @tparam BlockAllocationTag Configuration tag for block sizes and behavior
     // @tparam ThreadPolicy Thread safety policy
-    template <typename BlockAllocationTag, ELinearAllocatorThreadPolicy ThreadPolicy>
+    template<typename BlockAllocationTag, ELinearAllocatorThreadPolicy ThreadPolicy>
     class TLinearAllocatorBase
     {
         // Fast path requires aligned blocks and no ASAN
-        static constexpr bool SupportsFastPath = 
-            ((BlockAllocationTag::BlockSize <= (64 * 1024)) && 
+        static constexpr bool SupportsFastPath =
+            ((BlockAllocationTag::BlockSize <= (64 * 1024)) &&
              (OLO_MAX_VIRTUAL_MEMORY_ALIGNMENT >= 64 * 1024)) &&
             IsPowerOfTwo(BlockAllocationTag::BlockSize) &&
             !OLO_ASAN_ENABLED &&
@@ -161,7 +161,7 @@ namespace OloEngine
         // @brief Header stored before each allocation (slow path only)
         class FAllocationHeader
         {
-        public:
+          public:
             OLO_FINLINE FAllocationHeader(FBlockHeader* InBlockHeader, sizet InAllocationSize)
             {
                 uptr Offset = reinterpret_cast<uptr>(this) - reinterpret_cast<uptr>(InBlockHeader);
@@ -182,9 +182,9 @@ namespace OloEngine
                 return static_cast<sizet>(m_AllocationSize);
             }
 
-        private:
-            u32 m_BlockHeaderOffset;  // Negative offset from allocation to BlockHeader
-            u32 m_AllocationSize;     // Size of the allocation following this header
+          private:
+            u32 m_BlockHeaderOffset; // Negative offset from allocation to BlockHeader
+            u32 m_AllocationSize;    // Size of the allocation following this header
         };
 
         static OLO_FINLINE FAllocationHeader* GetAllocationHeader(void* Pointer)
@@ -245,10 +245,10 @@ namespace OloEngine
                 FAtomicUInt,
                 FPlainUInt>;
 
-            NumAllocationsType NumAllocations{ .Value = UINT_MAX };  // Tracks live allocations + UINT_MAX
-            u8 Padding[OLO_PLATFORM_CACHE_LINE_SIZE - sizeof(std::atomic_uint)];  // Avoid false sharing
-            uptr NextAllocationPtr;  // Next address to allocate from
-            unsigned int Num = 0;    // TLS local number of allocations from this block
+            NumAllocationsType NumAllocations{ .Value = UINT_MAX };              // Tracks live allocations + UINT_MAX
+            u8 Padding[OLO_PLATFORM_CACHE_LINE_SIZE - sizeof(std::atomic_uint)]; // Avoid false sharing
+            uptr NextAllocationPtr;                                              // Next address to allocate from
+            unsigned int Num = 0;                                                // TLS local number of allocations from this block
         };
 
         // @struct FTLSCleanup
@@ -294,7 +294,7 @@ namespace OloEngine
             }
         }
 
-    public:
+      public:
         template<u32 Alignment>
         static OLO_FINLINE void* Malloc(sizet Size)
         {
@@ -507,7 +507,7 @@ namespace OloEngine
 
     // @brief Thread-safe concurrent linear allocator
     // @tparam T Block allocation tag for configuration
-    template <typename T>
+    template<typename T>
     using TConcurrentLinearAllocator = TLinearAllocatorBase<T, ELinearAllocatorThreadPolicy::ThreadSafe>;
 
     // @brief Default thread-safe concurrent linear allocator
@@ -517,4 +517,3 @@ namespace OloEngine
     using FNonconcurrentLinearAllocator = TLinearAllocatorBase<FDefaultBlockAllocationTag, ELinearAllocatorThreadPolicy::NotThreadSafe>;
 
 } // namespace OloEngine
-

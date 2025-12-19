@@ -8,108 +8,121 @@
 #include <fstream>
 #include <string>
 
-namespace OloEngine {
+namespace OloEngine
+{
 
-	// @brief Simple output stream wrapper for Jolt capture files
-	// 
-	// Simple file output class used by the capture manager to write physics 
-	// simulation data to binary files compatible with JoltViewer.
-	class JoltCaptureOutStream
-	{
-	public:
-		JoltCaptureOutStream() = default;
-		~JoltCaptureOutStream() noexcept;
-		
-		[[nodiscard]] bool Open(const std::filesystem::path& inPath);
-		void Close();
-		[[nodiscard]] bool IsOpen() const { return m_Stream.is_open(); }
+    // @brief Simple output stream wrapper for Jolt capture files
+    //
+    // Simple file output class used by the capture manager to write physics
+    // simulation data to binary files compatible with JoltViewer.
+    class JoltCaptureOutStream
+    {
+      public:
+        JoltCaptureOutStream() = default;
+        ~JoltCaptureOutStream() noexcept;
 
-		[[nodiscard]] bool WriteBytes(const void* inData, sizet inNumBytes);
-		[[nodiscard]] bool IsFailed() const;
+        [[nodiscard]] bool Open(const std::filesystem::path& inPath);
+        void Close();
+        [[nodiscard]] bool IsOpen() const
+        {
+            return m_Stream.is_open();
+        }
 
-		// Explicitly non-copyable
-		JoltCaptureOutStream(const JoltCaptureOutStream&) = delete;
-		JoltCaptureOutStream& operator=(const JoltCaptureOutStream&) = delete;
+        [[nodiscard]] bool WriteBytes(const void* inData, sizet inNumBytes);
+        [[nodiscard]] bool IsFailed() const;
 
-		// Allow move operations
-		JoltCaptureOutStream(JoltCaptureOutStream&&) = default;
-		JoltCaptureOutStream& operator=(JoltCaptureOutStream&&) = default;
+        // Explicitly non-copyable
+        JoltCaptureOutStream(const JoltCaptureOutStream&) = delete;
+        JoltCaptureOutStream& operator=(const JoltCaptureOutStream&) = delete;
 
-	private:
-		std::ofstream m_Stream;
-	};
+        // Allow move operations
+        JoltCaptureOutStream(JoltCaptureOutStream&&) = default;
+        JoltCaptureOutStream& operator=(JoltCaptureOutStream&&) = default;
 
-	// @brief Manager for capturing and recording Jolt Physics simulations
-	// 
-	// Provides functionality to record physics simulations to files that can
-	// be replayed and analyzed using external tools like JoltViewer. This is
-	// invaluable for debugging complex physics scenarios and performance analysis.
-	// 
-	// Note: Full capture functionality requires JPH_DEBUG_RENDERER to be enabled.
-	// Without it, the capture manager provides file management but no actual recording.
-	// 
-	// Thread Safety: This class is NOT thread-safe and is intended for single-threaded
-	// use only. All methods, including IsCapturing(), must be called from the same thread.
-	// The capture state (m_IsCapturing) and captures list (m_Captures) are not synchronized.
-	// External synchronization is required if access from multiple threads is necessary.
-	class JoltCaptureManager : public RefCounted
-	{
-	public:
-		JoltCaptureManager();
-		~JoltCaptureManager();
-		
-		// Explicitly non-copyable and non-movable
-		JoltCaptureManager(const JoltCaptureManager&) = delete;
-		JoltCaptureManager& operator=(const JoltCaptureManager&) = delete;
-		JoltCaptureManager(JoltCaptureManager&&) = delete;
-		JoltCaptureManager& operator=(JoltCaptureManager&&) = delete;
+      private:
+        std::ofstream m_Stream;
+    };
 
-		// Core capture functionality
-		void BeginCapture();
-		void CaptureFrame();
-		void EndCapture();
-		[[nodiscard]] bool IsCapturing() const;
+    // @brief Manager for capturing and recording Jolt Physics simulations
+    //
+    // Provides functionality to record physics simulations to files that can
+    // be replayed and analyzed using external tools like JoltViewer. This is
+    // invaluable for debugging complex physics scenarios and performance analysis.
+    //
+    // Note: Full capture functionality requires JPH_DEBUG_RENDERER to be enabled.
+    // Without it, the capture manager provides file management but no actual recording.
+    //
+    // Thread Safety: This class is NOT thread-safe and is intended for single-threaded
+    // use only. All methods, including IsCapturing(), must be called from the same thread.
+    // The capture state (m_IsCapturing) and captures list (m_Captures) are not synchronized.
+    // External synchronization is required if access from multiple threads is necessary.
+    class JoltCaptureManager : public RefCounted
+    {
+      public:
+        JoltCaptureManager();
+        ~JoltCaptureManager();
 
-		// File management
-		void OpenCapture(const std::filesystem::path& capturePath);
-		void OpenRecentCapture();
-		void ClearCaptures();
-		void RemoveCapture(const std::filesystem::path& capturePath);
-		[[nodiscard]] const std::vector<std::filesystem::path>& GetAllCaptures() const { return m_Captures; }
+        // Explicitly non-copyable and non-movable
+        JoltCaptureManager(const JoltCaptureManager&) = delete;
+        JoltCaptureManager& operator=(const JoltCaptureManager&) = delete;
+        JoltCaptureManager(JoltCaptureManager&&) = delete;
+        JoltCaptureManager& operator=(JoltCaptureManager&&) = delete;
 
-		// Settings
-		[[nodiscard]] bool SetCapturesDirectory(const std::filesystem::path& directory);
-		[[nodiscard]] const std::filesystem::path& GetCapturesDirectory() const { return m_CapturesDirectory; }
+        // Core capture functionality
+        void BeginCapture();
+        void CaptureFrame();
+        void EndCapture();
+        [[nodiscard]] bool IsCapturing() const;
 
-		// @brief Set the frame logging interval for capture progress
-		// @param interval Number of frames between log messages (must be > 0)
-		// 
-		// Controls how frequently the capture manager logs progress messages during recording.
-		// A lower interval provides more frequent updates but may impact performance.
-		// Default is s_DefaultFrameLogInterval frames, which typically corresponds to 1 second at 60 FPS.
-		void SetFrameLogInterval(i32 interval);
+        // File management
+        void OpenCapture(const std::filesystem::path& capturePath);
+        void OpenRecentCapture();
+        void ClearCaptures();
+        void RemoveCapture(const std::filesystem::path& capturePath);
+        [[nodiscard]] const std::vector<std::filesystem::path>& GetAllCaptures() const
+        {
+            return m_Captures;
+        }
 
-		// @brief Get the current frame logging interval
-		// @return Number of frames between log messages
-		[[nodiscard]] i32 GetFrameLogInterval() const { return m_FrameLogInterval; }
+        // Settings
+        [[nodiscard]] bool SetCapturesDirectory(const std::filesystem::path& directory);
+        [[nodiscard]] const std::filesystem::path& GetCapturesDirectory() const
+        {
+            return m_CapturesDirectory;
+        }
 
-	private:
-		void InitializeCapturesDirectory();
-		void RefreshCapturesCache();
-		void HandleCaptureFailure(const std::string& errorMessage);
-		std::filesystem::path ValidateAndCanonalizePath(const std::filesystem::path& path, const std::filesystem::path& expectedRoot);
+        // @brief Set the frame logging interval for capture progress
+        // @param interval Number of frames between log messages (must be > 0)
+        //
+        // Controls how frequently the capture manager logs progress messages during recording.
+        // A lower interval provides more frequent updates but may impact performance.
+        // Default is s_DefaultFrameLogInterval frames, which typically corresponds to 1 second at 60 FPS.
+        void SetFrameLogInterval(i32 interval);
 
-		inline static constexpr i32 s_DefaultFrameLogInterval = 100;
+        // @brief Get the current frame logging interval
+        // @return Number of frames between log messages
+        [[nodiscard]] i32 GetFrameLogInterval() const
+        {
+            return m_FrameLogInterval;
+        }
 
-	private:
-		JoltCaptureOutStream m_Stream;
-		bool m_IsCapturing = false;
-		i32 m_FrameCount = 0;
-		i32 m_FrameLogInterval = s_DefaultFrameLogInterval; ///< Number of frames between log messages (default: s_DefaultFrameLogInterval)
+      private:
+        void InitializeCapturesDirectory();
+        void RefreshCapturesCache();
+        void HandleCaptureFailure(const std::string& errorMessage);
+        std::filesystem::path ValidateAndCanonalizePath(const std::filesystem::path& path, const std::filesystem::path& expectedRoot);
 
-		std::filesystem::path m_CapturesDirectory;
-		std::filesystem::path m_RecentCapture;
-		std::vector<std::filesystem::path> m_Captures;
-	};
+        inline static constexpr i32 s_DefaultFrameLogInterval = 100;
 
-}
+      private:
+        JoltCaptureOutStream m_Stream;
+        bool m_IsCapturing = false;
+        i32 m_FrameCount = 0;
+        i32 m_FrameLogInterval = s_DefaultFrameLogInterval; ///< Number of frames between log messages (default: s_DefaultFrameLogInterval)
+
+        std::filesystem::path m_CapturesDirectory;
+        std::filesystem::path m_RecentCapture;
+        std::vector<std::filesystem::path> m_Captures;
+    };
+
+} // namespace OloEngine

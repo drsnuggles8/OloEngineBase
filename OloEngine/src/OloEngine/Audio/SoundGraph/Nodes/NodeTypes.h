@@ -17,5 +17,5 @@ namespace OloEngine::Audio::SoundGraph
 {
     // All node types are included from their respective category files
     // This provides a single include point for all nodes, just like Hazel
-    
+
 } // namespace OloEngine::Audio::SoundGraph

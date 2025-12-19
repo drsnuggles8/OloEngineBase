@@ -16,26 +16,26 @@ namespace OloEngine
      */
     enum class FileSystemChangeKind : u8
     {
-        Created = 0,    ///< File or directory was created
-        Modified = 1,   ///< File or directory was modified
-        Deleted = 2,    ///< File or directory was deleted
-        Renamed = 3     ///< File or directory was renamed/moved
+        Created = 0,  ///< File or directory was created
+        Modified = 1, ///< File or directory was modified
+        Deleted = 2,  ///< File or directory was deleted
+        Renamed = 3   ///< File or directory was renamed/moved
     };
 
     /**
      * @brief File system event for asset hot-reload
-     * 
+     *
      * Contains information about file system changes that may trigger
      * asset reloading or other editor responses.
      */
     struct FileSystemEvent
     {
         FileSystemChangeKind ChangeKind = FileSystemChangeKind::Modified;
-        std::filesystem::path FilePath;           ///< Absolute or relative path to the changed file/directory
-        std::filesystem::path OldFilePath;        ///< Previous path (only used for Renamed events)
-        bool IsDirectory = false;       ///< True if the change affects a directory, false for files
+        std::filesystem::path FilePath;                  ///< Absolute or relative path to the changed file/directory
+        std::filesystem::path OldFilePath;               ///< Previous path (only used for Renamed events)
+        bool IsDirectory = false;                        ///< True if the change affects a directory, false for files
         std::chrono::system_clock::time_point Timestamp; ///< When the file system change occurred
-        
+
         /**
          * @brief Constructor for most file system events
          * @param changeKind Type of change that occurred
@@ -46,7 +46,7 @@ namespace OloEngine
             : ChangeKind(changeKind), FilePath(filePath), IsDirectory(isDirectory), Timestamp(std::chrono::system_clock::now())
         {
         }
-        
+
         /**
          * @brief Constructor for rename events
          * @param oldPath Previous path before rename
@@ -57,7 +57,7 @@ namespace OloEngine
             : ChangeKind(FileSystemChangeKind::Renamed), FilePath(newPath), OldFilePath(oldPath), IsDirectory(isDirectory), Timestamp(std::chrono::system_clock::now())
         {
         }
-        
+
         /**
          * @brief Default constructor
          */
@@ -72,7 +72,7 @@ namespace OloEngine
      */
     class AssetReloadedEvent : public Event
     {
-    public:
+      public:
         AssetReloadedEvent(AssetHandle handle, AssetType type, const std::filesystem::path& path)
             : m_Handle(handle), m_Type(type), m_Path(path) {}
 
@@ -81,22 +81,31 @@ namespace OloEngine
         EVENT_CLASS_CATEGORY(EventCategory::Application)
 
         // Payload accessors
-        AssetHandle GetHandle() const { return m_Handle; }
-        AssetType GetAssetType() const { return m_Type; }
-        const std::filesystem::path& GetPath() const { return m_Path; }
+        AssetHandle GetHandle() const
+        {
+            return m_Handle;
+        }
+        AssetType GetAssetType() const
+        {
+            return m_Type;
+        }
+        const std::filesystem::path& GetPath() const
+        {
+            return m_Path;
+        }
 
         std::string ToString() const override
         {
-            return std::format("AssetReloadedEvent: handle={}, type={}, path={}", 
-                static_cast<u64>(m_Handle), 
-                static_cast<int>(m_Type), 
-                m_Path.string());
+            return std::format("AssetReloadedEvent: handle={}, type={}, path={}",
+                               static_cast<u64>(m_Handle),
+                               static_cast<int>(m_Type),
+                               m_Path.string());
         }
 
-    private:
+      private:
         AssetHandle m_Handle = 0;
         AssetType m_Type = AssetType::None;
         std::filesystem::path m_Path;
     };
 
-}
+} // namespace OloEngine

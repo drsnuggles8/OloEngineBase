@@ -6,15 +6,15 @@
 /**
  * @file Queue.h
  * @brief Template for unbounded lock-free queues with various concurrency modes
- * 
+ *
  * This template implements an unbounded non-intrusive queue using a lock-free linked
  * list that stores copies of the queued items. The template can operate in three modes:
- * Multiple-producers single-consumer (MPSC), Single-producer single-consumer (SPSC), 
+ * Multiple-producers single-consumer (MPSC), Single-producer single-consumer (SPSC),
  * and Single-threaded.
- * 
+ *
  * @note Consider using TSpscQueue or TMpscQueue for higher-performance specialized
  *       queue implementations.
- * 
+ *
  * Ported from Unreal Engine's Containers/Queue.h
  */
 
@@ -47,10 +47,10 @@ namespace OloEngine
     /**
      * @class TQueue
      * @brief Template for unbounded lock-free queues
-     * 
-     * The queue is thread-safe in both MPSC and SPSC modes. The Dequeue() method ensures 
-     * thread-safety by writing it in a way that does not depend on possible instruction 
-     * reordering on the CPU. The Enqueue() method uses an atomic exchange in 
+     *
+     * The queue is thread-safe in both MPSC and SPSC modes. The Dequeue() method ensures
+     * thread-safety by writing it in a way that does not depend on possible instruction
+     * reordering on the CPU. The Enqueue() method uses an atomic exchange in
      * multiple-producers scenarios.
      *
      * The queue is not thread-safe in single-threaded mode, as the name suggests.
@@ -61,7 +61,7 @@ namespace OloEngine
     template<typename T, EQueueMode Mode = EQueueMode::Spsc>
     class TQueue
     {
-    public:
+      public:
         using FElementType = T;
 
         /** Non-copyable, non-movable */
@@ -122,7 +122,8 @@ namespace OloEngine
          */
         void Empty()
         {
-            while (Pop());
+            while (Pop())
+                ;
         }
 
         /**
@@ -148,11 +149,11 @@ namespace OloEngine
             {
                 // Multiple producers: use atomic exchange
                 OldHead = m_Head.exchange(NewNode, std::memory_order_acq_rel);
-                
+
                 // Store the pointer to the new node
                 TNode* Expected = nullptr;
-                while (!OldHead->NextNode.compare_exchange_weak(Expected, NewNode, 
-                    std::memory_order_release, std::memory_order_relaxed))
+                while (!OldHead->NextNode.compare_exchange_weak(Expected, NewNode,
+                                                                std::memory_order_release, std::memory_order_relaxed))
                 {
                     Expected = nullptr;
                 }
@@ -197,11 +198,11 @@ namespace OloEngine
             {
                 // Multiple producers: use atomic exchange
                 OldHead = m_Head.exchange(NewNode, std::memory_order_acq_rel);
-                
+
                 // Store the pointer to the new node
                 TNode* Expected = nullptr;
-                while (!OldHead->NextNode.compare_exchange_weak(Expected, NewNode, 
-                    std::memory_order_release, std::memory_order_relaxed))
+                while (!OldHead->NextNode.compare_exchange_weak(Expected, NewNode,
+                                                                std::memory_order_release, std::memory_order_relaxed))
                 {
                     Expected = nullptr;
                 }
@@ -303,12 +304,12 @@ namespace OloEngine
             return true;
         }
 
-    private:
+      private:
         /** Structure for the internal linked list. */
         struct TNode
         {
             /** Holds a pointer to the next node in the list. */
-            std::atomic<TNode*> NextNode{nullptr};
+            std::atomic<TNode*> NextNode{ nullptr };
 
             /** Holds the node's item. */
             FElementType Item;
@@ -330,7 +331,8 @@ namespace OloEngine
         };
 
         /** Holds a pointer to the head of the list. */
-        OLO_ALIGN(16) std::atomic<TNode*> m_Head OLO_GCC_ALIGN(16);
+        OLO_ALIGN(16)
+        std::atomic<TNode*> m_Head OLO_GCC_ALIGN(16);
 
         /** Holds a pointer to the tail of the list. */
         TNode* m_Tail;

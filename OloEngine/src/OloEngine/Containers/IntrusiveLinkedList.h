@@ -10,10 +10,10 @@ namespace OloEngine
     /**
      * Base linked list iterator class
      */
-    template <class ContainerType>
+    template<class ContainerType>
     class TLinkedListIteratorBase
     {
-    public:
+      public:
         [[nodiscard]] explicit TLinkedListIteratorBase(ContainerType* FirstLink)
             : m_CurrentLink(FirstLink)
         {
@@ -43,26 +43,32 @@ namespace OloEngine
 
         /** Conversion to "bool" returning true if the iterator is valid. */
         [[nodiscard]] OLO_FINLINE explicit operator bool() const
-        { 
+        {
             return m_CurrentLink != nullptr;
         }
 
-        [[nodiscard]] OLO_FINLINE bool operator==(const TLinkedListIteratorBase& Rhs) const { return m_CurrentLink == Rhs.m_CurrentLink; }
-        [[nodiscard]] OLO_FINLINE bool operator!=(const TLinkedListIteratorBase& Rhs) const { return m_CurrentLink != Rhs.m_CurrentLink; }
+        [[nodiscard]] OLO_FINLINE bool operator==(const TLinkedListIteratorBase& Rhs) const
+        {
+            return m_CurrentLink == Rhs.m_CurrentLink;
+        }
+        [[nodiscard]] OLO_FINLINE bool operator!=(const TLinkedListIteratorBase& Rhs) const
+        {
+            return m_CurrentLink != Rhs.m_CurrentLink;
+        }
 
-    protected:
+      protected:
         ContainerType* m_CurrentLink;
     };
 
     /**
      * Iterator for intrusive linked lists
      */
-    template <class ContainerType, class ElementType>
+    template<class ContainerType, class ElementType>
     class TIntrusiveLinkedListIterator : public TLinkedListIteratorBase<ElementType>
     {
         using Super = TLinkedListIteratorBase<ElementType>;
 
-    public:
+      public:
         [[nodiscard]] explicit TIntrusiveLinkedListIterator(ElementType* FirstLink)
             : Super(FirstLink)
         {
@@ -85,10 +91,10 @@ namespace OloEngine
     /**
      * Base linked list class, used to implement methods shared by intrusive/non-intrusive linked lists
      */
-    template <class ContainerType, class ElementType, template<class, class> class IteratorType>
+    template<class ContainerType, class ElementType, template<class, class> class IteratorType>
     class TLinkedListBase
     {
-    public:
+      public:
         /**
          * Used to iterate over the elements of a linked list.
          */
@@ -99,8 +105,7 @@ namespace OloEngine
          * Default constructor (empty list)
          */
         [[nodiscard]] TLinkedListBase()
-            : m_NextLink(nullptr)
-            , m_PrevLink(nullptr)
+            : m_NextLink(nullptr), m_PrevLink(nullptr)
         {
         }
 
@@ -233,17 +238,29 @@ namespace OloEngine
             return m_NextLink;
         }
 
-    private:
+      private:
         /** The next link in the linked list */
         ContainerType* m_NextLink;
 
         /** Pointer to 'NextLink', within the previous link in the linked list */
         ContainerType** m_PrevLink;
 
-        [[nodiscard]] OLO_FINLINE friend TIterator begin(ContainerType& List) { return TIterator(&List); }
-        [[nodiscard]] OLO_FINLINE friend TConstIterator begin(const ContainerType& List) { return TConstIterator(const_cast<ContainerType*>(&List)); }
-        [[nodiscard]] OLO_FINLINE friend TIterator end(ContainerType& /*List*/) { return TIterator(nullptr); }
-        [[nodiscard]] OLO_FINLINE friend TConstIterator end(const ContainerType& /*List*/) { return TConstIterator(nullptr); }
+        [[nodiscard]] OLO_FINLINE friend TIterator begin(ContainerType& List)
+        {
+            return TIterator(&List);
+        }
+        [[nodiscard]] OLO_FINLINE friend TConstIterator begin(const ContainerType& List)
+        {
+            return TConstIterator(const_cast<ContainerType*>(&List));
+        }
+        [[nodiscard]] OLO_FINLINE friend TIterator end(ContainerType& /*List*/)
+        {
+            return TIterator(nullptr);
+        }
+        [[nodiscard]] OLO_FINLINE friend TConstIterator end(const ContainerType& /*List*/)
+        {
+            return TConstIterator(nullptr);
+        }
     };
 
     /**
@@ -263,12 +280,12 @@ namespace OloEngine
      *         ...
      *     }
      */
-    template <class ElementType>
+    template<class ElementType>
     class TIntrusiveLinkedList : public TLinkedListBase<ElementType, ElementType, TIntrusiveLinkedListIterator>
     {
         using Super = TLinkedListBase<ElementType, ElementType, TIntrusiveLinkedListIterator>;
 
-    public:
+      public:
         /** Default constructor (empty list). */
         [[nodiscard]] TIntrusiveLinkedList()
             : Super()

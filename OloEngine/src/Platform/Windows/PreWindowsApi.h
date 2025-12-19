@@ -10,7 +10,7 @@
 
 // This file should only be included from WindowsHWrapper.h
 #if !defined(WINDOWS_H_WRAPPER_GUARD)
-    #pragma message("WARNING: do not include PreWindowsApi.h directly. Use Platform/Windows/WindowsHWrapper.h instead")
+#pragma message("WARNING: do not include PreWindowsApi.h directly. Use Platform/Windows/WindowsHWrapper.h instead")
 #endif
 
 // Save these macros for later; Windows redefines them
@@ -20,14 +20,14 @@
 
 // Undefine the TEXT macro for winnt.h to redefine it, unless it's already been included
 #ifndef _WINNT_
-    #undef TEXT
+#undef TEXT
 #endif
 
 // Disable specific warnings that Windows headers trigger
 #if defined(_MSC_VER)
-    #pragma warning(push)
-    #pragma warning(disable: 4668) // 'symbol' is not defined as a preprocessor macro
-    #pragma warning(disable: 5105) // macro expansion producing 'defined' has undefined behavior
+#pragma warning(push)
+#pragma warning(disable : 4668) // 'symbol' is not defined as a preprocessor macro
+#pragma warning(disable : 5105) // macro expansion producing 'defined' has undefined behavior
 #endif
 
 #endif // _WIN32

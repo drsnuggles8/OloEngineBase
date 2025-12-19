@@ -64,10 +64,10 @@ namespace OloEngine::LowLevelTasks
     // @brief Thread-local storage management for the scheduler
     class FSchedulerTls
     {
-    protected:
+      protected:
         class FImpl;
 
-        using FQueueRegistry  = Private::TLocalQueueRegistry<>;
+        using FQueueRegistry = Private::TLocalQueueRegistry<>;
         using FLocalQueueType = FQueueRegistry::TLocalQueue;
 
         enum class EWorkerType
@@ -81,11 +81,11 @@ namespace OloEngine::LowLevelTasks
         // @brief Per-thread values stored in TLS for scheduler state
         struct FTlsValues : public TIntrusiveLinkedList<FTlsValues>
         {
-            FSchedulerTls*         ActiveScheduler = nullptr;
-            FLocalQueueType*       LocalQueue = nullptr;
-            EWorkerType            WorkerType = EWorkerType::None;
-            std::atomic<bool>      bPendingWakeUp = false;
-            bool                   bIsStandbyWorker = false;
+            FSchedulerTls* ActiveScheduler = nullptr;
+            FLocalQueueType* LocalQueue = nullptr;
+            EWorkerType WorkerType = EWorkerType::None;
+            std::atomic<bool> bPendingWakeUp = false;
+            bool bIsStandbyWorker = false;
 
             OLO_FINLINE bool IsBackgroundWorker() const
             {
@@ -117,13 +117,13 @@ namespace OloEngine::LowLevelTasks
             FTlsValues* TlsValues = nullptr;
         };
 
-    private:
+      private:
         static thread_local FTlsValuesHolder s_TlsValuesHolder;
 
-    public:
+      public:
         bool IsWorkerThread() const;
 
-    protected:
+      protected:
         bool HasPendingWakeUp() const;
 
         static FTlsValues& GetTlsValuesRef();
@@ -131,17 +131,17 @@ namespace OloEngine::LowLevelTasks
 
     // @class FScheduler
     // @brief Main task scheduler for managing worker threads and task execution
-    // 
+    //
     // The scheduler manages a pool of worker threads that execute tasks from
     // work-stealing queues. It supports both foreground and background workers
     // with different priorities and oversubscription for blocking operations.
     class FScheduler final : public FSchedulerTls
     {
-    public:
+      public:
         FScheduler(const FScheduler&) = delete;
         FScheduler& operator=(const FScheduler&) = delete;
 
-    private:
+      private:
         static constexpr u32 WorkerSpinCycles = 53;
 
         static FScheduler s_Singleton;
@@ -149,7 +149,7 @@ namespace OloEngine::LowLevelTasks
         // Using 16 bytes here because it fits the vtable and one additional pointer
         using FConditional = TTaskDelegate<bool(), 16>;
 
-    public: // Public Interface of the Scheduler
+      public: // Public Interface of the Scheduler
         OLO_FINLINE static FScheduler& Get();
 
         // @brief Start worker threads
@@ -160,10 +160,10 @@ namespace OloEngine::LowLevelTasks
         // @param InBackgroundPriority Thread priority for background workers
         // @param InWorkerAffinity CPU affinity mask for foreground workers
         // @param InBackgroundAffinity CPU affinity mask for background workers
-        void StartWorkers(u32 NumForegroundWorkers = 0, u32 NumBackgroundWorkers = 0, 
+        void StartWorkers(u32 NumForegroundWorkers = 0, u32 NumBackgroundWorkers = 0,
                           EForkable IsForkable = EForkable::NonForkable,
-                          EThreadPriority InWorkerPriority = EThreadPriority::TPri_Normal, 
-                          EThreadPriority InBackgroundPriority = EThreadPriority::TPri_BelowNormal, 
+                          EThreadPriority InWorkerPriority = EThreadPriority::TPri_Normal,
+                          EThreadPriority InBackgroundPriority = EThreadPriority::TPri_BelowNormal,
                           u64 InWorkerAffinity = 0, u64 InBackgroundAffinity = 0);
 
         // @brief Stop all worker threads
@@ -171,11 +171,11 @@ namespace OloEngine::LowLevelTasks
         void StopWorkers(bool DrainGlobalQueue = true);
 
         // @brief Restart workers with new configuration
-        void RestartWorkers(u32 NumForegroundWorkers = 0, u32 NumBackgroundWorkers = 0, 
-                           EForkable IsForkable = EForkable::NonForkable,
-                           EThreadPriority WorkerPriority = EThreadPriority::TPri_Normal, 
-                           EThreadPriority BackgroundPriority = EThreadPriority::TPri_BelowNormal, 
-                           u64 InWorkerAffinity = 0, u64 InBackgroundAffinity = 0);
+        void RestartWorkers(u32 NumForegroundWorkers = 0, u32 NumBackgroundWorkers = 0,
+                            EForkable IsForkable = EForkable::NonForkable,
+                            EThreadPriority WorkerPriority = EThreadPriority::TPri_Normal,
+                            EThreadPriority BackgroundPriority = EThreadPriority::TPri_BelowNormal,
+                            u64 InWorkerAffinity = 0, u64 InBackgroundAffinity = 0);
 
         // @brief Try to launch a task
         // @param Task The task to launch
@@ -191,10 +191,16 @@ namespace OloEngine::LowLevelTasks
         OLO_FINLINE u32 GetMaxNumWorkers() const;
 
         // @brief Get foreground worker thread priority
-        OLO_FINLINE EThreadPriority GetWorkerPriority() const { return m_WorkerPriority; }
+        OLO_FINLINE EThreadPriority GetWorkerPriority() const
+        {
+            return m_WorkerPriority;
+        }
 
         // @brief Get background worker thread priority
-        OLO_FINLINE EThreadPriority GetBackgroundPriority() const { return m_BackgroundPriority; }
+        OLO_FINLINE EThreadPriority GetBackgroundPriority() const
+        {
+            return m_BackgroundPriority;
+        }
 
         // @brief Check if we're out of workers for a given task priority
         bool IsOversubscriptionLimitReached(ETaskPriority TaskPriority) const;
@@ -203,27 +209,27 @@ namespace OloEngine::LowLevelTasks
         // @note This event can be broadcasted from any thread so the receiver needs to be thread-safe
         FOversubscriptionLimitReached& GetOversubscriptionLimitReachedEvent();
 
-    public:
+      public:
         FScheduler() = default;
         ~FScheduler();
 
-    private:
+      private:
         [[nodiscard]] FTask* ExecuteTask(FTask* InTask);
 
-        std::unique_ptr<OloEngine::FThread> CreateWorker(u32 WorkerId, const char* Name, bool bPermitBackgroundWork = false, 
-                                                   EForkable IsForkable = EForkable::NonForkable,
-                                                   Private::FWaitEvent* ExternalWorkerEvent = nullptr, 
-                                                   FSchedulerTls::FLocalQueueType* ExternalWorkerLocalQueue = nullptr, 
-                                                   EThreadPriority Priority = EThreadPriority::TPri_Normal, u64 InAffinity = 0);
+        std::unique_ptr<OloEngine::FThread> CreateWorker(u32 WorkerId, const char* Name, bool bPermitBackgroundWork = false,
+                                                         EForkable IsForkable = EForkable::NonForkable,
+                                                         Private::FWaitEvent* ExternalWorkerEvent = nullptr,
+                                                         FSchedulerTls::FLocalQueueType* ExternalWorkerLocalQueue = nullptr,
+                                                         EThreadPriority Priority = EThreadPriority::TPri_Normal, u64 InAffinity = 0);
 
-        void WorkerMain(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* ExternalWorkerLocalQueue, 
-                       u32 WaitCycles, bool bPermitBackgroundWork);
-
-        void StandbyLoop(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* ExternalWorkerLocalQueue, 
+        void WorkerMain(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* ExternalWorkerLocalQueue,
                         u32 WaitCycles, bool bPermitBackgroundWork);
 
-        void WorkerLoop(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* ExternalWorkerLocalQueue, 
-                       u32 WaitCycles, bool bPermitBackgroundWork);
+        void StandbyLoop(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* ExternalWorkerLocalQueue,
+                         u32 WaitCycles, bool bPermitBackgroundWork);
+
+        void WorkerLoop(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* ExternalWorkerLocalQueue,
+                        u32 WaitCycles, bool bPermitBackgroundWork);
 
         void LaunchInternal(FTask& Task, EQueuePreference QueuePreference, bool bWakeUpWorker);
 
@@ -237,27 +243,27 @@ namespace OloEngine::LowLevelTasks
 
         friend class FOversubscriptionScope;
 
-    private:
+      private:
         // NOTE: Member ordering matters! m_WorkerEvents and m_OversubscriptionLimitReachedEvent
         // MUST be declared before m_WaitingQueue because m_WaitingQueue takes references to them
         // in its initializer. C++ initializes members in declaration order, not initializer order.
-        TAlignedArray<Private::FWaitEvent>                        m_WorkerEvents;
-        FOversubscriptionLimitReached                             m_OversubscriptionLimitReachedEvent;
-        Private::FWaitingQueue                                    m_WaitingQueue[2] = { { m_WorkerEvents, m_OversubscriptionLimitReachedEvent }, { m_WorkerEvents, m_OversubscriptionLimitReachedEvent } };
-        FSchedulerTls::FQueueRegistry                             m_QueueRegistry;
-        FRecursiveMutex                                           m_WorkerThreadsCS;
-        std::unique_ptr<std::atomic<OloEngine::FThread*>[]>      m_WorkerThreads;
-        TAlignedArray<FSchedulerTls::FLocalQueueType>             m_WorkerLocalQueues;
-        std::unique_ptr<FSchedulerTls::FLocalQueueType>           m_GameThreadLocalQueue;
-        std::atomic_uint                                          m_ActiveWorkers { 0 };
-        std::atomic_uint                                          m_NextWorkerId { 0 };
-        std::atomic<i32>                                          m_ForegroundCreationIndex{ 0 };
-        std::atomic<i32>                                          m_BackgroundCreationIndex{ 0 };
-        u64                                                       m_WorkerAffinity = 0;
-        u64                                                       m_BackgroundAffinity = 0;
-        EThreadPriority                                           m_WorkerPriority = EThreadPriority::TPri_Normal;
-        EThreadPriority                                           m_BackgroundPriority = EThreadPriority::TPri_BelowNormal;
-        std::atomic_bool                                          m_TemporaryShutdown{ false };
+        TAlignedArray<Private::FWaitEvent> m_WorkerEvents;
+        FOversubscriptionLimitReached m_OversubscriptionLimitReachedEvent;
+        Private::FWaitingQueue m_WaitingQueue[2] = { { m_WorkerEvents, m_OversubscriptionLimitReachedEvent }, { m_WorkerEvents, m_OversubscriptionLimitReachedEvent } };
+        FSchedulerTls::FQueueRegistry m_QueueRegistry;
+        FRecursiveMutex m_WorkerThreadsCS;
+        std::unique_ptr<std::atomic<OloEngine::FThread*>[]> m_WorkerThreads;
+        TAlignedArray<FSchedulerTls::FLocalQueueType> m_WorkerLocalQueues;
+        std::unique_ptr<FSchedulerTls::FLocalQueueType> m_GameThreadLocalQueue;
+        std::atomic_uint m_ActiveWorkers{ 0 };
+        std::atomic_uint m_NextWorkerId{ 0 };
+        std::atomic<i32> m_ForegroundCreationIndex{ 0 };
+        std::atomic<i32> m_BackgroundCreationIndex{ 0 };
+        u64 m_WorkerAffinity = 0;
+        u64 m_BackgroundAffinity = 0;
+        EThreadPriority m_WorkerPriority = EThreadPriority::TPri_Normal;
+        EThreadPriority m_BackgroundPriority = EThreadPriority::TPri_BelowNormal;
+        std::atomic_bool m_TemporaryShutdown{ false };
     };
 
     // @brief Free function to launch a task on the default scheduler

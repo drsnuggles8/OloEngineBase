@@ -13,7 +13,7 @@
 #ifdef _WIN32
 
 #if defined(WINDOWS_H_WRAPPER_GUARD)
-    #error WINDOWS_H_WRAPPER_GUARD already defined - recursive include detected
+#error WINDOWS_H_WRAPPER_GUARD already defined - recursive include detected
 #endif
 #define WINDOWS_H_WRAPPER_GUARD
 

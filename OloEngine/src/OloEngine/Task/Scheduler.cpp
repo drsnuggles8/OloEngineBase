@@ -24,29 +24,29 @@
 
 // Platform cache line size (typically 64 bytes on x86/x64)
 #ifndef PLATFORM_CACHE_LINE_SIZE
-    #define PLATFORM_CACHE_LINE_SIZE 64
+#define PLATFORM_CACHE_LINE_SIZE 64
 #endif
 
 // Platform asymmetric fence support (only ARM platforms typically support this)
 #ifndef PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-    #define PLATFORM_SUPPORTS_ASYMMETRIC_FENCES 0
+#define PLATFORM_SUPPORTS_ASYMMETRIC_FENCES 0
 #endif
 
 namespace OloEngine::LowLevelTasks
 {
     // Global configuration flags (can be set before starting workers)
     // These mirror UE5.7's GTaskGraph* variables for behavioral parity
-    static bool g_TaskGraphUseDynamicPrioritization = true;   // UE5.7 default is true (1)
+    static bool g_TaskGraphUseDynamicPrioritization = true; // UE5.7 default is true (1)
     static float g_TaskGraphOversubscriptionRatio = 2.0f;
     static bool g_TaskGraphUseDynamicThreadCreation = false;
     static bool g_TaskGraphConfigInitialized = false;
 
     // @brief Parse command-line or environment configuration for task graph settings
-    // 
+    //
     // This mirrors UE5.7's approach of parsing command-line arguments like:
     // - TaskGraphUseDynamicPrioritization=0|1
     // - TaskGraphUseDynamicThreadCreation=0|1
-    // 
+    //
     // Since OloEngine may not have a unified command-line parser yet, we also support
     // environment variables:
     // - OLO_TASK_GRAPH_DYNAMIC_PRIORITIZATION=0|1
@@ -101,7 +101,7 @@ namespace OloEngine::LowLevelTasks
 
     bool IsInGameThread()
     {
-        return g_GameThreadIdInitialized.load(std::memory_order_acquire) && 
+        return g_GameThreadIdInitialized.load(std::memory_order_acquire) &&
                FPlatformTLS::GetCurrentThreadId() == g_GameThreadId;
     }
 
@@ -148,8 +148,8 @@ namespace OloEngine::LowLevelTasks
     // FSchedulerTls::FImpl - manages TLS values across threads
     class FSchedulerTls::FImpl
     {
-    public:
-        static FMutex                 s_ThreadTlsValuesMutex;
+      public:
+        static FMutex s_ThreadTlsValuesMutex;
         static FSchedulerTls::FTlsValues* s_ThreadTlsValues;
 
         static TConsumeAllMpmcQueue<FSchedulerTls::FTlsValues*, FTlsValuesAllocator> s_PendingInsertTlsValues;
@@ -161,16 +161,14 @@ namespace OloEngine::LowLevelTasks
                 [](FTlsValues* TlsValues)
                 {
                     TlsValues->LinkHead(s_ThreadTlsValues);
-                }
-            );
+                });
 
             s_PendingDeleteTlsValues.ConsumeAllLifo(
                 [](FTlsValues* TlsValues)
                 {
                     TlsValues->Unlink();
                     delete TlsValues;
-                }
-            );
+                });
         }
     };
 
@@ -269,22 +267,30 @@ namespace OloEngine::LowLevelTasks
     {
         switch (Priority)
         {
-            case EThreadPriority::TPri_Normal:            return OloEngine::EThreadPriority::TPri_Normal;
-            case EThreadPriority::TPri_AboveNormal:       return OloEngine::EThreadPriority::TPri_AboveNormal;
-            case EThreadPriority::TPri_BelowNormal:       return OloEngine::EThreadPriority::TPri_BelowNormal;
-            case EThreadPriority::TPri_Highest:           return OloEngine::EThreadPriority::TPri_Highest;
-            case EThreadPriority::TPri_Lowest:            return OloEngine::EThreadPriority::TPri_Lowest;
-            case EThreadPriority::TPri_SlightlyBelowNormal: return OloEngine::EThreadPriority::TPri_SlightlyBelowNormal;
-            case EThreadPriority::TPri_TimeCritical:      return OloEngine::EThreadPriority::TPri_TimeCritical;
-            default:                                       return OloEngine::EThreadPriority::TPri_Normal;
+            case EThreadPriority::TPri_Normal:
+                return OloEngine::EThreadPriority::TPri_Normal;
+            case EThreadPriority::TPri_AboveNormal:
+                return OloEngine::EThreadPriority::TPri_AboveNormal;
+            case EThreadPriority::TPri_BelowNormal:
+                return OloEngine::EThreadPriority::TPri_BelowNormal;
+            case EThreadPriority::TPri_Highest:
+                return OloEngine::EThreadPriority::TPri_Highest;
+            case EThreadPriority::TPri_Lowest:
+                return OloEngine::EThreadPriority::TPri_Lowest;
+            case EThreadPriority::TPri_SlightlyBelowNormal:
+                return OloEngine::EThreadPriority::TPri_SlightlyBelowNormal;
+            case EThreadPriority::TPri_TimeCritical:
+                return OloEngine::EThreadPriority::TPri_TimeCritical;
+            default:
+                return OloEngine::EThreadPriority::TPri_Normal;
         }
     }
 
-    std::unique_ptr<OloEngine::FThread> FScheduler::CreateWorker(u32 WorkerId, const char* Name, bool bPermitBackgroundWork, 
-                                                          EForkable IsForkable,
-                                                          Private::FWaitEvent* ExternalWorkerEvent, 
-                                                          FSchedulerTls::FLocalQueueType* ExternalWorkerLocalQueue, 
-                                                          EThreadPriority Priority, u64 InAffinity)
+    std::unique_ptr<OloEngine::FThread> FScheduler::CreateWorker(u32 WorkerId, const char* Name, bool bPermitBackgroundWork,
+                                                                 EForkable IsForkable,
+                                                                 Private::FWaitEvent* ExternalWorkerEvent,
+                                                                 FSchedulerTls::FLocalQueueType* ExternalWorkerLocalQueue,
+                                                                 EThreadPriority Priority, u64 InAffinity)
     {
         const u32 WaitTimes[8] = { 719, 991, 1361, 1237, 1597, 953, 587, 1439 };
         u32 WaitTime = WaitTimes[WorkerId % 8];
@@ -343,38 +349,34 @@ namespace OloEngine::LowLevelTasks
             {
                 WorkerMain(ExternalWorkerEvent, ExternalWorkerLocalQueue, WaitTime, bPermitBackgroundWork);
             },
-            0,  // StackSize (0 = default)
+            0, // StackSize (0 = default)
             ConvertToPlatformPriority(Priority),
             OloEngine::FThreadAffinity{ FinalAffinityMask, CpuGroup },
-            IsForkable == EForkable::Forkable ? OloEngine::FThread::Forkable : OloEngine::FThread::NonForkable
-        );
+            IsForkable == EForkable::Forkable ? OloEngine::FThread::Forkable : OloEngine::FThread::NonForkable);
 
         return ThreadPtr;
     }
 
-    void FScheduler::StartWorkers(u32 NumForegroundWorkers, u32 NumBackgroundWorkers, 
+    void FScheduler::StartWorkers(u32 NumForegroundWorkers, u32 NumBackgroundWorkers,
                                   EForkable IsForkable,
-                                  EThreadPriority InWorkerPriority, EThreadPriority InBackgroundPriority, 
+                                  EThreadPriority InWorkerPriority, EThreadPriority InBackgroundPriority,
                                   u64 InWorkerAffinity, u64 InBackgroundAffinity)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         // Validation: Only the game thread should start workers (matches UE5.7 check(IsInGameThread()))
-        OLO_CORE_ASSERT(IsInGameThread() || !g_GameThreadIdInitialized.load(std::memory_order_acquire), 
+        OLO_CORE_ASSERT(IsInGameThread() || !g_GameThreadIdInitialized.load(std::memory_order_acquire),
                         "StartWorkers should only be called from the game thread");
 
-        
         // Initialize configuration from command-line/environment variables (matches UE5.7 FParse::Value calls)
         InitializeTaskGraphConfiguration();
 
-        
         if (NumForegroundWorkers == 0 && NumBackgroundWorkers == 0)
         {
             u32 TotalWorkers = NumberOfWorkerThreadsToSpawn();
             NumForegroundWorkers = std::max<u32>(1, std::min<u32>(2, TotalWorkers - 1));
             NumBackgroundWorkers = std::max<u32>(1, TotalWorkers - NumForegroundWorkers);
         }
-
 
         m_WorkerPriority = InWorkerPriority;
         m_BackgroundPriority = InBackgroundPriority;
@@ -388,23 +390,20 @@ namespace OloEngine::LowLevelTasks
             m_BackgroundAffinity = InBackgroundAffinity;
         }
 
-
         // Check if multithreading is supported
         // UE5.7 logic: enable multithreading if platform supports it OR we're a forked multithread instance
         const bool bSupportsMultithreading = FPlatformProcess::SupportsMultithreading() || FForkProcessHelper::IsForkedMultithreadInstance();
 
-
         u32 OldActiveWorkers = m_ActiveWorkers.load(std::memory_order_relaxed);
-        
+
         if (OldActiveWorkers == 0 && bSupportsMultithreading && m_ActiveWorkers.compare_exchange_strong(OldActiveWorkers, NumForegroundWorkers + NumBackgroundWorkers, std::memory_order_relaxed))
         {
             TUniqueLock<FRecursiveMutex> Lock(m_WorkerThreadsCS);
-            
+
             OLO_CORE_ASSERT(!m_WorkerThreads, "WorkerThreads should be null");
             OLO_CORE_ASSERT(m_WorkerLocalQueues.IsEmpty(), "WorkerLocalQueues should be empty");
             OLO_CORE_ASSERT(m_WorkerEvents.IsEmpty(), "WorkerEvents should be empty");
             OLO_CORE_ASSERT(m_NextWorkerId == 0, "NextWorkerId should be 0");
-            
 
             m_ForegroundCreationIndex = 0;
             m_BackgroundCreationIndex = 0;
@@ -425,9 +424,9 @@ namespace OloEngine::LowLevelTasks
             m_WorkerLocalQueues.SetNum(MaxWorkers);
             m_WorkerThreads.reset(new std::atomic<OloEngine::FThread*>[static_cast<sizet>(MaxWorkers)]());
 
-            auto CreateThread = [this, IsForkable](Private::ELocalQueueType LocalQueueType, const char* Prefix, 
-                                       std::atomic<i32>& CreationIndex, i32 NumWorkers, i32 NumMaxWorkers, 
-                                       EThreadPriority Priority, u64 Affinity)
+            auto CreateThread = [this, IsForkable](Private::ELocalQueueType LocalQueueType, const char* Prefix,
+                                                   std::atomic<i32>& CreationIndex, i32 NumWorkers, i32 NumMaxWorkers,
+                                                   EThreadPriority Priority, u64 Affinity)
             {
                 // Thread creation can end up waiting, we don't want to recursively oversubscribe if that happens.
                 Private::FOversubscriptionAllowedScope _(false);
@@ -450,15 +449,15 @@ namespace OloEngine::LowLevelTasks
                 m_WorkerLocalQueues[WorkerId].Init(m_QueueRegistry, LocalQueueType);
                 m_WorkerEvents[WorkerId].bIsStandby = bIsStandbyWorker;
                 m_WorkerThreads[WorkerId] = CreateWorker(
-                    WorkerId,
-                    WorkerName,
-                    LocalQueueType == Private::ELocalQueueType::EBackground,
-                    IsForkable,
-                    &m_WorkerEvents[WorkerId],
-                    &m_WorkerLocalQueues[WorkerId],
-                    Priority,
-                    Affinity
-                ).release();
+                                                WorkerId,
+                                                WorkerName,
+                                                LocalQueueType == Private::ELocalQueueType::EBackground,
+                                                IsForkable,
+                                                &m_WorkerEvents[WorkerId],
+                                                &m_WorkerLocalQueues[WorkerId],
+                                                Priority,
+                                                Affinity)
+                                                .release();
             };
 
             auto ForegroundCreateThreadFn = [this, CreateThread, NumWorkers = NumForegroundWorkers, MaxWorkers = MaxForegroundWorkers]()
@@ -477,9 +476,9 @@ namespace OloEngine::LowLevelTasks
             // where threads start running before the queues are ready to accept them.
             // This matches UE5.7's ordering.
             TFunction<void()> fgFunc(ForegroundCreateThreadFn);
-            m_WaitingQueue[0].Init(NumForegroundWorkers, static_cast<u32>(MaxForegroundWorkers), MoveTemp(fgFunc), 
+            m_WaitingQueue[0].Init(NumForegroundWorkers, static_cast<u32>(MaxForegroundWorkers), MoveTemp(fgFunc),
                                    g_TaskGraphUseDynamicThreadCreation ? 0 : static_cast<u32>(MaxForegroundWorkers));
-            m_WaitingQueue[1].Init(NumBackgroundWorkers, static_cast<u32>(MaxBackgroundWorkers), TFunction<void()>(BackgroundCreateThreadFn), 
+            m_WaitingQueue[1].Init(NumBackgroundWorkers, static_cast<u32>(MaxBackgroundWorkers), TFunction<void()>(BackgroundCreateThreadFn),
                                    g_TaskGraphUseDynamicThreadCreation ? 0 : static_cast<u32>(MaxBackgroundWorkers));
 
             // Precreate all the threads AFTER initializing waiting queues.
@@ -531,7 +530,7 @@ namespace OloEngine::LowLevelTasks
     FTask* FScheduler::ExecuteTask(FTask* InTask)
     {
         OLO_PROFILE_SCOPE("Scheduler::ExecuteTask");
-        
+
         FTask* ParentTask = FTask::s_ActiveTask;
         FTask::s_ActiveTask = InTask;
         FTask* OutTask;
@@ -575,9 +574,8 @@ namespace OloEngine::LowLevelTasks
     {
         OLO_PROFILE_FUNCTION();
         // Validation: Only the game thread should stop workers (matches UE5.7 check(IsInGameThread()))
-        OLO_CORE_ASSERT(IsInGameThread() || !g_GameThreadIdInitialized.load(std::memory_order_acquire), 
+        OLO_CORE_ASSERT(IsInGameThread() || !g_GameThreadIdInitialized.load(std::memory_order_acquire),
                         "StopWorkers should only be called from the game thread");
-
 
         u32 OldActiveWorkers = m_ActiveWorkers.load(std::memory_order_relaxed);
         if (OldActiveWorkers != 0 && m_ActiveWorkers.compare_exchange_strong(OldActiveWorkers, 0, std::memory_order_relaxed))
@@ -641,7 +639,7 @@ namespace OloEngine::LowLevelTasks
         FImpl::ProcessPendingTlsValuesNoLock();
 
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-        // Heavy barrier since bPendingWakeUp is only written to with a relaxed write, 
+        // Heavy barrier since bPendingWakeUp is only written to with a relaxed write,
         // we need all cores to flush their store buffer to memory
         // FPlatformMisc::AsymmetricThreadFenceHeavy(); // TODO: Implement for ARM platforms
         constexpr std::memory_order MemoryOrder = std::memory_order_relaxed;
@@ -660,9 +658,9 @@ namespace OloEngine::LowLevelTasks
         return false;
     }
 
-    void FScheduler::RestartWorkers(u32 NumForegroundWorkers, u32 NumBackgroundWorkers, 
+    void FScheduler::RestartWorkers(u32 NumForegroundWorkers, u32 NumBackgroundWorkers,
                                     EForkable IsForkable,
-                                    EThreadPriority InWorkerPriority, EThreadPriority InBackgroundPriority, 
+                                    EThreadPriority InWorkerPriority, EThreadPriority InBackgroundPriority,
                                     u64 InWorkerAffinity, u64 InBackgroundAffinity)
     {
         TUniqueLock<FRecursiveMutex> Lock(m_WorkerThreadsCS);
@@ -849,17 +847,15 @@ namespace OloEngine::LowLevelTasks
         return AnyExecuted;
     }
 
-    void FScheduler::StandbyLoop(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* WorkerLocalQueue, 
-                                  u32 WaitCycles, bool bPermitBackgroundWork)
+    void FScheduler::StandbyLoop(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* WorkerLocalQueue,
+                                 u32 WaitCycles, bool bPermitBackgroundWork)
     {
         bool bPreparingStandby = false;
         Private::FOutOfWork OutOfWork;
         while (true)
         {
             bool bExecutedSomething = false;
-            while (TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::StealLocal, true>(WorkerEvent, m_GameThreadLocalQueue.get(), OutOfWork, bPermitBackgroundWork)
-                || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::Dequeue, true>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork)
-                || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::DequeueSteal, true>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork))
+            while (TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::StealLocal, true>(WorkerEvent, m_GameThreadLocalQueue.get(), OutOfWork, bPermitBackgroundWork) || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::Dequeue, true>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork) || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::DequeueSteal, true>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork))
             {
                 bPreparingStandby = false;
                 bExecutedSomething = true;
@@ -892,17 +888,15 @@ namespace OloEngine::LowLevelTasks
         }
     }
 
-    void FScheduler::WorkerLoop(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* WorkerLocalQueue, 
-                                 u32 WaitCycles, bool bPermitBackgroundWork)
+    void FScheduler::WorkerLoop(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* WorkerLocalQueue,
+                                u32 WaitCycles, bool bPermitBackgroundWork)
     {
         bool bPreparingWait = false;
         Private::FOutOfWork OutOfWork;
         while (true)
         {
             bool bExecutedSomething = false;
-            while (TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::StealLocal, false>(WorkerEvent, m_GameThreadLocalQueue.get(), OutOfWork, bPermitBackgroundWork)
-                || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::Dequeue, false>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork)
-                || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::DequeueSteal, false>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork))
+            while (TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::StealLocal, false>(WorkerEvent, m_GameThreadLocalQueue.get(), OutOfWork, bPermitBackgroundWork) || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::Dequeue, false>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork) || TryExecuteTaskFrom<FSchedulerTls::FLocalQueueType, &FSchedulerTls::FLocalQueueType::DequeueSteal, false>(WorkerEvent, WorkerLocalQueue, OutOfWork, bPermitBackgroundWork))
             {
                 bPreparingWait = false;
                 bExecutedSomething = true;
@@ -936,14 +930,13 @@ namespace OloEngine::LowLevelTasks
         }
     }
 
-    void FScheduler::WorkerMain(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* WorkerLocalQueue, 
-                                 u32 WaitCycles, bool bPermitBackgroundWork)
+    void FScheduler::WorkerMain(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* WorkerLocalQueue,
+                                u32 WaitCycles, bool bPermitBackgroundWork)
     {
-        
-        OLO_PROFILE_FUNCTION();
-        
-        FTlsValues& LocalTlsValues = GetTlsValuesRef();
 
+        OLO_PROFILE_FUNCTION();
+
+        FTlsValues& LocalTlsValues = GetTlsValuesRef();
 
         OLO_CORE_ASSERT(LocalTlsValues.LocalQueue == nullptr, "LocalQueue should be null");
         OLO_CORE_ASSERT(WorkerLocalQueue != nullptr, "WorkerLocalQueue should not be null");

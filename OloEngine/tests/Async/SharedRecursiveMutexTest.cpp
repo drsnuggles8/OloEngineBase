@@ -1,7 +1,7 @@
 /**
  * @file SharedRecursiveMutexTest.cpp
  * @brief Unit tests for the FSharedRecursiveMutex synchronization primitive
- * 
+ *
  * Ported from UE5.7's Async/SharedRecursiveMutexTest.cpp
  * Tests cover: Recursive locking, shared locking, concurrent access patterns
  */
@@ -27,7 +27,7 @@ using namespace OloEngine;
 
 class SharedRecursiveMutexTest : public ::testing::Test
 {
-protected:
+  protected:
     void SetUp() override {}
     void TearDown() override {}
 };
@@ -96,7 +96,7 @@ TEST_F(SharedRecursiveMutexTest, MultipleThreadsBasic)
     FSharedRecursiveMutex Mutex;
     u32 Counter = 0;
     FManualResetEvent Events[4];
-    
+
     auto MakeWait = [&Events](i32 Index)
     {
         return [&Events, Index]
@@ -105,7 +105,7 @@ TEST_F(SharedRecursiveMutexTest, MultipleThreadsBasic)
             Events[Index].Reset();
         };
     };
-    
+
     auto Wake = [&Events](i32 Index)
     {
         Events[Index].Notify();
@@ -115,7 +115,7 @@ TEST_F(SharedRecursiveMutexTest, MultipleThreadsBasic)
     // Countdown event helper class
     class FCountdownEvent
     {
-    public:
+      public:
         void Reset(i32 Count)
         {
             m_Counter.store(Count, std::memory_order_relaxed);
@@ -135,7 +135,7 @@ TEST_F(SharedRecursiveMutexTest, MultipleThreadsBasic)
             m_Event.Wait();
         }
 
-    private:
+      private:
         std::atomic<i32> m_Counter{ 0 };
         FManualResetEvent m_Event;
     };
@@ -143,7 +143,7 @@ TEST_F(SharedRecursiveMutexTest, MultipleThreadsBasic)
 
     // Thread 0
     std::thread Thread0([&Mutex, &Counter, &CountdownEvent, &Wake, Wait = MakeWait(0)]
-    {
+                        {
         TDynamicSharedLock<FSharedRecursiveMutex> SharedLock1(Mutex, DeferLock);
         TDynamicSharedLock<FSharedRecursiveMutex> SharedLock2(Mutex, DeferLock);
 
@@ -195,12 +195,11 @@ TEST_F(SharedRecursiveMutexTest, MultipleThreadsBasic)
         Wait();
         SharedLock2.Lock();
         SharedLock1.Unlock();
-        SharedLock2.Unlock();
-    });
+        SharedLock2.Unlock(); });
 
     // Thread 1
     std::thread Thread1([&Mutex, &Counter, &CountdownEvent, &Wake, Wait = MakeWait(1)]
-    {
+                        {
         // Test 1: Exclusive w/ one waiting exclusive lock.
         Wait();
         Wake(2);
@@ -240,12 +239,11 @@ TEST_F(SharedRecursiveMutexTest, MultipleThreadsBasic)
         Mutex.Lock();
         EXPECT_EQ(Counter, 5u);
         Counter = 6;
-        Mutex.Unlock();
-    });
+        Mutex.Unlock(); });
 
     // Thread 2
     std::thread Thread2([&Mutex, &Counter, &CountdownEvent, &Wake, Wait = MakeWait(2)]
-    {
+                        {
         TDynamicSharedLock<FSharedRecursiveMutex> SharedLock(Mutex, DeferLock);
 
         // Test 1: Exclusive w/ one waiting exclusive lock.
@@ -283,12 +281,11 @@ TEST_F(SharedRecursiveMutexTest, MultipleThreadsBasic)
         Wake(0);
         SharedLock.Lock();
         EXPECT_EQ(Counter, 6u);
-        SharedLock.Unlock();
-    });
+        SharedLock.Unlock(); });
 
     // Thread 3
     std::thread Thread3([&Mutex, &Counter, &CountdownEvent, &Wake, Wait = MakeWait(3)]
-    {
+                        {
         TDynamicSharedLock<FSharedRecursiveMutex> SharedLock(Mutex, DeferLock);
 
         // Test 4: Exclusive w/ three waiting shared locks.
@@ -307,8 +304,7 @@ TEST_F(SharedRecursiveMutexTest, MultipleThreadsBasic)
             TSharedLock<FSharedRecursiveMutex> Lock(Mutex);
             std::this_thread::yield();
         }
-        CountdownEvent.Notify();
-    });
+        CountdownEvent.Notify(); });
 
     Thread0.join();
     Thread1.join();
@@ -320,16 +316,16 @@ TEST_F(SharedRecursiveMutexTest, StressTest)
 {
     constexpr i32 ThreadCount = 8;
     constexpr i32 OperationsPerThread = 500;
-    
+
     FSharedRecursiveMutex Mutex;
     i32 Counter = 0;
     std::vector<std::thread> Threads;
     Threads.reserve(ThreadCount);
-    
+
     for (i32 i = 0; i < ThreadCount; ++i)
     {
         Threads.emplace_back([&, threadId = i]
-        {
+                             {
             for (i32 j = 0; j < OperationsPerThread; ++j)
             {
                 if (j % 5 == 0)  // 20% writes
@@ -354,15 +350,14 @@ TEST_F(SharedRecursiveMutexTest, StressTest)
                     volatile i32 Val = Counter;  // Just read
                     (void)Val;
                 }
-            }
-        });
+            } });
     }
-    
+
     for (std::thread& Thread : Threads)
     {
         Thread.join();
     }
-    
+
     // Expected writes: ThreadCount * OperationsPerThread * 0.2
     EXPECT_EQ(Counter, ThreadCount * (OperationsPerThread / 5));
 }

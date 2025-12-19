@@ -7,7 +7,8 @@
 #include <type_traits>
 #include <functional>
 
-namespace OloEngine::Core::Reflection {
+namespace OloEngine::Core::Reflection
+{
 
     //==============================================================================
     /// Utility wrapper to operate on a list of member pointers
@@ -17,26 +18,29 @@ namespace OloEngine::Core::Reflection {
         //==============================================================================
         /// Helper type definitions
 
-    public:
+      public:
         using TupleType = decltype(std::tuple(MemberPointers...));
 
-    private:
+      private:
         template<sizet MemberIndex>
         using MemberType = typename MemberPointer::ReturnType<std::remove_cvref_t<decltype(std::get<MemberIndex>(TupleType()))>>::Type;
 
         template<typename TMemberPtr>
         using MemberPtrType = typename MemberPointer::ReturnType<std::remove_cvref_t<TMemberPtr>>::Type;
 
-    public:
+      public:
         using VariantType = std::variant<FilterVoid_t<MemberPtrType<decltype(MemberPointers)>>...>;
 
-    public:
-        static constexpr sizet Count() { return sizeof...(MemberPointers); }
+      public:
+        static constexpr sizet Count()
+        {
+            return sizeof...(MemberPointers);
+        }
 
         //==============================================================================
         /// Apply functions to member pointers
 
-    private:
+      private:
         /** Internal helper for Apply that forwards const-ness properly */
         template<typename TObj, typename TFunc>
         static constexpr auto ApplyImpl(TFunc func, TObj&& obj)
@@ -52,7 +56,7 @@ namespace OloEngine::Core::Reflection {
             }
         }
 
-    public:
+      public:
         /** Apply a function to variadic pack of the member list */
         template<typename TObj, typename TFunc>
         static constexpr auto Apply(TFunc func, TObj& obj)
@@ -97,7 +101,7 @@ namespace OloEngine::Core::Reflection {
             }
         }
 
-    private:
+      private:
         template<typename TFunc, typename TMemberPtr, typename TObj>
         static constexpr auto ApplyIfMemberNotFunction(TFunc func, TMemberPtr member, TObj&& obj)
         {
@@ -108,7 +112,7 @@ namespace OloEngine::Core::Reflection {
             }
         }
 
-    public:
+      public:
         //==============================================================================
         /// Member access by index
 
@@ -121,9 +125,8 @@ namespace OloEngine::Core::Reflection {
             // Iterate the parameter pack directly and advance the counter for every element.
             // Only invoke the callback for data members; skip member-function pointers but
             // still increment the counter so indices remain aligned with the original pack.
-            (([
-                &]()
-                {
+            (([&]()
+              {
                     using MemberPtrT = decltype(MemberPointers);
                     if (memberCounter == memberIndex)
                     {
@@ -132,8 +135,8 @@ namespace OloEngine::Core::Reflection {
                             f(obj.*MemberPointers);
                         }
                     }
-                    ++memberCounter;
-                }()), ...);
+                    ++memberCounter; }()),
+             ...);
         }
 
         template<sizet MemberIndex, typename TObj, typename TFunc>
@@ -146,7 +149,7 @@ namespace OloEngine::Core::Reflection {
         //==============================================================================
         /// Member value getters/setters
 
-    private:
+      private:
         /** Common logic for setting member values with type checking */
         template<typename TValue, typename TMember>
         static constexpr bool TrySetMemberValue(TMember& member, const TValue& value)
@@ -165,18 +168,15 @@ namespace OloEngine::Core::Reflection {
             }
         }
 
-    public:
+      public:
         template<typename TValue, typename TObj>
         static constexpr bool SetMemberValue(sizet memberIndex, const TValue& value, TObj&& obj)
         {
             OLO_PROFILE_FUNCTION();
             bool valueSet = false;
 
-            ApplyToMember(memberIndex,
-                [&](auto& memb)
-                {
-                    valueSet = TrySetMemberValue(memb, value);
-                }, std::forward<TObj>(obj));
+            ApplyToMember(memberIndex, [&](auto& memb)
+                          { valueSet = TrySetMemberValue(memb, value); }, std::forward<TObj>(obj));
 
             return valueSet;
         }
@@ -190,7 +190,8 @@ namespace OloEngine::Core::Reflection {
                 [&](auto& memb)
                 {
                     valueSet = TrySetMemberValue(memb, value);
-                }, std::forward<TObj>(obj));
+                },
+                std::forward<TObj>(obj));
 
             return valueSet;
         }
@@ -201,7 +202,7 @@ namespace OloEngine::Core::Reflection {
             static_assert(Count() > MemberIndex);
 
             using MemberPtr = decltype(NthElement<MemberIndex>(MemberPointers...));
-            
+
             if constexpr (std::is_member_function_pointer_v<MemberPtr>)
             {
                 // For member function pointers, return void (don't define the lambda)
@@ -226,16 +227,14 @@ namespace OloEngine::Core::Reflection {
 
             if (Count() > memberIndex)
             {
-                ApplyToMember(memberIndex,
-                    [&](const auto& memb)
-                    {
+                ApplyToMember(memberIndex, [&](const auto& memb)
+                              {
                         using TMember = std::remove_cvref_t<decltype(memb)>;
 
                         if constexpr (std::is_same_v<TValue, TMember>)
                         {
                             value = memb;
-                        }
-                    }, obj);
+                        } }, obj);
             }
 
             return value;

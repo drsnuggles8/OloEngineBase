@@ -3,23 +3,23 @@
 
 // @file Event.cpp
 // @brief Implementation of FEvent base class and FEventRef
-// 
+//
 // Contains the implementations for event statistics tracking and
 // the RAII FEventRef wrapper.
-// 
+//
 // Ported from Unreal Engine's HAL/Event.cpp and related files
 
 #include "OloEngine/HAL/Event.h"
 #include "OloEngine/HAL/EventPool.h"
 
 #ifdef OLO_PLATFORM_WINDOWS
-    #include "OloEngine/HAL/Windows/WindowsEvent.h"
+#include "OloEngine/HAL/Windows/WindowsEvent.h"
 #endif
 
 namespace OloEngine
 {
     // Static member initialization
-    std::atomic<u32> FEvent::s_EventUniqueId{0};
+    std::atomic<u32> FEvent::s_EventUniqueId{ 0 };
 
     void FEvent::AdvanceStats()
     {
@@ -59,11 +59,11 @@ namespace OloEngine
         // Create the event
         OLO_DISABLE_DEPRECATION_WARNINGS
         if (!Event->Create(Mode == EEventMode::ManualReset))
-        OLO_RESTORE_DEPRECATION_WARNINGS
-        {
-            delete Event;
-            Event = nullptr;
-        }
+            OLO_RESTORE_DEPRECATION_WARNINGS
+            {
+                delete Event;
+                Event = nullptr;
+            }
 
         return Event;
     }
@@ -86,15 +86,18 @@ namespace OloEngine
     {
         if (m_Event != nullptr)
         {
-            
+
             // Try to access the vtable to see if the object is valid
             bool isManualReset = false;
-            try {
+            try
+            {
                 isManualReset = m_Event->IsManualReset();
-            } catch (...) {
+            }
+            catch (...)
+            {
                 return;
             }
-            
+
             if (isManualReset)
             {
                 auto& pool = TEventPool<EEventMode::ManualReset>::Get();
@@ -134,7 +137,7 @@ namespace OloEngine
         {
             Event = TEventPool<EEventMode::ManualReset>::Get().GetEventFromPool();
         }
-        m_Ptr = std::shared_ptr<FEvent>(Event, FEventPoolDeleter{Mode});
+        m_Ptr = std::shared_ptr<FEvent>(Event, FEventPoolDeleter{ Mode });
     }
 
 } // namespace OloEngine

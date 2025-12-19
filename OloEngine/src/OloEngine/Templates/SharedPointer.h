@@ -5,7 +5,7 @@
 
 // @file SharedPointer.h
 // @brief Thread-safe reference-counted smart pointers
-// 
+//
 // Provides TSharedPtr, TSharedRef, TWeakPtr, and TSharedFromThis that wrap
 // the standard library's shared_ptr, weak_ptr, and enable_shared_from_this.
 
@@ -18,24 +18,24 @@
 namespace OloEngine
 {
     // Forward declarations
-    template <typename ObjectType>
+    template<typename ObjectType>
     class TSharedPtr;
 
-    template <typename ObjectType>
+    template<typename ObjectType>
     class TSharedRef;
 
-    template <typename ObjectType>
+    template<typename ObjectType>
     class TWeakPtr;
 
     // @class TSharedFromThis
     // @brief Enables safe creation of TSharedPtr from 'this' pointer
-    // 
+    //
     // Inherit from this class to enable calling AsShared() to get a TSharedPtr
     // to the current object from within member functions.
-    template <typename ObjectType>
+    template<typename ObjectType>
     class TSharedFromThis : public std::enable_shared_from_this<ObjectType>
     {
-    public:
+      public:
         // @brief Get a shared pointer to this object
         // @return TSharedPtr to this object
         TSharedPtr<ObjectType> AsShared()
@@ -57,7 +57,7 @@ namespace OloEngine
             return TWeakPtr<ObjectType>(std::enable_shared_from_this<ObjectType>::weak_from_this());
         }
 
-    protected:
+      protected:
         TSharedFromThis() = default;
         TSharedFromThis(const TSharedFromThis&) = default;
         TSharedFromThis& operator=(const TSharedFromThis&) = default;
@@ -66,10 +66,10 @@ namespace OloEngine
 
     // @class TSharedPtr
     // @brief Reference-counted smart pointer (nullable)
-    template <typename ObjectType>
+    template<typename ObjectType>
     class TSharedPtr
     {
-    public:
+      public:
         using ElementType = ObjectType;
 
         TSharedPtr() = default;
@@ -87,13 +87,13 @@ namespace OloEngine
         TSharedPtr& operator=(TSharedPtr&& Other) noexcept = default;
 
         // Converting constructors for derived types
-        template <typename OtherType>
+        template<typename OtherType>
         TSharedPtr(const TSharedPtr<OtherType>& Other)
             : m_Ptr(Other.m_Ptr)
         {
         }
 
-        template <typename OtherType>
+        template<typename OtherType>
         TSharedPtr(TSharedPtr<OtherType>&& Other)
             : m_Ptr(std::move(Other.m_Ptr))
         {
@@ -102,40 +102,76 @@ namespace OloEngine
         ~TSharedPtr() = default;
 
         // Access the object
-        ObjectType* Get() const { return m_Ptr.get(); }
-        ObjectType* operator->() const { return m_Ptr.get(); }
-        ObjectType& operator*() const { return *m_Ptr; }
+        ObjectType* Get() const
+        {
+            return m_Ptr.get();
+        }
+        ObjectType* operator->() const
+        {
+            return m_Ptr.get();
+        }
+        ObjectType& operator*() const
+        {
+            return *m_Ptr;
+        }
 
         // Check validity
-        bool IsValid() const { return m_Ptr != nullptr; }
-        explicit operator bool() const { return IsValid(); }
+        bool IsValid() const
+        {
+            return m_Ptr != nullptr;
+        }
+        explicit operator bool() const
+        {
+            return IsValid();
+        }
 
         // Reset the pointer
-        void Reset() { m_Ptr.reset(); }
+        void Reset()
+        {
+            m_Ptr.reset();
+        }
 
         // Get the reference count
-        i64 GetSharedReferenceCount() const { return m_Ptr.use_count(); }
+        i64 GetSharedReferenceCount() const
+        {
+            return m_Ptr.use_count();
+        }
 
         // Comparison operators
-        bool operator==(const TSharedPtr& Other) const { return m_Ptr == Other.m_Ptr; }
-        bool operator!=(const TSharedPtr& Other) const { return m_Ptr != Other.m_Ptr; }
-        bool operator==(std::nullptr_t) const { return m_Ptr == nullptr; }
-        bool operator!=(std::nullptr_t) const { return m_Ptr != nullptr; }
+        bool operator==(const TSharedPtr& Other) const
+        {
+            return m_Ptr == Other.m_Ptr;
+        }
+        bool operator!=(const TSharedPtr& Other) const
+        {
+            return m_Ptr != Other.m_Ptr;
+        }
+        bool operator==(std::nullptr_t) const
+        {
+            return m_Ptr == nullptr;
+        }
+        bool operator!=(std::nullptr_t) const
+        {
+            return m_Ptr != nullptr;
+        }
 
         // Get the underlying shared_ptr
-        const std::shared_ptr<ObjectType>& GetSharedPtr() const { return m_Ptr; }
+        const std::shared_ptr<ObjectType>& GetSharedPtr() const
+        {
+            return m_Ptr;
+        }
 
-    private:
-        template <typename OtherType>
+      private:
+        template<typename OtherType>
         friend class TSharedPtr;
 
-        template <typename OtherType>
+        template<typename OtherType>
         friend class TSharedRef;
 
-        template <typename OtherType>
+        template<typename OtherType>
         friend class TWeakPtr;
 
-        template <typename OtherType, typename... ArgTypes>
+        template<typename OtherType, typename... ArgTypes>
         friend TSharedPtr<OtherType> MakeShared(ArgTypes&&... Args);
 
         std::shared_ptr<ObjectType> m_Ptr;
@@ -143,10 +179,10 @@ namespace OloEngine
 
     // @class TSharedRef
     // @brief Reference-counted smart pointer that is never null
-    template <typename ObjectType>
+    template<typename ObjectType>
     class TSharedRef
     {
-    public:
+      public:
         using ElementType = ObjectType;
 
         // No default constructor - must always be valid
@@ -176,13 +212,13 @@ namespace OloEngine
         TSharedRef& operator=(TSharedRef&& Other) noexcept = default;
 
         // Converting constructors for derived types
-        template <typename OtherType>
+        template<typename OtherType>
         TSharedRef(const TSharedRef<OtherType>& Other)
             : m_Ptr(Other.m_Ptr)
         {
         }
 
-        template <typename OtherType>
+        template<typename OtherType>
         TSharedRef(TSharedRef<OtherType>&& Other)
             : m_Ptr(std::move(Other.m_Ptr))
         {
@@ -191,29 +227,53 @@ namespace OloEngine
         ~TSharedRef() = default;
 
         // Access the object
-        ObjectType* Get() const { return m_Ptr.get(); }
-        ObjectType* operator->() const { return m_Ptr.get(); }
-        ObjectType& operator*() const { return *m_Ptr; }
+        ObjectType* Get() const
+        {
+            return m_Ptr.get();
+        }
+        ObjectType* operator->() const
+        {
+            return m_Ptr.get();
+        }
+        ObjectType& operator*() const
+        {
+            return *m_Ptr;
+        }
 
         // Get the reference count
-        i64 GetSharedReferenceCount() const { return m_Ptr.use_count(); }
+        i64 GetSharedReferenceCount() const
+        {
+            return m_Ptr.use_count();
+        }
 
         // Comparison operators
-        bool operator==(const TSharedRef& Other) const { return m_Ptr == Other.m_Ptr; }
-        bool operator!=(const TSharedRef& Other) const { return m_Ptr != Other.m_Ptr; }
+        bool operator==(const TSharedRef& Other) const
+        {
+            return m_Ptr == Other.m_Ptr;
+        }
+        bool operator!=(const TSharedRef& Other) const
+        {
+            return m_Ptr != Other.m_Ptr;
+        }
 
         // Convert to TSharedPtr
-        TSharedPtr<ObjectType> ToSharedPtr() const { return TSharedPtr<ObjectType>(m_Ptr); }
-        operator TSharedPtr<ObjectType>() const { return ToSharedPtr(); }
+        TSharedPtr<ObjectType> ToSharedPtr() const
+        {
+            return TSharedPtr<ObjectType>(m_Ptr);
+        }
+        operator TSharedPtr<ObjectType>() const
+        {
+            return ToSharedPtr();
+        }
 
-    private:
-        template <typename OtherType>
+      private:
+        template<typename OtherType>
         friend class TSharedRef;
 
-        template <typename OtherType>
+        template<typename OtherType>
         friend class TSharedPtr;
 
-        template <typename OtherType, typename... ArgTypes>
+        template<typename OtherType, typename... ArgTypes>
         friend TSharedRef<OtherType> MakeShared(ArgTypes&&... Args);
 
         std::shared_ptr<ObjectType> m_Ptr;
@@ -221,10 +281,10 @@ namespace OloEngine
 
     // @class TWeakPtr
     // @brief Weak reference to a shared object
-    template <typename ObjectType>
+    template<typename ObjectType>
     class TWeakPtr
     {
-    public:
+      public:
         using ElementType = ObjectType;
 
         TWeakPtr() = default;
@@ -254,24 +314,30 @@ namespace OloEngine
         }
 
         // Check if the referenced object still exists
-        bool IsValid() const { return !m_Ptr.expired(); }
+        bool IsValid() const
+        {
+            return !m_Ptr.expired();
+        }
 
         // Reset the weak reference
-        void Reset() { m_Ptr.reset(); }
+        void Reset()
+        {
+            m_Ptr.reset();
+        }
 
-    private:
+      private:
         std::weak_ptr<ObjectType> m_Ptr;
     };
 
     // @brief Create a shared pointer with in-place construction
-    template <typename ObjectType, typename... ArgTypes>
+    template<typename ObjectType, typename... ArgTypes>
     TSharedPtr<ObjectType> MakeShared(ArgTypes&&... Args)
     {
         return TSharedPtr<ObjectType>(std::make_shared<ObjectType>(std::forward<ArgTypes>(Args)...));
     }
 
     // @brief Create a shared ref with in-place construction
-    template <typename ObjectType, typename... ArgTypes>
+    template<typename ObjectType, typename... ArgTypes>
     TSharedRef<ObjectType> MakeShareable(ArgTypes&&... Args)
     {
         return TSharedRef<ObjectType>(std::make_shared<ObjectType>(std::forward<ArgTypes>(Args)...));

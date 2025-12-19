@@ -1,11 +1,11 @@
 #pragma once
-n// @file PageAllocator.h
+n // @file PageAllocator.h
 // @brief Lock-free page-based memory allocator for OloEngine
-// 
+//
 // Provides a simple page allocator that manages fixed-size memory pages.
 // Used as the backing allocator for higher-level allocators like
 // the concurrent linear allocator.
-// 
+//
 // Ported from Unreal Engine's MemStack.h (FPageAllocator)
 
 #include "OloEngine/Core/Base.h"
@@ -15,12 +15,12 @@ n// @file PageAllocator.h
 #include "OloEngine/Memory/LockFreeFixedSizeAllocator.h"
 #include "OloEngine/Memory/NoopCounter.h"
 
-namespace OloEngine
+    namespace OloEngine
 {
     // ========================================================================
     // Forward Declaration
     // ========================================================================
-    
+
     class FPageAllocator;
 
     // ========================================================================
@@ -29,19 +29,19 @@ namespace OloEngine
 
     // @class FPageAllocator
     // @brief A lock-free allocator for fixed-size memory pages (singleton)
-    // 
+    //
     // This allocator maintains a free list of pages and uses lock-free
     // operations for thread-safe allocation and deallocation.
-    // 
+    //
     // Pages are typically 64KB and are used as building blocks for
     // higher-level allocators like linear allocators and memory stacks.
     class FPageAllocator
     {
-    public:
+      public:
         enum
         {
             PageSize = 64 * 1024,
-            SmallPageSize = 1024 - 16  // allow a little extra space for allocator headers, etc
+            SmallPageSize = 1024 - 16 // allow a little extra space for allocator headers, etc
         };
 
         // In shipping builds, use FNoopCounter for no overhead
@@ -105,7 +105,7 @@ namespace OloEngine
         }
 
         // @brief Trim the allocator's free list
-        // 
+        //
         // Frees unused pages back to the OS. Called during memory pressure
         // situations or when explicitly requested via LatchProtectedMode().
         void Trim()
@@ -114,11 +114,11 @@ namespace OloEngine
         }
 
         // @brief Latch into protected mode
-        // 
+        //
         // In UE, this:
         // 1. Registers a memory trim delegate so pages can be freed during memory pressure
         // 2. Enables memory protection to catch stale pointers (if MEMSTACK_PURGATORY_COMPILED_IN)
-        // 
+        //
         // In OloEngine, we implement the trim registration but skip the purgatory system.
         // Call this once during engine initialization after startup is complete.
         void LatchProtectedMode()
@@ -127,7 +127,7 @@ namespace OloEngine
             // Note: In a full implementation, this would hook into FCoreDelegates::GetMemoryTrimDelegate()
             // For now, we just mark that we've latched and enable trimming on demand.
             m_bProtectedModeLatched = true;
-            
+
             // The purgatory system (GMemStackProtection) is not implemented as it requires
             // virtual memory protection support and is primarily for debugging stale pointers.
         }
@@ -138,9 +138,9 @@ namespace OloEngine
             return m_bProtectedModeLatched;
         }
 
-    private:
+      private:
         FPageAllocator() = default;
-        
+
         // Non-copyable
         FPageAllocator(const FPageAllocator&) = delete;
         FPageAllocator& operator=(const FPageAllocator&) = delete;

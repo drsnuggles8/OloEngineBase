@@ -2,7 +2,7 @@
 
 // @file Less.h
 // @brief Less-than comparison functor
-// 
+//
 // Ported from Unreal Engine's Templates/Less.h
 // Note: TLess is also defined in UnrealTypeTraits.h
 

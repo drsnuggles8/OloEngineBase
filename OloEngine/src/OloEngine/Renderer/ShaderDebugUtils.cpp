@@ -8,8 +8,8 @@ namespace OloEngine
     {
         extern void SetDisableShaderCache(bool disable);
         extern bool IsShaderCacheDisabled();
-    }
-}
+    } // namespace Utils
+} // namespace OloEngine
 
 namespace OloEngine
 {
@@ -27,10 +27,10 @@ namespace OloEngine
                 OLO_CORE_INFO("Shader cache re-enabled");
             }
         }
-        
+
         bool IsShaderCacheDisabled()
         {
             return Utils::IsShaderCacheDisabled();
         }
-    }
-}
+    } // namespace ShaderDebugUtils
+} // namespace OloEngine

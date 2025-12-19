@@ -23,14 +23,14 @@ namespace OloEngine
         Assimp::Importer importer;
 
         // Set import flags for skeletal animation
-        u32 importFlags = 
+        u32 importFlags =
             aiProcess_Triangulate |           // Make sure we get triangles
-            aiProcess_GenNormals |           // Create normals if not present
-            aiProcess_CalcTangentSpace |     // Calculate tangents and bitangents
-            aiProcess_FlipUVs |             // Flip texture coordinates
+            aiProcess_GenNormals |            // Create normals if not present
+            aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
+            aiProcess_FlipUVs |               // Flip texture coordinates
             aiProcess_ValidateDataStructure | // Validate the imported data structure
-            aiProcess_LimitBoneWeights |     // Limit bone weights to 4 per vertex
-            aiProcess_GlobalScale;           // Apply global scale
+            aiProcess_LimitBoneWeights |      // Limit bone weights to 4 per vertex
+            aiProcess_GlobalScale;            // Apply global scale
 
         // Read the file
         const aiScene* scene = importer.ReadFile(path, importFlags);
@@ -45,8 +45,8 @@ namespace OloEngine
         // Store the directory path
         m_Directory = std::filesystem::path(path).parent_path().string();
 
-        OLO_CORE_INFO("AnimatedModel::LoadModel: Scene loaded - Meshes: {}, Materials: {}, Animations: {}", 
-                     scene->mNumMeshes, scene->mNumMaterials, scene->mNumAnimations);
+        OLO_CORE_INFO("AnimatedModel::LoadModel: Scene loaded - Meshes: {}, Materials: {}, Animations: {}",
+                      scene->mNumMeshes, scene->mNumMaterials, scene->mNumAnimations);
 
         // Process skeleton first if available
         ProcessSkeleton(scene);
@@ -60,8 +60,8 @@ namespace OloEngine
         // Calculate bounding volumes for the entire model
         CalculateBounds();
 
-        OLO_CORE_INFO("AnimatedModel::LoadModel: Successfully loaded animated model with {} meshes, {} animations", 
-                     m_Meshes.size(), m_Animations.size());
+        OLO_CORE_INFO("AnimatedModel::LoadModel: Successfully loaded animated model with {} meshes, {} animations",
+                      m_Meshes.size(), m_Animations.size());
     }
 
     void AnimatedModel::ProcessNode(const aiNode* node, const aiScene* scene)
@@ -76,7 +76,7 @@ namespace OloEngine
             if (meshSource)
             {
                 m_Meshes.push_back(meshSource);
-                
+
                 // Process the material for this mesh
                 Material material;
                 if (mesh->mMaterialIndex >= 0 && mesh->mMaterialIndex < scene->mNumMaterials)
@@ -119,10 +119,10 @@ namespace OloEngine
 
         // Reserve space to reduce allocations during mesh processing
         vertices.reserve(mesh->mNumVertices);
-        indices.reserve(mesh->mNumFaces * 3); // Assuming triangulated mesh
+        indices.reserve(mesh->mNumFaces * 3);       // Assuming triangulated mesh
         boneInfluences.reserve(mesh->mNumVertices); // One per vertex for bone influences
 
-        OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Processing mesh with {} vertices, {} faces, {} bones", 
+        OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Processing mesh with {} vertices, {} faces, {} bones",
                        mesh->mNumVertices, mesh->mNumFaces, mesh->mNumBones);
 
         // Process vertices (without bone data)
@@ -134,8 +134,7 @@ namespace OloEngine
             vertex.Position = glm::vec3(
                 mesh->mVertices[i].x,
                 mesh->mVertices[i].y,
-                mesh->mVertices[i].z
-            );
+                mesh->mVertices[i].z);
 
             // Normal
             if (mesh->HasNormals())
@@ -143,8 +142,7 @@ namespace OloEngine
                 vertex.Normal = glm::vec3(
                     mesh->mNormals[i].x,
                     mesh->mNormals[i].y,
-                    mesh->mNormals[i].z
-                );
+                    mesh->mNormals[i].z);
             }
             else
             {
@@ -156,8 +154,7 @@ namespace OloEngine
             {
                 vertex.TexCoord = glm::vec2(
                     mesh->mTextureCoords[0][i].x,
-                    mesh->mTextureCoords[0][i].y
-                );
+                    mesh->mTextureCoords[0][i].y);
             }
             else
             {
@@ -189,36 +186,36 @@ namespace OloEngine
         // Store sizes before moving data to avoid use-after-move issues
         const u32 vertexCount = static_cast<u32>(vertices.size());
         const u32 indexCount = static_cast<u32>(indices.size());
-        
+
         // Create MeshSource with separated data
         auto meshSource = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
-        
+
         // Set skeleton and bone data
         if (m_Skeleton)
         {
             meshSource->SetSkeleton(m_Skeleton);
         }
-        
+
         // Copy bone influences
         meshSource->GetBoneInfluences() = std::move(boneInfluences);
-        
+
         OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Set {} bone influences on MeshSource", meshSource->GetBoneInfluences().size());
-        
+
         // Copy bone info in correct skeleton order
         meshSource->GetBoneInfo().resize(m_Skeleton->m_BoneNames.size());
-        
+
         // Initialize all entries with identity transforms and sequential IDs to ensure no uninitialized data
         for (u32 i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
         {
-            meshSource->GetBoneInfo()[i] = {glm::mat4(1.0f), i};
+            meshSource->GetBoneInfo()[i] = { glm::mat4(1.0f), i };
         }
-        
+
         // Overwrite entries with actual bone data from m_BoneInfoMap
         for (const auto& [boneName, boneInfo] : m_BoneInfoMap)
         {
             if (boneInfo.Id < meshSource->GetBoneInfo().size())
             {
-                meshSource->GetBoneInfo()[boneInfo.Id] = {boneInfo.Offset, boneInfo.Id};
+                meshSource->GetBoneInfo()[boneInfo.Id] = { boneInfo.Offset, boneInfo.Id };
             }
         }
 
@@ -229,7 +226,7 @@ namespace OloEngine
         submesh.m_IndexCount = indexCount;
         submesh.m_VertexCount = vertexCount;
         submesh.m_MaterialIndex = mesh->mMaterialIndex; // Use actual material index from Assimp
-        submesh.m_IsRigged = mesh->mNumBones > 0; // Set rigged flag based on bone presence
+        submesh.m_IsRigged = mesh->mNumBones > 0;       // Set rigged flag based on bone presence
         submesh.m_NodeName = mesh->mName.C_Str();
         meshSource->AddSubmesh(submesh);
 
@@ -245,7 +242,7 @@ namespace OloEngine
         for (u32 boneIndex = 0; boneIndex < mesh->mNumBones; ++boneIndex)
         {
             std::string boneName = mesh->mBones[boneIndex]->mName.data;
-            
+
             // Find the bone info using direct lookup from bone info map (populated during ProcessSkeleton)
             auto it = m_BoneInfoMap.find(boneName);
             if (it == m_BoneInfoMap.end())
@@ -253,7 +250,7 @@ namespace OloEngine
                 OLO_CORE_WARN("AnimatedModel::ProcessBones: Bone '{}' not found in skeleton", boneName);
                 continue;
             }
-            
+
             u32 skeletonBoneId = it->second.Id;
 
             auto weights = mesh->mBones[boneIndex]->mWeights;
@@ -281,7 +278,7 @@ namespace OloEngine
                         break;
                     }
                 }
-                
+
                 if (!slotFound)
                 {
                     OLO_CORE_WARN("AnimatedModel::ProcessBones: Vertex {} has more than 4 bone influences, ignoring extra bones", vertexId);
@@ -309,7 +306,7 @@ namespace OloEngine
         // Count total bones across all meshes and collect bone info
         std::unordered_set<std::string> uniqueBoneNames;
         std::unordered_map<std::string, glm::mat4> boneOffsetMatrices;
-        
+
         for (u32 i = 0; i < scene->mNumMeshes; ++i)
         {
             const aiMesh* mesh = scene->mMeshes[i];
@@ -358,7 +355,7 @@ namespace OloEngine
         std::function<void(const aiNode*, i32)> traverseNode = [&](const aiNode* node, i32 parentBoneIndex)
         {
             std::string nodeName = node->mName.data;
-            
+
             // Check if this node is a bone
             auto it = boneNameToIndex.find(nodeName);
             i32 currentBoneIndex = -1;
@@ -366,7 +363,7 @@ namespace OloEngine
             {
                 currentBoneIndex = static_cast<i32>(it->second);
                 m_Skeleton->m_ParentIndices[currentBoneIndex] = parentBoneIndex;
-                
+
                 // Set the node's transformation as the local transform
                 m_Skeleton->m_LocalTransforms[currentBoneIndex] = AssimpMatrixToGLM(node->mTransformation);
             }
@@ -395,11 +392,11 @@ namespace OloEngine
         for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
         {
             const std::string& boneName = m_Skeleton->m_BoneNames[i];
-            
+
             // Initialize BoneInfo for efficient lookup during mesh processing
             BoneInfo boneInfo;
             boneInfo.Id = static_cast<u32>(i);
-            
+
             auto it = boneOffsetMatrices.find(boneName);
             if (it != boneOffsetMatrices.end())
             {
@@ -415,7 +412,7 @@ namespace OloEngine
                 m_Skeleton->m_BindPoseMatrices[i] = m_Skeleton->m_GlobalTransforms[i];
                 m_Skeleton->m_InverseBindPoses[i] = glm::inverse(m_Skeleton->m_GlobalTransforms[i]);
             }
-            
+
             // Store in bone info map for O(1) lookup during mesh processing
             m_BoneInfoMap[boneName] = boneInfo;
         }
@@ -427,20 +424,22 @@ namespace OloEngine
     template<typename KeyType>
     u32 FindKeyframeIndex(f64 time, u32 numKeys, const KeyType* keys)
     {
-        if (numKeys == 0) return 0;
-        if (numKeys == 1) return 0;
-        
+        if (numKeys == 0)
+            return 0;
+        if (numKeys == 1)
+            return 0;
+
         u32 left = 0;
         u32 right = numKeys - 1;
-        
+
         // Handle time beyond last keyframe
         if (time >= keys[right].mTime)
             return right - 1;
-        
+
         // Handle time before first keyframe
         if (time <= keys[0].mTime)
             return 0;
-        
+
         // Binary search for the correct interval
         while (left < right)
         {
@@ -450,7 +449,7 @@ namespace OloEngine
             else
                 right = mid;
         }
-        
+
         return left;
     }
 
@@ -458,20 +457,22 @@ namespace OloEngine
     template<typename KeyType>
     u32 FindKeyframeIndexForBoneKeys(f64 time, u32 numKeys, const KeyType* keys)
     {
-        if (numKeys == 0) return 0;
-        if (numKeys == 1) return 0;
-        
+        if (numKeys == 0)
+            return 0;
+        if (numKeys == 1)
+            return 0;
+
         u32 left = 0;
         u32 right = numKeys - 1;
-        
+
         // Handle time beyond last keyframe
         if (time >= keys[right].Time)
             return right - 1;
-        
+
         // Handle time before first keyframe
         if (time <= keys[0].Time)
             return 0;
-        
+
         // Binary search for the correct interval
         while (left < right)
         {
@@ -481,7 +482,7 @@ namespace OloEngine
             else
                 right = mid;
         }
-        
+
         return left;
     }
 
@@ -490,7 +491,7 @@ namespace OloEngine
     {
         if (nodeAnim->mNumPositionKeys == 0)
             return glm::vec3(0.0f);
-        
+
         if (nodeAnim->mNumPositionKeys == 1)
         {
             const aiVector3D& pos = nodeAnim->mPositionKeys[0].mValue;
@@ -499,30 +500,30 @@ namespace OloEngine
 
         // Find the keyframe index using binary search
         u32 keyIndex = FindKeyframeIndex(time, nodeAnim->mNumPositionKeys, nodeAnim->mPositionKeys);
-        
+
         // Handle edge case where we're at or beyond the last keyframe
         if (keyIndex >= nodeAnim->mNumPositionKeys - 1)
         {
             const aiVector3D& pos = nodeAnim->mPositionKeys[nodeAnim->mNumPositionKeys - 1].mValue;
             return glm::vec3(pos.x, pos.y, pos.z);
         }
-        
+
         // Interpolate between the found keyframes
-        f64 t = (time - nodeAnim->mPositionKeys[keyIndex].mTime) / 
-               (nodeAnim->mPositionKeys[keyIndex + 1].mTime - nodeAnim->mPositionKeys[keyIndex].mTime);
-        
+        f64 t = (time - nodeAnim->mPositionKeys[keyIndex].mTime) /
+                (nodeAnim->mPositionKeys[keyIndex + 1].mTime - nodeAnim->mPositionKeys[keyIndex].mTime);
+
         const aiVector3D& pos1 = nodeAnim->mPositionKeys[keyIndex].mValue;
         const aiVector3D& pos2 = nodeAnim->mPositionKeys[keyIndex + 1].mValue;
-        
-        return glm::mix(glm::vec3(pos1.x, pos1.y, pos1.z), 
-                       glm::vec3(pos2.x, pos2.y, pos2.z), (f32)t);
+
+        return glm::mix(glm::vec3(pos1.x, pos1.y, pos1.z),
+                        glm::vec3(pos2.x, pos2.y, pos2.z), (f32)t);
     }
 
     glm::quat AnimatedModel::SampleRotation(const aiNodeAnim* nodeAnim, f64 time)
     {
         if (nodeAnim->mNumRotationKeys == 0)
             return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-        
+
         if (nodeAnim->mNumRotationKeys == 1)
         {
             const aiQuaternion& rot = nodeAnim->mRotationKeys[0].mValue;
@@ -531,21 +532,21 @@ namespace OloEngine
 
         // Find the keyframe index using binary search
         u32 keyIndex = FindKeyframeIndex(time, nodeAnim->mNumRotationKeys, nodeAnim->mRotationKeys);
-        
+
         // Handle edge case where we're at or beyond the last keyframe
         if (keyIndex >= nodeAnim->mNumRotationKeys - 1)
         {
             const aiQuaternion& rot = nodeAnim->mRotationKeys[nodeAnim->mNumRotationKeys - 1].mValue;
             return glm::quat(rot.w, rot.x, rot.y, rot.z);
         }
-        
+
         // Interpolate between the found keyframes
-        f64 t = (time - nodeAnim->mRotationKeys[keyIndex].mTime) / 
-               (nodeAnim->mRotationKeys[keyIndex + 1].mTime - nodeAnim->mRotationKeys[keyIndex].mTime);
-        
+        f64 t = (time - nodeAnim->mRotationKeys[keyIndex].mTime) /
+                (nodeAnim->mRotationKeys[keyIndex + 1].mTime - nodeAnim->mRotationKeys[keyIndex].mTime);
+
         const aiQuaternion& rot1 = nodeAnim->mRotationKeys[keyIndex].mValue;
         const aiQuaternion& rot2 = nodeAnim->mRotationKeys[keyIndex + 1].mValue;
-        
+
         aiQuaternion result;
         aiQuaternion::Interpolate(result, rot1, rot2, (f32)t);
         return glm::quat(result.w, result.x, result.y, result.z);
@@ -555,7 +556,7 @@ namespace OloEngine
     {
         if (nodeAnim->mNumScalingKeys == 0)
             return glm::vec3(1.0f);
-        
+
         if (nodeAnim->mNumScalingKeys == 1)
         {
             const aiVector3D& scale = nodeAnim->mScalingKeys[0].mValue;
@@ -564,23 +565,23 @@ namespace OloEngine
 
         // Find the keyframe index using binary search
         u32 keyIndex = FindKeyframeIndex(time, nodeAnim->mNumScalingKeys, nodeAnim->mScalingKeys);
-        
+
         // Handle edge case where we're at or beyond the last keyframe
         if (keyIndex >= nodeAnim->mNumScalingKeys - 1)
         {
             const aiVector3D& scale = nodeAnim->mScalingKeys[nodeAnim->mNumScalingKeys - 1].mValue;
             return glm::vec3(scale.x, scale.y, scale.z);
         }
-        
+
         // Interpolate between the found keyframes
-        f64 t = (time - nodeAnim->mScalingKeys[keyIndex].mTime) / 
-               (nodeAnim->mScalingKeys[keyIndex + 1].mTime - nodeAnim->mScalingKeys[keyIndex].mTime);
-        
+        f64 t = (time - nodeAnim->mScalingKeys[keyIndex].mTime) /
+                (nodeAnim->mScalingKeys[keyIndex + 1].mTime - nodeAnim->mScalingKeys[keyIndex].mTime);
+
         const aiVector3D& scale1 = nodeAnim->mScalingKeys[keyIndex].mValue;
         const aiVector3D& scale2 = nodeAnim->mScalingKeys[keyIndex + 1].mValue;
-        
-        return glm::mix(glm::vec3(scale1.x, scale1.y, scale1.z), 
-                       glm::vec3(scale2.x, scale2.y, scale2.z), (f32)t);
+
+        return glm::mix(glm::vec3(scale1.x, scale1.y, scale1.z),
+                        glm::vec3(scale2.x, scale2.y, scale2.z), (f32)t);
     }
 
     void AnimatedModel::ProcessAnimations(const aiScene* scene)
@@ -590,19 +591,19 @@ namespace OloEngine
         for (u32 i = 0; i < scene->mNumAnimations; ++i)
         {
             const aiAnimation* anim = scene->mAnimations[i];
-            
+
             auto animClip = Ref<AnimationClip>::Create();
             animClip->Name = anim->mName.data;
             animClip->Duration = static_cast<f32>(anim->mDuration / anim->mTicksPerSecond);
 
-            OLO_CORE_INFO("AnimatedModel::ProcessAnimations: Processing animation '{}' - Duration: {:.2f}s, Channels: {}", 
-                         animClip->Name, animClip->Duration, anim->mNumChannels);
+            OLO_CORE_INFO("AnimatedModel::ProcessAnimations: Processing animation '{}' - Duration: {:.2f}s, Channels: {}",
+                          animClip->Name, animClip->Duration, anim->mNumChannels);
 
             // Process animation channels (bone animations)
             for (u32 j = 0; j < anim->mNumChannels; ++j)
             {
                 const aiNodeAnim* nodeAnim = anim->mChannels[j];
-                
+
                 BoneAnimation boneAnim;
                 boneAnim.BoneName = nodeAnim->mNodeName.data;
 
@@ -653,24 +654,24 @@ namespace OloEngine
     {
         if (keys.empty())
             return glm::vec3(0.0f);
-        
+
         if (keys.size() == 1)
             return keys[0].Position;
 
         // Convert time to double for precision during search
         f64 searchTime = static_cast<f64>(time);
-        
+
         // Find the keyframe index using binary search
         u32 keyIndex = FindKeyframeIndexForBoneKeys(searchTime, static_cast<u32>(keys.size()), keys.data());
-        
+
         // Handle edge case where we're at or beyond the last keyframe
         if (keyIndex >= keys.size() - 1)
             return keys[keys.size() - 1].Position;
-        
+
         // Interpolate between the found keyframes
-        f64 t = (searchTime - keys[keyIndex].Time) / 
-               (keys[keyIndex + 1].Time - keys[keyIndex].Time);
-        
+        f64 t = (searchTime - keys[keyIndex].Time) /
+                (keys[keyIndex + 1].Time - keys[keyIndex].Time);
+
         return glm::mix(keys[keyIndex].Position, keys[keyIndex + 1].Position, static_cast<f32>(t));
     }
 
@@ -678,24 +679,24 @@ namespace OloEngine
     {
         if (keys.empty())
             return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-        
+
         if (keys.size() == 1)
             return keys[0].Rotation;
 
         // Convert time to double for precision during search
         f64 searchTime = static_cast<f64>(time);
-        
+
         // Find the keyframe index using binary search
         u32 keyIndex = FindKeyframeIndexForBoneKeys(searchTime, static_cast<u32>(keys.size()), keys.data());
-        
+
         // Handle edge case where we're at or beyond the last keyframe
         if (keyIndex >= keys.size() - 1)
             return keys[keys.size() - 1].Rotation;
-        
+
         // Interpolate between the found keyframes using slerp
-        f64 t = (searchTime - keys[keyIndex].Time) / 
-               (keys[keyIndex + 1].Time - keys[keyIndex].Time);
-        
+        f64 t = (searchTime - keys[keyIndex].Time) /
+                (keys[keyIndex + 1].Time - keys[keyIndex].Time);
+
         return glm::slerp(keys[keyIndex].Rotation, keys[keyIndex + 1].Rotation, static_cast<f32>(t));
     }
 
@@ -703,39 +704,39 @@ namespace OloEngine
     {
         if (keys.empty())
             return glm::vec3(1.0f);
-        
+
         if (keys.size() == 1)
             return keys[0].Scale;
 
         // Convert time to double for precision during search
         f64 searchTime = static_cast<f64>(time);
-        
+
         // Find the keyframe index using binary search
         u32 keyIndex = FindKeyframeIndexForBoneKeys(searchTime, static_cast<u32>(keys.size()), keys.data());
-        
+
         // Handle edge case where we're at or beyond the last keyframe
         if (keyIndex >= keys.size() - 1)
             return keys[keys.size() - 1].Scale;
-        
+
         // Interpolate between the found keyframes
-        f64 t = (searchTime - keys[keyIndex].Time) / 
-               (keys[keyIndex + 1].Time - keys[keyIndex].Time);
-        
+        f64 t = (searchTime - keys[keyIndex].Time) /
+                (keys[keyIndex + 1].Time - keys[keyIndex].Time);
+
         return glm::mix(keys[keyIndex].Scale, keys[keyIndex + 1].Scale, static_cast<f32>(t));
     }
 
     std::vector<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
     {
         std::vector<Ref<Texture2D>> textures;
-        
+
         for (u32 i = 0; i < mat->GetTextureCount(type); i++)
         {
             aiString str;
             mat->GetTexture(type, i, &str);
-            
+
             std::string filename = str.C_Str();
             std::filesystem::path path = std::filesystem::path(m_Directory) / filename;
-            
+
             // Check if texture was loaded before
             if (m_LoadedTextures.find(path.string()) != m_LoadedTextures.end())
             {
@@ -755,7 +756,7 @@ namespace OloEngine
                 }
             }
         }
-        
+
         return textures;
     }
 
@@ -765,25 +766,24 @@ namespace OloEngine
         aiString name;
         mat->Get(AI_MATKEY_NAME, name);
         std::string materialName = name.length > 0 ? name.C_Str() : "Animated Model Material";
-        
+
         // Get base color factor
         aiColor3D baseColor(1.0f, 1.0f, 1.0f);
         mat->Get(AI_MATKEY_COLOR_DIFFUSE, baseColor);
-        
+
         // Get metallic and roughness factors
         float metallic = 0.0f;
         float roughness = 0.5f;
         mat->Get(AI_MATKEY_METALLIC_FACTOR, metallic);
         mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness);
-        
+
         // Create material with extracted properties
         auto materialRef = Material::CreatePBR(
-            materialName, 
-            glm::vec3(baseColor.r, baseColor.g, baseColor.b), 
-            metallic, 
-            roughness
-        );
-        
+            materialName,
+            glm::vec3(baseColor.r, baseColor.g, baseColor.b),
+            metallic,
+            roughness);
+
         Material material;
         if (materialRef)
         {
@@ -795,38 +795,38 @@ namespace OloEngine
             // Use default constructed material as fallback
             material = Material{};
         }
-        
+
         // Load PBR textures
         auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
         if (!albedoMaps.empty())
         {
             material.SetAlbedoMap(albedoMaps[0]);
         }
-        
+
         auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS);
         if (!metallicRoughnessMaps.empty())
         {
             material.SetMetallicRoughnessMap(metallicRoughnessMaps[0]);
         }
-        
+
         auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS);
         if (!normalMaps.empty())
         {
             material.SetNormalMap(normalMaps[0]);
         }
-        
+
         auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
         if (!aoMaps.empty())
         {
             material.SetAOMap(aoMaps[0]);
         }
-        
+
         auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
         if (!emissiveMaps.empty())
         {
             material.SetEmissiveMap(emissiveMaps[0]);
         }
-        
+
         return material;
     }
 
@@ -841,7 +841,7 @@ namespace OloEngine
 
         // Start with the first mesh bounds
         m_BoundingBox = m_Meshes[0]->GetBoundingBox();
-        
+
         // Expand to include all meshes
         for (sizet i = 1; i < m_Meshes.size(); ++i)
         {
@@ -867,12 +867,24 @@ namespace OloEngine
     glm::mat4 AnimatedModel::AssimpMatrixToGLM(const aiMatrix4x4& from)
     {
         glm::mat4 to;
-        
-        to[0][0] = from.a1; to[1][0] = from.a2; to[2][0] = from.a3; to[3][0] = from.a4;
-        to[0][1] = from.b1; to[1][1] = from.b2; to[2][1] = from.b3; to[3][1] = from.b4;
-        to[0][2] = from.c1; to[1][2] = from.c2; to[2][2] = from.c3; to[3][2] = from.c4;
-        to[0][3] = from.d1; to[1][3] = from.d2; to[2][3] = from.d3; to[3][3] = from.d4;
-        
+
+        to[0][0] = from.a1;
+        to[1][0] = from.a2;
+        to[2][0] = from.a3;
+        to[3][0] = from.a4;
+        to[0][1] = from.b1;
+        to[1][1] = from.b2;
+        to[2][1] = from.b3;
+        to[3][1] = from.b4;
+        to[0][2] = from.c1;
+        to[1][2] = from.c2;
+        to[2][2] = from.c3;
+        to[3][2] = from.c4;
+        to[0][3] = from.d1;
+        to[1][3] = from.d2;
+        to[2][3] = from.d3;
+        to[3][3] = from.d4;
+
         return to;
     }
 
@@ -885,4 +897,4 @@ namespace OloEngine
         }
         return 0; // Default to first bone if not found
     }
-}
+} // namespace OloEngine

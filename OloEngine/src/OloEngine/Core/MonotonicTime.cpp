@@ -7,9 +7,9 @@
 namespace OloEngine
 {
 
-FMonotonicTimePoint FMonotonicTimePoint::Now()
-{
-	return FromSeconds(FPlatformTime::Seconds());
-}
+    FMonotonicTimePoint FMonotonicTimePoint::Now()
+    {
+        return FromSeconds(FPlatformTime::Seconds());
+    }
 
 } // namespace OloEngine

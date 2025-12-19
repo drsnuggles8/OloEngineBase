@@ -2,17 +2,17 @@
 
 // @file ArraySlackTracking.h
 // @brief Array slack tracking for memory debugging
-// 
+//
 // Array slack tracking is a debug feature to track unused space in heap allocated TArray
 // (and similar) structures. This feature increases heap memory usage and has performance cost,
 // so it is usually disabled by default.
-// 
+//
 // When enabled, it adds a header to each heap allocation tracking:
 // - Peak usage
 // - Reallocation count
 // - Stack traces (when available)
 // - Current slack (wasted space)
-// 
+//
 // Ported from Unreal Engine's Containers/ContainerAllocationPolicies.h
 
 #include "OloEngine/Core/Base.h"
@@ -20,44 +20,44 @@
 
 namespace OloEngine
 {
-    // ============================================================================
-    // Slack Tracking Configuration
-    // ============================================================================
+// ============================================================================
+// Slack Tracking Configuration
+// ============================================================================
 
-    // Array slack tracking is disabled by default. Enable for debugging memory waste.
-    // Note: This has performance and memory overhead.
-    #ifndef OLO_ENABLE_ARRAY_SLACK_TRACKING
-        #ifdef OLO_DEBUG
-            #define OLO_ENABLE_ARRAY_SLACK_TRACKING 0  // Set to 1 to enable in debug builds
-        #else
-            #define OLO_ENABLE_ARRAY_SLACK_TRACKING 0
-        #endif
-    #endif
+// Array slack tracking is disabled by default. Enable for debugging memory waste.
+// Note: This has performance and memory overhead.
+#ifndef OLO_ENABLE_ARRAY_SLACK_TRACKING
+#ifdef OLO_DEBUG
+#define OLO_ENABLE_ARRAY_SLACK_TRACKING 0 // Set to 1 to enable in debug builds
+#else
+#define OLO_ENABLE_ARRAY_SLACK_TRACKING 0
+#endif
+#endif
 
-    #if OLO_ENABLE_ARRAY_SLACK_TRACKING
+#if OLO_ENABLE_ARRAY_SLACK_TRACKING
 
-    // Maximum stack frames to capture
-    #ifndef OLO_SLACK_TRACKING_STACK_FRAMES
-        #define OLO_SLACK_TRACKING_STACK_FRAMES 9
-    #endif
+// Maximum stack frames to capture
+#ifndef OLO_SLACK_TRACKING_STACK_FRAMES
+#define OLO_SLACK_TRACKING_STACK_FRAMES 9
+#endif
 
-        // @struct FArraySlackTrackingHeader
+    // @struct FArraySlackTrackingHeader
     // @brief Header prepended to array heap allocations for tracking slack waste
-    // 
+    //
     // For detailed tracking of array slack waste, we add a header to heap allocations.
     // It's impossible to track the TArray structure itself since it can be inside other
     // structures and moved around, while the heap allocation is invariant.
     struct FArraySlackTrackingHeader
     {
-        FArraySlackTrackingHeader* Next;    // Linked list of tracked items
+        FArraySlackTrackingHeader* Next; // Linked list of tracked items
         FArraySlackTrackingHeader** Prev;
-        u16 AllocOffset;                     // Offset below header to actual allocation (for alignment)
-        u8 Tag;                              // LLM-style tag for categorization
-        i8 NumStackFrames;                   // Number of stack frames captured
-        u32 FirstAllocFrame;                 // Frame number of first allocation
-        u32 ReallocCount;                    // Number of reallocs
-        u32 ArrayPeak;                       // Peak observed ArrayNum
-        u64 ElemSize;                        // Size of each element
+        u16 AllocOffset;     // Offset below header to actual allocation (for alignment)
+        u8 Tag;              // LLM-style tag for categorization
+        i8 NumStackFrames;   // Number of stack frames captured
+        u32 FirstAllocFrame; // Frame number of first allocation
+        u32 ReallocCount;    // Number of reallocs
+        u32 ArrayPeak;       // Peak observed ArrayNum
+        u64 ElemSize;        // Size of each element
 
         // Note: ArrayNum initially set to INDEX_NONE since we don't know if it's
         // actually an array until UpdateNumUsed is called
@@ -89,7 +89,7 @@ namespace OloEngine
         {
             if (Ptr)
             {
-                FArraySlackTrackingHeader* TrackingHeader = 
+                FArraySlackTrackingHeader* TrackingHeader =
                     reinterpret_cast<FArraySlackTrackingHeader*>(
                         reinterpret_cast<u8*>(Ptr) - sizeof(FArraySlackTrackingHeader));
                 TrackingHeader->RemoveAllocation();
@@ -106,7 +106,7 @@ namespace OloEngine
         {
             if (Ptr)
             {
-                FArraySlackTrackingHeader* TrackingHeader = 
+                FArraySlackTrackingHeader* TrackingHeader =
                     reinterpret_cast<FArraySlackTrackingHeader*>(
                         reinterpret_cast<u8*>(Ptr) - sizeof(FArraySlackTrackingHeader));
                 TrackingHeader->UpdateNumUsed(NewNumUsed);
@@ -119,7 +119,7 @@ namespace OloEngine
         {
             if (Ptr)
             {
-                FArraySlackTrackingHeader* TrackingHeader = 
+                FArraySlackTrackingHeader* TrackingHeader =
                     reinterpret_cast<FArraySlackTrackingHeader*>(
                         reinterpret_cast<u8*>(Ptr) - sizeof(FArraySlackTrackingHeader));
                 TrackingHeader->RemoveAllocation();
@@ -147,7 +147,7 @@ namespace OloEngine
     // @return Current tag value
     u8 LlmGetActiveTag();
 
-    #endif // OLO_ENABLE_ARRAY_SLACK_TRACKING
+#endif // OLO_ENABLE_ARRAY_SLACK_TRACKING
 
     // ============================================================================
     // Allocator Slack Tracking Helpers
@@ -155,7 +155,7 @@ namespace OloEngine
 
     // @struct TSupportsSlackTracking
     // @brief Helper to check if an allocator supports slack tracking at compile time
-    template <typename AllocatorType>
+    template<typename AllocatorType>
     struct TSupportsSlackTracking
     {
         static constexpr bool Value = false;
@@ -165,18 +165,17 @@ namespace OloEngine
     // @tparam AllocatorType The allocator type
     // @param Allocator The allocator instance
     // @param NewNumUsed The new number of used elements
-    template <typename AllocatorType, typename SizeType>
+    template<typename AllocatorType, typename SizeType>
     OLO_FINLINE void SlackTrackerLogNumIfSupported(
-        [[maybe_unused]] AllocatorType& Allocator, 
+        [[maybe_unused]] AllocatorType& Allocator,
         [[maybe_unused]] SizeType NewNumUsed)
     {
-    #if OLO_ENABLE_ARRAY_SLACK_TRACKING
+#if OLO_ENABLE_ARRAY_SLACK_TRACKING
         if constexpr (TSupportsSlackTracking<AllocatorType>::Value)
         {
             Allocator.SlackTrackerLogNum(NewNumUsed);
         }
-    #endif
+#endif
     }
 
 } // namespace OloEngine
-

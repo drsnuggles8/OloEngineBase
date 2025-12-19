@@ -11,7 +11,7 @@ namespace OloEngine::Tasks
 {
     // @class FCancellationToken
     // @brief Support for canceling tasks mid-execution
-    // 
+    //
     // Usage:
     // @code
     // FCancellationToken Token;
@@ -22,11 +22,11 @@ namespace OloEngine::Tasks
     //         // ... do work ...
     //     }
     // });
-    // 
+    //
     // // Later:
     // Token.Cancel();
     // @endcode
-    // 
+    //
     // Notes:
     // - It's the user's decision and responsibility to manage cancellation token lifetime
     // - It's the user's responsibility to check the cancellation token and return early
@@ -35,7 +35,7 @@ namespace OloEngine::Tasks
     // - Canceling a task doesn't affect its subsequents unless they share the same token
     class FCancellationToken
     {
-    public:
+      public:
         FCancellationToken() = default;
 
         // Non-copyable but movable
@@ -45,7 +45,7 @@ namespace OloEngine::Tasks
         FCancellationToken& operator=(FCancellationToken&&) = default;
 
         // @brief Request cancellation
-        // 
+        //
         // This is a cooperative cancellation - the task must check IsCanceled()
         // and honor the cancellation request.
         void Cancel()
@@ -61,23 +61,23 @@ namespace OloEngine::Tasks
         }
 
         // @brief Reset the cancellation state
-        // 
+        //
         // Allows reuse of the token for a new task.
         void Reset()
         {
             m_bCanceled.store(false, std::memory_order_relaxed);
         }
 
-    private:
-        std::atomic<bool> m_bCanceled{false};
+      private:
+        std::atomic<bool> m_bCanceled{ false };
     };
 
     // @class FCancellationTokenScope
     // @brief RAII scope for setting the current thread's cancellation token
-    // 
+    //
     // This allows nested task code to check for cancellation without
     // explicitly passing the token through the call stack.
-    // 
+    //
     // Example:
     // @code
     // FCancellationToken Token;
@@ -89,7 +89,7 @@ namespace OloEngine::Tasks
     // @endcode
     class FCancellationTokenScope
     {
-    public:
+      public:
         explicit FCancellationTokenScope(FCancellationToken& CancellationToken)
         {
             SetToken(&CancellationToken);
@@ -120,9 +120,9 @@ namespace OloEngine::Tasks
         }
 
         // @brief Check if the current work has been canceled
-        // 
+        //
         // Convenience function that checks the current thread's cancellation token.
-        // 
+        //
         // @return true if there's a current token and it has been canceled
         static bool IsCurrentWorkCanceled()
         {
@@ -133,15 +133,15 @@ namespace OloEngine::Tasks
             return false;
         }
 
-    private:
+      private:
         void SetToken(FCancellationToken* CancellationToken)
         {
             if (CancellationToken)
             {
                 if (s_CurrentToken != CancellationToken)
                 {
-                    OLO_CORE_ASSERT(s_CurrentToken == nullptr, 
-                        "Nested cancellation token scopes with different tokens are not supported");
+                    OLO_CORE_ASSERT(s_CurrentToken == nullptr,
+                                    "Nested cancellation token scopes with different tokens are not supported");
                     s_CurrentToken = CancellationToken;
                     m_bHasActiveScope = true;
                 }

@@ -5,13 +5,13 @@
 
 // @file LocalWorkQueue.h
 // @brief Local work queue for work-stealing task parallelism
-// 
+//
 // TLocalWorkQueue provides a pattern for parallel task execution where:
 // - A main thread creates initial work items
 // - Worker tasks can be spawned to process items concurrently
 // - Workers can add more work items as they discover them
 // - The main thread runs until all work is complete
-// 
+//
 // Ported from Unreal Engine 5.7
 
 #include "OloEngine/Core/Base.h"
@@ -31,9 +31,9 @@ namespace OloEngine
 {
     // @class TYCombinator
     // @brief Y-combinator for creating recursive lambdas
-    // 
+    //
     // Enables writing recursive lambdas by passing the combinator as the first argument.
-    // 
+    //
     // Example:
     // @code
     //     auto Factorial = MakeYCombinator([](auto Self, int N) -> int {
@@ -41,14 +41,14 @@ namespace OloEngine
     //     });
     //     int Result = Factorial(5);  // 120
     // @endcode
-    // 
+    //
     // @tparam LAMBDA The lambda type
     template<typename LAMBDA>
     class TYCombinator
     {
         LAMBDA Lambda;
 
-    public:
+      public:
         constexpr TYCombinator(LAMBDA&& InLambda)
             : Lambda(MoveTemp(InLambda))
         {
@@ -60,7 +60,7 @@ namespace OloEngine
         }
 
         template<typename... ARGS>
-        constexpr auto operator()(ARGS&&... Args) const 
+        constexpr auto operator()(ARGS&&... Args) const
             -> decltype(Lambda(static_cast<const TYCombinator<LAMBDA>&>(*this), Forward<ARGS>(Args)...))
         {
             return Lambda(static_cast<const TYCombinator<LAMBDA>&>(*this), Forward<ARGS>(Args)...);
@@ -95,13 +95,13 @@ namespace OloEngine
     // Usage:
     // @code
     //     struct FMyTask { int Data; };
-    //     
+    //
     //     FMyTask InitialTask{42};
     //     TLocalWorkQueue<FMyTask> WorkQueue(&InitialTask, LowLevelTasks::ETaskPriority::Normal);
-    //     
+    //
     //     // Add more workers if needed
     //     WorkQueue.AddWorkers(4);
-    //     
+    //
     //     // Run until all work is done
     //     WorkQueue.Run([&](FMyTask* Task) {
     //         ProcessTask(Task);
@@ -117,10 +117,10 @@ namespace OloEngine
 
         // @struct FInternalData
         // @brief Shared internal state for the work queue
-        // 
+        //
         // Reference-counted to ensure lifetime extends beyond the TLocalWorkQueue
         // if workers are still running when Run() returns.
-        // 
+        //
         // @note UE5.7 also inherits from TConcurrentLinearObject<FInternalData, FTaskGraphBlockAllocationTag>
         // for pooled allocation. This is a potential optimization for high-frequency
         // TLocalWorkQueue creation/destruction scenarios.
@@ -142,7 +142,7 @@ namespace OloEngine
         LowLevelTasks::ETaskPriority m_Priority;
         TFunctionRef<void(TaskType*)>* m_DoWork = nullptr;
 
-    public:
+      public:
         // @brief Construct a local work queue with initial work
         // @param InitialWork The first work item to process
         // @param InPriority Task priority (Count = inherit from current task)
@@ -178,25 +178,25 @@ namespace OloEngine
 
         // @brief Add a new work item to the queue
         // @param NewWork The work item to add
-        // 
+        //
         // Can be called from any thread (main or worker).
         // Must not be called after Run() has started checking for completion.
         void AddTask(TaskType* NewWork)
         {
-            OLO_CORE_ASSERT(!m_InternalData->CheckDone.load(std::memory_order_relaxed), 
-                           "Cannot add tasks after queue completion started");
+            OLO_CORE_ASSERT(!m_InternalData->CheckDone.load(std::memory_order_relaxed),
+                            "Cannot add tasks after queue completion started");
             m_InternalData->TaskQueue.Enqueue(NewWork);
         }
 
         // @brief Spawn additional worker tasks
         // @param NumWorkers Number of workers to add
-        // 
+        //
         // Workers will dequeue and process items until the queue is empty.
         // Must be called after m_DoWork is set (i.e., from within Run()).
         void AddWorkers(u16 NumWorkers)
         {
             OLO_CORE_ASSERT(!m_InternalData->CheckDone.load(std::memory_order_relaxed),
-                           "Cannot add workers after queue completion started");
+                            "Cannot add workers after queue completion started");
             OLO_CORE_ASSERT(m_DoWork != nullptr, "AddWorkers must be called from within Run()");
 
             for (u16 Index = 0; Index < NumWorkers; ++Index)
@@ -207,25 +207,25 @@ namespace OloEngine
                 TFunctionRef<void(TaskType*)>* LocalDoWork = m_DoWork;
                 TRefCountPtr<FInternalData> InternalData = m_InternalData;
 
-                TaskHandle->Init(TEXT("TLocalWorkQueue::AddWorkers"), m_Priority, 
-                    [LocalDoWork, InternalData, TaskHandle]()
-                    {
-                        OLO_PROFILE_SCOPE("TLocalWorkQueue::Worker");
-                        
-                        InternalData->ActiveWorkers.fetch_add(1, std::memory_order_acquire);
-                        
-                        while (TaskType* Work = InternalData->TaskQueue.Dequeue())
-                        {
-                            OLO_CORE_ASSERT(!InternalData->CheckDone.load(std::memory_order_relaxed),
-                                           "Processing work after completion flag set");
-                            (*LocalDoWork)(Work);
-                        }
-                        
-                        if (InternalData->ActiveWorkers.fetch_sub(1, std::memory_order_release) == 1)
-                        {
-                            InternalData->FinishedEvent.Notify();
-                        }
-                    });
+                TaskHandle->Init(TEXT("TLocalWorkQueue::AddWorkers"), m_Priority,
+                                 [LocalDoWork, InternalData, TaskHandle]()
+                                 {
+                                     OLO_PROFILE_SCOPE("TLocalWorkQueue::Worker");
+
+                                     InternalData->ActiveWorkers.fetch_add(1, std::memory_order_acquire);
+
+                                     while (TaskType* Work = InternalData->TaskQueue.Dequeue())
+                                     {
+                                         OLO_CORE_ASSERT(!InternalData->CheckDone.load(std::memory_order_relaxed),
+                                                         "Processing work after completion flag set");
+                                         (*LocalDoWork)(Work);
+                                     }
+
+                                     if (InternalData->ActiveWorkers.fetch_sub(1, std::memory_order_release) == 1)
+                                     {
+                                         InternalData->FinishedEvent.Notify();
+                                     }
+                                 });
 
                 LowLevelTasks::TryLaunch(*TaskHandle, LowLevelTasks::EQueuePreference::GlobalQueuePreference);
             }
@@ -233,11 +233,11 @@ namespace OloEngine
 
         // @brief Run the work queue until all items are processed
         // @param InDoWork Callback to process each work item
-        // 
+        //
         // This method blocks until:
         // - The queue is empty AND
         // - All workers have finished
-        // 
+        //
         // The callback can add new work items via AddTask() and spawn
         // additional workers via AddWorkers().
         void Run(TFunctionRef<void(TaskType*)> InDoWork)
@@ -249,12 +249,12 @@ namespace OloEngine
             while (true)
             {
                 bool bNoActiveWorkers = m_InternalData->ActiveWorkers.load(std::memory_order_acquire) == 0;
-                
+
                 if (TaskType* Work = m_InternalData->TaskQueue.Dequeue())
                 {
                     InDoWork(Work);
                 }
-                else if (bNoActiveWorkers && 
+                else if (bNoActiveWorkers &&
                          m_InternalData->ActiveWorkers.load(std::memory_order_acquire) == 0)
                 {
                     // Queue empty and no workers - we're done
@@ -264,7 +264,7 @@ namespace OloEngine
                 {
                     // Queue empty but workers may add more - wait for them
                     auto Token = m_InternalData->FinishedEvent.PrepareWait();
-                    
+
                     if (m_InternalData->ActiveWorkers.load(std::memory_order_acquire) == 0)
                     {
                         // Workers finished between our check and PrepareWait
@@ -277,10 +277,9 @@ namespace OloEngine
             }
 
             m_InternalData->CheckDone.store(true);
-            OLO_CORE_ASSERT(m_InternalData->TaskQueue.Dequeue() == nullptr, 
-                           "Queue should be empty after Run() completes");
+            OLO_CORE_ASSERT(m_InternalData->TaskQueue.Dequeue() == nullptr,
+                            "Queue should be empty after Run() completes");
         }
     };
 
 } // namespace OloEngine
-

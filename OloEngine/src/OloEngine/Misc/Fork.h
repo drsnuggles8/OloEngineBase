@@ -28,23 +28,23 @@ namespace OloEngine
     //
     // About multithreading:
     // When a process gets forked, any existing threads will not exist on the new forked process.
-    // To solve this we use forkable threads that are notified when the fork occurs and will 
+    // To solve this we use forkable threads that are notified when the fork occurs and will
     // automatically convert themselves into real runnable threads.
-    // On the master process, these forkable threads will be fake threads that are executed on 
+    // On the master process, these forkable threads will be fake threads that are executed on
     // the main thread and will block the critical path.
     //
-    // Currently the game code is responsible for calling Fork on itself then calling 
+    // Currently the game code is responsible for calling Fork on itself then calling
     // FForkProcessHelper::OnForkingOccured to transform the forkable threads.
-    // Ideally the fork point is done right after the game has loaded all the assets it wants 
+    // Ideally the fork point is done right after the game has loaded all the assets it wants
     // to share so it can maximize the shared memory pool.
-    // From the fork point any memory page that gets written into by a forked process will be 
+    // From the fork point any memory page that gets written into by a forked process will be
     // transferred into a unique page for this process.
     class FForkProcessHelper
     {
-    public:
+      public:
         // @brief Returns true if the server process was launched with the intention to fork.
         // This could be a process on a fork-supported platform that will launch real child processes.
-        // Or it could be a process that will simulate forking by transforming itself into a child 
+        // Or it could be a process that will simulate forking by transforming itself into a child
         // process via fake forking.
         static bool IsForkRequested()
         {
@@ -60,7 +60,7 @@ namespace OloEngine
 
         // @brief Are we a forked process that supports multithreading.
         // This only becomes true after it's safe to be multithread.
-        // Since a process can be forked mid-tick, there is a period of time where 
+        // Since a process can be forked mid-tick, there is a period of time where
         // IsForkedChildProcess is true but IsForkedMultithreadInstance will be false.
         static bool IsForkedMultithreadInstance()
         {
@@ -81,14 +81,14 @@ namespace OloEngine
             s_bIsForkedChildProcess.store(true, std::memory_order_release);
         }
 
-        // @brief Returns the unique index of this forked child process. 
+        // @brief Returns the unique index of this forked child process.
         // Index 0 is for the master server.
         static u16 GetForkedChildProcessIndex()
         {
             return s_ForkedChildProcessIndex;
         }
 
-        // @brief Event triggered when a fork occurred on the child process and it's safe 
+        // @brief Event triggered when a fork occurred on the child process and it's safe
         // to create real threads.
         static void OnForkingOccured()
         {
@@ -110,9 +110,9 @@ namespace OloEngine
             s_bSupportsMultithreadingPostFork = bSupported;
         }
 
-        // @brief Performs low-level cross-platform actions that should happen immediately 
+        // @brief Performs low-level cross-platform actions that should happen immediately
         // BEFORE forking in a well-specified order.
-        // Runs after any higher level code like calling into game-level constructs or 
+        // Runs after any higher level code like calling into game-level constructs or
         // anything that may allocate memory.
         // E.g. notifies GMalloc to optimize for memory sharing across parent/child process.
         // Note: This will be called multiple times on the parent before each fork.
@@ -122,7 +122,7 @@ namespace OloEngine
             // GMalloc->OnPreFork();
         }
 
-        // @brief Performs low-level cross-platform actions that should happen immediately 
+        // @brief Performs low-level cross-platform actions that should happen immediately
         // AFTER forking in the PARENT process in a well-specified order.
         // Runs before any higher level code like calling into game-level constructs.
         // E.g. notifies GMalloc to optimize for memory sharing across parent/child process.
@@ -132,7 +132,7 @@ namespace OloEngine
             // GMalloc->OnPostForkParent();
         }
 
-        // @brief Performs low-level cross-platform actions that should happen immediately 
+        // @brief Performs low-level cross-platform actions that should happen immediately
         // AFTER forking in the CHILD process in a well-specified order.
         // Runs before any higher level code like calling into game-level constructs.
         // E.g. notifies GMalloc to optimize for memory sharing across parent/child process.
@@ -169,7 +169,7 @@ namespace OloEngine
             EThreadCreateFlags InCreateFlags = EThreadCreateFlags::None,
             bool bAllowPreFork = false);
 
-    private:
+      private:
         inline static std::atomic<bool> s_bForkRequested{ false };
         inline static std::atomic<bool> s_bIsForkedChildProcess{ false };
         inline static std::atomic<bool> s_bIsForkedMultithreadInstance{ false };
@@ -197,16 +197,19 @@ namespace OloEngine
     // should not be instantiated directly.
     class FForkableThread : public FRunnableThread
     {
-    public:
+      public:
         FForkableThread() = default;
         virtual ~FForkableThread() override = default;
 
         // @brief Get the thread type
         // @return ThreadType::Forkable
-        virtual ThreadType GetThreadType() const override { return ThreadType::Forkable; }
+        virtual ThreadType GetThreadType() const override
+        {
+            return ThreadType::Forkable;
+        }
 
         // @brief Convert this fake/forkable thread into a real thread
-        // 
+        //
         // Called after fork when it's safe to create real threads.
         // The thread will begin executing its runnable independently.
         //
@@ -219,7 +222,7 @@ namespace OloEngine
             }
 
             // Create the actual OS thread
-            if (CreateInternal(m_Runnable, m_ThreadName.c_str(), m_StackSize, 
+            if (CreateInternal(m_Runnable, m_ThreadName.c_str(), m_StackSize,
                                m_ThreadPriority, m_ThreadAffinityMask, m_CreateFlags))
             {
                 m_bIsRealThread = true;
@@ -269,7 +272,7 @@ namespace OloEngine
             return true;
         }
 
-    private:
+      private:
         u32 m_StackSize = 0;
         EThreadCreateFlags m_CreateFlags = EThreadCreateFlags::None;
         bool m_bIsRealThread = false;

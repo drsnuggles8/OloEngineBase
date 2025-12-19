@@ -10,12 +10,12 @@
 
 // This file should only be included from WindowsHWrapper.h
 #if !defined(WINDOWS_H_WRAPPER_GUARD)
-    #pragma message("WARNING: do not include PostWindowsApi.h directly. Use Platform/Windows/WindowsHWrapper.h instead")
+#pragma message("WARNING: do not include PostWindowsApi.h directly. Use Platform/Windows/WindowsHWrapper.h instead")
 #endif
 
 // Re-enable warnings
 #if defined(_MSC_VER)
-    #pragma warning(pop)
+#pragma warning(pop)
 #endif
 
 // Hide Windows-only types that conflict with our types
@@ -50,7 +50,7 @@
 #undef SendMessage
 #undef SetPort
 #undef UpdateResource
-#undef Yield               // Conflicts with FPlatformProcess::Yield()
+#undef Yield // Conflicts with FPlatformProcess::Yield()
 
 // Undefine atomics that we implement ourselves
 #undef InterlockedIncrement

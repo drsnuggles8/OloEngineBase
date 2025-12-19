@@ -3,13 +3,13 @@
 /**
  * @file SparseSet.h
  * @brief Hash-based set container with O(1) average operations
- * 
+ *
  * Provides a hash-based set implementation using TSparseArray for element storage:
  * - O(1) average case for add, remove, and find operations
  * - Customizable key functions for different comparison and hashing strategies
  * - Support for heterogeneous lookup with ByHash() functions
  * - Iteration maintains insertion order (via sparse array)
- * 
+ *
  * Ported from Unreal Engine's Containers/SparseSet.h.inl
  */
 
@@ -27,36 +27,35 @@
 namespace OloEngine
 {
     // Forward declarations
-    template <typename KeyType, typename ValueType>
+    template<typename KeyType, typename ValueType>
     struct TPair;
 
     /**
      * @class TSparseSet
      * @brief A hash-based set with optional custom key functions
-     * 
+     *
      * Uses a TSparseArray to store elements and a hash table for O(1) lookup.
      * Elements are linked in hash chains for collision resolution.
-     * 
+     *
      * @tparam InElementType  The element type stored in the set
      * @tparam KeyFuncs       Functions for getting keys and computing hashes
      * @tparam Allocator      Allocator policy for elements and hash table
      */
-    template <
+    template<
         typename InElementType,
         typename KeyFuncs = DefaultKeyFuncs<InElementType>,
-        typename Allocator = FDefaultSetAllocator
-    >
+        typename Allocator = FDefaultSetAllocator>
     class TSparseSet
     {
         friend struct TSparseSetPrivateFriend;
 
-    public:
+      public:
         using ElementType = InElementType;
         using KeyFuncsType = KeyFuncs;
         using AllocatorType = Allocator;
         using SizeType = i32;
 
-    private:
+      private:
         using KeyInitType = typename KeyFuncs::KeyInitType;
         using ElementInitType = typename KeyFuncs::ElementInitType;
         using SetElementType = TSparseSetElement<InElementType>;
@@ -70,7 +69,7 @@ namespace OloEngine
         mutable HashType Hash;
         i32 HashSize = 0;
 
-    public:
+      public:
         // ========================================================================
         // Intrusive TOptional<TSparseSet> State
         // ========================================================================
@@ -163,8 +162,8 @@ namespace OloEngine
             return *this;
         }
 
-    private:
-        template <typename SetType>
+      private:
+        template<typename SetType>
         static inline void Move(SetType& ToSet, SetType& FromSet)
         {
             ToSet.Elements = MoveTemp(FromSet.Elements);
@@ -173,7 +172,7 @@ namespace OloEngine
             FromSet.HashSize = 0;
         }
 
-    public:
+      public:
         // ========================================================================
         // Size / Capacity
         // ========================================================================
@@ -327,7 +326,7 @@ namespace OloEngine
          * @brief Sort the set's elements using the provided comparison class
          * @param Predicate  Comparison functor
          */
-        template <typename PredicateClass>
+        template<typename PredicateClass>
         void Sort(const PredicateClass& Predicate)
         {
             // Sort the elements according to the provided comparison class
@@ -347,7 +346,7 @@ namespace OloEngine
          * @brief Stable sort the set's elements using the provided comparison class
          * @param Predicate  Comparison functor
          */
-        template <typename PredicateClass>
+        template<typename PredicateClass>
         void StableSort(const PredicateClass& Predicate)
         {
             // Sort the elements according to the provided comparison class
@@ -455,7 +454,7 @@ namespace OloEngine
          * @param bIsAlreadyInSetPtr  Optional out parameter
          * @return Reference to the element in the set
          */
-        template <typename ElementReferenceType>
+        template<typename ElementReferenceType>
         ElementType& FindOrAddByHash(u32 KeyHash, ElementReferenceType&& InElement, bool* bIsAlreadyInSetPtr = nullptr)
         {
             i32 ExistingIndex = FindIndexByHash(KeyHash, KeyFuncs::GetSetKey(InElement));
@@ -482,7 +481,7 @@ namespace OloEngine
          * @param bIsAlreadyInSetPtr  Optional out parameter
          * @return The id of the element in the set
          */
-        template <typename ArgType = ElementType>
+        template<typename ArgType = ElementType>
         FSetElementId Emplace(ArgType&& Arg, bool* bIsAlreadyInSetPtr = nullptr)
         {
             // Create a new element
@@ -505,7 +504,7 @@ namespace OloEngine
          * @param InArgs  Arguments forwarded to ElementType's constructor
          * @return Pair of (element id, whether an equivalent element already existed)
          */
-        template <typename... ArgTypes>
+        template<typename... ArgTypes>
         TPair<FSetElementId, bool> Emplace(EInPlace, ArgTypes&&... InArgs)
         {
             // Create a new element
@@ -531,7 +530,7 @@ namespace OloEngine
          * @param bIsAlreadyInSetPtr  Optional out parameter
          * @return The id of the element in the set
          */
-        template <typename ArgType = ElementType>
+        template<typename ArgType = ElementType>
         FSetElementId EmplaceByHash(u32 KeyHash, ArgType&& Arg, bool* bIsAlreadyInSetPtr = nullptr)
         {
             FSparseArrayAllocationInfo ElementAllocation = Elements.AddUninitialized();
@@ -555,7 +554,7 @@ namespace OloEngine
          * @param InArgs  Arguments forwarded to ElementType's constructor
          * @return Pair of (element id, whether an equivalent element already existed)
          */
-        template <typename... ArgTypes>
+        template<typename... ArgTypes>
         TPair<FSetElementId, bool> EmplaceByHash(EInPlace, u32 KeyHash, ArgTypes&&... InArgs)
         {
             // Create a new element
@@ -582,7 +581,7 @@ namespace OloEngine
         }
 
         /** Append elements from another set */
-        template <typename OtherAllocator>
+        template<typename OtherAllocator>
         void Append(const TSparseSet<ElementType, KeyFuncs, OtherAllocator>& OtherSet)
         {
             Reserve(Elements.Num() + OtherSet.Num());
@@ -593,7 +592,7 @@ namespace OloEngine
         }
 
         /** Append elements from another set (move) */
-        template <typename OtherAllocator>
+        template<typename OtherAllocator>
         void Append(TSparseSet<ElementType, KeyFuncs, OtherAllocator>&& OtherSet)
         {
             Reserve(Elements.Num() + OtherSet.Num());
@@ -637,7 +636,7 @@ namespace OloEngine
          * @param Key  The key to match
          * @return Number of elements removed
          */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         i32 RemoveByHash(u32 KeyHash, const ComparableKey& Key)
         {
             if (Elements.Num())
@@ -683,7 +682,7 @@ namespace OloEngine
          * @param Key  The key to search for
          * @return Element id or invalid id if not found
          */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] FSetElementId FindIdByHash(u32 KeyHash, const ComparableKey& Key) const
         {
             return FSetElementId::FromInteger(FindIndexByHash(KeyHash, Key));
@@ -715,7 +714,7 @@ namespace OloEngine
          * @param Key  The key to search for
          * @return Pointer to element or nullptr
          */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] ElementType* FindByHash(u32 KeyHash, const ComparableKey& Key)
         {
             i32 ElementIndex = FindIndexByHash(KeyHash, Key);
@@ -726,7 +725,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] const ElementType* FindByHash(u32 KeyHash, const ComparableKey& Key) const
         {
             return const_cast<TSparseSet*>(this)->FindByHash(KeyHash, Key);
@@ -750,7 +749,7 @@ namespace OloEngine
          * @param Key  The key to search for
          * @return true if an element with the key exists
          */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] inline bool ContainsByHash(u32 KeyHash, const ComparableKey& Key) const
         {
             OLO_CORE_ASSERT(KeyHash == KeyFuncs::GetKeyHash(Key), "Hash mismatch in ContainsByHash");
@@ -785,7 +784,7 @@ namespace OloEngine
         {
             TSparseSet Result;
             Result.Reserve(Num() + OtherSet.Num());
-            
+
             for (const ElementType& Element : *this)
             {
                 Result.Add(Element);
@@ -794,7 +793,7 @@ namespace OloEngine
             {
                 Result.Add(Element);
             }
-            
+
             return Result;
         }
 
@@ -806,7 +805,7 @@ namespace OloEngine
         [[nodiscard]] TSparseSet Intersect(const TSparseSet& OtherSet) const
         {
             TSparseSet Result;
-            
+
             for (const ElementType& Element : *this)
             {
                 if (OtherSet.Contains(KeyFuncs::GetSetKey(Element)))
@@ -814,7 +813,7 @@ namespace OloEngine
                     Result.Add(Element);
                 }
             }
-            
+
             return Result;
         }
 
@@ -826,7 +825,7 @@ namespace OloEngine
         [[nodiscard]] TSparseSet Difference(const TSparseSet& OtherSet) const
         {
             TSparseSet Result;
-            
+
             for (const ElementType& Element : *this)
             {
                 if (!OtherSet.Contains(KeyFuncs::GetSetKey(Element)))
@@ -834,7 +833,7 @@ namespace OloEngine
                     Result.Add(Element);
                 }
             }
-            
+
             return Result;
         }
 
@@ -903,21 +902,21 @@ namespace OloEngine
         // ========================================================================
 
         /** Base iterator class */
-        template <bool bConst>
+        template<bool bConst>
         class TBaseIterator
         {
-        public:
+          public:
             using SetType = std::conditional_t<bConst, const TSparseSet, TSparseSet>;
             using IteratedElementType = std::conditional_t<bConst, const ElementType, ElementType>;
 
-        private:
+          private:
             SetType& Set;
             typename ElementArrayType::template TBaseIterator<bConst> ElementIt;
 
-        public:
+          public:
             [[nodiscard]] explicit TBaseIterator(SetType& InSet)
-                : Set(InSet)
-                , ElementIt([&InSet]() {
+                : Set(InSet), ElementIt([&InSet]()
+                                        {
                     if constexpr (bConst)
                     {
                         return InSet.Elements.CreateConstIterator();
@@ -925,14 +924,12 @@ namespace OloEngine
                     else
                     {
                         return InSet.Elements.CreateIterator();
-                    }
-                }())
+                    } }())
             {
             }
 
             [[nodiscard]] explicit TBaseIterator(SetType& InSet, i32 StartIndex)
-                : Set(InSet)
-                , ElementIt(InSet.Elements, StartIndex)
+                : Set(InSet), ElementIt(InSet.Elements, StartIndex)
             {
             }
 
@@ -983,7 +980,8 @@ namespace OloEngine
             }
 
             /** Remove current element (mutable iterator only) */
-            void RemoveCurrent() requires (!bConst)
+            void RemoveCurrent()
+                requires(!bConst)
             {
                 Set.Remove(GetId());
             }
@@ -995,23 +993,21 @@ namespace OloEngine
         using TRangedForConstIterator = TConstIterator;
 
         /** The base type of key iterators - iterates over elements with a specific key */
-        template <bool bConst>
+        template<bool bConst>
         class TBaseKeyIterator
         {
-        private:
+          private:
             using SetType = std::conditional_t<bConst, const TSparseSet, TSparseSet>;
             using IteratedElementType = std::conditional_t<bConst, const ElementType, ElementType>;
             using ReferenceOrValueType = typename TTypeTraits<typename KeyFuncs::KeyType>::ConstPointerType;
 
-        public:
+          public:
             /** Type used for key arguments - ensures proper lifetime handling */
             using KeyArgumentType = KeyInitType;
 
             /** Initialization constructor */
             [[nodiscard]] inline TBaseKeyIterator(SetType& InSet, KeyArgumentType InKey)
-                : Set(InSet)
-                , Key(InKey)
-                , Index(INDEX_NONE)
+                : Set(InSet), Key(InKey), Index(INDEX_NONE)
             {
                 if (Set.HashSize)
                 {
@@ -1072,7 +1068,7 @@ namespace OloEngine
                 return Set.Elements[Index].Value;
             }
 
-        protected:
+          protected:
             SetType& Set;
             KeyInitType Key;
             i32 Index;
@@ -1082,10 +1078,10 @@ namespace OloEngine
         /** Used to iterate over elements of a const TSparseSet with a specific key */
         class TConstKeyIterator : public TBaseKeyIterator<true>
         {
-        private:
+          private:
             using Super = TBaseKeyIterator<true>;
 
-        public:
+          public:
             using KeyArgumentType = typename Super::KeyArgumentType;
 
             [[nodiscard]] OLO_FINLINE TConstKeyIterator(const TSparseSet& InSet, KeyArgumentType InKey)
@@ -1097,10 +1093,10 @@ namespace OloEngine
         /** Used to iterate over elements of a TSparseSet with a specific key */
         class TKeyIterator : public TBaseKeyIterator<false>
         {
-        private:
+          private:
             using Super = TBaseKeyIterator<false>;
 
-        public:
+          public:
             using KeyArgumentType = typename Super::KeyArgumentType;
 
             [[nodiscard]] OLO_FINLINE TKeyIterator(TSparseSet& InSet, KeyArgumentType InKey)
@@ -1129,10 +1125,22 @@ namespace OloEngine
         }
 
         /** Range-based for loop support */
-        [[nodiscard]] TIterator begin() { return TIterator(*this); }
-        [[nodiscard]] TConstIterator begin() const { return TConstIterator(*this); }
-        [[nodiscard]] TIterator end() { return TIterator(*this, GetMaxIndex()); }
-        [[nodiscard]] TConstIterator end() const { return TConstIterator(*this, GetMaxIndex()); }
+        [[nodiscard]] TIterator begin()
+        {
+            return TIterator(*this);
+        }
+        [[nodiscard]] TConstIterator begin() const
+        {
+            return TConstIterator(*this);
+        }
+        [[nodiscard]] TIterator end()
+        {
+            return TIterator(*this, GetMaxIndex());
+        }
+        [[nodiscard]] TConstIterator end() const
+        {
+            return TConstIterator(*this, GetMaxIndex());
+        }
 
         // Sets are deliberately prevented from being hashed or compared, because this would hide
         // potentially major performance problems behind default operations.
@@ -1150,7 +1158,7 @@ namespace OloEngine
          */
         /**
          * @brief Describes the set's contents through an output device
-         * 
+         *
          * @note This method requires FOutputDevice to be fully defined.
          *       Currently stubbed until FOutputDevice is implemented.
          *       Future signature: void Dump(FOutputDevice& Ar)
@@ -1226,14 +1234,14 @@ namespace OloEngine
                 TSparseSet* DstObject = static_cast<TSparseSet*>(Dst);
                 this->Elements.CopyUnfrozen(Context, &DstObject->Elements);
 
-                ::new(static_cast<void*>(&DstObject->Hash)) HashType();
+                ::new (static_cast<void*>(&DstObject->Hash)) HashType();
                 DstObject->Hash.ResizeAllocation(0, this->HashSize, sizeof(FSetElementId));
                 std::memcpy(DstObject->Hash.GetAllocation(), this->Hash.GetAllocation(), sizeof(FSetElementId) * this->HashSize);
                 DstObject->HashSize = this->HashSize;
             }
             else
             {
-                ::new(Dst) TSparseSet();
+                ::new (Dst) TSparseSet();
             }
         }
 
@@ -1243,7 +1251,7 @@ namespace OloEngine
             ElementArrayType::AppendHash(LayoutParams, Hasher);
         }
 
-    private:
+      private:
         // ========================================================================
         // Internal Helpers
         // ========================================================================
@@ -1260,7 +1268,7 @@ namespace OloEngine
         }
 
         /** Find element index by hash and key */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] i32 FindIndexByHash(u32 KeyHash, const ComparableKey& Key) const
         {
             if (Elements.Num() == 0)
@@ -1270,7 +1278,7 @@ namespace OloEngine
 
             FSetElementId* HashPtr = reinterpret_cast<FSetElementId*>(Hash.GetAllocation());
             i32 ElementIndex = HashPtr[KeyHash & (HashSize - 1)].AsInteger();
-            
+
             while (ElementIndex != INDEX_NONE)
             {
                 if (KeyFuncs::Matches(KeyFuncs::GetSetKey(Elements[ElementIndex].Value), Key))
@@ -1279,7 +1287,7 @@ namespace OloEngine
                 }
                 ElementIndex = Elements[ElementIndex].HashNextId.AsInteger();
             }
-            
+
             return INDEX_NONE;
         }
 
@@ -1287,7 +1295,7 @@ namespace OloEngine
         bool TryReplaceExisting(u32 KeyHash, SetElementType& Element, i32& InOutElementIndex, bool* bIsAlreadyInSetPtr)
         {
             bool bIsAlreadyInSet = false;
-            
+
             if constexpr (!KeyFuncs::bAllowDuplicateKeys)
             {
                 // Check for existing element with same key
@@ -1295,7 +1303,7 @@ namespace OloEngine
                 {
                     i32 ExistingIndex = FindIndexByHash(KeyHash, KeyFuncs::GetSetKey(Element.Value));
                     bIsAlreadyInSet = ExistingIndex != INDEX_NONE;
-                    
+
                     if (bIsAlreadyInSet)
                     {
                         // Replace existing element
@@ -1305,7 +1313,7 @@ namespace OloEngine
                     }
                 }
             }
-            
+
             if (bIsAlreadyInSetPtr)
             {
                 *bIsAlreadyInSetPtr = bIsAlreadyInSet;
@@ -1360,7 +1368,7 @@ namespace OloEngine
         bool ConditionalRehash(i32 NumElements, EAllowShrinking AllowShrinking)
         {
             const i32 DesiredHashSize = Allocator::GetNumberOfHashBuckets(NumElements);
-            
+
             if (ShouldRehash(NumElements, DesiredHashSize, AllowShrinking == EAllowShrinking::Yes))
             {
                 HashSize = DesiredHashSize;
@@ -1397,17 +1405,17 @@ namespace OloEngine
             // Remove from hash chain
             FSetElementId* HashPtr = reinterpret_cast<FSetElementId*>(Hash.GetAllocation());
             FSetElementId* NextElementIndexIter = &HashPtr[ElementBeingRemoved.HashIndex];
-            
+
             while (NextElementIndexIter->IsValidId())
             {
                 i32 NextElementIndex = NextElementIndexIter->AsInteger();
-                
+
                 if (NextElementIndex == ElementIndex)
                 {
                     *NextElementIndexIter = ElementBeingRemoved.HashNextId;
                     break;
                 }
-                
+
                 NextElementIndexIter = &Elements[NextElementIndex].HashNextId;
             }
 
@@ -1416,7 +1424,7 @@ namespace OloEngine
         }
 
         /** Remove implementation */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         i32 RemoveImpl(u32 KeyHash, const ComparableKey& Key)
         {
             i32 NumRemovedElements = 0;
@@ -1447,12 +1455,12 @@ namespace OloEngine
         }
 
         /** Extracts the element value from the set's element structure and passes it to the user provided comparison class. */
-        template <typename PredicateClass>
+        template<typename PredicateClass>
         class FElementCompareClass
         {
             const PredicateClass& Predicate;
 
-        public:
+          public:
             [[nodiscard]] OLO_FINLINE FElementCompareClass(const PredicateClass& InPredicate)
                 : Predicate(InPredicate)
             {
@@ -1471,20 +1479,20 @@ namespace OloEngine
 
     namespace Freeze
     {
-        template <typename ElementType, typename KeyFuncs, typename Allocator>
+        template<typename ElementType, typename KeyFuncs, typename Allocator>
         void IntrinsicWriteMemoryImage(FMemoryImageWriter& Writer, const TSparseSet<ElementType, KeyFuncs, Allocator>& Object, const FTypeLayoutDesc&)
         {
             Object.WriteMemoryImage(Writer);
         }
 
-        template <typename ElementType, typename KeyFuncs, typename Allocator>
+        template<typename ElementType, typename KeyFuncs, typename Allocator>
         u32 IntrinsicUnfrozenCopy(const FMemoryUnfreezeContent& Context, const TSparseSet<ElementType, KeyFuncs, Allocator>& Object, void* OutDst)
         {
             Object.CopyUnfrozen(Context, OutDst);
             return sizeof(Object);
         }
 
-        template <typename ElementType, typename KeyFuncs, typename Allocator>
+        template<typename ElementType, typename KeyFuncs, typename Allocator>
         u32 IntrinsicAppendHash(const TSparseSet<ElementType, KeyFuncs, Allocator>*, const FTypeLayoutDesc& TypeDesc, const FPlatformTypeLayoutParameters& LayoutParams, FSHA1& Hasher)
         {
             TSparseSet<ElementType, KeyFuncs, Allocator>::AppendHash(LayoutParams, Hasher);
@@ -1497,7 +1505,7 @@ namespace OloEngine
     // ============================================================================
 
     /** Serializer */
-    template <typename ElementType, typename KeyFuncs, typename Allocator>
+    template<typename ElementType, typename KeyFuncs, typename Allocator>
     FArchive& operator<<(FArchive& Ar, TSparseSet<ElementType, KeyFuncs, Allocator>& Set)
     {
         // Load the set's new elements
@@ -1517,7 +1525,7 @@ namespace OloEngine
     }
 
     /** Structured archive serializer */
-    template <typename ElementType, typename KeyFuncs, typename Allocator>
+    template<typename ElementType, typename KeyFuncs, typename Allocator>
     void operator<<(FStructuredArchive::FSlot Slot, TSparseSet<ElementType, KeyFuncs, Allocator>& Set)
     {
         Slot << Set.Elements;
@@ -1540,7 +1548,7 @@ namespace OloEngine
     struct TSparseSetPrivateFriend
     {
         /** Serializer. */
-        template <typename ElementType, typename KeyFuncs, typename Allocator>
+        template<typename ElementType, typename KeyFuncs, typename Allocator>
         static FArchive& Serialize(FArchive& Ar, TSparseSet<ElementType, KeyFuncs, Allocator>& Set)
         {
             // Load the set's new elements.
@@ -1560,7 +1568,7 @@ namespace OloEngine
         }
 
         /** Structured archive serializer. */
-        template <typename ElementType, typename KeyFuncs, typename Allocator>
+        template<typename ElementType, typename KeyFuncs, typename Allocator>
         static void SerializeStructured(FStructuredArchive::FSlot Slot, TSparseSet<ElementType, KeyFuncs, Allocator>& Set)
         {
             Slot << Set.Elements;
@@ -1577,7 +1585,7 @@ namespace OloEngine
         }
 
         /** Legacy comparison - also tests whether elements were added in same order */
-        template <typename ElementType, typename KeyFuncs, typename Allocator>
+        template<typename ElementType, typename KeyFuncs, typename Allocator>
         [[nodiscard]] static bool LegacyCompareEqual(const TSparseSet<ElementType, KeyFuncs, Allocator>& A, const TSparseSet<ElementType, KeyFuncs, Allocator>& B)
         {
             return A.Elements == B.Elements;
@@ -1592,13 +1600,13 @@ namespace OloEngine
     // ============================================================================
 
     /** Legacy equality comparison - also tests whether elements were added in same order */
-    template <typename ElementType, typename KeyFuncs, typename Allocator>
+    template<typename ElementType, typename KeyFuncs, typename Allocator>
     [[nodiscard]] bool LegacyCompareEqual(const TSparseSet<ElementType, KeyFuncs, Allocator>& A, const TSparseSet<ElementType, KeyFuncs, Allocator>& B)
     {
         return TSparseSetPrivateFriend::LegacyCompareEqual(A, B);
     }
 
-    template <typename ElementType, typename KeyFuncs, typename Allocator>
+    template<typename ElementType, typename KeyFuncs, typename Allocator>
     [[nodiscard]] bool LegacyCompareNotEqual(const TSparseSet<ElementType, KeyFuncs, Allocator>& A, const TSparseSet<ElementType, KeyFuncs, Allocator>& B)
     {
         return !TSparseSetPrivateFriend::LegacyCompareEqual(A, B);
@@ -1616,25 +1624,25 @@ namespace OloEngine
     // TIsSparseSet Specializations
     // ============================================================================
 
-    template <typename ElementType, typename KeyFuncs, typename Allocator>
+    template<typename ElementType, typename KeyFuncs, typename Allocator>
     struct TIsSparseSet<TSparseSet<ElementType, KeyFuncs, Allocator>>
     {
         static constexpr bool Value = true;
     };
 
-    template <typename ElementType, typename KeyFuncs, typename Allocator>
+    template<typename ElementType, typename KeyFuncs, typename Allocator>
     struct TIsSparseSet<const TSparseSet<ElementType, KeyFuncs, Allocator>>
     {
         static constexpr bool Value = true;
     };
 
-    template <typename ElementType, typename KeyFuncs, typename Allocator>
+    template<typename ElementType, typename KeyFuncs, typename Allocator>
     struct TIsSparseSet<volatile TSparseSet<ElementType, KeyFuncs, Allocator>>
     {
         static constexpr bool Value = true;
     };
 
-    template <typename ElementType, typename KeyFuncs, typename Allocator>
+    template<typename ElementType, typename KeyFuncs, typename Allocator>
     struct TIsSparseSet<const volatile TSparseSet<ElementType, KeyFuncs, Allocator>>
     {
         static constexpr bool Value = true;

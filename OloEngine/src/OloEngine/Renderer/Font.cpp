@@ -10,144 +10,145 @@
 
 namespace OloEngine
 {
-	template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
-	static Ref<Texture2D> CreateAndCacheAtlas(const std::string_view /*fontName*/, f32 /*fontSize*/, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
-		const msdf_atlas::FontGeometry& /*fontGeometry*/, u32 width, u32 height)
-	{
-		msdf_atlas::GeneratorAttributes attributes;
-		attributes.config.overlapSupport = true;
-		attributes.scanlinePass = true;
+    template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
+    static Ref<Texture2D> CreateAndCacheAtlas(const std::string_view /*fontName*/, f32 /*fontSize*/, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
+                                              const msdf_atlas::FontGeometry& /*fontGeometry*/, u32 width, u32 height)
+    {
+        msdf_atlas::GeneratorAttributes attributes;
+        attributes.config.overlapSupport = true;
+        attributes.scanlinePass = true;
 
-		msdf_atlas::ImmediateAtlasGenerator<S, N, GenFunc, msdf_atlas::BitmapAtlasStorage<T, N>> generator(width, height);
-		generator.setAttributes(attributes);		generator.setThreadCount(8);
-		generator.generate(glyphs.data(), static_cast<int>(glyphs.size()));
+        msdf_atlas::ImmediateAtlasGenerator<S, N, GenFunc, msdf_atlas::BitmapAtlasStorage<T, N>> generator(width, height);
+        generator.setAttributes(attributes);
+        generator.setThreadCount(8);
+        generator.generate(glyphs.data(), static_cast<int>(glyphs.size()));
 
-		auto bitmap = (msdfgen::BitmapConstRef<T, N>)generator.atlasStorage();
+        auto bitmap = (msdfgen::BitmapConstRef<T, N>)generator.atlasStorage();
 
-		TextureSpecification spec;
-		spec.Width = bitmap.width;
-		spec.Height = bitmap.height;
-		spec.Format = ImageFormat::RGB8;
-		spec.GenerateMips = false;
+        TextureSpecification spec;
+        spec.Width = bitmap.width;
+        spec.Height = bitmap.height;
+        spec.Format = ImageFormat::RGB8;
+        spec.GenerateMips = false;
 
-		Ref<Texture2D> texture = Texture2D::Create(spec);
-		texture->SetData((void*)bitmap.pixels, bitmap.width * bitmap.height * 3);
-		return texture;
-	}
+        Ref<Texture2D> texture = Texture2D::Create(spec);
+        texture->SetData((void*)bitmap.pixels, bitmap.width * bitmap.height * 3);
+        return texture;
+    }
 
-	Font::Font(const std::filesystem::path& filepath)
-		: m_Data(CreateScope<MSDFData>())
-	{
-		// Extract font name from filepath
-		m_Name = filepath.filename().stem().string();
-		m_Path = filepath.string();
-		
-		msdfgen::FreetypeHandle* ft = msdfgen::initializeFreetype();
-		OLO_CORE_ASSERT(ft);
+    Font::Font(const std::filesystem::path& filepath)
+        : m_Data(CreateScope<MSDFData>())
+    {
+        // Extract font name from filepath
+        m_Name = filepath.filename().stem().string();
+        m_Path = filepath.string();
 
-		std::string fileString = filepath.string();
+        msdfgen::FreetypeHandle* ft = msdfgen::initializeFreetype();
+        OLO_CORE_ASSERT(ft);
 
-		// TODO(olbu): msdfgen::loadFontData loads from memory buffer which we'll need
-		msdfgen::FontHandle* font = msdfgen::loadFont(ft, fileString.c_str());
-		if (!font)
-		{
-			OLO_CORE_ERROR("Failed to load font: {}", fileString);
-			return;
-		}
+        std::string fileString = filepath.string();
 
-		struct CharsetRange
-		{
-			u32 Begin;
-			u32 End;
-		};
+        // TODO(olbu): msdfgen::loadFontData loads from memory buffer which we'll need
+        msdfgen::FontHandle* font = msdfgen::loadFont(ft, fileString.c_str());
+        if (!font)
+        {
+            OLO_CORE_ERROR("Failed to load font: {}", fileString);
+            return;
+        }
 
-		// From imgui_draw.cpp
-		static const CharsetRange charsetRanges[] =
-		{
-			{ 0x0020, 0x00FF }
-		};
+        struct CharsetRange
+        {
+            u32 Begin;
+            u32 End;
+        };
 
-		msdf_atlas::Charset charset;
-		for (CharsetRange range : charsetRanges)
-		{
-			for (u32 c = range.Begin; c <= range.End; ++c)
-			{
-				charset.add(c);
-			}
-		}
+        // From imgui_draw.cpp
+        static const CharsetRange charsetRanges[] = {
+            { 0x0020, 0x00FF }
+        };
 
-		double fontScale = 1.0;
-		m_Data->FontGeometry = msdf_atlas::FontGeometry(&m_Data->Glyphs);
-		int glyphsLoaded = m_Data->FontGeometry.loadCharset(font, fontScale, charset);
-		OLO_CORE_INFO("Loaded {} glyphs from font (out of {})", glyphsLoaded, charset.size());
+        msdf_atlas::Charset charset;
+        for (CharsetRange range : charsetRanges)
+        {
+            for (u32 c = range.Begin; c <= range.End; ++c)
+            {
+                charset.add(c);
+            }
+        }
 
-		double emSize = 40.0;
+        double fontScale = 1.0;
+        m_Data->FontGeometry = msdf_atlas::FontGeometry(&m_Data->Glyphs);
+        int glyphsLoaded = m_Data->FontGeometry.loadCharset(font, fontScale, charset);
+        OLO_CORE_INFO("Loaded {} glyphs from font (out of {})", glyphsLoaded, charset.size());
 
-		msdf_atlas::TightAtlasPacker atlasPacker;
-		// atlasPacker.setDimensionsConstraint()
-		atlasPacker.setPixelRange(2.0);
-		atlasPacker.setMiterLimit(1.0);
-		atlasPacker.setSpacing(0);
-		atlasPacker.setScale(emSize);
-		int remaining = atlasPacker.pack(m_Data->Glyphs.data(), (int)m_Data->Glyphs.size());
-		OLO_CORE_ASSERT(remaining == 0);
+        double emSize = 40.0;
 
-		int width{};
-		int height{};
-		atlasPacker.getDimensions(width, height);
-		emSize = atlasPacker.getScale();
+        msdf_atlas::TightAtlasPacker atlasPacker;
+        // atlasPacker.setDimensionsConstraint()
+        atlasPacker.setPixelRange(2.0);
+        atlasPacker.setMiterLimit(1.0);
+        atlasPacker.setSpacing(0);
+        atlasPacker.setScale(emSize);
+        int remaining = atlasPacker.pack(m_Data->Glyphs.data(), (int)m_Data->Glyphs.size());
+        OLO_CORE_ASSERT(remaining == 0);
 
-		constexpr double DEFAULT_ANGLE_THRESHOLD = 3.0;
-		constexpr u64 LCG_MULTIPLIER = 6364136223846793005ull;
-		constexpr u64 LCG_INCREMENT = 1442695040888963407ull;
-		constexpr int THREAD_COUNT = 8;
+        int width{};
+        int height{};
+        atlasPacker.getDimensions(width, height);
+        emSize = atlasPacker.getScale();
 
-		// if MSDF || MTSDF
+        constexpr double DEFAULT_ANGLE_THRESHOLD = 3.0;
+        constexpr u64 LCG_MULTIPLIER = 6364136223846793005ull;
+        constexpr u64 LCG_INCREMENT = 1442695040888963407ull;
+        constexpr int THREAD_COUNT = 8;
 
-		u64 coloringSeed = 0;
-		bool expensiveColoring = false;		if (expensiveColoring)
-		{
-			msdf_atlas::Workload([&glyphs = m_Data->Glyphs, &coloringSeed](int i, int /*threadNo*/) -> bool
-			{
+        // if MSDF || MTSDF
+
+        u64 coloringSeed = 0;
+        bool expensiveColoring = false;
+        if (expensiveColoring)
+        {
+            msdf_atlas::Workload([&glyphs = m_Data->Glyphs, &coloringSeed](int i, int /*threadNo*/) -> bool
+                                 {
 				unsigned long long glyphSeed = coloringSeed ? ((LCG_MULTIPLIER * (coloringSeed ^ i)) + LCG_INCREMENT) : 0;
 				glyphs[i].edgeColoring(msdfgen::edgeColoringInkTrap, DEFAULT_ANGLE_THRESHOLD, glyphSeed);
-				return true;
-			}, m_Data->Glyphs.size()).finish(THREAD_COUNT);
-		}
-		else
-		{
-			unsigned long long glyphSeed = coloringSeed;
-			for (msdf_atlas::GlyphGeometry& glyph : m_Data->Glyphs)
-			{
-				glyphSeed *= LCG_MULTIPLIER;
-				glyph.edgeColoring(msdfgen::edgeColoringInkTrap, DEFAULT_ANGLE_THRESHOLD, glyphSeed);
-			}
-		}
+				return true; }, m_Data->Glyphs.size())
+                .finish(THREAD_COUNT);
+        }
+        else
+        {
+            unsigned long long glyphSeed = coloringSeed;
+            for (msdf_atlas::GlyphGeometry& glyph : m_Data->Glyphs)
+            {
+                glyphSeed *= LCG_MULTIPLIER;
+                glyph.edgeColoring(msdfgen::edgeColoringInkTrap, DEFAULT_ANGLE_THRESHOLD, glyphSeed);
+            }
+        }
 
-		m_AtlasTexture = CreateAndCacheAtlas<u8, f32, 3, msdf_atlas::msdfGenerator>("Test", static_cast<f32>(emSize), m_Data->Glyphs, m_Data->FontGeometry, width, height);
+        m_AtlasTexture = CreateAndCacheAtlas<u8, f32, 3, msdf_atlas::msdfGenerator>("Test", static_cast<f32>(emSize), m_Data->Glyphs, m_Data->FontGeometry, width, height);
 
-		msdfgen::destroyFont(font);
-		msdfgen::deinitializeFreetype(ft);
-	}
+        msdfgen::destroyFont(font);
+        msdfgen::deinitializeFreetype(ft);
+    }
 
-	Font::~Font()
-	{
-		// m_Data is automatically cleaned up by Scope<MSDFData> (std::unique_ptr)
-	}
+    Font::~Font()
+    {
+        // m_Data is automatically cleaned up by Scope<MSDFData> (std::unique_ptr)
+    }
 
-	Ref<Font> Font::GetDefault()
-	{
-		static Ref<Font> DefaultFont;
-		if (!DefaultFont)
-		{
-			DefaultFont = Font::Create("assets/fonts/opensans/OpenSans-Regular.ttf");
-		}
+    Ref<Font> Font::GetDefault()
+    {
+        static Ref<Font> DefaultFont;
+        if (!DefaultFont)
+        {
+            DefaultFont = Font::Create("assets/fonts/opensans/OpenSans-Regular.ttf");
+        }
 
-		return DefaultFont;
-	}
+        return DefaultFont;
+    }
 
-	Ref<Font> Font::Create(const std::filesystem::path& font)
-	{
-		return Ref<Font>::Create(font);
-	}
-}
+    Ref<Font> Font::Create(const std::filesystem::path& font)
+    {
+        return Ref<Font>::Create(font);
+    }
+} // namespace OloEngine

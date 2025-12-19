@@ -1,9 +1,9 @@
 #pragma once
-n// @file MemStackUtility.h
+n // @file MemStackUtility.h
 // @brief Utility functions for FMemStack string and array allocation
-// 
+//
 // Provides helper functions for allocating strings and arrays from a memory stack.
-// 
+//
 // Ported from Unreal Engine's MemStackUtility.h
 
 #include "OloEngine/Memory/MemStack.h"
@@ -14,14 +14,14 @@ n// @file MemStackUtility.h
 #include <cstring>
 #include <format>
 
-namespace OloEngine::MemStackUtils
+    namespace OloEngine::MemStackUtils
 {
     // @brief Allocate a string from a memory stack
     // @param Allocator The memory stack to allocate from
     // @param String Pointer to string data
     // @param Length Length of string (not including null terminator)
     // @return Pointer to allocated null-terminated string
-    inline const char* AllocateString(FMemStackBase& Allocator, const char* String, i32 Length)
+    inline const char* AllocateString(FMemStackBase & Allocator, const char* String, i32 Length)
     {
         char* Result = New<char>(Allocator, Length + 1);
         std::memcpy(Result, String, Length);
@@ -33,7 +33,7 @@ namespace OloEngine::MemStackUtils
     // @param Allocator The memory stack to allocate from
     // @param String String view to copy
     // @return Pointer to allocated null-terminated string
-    inline const char* AllocateString(FMemStackBase& Allocator, std::string_view String)
+    inline const char* AllocateString(FMemStackBase & Allocator, std::string_view String)
     {
         return AllocateString(Allocator, String.data(), static_cast<i32>(String.length()));
     }
@@ -42,7 +42,7 @@ namespace OloEngine::MemStackUtils
     // @param Allocator The memory stack to allocate from
     // @param String String view to copy
     // @return String view of allocated string
-    inline std::string_view AllocateStringView(FMemStackBase& Allocator, std::string_view String)
+    inline std::string_view AllocateStringView(FMemStackBase & Allocator, std::string_view String)
     {
         return std::string_view(AllocateString(Allocator, String), String.length());
     }
@@ -52,7 +52,7 @@ namespace OloEngine::MemStackUtils
     // @param String Pointer to wide string data
     // @param Length Length of string (not including null terminator)
     // @return Pointer to allocated null-terminated wide string
-    inline const wchar_t* AllocateWideString(FMemStackBase& Allocator, const wchar_t* String, i32 Length)
+    inline const wchar_t* AllocateWideString(FMemStackBase & Allocator, const wchar_t* String, i32 Length)
     {
         wchar_t* Result = New<wchar_t>(Allocator, Length + 1);
         std::memcpy(Result, String, Length * sizeof(wchar_t));
@@ -64,7 +64,7 @@ namespace OloEngine::MemStackUtils
     // @param Allocator The memory stack to allocate from
     // @param String Wide string view to copy
     // @return Pointer to allocated null-terminated wide string
-    inline const wchar_t* AllocateWideString(FMemStackBase& Allocator, std::wstring_view String)
+    inline const wchar_t* AllocateWideString(FMemStackBase & Allocator, std::wstring_view String)
     {
         return AllocateWideString(Allocator, String.data(), static_cast<i32>(String.length()));
     }
@@ -73,7 +73,7 @@ namespace OloEngine::MemStackUtils
     // @param Allocator The memory stack to allocate from
     // @param String Wide string view to copy
     // @return Wide string view of allocated string
-    inline std::wstring_view AllocateWideStringView(FMemStackBase& Allocator, std::wstring_view String)
+    inline std::wstring_view AllocateWideStringView(FMemStackBase & Allocator, std::wstring_view String)
     {
         return std::wstring_view(AllocateWideString(Allocator, String), String.length());
     }
@@ -84,8 +84,8 @@ namespace OloEngine::MemStackUtils
     // @param Fmt Format string
     // @param args Format arguments
     // @return Pointer to allocated null-terminated string
-    template <typename... Args>
-    inline const char* AllocateStringf(FMemStackBase& Allocator, std::format_string<Args...> Fmt, Args&&... args)
+    template<typename... Args>
+    inline const char* AllocateStringf(FMemStackBase & Allocator, std::format_string<Args...> Fmt, Args && ... args)
     {
         std::string Formatted = std::format(Fmt, std::forward<Args>(args)...);
         return AllocateString(Allocator, Formatted);
@@ -97,8 +97,8 @@ namespace OloEngine::MemStackUtils
     // @param Fmt Format string
     // @param args Format arguments
     // @return String view of allocated string
-    template <typename... Args>
-    inline std::string_view AllocateStringViewf(FMemStackBase& Allocator, std::format_string<Args...> Fmt, Args&&... args)
+    template<typename... Args>
+    inline std::string_view AllocateStringViewf(FMemStackBase & Allocator, std::format_string<Args...> Fmt, Args && ... args)
     {
         std::string Formatted = std::format(Fmt, std::forward<Args>(args)...);
         return AllocateStringView(Allocator, Formatted);
@@ -109,8 +109,8 @@ namespace OloEngine::MemStackUtils
     // @param Allocator The memory stack to allocate from
     // @param View Span to copy
     // @return Span of allocated copy
-    template <typename T>
-    inline std::span<T> AllocateSpan(FMemStackBase& Allocator, std::span<T> View)
+    template<typename T>
+    inline std::span<T> AllocateSpan(FMemStackBase & Allocator, std::span<T> View)
     {
         T* Data = nullptr;
         if (!View.empty())
@@ -129,8 +129,8 @@ namespace OloEngine::MemStackUtils
     // @param Allocator The memory stack to allocate from
     // @param View Span to copy
     // @return Span of allocated copy
-    template <typename T>
-    inline std::span<const T> AllocateSpan(FMemStackBase& Allocator, std::span<const T> View)
+    template<typename T>
+    inline std::span<const T> AllocateSpan(FMemStackBase & Allocator, std::span<const T> View)
     {
         T* Data = nullptr;
         if (!View.empty())

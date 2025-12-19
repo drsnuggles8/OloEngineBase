@@ -22,184 +22,197 @@
 template<typename T>
 concept JoltShape = std::derived_from<T, JPH::Shape>;
 
-namespace OloEngine {
+namespace OloEngine
+{
 
-	class JoltScene; // Forward declaration
+    class JoltScene; // Forward declaration
 
-	class JoltBody : public RefCounted
-	{
-	public:
-		JoltBody(Entity entity, JoltScene* scene);
-		~JoltBody();
+    class JoltBody : public RefCounted
+    {
+      public:
+        JoltBody(Entity entity, JoltScene* scene);
+        ~JoltBody();
 
-		// Entity access
-		Entity GetEntity() const { return m_Entity; }
-		UUID GetEntityID() const { return m_Entity.GetUUID(); }
+        // Entity access
+        Entity GetEntity() const
+        {
+            return m_Entity;
+        }
+        UUID GetEntityID() const
+        {
+            return m_Entity.GetUUID();
+        }
 
-		// Jolt body access
-		JPH::BodyID GetBodyID() const { return m_BodyID; }
-		[[nodiscard]] bool IsValid() const { return !m_BodyID.IsInvalid(); }
+        // Jolt body access
+        JPH::BodyID GetBodyID() const
+        {
+            return m_BodyID;
+        }
+        [[nodiscard]] bool IsValid() const
+        {
+            return !m_BodyID.IsInvalid();
+        }
 
-		// Body type
-		bool IsStatic() const;
-		bool IsDynamic() const;
-		bool IsKinematic() const;
-		void SetBodyType(EBodyType bodyType);
-		EBodyType GetBodyType() const;
+        // Body type
+        bool IsStatic() const;
+        bool IsDynamic() const;
+        bool IsKinematic() const;
+        void SetBodyType(EBodyType bodyType);
+        EBodyType GetBodyType() const;
 
-		// Collision properties
-		void SetCollisionLayer(u32 layerID);
-		u32 GetCollisionLayer() const;
+        // Collision properties
+        void SetCollisionLayer(u32 layerID);
+        u32 GetCollisionLayer() const;
 
-		void SetTrigger(bool isTrigger);
-		bool IsTrigger() const;
+        void SetTrigger(bool isTrigger);
+        bool IsTrigger() const;
 
-		// Transform
-		glm::vec3 GetPosition() const;
-		void SetPosition(const glm::vec3& position);
-		
-		glm::quat GetRotation() const;
-		void SetRotation(const glm::quat& rotation);
+        // Transform
+        glm::vec3 GetPosition() const;
+        void SetPosition(const glm::vec3& position);
 
-		void SetTransform(const glm::vec3& position, const glm::quat& rotation);
+        glm::quat GetRotation() const;
+        void SetRotation(const glm::quat& rotation);
 
-		// For kinematic bodies
-		void MoveKinematic(const glm::vec3& targetPosition, const glm::quat& targetRotation, f32 deltaTime);
-		void Rotate(const glm::vec3& rotationTimesDeltaTime);
+        void SetTransform(const glm::vec3& position, const glm::quat& rotation);
 
-		// Mass properties (for dynamic bodies)
-		f32 GetMass() const;
-		void SetMass(f32 mass);
+        // For kinematic bodies
+        void MoveKinematic(const glm::vec3& targetPosition, const glm::quat& targetRotation, f32 deltaTime);
+        void Rotate(const glm::vec3& rotationTimesDeltaTime);
 
-		// Drag properties
-		void SetLinearDrag(f32 linearDrag);
-		f32 GetLinearDrag() const;
-		
-		void SetAngularDrag(f32 angularDrag);
-		f32 GetAngularDrag() const;
+        // Mass properties (for dynamic bodies)
+        f32 GetMass() const;
+        void SetMass(f32 mass);
 
-		// Velocity (for dynamic and kinematic bodies)
-		glm::vec3 GetLinearVelocity() const;
-		void SetLinearVelocity(const glm::vec3& velocity);
+        // Drag properties
+        void SetLinearDrag(f32 linearDrag);
+        f32 GetLinearDrag() const;
 
-		glm::vec3 GetAngularVelocity() const;
-		void SetAngularVelocity(const glm::vec3& velocity);
+        void SetAngularDrag(f32 angularDrag);
+        f32 GetAngularDrag() const;
 
-		// Velocity limits
-		f32 GetMaxLinearVelocity() const;
-		void SetMaxLinearVelocity(f32 maxVelocity);
+        // Velocity (for dynamic and kinematic bodies)
+        glm::vec3 GetLinearVelocity() const;
+        void SetLinearVelocity(const glm::vec3& velocity);
 
-		f32 GetMaxAngularVelocity() const;
-		void SetMaxAngularVelocity(f32 maxVelocity);
+        glm::vec3 GetAngularVelocity() const;
+        void SetAngularVelocity(const glm::vec3& velocity);
 
-		// Gravity (for dynamic bodies)
-		bool GetGravityEnabled() const;
-		void SetGravityEnabled(bool enabled);
+        // Velocity limits
+        f32 GetMaxLinearVelocity() const;
+        void SetMaxLinearVelocity(f32 maxVelocity);
 
-		// Forces and impulses (for dynamic bodies)
-		void AddForce(const glm::vec3& force, EForceMode forceMode = EForceMode::Force, bool forceWake = true);
-		void AddForce(const glm::vec3& force, const glm::vec3& location, EForceMode forceMode = EForceMode::Force, bool forceWake = true);
-		void AddTorque(const glm::vec3& torque, bool forceWake = true);
-		void AddRadialImpulse(const glm::vec3& origin, f32 radius, f32 strength, EFalloffMode falloff, bool velocityChange);
+        f32 GetMaxAngularVelocity() const;
+        void SetMaxAngularVelocity(f32 maxVelocity);
 
-		// Sleep state
-		bool IsSleeping() const;
-		void SetSleepState(bool sleep);
+        // Gravity (for dynamic bodies)
+        bool GetGravityEnabled() const;
+        void SetGravityEnabled(bool enabled);
 
-		// Collision detection
-		void SetCollisionDetectionMode(ECollisionDetectionType collisionDetection);
-		ECollisionDetectionType GetCollisionDetectionMode() const;
+        // Forces and impulses (for dynamic bodies)
+        void AddForce(const glm::vec3& force, EForceMode forceMode = EForceMode::Force, bool forceWake = true);
+        void AddForce(const glm::vec3& force, const glm::vec3& location, EForceMode forceMode = EForceMode::Force, bool forceWake = true);
+        void AddTorque(const glm::vec3& torque, bool forceWake = true);
+        void AddRadialImpulse(const glm::vec3& origin, f32 radius, f32 strength, EFalloffMode falloff, bool velocityChange);
 
-		// Axis locking
-		void SetAxisLock(EActorAxis axis, bool locked, bool forceWake = true);
-		bool IsAxisLocked(EActorAxis axis) const;
-		EActorAxis GetLockedAxes() const;
+        // Sleep state
+        bool IsSleeping() const;
+        void SetSleepState(bool sleep);
 
-		// Shape management
-		/// @brief Set the shape for this body using a type-safe template
-		/// @tparam T Shape type derived from JPH::Shape (constrained by JoltShape concept)
-		/// @param shape The shape to set for this body
-		/// @example body->SetShape(JPH::RefConst<JPH::BoxShape>(new JPH::BoxShape(halfExtents)));
-		template<JoltShape T>
-		void SetShape(JPH::RefConst<T> shape);
-		
-		/// @brief Set the shape for this body (backward compatibility)
-		/// @param shape The base shape to set for this body
-		void SetShape(JPH::RefConst<JPH::Shape> shape);
-		
-		/// @brief Get the shape from this body with compile-time type safety
-		/// @tparam T Shape type derived from JPH::Shape (constrained by JoltShape concept)
-		/// @return Typed shape reference, or nullptr if shape doesn't match type T
-		/// @example auto boxShape = body->GetShape<JPH::BoxShape>();
-		template<JoltShape T>
-		JPH::RefConst<T> GetShape() const;
-		
-		/// @brief Get the shape from this body (backward compatibility)
-		/// @return Base shape reference
-		JPH::RefConst<JPH::Shape> GetShape() const;
+        // Collision detection
+        void SetCollisionDetectionMode(ECollisionDetectionType collisionDetection);
+        ECollisionDetectionType GetCollisionDetectionMode() const;
 
-		// Activation
-		void Activate();
-		void Deactivate();
-		bool IsActive() const;
+        // Axis locking
+        void SetAxisLock(EActorAxis axis, bool locked, bool forceWake = true);
+        bool IsAxisLocked(EActorAxis axis) const;
+        EActorAxis GetLockedAxes() const;
 
-	private:
-		// Internal Jolt body management
-		void CreateJoltBody();
-		void DestroyJoltBody();
-		void UpdateBodyFromComponents();
-		
-		// Helper methods
-		JPH::BodyInterface& GetBodyInterface();
-		const JPH::BodyInterface& GetBodyInterface() const;
-		const JPH::BodyLockInterface& GetBodyLockInterface() const;
+        // Shape management
+        /// @brief Set the shape for this body using a type-safe template
+        /// @tparam T Shape type derived from JPH::Shape (constrained by JoltShape concept)
+        /// @param shape The shape to set for this body
+        /// @example body->SetShape(JPH::RefConst<JPH::BoxShape>(new JPH::BoxShape(halfExtents)));
+        template<JoltShape T>
+        void SetShape(JPH::RefConst<T> shape);
 
-		// Body creation helpers
-		JPH::Ref<JPH::Shape> CreateShapeForBody() const;
-		JPH::BodyCreationSettings CreateBodySettings(const TransformComponent& transformComponent, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const;
-		void SetupCreatedBody(JPH::BodyID bodyID, const Rigidbody3DComponent& rigidBodyComponent);
+        /// @brief Set the shape for this body (backward compatibility)
+        /// @param shape The base shape to set for this body
+        void SetShape(JPH::RefConst<JPH::Shape> shape);
 
-		// Material application
-		void ApplyMaterialProperties(JPH::BodyCreationSettings& bodySettings) const;
+        /// @brief Get the shape from this body with compile-time type safety
+        /// @tparam T Shape type derived from JPH::Shape (constrained by JoltShape concept)
+        /// @return Typed shape reference, or nullptr if shape doesn't match type T
+        /// @example auto boxShape = body->GetShape<JPH::BoxShape>();
+        template<JoltShape T>
+        JPH::RefConst<T> GetShape() const;
 
-		// Axis locking constraint management
-		void CreateAxisLockConstraint(JPH::Body& body);
-		void DestroyAxisLockConstraint();
-		void OnAxisLockUpdated(bool forceWake);
+        /// @brief Get the shape from this body (backward compatibility)
+        /// @return Base shape reference
+        JPH::RefConst<JPH::Shape> GetShape() const;
 
-	private:
-		Entity m_Entity;
-		JoltScene* m_Scene;
-		JPH::BodyID m_BodyID;
-		JPH::Ref<JPH::SixDOFConstraint> m_AxisLockConstraint = nullptr;
-		
-		// Cached properties
-		EActorAxis m_LockedAxes = EActorAxis::None;
-		bool m_GravityEnabled = true;
-	};
+        // Activation
+        void Activate();
+        void Deactivate();
+        bool IsActive() const;
 
-	// Template implementations for concept-constrained shape methods
-	template<JoltShape T>
-	inline void JoltBody::SetShape(JPH::RefConst<T> shape)
-	{
-		// Convert to base JPH::Shape for implementation
-		SetShape(JPH::RefConst<JPH::Shape>(shape.GetPtr()));
-	}
+      private:
+        // Internal Jolt body management
+        void CreateJoltBody();
+        void DestroyJoltBody();
+        void UpdateBodyFromComponents();
 
-	template<JoltShape T>
-	inline JPH::RefConst<T> JoltBody::GetShape() const
-	{
-		// Get the base shape and cast to the requested type
-		JPH::RefConst<JPH::Shape> baseShape = GetShape();
-		if (!baseShape)
-			return nullptr;
-		
-		// Dynamic cast to ensure type safety at runtime
-		const T* derivedShape = dynamic_cast<const T*>(baseShape.GetPtr());
-		if (!derivedShape)
-			return nullptr;
-		
-		return JPH::RefConst<T>(derivedShape);
-	}
+        // Helper methods
+        JPH::BodyInterface& GetBodyInterface();
+        const JPH::BodyInterface& GetBodyInterface() const;
+        const JPH::BodyLockInterface& GetBodyLockInterface() const;
 
-}
+        // Body creation helpers
+        JPH::Ref<JPH::Shape> CreateShapeForBody() const;
+        JPH::BodyCreationSettings CreateBodySettings(const TransformComponent& transformComponent, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const;
+        void SetupCreatedBody(JPH::BodyID bodyID, const Rigidbody3DComponent& rigidBodyComponent);
+
+        // Material application
+        void ApplyMaterialProperties(JPH::BodyCreationSettings& bodySettings) const;
+
+        // Axis locking constraint management
+        void CreateAxisLockConstraint(JPH::Body& body);
+        void DestroyAxisLockConstraint();
+        void OnAxisLockUpdated(bool forceWake);
+
+      private:
+        Entity m_Entity;
+        JoltScene* m_Scene;
+        JPH::BodyID m_BodyID;
+        JPH::Ref<JPH::SixDOFConstraint> m_AxisLockConstraint = nullptr;
+
+        // Cached properties
+        EActorAxis m_LockedAxes = EActorAxis::None;
+        bool m_GravityEnabled = true;
+    };
+
+    // Template implementations for concept-constrained shape methods
+    template<JoltShape T>
+    inline void JoltBody::SetShape(JPH::RefConst<T> shape)
+    {
+        // Convert to base JPH::Shape for implementation
+        SetShape(JPH::RefConst<JPH::Shape>(shape.GetPtr()));
+    }
+
+    template<JoltShape T>
+    inline JPH::RefConst<T> JoltBody::GetShape() const
+    {
+        // Get the base shape and cast to the requested type
+        JPH::RefConst<JPH::Shape> baseShape = GetShape();
+        if (!baseShape)
+            return nullptr;
+
+        // Dynamic cast to ensure type safety at runtime
+        const T* derivedShape = dynamic_cast<const T*>(baseShape.GetPtr());
+        if (!derivedShape)
+            return nullptr;
+
+        return JPH::RefConst<T>(derivedShape);
+    }
+
+} // namespace OloEngine

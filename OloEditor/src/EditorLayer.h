@@ -13,131 +13,144 @@
 
 namespace OloEngine
 {
-	class AssetReloadedEvent;
-	class AssetPackBuilderPanel;
-	
-	class EditorLayer : public Layer
-	{
-	public:
-		EditorLayer();
-		~EditorLayer() override;
+    class AssetReloadedEvent;
+    class AssetPackBuilderPanel;
 
-		void OnAttach() override;
-		void OnDetach() override;
+    class EditorLayer : public Layer
+    {
+      public:
+        EditorLayer();
+        ~EditorLayer() override;
 
-		void OnUpdate(Timestep ts) override;
-		void OnImGuiRender() override;
-		void OnEvent(Event& e) override;
-	private:
-		bool OnKeyPressed(KeyPressedEvent const& e);
-		bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);
-		bool OnAssetReloaded(AssetReloadedEvent const& e);
+        void OnAttach() override;
+        void OnDetach() override;
 
-		void OnOverlayRender() const;
+        void OnUpdate(Timestep ts) override;
+        void OnImGuiRender() override;
+        void OnEvent(Event& e) override;
 
-		void NewProject();
-		bool OpenProject();
-		bool OpenProject(const std::filesystem::path& path);
-		void SaveProject();
+      private:
+        bool OnKeyPressed(KeyPressedEvent const& e);
+        bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);
+        bool OnAssetReloaded(AssetReloadedEvent const& e);
 
-		void NewScene();
-		void OpenScene();
-		bool OpenScene(const std::filesystem::path& path);
-		void SaveScene();
-		void SaveSceneAs();
+        void OnOverlayRender() const;
 
-		void SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
+        void NewProject();
+        bool OpenProject();
+        bool OpenProject(const std::filesystem::path& path);
+        void SaveProject();
 
-		void OnScenePlay();
-		void OnSceneSimulate();
-		void OnSceneStop();
-		void OnScenePause();
+        void NewScene();
+        void OpenScene();
+        bool OpenScene(const std::filesystem::path& path);
+        void SaveScene();
+        void SaveSceneAs();
 
-		void OnDuplicateEntity();
+        void SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
 
-		// Asset Pack Building
-		// Initiates an asynchronous build process for packaging project assets
-		void BuildAssetPack();
-		
-		// Build status and progress queries
-		bool IsBuildInProgress() const { return m_BuildInProgress.load(); }
-		f32 GetBuildProgress() const { return m_BuildProgress.load(); }
-		void CancelBuild() { m_BuildCancelRequested.store(true); }
+        void OnScenePlay();
+        void OnSceneSimulate();
+        void OnSceneStop();
+        void OnScenePause();
 
-		// UI Panels
-		void UI_MenuBar();
-		void UI_Toolbar();
-		void UI_Viewport();
-		void UI_Gizmos() const;
-		void UI_RendererStats();
-		void UI_Settings();
-		void UI_DebugTools();
-		void UI_ChildPanels();
+        void OnDuplicateEntity();
 
-		void SetEditorScene(const Ref<Scene>& scene);
-		void SyncWindowTitle() const;
-	private:
-		OloEngine::OrthographicCameraController m_CameraController;
+        // Asset Pack Building
+        // Initiates an asynchronous build process for packaging project assets
+        void BuildAssetPack();
 
-		// Temp
-		Ref<VertexArray> m_SquareVA;
-		Ref<Shader> m_FlatColorShader;
-		Ref<Framebuffer> m_Framebuffer;
+        // Build status and progress queries
+        bool IsBuildInProgress() const
+        {
+            return m_BuildInProgress.load();
+        }
+        f32 GetBuildProgress() const
+        {
+            return m_BuildProgress.load();
+        }
+        void CancelBuild()
+        {
+            m_BuildCancelRequested.store(true);
+        }
 
-		Ref<Scene> m_ActiveScene;
-		Ref<Scene> m_EditorScene;
-		std::filesystem::path m_EditorScenePath;
-		Entity m_SquareEntity;
-		Entity m_CameraEntity;
-		Entity m_SecondCamera;
+        // UI Panels
+        void UI_MenuBar();
+        void UI_Toolbar();
+        void UI_Viewport();
+        void UI_Gizmos() const;
+        void UI_RendererStats();
+        void UI_Settings();
+        void UI_DebugTools();
+        void UI_ChildPanels();
 
-		Entity m_HoveredEntity;
+        void SetEditorScene(const Ref<Scene>& scene);
+        void SyncWindowTitle() const;
 
-		bool m_PrimaryCamera = true;
+      private:
+        OloEngine::OrthographicCameraController m_CameraController;
 
-		EditorCamera m_EditorCamera;
+        // Temp
+        Ref<VertexArray> m_SquareVA;
+        Ref<Shader> m_FlatColorShader;
+        Ref<Framebuffer> m_Framebuffer;
 
-		Ref<Texture2D> m_CheckerboardTexture;
+        Ref<Scene> m_ActiveScene;
+        Ref<Scene> m_EditorScene;
+        std::filesystem::path m_EditorScenePath;
+        Entity m_SquareEntity;
+        Entity m_CameraEntity;
+        Entity m_SecondCamera;
 
-		bool m_ViewportFocused = false;
-		bool m_ViewportHovered = false;
+        Entity m_HoveredEntity;
 
-		glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
-		glm::vec2 m_ViewportBounds[2] = {};
+        bool m_PrimaryCamera = true;
 
-		glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
+        EditorCamera m_EditorCamera;
 
-		int m_GizmoType = -1;
-		bool m_ShowPhysicsColliders = false;
+        Ref<Texture2D> m_CheckerboardTexture;
 
-		// Debug windows
-		bool m_ShowShaderDebugger = false;
-		bool m_ShowGPUResourceInspector = false;
-		bool m_ShowAssetPackBuilder = false;
+        bool m_ViewportFocused = false;
+        bool m_ViewportHovered = false;
 
-		// Asset Pack Build Management
-		std::future<AssetPackBuilder::BuildResult> m_BuildFuture;
-		std::atomic<bool> m_BuildInProgress{false};
-		std::atomic<bool> m_BuildCancelRequested{false};
-		std::atomic<f32> m_BuildProgress{0.0f};
+        glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
+        glm::vec2 m_ViewportBounds[2] = {};
 
-		enum class SceneState
-		{
-			Edit = 0, Play = 1, Simulate = 2
-		};
-		SceneState m_SceneState = SceneState::Edit;
+        glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 
-		// Panels
-		SceneHierarchyPanel m_SceneHierarchyPanel;
-		Scope<ContentBrowserPanel> m_ContentBrowserPanel;
-		Scope<AssetPackBuilderPanel> m_AssetPackBuilderPanel;
+        int m_GizmoType = -1;
+        bool m_ShowPhysicsColliders = false;
 
-		// Editor resources
-		Ref<Texture2D> m_IconPlay;
-		Ref<Texture2D> m_IconPause;
-		Ref<Texture2D> m_IconSimulate;
-		Ref<Texture2D> m_IconStep;
-		Ref<Texture2D> m_IconStop;
-	};
+        // Debug windows
+        bool m_ShowShaderDebugger = false;
+        bool m_ShowGPUResourceInspector = false;
+        bool m_ShowAssetPackBuilder = false;
 
-}
+        // Asset Pack Build Management
+        std::future<AssetPackBuilder::BuildResult> m_BuildFuture;
+        std::atomic<bool> m_BuildInProgress{ false };
+        std::atomic<bool> m_BuildCancelRequested{ false };
+        std::atomic<f32> m_BuildProgress{ 0.0f };
+
+        enum class SceneState
+        {
+            Edit = 0,
+            Play = 1,
+            Simulate = 2
+        };
+        SceneState m_SceneState = SceneState::Edit;
+
+        // Panels
+        SceneHierarchyPanel m_SceneHierarchyPanel;
+        Scope<ContentBrowserPanel> m_ContentBrowserPanel;
+        Scope<AssetPackBuilderPanel> m_AssetPackBuilderPanel;
+
+        // Editor resources
+        Ref<Texture2D> m_IconPlay;
+        Ref<Texture2D> m_IconPause;
+        Ref<Texture2D> m_IconSimulate;
+        Ref<Texture2D> m_IconStep;
+        Ref<Texture2D> m_IconStop;
+    };
+
+} // namespace OloEngine

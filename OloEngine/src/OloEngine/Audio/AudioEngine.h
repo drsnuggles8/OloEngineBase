@@ -4,17 +4,17 @@ struct ma_engine;
 
 namespace OloEngine
 {
-	using AudioEngineInternal = void*;
+    using AudioEngineInternal = void*;
 
-	class AudioEngine
-	{
-	public:
-		static bool Init();
-		static void Shutdown();
+    class AudioEngine
+    {
+      public:
+        static bool Init();
+        static void Shutdown();
 
-		static AudioEngineInternal GetEngine();
+        static AudioEngineInternal GetEngine();
 
-	private:
-		static ma_engine* s_Engine;
-	};
-}
+      private:
+        static ma_engine* s_Engine;
+    };
+} // namespace OloEngine

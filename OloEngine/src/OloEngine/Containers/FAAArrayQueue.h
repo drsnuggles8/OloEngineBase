@@ -3,39 +3,39 @@
 /**
  * @file FAAArrayQueue.h
  * @brief Fetch-And-Add Array Queue - A lock-free MPMC queue
- * 
+ *
  * Copyright (c) 2014-2016, Pedro Ramalhete, Andreia Correia
  * All rights reserved.
  * BSD 3-Clause License
- * 
+ *
  * Each node has one array but we don't search for a vacant entry. Instead, we
  * use FAA to obtain an index in the array, for enqueueing or dequeuing.
- * 
+ *
  * Features:
  * - Lock-free for both enqueue and dequeue
  * - Multi-producer, multi-consumer (MPMC)
  * - Uses hazard pointers for safe memory reclamation
  * - Linearizable consistency
- * 
+ *
  * Each entry in the array may contain one of three possible values:
  * - A valid item that has been enqueued
  * - nullptr, which means no item has yet been enqueued in that position
  * - taken, a special value that means there was an item but it has been dequeued
- * 
+ *
  * Algorithm:
  * - Enqueue: FAA + CAS(null,item)
  * - Dequeue: FAA + CAS(item,taken)
- * 
+ *
  * Uncontended enqueue: 1 FAA + 1 CAS + 1 HP
  * Uncontended dequeue: 1 FAA + 1 CAS + 1 HP
- * 
+ *
  * Based on Michael-Scott queue algorithm with FAA optimization.
- * 
+ *
  * @see http://www.cs.rochester.edu/~scott/papers/1996_PODC_queues.pdf
  * @see http://web.cecs.pdx.edu/~walpole/class/cs510/papers/11.pdf
- * 
+ *
  * Ported from Unreal Engine's Experimental/Containers/FAAArrayQueue.h
- * 
+ *
  * @author Pedro Ramalhete
  * @author Andreia Correia
  */
@@ -53,16 +53,16 @@ namespace OloEngine
     /**
      * @class FAAArrayQueue
      * @brief Lock-free multi-producer/multi-consumer unbounded queue
-     * 
+     *
      * @tparam T Element type (must be a pointer type or convertible to/from pointer)
      */
     template<typename T>
-    class FAAArrayQueue 
+    class FAAArrayQueue
     {
         static constexpr i64 BUFFER_SIZE = 1024;
 
-    private:
-        struct FNode 
+      private:
+        struct FNode
         {
             std::atomic<i32> DeqIdx;
             std::atomic<T*> Items[BUFFER_SIZE];
@@ -70,30 +70,28 @@ namespace OloEngine
             std::atomic<FNode*> Next;
 
             // Start with the first entry pre-filled and EnqIdx at 1
-            FNode(T* Item) 
-                : DeqIdx{0}
-                , EnqIdx{1}
-                , Next{nullptr} 
+            FNode(T* Item)
+                : DeqIdx{ 0 }, EnqIdx{ 1 }, Next{ nullptr }
             {
                 Items[0].store(Item, std::memory_order_relaxed);
-                for (i64 i = 1; i < BUFFER_SIZE; i++) 
+                for (i64 i = 1; i < BUFFER_SIZE; i++)
                 {
                     Items[i].store(nullptr, std::memory_order_relaxed);
                 }
             }
 
-            bool CasNext(FNode* Cmp, FNode* Val) 
+            bool CasNext(FNode* Cmp, FNode* Val)
             {
                 return Next.compare_exchange_strong(Cmp, Val);
             }
         };
 
-        bool CasTail(FNode* Cmp, FNode* Val) 
+        bool CasTail(FNode* Cmp, FNode* Val)
         {
             return m_Tail.compare_exchange_strong(Cmp, Val);
         }
 
-        bool CasHead(FNode* Cmp, FNode* Val) 
+        bool CasHead(FNode* Cmp, FNode* Val)
         {
             return m_Head.compare_exchange_strong(Cmp, Val);
         }
@@ -109,7 +107,7 @@ namespace OloEngine
             return reinterpret_cast<T*>(~uptr(0));
         }
 
-    public:
+      public:
         /**
          * @brief Construct an empty queue
          */
@@ -124,10 +122,11 @@ namespace OloEngine
         /**
          * @brief Destructor - drains the queue and deletes the last node
          */
-        ~FAAArrayQueue() 
+        ~FAAArrayQueue()
         {
-            while (Dequeue() != nullptr); // Drain the queue
-            delete m_Head.load();          // Delete the last node
+            while (Dequeue() != nullptr)
+                ;                 // Drain the queue
+            delete m_Head.load(); // Delete the last node
         }
 
         // Non-copyable
@@ -137,22 +136,24 @@ namespace OloEngine
         /**
          * @class EnqueueHazard
          * @brief Cached hazard pointer for enqueue operations
-         * 
+         *
          * Keeping a hazard pointer across multiple enqueue operations avoids
          * the overhead of acquiring/releasing hazard slots repeatedly.
          */
         class EnqueueHazard : private THazardPointer<FNode, true>
         {
             friend class FAAArrayQueue<T>;
-            inline EnqueueHazard(std::atomic<FNode*>& Hazard, FHazardPointerCollection& Collection) 
+            inline EnqueueHazard(std::atomic<FNode*>& Hazard, FHazardPointerCollection& Collection)
                 : THazardPointer<FNode, true>(Hazard, Collection)
-            {}
+            {
+            }
 
-        public:
+          public:
             inline EnqueueHazard() = default;
-            inline EnqueueHazard(EnqueueHazard&& Hazard) 
+            inline EnqueueHazard(EnqueueHazard&& Hazard)
                 : THazardPointer<FNode, true>(MoveTemp(static_cast<THazardPointer<FNode, true>&>(Hazard)))
-            {}
+            {
+            }
 
             inline EnqueueHazard& operator=(EnqueueHazard&& Other)
             {
@@ -161,42 +162,42 @@ namespace OloEngine
             }
         };
 
-    private:
+      private:
         template<typename HazardType>
-        void EnqueueInternal(T* Item, HazardType& Hazard) 
+        void EnqueueInternal(T* Item, HazardType& Hazard)
         {
             OLO_CORE_ASSERT(Item != nullptr, "Cannot enqueue null item");
-            while (true) 
+            while (true)
             {
                 FNode* LocalTail = Hazard.Get();
                 const i32 Idx = LocalTail->EnqIdx.fetch_add(1);
-                if (Idx > BUFFER_SIZE - 1) 
-                { 
+                if (Idx > BUFFER_SIZE - 1)
+                {
                     // This node is full
                     if (LocalTail != m_Tail.load())
                     {
                         continue;
                     }
                     FNode* LocalNext = LocalTail->Next.load();
-                    if (LocalNext == nullptr) 
+                    if (LocalNext == nullptr)
                     {
                         FNode* NewNode = new FNode(Item);
-                        if (LocalTail->CasNext(nullptr, NewNode)) 
+                        if (LocalTail->CasNext(nullptr, NewNode))
                         {
                             CasTail(LocalTail, NewNode);
                             Hazard.Retire();
                             return;
                         }
                         delete NewNode;
-                    } 
-                    else 
+                    }
+                    else
                     {
                         CasTail(LocalTail, LocalNext);
                     }
                     continue;
                 }
                 T* ItemNull = nullptr;
-                if (LocalTail->Items[Idx].compare_exchange_strong(ItemNull, Item)) 
+                if (LocalTail->Items[Idx].compare_exchange_strong(ItemNull, Item))
                 {
                     Hazard.Retire();
                     return;
@@ -204,14 +205,14 @@ namespace OloEngine
             }
         }
 
-    public:
+      public:
         /**
          * @brief Get a cached tail hazard pointer for repeated enqueue operations
          * @return EnqueueHazard that can be reused across multiple enqueues
          */
         inline EnqueueHazard GetTailHazard()
         {
-            return {m_Tail, m_Hazards};
+            return { m_Tail, m_Hazards };
         }
 
         /**
@@ -219,7 +220,7 @@ namespace OloEngine
          * @param Item Item to enqueue (must not be nullptr)
          * @param Hazard Cached hazard pointer from GetTailHazard()
          */
-        inline void Enqueue(T* Item, EnqueueHazard& Hazard) 
+        inline void Enqueue(T* Item, EnqueueHazard& Hazard)
         {
             EnqueueInternal(Item, Hazard);
         }
@@ -237,22 +238,24 @@ namespace OloEngine
         /**
          * @class DequeueHazard
          * @brief Cached hazard pointer for dequeue operations
-         * 
+         *
          * Keeping a hazard pointer across multiple dequeue operations avoids
          * the overhead of acquiring/releasing hazard slots repeatedly.
          */
         class DequeueHazard : private THazardPointer<FNode, true>
         {
             friend class FAAArrayQueue<T>;
-            inline DequeueHazard(std::atomic<FNode*>& Hazard, FHazardPointerCollection& Collection) 
+            inline DequeueHazard(std::atomic<FNode*>& Hazard, FHazardPointerCollection& Collection)
                 : THazardPointer<FNode, true>(Hazard, Collection)
-            {}
+            {
+            }
 
-        public:
+          public:
             inline DequeueHazard() = default;
-            inline DequeueHazard(DequeueHazard&& Hazard) 
+            inline DequeueHazard(DequeueHazard&& Hazard)
                 : THazardPointer<FNode, true>(MoveTemp(static_cast<THazardPointer<FNode, true>&>(Hazard)))
-            {}
+            {
+            }
 
             inline DequeueHazard& operator=(DequeueHazard&& Other)
             {
@@ -261,25 +264,25 @@ namespace OloEngine
             }
         };
 
-    private:
+      private:
         template<typename HazardType>
-        T* DequeueInternal(HazardType& Hazard) 
+        T* DequeueInternal(HazardType& Hazard)
         {
-            while (true) 
+            while (true)
             {
                 FNode* LocalHead = Hazard.Get();
-                if (LocalHead->DeqIdx.load() >= LocalHead->EnqIdx.load() && LocalHead->Next.load() == nullptr) 
+                if (LocalHead->DeqIdx.load() >= LocalHead->EnqIdx.load() && LocalHead->Next.load() == nullptr)
                 {
                     break;
                 }
                 const i32 Idx = LocalHead->DeqIdx.fetch_add(1);
-                if (Idx > BUFFER_SIZE - 1) 
-                { 
+                if (Idx > BUFFER_SIZE - 1)
+                {
                     // This node has been drained, check if there is another one
                     FNode* LocalNext = LocalHead->Next.load();
                     if (LocalNext == nullptr)
                     {
-                        break;  // No more nodes in the queue
+                        break; // No more nodes in the queue
                     }
                     if (CasHead(LocalHead, LocalNext))
                     {
@@ -314,13 +317,13 @@ namespace OloEngine
             return nullptr;
         }
 
-    public:
+      public:
         /**
          * @brief Dequeue an item using a cached hazard pointer
          * @param Hazard Cached hazard pointer from GetHeadHazard()
          * @return Dequeued item, or nullptr if queue is empty
          */
-        inline T* Dequeue(DequeueHazard& Hazard) 
+        inline T* Dequeue(DequeueHazard& Hazard)
         {
             return DequeueInternal(Hazard);
         }
@@ -331,7 +334,7 @@ namespace OloEngine
          */
         inline DequeueHazard GetHeadHazard()
         {
-            return {m_Head, m_Hazards};
+            return { m_Head, m_Hazards };
         }
 
         /**

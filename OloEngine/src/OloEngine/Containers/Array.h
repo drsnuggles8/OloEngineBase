@@ -3,13 +3,13 @@
 /**
  * @file Array.h
  * @brief Dynamic array container with UE-style allocator support
- * 
+ *
  * Provides a dynamic array similar to std::vector but with:
  * - Pluggable allocator policies (heap, inline, stack)
  * - Trivially relocatable optimization (memcpy for moves)
  * - Zero-construct optimization (memset for init)
  * - UE-compatible API and semantics
- * 
+ *
  * Ported from Unreal Engine's Containers/Array.h
  */
 
@@ -31,7 +31,7 @@
 namespace OloEngine
 {
     // Forward declaration
-    template <typename T, typename AllocatorType>
+    template<typename T, typename AllocatorType>
     class TArray;
 
     // ============================================================================
@@ -41,16 +41,16 @@ namespace OloEngine
     /**
      * @def OLO_ARRAY_RANGED_FOR_CHECKS
      * @brief Controls whether ranged-for iteration detects array resize
-     * 
+     *
      * When enabled, modifying an array during ranged-for iteration will trigger
      * an assertion failure.
      */
 #if !defined(OLO_ARRAY_RANGED_FOR_CHECKS)
-    #if OLO_BUILD_SHIPPING
-        #define OLO_ARRAY_RANGED_FOR_CHECKS 0
-    #else
-        #define OLO_ARRAY_RANGED_FOR_CHECKS 1
-    #endif
+#if OLO_BUILD_SHIPPING
+#define OLO_ARRAY_RANGED_FOR_CHECKS 0
+#else
+#define OLO_ARRAY_RANGED_FOR_CHECKS 1
+#endif
 #endif
 
     // ============================================================================
@@ -61,16 +61,16 @@ namespace OloEngine
     /**
      * @class TCheckedPointerIterator
      * @brief Pointer-like iterator that detects container resize during iteration
-     * 
+     *
      * This iterator stores a reference to the container's size and checks on
      * each iteration step that the size hasn't changed. This catches common
      * bugs where the container is modified during ranged-for iteration.
-     * 
+     *
      * @tparam ElementType The element type
      * @tparam SizeType    The container's size type
      * @tparam bReverse    Whether to iterate in reverse
      */
-    template <typename ElementType, typename SizeType, bool bReverse = false>
+    template<typename ElementType, typename SizeType, bool bReverse = false>
     struct TCheckedPointerIterator
     {
         // This iterator type only supports the minimal functionality needed to support
@@ -78,9 +78,7 @@ namespace OloEngine
         // We do add an operator-- to help with some implementations
 
         [[nodiscard]] explicit TCheckedPointerIterator(const SizeType& InNum, ElementType* InPtr)
-            : Ptr(InPtr)
-            , CurrentNum(InNum)
-            , InitialNum(InNum)
+            : Ptr(InPtr), CurrentNum(InNum), InitialNum(InNum)
         {
         }
 
@@ -150,10 +148,10 @@ namespace OloEngine
             return !(*this != Rhs);
         }
 
-    private:
-        ElementType*    Ptr;
+      private:
+        ElementType* Ptr;
         const SizeType& CurrentNum;
-        SizeType        InitialNum;
+        SizeType InitialNum;
     };
 #endif
 
@@ -164,14 +162,14 @@ namespace OloEngine
     /**
      * @class TDereferencingIterator
      * @brief Iterator wrapper that automatically dereferences pointer elements
-     * 
+     *
      * Used for sorting arrays of pointers so that the comparison predicate
      * receives references to the pointed-to objects rather than pointers.
-     * 
+     *
      * @tparam ElementType  The type of element (after dereferencing)
      * @tparam IteratorType The underlying iterator type
      */
-    template <typename ElementType, typename IteratorType>
+    template<typename ElementType, typename IteratorType>
     struct TDereferencingIterator
     {
         [[nodiscard]] explicit TDereferencingIterator(IteratorType InIter)
@@ -195,7 +193,7 @@ namespace OloEngine
             return Iter != Rhs.Iter;
         }
 
-    private:
+      private:
         IteratorType Iter;
     };
 
@@ -207,13 +205,12 @@ namespace OloEngine
      * @class TIndexedContainerIterator
      * @brief Generic iterator for indexed containers
      */
-    template <typename ContainerType, typename ElementType, typename SizeType>
+    template<typename ContainerType, typename ElementType, typename SizeType>
     class TIndexedContainerIterator
     {
-    public:
+      public:
         [[nodiscard]] TIndexedContainerIterator(ContainerType& InContainer, SizeType StartIndex = 0)
-            : m_Container(InContainer)
-            , m_Index(StartIndex)
+            : m_Container(InContainer), m_Index(StartIndex)
         {
         }
 
@@ -327,7 +324,7 @@ namespace OloEngine
             return !(*this == Rhs);
         }
 
-    private:
+      private:
         ContainerType& m_Container;
         SizeType m_Index;
     };
@@ -342,7 +339,7 @@ namespace OloEngine
          * @brief Simply forwards to an unqualified GetData(), but can be called from within a
          * container or view where GetData() is already a member and so hides any others.
          */
-        template <typename T>
+        template<typename T>
         [[nodiscard]] OLO_FINLINE decltype(auto) GetDataHelper(T&& Arg)
         {
             return GetData(std::forward<T>(Arg));
@@ -350,31 +347,30 @@ namespace OloEngine
 
         /**
          * @brief Type trait to check if array elements are compatible for construction
-         * 
+         *
          * Elements are compatible if they are the same type or if DestType can be constructed from SourceType.
          */
-        template <typename DestType, typename SourceType>
+        template<typename DestType, typename SourceType>
         inline constexpr bool TArrayElementsAreCompatible_V = std::disjunction_v<
             std::is_same<DestType, std::decay_t<SourceType>>,
-            std::is_constructible<DestType, SourceType>
-        >;
+            std::is_constructible<DestType, SourceType>>;
 
         /**
          * @brief Helper functions to detect if a type is TArray or derived from TArray
-         * 
+         *
          * Uses overload resolution to detect inheritance from TArray.
          */
-        template <typename ElementType, typename AllocatorType>
+        template<typename ElementType, typename AllocatorType>
         static char (&ResolveIsTArrayPtr(const volatile TArray<ElementType, AllocatorType>*))[2];
         static char (&ResolveIsTArrayPtr(...))[1];
 
         /**
          * @brief Type trait to check if T is a TArray or derived from TArray
-         * 
+         *
          * Unlike TIsTArray_V which only matches exact TArray types, this trait also
          * matches types that inherit from TArray.
          */
-        template <typename T>
+        template<typename T>
         inline constexpr bool TIsTArrayOrDerivedFromTArray_V = sizeof(ResolveIsTArrayPtr(static_cast<T*>(nullptr))) == 2;
 
     } // namespace Private
@@ -400,19 +396,19 @@ namespace OloEngine
     /**
      * @class TArray
      * @brief Dynamic array container with pluggable allocator support
-     * 
+     *
      * A templated dynamic array similar to std::vector but with:
      * - UE-style pluggable allocator policies
      * - Optimizations for trivially relocatable types
      * - Optimizations for zero-constructible types
-     * 
+     *
      * @tparam InElementType   The element type stored in the array
      * @tparam InAllocatorType The allocator policy to use
      */
-    template <typename InElementType, typename InAllocatorType>
+    template<typename InElementType, typename InAllocatorType>
     class TArray
     {
-    public:
+      public:
         using ElementType = InElementType;
         using AllocatorType = InAllocatorType;
         using SizeType = typename InAllocatorType::SizeType;
@@ -420,42 +416,39 @@ namespace OloEngine
         using ElementAllocatorType = typename TChooseClass<
             AllocatorType::NeedsElementType,
             typename AllocatorType::template ForElementType<ElementType>,
-            typename AllocatorType::ForAnyElementType
-        >::Result;
+            typename AllocatorType::ForAnyElementType>::Result;
 
         using Iterator = TIndexedContainerIterator<TArray, ElementType, SizeType>;
         using ConstIterator = TIndexedContainerIterator<const TArray, const ElementType, SizeType>;
 
-    private:
-        template <typename OtherElementType, typename OtherAllocatorType>
+      private:
+        template<typename OtherElementType, typename OtherAllocatorType>
         friend class TArray;
 
         ElementAllocatorType m_AllocatorInstance;
         SizeType m_ArrayNum;
         SizeType m_ArrayMax;
 
-    public:
+      public:
         // ====================================================================
         // Constructors & Destructor
         // ====================================================================
 
         /** Default constructor */
         [[nodiscard]] OLO_FINLINE constexpr TArray()
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
-        {}
+            : m_ArrayNum(0), m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
+        {
+        }
 
         /** Explicitly consteval constructor for compile-time constant arrays. */
         [[nodiscard]] explicit consteval TArray(EConstEval)
-            : m_AllocatorInstance(ConstEval)
-            , m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
-        {}
+            : m_AllocatorInstance(ConstEval), m_ArrayNum(0), m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
+        {
+        }
 
         /** Constructor with initial size */
         explicit TArray(SizeType InitialSize)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
+            : m_ArrayNum(0), m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             AddUninitialized(InitialSize);
             DefaultConstructItems<ElementType>(GetData(), InitialSize);
@@ -463,8 +456,7 @@ namespace OloEngine
 
         /** Constructor with initial size and default value */
         TArray(SizeType InitialSize, const ElementType& DefaultValue)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
+            : m_ArrayNum(0), m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             Reserve(InitialSize);
             for (SizeType i = 0; i < InitialSize; ++i)
@@ -475,8 +467,7 @@ namespace OloEngine
 
         /** Initializer list constructor */
         TArray(std::initializer_list<ElementType> InitList)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
+            : m_ArrayNum(0), m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             Reserve(static_cast<SizeType>(InitList.size()));
             for (const auto& Item : InitList)
@@ -509,9 +500,9 @@ namespace OloEngine
 
         /**
          * @brief Move constructor with extra slack
-         * @param Other      Array to move from  
+         * @param Other      Array to move from
          * @param ExtraSlack Additional capacity to reserve
-         * 
+         *
          * If ExtraSlack is 0, this is equivalent to a normal move.
          * Otherwise, the array is copied and extra space is reserved.
          */
@@ -529,12 +520,12 @@ namespace OloEngine
             }
         }
 
-        /** 
+        /**
          * @brief Construct from an array view
          * @param Other The array view to copy from
          */
-        template <typename OtherElementType, typename OtherSizeType>
-            requires (std::is_convertible_v<OtherElementType*, ElementType*>)
+        template<typename OtherElementType, typename OtherSizeType>
+            requires(std::is_convertible_v<OtherElementType*, ElementType*>)
         explicit TArray(TArrayView<OtherElementType, OtherSizeType> Other)
         {
             CopyToEmpty(Other.GetData(), static_cast<SizeType>(Other.Num()), 0);
@@ -603,7 +594,7 @@ namespace OloEngine
 
         /**
          * @brief Enable intrusive TOptional optimization
-         * 
+         *
          * When TOptional<TArray> is used, this allows TOptional to use the
          * array's own state (ArrayMax == -1) to represent the "unset" state,
          * eliminating the need for a separate bool and saving memory.
@@ -614,13 +605,12 @@ namespace OloEngine
         /**
          * @brief Constructor for intrusive unset optional state
          * @param Tag  Tag type to distinguish this constructor
-         * 
+         *
          * Only callable by TOptional. Creates an array in the "unset" state
          * using ArrayMax == -1 as a sentinel value.
          */
         [[nodiscard]] explicit TArray(FIntrusiveUnsetOptionalState Tag)
-            : m_ArrayNum(0)
-            , m_ArrayMax(-1)
+            : m_ArrayNum(0), m_ArrayMax(-1)
         {
             // Use ArrayMax == -1 as our intrusive state.
             // The destructor still works without change, as it doesn't use ArrayMax.
@@ -630,7 +620,7 @@ namespace OloEngine
          * @brief Check if array is in intrusive unset optional state
          * @param Tag  Tag type for comparison
          * @returns true if array is in the unset state (ArrayMax == -1)
-         * 
+         *
          * Only used by TOptional to check if the optional is set.
          */
         [[nodiscard]] bool operator==(FIntrusiveUnsetOptionalState Tag) const
@@ -769,7 +759,7 @@ namespace OloEngine
 
         /**
          * @brief Verify internal invariants are valid
-         * 
+         *
          * Checks that the array's internal state is consistent:
          * - ArrayNum >= 0
          * - ArrayMax >= ArrayNum
@@ -777,7 +767,7 @@ namespace OloEngine
         OLO_FINLINE void CheckInvariants() const
         {
             OLO_CORE_ASSERT((m_ArrayNum >= 0) && (m_ArrayMax >= m_ArrayNum),
-                "TArray invariant violation: ArrayNum={}, ArrayMax={}", m_ArrayNum, m_ArrayMax);
+                            "TArray invariant violation: ArrayNum={}, ArrayMax={}", m_ArrayNum, m_ArrayMax);
         }
 
         /** Get size in bytes */
@@ -804,7 +794,7 @@ namespace OloEngine
         /**
          * @brief Debug helper to check that a pointer is within the array bounds
          * @param Addr  Address to check
-         * 
+         *
          * In debug builds, asserts if Addr points within the current allocation.
          * This catches cases where you're about to Add() an element that's already
          * in the array, which could be invalidated by reallocation.
@@ -812,20 +802,20 @@ namespace OloEngine
         OLO_FINLINE void CheckAddress(const ElementType* Addr) const
         {
             OLO_CORE_ASSERT(Addr < GetData() || Addr >= (GetData() + m_ArrayMax),
-                "Passed address is from within the array - this will be invalidated if the array reallocates");
+                            "Passed address is from within the array - this will be invalidated if the array reallocates");
         }
 
         /**
          * @brief Checks if index is in range [0, ArrayNum)
          * @param Index  Index to check
-         * 
+         *
          * Asserts in debug builds if index is out of range.
          */
         OLO_FINLINE void RangeCheck(SizeType Index) const
         {
             CheckInvariants();
             OLO_CORE_ASSERT((Index >= 0) && (Index < m_ArrayNum),
-                "Array index out of bounds: %d from an array of size %d", Index, m_ArrayNum);
+                            "Array index out of bounds: %d from an array of size %d", Index, m_ArrayNum);
         }
 
         /**
@@ -929,7 +919,7 @@ namespace OloEngine
         }
 
         /** Emplace element in-place, return reference */
-        template <typename... ArgsType>
+        template<typename... ArgsType>
         ElementType& Emplace(ArgsType&&... Args)
         {
             const SizeType Index = AddUninitialized(1);
@@ -991,7 +981,7 @@ namespace OloEngine
         /**
          * @brief Add uninitialized element and return reference
          * @returns Reference to the newly added (uninitialized) element
-         * 
+         *
          * @warning The returned reference points to uninitialized memory.
          *          You must construct an object at this location before use.
          */
@@ -1006,7 +996,7 @@ namespace OloEngine
          * @param Args  Arguments forwarded to element constructor
          * @returns Reference to the newly constructed element
          */
-        template <typename... ArgsType>
+        template<typename... ArgsType>
         ElementType& Emplace_GetRef(ArgsType&&... Args)
         {
             const SizeType Index = AddUninitialized(1);
@@ -1019,7 +1009,7 @@ namespace OloEngine
          * @brief Initialize array with Count copies of Element
          * @param Element  The element to copy
          * @param Count    Number of copies to add
-         * 
+         *
          * Clears the array and fills it with Count copies of Element.
          */
         void Init(const ElementType& Element, SizeType Count)
@@ -1130,7 +1120,7 @@ namespace OloEngine
          * @brief Insert uninitialized element at index and return reference
          * @param Index  Position to insert at
          * @returns Reference to the inserted (uninitialized) element
-         * 
+         *
          * @warning The returned reference points to uninitialized memory.
          *          You must construct an object at this location before use.
          */
@@ -1172,7 +1162,7 @@ namespace OloEngine
          * @param Args   Arguments forwarded to element constructor
          * @returns Reference to the newly constructed element
          */
-        template <typename... ArgsType>
+        template<typename... ArgsType>
         ElementType& EmplaceAt(SizeType Index, ArgsType&&... Args)
         {
             InsertUninitialized(Index, 1);
@@ -1187,7 +1177,7 @@ namespace OloEngine
          * @param Args   Arguments forwarded to element constructor
          * @returns Reference to the newly constructed element
          */
-        template <typename... ArgsType>
+        template<typename... ArgsType>
         ElementType& EmplaceAt_GetRef(SizeType Index, ArgsType&&... Args)
         {
             return EmplaceAt(Index, std::forward<ArgsType>(Args)...);
@@ -1331,15 +1321,15 @@ namespace OloEngine
         /**
          * @brief Set the number of elements without construction/destruction
          * @param NewNum  New number of elements (must be <= current Num())
-         * 
+         *
          * This is an unsafe internal method that only updates ArrayNum.
          * Does not destruct items, does not deallocate memory.
          * NewNum must be <= current Num() and >= 0.
          */
         void SetNumUnsafeInternal(SizeType NewNum)
         {
-            OLO_CORE_ASSERT(NewNum >= 0 && NewNum <= m_ArrayNum, 
-                "SetNumUnsafeInternal: NewNum must be in range [0, %d]", m_ArrayNum);
+            OLO_CORE_ASSERT(NewNum >= 0 && NewNum <= m_ArrayNum,
+                            "SetNumUnsafeInternal: NewNum must be in range [0, %d]", m_ArrayNum);
             m_ArrayNum = NewNum;
         }
 
@@ -1384,7 +1374,7 @@ namespace OloEngine
         }
 
         /** Find index of element by predicate */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] SizeType FindByPredicate(Predicate Pred) const
         {
             const ElementType* Data = GetData();
@@ -1405,13 +1395,13 @@ namespace OloEngine
         }
 
         /** Check if element exists by predicate */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] bool ContainsByPredicate(Predicate Pred) const
         {
             return FindByPredicate(Pred) != INDEX_NONE;
         }
 
-        /** 
+        /**
          * Find index of element starting from the end
          * @returns Index of the found element, INDEX_NONE otherwise
          */
@@ -1428,7 +1418,7 @@ namespace OloEngine
             return INDEX_NONE;
         }
 
-        /** 
+        /**
          * Find index of element starting from the end (output parameter version)
          * @returns true if found, false otherwise
          */
@@ -1444,7 +1434,7 @@ namespace OloEngine
          * @param Count The number of elements from the front of the array through which to search
          * @returns Index of the found element, INDEX_NONE otherwise
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] SizeType FindLastByPredicate(Predicate Pred, SizeType Count) const
         {
             OLO_CORE_ASSERT(Count >= 0 && Count <= m_ArrayNum, "FindLastByPredicate: Count out of bounds");
@@ -1464,7 +1454,7 @@ namespace OloEngine
          * @param Pred Predicate taking array element and returns true if element matches search criteria
          * @returns Index of the found element, INDEX_NONE otherwise
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] OLO_FINLINE SizeType FindLastByPredicate(Predicate Pred) const
         {
             return FindLastByPredicate(Pred, m_ArrayNum);
@@ -1475,7 +1465,7 @@ namespace OloEngine
          * @param Key The key to search by
          * @returns Index to the first matching element, or INDEX_NONE if none is found
          */
-        template <typename KeyType>
+        template<typename KeyType>
         [[nodiscard]] SizeType IndexOfByKey(const KeyType& Key) const
         {
             const ElementType* Data = GetData();
@@ -1494,7 +1484,7 @@ namespace OloEngine
          * @param Pred The predicate to match
          * @returns Index to the first matching element, or INDEX_NONE if none is found
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] SizeType IndexOfByPredicate(Predicate Pred) const
         {
             const ElementType* Data = GetData();
@@ -1513,7 +1503,7 @@ namespace OloEngine
          * @param Key The key to search by
          * @returns Pointer to the first matching element, or nullptr if none is found
          */
-        template <typename KeyType>
+        template<typename KeyType>
         [[nodiscard]] ElementType* FindByKey(const KeyType& Key)
         {
             ElementType* Data = GetData();
@@ -1527,7 +1517,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        template <typename KeyType>
+        template<typename KeyType>
         [[nodiscard]] const ElementType* FindByKey(const KeyType& Key) const
         {
             return const_cast<TArray*>(this)->FindByKey(Key);
@@ -1538,7 +1528,7 @@ namespace OloEngine
          * @param Pred The functor to apply to each element
          * @returns Pointer to the first element for which the predicate returns true, or nullptr if none is found
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] ElementType* FindByPredicate(Predicate Pred)
         {
             ElementType* Data = GetData();
@@ -1552,7 +1542,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] const ElementType* FindByPredicate(Predicate Pred) const
         {
             return const_cast<TArray*>(this)->FindByPredicate(Pred);
@@ -1564,7 +1554,7 @@ namespace OloEngine
          * @returns TArray with the same type as this object which contains
          *          the subset of elements for which the functor returns true
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] TArray<ElementType> FilterByPredicate(Predicate Pred) const
         {
             TArray<ElementType> FilterResults;
@@ -1608,7 +1598,8 @@ namespace OloEngine
          */
         SizeType Remove(const ElementType& Item)
         {
-            return RemoveAll([&Item](const ElementType& Element) { return Element == Item; });
+            return RemoveAll([&Item](const ElementType& Element)
+                             { return Element == Item; });
         }
 
         /**
@@ -1617,7 +1608,7 @@ namespace OloEngine
          * @returns Number of removed elements
          * @see Remove, RemoveAllSwap, RemoveSingle
          */
-        template <typename Predicate>
+        template<typename Predicate>
         SizeType RemoveAll(Predicate Pred)
         {
             const SizeType OriginalNum = m_ArrayNum;
@@ -1690,7 +1681,7 @@ namespace OloEngine
         SizeType RemoveSwap(const ElementType& Item, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             const SizeType OriginalNum = m_ArrayNum;
-            for (SizeType Index = 0; Index < m_ArrayNum; )
+            for (SizeType Index = 0; Index < m_ArrayNum;)
             {
                 if (GetData()[Index] == Item)
                 {
@@ -1715,11 +1706,11 @@ namespace OloEngine
          * @returns Number of removed elements
          * @see RemoveAll, RemoveSwap, RemoveSingleSwap
          */
-        template <typename Predicate>
+        template<typename Predicate>
         SizeType RemoveAllSwap(Predicate Pred, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             const SizeType OriginalNum = m_ArrayNum;
-            for (SizeType Index = 0; Index < m_ArrayNum; )
+            for (SizeType Index = 0; Index < m_ArrayNum;)
             {
                 if (Pred(GetData()[Index]))
                 {
@@ -1775,22 +1766,20 @@ namespace OloEngine
 
         /**
          * @brief Appends the elements from a contiguous range to this array
-         * 
+         *
          * This overload accepts any contiguous container (e.g., std::vector, std::array,
          * TArrayView) that is not a TArray itself. For TArray sources, use the
          * TArray-specific overloads which may be more efficient.
-         * 
+         *
          * @tparam RangeType A contiguous container type
          * @param Source The range of elements to append
          */
-        template <
+        template<
             typename RangeType,
             typename = std::enable_if_t<
                 TIsContiguousContainer<std::remove_reference_t<RangeType>>::Value &&
                 !Private::TIsTArrayOrDerivedFromTArray_V<std::remove_reference_t<RangeType>> &&
-                Private::TArrayElementsAreCompatible_V<ElementType, TElementType_T<std::remove_reference_t<RangeType>>>
-            >
-        >
+                Private::TArrayElementsAreCompatible_V<ElementType, TElementType_T<std::remove_reference_t<RangeType>>>>>
         void Append(RangeType&& Source)
         {
             auto InCount = GetNum(Source);
@@ -1866,39 +1855,87 @@ namespace OloEngine
         // ====================================================================
         // Range-for iterator types
         // ====================================================================
-    private:
+      private:
 #if OLO_ARRAY_RANGED_FOR_CHECKS
-        using RangedForIteratorType             = TCheckedPointerIterator<      ElementType, SizeType, false>;
-        using RangedForConstIteratorType        = TCheckedPointerIterator<const ElementType, SizeType, false>;
-        using RangedForReverseIteratorType      = TCheckedPointerIterator<      ElementType, SizeType, true>;
+        using RangedForIteratorType = TCheckedPointerIterator<ElementType, SizeType, false>;
+        using RangedForConstIteratorType = TCheckedPointerIterator<const ElementType, SizeType, false>;
+        using RangedForReverseIteratorType = TCheckedPointerIterator<ElementType, SizeType, true>;
         using RangedForConstReverseIteratorType = TCheckedPointerIterator<const ElementType, SizeType, true>;
 #else
-        using RangedForIteratorType             =                               ElementType*;
-        using RangedForConstIteratorType        =                         const ElementType*;
-        using RangedForReverseIteratorType      = TReversePointerIterator<      ElementType>;
+        using RangedForIteratorType = ElementType*;
+        using RangedForConstIteratorType = const ElementType*;
+        using RangedForReverseIteratorType = TReversePointerIterator<ElementType>;
         using RangedForConstReverseIteratorType = TReversePointerIterator<const ElementType>;
 #endif
 
-    public:
+      public:
         // Range-for support
 #if OLO_ARRAY_RANGED_FOR_CHECKS
-        [[nodiscard]] OLO_FINLINE RangedForIteratorType             begin ()       { return RangedForIteratorType            (m_ArrayNum, GetData()); }
-        [[nodiscard]] OLO_FINLINE RangedForConstIteratorType        begin () const { return RangedForConstIteratorType       (m_ArrayNum, GetData()); }
-        [[nodiscard]] OLO_FINLINE RangedForIteratorType             end   ()       { return RangedForIteratorType            (m_ArrayNum, GetData() + Num()); }
-        [[nodiscard]] OLO_FINLINE RangedForConstIteratorType        end   () const { return RangedForConstIteratorType       (m_ArrayNum, GetData() + Num()); }
-        [[nodiscard]] OLO_FINLINE RangedForReverseIteratorType      rbegin()       { return RangedForReverseIteratorType     (m_ArrayNum, GetData() + Num()); }
-        [[nodiscard]] OLO_FINLINE RangedForConstReverseIteratorType rbegin() const { return RangedForConstReverseIteratorType(m_ArrayNum, GetData() + Num()); }
-        [[nodiscard]] OLO_FINLINE RangedForReverseIteratorType      rend  ()       { return RangedForReverseIteratorType     (m_ArrayNum, GetData()); }
-        [[nodiscard]] OLO_FINLINE RangedForConstReverseIteratorType rend  () const { return RangedForConstReverseIteratorType(m_ArrayNum, GetData()); }
+        [[nodiscard]] OLO_FINLINE RangedForIteratorType begin()
+        {
+            return RangedForIteratorType(m_ArrayNum, GetData());
+        }
+        [[nodiscard]] OLO_FINLINE RangedForConstIteratorType begin() const
+        {
+            return RangedForConstIteratorType(m_ArrayNum, GetData());
+        }
+        [[nodiscard]] OLO_FINLINE RangedForIteratorType end()
+        {
+            return RangedForIteratorType(m_ArrayNum, GetData() + Num());
+        }
+        [[nodiscard]] OLO_FINLINE RangedForConstIteratorType end() const
+        {
+            return RangedForConstIteratorType(m_ArrayNum, GetData() + Num());
+        }
+        [[nodiscard]] OLO_FINLINE RangedForReverseIteratorType rbegin()
+        {
+            return RangedForReverseIteratorType(m_ArrayNum, GetData() + Num());
+        }
+        [[nodiscard]] OLO_FINLINE RangedForConstReverseIteratorType rbegin() const
+        {
+            return RangedForConstReverseIteratorType(m_ArrayNum, GetData() + Num());
+        }
+        [[nodiscard]] OLO_FINLINE RangedForReverseIteratorType rend()
+        {
+            return RangedForReverseIteratorType(m_ArrayNum, GetData());
+        }
+        [[nodiscard]] OLO_FINLINE RangedForConstReverseIteratorType rend() const
+        {
+            return RangedForConstReverseIteratorType(m_ArrayNum, GetData());
+        }
 #else
-        [[nodiscard]] OLO_FINLINE RangedForIteratorType             begin ()       { return                                   GetData(); }
-        [[nodiscard]] OLO_FINLINE RangedForConstIteratorType        begin () const { return                                   GetData(); }
-        [[nodiscard]] OLO_FINLINE RangedForIteratorType             end   ()       { return                                   GetData() + Num(); }
-        [[nodiscard]] OLO_FINLINE RangedForConstIteratorType        end   () const { return                                   GetData() + Num(); }
-        [[nodiscard]] OLO_FINLINE RangedForReverseIteratorType      rbegin()       { return RangedForReverseIteratorType     (GetData() + Num()); }
-        [[nodiscard]] OLO_FINLINE RangedForConstReverseIteratorType rbegin() const { return RangedForConstReverseIteratorType(GetData() + Num()); }
-        [[nodiscard]] OLO_FINLINE RangedForReverseIteratorType      rend  ()       { return RangedForReverseIteratorType     (GetData()); }
-        [[nodiscard]] OLO_FINLINE RangedForConstReverseIteratorType rend  () const { return RangedForConstReverseIteratorType(GetData()); }
+        [[nodiscard]] OLO_FINLINE RangedForIteratorType begin()
+        {
+            return GetData();
+        }
+        [[nodiscard]] OLO_FINLINE RangedForConstIteratorType begin() const
+        {
+            return GetData();
+        }
+        [[nodiscard]] OLO_FINLINE RangedForIteratorType end()
+        {
+            return GetData() + Num();
+        }
+        [[nodiscard]] OLO_FINLINE RangedForConstIteratorType end() const
+        {
+            return GetData() + Num();
+        }
+        [[nodiscard]] OLO_FINLINE RangedForReverseIteratorType rbegin()
+        {
+            return RangedForReverseIteratorType(GetData() + Num());
+        }
+        [[nodiscard]] OLO_FINLINE RangedForConstReverseIteratorType rbegin() const
+        {
+            return RangedForConstReverseIteratorType(GetData() + Num());
+        }
+        [[nodiscard]] OLO_FINLINE RangedForReverseIteratorType rend()
+        {
+            return RangedForReverseIteratorType(GetData());
+        }
+        [[nodiscard]] OLO_FINLINE RangedForConstReverseIteratorType rend() const
+        {
+            return RangedForConstReverseIteratorType(GetData());
+        }
 #endif
 
         // ====================================================================
@@ -1912,7 +1949,7 @@ namespace OloEngine
         }
 
         /** Sort using custom predicate */
-        template <typename Predicate>
+        template<typename Predicate>
         void Sort(Predicate Pred)
         {
             std::sort(begin(), end(), Pred);
@@ -1925,7 +1962,7 @@ namespace OloEngine
         }
 
         /** Stable sort using custom predicate */
-        template <typename Predicate>
+        template<typename Predicate>
         void StableSort(Predicate Pred)
         {
             std::stable_sort(begin(), end(), Pred);
@@ -1948,7 +1985,7 @@ namespace OloEngine
          * Builds a valid heap from the array using a custom predicate.
          * @param Predicate Binary predicate - returns true if first argument should precede second
          */
-        template <typename Predicate>
+        template<typename Predicate>
         void Heapify(Predicate Pred)
         {
             if (m_ArrayNum <= 1)
@@ -1995,7 +2032,7 @@ namespace OloEngine
          * @param Predicate Binary predicate for heap ordering
          * @returns The index of the new element
          */
-        template <typename Predicate>
+        template<typename Predicate>
         SizeType HeapPush(const ElementType& Item, Predicate Pred)
         {
             const SizeType Index = Add(Item);
@@ -2008,7 +2045,7 @@ namespace OloEngine
          * @param Predicate Binary predicate for heap ordering
          * @returns The index of the new element
          */
-        template <typename Predicate>
+        template<typename Predicate>
         SizeType HeapPush(ElementType&& Item, Predicate Pred)
         {
             const SizeType Index = Add(std::move(Item));
@@ -2031,7 +2068,7 @@ namespace OloEngine
          * @param Predicate Binary predicate for heap ordering
          * @param AllowShrinking Whether to allow shrinking the allocation
          */
-        template <typename Predicate>
+        template<typename Predicate>
         void HeapPop(ElementType& OutItem, Predicate Pred, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             OLO_CORE_ASSERT(m_ArrayNum > 0, "HeapPop: Array is empty");
@@ -2064,7 +2101,7 @@ namespace OloEngine
          * @param Predicate Binary predicate for heap ordering
          * @param AllowShrinking Whether to allow shrinking the allocation
          */
-        template <typename Predicate>
+        template<typename Predicate>
         void HeapPopDiscard(Predicate Pred, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             OLO_CORE_ASSERT(m_ArrayNum > 0, "HeapPopDiscard: Array is empty");
@@ -2104,7 +2141,7 @@ namespace OloEngine
          * @param Predicate Binary predicate for heap ordering
          * @param AllowShrinking Whether to allow shrinking the allocation
          */
-        template <typename Predicate>
+        template<typename Predicate>
         void HeapRemoveAt(SizeType Index, Predicate Pred, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             OLO_CORE_ASSERT(IsValidIndex(Index), "HeapRemoveAt: Invalid index");
@@ -2141,7 +2178,7 @@ namespace OloEngine
          * Sort the array using heap sort algorithm using a custom predicate.
          * @param Predicate Binary predicate for ordering
          */
-        template <typename Predicate>
+        template<typename Predicate>
         void HeapSort(Predicate Pred)
         {
             if (m_ArrayNum <= 1)
@@ -2150,7 +2187,8 @@ namespace OloEngine
             }
 
             // Use reverse predicate to build a max-heap for ascending sort
-            auto ReversePred = [&Pred](const ElementType& A, const ElementType& B) { return Pred(B, A); };
+            auto ReversePred = [&Pred](const ElementType& A, const ElementType& B)
+            { return Pred(B, A); };
 
             // Build max-heap
             ElementType* Data = GetData();
@@ -2187,7 +2225,7 @@ namespace OloEngine
          * @param Predicate Binary predicate for heap ordering
          * @returns true if the array is a valid heap
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] bool IsHeap(Predicate Pred) const
         {
             const ElementType* Data = GetData();
@@ -2204,7 +2242,7 @@ namespace OloEngine
 
         /**
          * @brief Verify heap property and assert if invalid
-         * 
+         *
          * Debug helper that asserts if the array does not satisfy heap property.
          * Uses operator< for comparison.
          */
@@ -2217,7 +2255,7 @@ namespace OloEngine
          * @brief Verify heap property with custom predicate and assert if invalid
          * @param Predicate Binary predicate for heap ordering
          */
-        template <typename Predicate>
+        template<typename Predicate>
         void VerifyHeap(Predicate Pred) const
         {
             OLO_CORE_ASSERT(IsHeap(Pred), "TArray::VerifyHeap - Heap property violated");
@@ -2241,7 +2279,7 @@ namespace OloEngine
          * @brief Swap the memory of two elements by index using direct memory swap
          * @param FirstIndexToSwap   Index of first element
          * @param SecondIndexToSwap  Index of second element
-         * 
+         *
          * Uses bitwise memory swap rather than using move semantics.
          * More efficient for types where move is expensive or not available.
          */
@@ -2252,11 +2290,10 @@ namespace OloEngine
             FMemory::Memswap(
                 GetData() + FirstIndexToSwap,
                 GetData() + SecondIndexToSwap,
-                sizeof(ElementType)
-            );
+                sizeof(ElementType));
         }
 
-    private:
+      private:
         // ====================================================================
         // Heap Internal Helpers
         // ====================================================================
@@ -2280,14 +2317,14 @@ namespace OloEngine
         }
 
         /** Sift down to restore heap property (member function version) */
-        template <typename Predicate>
+        template<typename Predicate>
         void HeapSiftDown(SizeType Index, SizeType Count, Predicate Pred)
         {
             HeapSiftDownInternal(GetData(), Index, Count, Pred);
         }
 
         /** Sift down to restore heap property (static internal version) */
-        template <typename Predicate>
+        template<typename Predicate>
         static void HeapSiftDownInternal(ElementType* Data, SizeType Index, SizeType Count, Predicate Pred)
         {
             while (!HeapIsLeaf(Index, Count))
@@ -2315,7 +2352,7 @@ namespace OloEngine
         }
 
         /** Sift up to restore heap property, returns new index */
-        template <typename Predicate>
+        template<typename Predicate>
         SizeType HeapSiftUp(SizeType RootIndex, SizeType NodeIndex, Predicate Pred)
         {
             ElementType* Data = GetData();
@@ -2382,7 +2419,7 @@ namespace OloEngine
         }
 
         /** Move or copy helper */
-        template <typename ArrayType>
+        template<typename ArrayType>
         static void MoveOrCopy(ArrayType& ToArray, ArrayType& FromArray)
         {
             // Move the allocator state
@@ -2394,7 +2431,7 @@ namespace OloEngine
             FromArray.m_ArrayMax = 0;
         }
 
-    public:
+      public:
         // ====================================================================
         // Serialization Support
         // ====================================================================
@@ -2426,9 +2463,7 @@ namespace OloEngine
             i32 SerializedElementSize = ElementSize;
             Ar << SerializedElementSize;
 
-            if (bForcePerElementSerialization
-                || (Ar.IsSaving() && !Ar.IsTransacting())
-                || Ar.IsByteSwapping())
+            if (bForcePerElementSerialization || (Ar.IsSaving() && !Ar.IsTransacting()) || Ar.IsByteSwapping())
             {
                 Ar << *this;
             }
@@ -2473,7 +2508,7 @@ namespace OloEngine
     // ============================================================================
 
     /** Array with inline storage for small sizes */
-    template <typename ElementType, u32 NumInlineElements>
+    template<typename ElementType, u32 NumInlineElements>
     using TInlineArray = TArray<ElementType, TInlineAllocator<NumInlineElements>>;
 
     // ============================================================================
@@ -2481,7 +2516,7 @@ namespace OloEngine
     // ============================================================================
 
     /** TArray is a contiguous container */
-    template <typename T, typename AllocatorType>
+    template<typename T, typename AllocatorType>
     struct TIsContiguousContainer<TArray<T, AllocatorType>>
     {
         static constexpr bool Value = true;
@@ -2489,22 +2524,22 @@ namespace OloEngine
 
     /**
      * @brief Type trait to detect TArray types
-     * 
+     *
      * Use TIsTArray<T>::Value or TIsTArray_V<T> to check if T is a TArray.
      */
-    template <typename T> 
+    template<typename T>
     inline constexpr bool TIsTArray_V = false;
 
-    template <typename InElementType, typename InAllocatorType> 
-    inline constexpr bool TIsTArray_V<               TArray<InElementType, InAllocatorType>> = true;
-    template <typename InElementType, typename InAllocatorType> 
-    inline constexpr bool TIsTArray_V<const          TArray<InElementType, InAllocatorType>> = true;
-    template <typename InElementType, typename InAllocatorType> 
-    inline constexpr bool TIsTArray_V<      volatile TArray<InElementType, InAllocatorType>> = true;
-    template <typename InElementType, typename InAllocatorType> 
+    template<typename InElementType, typename InAllocatorType>
+    inline constexpr bool TIsTArray_V<TArray<InElementType, InAllocatorType>> = true;
+    template<typename InElementType, typename InAllocatorType>
+    inline constexpr bool TIsTArray_V<const TArray<InElementType, InAllocatorType>> = true;
+    template<typename InElementType, typename InAllocatorType>
+    inline constexpr bool TIsTArray_V<volatile TArray<InElementType, InAllocatorType>> = true;
+    template<typename InElementType, typename InAllocatorType>
     inline constexpr bool TIsTArray_V<const volatile TArray<InElementType, InAllocatorType>> = true;
 
-    template <typename T>
+    template<typename T>
     struct TIsTArray
     {
         static constexpr bool Value = TIsTArray_V<T>;
@@ -2616,10 +2651,10 @@ OloEngine::FArchive& operator<<(OloEngine::FArchive& Ar, OloEngine::TArray<Eleme
  * @brief Calculate hash for TArray
  * @param Array  Array to hash
  * @returns Combined hash of all elements
- * 
+ *
  * Requires that elements support GetTypeHash().
  */
-template <typename ElementType, typename AllocatorType>
+template<typename ElementType, typename AllocatorType>
 [[nodiscard]] inline u32 GetTypeHash(const OloEngine::TArray<ElementType, AllocatorType>& Array)
 {
     u32 Hash = 0;
@@ -2634,7 +2669,7 @@ template <typename ElementType, typename AllocatorType>
 // Placement new for TArray
 // ============================================================================
 
-template <typename T, typename AllocatorType>
+template<typename T, typename AllocatorType>
 inline void* operator new(size_t Size, OloEngine::TArray<T, AllocatorType>& Array)
 {
     static_assert(sizeof(T) == Size, "Size mismatch in TArray placement new");
@@ -2642,7 +2677,7 @@ inline void* operator new(size_t Size, OloEngine::TArray<T, AllocatorType>& Arra
     return Array.GetData() + Index;
 }
 
-template <typename T, typename AllocatorType>
+template<typename T, typename AllocatorType>
 inline void* operator new(size_t Size, OloEngine::TArray<T, AllocatorType>& Array, typename OloEngine::TArray<T, AllocatorType>::SizeType Index)
 {
     static_assert(sizeof(T) == Size, "Size mismatch in TArray placement new");

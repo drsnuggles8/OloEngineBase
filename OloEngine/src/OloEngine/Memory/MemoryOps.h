@@ -2,10 +2,10 @@
 
 // @file MemoryOps.h
 // @brief Memory operation templates for efficient element construction, destruction, and relocation
-// 
+//
 // Provides optimized memory operations for containers that leverage type traits to use
 // memcpy/memset when safe, falling back to proper constructors/destructors otherwise.
-// 
+//
 // Key operations:
 // - DefaultConstructItems: Default construct a range of elements
 // - DestructItem(s): Destruct one or more elements
@@ -15,7 +15,7 @@
 // - MoveConstructItems: Move construct elements
 // - MoveAssignItems: Move assign elements
 // - CompareItems: Compare element ranges
-// 
+//
 // Ported from Unreal Engine's Templates/MemoryOps.h
 
 #include "OloEngine/Templates/UnrealTypeTraits.h"
@@ -30,12 +30,10 @@ namespace OloEngine
     // ============================================================================
     namespace Detail
     {
-        template <typename DestinationElementType, typename SourceElementType>
+        template<typename DestinationElementType, typename SourceElementType>
         inline constexpr bool TCanBitwiseRelocate_V =
-            std::is_same_v<DestinationElementType, SourceElementType> || (
-                TIsBitwiseConstructible<DestinationElementType, SourceElementType>::Value &&
-                std::is_trivially_destructible_v<SourceElementType>
-            );
+            std::is_same_v<DestinationElementType, SourceElementType> || (TIsBitwiseConstructible<DestinationElementType, SourceElementType>::Value &&
+                                                                          std::is_trivially_destructible_v<SourceElementType>);
     }
 
     // ============================================================================
@@ -43,26 +41,26 @@ namespace OloEngine
     // ============================================================================
 
     // @brief Default constructs a range of items in memory (zero-constructible types)
-    // 
+    //
     // For types where TIsZeroConstructType is true, this uses memset for efficiency.
-    // 
+    //
     // @param Address   The address of the first memory location to construct at
     // @param Count     The number of elements to construct
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && TIsZeroConstructType<ElementType>::value)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && TIsZeroConstructType<ElementType>::value)
     OLO_FINLINE void DefaultConstructItems(void* Address, SizeType Count)
     {
         FMemory::Memset(Address, 0, sizeof(ElementType) * Count);
     }
 
     // @brief Default constructs a range of items in memory (non-zero-constructible types)
-    // 
+    //
     // For types that require proper construction, this calls the default constructor for each element.
-    // 
+    //
     // @param Address   The address of the first memory location to construct at
     // @param Count     The number of elements to construct
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && !TIsZeroConstructType<ElementType>::value)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && !TIsZeroConstructType<ElementType>::value)
     OLO_NOINLINE void DefaultConstructItems(void* Address, SizeType Count)
     {
         ElementType* Element = static_cast<ElementType*>(Address);
@@ -79,12 +77,12 @@ namespace OloEngine
     // ============================================================================
 
     // @brief Destructs a single item in memory
-    // 
+    //
     // @param Element   A pointer to the item to destruct
-    // 
-    // @note This function is optimized for values of T, and so will not dynamically 
+    //
+    // @note This function is optimized for values of T, and so will not dynamically
     //       dispatch destructor calls if T's destructor is virtual.
-    template <typename ElementType>
+    template<typename ElementType>
     OLO_FINLINE constexpr void DestructItem(ElementType* Element)
     {
         if constexpr (sizeof(ElementType) == 0)
@@ -93,7 +91,7 @@ namespace OloEngine
         }
         else if constexpr (!std::is_trivially_destructible_v<ElementType>)
         {
-            // We need a typedef here because VC won't compile the destructor call below 
+            // We need a typedef here because VC won't compile the destructor call below
             // if ElementType itself has a member called ElementType
             typedef ElementType DestructItemsElementTypeTypedef;
 
@@ -102,27 +100,27 @@ namespace OloEngine
     }
 
     // @brief Destructs a range of items in memory (trivially destructible types - no-op)
-    // 
+    //
     // @param Element   A pointer to the first item to destruct
     // @param Count     The number of elements to destruct
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && std::is_trivially_destructible_v<ElementType>)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && std::is_trivially_destructible_v<ElementType>)
     OLO_FINLINE constexpr void DestructItems([[maybe_unused]] ElementType* Element, [[maybe_unused]] SizeType Count)
     {
         // Trivially destructible - nothing to do
     }
 
     // @brief Destructs a range of items in memory (non-trivially destructible types)
-    // 
+    //
     // @param Element   A pointer to the first item to destruct
     // @param Count     The number of elements to destruct
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && !std::is_trivially_destructible_v<ElementType>)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && !std::is_trivially_destructible_v<ElementType>)
     OLO_NOINLINE constexpr void DestructItems(ElementType* Element, SizeType Count)
     {
         while (Count)
         {
-            // We need a typedef here because VC won't compile the destructor call below 
+            // We need a typedef here because VC won't compile the destructor call below
             // if ElementType itself has a member called ElementType
             typedef ElementType DestructItemsElementTypeTypedef;
 
@@ -137,13 +135,13 @@ namespace OloEngine
     // ============================================================================
 
     // @brief Constructs a range of items into memory from another array (bitwise constructible)
-    // 
+    //
     // @param Dest      The memory location to start copying into
     // @param Source    A pointer to the first argument to pass to the constructor
     // @param Count     The number of elements to copy
-    template <typename DestinationElementType, typename SourceElementType, typename SizeType>
-        requires (sizeof(DestinationElementType) > 0 && sizeof(SourceElementType) > 0 && 
-                  TIsBitwiseConstructible_V<DestinationElementType, SourceElementType>)
+    template<typename DestinationElementType, typename SourceElementType, typename SizeType>
+        requires(sizeof(DestinationElementType) > 0 && sizeof(SourceElementType) > 0 &&
+                 TIsBitwiseConstructible_V<DestinationElementType, SourceElementType>)
     OLO_FINLINE void ConstructItems(void* Dest, const SourceElementType* Source, SizeType Count)
     {
         if (Count)
@@ -153,13 +151,13 @@ namespace OloEngine
     }
 
     // @brief Constructs a range of items into memory from another array (non-bitwise constructible)
-    // 
+    //
     // @param Dest      The memory location to start copying into
     // @param Source    A pointer to the first argument to pass to the constructor
     // @param Count     The number of elements to copy
-    template <typename DestinationElementType, typename SourceElementType, typename SizeType>
-        requires (sizeof(DestinationElementType) > 0 && sizeof(SourceElementType) > 0 && 
-                  !TIsBitwiseConstructible_V<DestinationElementType, SourceElementType>)
+    template<typename DestinationElementType, typename SourceElementType, typename SizeType>
+        requires(sizeof(DestinationElementType) > 0 && sizeof(SourceElementType) > 0 &&
+                 !TIsBitwiseConstructible_V<DestinationElementType, SourceElementType>)
     OLO_NOINLINE void ConstructItems(void* Dest, const SourceElementType* Source, SizeType Count)
     {
         while (Count)
@@ -176,24 +174,24 @@ namespace OloEngine
     // ============================================================================
 
     // @brief Copy assigns a range of items (trivially copy assignable)
-    // 
+    //
     // @param Dest      The memory location to start assigning to
     // @param Source    A pointer to the first item to assign
     // @param Count     The number of elements to assign
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && std::is_trivially_copy_assignable_v<ElementType>)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && std::is_trivially_copy_assignable_v<ElementType>)
     OLO_FINLINE void CopyAssignItems(ElementType* Dest, const ElementType* Source, SizeType Count)
     {
         FMemory::Memcpy(Dest, Source, sizeof(ElementType) * Count);
     }
 
     // @brief Copy assigns a range of items (non-trivially copy assignable)
-    // 
+    //
     // @param Dest      The memory location to start assigning to
     // @param Source    A pointer to the first item to assign
     // @param Count     The number of elements to assign
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && !std::is_trivially_copy_assignable_v<ElementType>)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && !std::is_trivially_copy_assignable_v<ElementType>)
     OLO_NOINLINE void CopyAssignItems(ElementType* Dest, const ElementType* Source, SizeType Count)
     {
         while (Count)
@@ -210,17 +208,17 @@ namespace OloEngine
     // ============================================================================
 
     // @brief Relocates a single item to a new memory location as a new type
-    // 
-    // This is a 'destructive move' for which there is no single operation in C++ 
+    //
+    // This is a 'destructive move' for which there is no single operation in C++
     // but which can be implemented very efficiently in general.
-    // 
+    //
     // @param Dest      The memory location to relocate to
     // @param Source    A pointer to the item to relocate
-    // 
+    //
     // @note For single items, we check TUseBitwiseSwap to avoid using memcpy for
     //       small 'register' types (pointers, ints, floats) where register moves are faster.
     //       For bulk operations, memcpy is always better due to loop overhead.
-    template <typename DestinationElementType, typename SourceElementType>
+    template<typename DestinationElementType, typename SourceElementType>
     OLO_FINLINE void RelocateConstructItem(void* Dest, SourceElementType* Source)
     {
         if constexpr (sizeof(DestinationElementType) == 0 || sizeof(SourceElementType) == 0)
@@ -229,15 +227,15 @@ namespace OloEngine
         }
         // Do a bitwise relocate if TCanBitwiseRelocate_V says we can, but not if the type
         // is known not to benefit from bitwise swap (small register types)
-        else if constexpr (Detail::TCanBitwiseRelocate_V<DestinationElementType, SourceElementType> && 
-                          (!std::is_same_v<DestinationElementType, SourceElementType> || TUseBitwiseSwap<SourceElementType>::Value))
+        else if constexpr (Detail::TCanBitwiseRelocate_V<DestinationElementType, SourceElementType> &&
+                           (!std::is_same_v<DestinationElementType, SourceElementType> || TUseBitwiseSwap<SourceElementType>::Value))
         {
             // Bitwise relocate - memcpy is sufficient for larger types or cross-type relocations
             FMemory::Memmove(Dest, Source, sizeof(SourceElementType));
         }
         else
         {
-            // We need a typedef here because VC won't compile the destructor call below 
+            // We need a typedef here because VC won't compile the destructor call below
             // if SourceElementType itself has a member called SourceElementType
             typedef SourceElementType RelocateConstructItemsElementTypeTypedef;
 
@@ -247,13 +245,13 @@ namespace OloEngine
     }
 
     // @brief Relocates a range of items to a new memory location (bitwise relocatable)
-    // 
+    //
     // @param Dest      The memory location to relocate to
     // @param Source    A pointer to the first item to relocate
     // @param Count     The number of elements to relocate
-    template <typename DestinationElementType, typename SourceElementType, typename SizeType>
-        requires (sizeof(DestinationElementType) > 0 && sizeof(SourceElementType) > 0 && 
-                  Detail::TCanBitwiseRelocate_V<DestinationElementType, SourceElementType>)
+    template<typename DestinationElementType, typename SourceElementType, typename SizeType>
+        requires(sizeof(DestinationElementType) > 0 && sizeof(SourceElementType) > 0 &&
+                 Detail::TCanBitwiseRelocate_V<DestinationElementType, SourceElementType>)
     OLO_FINLINE void RelocateConstructItems(void* Dest, SourceElementType* Source, SizeType Count)
     {
         static_assert(!std::is_const_v<SourceElementType>, "RelocateConstructItems: Source cannot be const");
@@ -270,20 +268,20 @@ namespace OloEngine
     }
 
     // @brief Relocates a range of items to a new memory location (non-bitwise relocatable)
-    // 
+    //
     // @param Dest      The memory location to relocate to
     // @param Source    A pointer to the first item to relocate
     // @param Count     The number of elements to relocate
-    template <typename DestinationElementType, typename SourceElementType, typename SizeType>
-        requires (sizeof(DestinationElementType) > 0 && sizeof(SourceElementType) > 0 && 
-                  !Detail::TCanBitwiseRelocate_V<DestinationElementType, SourceElementType>)
+    template<typename DestinationElementType, typename SourceElementType, typename SizeType>
+        requires(sizeof(DestinationElementType) > 0 && sizeof(SourceElementType) > 0 &&
+                 !Detail::TCanBitwiseRelocate_V<DestinationElementType, SourceElementType>)
     OLO_NOINLINE void RelocateConstructItems(void* Dest, SourceElementType* Source, SizeType Count)
     {
         static_assert(!std::is_const_v<SourceElementType>, "RelocateConstructItems: Source cannot be const");
 
         while (Count)
         {
-            // We need a typedef here because VC won't compile the destructor call below 
+            // We need a typedef here because VC won't compile the destructor call below
             // if SourceElementType itself has a member called SourceElementType
             typedef SourceElementType RelocateConstructItemsElementTypeTypedef;
 
@@ -299,24 +297,24 @@ namespace OloEngine
     // ============================================================================
 
     // @brief Move constructs a range of items into memory (trivially copy constructible)
-    // 
+    //
     // @param Dest      The memory location to start moving into
     // @param Source    A pointer to the first item to move from
     // @param Count     The number of elements to move
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && std::is_trivially_copy_constructible_v<ElementType>)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && std::is_trivially_copy_constructible_v<ElementType>)
     OLO_FINLINE void MoveConstructItems(void* Dest, const ElementType* Source, SizeType Count)
     {
         FMemory::Memmove(Dest, Source, sizeof(ElementType) * Count);
     }
 
     // @brief Move constructs a range of items into memory (non-trivially copy constructible)
-    // 
+    //
     // @param Dest      The memory location to start moving into
     // @param Source    A pointer to the first item to move from
     // @param Count     The number of elements to move
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && !std::is_trivially_copy_constructible_v<ElementType>)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && !std::is_trivially_copy_constructible_v<ElementType>)
     OLO_NOINLINE void MoveConstructItems(void* Dest, const ElementType* Source, SizeType Count)
     {
         while (Count)
@@ -333,24 +331,24 @@ namespace OloEngine
     // ============================================================================
 
     // @brief Move assigns a range of items (trivially copy assignable)
-    // 
+    //
     // @param Dest      The memory location to start move assigning to
     // @param Source    A pointer to the first item to move assign
     // @param Count     The number of elements to move assign
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && std::is_trivially_copy_assignable_v<ElementType>)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && std::is_trivially_copy_assignable_v<ElementType>)
     OLO_FINLINE void MoveAssignItems(ElementType* Dest, const ElementType* Source, SizeType Count)
     {
         FMemory::Memmove(Dest, Source, sizeof(ElementType) * Count);
     }
 
     // @brief Move assigns a range of items (non-trivially copy assignable)
-    // 
+    //
     // @param Dest      The memory location to start move assigning to
     // @param Source    A pointer to the first item to move assign
     // @param Count     The number of elements to move assign
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && !std::is_trivially_copy_assignable_v<ElementType>)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && !std::is_trivially_copy_assignable_v<ElementType>)
     OLO_NOINLINE void MoveAssignItems(ElementType* Dest, const ElementType* Source, SizeType Count)
     {
         while (Count)
@@ -367,26 +365,26 @@ namespace OloEngine
     // ============================================================================
 
     // @brief Compares two ranges of items for equality (bytewise comparable)
-    // 
+    //
     // @param A         Pointer to first range
-    // @param B         Pointer to second range  
+    // @param B         Pointer to second range
     // @param Count     The number of elements to compare
     // @return true if all elements are equal
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && TTypeTraits<ElementType>::IsBytewiseComparable)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && TTypeTraits<ElementType>::IsBytewiseComparable)
     OLO_FINLINE bool CompareItems(const ElementType* A, const ElementType* B, SizeType Count)
     {
         return !Count || !FMemory::Memcmp(A, B, sizeof(ElementType) * Count);
     }
 
     // @brief Compares two ranges of items for equality (non-bytewise comparable)
-    // 
+    //
     // @param A         Pointer to first range
-    // @param B         Pointer to second range  
+    // @param B         Pointer to second range
     // @param Count     The number of elements to compare
     // @return true if all elements are equal
-    template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && !TTypeTraits<ElementType>::IsBytewiseComparable)
+    template<typename ElementType, typename SizeType>
+        requires(sizeof(ElementType) > 0 && !TTypeTraits<ElementType>::IsBytewiseComparable)
     OLO_NOINLINE bool CompareItems(const ElementType* A, const ElementType* B, SizeType Count)
     {
         while (Count)

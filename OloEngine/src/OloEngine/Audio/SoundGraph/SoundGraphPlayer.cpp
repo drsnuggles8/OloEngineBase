@@ -14,7 +14,7 @@ namespace OloEngine::Audio::SoundGraph
     bool SoundGraphPlayer::Initialize(ma_engine* engine)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         if (m_IsInitialized)
         {
             OLO_CORE_WARN("[SoundGraphPlayer] Already initialized");
@@ -28,10 +28,10 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         m_Engine = engine;
-        
+
         // Initialize real-time message queue
         m_LogQueue.reset(512);
-        
+
         m_IsInitialized = true;
 
         OLO_CORE_TRACE("[SoundGraphPlayer] Initialized successfully");
@@ -41,7 +41,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphPlayer::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
-        
+
         if (!m_IsInitialized)
             return;
 
@@ -69,7 +69,7 @@ namespace OloEngine::Audio::SoundGraph
     u32 SoundGraphPlayer::CreateSoundGraphSource(Ref<SoundGraph> soundGraph)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         if (!m_IsInitialized || !soundGraph)
         {
             OLO_CORE_ERROR("[SoundGraphPlayer] Cannot create source - not initialized or invalid sound graph");
@@ -82,7 +82,7 @@ namespace OloEngine::Audio::SoundGraph
         // Initialize the source with our engine and sample rate
         u32 sampleRate = ma_engine_get_sample_rate(m_Engine);
         u32 blockSize = 512;
-        
+
         // Channel count configuration:
         // Currently defaults to stereo (2). In the future, this could be:
         // - Read from soundGraph metadata (if Prototype/SoundGraph stores channel info)
@@ -90,7 +90,7 @@ namespace OloEngine::Audio::SoundGraph
         // - Inferred from graph output endpoint count
         // For now, use stereo as a sensible default for most use cases
         u32 channelCount = 2;
-        
+
         if (!source->Initialize(m_Engine, sampleRate, blockSize, channelCount))
         {
             OLO_CORE_ERROR("[SoundGraphPlayer] Failed to initialize sound graph source");
@@ -101,7 +101,8 @@ namespace OloEngine::Audio::SoundGraph
         source->ReplaceGraph(soundGraph);
 
         // Set up event callbacks
-        source->SetMessageCallback([this](u64 frameIndex, const char* message) {
+        source->SetMessageCallback([this](u64 frameIndex, const char* message)
+                                   {
             // Early return for null or empty messages (realtime-safe)
             if (!message || message[0] == '\0')
                 return;
@@ -137,10 +138,10 @@ namespace OloEngine::Audio::SoundGraph
             msg.m_Text[len] = '\0';
             
             // Try to push to queue (drop if full to maintain real-time safety)
-            m_LogQueue.push(std::move(msg));
-        });
+            m_LogQueue.push(std::move(msg)); });
 
-        source->SetEventCallback([this](u64 frameIndex, u32 endpointID, const choc::value::Value& eventData) {
+        source->SetEventCallback([this](u64 frameIndex, u32 endpointID, const choc::value::Value& eventData)
+                                 {
             (void)eventData;
             RealtimeMessage msg;
             msg.m_Frame = frameIndex;
@@ -161,8 +162,7 @@ namespace OloEngine::Audio::SoundGraph
             msg.m_Text[len] = '\0';
             
             // Try to push to queue (drop if full to maintain real-time safety)
-            m_LogQueue.push(std::move(msg));
-        });
+            m_LogQueue.push(std::move(msg)); });
 
         {
             std::lock_guard<std::mutex> lock(m_Mutex);
@@ -176,7 +176,7 @@ namespace OloEngine::Audio::SoundGraph
     bool SoundGraphPlayer::Play(u32 sourceID)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         std::lock_guard<std::mutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
@@ -209,7 +209,7 @@ namespace OloEngine::Audio::SoundGraph
     bool SoundGraphPlayer::Stop(u32 sourceID)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         std::lock_guard<std::mutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
@@ -228,7 +228,7 @@ namespace OloEngine::Audio::SoundGraph
     bool SoundGraphPlayer::Pause(u32 sourceID)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         std::lock_guard<std::mutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
@@ -247,7 +247,7 @@ namespace OloEngine::Audio::SoundGraph
     bool SoundGraphPlayer::IsPlaying(u32 sourceID) const
     {
         OLO_PROFILE_FUNCTION();
-        
+
         std::lock_guard<std::mutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
@@ -261,7 +261,7 @@ namespace OloEngine::Audio::SoundGraph
     bool SoundGraphPlayer::RemoveSoundGraphSource(u32 sourceID)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         std::lock_guard<std::mutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
@@ -282,7 +282,7 @@ namespace OloEngine::Audio::SoundGraph
     Ref<SoundGraph> SoundGraphPlayer::GetSoundGraph(u32 sourceID) const
     {
         OLO_PROFILE_FUNCTION();
-        
+
         std::lock_guard<std::mutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
@@ -296,7 +296,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphPlayer::SetMasterVolume(f32 volume)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         // Bail early if the audio engine is not initialized
         if (!m_IsInitialized || !m_Engine)
         {
@@ -306,7 +306,7 @@ namespace OloEngine::Audio::SoundGraph
 
         // Clamp the volume value
         f32 clampedVolume = glm::clamp(volume, 0.0f, 2.0f);
-        
+
         // Apply the master volume to the underlying miniaudio engine first
         ma_result result = ma_engine_set_volume(m_Engine, clampedVolume);
         if (result != MA_SUCCESS)
@@ -314,7 +314,7 @@ namespace OloEngine::Audio::SoundGraph
             OLO_CORE_ERROR("[SoundGraphPlayer] Failed to set master volume on audio engine: {}", ma_result_description(result));
             return;
         }
-        
+
         // Only update cached value after successful engine call to maintain consistency
         {
             std::lock_guard<std::mutex> lock(m_Mutex);
@@ -327,7 +327,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphPlayer::Update(f64 deltaTime)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         // Process real-time messages from audio thread (lock-free)
         RealtimeMessage msg;
         while (m_LogQueue.pop(msg))
@@ -393,31 +393,31 @@ namespace OloEngine::Audio::SoundGraph
     u32 SoundGraphPlayer::GetNextSourceID()
     {
         OLO_PROFILE_FUNCTION();
-        
+
         constexpr u32 MaxAttempts = 1000; // Prevent infinite loop if many IDs are in use
         constexpr u32 BatchSize = 16;     // Check this many candidate IDs per lock acquisition
-        
+
         {
             OLO_PROFILE_SCOPE("GetNextSourceID - ID Allocation Loop");
-            
+
             u32 attempt = 0;
             while (attempt < MaxAttempts)
             {
                 // Generate a batch of candidate IDs using atomic operations (lock-free)
                 std::array<u32, BatchSize> candidates;
                 u32 validCandidateCount = 0;
-                
+
                 for (u32 i = 0; i < BatchSize && attempt < MaxAttempts; ++i, ++attempt)
                 {
                     u32 id = m_NextSourceID.fetch_add(1, std::memory_order_relaxed);
-                    
+
                     // Skip 0 as it's reserved for error/invalid ID
                     if (id != 0)
                     {
                         candidates[validCandidateCount++] = id;
                     }
                 }
-                
+
                 // Now check all candidates under a single lock
                 {
                     std::lock_guard<std::mutex> lock(m_Mutex);
@@ -431,15 +431,15 @@ namespace OloEngine::Audio::SoundGraph
                         // ID collision detected - continue checking next candidate in batch
                     }
                 }
-                
+
                 // All candidates in this batch were in use, continue to next batch
             }
         }
-        
+
         // All attempts exhausted - this should be extremely rare
         // Only happens if ~1000+ consecutive IDs are all in use
         OLO_CORE_ERROR("[SoundGraphPlayer] Failed to allocate unique source ID after {} attempts", MaxAttempts);
         return 0; // Return 0 to indicate failure
     }
 
-}
+} // namespace OloEngine::Audio::SoundGraph

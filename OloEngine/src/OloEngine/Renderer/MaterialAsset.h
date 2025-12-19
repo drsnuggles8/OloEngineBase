@@ -9,112 +9,156 @@
 namespace OloEngine
 {
 
-	class MaterialAsset : public Asset
-	{
-	public:
-		explicit MaterialAsset(bool transparent = false);
-		explicit MaterialAsset(Ref<Material> material);
-		virtual ~MaterialAsset() override;
+    class MaterialAsset : public Asset
+    {
+      public:
+        explicit MaterialAsset(bool transparent = false);
+        explicit MaterialAsset(Ref<Material> material);
+        virtual ~MaterialAsset() override;
 
-		virtual void OnDependencyUpdated(AssetHandle handle) override;
+        virtual void OnDependencyUpdated(AssetHandle handle) override;
 
-		glm::vec3 GetAlbedoColor() const;
-		void SetAlbedoColor(const glm::vec3& color);
+        glm::vec3 GetAlbedoColor() const;
+        void SetAlbedoColor(const glm::vec3& color);
 
-		float GetMetalness() const;
-		void SetMetalness(float value);
+        float GetMetalness() const;
+        void SetMetalness(float value);
 
-		float GetRoughness() const;
-		void SetRoughness(float value);
+        float GetRoughness() const;
+        void SetRoughness(float value);
 
-		float GetEmission() const;
-		void SetEmission(float value);
+        float GetEmission() const;
+        void SetEmission(float value);
 
-		// Textures
-		Ref<Texture2D> GetAlbedoMap() const;
-		void SetAlbedoMap(AssetHandle handle);
-		void ClearAlbedoMap();
+        // Textures
+        Ref<Texture2D> GetAlbedoMap() const;
+        void SetAlbedoMap(AssetHandle handle);
+        void ClearAlbedoMap();
 
-		Ref<Texture2D> GetNormalMap() const;
-		void SetNormalMap(AssetHandle handle);
-		bool IsUsingNormalMap() const;
-		void SetUseNormalMap(bool value);
-		void ClearNormalMap();
+        Ref<Texture2D> GetNormalMap() const;
+        void SetNormalMap(AssetHandle handle);
+        bool IsUsingNormalMap() const;
+        void SetUseNormalMap(bool value);
+        void ClearNormalMap();
 
-		Ref<Texture2D> GetMetalnessMap() const;
-		void SetMetalnessMap(AssetHandle handle);
-		void ClearMetalnessMap();
+        Ref<Texture2D> GetMetalnessMap() const;
+        void SetMetalnessMap(AssetHandle handle);
+        void ClearMetalnessMap();
 
-		Ref<Texture2D> GetRoughnessMap() const;
-		void SetRoughnessMap(AssetHandle handle);
-		void ClearRoughnessMap();
+        Ref<Texture2D> GetRoughnessMap() const;
+        void SetRoughnessMap(AssetHandle handle);
+        void ClearRoughnessMap();
 
-		float GetTransparency() const;
-		void SetTransparency(float transparency);
+        float GetTransparency() const;
+        void SetTransparency(float transparency);
 
-		bool IsShadowCasting() const { return m_Material ? !m_Material->GetFlag(MaterialFlag::DisableShadowCasting) : false; }
-		void SetShadowCasting(bool castsShadows) { if (m_Material) m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows); }
+        bool IsShadowCasting() const
+        {
+            return m_Material ? !m_Material->GetFlag(MaterialFlag::DisableShadowCasting) : false;
+        }
+        void SetShadowCasting(bool castsShadows)
+        {
+            if (m_Material)
+                m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows);
+        }
 
-		static AssetType GetStaticType() { return AssetType::Material; }
-		virtual AssetType GetAssetType() const override { return GetStaticType(); }
+        static AssetType GetStaticType()
+        {
+            return AssetType::Material;
+        }
+        virtual AssetType GetAssetType() const override
+        {
+            return GetStaticType();
+        }
 
-		Ref<Material> GetMaterial() const { return m_Material; }
-		void SetMaterial(Ref<Material> material) { OLO_CORE_ASSERT(material, "Material cannot be null"); m_Material = material; }
+        Ref<Material> GetMaterial() const
+        {
+            return m_Material;
+        }
+        void SetMaterial(Ref<Material> material)
+        {
+            OLO_CORE_ASSERT(material, "Material cannot be null");
+            m_Material = material;
+        }
 
-		bool IsTransparent() const { return m_Transparent; }
-	private:
-		void SetDefaults();
-		[[nodiscard]] Ref<Texture2D> GetTextureOrPlaceholder(AssetHandle handle) const;
-	private:
-		Ref<Material> m_Material;
+        bool IsTransparent() const
+        {
+            return m_Transparent;
+        }
 
-		struct MapAssets
-		{
-			AssetHandle AlbedoMap = 0;
-			AssetHandle NormalMap = 0;
-			AssetHandle MetalnessMap = 0;
-			AssetHandle RoughnessMap = 0;
-		} m_Maps;
+      private:
+        void SetDefaults();
+        [[nodiscard]] Ref<Texture2D> GetTextureOrPlaceholder(AssetHandle handle) const;
 
-		bool m_Transparent = false;
+      private:
+        Ref<Material> m_Material;
 
-		friend class MaterialEditor;
-	};
+        struct MapAssets
+        {
+            AssetHandle AlbedoMap = 0;
+            AssetHandle NormalMap = 0;
+            AssetHandle MetalnessMap = 0;
+            AssetHandle RoughnessMap = 0;
+        } m_Maps;
 
-	class MaterialTable : public RefCounted
-	{
-	public:
-		MaterialTable(u32 materialCount = 1);
-		explicit MaterialTable(const Ref<MaterialTable>& other);
-		~MaterialTable() = default;
+        bool m_Transparent = false;
 
-		bool HasMaterial(u32 materialIndex) const { return m_Materials.find(materialIndex) != m_Materials.end(); }
-		void SetMaterial(u32 index, AssetHandle material);
-		void ClearMaterial(u32 index);
+        friend class MaterialEditor;
+    };
 
-		AssetHandle GetMaterial(u32 materialIndex) const
-		{
-			OLO_CORE_ASSERT(materialIndex < m_MaterialCount, "MaterialTable::GetMaterial: Material index {} exceeds capacity {}", materialIndex, m_MaterialCount);
-			auto it = m_Materials.find(materialIndex);
-			if (it == m_Materials.end())
-			{
-				OLO_CORE_ERROR("MaterialTable::GetMaterial: Material index {} not found", materialIndex);
-				return 0; // Return invalid handle instead of terminating
-			}
-			return it->second;
-		}
-		
-		std::map<u32, AssetHandle>& GetMaterials() { return m_Materials; }
-		const std::map<u32, AssetHandle>& GetMaterials() const { return m_Materials; }
+    class MaterialTable : public RefCounted
+    {
+      public:
+        MaterialTable(u32 materialCount = 1);
+        explicit MaterialTable(const Ref<MaterialTable>& other);
+        ~MaterialTable() = default;
 
-		u32 GetMaterialCount() const { return static_cast<u32>(m_Materials.size()); } // Number of active materials
-		u32 GetMaterialCapacity() const { return m_MaterialCount; } // Number of material slots (capacity)
-		void SetMaterialCapacity(u32 materialCapacity) { m_MaterialCount = materialCapacity; } // Set the number of material slots (capacity)
+        bool HasMaterial(u32 materialIndex) const
+        {
+            return m_Materials.find(materialIndex) != m_Materials.end();
+        }
+        void SetMaterial(u32 index, AssetHandle material);
+        void ClearMaterial(u32 index);
 
-		void Clear();
-	private:
-		std::map<u32, AssetHandle> m_Materials;
-		u32 m_MaterialCount = 1; // Number of material slots (capacity), not necessarily the count of materials in the map
-	};
+        AssetHandle GetMaterial(u32 materialIndex) const
+        {
+            OLO_CORE_ASSERT(materialIndex < m_MaterialCount, "MaterialTable::GetMaterial: Material index {} exceeds capacity {}", materialIndex, m_MaterialCount);
+            auto it = m_Materials.find(materialIndex);
+            if (it == m_Materials.end())
+            {
+                OLO_CORE_ERROR("MaterialTable::GetMaterial: Material index {} not found", materialIndex);
+                return 0; // Return invalid handle instead of terminating
+            }
+            return it->second;
+        }
 
-}
+        std::map<u32, AssetHandle>& GetMaterials()
+        {
+            return m_Materials;
+        }
+        const std::map<u32, AssetHandle>& GetMaterials() const
+        {
+            return m_Materials;
+        }
+
+        u32 GetMaterialCount() const
+        {
+            return static_cast<u32>(m_Materials.size());
+        } // Number of active materials
+        u32 GetMaterialCapacity() const
+        {
+            return m_MaterialCount;
+        } // Number of material slots (capacity)
+        void SetMaterialCapacity(u32 materialCapacity)
+        {
+            m_MaterialCount = materialCapacity;
+        } // Set the number of material slots (capacity)
+
+        void Clear();
+
+      private:
+        std::map<u32, AssetHandle> m_Materials;
+        u32 m_MaterialCount = 1; // Number of material slots (capacity), not necessarily the count of materials in the map
+    };
+
+} // namespace OloEngine

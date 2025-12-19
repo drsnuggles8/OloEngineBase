@@ -17,17 +17,17 @@ namespace OloEngine
     // Physics simulation constants
     constexpr f32 kVelocityEpsilon = 1e-6f;
     constexpr f32 kQuatEpsilon = 1e-6f;
-    constexpr f32 kVelocityReductionFactor = 0.5f;  // Reduce character impact force by 50% for realistic interaction
-    constexpr f32 kCollisionAngleDotThreshold = 0.7f;  // Dot product threshold for collision angle detection (roughly 45 degrees)
-    
+    constexpr f32 kVelocityReductionFactor = 0.5f;    // Reduce character impact force by 50% for realistic interaction
+    constexpr f32 kCollisionAngleDotThreshold = 0.7f; // Dot product threshold for collision angle detection (roughly 45 degrees)
+
     // Character controller default settings
-    constexpr f32 kDefaultMaxSlopeDegrees = 45.0f;  // Maximum slope angle in degrees that character can walk on
-    constexpr f32 kDefaultMaxStrength = 100.0f;  // Maximum force the character can apply
-    constexpr f32 kDefaultCharacterPadding = 0.02f;  // Small padding for stability
+    constexpr f32 kDefaultMaxSlopeDegrees = 45.0f;          // Maximum slope angle in degrees that character can walk on
+    constexpr f32 kDefaultMaxStrength = 100.0f;             // Maximum force the character can apply
+    constexpr f32 kDefaultCharacterPadding = 0.02f;         // Small padding for stability
     constexpr f32 kDefaultPenetrationRecoverySpeed = 1.0f;  // Recovery speed from penetration
-    constexpr f32 kDefaultPredictiveContactDistance = 0.1f;  // Predictive contact for smooth movement
-    constexpr f32 kDefaultCapsuleHalfHeight = 0.9f;  // Default capsule half height (1.8m total height)
-    constexpr f32 kDefaultCapsuleRadius = 0.3f;  // Default capsule radius for typical human proportions
+    constexpr f32 kDefaultPredictiveContactDistance = 0.1f; // Predictive contact for smooth movement
+    constexpr f32 kDefaultCapsuleHalfHeight = 0.9f;         // Default capsule half height (1.8m total height)
+    constexpr f32 kDefaultCapsuleRadius = 0.3f;             // Default capsule radius for typical human proportions
 
     JoltCharacterController::JoltCharacterController(Entity entity, JoltScene* scene, const ContactCallbackFn& contactCallback)
         : m_Entity(entity), m_Scene(scene), m_ContactEventCallback(contactCallback),
@@ -110,7 +110,7 @@ namespace OloEngine
     {
         // Avoid quat multiplication if rotation is close to identity
         f32 imaginaryLength = glm::length(glm::vec3(rotation.x, rotation.y, rotation.z));
-        
+
         if ((IsGrounded() || m_ControlRotationInAir) && imaginaryLength > kQuatEpsilon)
         {
             m_Rotation = m_Rotation * JoltUtils::ToJoltQuat(rotation);
@@ -172,7 +172,7 @@ namespace OloEngine
 
         if (IsGravityEnabled())
         {
-            if (m_Controller->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround && 
+            if (m_Controller->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround &&
                 (!m_Controller->IsSlopeTooSteep(m_Controller->GetGroundNormal())))
             {
                 // When grounded, acquire velocity of ground
@@ -245,7 +245,7 @@ namespace OloEngine
 
         JPH::Vec3 desiredVelocity = CalculateDesiredVelocity(deltaTime);
         JPH::Vec3 newVelocity = ApplyGravityAndJump(deltaTime, desiredVelocity);
-        
+
         m_Controller->SetLinearVelocity(newVelocity);
         UpdateRotation(deltaTime);
     }
@@ -362,12 +362,12 @@ namespace OloEngine
 
         // Create character controller settings
         JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
-        settings->mMaxSlopeAngle = glm::radians(kDefaultMaxSlopeDegrees); // Default 45 degree slope limit
-        settings->mMaxStrength = kDefaultMaxStrength; // Maximum force the character can apply
-        settings->mCharacterPadding = kDefaultCharacterPadding; // Small padding for stability
-        settings->mPenetrationRecoverySpeed = kDefaultPenetrationRecoverySpeed; // Recovery speed from penetration
+        settings->mMaxSlopeAngle = glm::radians(kDefaultMaxSlopeDegrees);         // Default 45 degree slope limit
+        settings->mMaxStrength = kDefaultMaxStrength;                             // Maximum force the character can apply
+        settings->mCharacterPadding = kDefaultCharacterPadding;                   // Small padding for stability
+        settings->mPenetrationRecoverySpeed = kDefaultPenetrationRecoverySpeed;   // Recovery speed from penetration
         settings->mPredictiveContactDistance = kDefaultPredictiveContactDistance; // Predictive contact for smooth movement
-        
+
         // Create a default capsule shape if no shape is specified
         if (!m_Shape)
         {
@@ -381,7 +381,7 @@ namespace OloEngine
         // Get initial transform from entity's TransformComponent
         glm::vec3 position = glm::vec3(0.0f);
         glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-        
+
         if (m_Entity && m_Entity.HasComponent<TransformComponent>())
         {
             auto& transform = m_Entity.GetComponent<TransformComponent>();
@@ -390,19 +390,19 @@ namespace OloEngine
         }
 
         // Create the character controller with proper physics system integration
-        m_Controller = new JPH::CharacterVirtual(settings, 
-                                                JoltUtils::ToJoltVector(position), 
-                                                JoltUtils::ToJoltQuat(rotation), 
-                                                m_Scene->GetJoltSystemPtr());
-        
+        m_Controller = new JPH::CharacterVirtual(settings,
+                                                 JoltUtils::ToJoltVector(position),
+                                                 JoltUtils::ToJoltQuat(rotation),
+                                                 m_Scene->GetJoltSystemPtr());
+
         // Set this as the contact listener for collision events
         if (m_Controller)
         {
             m_Controller->SetListener(this);
             m_PreviousRotation = JoltUtils::ToJoltQuat(rotation);
-            
-            OLO_CORE_INFO("Character controller created successfully for entity {0}", 
-                         m_Entity ? m_Entity.GetUUID() : UUID(0));
+
+            OLO_CORE_INFO("Character controller created successfully for entity {0}",
+                          m_Entity ? m_Entity.GetUUID() : UUID(0));
         }
         else
         {
@@ -415,7 +415,7 @@ namespace OloEngine
     bool JoltCharacterController::UpdateShape()
     {
         OLO_CORE_WARN("UpdateShape() called - this is an expensive operation that recreates the entire character controller");
-        
+
         if (!m_Controller || !m_Shape)
         {
             OLO_CORE_WARN("Cannot update character controller shape: controller or shape is null");
@@ -426,23 +426,23 @@ namespace OloEngine
         JPH::Vec3 position = m_Controller->GetPosition();
         JPH::Quat rotation = m_Controller->GetRotation();
         JPH::Vec3 linearVelocity = m_Controller->GetLinearVelocity();
-        
+
         // Jolt doesn't support changing shapes after creation, so we need to recreate the controller
         OLO_CORE_INFO("Recreating character controller with new shape");
-        
+
         // Destroy current controller
         m_Controller = nullptr;
-        
+
         // Recreate with current state
         Create();
-        
+
         // Restore state if recreation was successful
         if (m_Controller)
         {
             m_Controller->SetPosition(position);
             m_Controller->SetRotation(rotation);
             m_Controller->SetLinearVelocity(linearVelocity);
-            
+
             OLO_CORE_INFO("Character controller shape updated successfully");
             return true;
         }
@@ -488,18 +488,18 @@ namespace OloEngine
     }
 
     // JPH::CharacterContactListener implementation
-    void JoltCharacterController::OnAdjustBodyVelocity([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::Body& inBody2, 
-                                                      JPH::Vec3& ioLinearVelocity, JPH::Vec3& ioAngularVelocity)
+    void JoltCharacterController::OnAdjustBodyVelocity([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::Body& inBody2,
+                                                       JPH::Vec3& ioLinearVelocity, JPH::Vec3& ioAngularVelocity)
     {
         // Character can influence other dynamic bodies (e.g., push objects around)
         // This is called when the character moves into another body
-        
+
         if (inBody2.IsStatic() || inBody2.IsKinematic())
         {
             // Don't modify velocity of static or kinematic bodies
             return;
         }
-        
+
         // Get other entity if available for callback
         if (m_ContactEventCallback && m_Scene)
         {
@@ -512,53 +512,53 @@ namespace OloEngine
                 m_ContactEventCallback(m_Entity, otherEntity);
             }
         }
-        
+
         // Apply reduced velocity modification for realistic character-object interaction
         // Characters shouldn't be able to launch objects with full force
         ioLinearVelocity *= kVelocityReductionFactor;
         ioAngularVelocity *= kVelocityReductionFactor;
     }
 
-    bool JoltCharacterController::OnContactValidate([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2, 
-                                                   [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2)
+    bool JoltCharacterController::OnContactValidate([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2,
+                                                    [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2)
     {
         // Validate if character should collide with this body based on collision layers
         if (!m_Scene)
             return true;
-            
+
         // Get the physics system to check collision layers
         auto* physicsSystem = m_Scene->GetJoltSystemPtr();
         if (!physicsSystem)
             return true;
-            
+
         // Get the body interface to access the other body
         const JPH::BodyLockRead bodyLock(physicsSystem->GetBodyLockInterface(), inBodyID2);
         if (!bodyLock.Succeeded())
             return true;
-            
+
         const JPH::Body& otherBody = bodyLock.GetBody();
-        
+
         // Check if the collision layers should interact
         u32 otherLayer = otherBody.GetObjectLayer();
-        
+
         // Check if this layer should be ignored using configurable bitmask
         if (m_IgnoreCollisionLayers & (1u << otherLayer))
             return false;
-        
+
         // Allow collision with all other layers (Static, Dynamic, Kinematic, other Characters)
         return true;
     }
 
-    void JoltCharacterController::OnContactAdded([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2, 
-                                               [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2, [[maybe_unused]] JPH::Vec3Arg inContactPosition, 
-                                               JPH::Vec3Arg inContactNormal, [[maybe_unused]] JPH::CharacterContactSettings& ioSettings)
+    void JoltCharacterController::OnContactAdded([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2,
+                                                 [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2, [[maybe_unused]] JPH::Vec3Arg inContactPosition,
+                                                 JPH::Vec3Arg inContactNormal, [[maybe_unused]] JPH::CharacterContactSettings& ioSettings)
     {
         m_CollisionFlags = ECollisionFlags::None;
 
         // Determine collision flags based on contact normal
         JPH::Vec3 up = JPH::Vec3(0, 1, 0);
         f32 dotUp = inContactNormal.Dot(up);
-        
+
         if (dotUp > kCollisionAngleDotThreshold) // Roughly 45 degrees
         {
             m_CollisionFlags = static_cast<ECollisionFlags>(static_cast<u8>(m_CollisionFlags) | static_cast<u8>(ECollisionFlags::Below));
@@ -584,7 +584,7 @@ namespace OloEngine
                 isSensor = body.IsSensor();
             }
         }
-        
+
         if (isSensor)
         {
             HandleTrigger(inBodyID2);
@@ -595,11 +595,11 @@ namespace OloEngine
         }
     }
 
-    void JoltCharacterController::OnContactSolve([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, [[maybe_unused]] const JPH::BodyID& inBodyID2, 
-                                               [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2, [[maybe_unused]] JPH::RVec3Arg inContactPosition, 
-                                               [[maybe_unused]] JPH::Vec3Arg inContactNormal, [[maybe_unused]] JPH::Vec3Arg inContactVelocity, 
-                                               [[maybe_unused]] const JPH::PhysicsMaterial* inContactMaterial, [[maybe_unused]] JPH::Vec3Arg inCharacterVelocity, 
-                                               [[maybe_unused]] JPH::Vec3& ioNewCharacterVelocity)
+    void JoltCharacterController::OnContactSolve([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, [[maybe_unused]] const JPH::BodyID& inBodyID2,
+                                                 [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2, [[maybe_unused]] JPH::RVec3Arg inContactPosition,
+                                                 [[maybe_unused]] JPH::Vec3Arg inContactNormal, [[maybe_unused]] JPH::Vec3Arg inContactVelocity,
+                                                 [[maybe_unused]] const JPH::PhysicsMaterial* inContactMaterial, [[maybe_unused]] JPH::Vec3Arg inCharacterVelocity,
+                                                 [[maybe_unused]] JPH::Vec3& ioNewCharacterVelocity)
     {
         // Default implementation - no velocity modification
         // This can be extended to handle special materials, moving platforms, etc.

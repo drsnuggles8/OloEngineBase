@@ -5,13 +5,13 @@
 
 // @file Event.h
 // @brief Interface for waitable events
-// 
+//
 // This interface has platform-specific implementations that are used to wait
 // for another thread to signal that it is ready for the waiting thread to do
 // some work. It can also be used for telling groups of threads to exit.
-// 
+//
 // Consider using FEventRef as a safer and more convenient alternative.
-// 
+//
 // Ported from Unreal Engine's HAL/Event.h
 
 #include "OloEngine/Core/Base.h"
@@ -27,26 +27,26 @@ namespace OloEngine
     // @brief Specifies the event reset mode
     enum class EEventMode
     {
-        AutoReset,   ///< Event is automatically reset after a successful wait
-        ManualReset  ///< Event must be manually reset
+        AutoReset,  ///< Event is automatically reset after a successful wait
+        ManualReset ///< Event must be manually reset
     };
 
     // @class FEvent
     // @brief Abstract interface for waitable events
-    // 
+    //
     // This interface has platform-specific implementations that are used to wait
     // for another thread to signal that it is ready for the waiting thread to do
     // some work.
     class FEvent
     {
-    public:
+      public:
         // @brief Creates the event
-        // 
+        //
         // Manually reset events stay triggered until reset.
-        // 
+        //
         // @param bIsManualReset Whether the event requires manual reseting or not
         // @return true if the event was created, false otherwise
-        // 
+        //
         // @deprecated Direct creation of FEvent is discouraged for performance reasons.
         //             Please use the event pool via FEventRef.
         [[deprecated("Direct creation of FEvent is discouraged. Use FEventRef instead.")]]
@@ -66,9 +66,9 @@ namespace OloEngine
         virtual void Reset() = 0;
 
         // @brief Waits the specified amount of time for the event to be triggered
-        // 
+        //
         // A wait time of MAX_uint32 is treated as infinite wait.
-        // 
+        //
         // @param WaitTime The time to wait (in milliseconds)
         // @param bIgnoreThreadIdleStats If true, ignores ThreadIdleStats
         // @return true if the event was triggered, false if the wait timed out
@@ -85,7 +85,7 @@ namespace OloEngine
 
         /**
          * @brief Waits the specified duration for the event to be triggered
-         * 
+         *
          * @tparam Rep Duration representation type
          * @tparam Period Duration period type
          * @param WaitTime The time to wait
@@ -102,8 +102,7 @@ namespace OloEngine
 
         // @brief Default constructor
         FEvent()
-            : m_EventId(0)
-            , m_EventStartCycles(0)
+            : m_EventId(0), m_EventStartCycles(0)
         {
         }
 
@@ -111,11 +110,11 @@ namespace OloEngine
         virtual ~FEvent() = default;
 
         // @brief Advances stats associated with this event
-        // 
+        //
         // Used to monitor wait->trigger history.
         void AdvanceStats();
 
-    protected:
+      protected:
         // @brief Sends to the stats a special message which encodes a wait for the event
         void WaitForStats();
 
@@ -142,13 +141,13 @@ namespace OloEngine
     /**
      * @class FEventRef
      * @brief RAII-style pooled FEvent
-     * 
+     *
      * Non-copyable, non-movable.
      * Automatically returns the event to the pool on destruction.
      */
     class FEventRef final
     {
-    public:
+      public:
         /**
          * @brief Construct a new event reference
          * @param Mode The event mode (AutoReset or ManualReset)
@@ -182,20 +181,20 @@ namespace OloEngine
             return m_Event;
         }
 
-    private:
+      private:
         FEvent* m_Event;
     };
 
     /**
      * @class FSharedEventRef
      * @brief RAII-style shared and pooled FEvent
-     * 
+     *
      * Unlike FEventRef, this can be copied and shared between multiple owners.
      * The event is returned to the pool when the last reference is destroyed.
      */
     class FSharedEventRef final
     {
-    public:
+      public:
         /**
          * @brief Construct a new shared event reference
          * @param Mode The event mode (AutoReset or ManualReset)
@@ -228,7 +227,7 @@ namespace OloEngine
             return m_Ptr.get();
         }
 
-    private:
+      private:
         // Custom deleter that returns event to pool
         struct FEventPoolDeleter
         {

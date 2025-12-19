@@ -14,16 +14,16 @@ namespace OloEngine
 {
     /**
      * @brief Runtime asset manager optimized for shipping builds
-     * 
+     *
      * The RuntimeAssetManager is designed for production/shipping builds where
      * assets are pre-packed and optimized. It loads from asset pack files rather
      * than individual files, providing:
-     * 
+     *
      * - Fast asset loading from packed files
      * - Memory-efficient asset streaming
      * - No filesystem dependency for individual assets
      * - Optimized for performance over flexibility
-     * 
+     *
      * Key differences from EditorAssetManager:
      * - No hot-reload support
      * - No individual file monitoring
@@ -32,7 +32,7 @@ namespace OloEngine
      */
     class RuntimeAssetManager : public AssetManagerBase
     {
-    public:
+      public:
         RuntimeAssetManager();
         virtual ~RuntimeAssetManager();
 
@@ -98,7 +98,7 @@ namespace OloEngine
          */
         void UpdateDependencies(AssetHandle handle);
 
-    private:
+      private:
         /**
          * @brief Load an asset from the asset pack system
          * @param handle Asset handle to load
@@ -120,29 +120,29 @@ namespace OloEngine
          */
         AssetType GetAssetTypeFromPacks(AssetHandle handle) const;
 
-    private:
+      private:
         // Loaded assets cache
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;
-        
+
         // Memory-only assets (no backing pack file)
         std::unordered_map<AssetHandle, Ref<Asset>> m_MemoryAssets;
-        
+
         // Asset pack management
         std::unordered_map<std::filesystem::path, Ref<AssetPack>> m_LoadedPacks;
-        
+
         // Asset metadata from packs
         std::unordered_map<AssetHandle, AssetMetadata> m_AssetMetadata;
-        
+
         // Simplified dependency tracking for runtime
         std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependencies;
-        
+
         // Async asset loading system
         Ref<RuntimeAssetSystem> m_AssetThread;
-        
+
         // Thread synchronization
         mutable std::shared_mutex m_AssetsMutex;
         mutable std::shared_mutex m_PacksMutex;
         mutable std::shared_mutex m_DependenciesMutex;
     };
 
-}
+} // namespace OloEngine

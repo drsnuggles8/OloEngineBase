@@ -6,7 +6,7 @@
 /**
  * @file RunnableThread.h
  * @brief Base class for runnable threads with TLS support
- * 
+ *
  * Ported from Unreal Engine's HAL/RunnableThread.h
  */
 
@@ -21,12 +21,12 @@
 #include <string>
 
 #ifdef _WIN32
-    #ifndef WIN32_LEAN_AND_MEAN
-        #define WIN32_LEAN_AND_MEAN
-    #endif
-    #include <windows.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #elif defined(__linux__) || defined(__APPLE__)
-    #include <pthread.h>
+#include <pthread.h>
 #endif
 
 namespace OloEngine
@@ -38,7 +38,7 @@ namespace OloEngine
     enum class EThreadCreateFlags : i8
     {
         None = 0,
-        SMTExclusive = (1 << 0),  // Request exclusive access to SMT core
+        SMTExclusive = (1 << 0), // Request exclusive access to SMT core
     };
 
     OLO_FINLINE EThreadCreateFlags operator|(EThreadCreateFlags A, EThreadCreateFlags B)
@@ -54,28 +54,28 @@ namespace OloEngine
     /**
      * @class FRunnableThread
      * @brief Base class for system threads with TLS-based access
-     * 
+     *
      * This class provides thread management with a key feature: the ability
      * to get the current thread's FRunnableThread* from any code via TLS.
      * This enables dynamic thread priority changes, querying thread info, etc.
      */
     class FRunnableThread
     {
-    public:
+      public:
         /**
          * @enum ThreadType
          * @brief Type of thread
          */
         enum class ThreadType
         {
-            Real,       // Normal OS thread
-            Fake,       // Pseudo-thread for single-threaded mode
-            Forkable    // Thread that can survive process fork
+            Real,    // Normal OS thread
+            Fake,    // Pseudo-thread for single-threaded mode
+            Forkable // Thread that can survive process fork
         };
 
         /**
          * @brief Factory method to create a new thread
-         * 
+         *
          * @param InRunnable The runnable object to execute
          * @param ThreadName Name for the thread (debugging/profiling)
          * @param InStackSize Stack size (0 = default)
@@ -94,7 +94,7 @@ namespace OloEngine
 
         /**
          * @brief Gets the current thread's FRunnableThread
-         * 
+         *
          * This uses TLS to retrieve the FRunnableThread* for the currently
          * executing thread. Returns nullptr if the current thread is not
          * an FRunnableThread (e.g., the main thread before initialization).
@@ -140,29 +140,44 @@ namespace OloEngine
         /**
          * @brief Gets the thread type
          */
-        virtual ThreadType GetThreadType() const { return ThreadType::Real; }
+        virtual ThreadType GetThreadType() const
+        {
+            return ThreadType::Real;
+        }
 
         /**
          * @brief Gets the thread ID
          */
-        u32 GetThreadID() const { return m_ThreadID; }
+        u32 GetThreadID() const
+        {
+            return m_ThreadID;
+        }
 
         /**
          * @brief Gets the thread name
          */
-        const std::string& GetThreadName() const { return m_ThreadName; }
+        const std::string& GetThreadName() const
+        {
+            return m_ThreadName;
+        }
 
         /**
          * @brief Gets the current thread priority
          */
-        EThreadPriority GetThreadPriority() const { return m_ThreadPriority; }
+        EThreadPriority GetThreadPriority() const
+        {
+            return m_ThreadPriority;
+        }
 
         /**
          * @brief Check if thread is still running
          */
-        bool IsRunning() const { return m_bIsRunning.load(std::memory_order_acquire); }
+        bool IsRunning() const
+        {
+            return m_bIsRunning.load(std::memory_order_acquire);
+        }
 
-    protected:
+      protected:
         FRunnableThread();
 
         /**
@@ -184,7 +199,7 @@ namespace OloEngine
 #ifdef _WIN32
         /**
          * @brief Windows-specific thread entry point (called from CreateThread)
-         * 
+         *
          * Unlike ThreadEntryPoint(), this doesn't need to duplicate handle
          * since we already have m_NativeHandle from CreateThread.
          */
@@ -192,7 +207,7 @@ namespace OloEngine
 #elif defined(__linux__) || defined(__APPLE__)
         /**
          * @brief POSIX-specific thread entry point (called from pthread_create)
-         * 
+         *
          * Sets up TLS, runs the runnable, and cleans up on exit.
          */
         void ThreadEntryPointPosix();
@@ -208,7 +223,7 @@ namespace OloEngine
          */
         void FreeTls();
 
-    protected:
+      protected:
         std::string m_ThreadName;
         FRunnable* m_Runnable = nullptr;
         u64 m_ThreadAffinityMask = 0;
@@ -216,7 +231,7 @@ namespace OloEngine
         u32 m_ThreadID = 0;
         std::atomic<bool> m_bIsRunning{ false };
         std::atomic<bool> m_bShouldStop{ false };
-        
+
         // Native thread handle for platform-specific operations
 #ifdef _WIN32
         HANDLE m_NativeHandle = nullptr;
@@ -224,11 +239,11 @@ namespace OloEngine
         pthread_t m_PosixThread{};
         bool m_bHasPosixThread = false;
 #endif
-        
+
         // Synchronization for thread startup - uses our FManualResetEvent
         FManualResetEvent m_InitEvent;
 
-    private:
+      private:
         // TLS storage for current thread pointer
         static thread_local FRunnableThread* s_CurrentThread;
     };
@@ -246,7 +261,7 @@ namespace OloEngine
     {
         // Ensure thread is stopped before destruction
         Kill(true);
-        
+
 #ifdef _WIN32
         // Close the duplicated native handle
         if (m_NativeHandle != nullptr)
@@ -301,17 +316,17 @@ namespace OloEngine
         // Use CreateThread on Windows to support stack size configuration
         // Stack size of 0 means use default (1MB on Windows)
         m_NativeHandle = ::CreateThread(
-            nullptr,                    // Default security attributes
-            InStackSize,                // Stack size (0 = default)
+            nullptr,     // Default security attributes
+            InStackSize, // Stack size (0 = default)
             [](LPVOID Param) -> DWORD
             {
                 FRunnableThread* Thread = static_cast<FRunnableThread*>(Param);
                 Thread->ThreadEntryPointWindows();
                 return 0;
             },
-            this,                       // Thread parameter
-            0,                          // Creation flags (start immediately)
-            nullptr                     // Thread ID (we get it inside the thread)
+            this,   // Thread parameter
+            0,      // Creation flags (start immediately)
+            nullptr // Thread ID (we get it inside the thread)
         );
 
         if (m_NativeHandle == nullptr)
@@ -321,7 +336,7 @@ namespace OloEngine
 
         // Wait for thread to initialize
         m_InitEvent.Wait();
-        
+
         return true;
 #elif defined(__linux__) || defined(__APPLE__)
         // Use pthread on POSIX platforms
@@ -335,14 +350,11 @@ namespace OloEngine
         }
 
         // Create the thread
-        int Result = pthread_create(&m_PosixThread, &Attr, 
-            [](void* Param) -> void*
-            {
+        int Result = pthread_create(&m_PosixThread, &Attr, [](void* Param) -> void*
+                                    {
                 FRunnableThread* Thread = static_cast<FRunnableThread*>(Param);
                 Thread->ThreadEntryPointPosix();
-                return nullptr;
-            }, 
-            this);
+                return nullptr; }, this);
 
         pthread_attr_destroy(&Attr);
 
@@ -355,7 +367,7 @@ namespace OloEngine
 
         // Wait for thread to initialize
         m_InitEvent.Wait();
-        
+
         return true;
 #else
         // Fallback - not supported
@@ -414,7 +426,7 @@ namespace OloEngine
     {
         // Store thread ID using platform API
         m_ThreadID = FPlatformTLS::GetCurrentThreadId();
-        
+
         // m_NativeHandle is already set by CreateThread
 
         // Common thread initialization
@@ -446,7 +458,7 @@ namespace OloEngine
     inline void FRunnableThread::SetThreadPriority(EThreadPriority NewPriority)
     {
         m_ThreadPriority = NewPriority;
-        
+
         // If called from within the thread, apply immediately
         if (s_CurrentThread == this)
         {
@@ -458,7 +470,7 @@ namespace OloEngine
     inline bool FRunnableThread::SetThreadAffinity(const FThreadAffinity& Affinity)
     {
         m_ThreadAffinityMask = Affinity.ThreadAffinityMask;
-        
+
         // If called from within the thread, apply immediately
         if (s_CurrentThread == this)
         {
@@ -493,7 +505,7 @@ namespace OloEngine
     inline bool FRunnableThread::Kill(bool bShouldWait)
     {
         m_bShouldStop.store(true, std::memory_order_release);
-        
+
         if (m_Runnable)
         {
             m_Runnable->Stop();

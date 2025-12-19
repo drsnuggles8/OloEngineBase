@@ -13,22 +13,22 @@
 
 namespace OloEngine
 {
-	// A transactionally safe mutex.
-	// 
-	// Without AutoRTFM support, this is simply an alias for FMutex.
-	// In UE5.7 with AutoRTFM enabled, this provides special handling for
-	// lock/unlock operations within software transactions.
-	using FTransactionallySafeMutex = FMutex;
+    // A transactionally safe mutex.
+    //
+    // Without AutoRTFM support, this is simply an alias for FMutex.
+    // In UE5.7 with AutoRTFM enabled, this provides special handling for
+    // lock/unlock operations within software transactions.
+    using FTransactionallySafeMutex = FMutex;
 
-	// A transactionally safe recursive mutex.
-	// 
-	// Without AutoRTFM support, this is simply an alias for FRecursiveMutex.
-	using FTransactionallySafeRecursiveMutex = FRecursiveMutex;
+    // A transactionally safe recursive mutex.
+    //
+    // Without AutoRTFM support, this is simply an alias for FRecursiveMutex.
+    using FTransactionallySafeRecursiveMutex = FRecursiveMutex;
 
-	// A transactionally safe shared mutex.
-	// 
-	// Without AutoRTFM support, this is simply an alias for FSharedMutex.
-	using FTransactionallySafeSharedMutex = FSharedMutex;
+    // A transactionally safe shared mutex.
+    //
+    // Without AutoRTFM support, this is simply an alias for FSharedMutex.
+    using FTransactionallySafeSharedMutex = FSharedMutex;
 
 } // namespace OloEngine
 

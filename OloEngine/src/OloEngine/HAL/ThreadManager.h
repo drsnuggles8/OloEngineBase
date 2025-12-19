@@ -42,7 +42,7 @@ namespace OloEngine
      */
     class FThreadManager
     {
-    public:
+      public:
         FThreadManager();
         ~FThreadManager();
 
@@ -68,7 +68,10 @@ namespace OloEngine
         /**
          * @brief Get the number of registered threads
          */
-        i32 NumThreads() const { return static_cast<i32>(m_Threads.size()); }
+        i32 NumThreads() const
+        {
+            return static_cast<i32>(m_Threads.size());
+        }
 
         /**
          * @brief Ticks all fake threads and their runnable objects
@@ -110,7 +113,7 @@ namespace OloEngine
             std::string ThreadName;
             std::vector<u64> ProgramCounters;
 
-            FThreadStackBackTrace() : ThreadId(0) 
+            FThreadStackBackTrace() : ThreadId(0)
             {
                 ProgramCounters.reserve(ProgramCountersMaxStackSize);
             }
@@ -142,7 +145,7 @@ namespace OloEngine
          */
         static FThreadManager& Get();
 
-    private:
+      private:
         friend class FForkProcessHelper;
 
         /**
@@ -170,7 +173,7 @@ namespace OloEngine
          */
         void OnThreadListModified();
 
-    private:
+      private:
         /** Critical section for ThreadList */
         mutable FCriticalSection m_ThreadsCritical;
 
@@ -231,7 +234,7 @@ namespace OloEngine
     inline void FThreadManager::Tick()
     {
         FScopeLock Lock(&m_ThreadsCritical);
-        
+
         // Reset dirty flag before iteration
         m_bIsThreadListDirty = false;
 
@@ -279,7 +282,7 @@ namespace OloEngine
     inline void FThreadManager::ForEachThread(std::function<void(u32 ThreadId, FRunnableThread* Thread)> Func)
     {
         FScopeLock Lock(&m_ThreadsCritical);
-        
+
         m_bIsThreadListDirty = false;
 
         for (auto& [ThreadId, Thread] : m_Threads)
@@ -295,7 +298,7 @@ namespace OloEngine
     inline std::vector<FRunnableThread*> FThreadManager::GetForkableThreads()
     {
         std::vector<FRunnableThread*> ForkableThreads;
-        
+
         FScopeLock Lock(&m_ThreadsCritical);
         for (auto& [ThreadId, Thread] : m_Threads)
         {
@@ -304,7 +307,7 @@ namespace OloEngine
                 ForkableThreads.push_back(Thread);
             }
         }
-        
+
         return ForkableThreads;
     }
 
@@ -333,7 +336,7 @@ namespace OloEngine
     inline void FThreadManager::GetAllThreadStackBackTraces(std::vector<FThreadStackBackTrace>& OutStackTraces)
     {
         FScopeLock Lock(&m_ThreadsCritical);
-        
+
         OutStackTraces.clear();
         OutStackTraces.reserve(m_Threads.size());
 
@@ -344,10 +347,10 @@ namespace OloEngine
                 FThreadStackBackTrace StackTrace;
                 StackTrace.ThreadId = ThreadId;
                 StackTrace.ThreadName = Thread->GetThreadName();
-                
+
                 // Platform-specific stack walking would go here
                 // For now, we leave ProgramCounters empty
-                
+
                 OutStackTraces.push_back(std::move(StackTrace));
             }
         }
@@ -358,14 +361,14 @@ namespace OloEngine
     {
         // Note: This function is designed for crash contexts and avoids allocations
         // It does NOT lock the critical section to avoid potential deadlocks during crashes
-        
+
         for (auto& [ThreadId, Thread] : m_Threads)
         {
             if (Thread)
             {
                 std::vector<u64> StackTrace;
                 // Platform-specific stack walking would go here
-                
+
                 if (!Func(ThreadId, Thread->GetThreadName().c_str(), StackTrace))
                 {
                     break;
@@ -376,4 +379,3 @@ namespace OloEngine
 #endif
 
 } // namespace OloEngine
-

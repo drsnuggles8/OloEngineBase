@@ -2,14 +2,14 @@
 
 // @file RetainedRef.h
 // @brief A helper class to prevent dangling references when storing references
-// 
+//
 // TRetainedRef<T> replaces T& as a function parameter when the reference is
 // intended to be retained by the function (e.g. as a class member). The benefit
 // of this class is that it is a compile error to pass an rvalue which might otherwise
 // bind to a const reference, which is dangerous when the reference is retained.
-// 
+//
 // Ported from Unreal Engine's Templates/RetainedRef.h
-// 
+//
 // Example:
 // @code
 // struct FRaiiType
@@ -42,7 +42,7 @@ namespace OloEngine
     // Prevents construction from rvalue references which would dangle.
     //
     // @tparam T The type to hold a reference to
-    template <typename T>
+    template<typename T>
     struct TRetainedRef
     {
         TRetainedRef(T& InRef)
@@ -52,8 +52,8 @@ namespace OloEngine
 
         // Can't construct a non-const reference with a const reference
         // and can't retain an rvalue reference.
-        TRetainedRef(const T&  InRef) = delete;
-        TRetainedRef(      T&& InRef) = delete;
+        TRetainedRef(const T& InRef) = delete;
+        TRetainedRef(T&& InRef) = delete;
         TRetainedRef(const T&& InRef) = delete;
 
         operator T&() const
@@ -66,7 +66,7 @@ namespace OloEngine
             return Ref;
         }
 
-    private:
+      private:
         T& Ref;
     };
 
@@ -74,7 +74,7 @@ namespace OloEngine
     //
     // Allows construction from both const and non-const lvalue references,
     // but still prevents construction from rvalue references.
-    template <typename T>
+    template<typename T>
     struct TRetainedRef<const T>
     {
         TRetainedRef(T& InRef)
@@ -88,7 +88,7 @@ namespace OloEngine
         }
 
         // Can't retain an rvalue reference.
-        TRetainedRef(      T&& InRef) = delete;
+        TRetainedRef(T&& InRef) = delete;
         TRetainedRef(const T&& InRef) = delete;
 
         operator const T&() const
@@ -101,7 +101,7 @@ namespace OloEngine
             return Ref;
         }
 
-    private:
+      private:
         const T& Ref;
     };
 

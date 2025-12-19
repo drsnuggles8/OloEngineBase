@@ -13,21 +13,21 @@
 // can benefit from separating producer and consumer barriers.
 
 #if defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__)
-    #define PLATFORM_SUPPORTS_ASYMMETRIC_FENCES 1
+#define PLATFORM_SUPPORTS_ASYMMETRIC_FENCES 1
 #else
-    #define PLATFORM_SUPPORTS_ASYMMETRIC_FENCES 0
+#define PLATFORM_SUPPORTS_ASYMMETRIC_FENCES 0
 #endif
 
 #ifdef _WIN32
-    #ifndef WIN32_LEAN_AND_MEAN
-        #define WIN32_LEAN_AND_MEAN
-    #endif
-    #include <windows.h>
-    #include <intrin.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <intrin.h>
 #elif defined(__linux__)
-    #include <sched.h>
+#include <sched.h>
 #elif defined(__APPLE__)
-    #include <sys/sysctl.h>
+#include <sys/sysctl.h>
 #endif
 
 namespace OloEngine
@@ -35,14 +35,14 @@ namespace OloEngine
     /**
      * @struct FProcessorGroupDesc
      * @brief Describes the processor groups in the system for NUMA/large core systems
-     * 
+     *
      * On Windows systems with more than 64 logical processors, processors are organized
      * into processor groups. This struct provides the affinity masks for each group.
      */
-    struct FProcessorGroupDesc 
+    struct FProcessorGroupDesc
     {
         static constexpr u16 MaxNumProcessorGroups = 16;
-        u64 ThreadAffinities[MaxNumProcessorGroups] = {}; 
+        u64 ThreadAffinities[MaxNumProcessorGroups] = {};
         u16 NumProcessorGroups = 0;
     };
 
@@ -50,10 +50,10 @@ namespace OloEngine
      * @struct FThreadAffinity
      * @brief Describes the thread affinity including processor group for multi-group systems
      */
-    struct FThreadAffinity 
-    { 
-        u64 ThreadAffinityMask = 0;  // 0 = no affinity restriction
-        u16 ProcessorGroup = 0; 
+    struct FThreadAffinity
+    {
+        u64 ThreadAffinityMask = 0; // 0 = no affinity restriction
+        u16 ProcessorGroup = 0;
     };
 
     /**
@@ -62,30 +62,30 @@ namespace OloEngine
      */
     class FPlatformMisc
     {
-    public:
+      public:
         /**
          * @brief Light asymmetric fence for producers.
-         * 
+         *
          * On ARM platforms, this provides a lighter-weight fence that pairs with
          * AsymmetricThreadFenceHeavy() on consumer threads. The producer uses a light
          * fence while the consumer uses a heavy fence, providing correct ordering
          * with better performance than using full barriers on both sides.
-         * 
+         *
          * On x86/x64, this is a no-op since the strong memory model handles this.
          */
         static OLO_FINLINE void AsymmetricThreadFenceLight()
         {
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-    #if defined(__aarch64__)
+#if defined(__aarch64__)
             // ARM64: Use store-load barrier
             __asm__ __volatile__("dmb ishst" ::: "memory");
-    #elif defined(__arm__)
+#elif defined(__arm__)
             // ARM32: Use full data memory barrier (no asymmetric option)
             __asm__ __volatile__("dmb ish" ::: "memory");
-    #elif defined(_M_ARM64)
+#elif defined(_M_ARM64)
             // MSVC ARM64
             __dmb(_ARM64_BARRIER_ISHST);
-    #endif
+#endif
 #else
             // x86/x64: No-op - strong memory model
             std::atomic_thread_fence(std::memory_order_release);
@@ -94,26 +94,26 @@ namespace OloEngine
 
         /**
          * @brief Heavy asymmetric fence for consumers.
-         * 
+         *
          * On ARM platforms, this is the heavy counterpart to AsymmetricThreadFenceLight().
          * It ensures all stores from other cores are visible before proceeding.
-         * 
+         *
          * This is typically used in wait loops to ensure we see updates from producers
          * who only used light fences.
          */
         static OLO_FINLINE void AsymmetricThreadFenceHeavy()
         {
 #if PLATFORM_SUPPORTS_ASYMMETRIC_FENCES
-    #if defined(__aarch64__)
+#if defined(__aarch64__)
             // ARM64: Full inner-shareable barrier
             __asm__ __volatile__("dmb ish" ::: "memory");
-    #elif defined(__arm__)
+#elif defined(__arm__)
             // ARM32: Full data memory barrier
             __asm__ __volatile__("dmb ish" ::: "memory");
-    #elif defined(_M_ARM64)
+#elif defined(_M_ARM64)
             // MSVC ARM64
             __dmb(_ARM64_BARRIER_ISH);
-    #endif
+#endif
 #else
             // x86/x64: seq_cst fence for maximum compatibility
             std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -122,7 +122,7 @@ namespace OloEngine
 
         /**
          * @brief Full memory barrier.
-         * 
+         *
          * Ensures all memory operations before the barrier complete before any
          * operations after the barrier begin.
          */
@@ -130,21 +130,21 @@ namespace OloEngine
         {
 #if defined(_MSC_VER)
             _ReadWriteBarrier();
-    #if defined(_M_ARM64)
+#if defined(_M_ARM64)
             __dmb(_ARM64_BARRIER_ISH);
-    #elif defined(_M_ARM)
+#elif defined(_M_ARM)
             __dmb(_ARM_BARRIER_ISH);
-    #else
+#else
             // x86/x64
             _mm_mfence();
-    #endif
+#endif
 #elif defined(__GNUC__)
             __asm__ __volatile__("" ::: "memory");
-    #if defined(__aarch64__) || defined(__arm__)
+#if defined(__aarch64__) || defined(__arm__)
             __asm__ __volatile__("dmb ish" ::: "memory");
-    #elif defined(__x86_64__) || defined(__i386__)
+#elif defined(__x86_64__) || defined(__i386__)
             __asm__ __volatile__("mfence" ::: "memory");
-    #endif
+#endif
 #else
             std::atomic_thread_fence(std::memory_order_seq_cst);
 #endif
@@ -152,11 +152,11 @@ namespace OloEngine
 
         /**
          * @brief Gets the processor group description for systems with >64 logical processors.
-         * 
+         *
          * On Windows systems with more than 64 logical processors, this returns
          * information about each processor group including affinity masks.
          * On other platforms or single-group systems, returns a single group with full affinity.
-         * 
+         *
          * @return Reference to static processor group descriptor
          */
         static const FProcessorGroupDesc& GetProcessorGroupDesc()
@@ -225,7 +225,7 @@ namespace OloEngine
             return NumCores > 2 ? NumCores - 1 : 1;
         }
 
-    private:
+      private:
         /**
          * @brief Queries the system for processor group information.
          * @return Populated processor group descriptor
@@ -236,48 +236,45 @@ namespace OloEngine
 #ifdef _WIN32
             // Use GetLogicalProcessorInformationEx to query processor groups
             using FnGetLogicalProcessorInformationEx = BOOL(WINAPI*)(
-                LOGICAL_PROCESSOR_RELATIONSHIP, 
-                PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, 
-                PDWORD
-            );
-            
-            static FnGetLogicalProcessorInformationEx GetLogicalProcessorInformationExFn = 
+                LOGICAL_PROCESSOR_RELATIONSHIP,
+                PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX,
+                PDWORD);
+
+            static FnGetLogicalProcessorInformationEx GetLogicalProcessorInformationExFn =
                 reinterpret_cast<FnGetLogicalProcessorInformationEx>(
-                    GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetLogicalProcessorInformationEx")
-                );
-            
+                    GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetLogicalProcessorInformationEx"));
+
             if (GetLogicalProcessorInformationExFn)
             {
                 DWORD BufferSize = 0;
                 GetLogicalProcessorInformationExFn(RelationGroup, nullptr, &BufferSize);
-                
+
                 if (BufferSize > 0)
                 {
                     auto* Buffer = static_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(
-                        HeapAlloc(GetProcessHeap(), 0, BufferSize)
-                    );
-                    
+                        HeapAlloc(GetProcessHeap(), 0, BufferSize));
+
                     if (Buffer && GetLogicalProcessorInformationExFn(RelationGroup, Buffer, &BufferSize))
                     {
                         Result.NumProcessorGroups = static_cast<u16>(Buffer->Group.ActiveGroupCount);
-                        
-                        for (u16 GroupIndex = 0; 
-                             GroupIndex < Result.NumProcessorGroups && 
-                             GroupIndex < FProcessorGroupDesc::MaxNumProcessorGroups; 
+
+                        for (u16 GroupIndex = 0;
+                             GroupIndex < Result.NumProcessorGroups &&
+                             GroupIndex < FProcessorGroupDesc::MaxNumProcessorGroups;
                              ++GroupIndex)
                         {
-                            Result.ThreadAffinities[GroupIndex] = 
+                            Result.ThreadAffinities[GroupIndex] =
                                 Buffer->Group.GroupInfo[GroupIndex].ActiveProcessorMask;
                         }
                     }
-                    
+
                     if (Buffer)
                     {
                         HeapFree(GetProcessHeap(), 0, Buffer);
                     }
                 }
             }
-            
+
             // Fallback for single-group systems or if query failed
             if (Result.NumProcessorGroups == 0)
             {
@@ -289,8 +286,8 @@ namespace OloEngine
 #else
             // Non-Windows platforms: single group with all available CPUs
             Result.NumProcessorGroups = 1;
-            
-    #if defined(__linux__)
+
+#if defined(__linux__)
             // On Linux, use sched_getaffinity to get available CPUs
             cpu_set_t CpuSet;
             CPU_ZERO(&CpuSet);
@@ -310,7 +307,7 @@ namespace OloEngine
                 // Fallback: assume all 64 bits available
                 Result.ThreadAffinities[0] = ~0ULL;
             }
-    #elif defined(__APPLE__)
+#elif defined(__APPLE__)
             // macOS: use hw.ncpu or hw.activecpu
             int NumCpus = 0;
             size_t Size = sizeof(NumCpus);
@@ -322,10 +319,10 @@ namespace OloEngine
             {
                 Result.ThreadAffinities[0] = ~0ULL;
             }
-    #else
+#else
             // Generic fallback
             Result.ThreadAffinities[0] = ~0ULL;
-    #endif
+#endif
 #endif
             return Result;
         }
@@ -334,13 +331,13 @@ namespace OloEngine
     /**
      * @class FPlatformAffinity
      * @brief Platform-specific thread affinity masks for different thread types
-     * 
+     *
      * Ported from UE5.7 HAL/PlatformAffinity.h
      * This provides default affinity masks for various thread types in the engine.
      */
     class FPlatformAffinity
     {
-    public:
+      public:
         /**
          * @brief Get the affinity mask for task graph worker threads
          * @return Affinity mask for foreground task graph workers

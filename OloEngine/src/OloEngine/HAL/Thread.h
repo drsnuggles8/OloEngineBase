@@ -6,14 +6,14 @@
 /**
  * @file Thread.h
  * @brief High-level thread wrapper with automatic lifetime management
- * 
+ *
  * FThread is the preferred way to create threads in OloEngine. It provides:
  * - Automatic thread naming for debugging
  * - Thread priority and affinity configuration
  * - TLS integration via FRunnableThread
  * - Move-only semantics (no copies)
  * - RAII-style resource management
- * 
+ *
  * Ported from Unreal Engine's HAL/Thread.h
  */
 
@@ -33,10 +33,10 @@ namespace OloEngine
     /**
      * @class FThread
      * @brief High-level thread wrapper
-     * 
+     *
      * FThread wraps a system thread with a simple interface. It takes a
      * callable (function, lambda, functor) and runs it on a new thread.
-     * 
+     *
      * Usage:
      * @code
      *     FThread MyThread(
@@ -52,15 +52,15 @@ namespace OloEngine
      */
     class FThread final
     {
-    public:
+      public:
         /**
          * @enum EForkable
          * @brief Whether the thread can survive process forking
          */
         enum EForkable
         {
-            Forkable,       // Thread can survive fork (Linux/Unix)
-            NonForkable     // Thread is killed on fork (default)
+            Forkable,   // Thread can survive fork (Linux/Unix)
+            NonForkable // Thread is killed on fork (default)
         };
 
         /**
@@ -70,14 +70,14 @@ namespace OloEngine
 
         /**
          * @brief Default constructor - creates empty thread object
-         * 
+         *
          * An empty FThread is not joinable and has no associated system thread.
          */
         FThread() = default;
 
         /**
          * @brief Main constructor - creates and starts a new thread
-         * 
+         *
          * @param ThreadName Name for the thread (shows in debuggers/profilers)
          * @param ThreadFunction The function to run on the thread
          * @param StackSize Stack size in bytes (0 = default)
@@ -95,10 +95,10 @@ namespace OloEngine
 
         /**
          * @brief Constructor with single-thread tick function
-         * 
+         *
          * For platforms that don't support multithreading, the tick function
          * is called repeatedly from the main thread instead.
-         * 
+         *
          * @param ThreadName Name for the thread
          * @param ThreadFunction The function to run on the thread
          * @param SingleThreadTickFunction Function to tick when threading unavailable
@@ -126,7 +126,7 @@ namespace OloEngine
 
         /**
          * @brief Destructor
-         * 
+         *
          * Asserts if the thread is still joinable (not joined or detached).
          * Always call Join() before destruction.
          */
@@ -134,17 +134,17 @@ namespace OloEngine
 
         /**
          * @brief Check if the thread is joinable
-         * 
+         *
          * A thread is joinable if it has an associated system thread that
          * hasn't been joined yet, and is not the current thread.
-         * 
+         *
          * @return True if Join() can be called
          */
         bool IsJoinable() const;
 
         /**
          * @brief Wait for the thread to complete
-         * 
+         *
          * Blocks the calling thread until this thread finishes execution.
          * After Join() returns, the thread is no longer joinable.
          */
@@ -152,19 +152,19 @@ namespace OloEngine
 
         /**
          * @brief Get the thread's ID
-         * 
+         *
          * @return The thread ID, or InvalidThreadId if not valid
          */
         u32 GetThreadId() const;
 
-    private:
+      private:
         /**
          * @class FThreadImpl
          * @brief Internal implementation that adapts function to FRunnable
          */
         class FThreadImpl final : public FRunnable, public FSingleThreadRunnable
         {
-        public:
+          public:
             FThreadImpl(
                 const char* ThreadName,
                 std::function<void()> InThreadFunction,
@@ -183,7 +183,7 @@ namespace OloEngine
             void Join();
             u32 GetThreadId() const;
 
-        private:
+          private:
             // FRunnable interface
             u32 Run() override;
             void Exit() override;
@@ -192,7 +192,7 @@ namespace OloEngine
             FSingleThreadRunnable* GetSingleThreadInterface() override;
             void Tick() override;
 
-        private:
+          private:
             // Two references: one in FThread, one here (Self)
             // Self is released in Exit(), FThread's is released on destruction
             std::shared_ptr<FThreadImpl> m_Self;
@@ -220,8 +220,7 @@ namespace OloEngine
         EThreadPriority ThreadPriority,
         FThreadAffinity ThreadAffinity,
         EForkable IsForkable)
-        : m_ThreadFunction(MoveTemp(InThreadFunction))
-        , m_SingleThreadTickFunction(MoveTemp(InSingleThreadTickFunction))
+        : m_ThreadFunction(MoveTemp(InThreadFunction)), m_SingleThreadTickFunction(MoveTemp(InSingleThreadTickFunction))
     {
         (void)IsForkable; // Forkable threads not yet implemented
 
@@ -318,7 +317,7 @@ namespace OloEngine
         EThreadPriority ThreadPriority,
         FThreadAffinity ThreadAffinity,
         EForkable IsForkable)
-        : FThread(ThreadName, MoveTemp(ThreadFunction), std::function<void()>{}, 
+        : FThread(ThreadName, MoveTemp(ThreadFunction), std::function<void()>{},
                   StackSize, ThreadPriority, ThreadAffinity, IsForkable)
     {
     }

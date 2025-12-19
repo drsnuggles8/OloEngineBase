@@ -19,30 +19,35 @@
 #pragma warning(pop)
 
 #if !defined(OLO_DIST) && defined(OLO_PLATFORM_WINDOWS)
-    #define OLO_ASSERT_MESSAGE_BOX 1
+#define OLO_ASSERT_MESSAGE_BOX 1
 #else
-    #define OLO_ASSERT_MESSAGE_BOX 0
+#define OLO_ASSERT_MESSAGE_BOX 0
 #endif
 
 #if OLO_ASSERT_MESSAGE_BOX
-    #ifdef OLO_PLATFORM_WINDOWS
-        #include <Windows.h>
-    #endif
+#ifdef OLO_PLATFORM_WINDOWS
+#include <Windows.h>
+#endif
 #endif
 
 namespace OloEngine
 {
     class Log
     {
-    public:
+      public:
         enum class Type : u8
         {
-            Core = 0, Client = 1
+            Core = 0,
+            Client = 1
         };
 
         enum class Level : u8
         {
-            Trace = 0, Info, Warn, Error, Fatal
+            Trace = 0,
+            Info,
+            Warn,
+            Error,
+            Fatal
         };
 
         struct TagDetails
@@ -51,13 +56,22 @@ namespace OloEngine
             Level LevelFilter = Level::Trace;
         };
 
-    public:
+      public:
         static void Init();
         static void Shutdown();
 
-        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
-        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
-        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetEditorConsoleLogger() { return s_EditorConsoleLogger; }
+        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetCoreLogger()
+        {
+            return s_CoreLogger;
+        }
+        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetClientLogger()
+        {
+            return s_ClientLogger;
+        }
+        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetEditorConsoleLogger()
+        {
+            return s_EditorConsoleLogger;
+        }
 
         // Thread-safe readers: lock-free snapshot
         static bool HasTag(const std::string& tag);
@@ -83,37 +97,47 @@ namespace OloEngine
 
         static void PrintAssertMessage(Log::Type type, std::string_view prefix);
 
-    private:
+      private:
         // lock-free tag map: readers take a snapshot shared_ptr, writers copy-and-swap
         using TagMap = std::unordered_map<std::string, TagDetails>;
         static TagDetails GetTagDetails(std::string_view tag);
 
-    public:
+      public:
         // Enum utils
         static const char* LevelToString(Level level)
         {
             switch (level)
             {
-                case Level::Trace: return "Trace";
-                case Level::Info:  return "Info";
-                case Level::Warn:  return "Warn";
-                case Level::Error: return "Error";
-                case Level::Fatal: return "Fatal";
+                case Level::Trace:
+                    return "Trace";
+                case Level::Info:
+                    return "Info";
+                case Level::Warn:
+                    return "Warn";
+                case Level::Error:
+                    return "Error";
+                case Level::Fatal:
+                    return "Fatal";
             }
             return "";
         }
         static Level LevelFromString(std::string_view string)
         {
-            if (string == "Trace") return Level::Trace;
-            if (string == "Info")  return Level::Info;
-            if (string == "Warn")  return Level::Warn;
-            if (string == "Error") return Level::Error;
-            if (string == "Fatal") return Level::Fatal;
+            if (string == "Trace")
+                return Level::Trace;
+            if (string == "Info")
+                return Level::Info;
+            if (string == "Warn")
+                return Level::Warn;
+            if (string == "Error")
+                return Level::Error;
+            if (string == "Fatal")
+                return Level::Fatal;
 
             return Level::Trace;
         }
 
-    private:
+      private:
         static std::shared_ptr<spdlog::logger> s_CoreLogger;
         static std::shared_ptr<spdlog::logger> s_ClientLogger;
         static std::shared_ptr<spdlog::logger> s_EditorConsoleLogger;
@@ -134,21 +158,21 @@ namespace OloEngine
             auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
             switch (level)
             {
-            case Level::Trace:
-                logger->trace(fmt::runtime(format), std::forward<Args>(args)...);
-                break;
-            case Level::Info:
-                logger->info(fmt::runtime(format), std::forward<Args>(args)...);
-                break;
-            case Level::Warn:
-                logger->warn(fmt::runtime(format), std::forward<Args>(args)...);
-                break;
-            case Level::Error:
-                logger->error(fmt::runtime(format), std::forward<Args>(args)...);
-                break;
-            case Level::Fatal:
-                logger->critical(fmt::runtime(format), std::forward<Args>(args)...);
-                break;
+                case Level::Trace:
+                    logger->trace(fmt::runtime(format), std::forward<Args>(args)...);
+                    break;
+                case Level::Info:
+                    logger->info(fmt::runtime(format), std::forward<Args>(args)...);
+                    break;
+                case Level::Warn:
+                    logger->warn(fmt::runtime(format), std::forward<Args>(args)...);
+                    break;
+                case Level::Error:
+                    logger->error(fmt::runtime(format), std::forward<Args>(args)...);
+                    break;
+                case Level::Fatal:
+                    logger->critical(fmt::runtime(format), std::forward<Args>(args)...);
+                    break;
             }
         }
     }
@@ -219,21 +243,21 @@ namespace OloEngine
         const std::string full_format = "{}: " + message;
         logger->error(fmt::runtime(full_format), prefix, std::forward<Args>(args)...);
 
-    #if OLO_ASSERT_MESSAGE_BOX
+#if OLO_ASSERT_MESSAGE_BOX
         std::string formatted = spdlog::fmt_lib::format(fmt::runtime(message), std::forward<Args>(args)...);
         MessageBoxA(nullptr, formatted.c_str(), "OloEngine Assert", MB_OK | MB_ICONERROR);
-    #endif
+#endif
     }
 
     inline void Log::PrintAssertMessage(Log::Type type, std::string_view prefix)
     {
         auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
         logger->error("{0}", prefix);
-    #if OLO_ASSERT_MESSAGE_BOX
+#if OLO_ASSERT_MESSAGE_BOX
         MessageBoxA(nullptr, "No message :(", "OloEngine Assert", MB_OK | MB_ICONERROR);
-    #endif
+#endif
     }
-}
+} // namespace OloEngine
 
 // glm stream operators
 template<typename OStream, glm::length_t L, typename T, glm::qualifier Q>
@@ -260,39 +284,39 @@ inline OStream& operator<<(OStream& os, glm::qua<T, Q> quaternion)
 
 // Core logging
 #define OLO_CORE_TRACE_TAG(tag, ...) ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Trace, tag, __VA_ARGS__)
-#define OLO_CORE_INFO_TAG(tag, ...)  ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Info, tag, __VA_ARGS__)
-#define OLO_CORE_WARN_TAG(tag, ...)  ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Warn, tag, __VA_ARGS__)
+#define OLO_CORE_INFO_TAG(tag, ...) ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Info, tag, __VA_ARGS__)
+#define OLO_CORE_WARN_TAG(tag, ...) ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Warn, tag, __VA_ARGS__)
 #define OLO_CORE_ERROR_TAG(tag, ...) ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Error, tag, __VA_ARGS__)
 #define OLO_CORE_FATAL_TAG(tag, ...) ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Fatal, tag, __VA_ARGS__)
 
 // Client logging
 #define OLO_TRACE_TAG(tag, ...) ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Trace, tag, __VA_ARGS__)
-#define OLO_INFO_TAG(tag, ...)  ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Info, tag, __VA_ARGS__)
-#define OLO_WARN_TAG(tag, ...)  ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Warn, tag, __VA_ARGS__)
+#define OLO_INFO_TAG(tag, ...) ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Info, tag, __VA_ARGS__)
+#define OLO_WARN_TAG(tag, ...) ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Warn, tag, __VA_ARGS__)
 #define OLO_ERROR_TAG(tag, ...) ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Error, tag, __VA_ARGS__)
 #define OLO_FATAL_TAG(tag, ...) ::OloEngine::Log::PrintMessageTag(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Fatal, tag, __VA_ARGS__)
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Core Logging
-#define OLO_CORE_TRACE(...)  ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Trace, __VA_ARGS__)
-#define OLO_CORE_INFO(...)   ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Info, __VA_ARGS__)
-#define OLO_CORE_WARN(...)   ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Warn, __VA_ARGS__)
-#define OLO_CORE_ERROR(...)  ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Error, __VA_ARGS__)
-#define OLO_CORE_FATAL(...)  ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Fatal, __VA_ARGS__)
+#define OLO_CORE_TRACE(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Trace, __VA_ARGS__)
+#define OLO_CORE_INFO(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Info, __VA_ARGS__)
+#define OLO_CORE_WARN(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Warn, __VA_ARGS__)
+#define OLO_CORE_ERROR(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Error, __VA_ARGS__)
+#define OLO_CORE_FATAL(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Fatal, __VA_ARGS__)
 #define OLO_CORE_CRITICAL(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Core, ::OloEngine::Log::Level::Fatal, __VA_ARGS__)
 
 // Client Logging
-#define OLO_TRACE(...)   ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Trace, __VA_ARGS__)
-#define OLO_INFO(...)    ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Info, __VA_ARGS__)
-#define OLO_WARN(...)    ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Warn, __VA_ARGS__)
-#define OLO_ERROR(...)   ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Error, __VA_ARGS__)
-#define OLO_FATAL(...)   ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Fatal, __VA_ARGS__)
-#define OLO_CRITICAL(...)::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Fatal, __VA_ARGS__)
+#define OLO_TRACE(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Trace, __VA_ARGS__)
+#define OLO_INFO(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Info, __VA_ARGS__)
+#define OLO_WARN(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Warn, __VA_ARGS__)
+#define OLO_ERROR(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Error, __VA_ARGS__)
+#define OLO_FATAL(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Fatal, __VA_ARGS__)
+#define OLO_CRITICAL(...) ::OloEngine::Log::PrintMessage(::OloEngine::Log::Type::Client, ::OloEngine::Log::Level::Fatal, __VA_ARGS__)
 
 // Editor Console Logging Macros
-#define OLO_CONSOLE_LOG_TRACE(...)   OloEngine::Log::GetEditorConsoleLogger()->trace(__VA_ARGS__)
-#define OLO_CONSOLE_LOG_INFO(...)    OloEngine::Log::GetEditorConsoleLogger()->info(__VA_ARGS__)
-#define OLO_CONSOLE_LOG_WARN(...)    OloEngine::Log::GetEditorConsoleLogger()->warn(__VA_ARGS__)
-#define OLO_CONSOLE_LOG_ERROR(...)   OloEngine::Log::GetEditorConsoleLogger()->error(__VA_ARGS__)
-#define OLO_CONSOLE_LOG_FATAL(...)   OloEngine::Log::GetEditorConsoleLogger()->critical(__VA_ARGS__)
+#define OLO_CONSOLE_LOG_TRACE(...) OloEngine::Log::GetEditorConsoleLogger()->trace(__VA_ARGS__)
+#define OLO_CONSOLE_LOG_INFO(...) OloEngine::Log::GetEditorConsoleLogger()->info(__VA_ARGS__)
+#define OLO_CONSOLE_LOG_WARN(...) OloEngine::Log::GetEditorConsoleLogger()->warn(__VA_ARGS__)
+#define OLO_CONSOLE_LOG_ERROR(...) OloEngine::Log::GetEditorConsoleLogger()->error(__VA_ARGS__)
+#define OLO_CONSOLE_LOG_FATAL(...) OloEngine::Log::GetEditorConsoleLogger()->critical(__VA_ARGS__)

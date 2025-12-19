@@ -13,11 +13,11 @@
 #include <atomic>
 
 #if defined(AGGRESSIVE_MEMORY_SAVING) && AGGRESSIVE_MEMORY_SAVING
-    #define LOCALQUEUEREGISTRYDEFAULTS_MAX_LOCALQUEUES 1024
-    #define LOCALQUEUEREGISTRYDEFAULTS_MAX_ITEMCOUNT 512
+#define LOCALQUEUEREGISTRYDEFAULTS_MAX_LOCALQUEUES 1024
+#define LOCALQUEUEREGISTRYDEFAULTS_MAX_ITEMCOUNT 512
 #else
-    #define LOCALQUEUEREGISTRYDEFAULTS_MAX_LOCALQUEUES 1024
-    #define LOCALQUEUEREGISTRYDEFAULTS_MAX_ITEMCOUNT 1024
+#define LOCALQUEUEREGISTRYDEFAULTS_MAX_LOCALQUEUES 1024
+#define LOCALQUEUEREGISTRYDEFAULTS_MAX_ITEMCOUNT 1024
 #endif
 
 namespace OloEngine::LowLevelTasks
@@ -26,19 +26,19 @@ namespace OloEngine::LowLevelTasks
     {
         // @class TWorkStealingQueueBase2
         // @brief Lock-free work stealing queue base implementation
-        // 
-        // Each node has one array but we don't search for a vacant entry. 
+        //
+        // Each node has one array but we don't search for a vacant entry.
         // Instead, we use FAA to obtain an index in the array, for enqueueing or dequeuing.
         template<u32 NumItems>
         class TWorkStealingQueueBase2
         {
             enum class ESlotState : uptr
             {
-                Free  = 0, // The slot is free and items can be put there
+                Free = 0,  // The slot is free and items can be put there
                 Taken = 1, // The slot is in the process of being stolen
             };
 
-        protected:
+          protected:
             // @brief Insert an item at the head position (only safe on a single thread, shared with Get)
             OLO_FINLINE bool Put(uptr Item)
             {
@@ -110,14 +110,14 @@ namespace OloEngine::LowLevelTasks
                 } while (true);
             }
 
-        private:
+          private:
             struct FAlignedElement
             {
                 alignas(OLO_PLATFORM_CACHE_LINE_SIZE * 2) std::atomic<uptr> Value = {};
             };
 
-            alignas(OLO_PLATFORM_CACHE_LINE_SIZE * 2) u32 m_Head{~0u};
-            alignas(OLO_PLATFORM_CACHE_LINE_SIZE * 2) std::atomic_uint m_Tail{0};
+            alignas(OLO_PLATFORM_CACHE_LINE_SIZE * 2) u32 m_Head{ ~0u };
+            alignas(OLO_PLATFORM_CACHE_LINE_SIZE * 2) std::atomic_uint m_Tail{ 0 };
             alignas(OLO_PLATFORM_CACHE_LINE_SIZE * 2) FAlignedElement m_ItemSlots[NumItems] = {};
         };
 
@@ -128,7 +128,7 @@ namespace OloEngine::LowLevelTasks
         {
             using PointerType = Type*;
 
-        public:
+          public:
             OLO_FINLINE bool Put(PointerType Item)
             {
                 return TWorkStealingQueueBase2<NumItems>::Put(reinterpret_cast<uptr>(Item));
@@ -159,14 +159,14 @@ namespace OloEngine::LowLevelTasks
 
         // @class TLocalQueueRegistry
         // @brief A collection of lock-free queues for work distribution
-        // 
-        // LocalQueues can only be Enqueued and Dequeued by the current Thread they were installed on. 
+        //
+        // LocalQueues can only be Enqueued and Dequeued by the current Thread they were installed on.
         // But Items can be stolen from any Thread.
-        // 
-        // There is a global OverflowQueue that is used when a LocalQueue goes out of scope to dump all 
-        // remaining Items, or when a Thread has no LocalQueue installed or when the LocalQueue is at capacity. 
+        //
+        // There is a global OverflowQueue that is used when a LocalQueue goes out of scope to dump all
+        // remaining Items, or when a Thread has no LocalQueue installed or when the LocalQueue is at capacity.
         // A new LocalQueue registers itself always.
-        // 
+        //
         // A Dequeue Operation can only be done starting from a LocalQueue, then the GlobalQueue will be checked.
         // Finally Items might get Stolen from other LocalQueues that are registered with the LocalQueueRegistry.
         template<u32 NumLocalItems = LOCALQUEUEREGISTRYDEFAULTS_MAX_ITEMCOUNT, u32 MaxLocalQueues = LOCALQUEUEREGISTRYDEFAULTS_MAX_LOCALQUEUES>
@@ -181,15 +181,15 @@ namespace OloEngine::LowLevelTasks
                 return (State >> 22u) ^ State;
             }
 
-        public:
+          public:
             class TLocalQueue;
 
-        private:
-            using FLocalQueueType    = LocalQueue_Impl::TWorkStealingQueue2<FTask, NumLocalItems>;
+          private:
+            using FLocalQueueType = LocalQueue_Impl::TWorkStealingQueue2<FTask, NumLocalItems>;
             using FOverflowQueueType = FAAArrayQueue<FTask>;
-            using DequeueHazard      = typename FOverflowQueueType::DequeueHazard;
+            using DequeueHazard = typename FOverflowQueueType::DequeueHazard;
 
-        public:
+          public:
             // @class TLocalQueue
             // @brief Thread-local work queue with work stealing support
             class TLocalQueue
@@ -197,7 +197,7 @@ namespace OloEngine::LowLevelTasks
                 template<u32, u32>
                 friend class TLocalQueueRegistry;
 
-            public:
+              public:
                 TLocalQueue() = default;
 
                 TLocalQueue(TLocalQueueRegistry& InRegistry, ELocalQueueType InQueueType)
@@ -311,27 +311,23 @@ namespace OloEngine::LowLevelTasks
                     return nullptr;
                 }
 
-            private:
-                static constexpr u32   InvalidIndex = ~0u;
-                FLocalQueueType        m_LocalQueues[u32(ETaskPriority::Count)];
-                DequeueHazard          m_DequeueHazards[u32(ETaskPriority::Count)];
-                TLocalQueueRegistry*   m_Registry = nullptr;
-                u32                    m_CachedRandomIndex = InvalidIndex;
-                u32                    m_CachedPriorityIndex = 0;
-                ELocalQueueType        m_QueueType;
-                std::atomic<bool>      m_bIsInitialized{ false };
+              private:
+                static constexpr u32 InvalidIndex = ~0u;
+                FLocalQueueType m_LocalQueues[u32(ETaskPriority::Count)];
+                DequeueHazard m_DequeueHazards[u32(ETaskPriority::Count)];
+                TLocalQueueRegistry* m_Registry = nullptr;
+                u32 m_CachedRandomIndex = InvalidIndex;
+                u32 m_CachedPriorityIndex = 0;
+                ELocalQueueType m_QueueType;
+                std::atomic<bool> m_bIsInitialized{ false };
 
-            public:
+              public:
                 // Make movable for std::vector compatibility
                 // Note: m_LocalQueues are not moved as they contain non-movable atomics.
                 // The queues should be empty when moving, and new ones will be default-initialized.
                 // m_DequeueHazards are moved individually since they have move assignment.
                 TLocalQueue(TLocalQueue&& Other) noexcept
-                    : m_Registry(Other.m_Registry)
-                    , m_CachedRandomIndex(Other.m_CachedRandomIndex)
-                    , m_CachedPriorityIndex(Other.m_CachedPriorityIndex)
-                    , m_QueueType(Other.m_QueueType)
-                    , m_bIsInitialized(Other.m_bIsInitialized.load(std::memory_order_relaxed))
+                    : m_Registry(Other.m_Registry), m_CachedRandomIndex(Other.m_CachedRandomIndex), m_CachedPriorityIndex(Other.m_CachedPriorityIndex), m_QueueType(Other.m_QueueType), m_bIsInitialized(Other.m_bIsInitialized.load(std::memory_order_relaxed))
                 {
                     for (u32 i = 0; i < u32(ETaskPriority::Count); ++i)
                     {
@@ -348,7 +344,7 @@ namespace OloEngine::LowLevelTasks
 
             TLocalQueueRegistry() = default;
 
-        private:
+          private:
             // @brief Add a queue to the Registry. Thread-safe.
             void AddLocalQueue(TLocalQueue* QueueToAdd)
             {
@@ -363,7 +359,7 @@ namespace OloEngine::LowLevelTasks
             // Thread-safe with AddLocalQueue
             FTask* StealItem(u32& CachedRandomIndex, u32& CachedPriorityIndex, bool GetBackGroundTasks)
             {
-                u32 NumQueues   = m_NumLocalQueues.load(std::memory_order_relaxed);
+                u32 NumQueues = m_NumLocalQueues.load(std::memory_order_relaxed);
                 u32 MaxPriority = GetBackGroundTasks ? i32(ETaskPriority::Count) : i32(ETaskPriority::ForegroundCount);
                 CachedRandomIndex = CachedRandomIndex % NumQueues;
 
@@ -389,7 +385,7 @@ namespace OloEngine::LowLevelTasks
                 return nullptr;
             }
 
-        public:
+          public:
             // @brief Enqueue an Item directly into the Global OverflowQueue
             void Enqueue(FTask* Item, u32 PriorityIndex)
             {
@@ -438,10 +434,10 @@ namespace OloEngine::LowLevelTasks
                 m_NumLocalQueues.store(0, std::memory_order_release);
             }
 
-        private:
-            FOverflowQueueType        m_OverflowQueues[u32(ETaskPriority::Count)];
-            std::atomic<TLocalQueue*> m_LocalQueues[MaxLocalQueues]{nullptr};
-            std::atomic<u32>          m_NumLocalQueues{0};
+          private:
+            FOverflowQueueType m_OverflowQueues[u32(ETaskPriority::Count)];
+            std::atomic<TLocalQueue*> m_LocalQueues[MaxLocalQueues]{ nullptr };
+            std::atomic<u32> m_NumLocalQueues{ 0 };
         };
 
     } // namespace Private

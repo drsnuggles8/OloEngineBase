@@ -94,35 +94,59 @@ namespace OloEngine
         {
             switch (assetType)
             {
-                case AssetType::None:                return "None";
-                case AssetType::Scene:               return "Scene";
-                case AssetType::Prefab:              return "Prefab";
-                case AssetType::Mesh:                return "Mesh";
-                case AssetType::StaticMesh:          return "StaticMesh";
-                case AssetType::MeshSource:          return "MeshSource";
-                case AssetType::Material:            return "Material";
-                case AssetType::Texture2D:           return "Texture2D";
-                case AssetType::TextureCube:         return "TextureCube";
-                case AssetType::EnvMap:              return "EnvMap";
-                case AssetType::Audio:               return "Audio";
-                case AssetType::SoundConfig:         return "SoundConfig";
-                case AssetType::SpatializationConfig: return "SpatializationConfig";
-                case AssetType::Font:                return "Font";
-                case AssetType::Script:              return "Script";
-                case AssetType::ScriptFile:          return "ScriptFile";
-                case AssetType::Shader:              return "Shader";
-                case AssetType::MeshCollider:        return "MeshCollider";
-                case AssetType::SoundGraphSound:     return "SoundGraphSound";
-                case AssetType::AnimationClip:       return "AnimationClip";
-                case AssetType::AnimationGraph:      return "AnimationGraph";
-                case AssetType::Model:               return "Model";
-                case AssetType::Environment:         return "Environment";
-                case AssetType::SoundGraph:          return "SoundGraph";
-            }            
+                case AssetType::None:
+                    return "None";
+                case AssetType::Scene:
+                    return "Scene";
+                case AssetType::Prefab:
+                    return "Prefab";
+                case AssetType::Mesh:
+                    return "Mesh";
+                case AssetType::StaticMesh:
+                    return "StaticMesh";
+                case AssetType::MeshSource:
+                    return "MeshSource";
+                case AssetType::Material:
+                    return "Material";
+                case AssetType::Texture2D:
+                    return "Texture2D";
+                case AssetType::TextureCube:
+                    return "TextureCube";
+                case AssetType::EnvMap:
+                    return "EnvMap";
+                case AssetType::Audio:
+                    return "Audio";
+                case AssetType::SoundConfig:
+                    return "SoundConfig";
+                case AssetType::SpatializationConfig:
+                    return "SpatializationConfig";
+                case AssetType::Font:
+                    return "Font";
+                case AssetType::Script:
+                    return "Script";
+                case AssetType::ScriptFile:
+                    return "ScriptFile";
+                case AssetType::Shader:
+                    return "Shader";
+                case AssetType::MeshCollider:
+                    return "MeshCollider";
+                case AssetType::SoundGraphSound:
+                    return "SoundGraphSound";
+                case AssetType::AnimationClip:
+                    return "AnimationClip";
+                case AssetType::AnimationGraph:
+                    return "AnimationGraph";
+                case AssetType::Model:
+                    return "Model";
+                case AssetType::Environment:
+                    return "Environment";
+                case AssetType::SoundGraph:
+                    return "SoundGraph";
+            }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
         }
-        
+
         /**
          * @brief Convert string representation to AssetType enum
          * @param assetType String representation of the asset type
@@ -130,32 +154,57 @@ namespace OloEngine
          */
         inline AssetType AssetTypeFromString(const std::string& assetType)
         {
-            if (assetType == "None")                return AssetType::None;
-            if (assetType == "Scene")               return AssetType::Scene;
-            if (assetType == "Prefab")              return AssetType::Prefab;
-            if (assetType == "Mesh")                return AssetType::Mesh;
-            if (assetType == "StaticMesh")          return AssetType::StaticMesh;
-            if (assetType == "MeshAsset")           return AssetType::MeshSource; // DEPRECATED
-            if (assetType == "MeshSource")          return AssetType::MeshSource;
-            if (assetType == "Material")            return AssetType::Material;
-            if (assetType == "Texture2D")           return AssetType::Texture2D;
-            if (assetType == "TextureCube")         return AssetType::TextureCube;
-            if (assetType == "EnvMap")              return AssetType::EnvMap;
-            if (assetType == "Audio")               return AssetType::Audio;
-            if (assetType == "SoundConfig")         return AssetType::SoundConfig;
-            if (assetType == "SpatializationConfig") return AssetType::SpatializationConfig;
-            if (assetType == "Font")                return AssetType::Font;
-            if (assetType == "Script")              return AssetType::Script;
-            if (assetType == "ScriptFile")          return AssetType::ScriptFile;
-            if (assetType == "Shader")              return AssetType::Shader;
-            if (assetType == "MeshCollider")        return AssetType::MeshCollider;
-            if (assetType == "SoundGraphSound")     return AssetType::SoundGraphSound;
-            if (assetType == "AnimationClip")       return AssetType::AnimationClip;
-            //if (assetType == "AnimationController") return AssetType::AnimationController; // OBSOLETE. You need to re-import animated asset
-            if (assetType == "AnimationGraph")      return AssetType::AnimationGraph;
-            if (assetType == "Model")               return AssetType::Model;
-            if (assetType == "Environment")         return AssetType::Environment;
-            if (assetType == "SoundGraph")          return AssetType::SoundGraph;
+            if (assetType == "None")
+                return AssetType::None;
+            if (assetType == "Scene")
+                return AssetType::Scene;
+            if (assetType == "Prefab")
+                return AssetType::Prefab;
+            if (assetType == "Mesh")
+                return AssetType::Mesh;
+            if (assetType == "StaticMesh")
+                return AssetType::StaticMesh;
+            if (assetType == "MeshAsset")
+                return AssetType::MeshSource; // DEPRECATED
+            if (assetType == "MeshSource")
+                return AssetType::MeshSource;
+            if (assetType == "Material")
+                return AssetType::Material;
+            if (assetType == "Texture2D")
+                return AssetType::Texture2D;
+            if (assetType == "TextureCube")
+                return AssetType::TextureCube;
+            if (assetType == "EnvMap")
+                return AssetType::EnvMap;
+            if (assetType == "Audio")
+                return AssetType::Audio;
+            if (assetType == "SoundConfig")
+                return AssetType::SoundConfig;
+            if (assetType == "SpatializationConfig")
+                return AssetType::SpatializationConfig;
+            if (assetType == "Font")
+                return AssetType::Font;
+            if (assetType == "Script")
+                return AssetType::Script;
+            if (assetType == "ScriptFile")
+                return AssetType::ScriptFile;
+            if (assetType == "Shader")
+                return AssetType::Shader;
+            if (assetType == "MeshCollider")
+                return AssetType::MeshCollider;
+            if (assetType == "SoundGraphSound")
+                return AssetType::SoundGraphSound;
+            if (assetType == "AnimationClip")
+                return AssetType::AnimationClip;
+            // if (assetType == "AnimationController") return AssetType::AnimationController; // OBSOLETE. You need to re-import animated asset
+            if (assetType == "AnimationGraph")
+                return AssetType::AnimationGraph;
+            if (assetType == "Model")
+                return AssetType::Model;
+            if (assetType == "Environment")
+                return AssetType::Environment;
+            if (assetType == "SoundGraph")
+                return AssetType::SoundGraph;
 
             return AssetType::None;
         }
@@ -169,6 +218,6 @@ namespace OloEngine
         {
             return type != AssetType::None;
         }
-    }
+    } // namespace AssetUtils
 
-}
+} // namespace OloEngine

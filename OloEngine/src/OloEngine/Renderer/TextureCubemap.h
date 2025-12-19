@@ -18,22 +18,28 @@ namespace OloEngine
 
     class TextureCubemap : public Texture
     {
-    public:
+      public:
         virtual ~TextureCubemap() = default;
-        
+
         // Create from 6 individual face images
         static Ref<TextureCubemap> Create(const std::vector<std::string>& facePaths);
-        
+
         // Create empty cubemap with specification
         static Ref<TextureCubemap> Create(const CubemapSpecification& specification);
-        
+
         // Set data for a specific face
         virtual void SetFaceData(u32 faceIndex, void* data, u32 size) = 0;
-        
+
         virtual const CubemapSpecification& GetCubemapSpecification() const = 0;
 
         // Asset interface
-        static AssetType GetStaticType() { return AssetType::TextureCube; }
-        virtual AssetType GetAssetType() const override { return GetStaticType(); }
+        static AssetType GetStaticType()
+        {
+            return AssetType::TextureCube;
+        }
+        virtual AssetType GetAssetType() const override
+        {
+            return GetStaticType();
+        }
     };
-}
+} // namespace OloEngine

@@ -20,86 +20,116 @@
 
 namespace OloEngine
 {
-	// Configuration for overriding texture paths when model's embedded paths are incorrect
-	struct TextureOverride
-	{
-		std::string AlbedoPath;
-		std::string MetallicPath;
-		std::string NormalPath;
-		std::string RoughnessPath;
-		std::string AOPath;
-		std::string EmissivePath;
-		
-		bool HasAnyTexture() const 
-		{
-			return !AlbedoPath.empty() || !MetallicPath.empty() || !NormalPath.empty() || 
-			       !RoughnessPath.empty() || !AOPath.empty() || !EmissivePath.empty();
-		}
-	};
+    // Configuration for overriding texture paths when model's embedded paths are incorrect
+    struct TextureOverride
+    {
+        std::string AlbedoPath;
+        std::string MetallicPath;
+        std::string NormalPath;
+        std::string RoughnessPath;
+        std::string AOPath;
+        std::string EmissivePath;
 
-	class Model : public RendererResource
-	{
-	public:
-		Model() = default;
-		explicit Model(const std::string& path, const TextureOverride& textureOverride = {}, bool flipUV = false);
-		~Model() = default;
+        bool HasAnyTexture() const
+        {
+            return !AlbedoPath.empty() || !MetallicPath.empty() || !NormalPath.empty() ||
+                   !RoughnessPath.empty() || !AOPath.empty() || !EmissivePath.empty();
+        }
+    };
 
-		void LoadModel(const std::string& path, const TextureOverride& textureOverride = {}, bool flipUV = false);
-		void Draw(const glm::mat4& transform, const Material& material) const;
-		void Draw(const glm::mat4& transform, const Ref<const Material>& material) const;
+    class Model : public RendererResource
+    {
+      public:
+        Model() = default;
+        explicit Model(const std::string& path, const TextureOverride& textureOverride = {}, bool flipUV = false);
+        ~Model() = default;
 
-		void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
-		void GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, std::vector<CommandPacket*>& outCommands) const;
-		void GetDrawCommands(const glm::mat4& transform, std::vector<CommandPacket*>& outCommands) const;
-		
-		// Calculate bounding volumes for the entire model
-		void CalculateBounds();
-		
-		// Bounding volume accessors
-		[[nodiscard]] const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
-		[[nodiscard]] const BoundingSphere& GetBoundingSphere() const { return m_BoundingSphere; }
-		
-		// Get transformed bounding volumes
-		[[nodiscard]] BoundingBox GetTransformedBoundingBox(const glm::mat4& transform) const { return m_BoundingBox.Transform(transform); }
-		[[nodiscard]] BoundingSphere GetTransformedBoundingSphere(const glm::mat4& transform) const { return m_BoundingSphere.Transform(transform); }
-		
-		// Accessors for materials
-		[[nodiscard]] const std::vector<Ref<Material>>& GetMaterials() const { return m_Materials; }
-		
-		// Index-based material accessors with proper const-correctness
-		[[nodiscard]] Ref<Material> GetMaterial(sizet index) { return index < m_Materials.size() ? m_Materials[index] : nullptr; }
-		[[nodiscard]] const Ref<Material>& GetMaterial(sizet index) const { return index < m_Materials.size() ? m_Materials[index] : GetNullMaterialRef(); }
-		
-		// Get material count for safe iteration
-		[[nodiscard]] sizet GetMaterialCount() const { return m_Materials.size(); }
+        void LoadModel(const std::string& path, const TextureOverride& textureOverride = {}, bool flipUV = false);
+        void Draw(const glm::mat4& transform, const Material& material) const;
+        void Draw(const glm::mat4& transform, const Ref<const Material>& material) const;
 
-	private:
-		// Helper method to return a null material reference for const access
-		static const Ref<Material>& GetNullMaterialRef() 
-		{ 
-			static const Ref<Material> nullMaterial = nullptr; 
-			return nullMaterial; 
-		}
+        void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
+        void GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, std::vector<CommandPacket*>& outCommands) const;
+        void GetDrawCommands(const glm::mat4& transform, std::vector<CommandPacket*>& outCommands) const;
 
-		// Asset interface
-		constexpr static AssetType GetStaticType() { return AssetType::Model; }
-		virtual AssetType GetAssetType() const override { return GetStaticType(); }
+        // Calculate bounding volumes for the entire model
+        void CalculateBounds();
 
-	private:
-		void ProcessNode(const aiNode* node, const aiScene* scene);
-		Ref<Mesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
-		std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type);
-		Ref<Material> ProcessMaterial(const aiMaterial* mat);
+        // Bounding volume accessors
+        [[nodiscard]] const BoundingBox& GetBoundingBox() const
+        {
+            return m_BoundingBox;
+        }
+        [[nodiscard]] const BoundingSphere& GetBoundingSphere() const
+        {
+            return m_BoundingSphere;
+        }
 
-		std::vector<Ref<Mesh>> m_Meshes;
-		std::vector<Ref<Material>> m_Materials;  // Materials corresponding to each mesh
-		std::unordered_map<u32, u32> m_MaterialIndexMap; // Maps Assimp material indices to m_Materials indices
-		std::string m_Directory;
-		std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
-		std::optional<TextureOverride> m_TextureOverride;
-		bool m_FlipUV = false;
-		
-		BoundingBox m_BoundingBox;
-		BoundingSphere m_BoundingSphere;
-	};
-}
+        // Get transformed bounding volumes
+        [[nodiscard]] BoundingBox GetTransformedBoundingBox(const glm::mat4& transform) const
+        {
+            return m_BoundingBox.Transform(transform);
+        }
+        [[nodiscard]] BoundingSphere GetTransformedBoundingSphere(const glm::mat4& transform) const
+        {
+            return m_BoundingSphere.Transform(transform);
+        }
+
+        // Accessors for materials
+        [[nodiscard]] const std::vector<Ref<Material>>& GetMaterials() const
+        {
+            return m_Materials;
+        }
+
+        // Index-based material accessors with proper const-correctness
+        [[nodiscard]] Ref<Material> GetMaterial(sizet index)
+        {
+            return index < m_Materials.size() ? m_Materials[index] : nullptr;
+        }
+        [[nodiscard]] const Ref<Material>& GetMaterial(sizet index) const
+        {
+            return index < m_Materials.size() ? m_Materials[index] : GetNullMaterialRef();
+        }
+
+        // Get material count for safe iteration
+        [[nodiscard]] sizet GetMaterialCount() const
+        {
+            return m_Materials.size();
+        }
+
+      private:
+        // Helper method to return a null material reference for const access
+        static const Ref<Material>& GetNullMaterialRef()
+        {
+            static const Ref<Material> nullMaterial = nullptr;
+            return nullMaterial;
+        }
+
+        // Asset interface
+        constexpr static AssetType GetStaticType()
+        {
+            return AssetType::Model;
+        }
+        virtual AssetType GetAssetType() const override
+        {
+            return GetStaticType();
+        }
+
+      private:
+        void ProcessNode(const aiNode* node, const aiScene* scene);
+        Ref<Mesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
+        std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type);
+        Ref<Material> ProcessMaterial(const aiMaterial* mat);
+
+        std::vector<Ref<Mesh>> m_Meshes;
+        std::vector<Ref<Material>> m_Materials;          // Materials corresponding to each mesh
+        std::unordered_map<u32, u32> m_MaterialIndexMap; // Maps Assimp material indices to m_Materials indices
+        std::string m_Directory;
+        std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
+        std::optional<TextureOverride> m_TextureOverride;
+        bool m_FlipUV = false;
+
+        BoundingBox m_BoundingBox;
+        BoundingSphere m_BoundingSphere;
+    };
+} // namespace OloEngine

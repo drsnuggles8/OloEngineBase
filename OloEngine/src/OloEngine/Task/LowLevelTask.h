@@ -44,8 +44,7 @@ namespace OloEngine::LowLevelTasks
             return nullptr;
         }
 
-        const char* TaskPriorityToStr[] =
-        {
+        const char* TaskPriorityToStr[] = {
             "High",
             "Normal",
             "BackgroundHigh",
@@ -66,12 +65,14 @@ namespace OloEngine::LowLevelTasks
         // Simple case-insensitive comparison helper
         auto StrCmpI = [](const char* a, const char* b) -> bool
         {
-            if (!a || !b) return false;
+            if (!a || !b)
+                return false;
             while (*a && *b)
             {
                 char ca = (*a >= 'A' && *a <= 'Z') ? (*a + 32) : *a;
                 char cb = (*b >= 'A' && *b <= 'Z') ? (*b + 32) : *b;
-                if (ca != cb) return false;
+                if (ca != cb)
+                    return false;
                 ++a;
                 ++b;
             }
@@ -115,10 +116,10 @@ namespace OloEngine::LowLevelTasks
     // @brief Flags controlling task cancellation behavior
     enum class ECancellationFlags : i8
     {
-        None                    = 0 << 0,
-        TryLaunchOnSuccess      = 1 << 0, // try to launch the continuation immediately if it was not launched yet (requires PrelaunchCancellation to work)
-        PrelaunchCancellation   = 1 << 1, // allow cancellation before a task has been launched (this also allows the optimization of TryLaunchOnSuccess)
-        DefaultFlags            = TryLaunchOnSuccess | PrelaunchCancellation,
+        None = 0 << 0,
+        TryLaunchOnSuccess = 1 << 0,    // try to launch the continuation immediately if it was not launched yet (requires PrelaunchCancellation to work)
+        PrelaunchCancellation = 1 << 1, // allow cancellation before a task has been launched (this also allows the optimization of TryLaunchOnSuccess)
+        DefaultFlags = TryLaunchOnSuccess | PrelaunchCancellation,
     };
     ENUM_CLASS_FLAGS(ECancellationFlags)
 
@@ -126,74 +127,61 @@ namespace OloEngine::LowLevelTasks
     // @brief Flags controlling task behavior
     enum class ETaskFlags : i8
     {
-        AllowNothing        = 0 << 0,
-        AllowBusyWaiting    = 1 << 0,
-        AllowCancellation   = 1 << 1,
-        AllowEverything     = AllowBusyWaiting | AllowCancellation,
-        DefaultFlags        = AllowEverything,
+        AllowNothing = 0 << 0,
+        AllowBusyWaiting = 1 << 0,
+        AllowCancellation = 1 << 1,
+        AllowEverything = AllowBusyWaiting | AllowCancellation,
+        DefaultFlags = AllowEverything,
     };
     ENUM_CLASS_FLAGS(ETaskFlags)
 
     // @enum ETaskState
     // @brief State machine states for task execution
-     * 
-    // State transitions:
-     * 
-    // (I)nitThread:                                                        STORE(I)----------------------CAS(C)----------------------    
-     * (C)ancelingThread:                                                      --->|         Ready        |<-->|   CanceledAndReady   |   
-     *                                                                              ----------------------      ----------------------    
-     *                                                                                        |OR(L)                      |OR(L)               
-     *                                                                                        V                           V               
-     * (L)aunchingThread:   --------------------------------------------------CAS(E)----------------------CAS(C)----------------------    
-     * (C)ancelingThread:  |                      Running                     |<---|      Scheduled       |<-->|       Canceled       |   
-     * (E)xpeditingThread:  --------------------------------------------------      ----------------------      ----------------------    
-     *                                |OR(E)                      |OR(W)                      |OR(W)                      |OR(W)               
-     *                                V                           V                           V                           V               
-     * (W)orkerThread:      ---------------------- OR(E)----------------------      ----------------------      ---------------------- 	   
-     * (E)xpeditingThread: |      Expedited       |<---|      Expediting      |    |       Running        |    |  CanceledAndRunning  |	   
-     *                      ----------------------      ----------------------      ----------------------      ----------------------   
-     *                                |OR(W,E)                                                |OR(W)                      |OR(W)		   
-     *                                V                                                       V                           V			   
-     * (W)orkerThread:      ----------------------                                  ----------------------      ----------------------    
-     * (E)xpeditingThread: |ExpeditedAndCompleted |                                |       Completed      |    | CanceledAndCompleted |   
-     *                      ----------------------                                  ----------------------      ---------------------- 
-     */
-    enum class ETaskState : i8
-    {
-        ReadyState      = 0,
-        CanceledFlag    = 1 << 0,
-        ScheduledFlag   = 1 << 1,
-        RunningFlag     = 1 << 2,
-        ExpeditingFlag  = 1 << 3,
-        ExpeditedFlag   = 1 << 4,
-        CompletedFlag   = 1 << 5,                                           // the default state when we create a handle
-        Count           = (1 << 6) - 1,
+    *
+        // State transitions:
+        *
+        // (I)nitThread:                                                        STORE(I)----------------------CAS(C)----------------------
+        *(C)ancelingThread : --->|
+        Ready | <--> | CanceledAndReady |
+        *-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --*| OR(L) | OR(L) * V V*(L)aunchingThread : -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --CAS(E)-- -- -- -- -- -- -- -- -- -- --CAS(C)-- -- -- -- -- -- -- -- -- -- --*(C)ancelingThread : | Running | < -- -| Scheduled | <--> | Canceled |
+                                                                                                                                                                                                                                                                                                *(E)xpeditingThread : -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --*| OR(E) | OR(W) | OR(W) | OR(W) * V V V V*(W)orkerThread : -- -- -- -- -- -- -- -- -- -- --OR(E)-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --*(E)xpeditingThread : | Expedited | < -- -| Expediting | | Running | | CanceledAndRunning |
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           *-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --*| OR(W, E) | OR(W) | OR(W) * V V V*(W)orkerThread : -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --*(E)xpeditingThread : | ExpeditedAndCompleted | | Completed | | CanceledAndCompleted |
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            *-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --*/
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                enum class ETaskState : i8 {
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ReadyState = 0,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    CanceledFlag = 1 << 0,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ScheduledFlag = 1 << 1,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    RunningFlag = 1 << 2,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ExpeditingFlag = 1 << 3,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ExpeditedFlag = 1 << 4,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    CompletedFlag = 1 << 5, // the default state when we create a handle
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Count = (1 << 6) - 1,
 
-        Ready                   = ReadyState,                               // means the Task is ready to be launched
-        CanceledAndReady        = Ready | CanceledFlag,                     // means the task was canceled and is ready to be launched (it still is required to be launched)
-        Scheduled               = Ready | ScheduledFlag,                    // means the task is launched and therefore queued for execution by a worker
-        Canceled                = CanceledAndReady | ScheduledFlag,         // means the task was canceled and launched and therefore queued for execution by a worker (which already might be executing its continuation)
-        Running                 = Scheduled | RunningFlag,                  // means the task is executing its runnable and continuation by a worker
-        CanceledAndRunning      = Canceled | RunningFlag,                   // means the task is executing its continuation but the runnable was cancelled
-        Expediting              = Running | ExpeditingFlag,                 // means the task is expediting and the scheduler has released its reference to the expediting thread before that was finished
-        Expedited               = Expediting | ExpeditedFlag,               // means the task was expedited
-        Completed               = Running | CompletedFlag,                  // means the task is completed with execution 
-        ExpeditedAndCompleted   = Expedited | CompletedFlag,                // means the task is completed with execution and the runnable was expedited
-        CanceledAndCompleted    = CanceledAndRunning | CompletedFlag,       // means the task is completed with execution of its continuation but the runnable was cancelled
-    };
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Ready = ReadyState,                                        // means the Task is ready to be launched
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    CanceledAndReady = Ready | CanceledFlag,                   // means the task was canceled and is ready to be launched (it still is required to be launched)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Scheduled = Ready | ScheduledFlag,                         // means the task is launched and therefore queued for execution by a worker
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Canceled = CanceledAndReady | ScheduledFlag,               // means the task was canceled and launched and therefore queued for execution by a worker (which already might be executing its continuation)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Running = Scheduled | RunningFlag,                         // means the task is executing its runnable and continuation by a worker
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    CanceledAndRunning = Canceled | RunningFlag,               // means the task is executing its continuation but the runnable was cancelled
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Expediting = Running | ExpeditingFlag,                     // means the task is expediting and the scheduler has released its reference to the expediting thread before that was finished
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Expedited = Expediting | ExpeditedFlag,                    // means the task was expedited
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Completed = Running | CompletedFlag,                       // means the task is completed with execution
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ExpeditedAndCompleted = Expedited | CompletedFlag,         // means the task is completed with execution and the runnable was expedited
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    CanceledAndCompleted = CanceledAndRunning | CompletedFlag, // means the task is completed with execution of its continuation but the runnable was cancelled
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                };
     ENUM_CLASS_FLAGS(ETaskState)
 
     // @class TDeleter
     // @brief Generic implementation of a Deleter for cleanup after a Task finished
-    // 
-    // This can be done by capturing a TDeleter like so: 
+    //
+    // This can be done by capturing a TDeleter like so:
     // [Deleter(LowLevelTasks::TDeleter<Type, &Type::DeleteFunction>(value))](){ }
     template<typename Type, void (Type::*DeleteFunction)()>
     class TDeleter
     {
         Type* m_Value;
 
-    public:
+      public:
         OLO_FINLINE TDeleter(Type* InValue) : m_Value(InValue)
         {
         }
@@ -242,22 +230,20 @@ namespace OloEngine::LowLevelTasks
                 uptr PackedData;
                 struct
                 {
-                    uptr State      : 6;
-                    uptr DebugName  : 53;
-                    uptr Priority   : 3;
-                    uptr Flags      : 2;
+                    uptr State : 6;
+                    uptr DebugName : 53;
+                    uptr Priority : 3;
+                    uptr Flags : 2;
                 };
 
-            private:
+              private:
                 friend class FTaskBase::FPackedDataAtomic;
                 FPackedData(uptr InPackedData) : PackedData(InPackedData)
-                {}
+                {
+                }
 
                 constexpr FPackedData()
-                    : State(static_cast<uptr>(ETaskState::CompletedFlag))
-                    , DebugName(0ull)
-                    , Priority(static_cast<uptr>(ETaskPriority::Count))
-                    , Flags(static_cast<uptr>(ETaskFlags::DefaultFlags))
+                    : State(static_cast<uptr>(ETaskState::CompletedFlag)), DebugName(0ull), Priority(static_cast<uptr>(ETaskPriority::Count)), Flags(static_cast<uptr>(ETaskFlags::DefaultFlags))
                 {
                     static_assert(sizeof(uptr) == 8, "32-bit platforms are not supported");
                     static_assert(static_cast<uptr>(ETaskPriority::Count) <= (1ull << 3), "Not enough bits to store ETaskPriority");
@@ -265,12 +251,9 @@ namespace OloEngine::LowLevelTasks
                     static_assert(static_cast<uptr>(ETaskFlags::AllowEverything) < (1ull << 2), "Not enough bits to store ETaskFlags");
                 }
 
-            public:
+              public:
                 FPackedData(const char* InDebugName, ETaskPriority InPriority, ETaskState InState, ETaskFlags InFlags)
-                    : State(static_cast<uptr>(InState))
-                    , DebugName(reinterpret_cast<uptr>(InDebugName))
-                    , Priority(static_cast<uptr>(InPriority))
-                    , Flags(static_cast<uptr>(InFlags))
+                    : State(static_cast<uptr>(InState)), DebugName(reinterpret_cast<uptr>(InDebugName)), Priority(static_cast<uptr>(InPriority)), Flags(static_cast<uptr>(InFlags))
                 {
                     OLO_CORE_ASSERT(reinterpret_cast<uptr>(InDebugName) < (1ull << 53), "Debug name pointer too large");
                     OLO_CORE_ASSERT(static_cast<uptr>(InPriority) < (1ull << 3), "Priority value out of range");
@@ -307,9 +290,9 @@ namespace OloEngine::LowLevelTasks
 
             class FPackedDataAtomic
             {
-                std::atomic<uptr> PackedData{FPackedData().PackedData};
+                std::atomic<uptr> PackedData{ FPackedData().PackedData };
 
-            public:
+              public:
                 ETaskState fetch_or(ETaskState State, std::memory_order Order)
                 {
                     return static_cast<ETaskState>(FPackedData(PackedData.fetch_or(static_cast<uptr>(State), Order)).State);
@@ -336,13 +319,13 @@ namespace OloEngine::LowLevelTasks
                 }
             };
 
-        private:
+          private:
             using FTaskDelegate = TTaskDelegate<FTask*(bool), LOWLEVEL_TASK_SIZE - sizeof(FPackedData) - sizeof(void*)>;
             FTaskDelegate Runnable;
             mutable void* UserData = nullptr;
             FPackedDataAtomic PackedData;
 
-        private:
+          private:
             FTaskBase() = default;
         };
     } // namespace Tasks_Impl
@@ -364,7 +347,7 @@ namespace OloEngine::LowLevelTasks
         // Defined inline to ensure ODR compliance (C++17 inline variable)
         static inline thread_local FTask* s_ActiveTask = nullptr;
 
-    public:
+      public:
         // @brief Check if the task is completed and this taskhandle can be recycled
         OLO_FINLINE bool IsCompleted(std::memory_order MemoryOrder = std::memory_order_seq_cst) const
         {
@@ -386,7 +369,7 @@ namespace OloEngine::LowLevelTasks
             return EnumHasAnyFlags(State, ETaskState::ExpeditedFlag | ETaskState::CompletedFlag);
         }
 
-    private:
+      private:
         // Scheduler internal interface to speed things up
         OLO_FINLINE bool WasCanceledOrIsExpediting() const
         {
@@ -394,7 +377,7 @@ namespace OloEngine::LowLevelTasks
             return EnumHasAnyFlags(State, ETaskState::CanceledFlag | ETaskState::RunningFlag);
         }
 
-    public:
+      public:
         // @brief Check if the task is ready to be launched but might already been canceled
         OLO_FINLINE bool IsReady() const
         {
@@ -412,25 +395,25 @@ namespace OloEngine::LowLevelTasks
         OLO_FINLINE bool TryCancel(ECancellationFlags CancellationFlags = ECancellationFlags::DefaultFlags);
 
         // @brief Try to revive a canceled task (reverting the cancellation as if it never happened)
-        // 
+        //
         // If it had been canceled and the scheduler has not run it yet it succeeds.
         OLO_FINLINE bool TryRevive();
 
         // @brief Try to expedite the task
-        // 
-        // If succeeded it will run immediately but it will not set the completed state until 
+        //
+        // If succeeded it will run immediately but it will not set the completed state until
         // the scheduler has executed it, because the scheduler still holds a reference.
-        // To check for completion in the context of expediting use WasExpedited. 
+        // To check for completion in the context of expediting use WasExpedited.
         // The TaskHandle cannot be reused until IsCompleted returns true.
-        // 
-        // @param Continuation Optional Continuation that needs to be executed or scheduled by the caller 
+        //
+        // @param Continuation Optional Continuation that needs to be executed or scheduled by the caller
         //                     (can only be non null if the operation returned true)
         OLO_FINLINE bool TryExpedite();
         OLO_FINLINE bool TryExpedite(FTask*& Continuation);
 
         // @brief Try to execute the task if it has not been launched yet the task will execute immediately
-        // 
-        // @param Continuation Optional Continuation that needs to be executed or scheduled by the caller 
+        //
+        // @param Continuation Optional Continuation that needs to be executed or scheduled by the caller
         //                     (can only be non null if the operation returned true)
         OLO_FINLINE bool TryExecute();
         OLO_FINLINE bool TryExecute(FTask*& Continuation);
@@ -455,14 +438,20 @@ namespace OloEngine::LowLevelTasks
         };
         OLO_FINLINE FInitData GetInitData() const;
 
-        void* GetUserData() const { return UserData; }
-        void SetUserData(void* NewUserData) const { UserData = NewUserData; }
+        void* GetUserData() const
+        {
+            return UserData;
+        }
+        void SetUserData(void* NewUserData) const
+        {
+            UserData = NewUserData;
+        }
 
-    public:
+      public:
         FTask() = default;
         OLO_FINLINE ~FTask();
 
-    private: // Interface of the Scheduler
+      private: // Interface of the Scheduler
         OLO_FINLINE static bool PermitBackgroundWork()
         {
             return s_ActiveTask && s_ActiveTask->IsBackgroundTask();
@@ -560,16 +549,14 @@ namespace OloEngine::LowLevelTasks
     OLO_FINLINE bool FTask::TryCancel(ECancellationFlags CancellationFlags)
     {
         bool bPrelaunchCancellation = EnumHasAnyFlags(CancellationFlags, ECancellationFlags::PrelaunchCancellation);
-        bool bTryLaunchOnSuccess    = EnumHasAllFlags(CancellationFlags, ECancellationFlags::PrelaunchCancellation | ECancellationFlags::TryLaunchOnSuccess);
+        bool bTryLaunchOnSuccess = EnumHasAllFlags(CancellationFlags, ECancellationFlags::PrelaunchCancellation | ECancellationFlags::TryLaunchOnSuccess);
 
         FPackedData LocalPackedData = PackedData.load(std::memory_order_relaxed);
         FPackedData ReadyState(LocalPackedData, ETaskState::Ready);
         FPackedData ScheduledState(LocalPackedData, ETaskState::Scheduled);
-        
+
         // To launch a canceled task it has to go through TryPrepareLaunch which is doing the memory_order_release
-        bool WasCanceledResult = EnumHasAnyFlags(LocalPackedData.GetFlags(), ETaskFlags::AllowCancellation)
-            && ((bPrelaunchCancellation && PackedData.compare_exchange_strong(ReadyState, FPackedData(LocalPackedData, ETaskState::CanceledAndReady), std::memory_order_acquire))
-                                        || PackedData.compare_exchange_strong(ScheduledState, FPackedData(LocalPackedData, ETaskState::Canceled), std::memory_order_acquire));
+        bool WasCanceledResult = EnumHasAnyFlags(LocalPackedData.GetFlags(), ETaskFlags::AllowCancellation) && ((bPrelaunchCancellation && PackedData.compare_exchange_strong(ReadyState, FPackedData(LocalPackedData, ETaskState::CanceledAndReady), std::memory_order_acquire)) || PackedData.compare_exchange_strong(ScheduledState, FPackedData(LocalPackedData, ETaskState::Canceled), std::memory_order_acquire));
 
         if (bTryLaunchOnSuccess && WasCanceledResult && TryPrepareLaunch())
         {
@@ -590,8 +577,7 @@ namespace OloEngine::LowLevelTasks
 
         FPackedData CanceledReadyState(LocalPackedData, ETaskState::CanceledAndReady);
         FPackedData CanceledState(LocalPackedData, ETaskState::Canceled);
-        return PackedData.compare_exchange_strong(CanceledReadyState, FPackedData(LocalPackedData, ETaskState::Ready), std::memory_order_release)
-            || PackedData.compare_exchange_strong(CanceledState, FPackedData(LocalPackedData, ETaskState::Scheduled), std::memory_order_release);
+        return PackedData.compare_exchange_strong(CanceledReadyState, FPackedData(LocalPackedData, ETaskState::Ready), std::memory_order_release) || PackedData.compare_exchange_strong(CanceledState, FPackedData(LocalPackedData, ETaskState::Scheduled), std::memory_order_release);
     }
 
     OLO_FINLINE bool FTask::TryExecute(FTask*& OutContinuation)
@@ -699,7 +685,7 @@ namespace OloEngine::LowLevelTasks
     OLO_FINLINE FTask::FInitData FTask::GetInitData() const
     {
         FPackedData LocalPackedData = PackedData.load(std::memory_order_relaxed);
-        return {LocalPackedData.GetDebugName(), LocalPackedData.GetPriority(), LocalPackedData.GetFlags()};
+        return { LocalPackedData.GetDebugName(), LocalPackedData.GetPriority(), LocalPackedData.GetFlags() };
     }
 
 } // namespace OloEngine::LowLevelTasks

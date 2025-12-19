@@ -24,7 +24,7 @@ namespace OloEngine
 
         s_Engine = new ma_engine();
         ma_result result = ::ma_engine_init(&config, s_Engine);
-        
+
         if (result == MA_SUCCESS)
         {
             OLO_CORE_TRACE("[AudioEngine] Initialized successfully with sample rate {}", ma_engine_get_sample_rate(s_Engine));
@@ -59,4 +59,4 @@ namespace OloEngine
     {
         return s_Engine;
     }
-}
+} // namespace OloEngine

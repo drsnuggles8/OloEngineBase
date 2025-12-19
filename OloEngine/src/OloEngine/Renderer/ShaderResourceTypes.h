@@ -19,4 +19,4 @@ namespace OloEngine
         Texture2DArray,
         TextureCubeArray
     };
-}
+} // namespace OloEngine

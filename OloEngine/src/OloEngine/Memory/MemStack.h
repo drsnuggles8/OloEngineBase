@@ -2,13 +2,12 @@
 
 // @file MemStack.h
 // @brief Simple linear-allocation memory stack
-// 
+//
 // Provides a fast linear allocator for temporary allocations.
 // Items are allocated via PushBytes() or specialized operator new()s.
 // Items are freed en masse by using FMemMark to Pop() them.
-// 
+//
 // Ported from Unreal Engine's MemStack.h
-
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Memory/Platform.h"
@@ -51,12 +50,12 @@ namespace OloEngine
 
     // @class FMemStackBase
     // @brief Simple linear-allocation memory stack
-    // 
+    //
     // Items are allocated via PushBytes() or the specialized operator new()s.
     // Items are freed en masse by using FMemMark to Pop() them.
     class FMemStackBase
     {
-    public:
+      public:
         enum class EPageSize : u8
         {
             // Small pages are allocated unless the allocation requires a larger page.
@@ -69,7 +68,7 @@ namespace OloEngine
         explicit FMemStackBase(EPageSize InPageSize = EPageSize::Small);
 
         FMemStackBase(const FMemStackBase&) = delete;
-        
+
         FMemStackBase(FMemStackBase&& Other) noexcept
         {
             *this = std::move(Other);
@@ -105,7 +104,7 @@ namespace OloEngine
         // @return Pointer to allocated memory
         OLO_FINLINE u8* PushBytes(sizet AllocSize, sizet Alignment)
         {
-            return static_cast<u8*>(Alloc(AllocSize, std::max(AllocSize >= 16 ? sizet{16} : sizet{8}, Alignment)));
+            return static_cast<u8*>(Alloc(AllocSize, std::max(AllocSize >= 16 ? sizet{ 16 } : sizet{ 8 }, Alignment)));
         }
 
         // @brief Check if an allocation can fit in the current page
@@ -199,7 +198,7 @@ namespace OloEngine
             }
         };
 
-    private:
+      private:
         friend class FMemMark;
 
         // Note: operator new overloads (defined in global namespace after the class)
@@ -213,9 +212,9 @@ namespace OloEngine
         void FreeChunks(FTaggedMemory* NewTopChunk);
 
         // Variables
-        u8* m_Top = nullptr;                    // Top of current chunk (Top<=End)
-        u8* m_End = nullptr;                    // End of current chunk
-        FTaggedMemory* m_TopChunk = nullptr;    // Only chunks 0..ActiveChunks-1 are valid
+        u8* m_Top = nullptr;                 // Top of current chunk (Top<=End)
+        u8* m_End = nullptr;                 // End of current chunk
+        FTaggedMemory* m_TopChunk = nullptr; // Only chunks 0..ActiveChunks-1 are valid
 
         // The top mark on the stack.
         FMemMark* m_TopMark = nullptr;
@@ -226,7 +225,7 @@ namespace OloEngine
         // The page size to use when allocating.
         EPageSize m_PageSize = EPageSize::Small;
 
-    protected:
+      protected:
         bool m_bShouldEnforceAllocMarks = false;
     };
 
@@ -236,12 +235,12 @@ namespace OloEngine
 
     // @class FMemStack
     // @brief Thread-local memory stack singleton
-    // 
+    //
     // Provides a thread-local memory stack for temporary allocations.
     // Use FMemStack::Get() to access the thread's stack.
     class FMemStack : public FMemStackBase
     {
-    public:
+      public:
         FMemStack()
         {
             m_bShouldEnforceAllocMarks = true;
@@ -262,21 +261,17 @@ namespace OloEngine
 
     // @class FMemMark
     // @brief Marks a top-of-stack position in the memory stack
-    // 
-    // When the marker is constructed or initialized with a particular memory 
+    //
+    // When the marker is constructed or initialized with a particular memory
     // stack, it saves the stack's current position. When marker is popped, it
     // pops all items that were added to the stack subsequent to initialization.
     class FMemMark
     {
-    public:
+      public:
         // @brief Construct a mark at the current stack position
         // @param InMem The memory stack to mark
         explicit FMemMark(FMemStackBase& InMem)
-            : m_Mem(InMem)
-            , m_Top(InMem.m_Top)
-            , m_SavedChunk(InMem.m_TopChunk)
-            , m_bPopped(false)
-            , m_NextTopmostMark(InMem.m_TopMark)
+            : m_Mem(InMem), m_Top(InMem.m_Top), m_SavedChunk(InMem.m_TopChunk), m_bPopped(false), m_NextTopmostMark(InMem.m_TopMark)
         {
             m_Mem.m_TopMark = this;
 
@@ -322,7 +317,7 @@ namespace OloEngine
             }
         }
 
-    private:
+      private:
         FMemStackBase& m_Mem;
         u8* m_Top;
         FMemStackBase::FTaggedMemory* m_SavedChunk;
@@ -340,7 +335,7 @@ namespace OloEngine
     // @param Count Number of elements to allocate
     // @param Alignment Alignment requirement
     // @return Pointer to uninitialized memory
-    template <class T>
+    template<class T>
     T* New(FMemStackBase& Mem, i32 Count = 1, i32 Alignment = OLO_DEFAULT_ALIGNMENT)
     {
         return reinterpret_cast<T*>(Mem.PushBytes(Count * sizeof(T), Alignment));
@@ -352,7 +347,7 @@ namespace OloEngine
     // @param Count Number of elements to allocate
     // @param Alignment Alignment requirement
     // @return Pointer to zero-initialized memory
-    template <class T>
+    template<class T>
     T* NewZeroed(FMemStackBase& Mem, i32 Count = 1, i32 Alignment = OLO_DEFAULT_ALIGNMENT)
     {
         u8* Result = Mem.PushBytes(Count * sizeof(T), Alignment);
@@ -366,7 +361,7 @@ namespace OloEngine
     // @param Count Number of elements to allocate
     // @param Alignment Alignment requirement
     // @return Pointer to 0xFF-initialized memory
-    template <class T>
+    template<class T>
     T* NewOned(FMemStackBase& Mem, i32 Count = 1, i32 Alignment = OLO_DEFAULT_ALIGNMENT)
     {
         u8* Result = Mem.PushBytes(Count * sizeof(T), Alignment);
@@ -380,13 +375,13 @@ namespace OloEngine
 
     // @class TMemStackAllocator
     // @brief A C++ standard-compatible allocator that allocates from a memory stack
-    // 
+    //
     // This allocator can be used with standard containers like std::vector when you
     // want temporary allocations that will be freed in bulk via FMemMark.
-    // 
+    //
     // Note: This allocator does NOT support individual deallocation (deallocate is a no-op).
     // Memory is only freed when the FMemMark is popped or the FMemStack is flushed.
-    // 
+    //
     // Usage:
     // @code
     //     FMemMark Mark(FMemStack::Get());
@@ -395,13 +390,13 @@ namespace OloEngine
     //     // ... use tempVec ...
     //     // Memory automatically freed when Mark goes out of scope
     // @endcode
-    // 
+    //
     // @tparam T The element type to allocate
     // @tparam Alignment The alignment requirement (defaults to alignof(T))
     template<typename T, sizet Alignment = alignof(T)>
     class TMemStackAllocator
     {
-    public:
+      public:
         using value_type = T;
         using size_type = sizet;
         using difference_type = std::ptrdiff_t;
@@ -434,17 +429,16 @@ namespace OloEngine
         [[nodiscard]] T* allocate(size_type n)
         {
             const sizet SizeInBytes = n * sizeof(T);
-            OLO_CORE_ASSERT(SizeInBytes <= static_cast<sizet>(std::numeric_limits<i32>::max()), 
-                "TMemStackAllocator: Allocation too large!");
-            
+            OLO_CORE_ASSERT(SizeInBytes <= static_cast<sizet>(std::numeric_limits<i32>::max()),
+                            "TMemStackAllocator: Allocation too large!");
+
             return reinterpret_cast<T*>(m_Mem->PushBytes(
-                SizeInBytes, 
-                std::max(Alignment, alignof(T))
-            ));
+                SizeInBytes,
+                std::max(Alignment, alignof(T))));
         }
 
         // @brief Deallocate memory (no-op for mem stack allocator)
-        // 
+        //
         // Memory is only freed when the FMemMark is popped or stack is flushed.
         // Individual deallocation is not supported.
         void deallocate([[maybe_unused]] T* p, [[maybe_unused]] size_type n) noexcept
@@ -473,7 +467,7 @@ namespace OloEngine
             return m_Mem != Other.m_Mem;
         }
 
-    private:
+      private:
         template<typename U, sizet OtherAlignment>
         friend class TMemStackAllocator;
 
@@ -491,38 +485,45 @@ namespace OloEngine
 
     // @class FMemStackAllocator
     // @brief UE-style allocator policy for use with TArray and other OloEngine containers
-    // 
+    //
     // This allocator uses a memory stack for allocation but follows the UE
     // ForElementType pattern for compatibility with TArray.
-    // 
+    //
     // Unlike TMemStackAllocator (which is std-compatible), this allocator:
     // - Uses the ForElementType pattern required by TArray
     // - Does not support individual element deallocation
     // - Allocations are freed in bulk when the FMemMark is popped
     class FMemStackAllocator
     {
-    public:
+      public:
         using SizeType = i32;
 
-        enum { NeedsElementType = true };
-        enum { RequireRangeCheck = true };
-        enum { ShrinkByDefault = false }; // Stack allocator cannot shrink
+        enum
+        {
+            NeedsElementType = true
+        };
+        enum
+        {
+            RequireRangeCheck = true
+        };
+        enum
+        {
+            ShrinkByDefault = false
+        }; // Stack allocator cannot shrink
 
         template<typename ElementType>
         class ForElementType
         {
-        public:
+          public:
             // Default constructor - uses thread-local memory stack
             ForElementType()
-                : m_Data(nullptr)
-                , m_Mem(&FMemStack::Get())
+                : m_Data(nullptr), m_Mem(&FMemStack::Get())
             {
             }
 
             // Construct with a specific memory stack
             explicit ForElementType(FMemStackBase& InMem)
-                : m_Data(nullptr)
-                , m_Mem(&InMem)
+                : m_Data(nullptr), m_Mem(&InMem)
             {
             }
 
@@ -531,7 +532,7 @@ namespace OloEngine
             OLO_FINLINE void MoveToEmpty(ForElementType& Other)
             {
                 OLO_CORE_ASSERT(this != &Other, "Cannot move to self");
-                
+
                 // For stack allocator, we just take the pointer - we don't free the old one
                 // since it's on a memory stack that will be freed in bulk
                 m_Data = Other.m_Data;
@@ -549,15 +550,15 @@ namespace OloEngine
             }
 
             // Resize the allocation
-            // 
+            //
             // Note: For stack allocator, we cannot shrink - we can only grow.
-            // Growing creates a new allocation and the old one is "leaked" 
+            // Growing creates a new allocation and the old one is "leaked"
             // (will be freed when FMemMark is popped).
-             */
-            void ResizeAllocation(SizeType CurrentNum, SizeType NewMax, sizet NumBytesPerElement)
+            */
+                void ResizeAllocation(SizeType CurrentNum, SizeType NewMax, sizet NumBytesPerElement)
             {
                 OLO_CORE_ASSERT(NewMax >= 0, "NewMax must be non-negative");
-                
+
                 if (NewMax == 0)
                 {
                     // Don't actually free - just mark as empty
@@ -568,8 +569,7 @@ namespace OloEngine
 
                 // Allocate new memory from the stack
                 ElementType* NewData = reinterpret_cast<ElementType*>(
-                    m_Mem->PushBytes(static_cast<sizet>(NewMax) * NumBytesPerElement, alignof(ElementType))
-                );
+                    m_Mem->PushBytes(static_cast<sizet>(NewMax) * NumBytesPerElement, alignof(ElementType)));
 
                 // If we had existing data, copy it over
                 if (m_Data && CurrentNum > 0)
@@ -627,7 +627,7 @@ namespace OloEngine
                 m_Mem = &InMem;
             }
 
-        private:
+          private:
             ForElementType(const ForElementType&) = delete;
             ForElementType& operator=(const ForElementType&) = delete;
 

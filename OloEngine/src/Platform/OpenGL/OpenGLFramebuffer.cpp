@@ -9,255 +9,273 @@
 
 namespace OloEngine
 {
-	constexpr u32 s_MaxFramebufferSize = 8192;
+    constexpr u32 s_MaxFramebufferSize = 8192;
 
-	OpenGLFramebuffer::OpenGLFramebuffer(FramebufferSpecification specification)
-		: m_Specification(std::move(specification))
-	{
-		OLO_PROFILE_FUNCTION();
+    OpenGLFramebuffer::OpenGLFramebuffer(FramebufferSpecification specification)
+        : m_Specification(std::move(specification))
+    {
+        OLO_PROFILE_FUNCTION();
 
-		for (const auto& spec : m_Specification.Attachments.Attachments)
-		{
-			if (!Utils::IsDepthFormat(spec.TextureFormat))
-			{
-				m_ColorAttachmentSpecifications.emplace_back(spec);
-			}
-			else
-			{
-				m_DepthAttachmentSpecification = spec;
-			}
-		}
+        for (const auto& spec : m_Specification.Attachments.Attachments)
+        {
+            if (!Utils::IsDepthFormat(spec.TextureFormat))
+            {
+                m_ColorAttachmentSpecifications.emplace_back(spec);
+            }
+            else
+            {
+                m_DepthAttachmentSpecification = spec;
+            }
+        }
 
-		Invalidate();
-		InitPostProcessing();
-	}	OpenGLFramebuffer::~OpenGLFramebuffer()
-	{		// Track GPU memory deallocation
-		OLO_TRACK_DEALLOC(this);
-		
-		// Unregister from GPU Resource Inspector
-		GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
-		
-		glDeleteFramebuffers(1, &m_RendererID);
-		glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
-		glDeleteTextures(1, &m_DepthAttachment);
+        Invalidate();
+        InitPostProcessing();
+    }
+    OpenGLFramebuffer::~OpenGLFramebuffer()
+    { // Track GPU memory deallocation
+        OLO_TRACK_DEALLOC(this);
 
-		// Cleanup post-processing resources
-		glDeleteVertexArrays(1, &m_PostProcessVAO);
-		glDeleteBuffers(1, &m_PostProcessVBO);
-	}
+        // Unregister from GPU Resource Inspector
+        GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
-	void OpenGLFramebuffer::InitPostProcessing()
-	{
-		// Create and setup VAO/VBO for post-processing quad
-		f32 quadVertices[] = {
-			// positions        // texture coords
-			-1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
-			-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
-			 1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
-			 1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
-		};
+        glDeleteFramebuffers(1, &m_RendererID);
+        glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
+        glDeleteTextures(1, &m_DepthAttachment);
 
-		glCreateVertexArrays(1, &m_PostProcessVAO);
-		glCreateBuffers(1, &m_PostProcessVBO);
+        // Cleanup post-processing resources
+        glDeleteVertexArrays(1, &m_PostProcessVAO);
+        glDeleteBuffers(1, &m_PostProcessVBO);
+    }
 
-		glBindVertexArray(m_PostProcessVAO);
-		glBindBuffer(GL_ARRAY_BUFFER, m_PostProcessVBO);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+    void OpenGLFramebuffer::InitPostProcessing()
+    {
+        // Create and setup VAO/VBO for post-processing quad
+        f32 quadVertices[] = {
+            // positions        // texture coords
+            -1.0f,
+            1.0f,
+            0.0f,
+            0.0f,
+            1.0f,
+            -1.0f,
+            -1.0f,
+            0.0f,
+            0.0f,
+            0.0f,
+            1.0f,
+            1.0f,
+            0.0f,
+            1.0f,
+            1.0f,
+            1.0f,
+            -1.0f,
+            0.0f,
+            1.0f,
+            0.0f,
+        };
 
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(f32), (void*)0);
-		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(f32), (void*)(3 * sizeof(f32)));
+        glCreateVertexArrays(1, &m_PostProcessVAO);
+        glCreateBuffers(1, &m_PostProcessVBO);
 
-		glBindVertexArray(0);
+        glBindVertexArray(m_PostProcessVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, m_PostProcessVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
 
-		// Load post-processing shader
-		m_PostProcessShader = Shader::Create("assets/shaders/PostProcess.glsl");
-	}
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(f32), (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(f32), (void*)(3 * sizeof(f32)));
 
-	void OpenGLFramebuffer::ApplyPostProcessing()
-	{
-		if (m_Specification.PostProcess == PostProcessEffect::None)
-		{
-			// Bind default framebuffer
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glDisable(GL_DEPTH_TEST);
+        glBindVertexArray(0);
 
-			// Clear the default framebuffer
-			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT);
+        // Load post-processing shader
+        m_PostProcessShader = Shader::Create("assets/shaders/PostProcess.glsl");
+    }
 
-			// Bind our shader and texture
-			m_PostProcessShader->Bind();
-			glBindTextureUnit(0, m_ColorAttachments[0]);
+    void OpenGLFramebuffer::ApplyPostProcessing()
+    {
+        if (m_Specification.PostProcess == PostProcessEffect::None)
+        {
+            // Bind default framebuffer
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glDisable(GL_DEPTH_TEST);
 
-			// Render quad
-			glBindVertexArray(m_PostProcessVAO);
-			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-			glBindVertexArray(0);
+            // Clear the default framebuffer
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
 
-			// Cleanup
-			m_PostProcessShader->Unbind();
-			glEnable(GL_DEPTH_TEST);
-		}
-		// Add more post-processing effects here later
-	}	void OpenGLFramebuffer::Invalidate()
-	{
-		if (m_RendererID)
-		{			// Track GPU memory deallocation for existing framebuffer
-			OLO_TRACK_DEALLOC(this);
-			
-			// Unregister from GPU Resource Inspector for existing framebuffer
-			GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
-			
-			glDeleteFramebuffers(1, &m_RendererID);
-			glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
-			glDeleteTextures(1, &m_DepthAttachment);
+            // Bind our shader and texture
+            m_PostProcessShader->Bind();
+            glBindTextureUnit(0, m_ColorAttachments[0]);
 
-			m_ColorAttachments.clear();
-			m_DepthAttachment = 0;
-		}
+            // Render quad
+            glBindVertexArray(m_PostProcessVAO);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glBindVertexArray(0);
 
-		glCreateFramebuffers(1, &m_RendererID);
-		glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
+            // Cleanup
+            m_PostProcessShader->Unbind();
+            glEnable(GL_DEPTH_TEST);
+        }
+        // Add more post-processing effects here later
+    }
+    void OpenGLFramebuffer::Invalidate()
+    {
+        if (m_RendererID)
+        { // Track GPU memory deallocation for existing framebuffer
+            OLO_TRACK_DEALLOC(this);
 
-		const bool multisample = m_Specification.Samples > 1;
+            // Unregister from GPU Resource Inspector for existing framebuffer
+            GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
-		// Attachments
-		if (!m_ColorAttachmentSpecifications.empty())
-		{
-			m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
-			auto colorAttachmentSize = m_ColorAttachments.size();
-			Utils::CreateTextures(multisample, static_cast<int>(colorAttachmentSize), m_ColorAttachments.data());
+            glDeleteFramebuffers(1, &m_RendererID);
+            glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
+            glDeleteTextures(1, &m_DepthAttachment);
 
-			for (sizet i = 0; i < colorAttachmentSize; ++i)
-			{
-				Utils::BindTexture(m_ColorAttachments[i]);
-				// TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
-				GLenum internalFormat = Utils::OloFBColorTextureFormatToGL(m_ColorAttachmentSpecifications[i].TextureFormat);
-				Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], static_cast<int>(m_Specification.Samples), internalFormat, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height), static_cast<u32>(i));
-			}
-		}
+            m_ColorAttachments.clear();
+            m_DepthAttachment = 0;
+        }
 
-		if (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None)
-		{
-			Utils::CreateTextures(multisample, 1, &m_DepthAttachment);
-			Utils::BindTexture(m_DepthAttachment);
+        glCreateFramebuffers(1, &m_RendererID);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
 
-			GLenum format = Utils::OloFBDepthTextureFormatToGL(m_DepthAttachmentSpecification.TextureFormat);
-			Utils::AttachDepthTexture(m_RendererID, m_DepthAttachment, static_cast<int>(m_Specification.Samples), format, GL_DEPTH_STENCIL_ATTACHMENT, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height));
-		}
+        const bool multisample = m_Specification.Samples > 1;
 
-		if (m_ColorAttachments.size() > 1)
-		{
-			std::vector<GLenum> colorBuffers;
-			auto colorAttachmentSize = static_cast<int>(m_ColorAttachments.size());
-			for (int i = 0; i < colorAttachmentSize; ++i)
-			{
-				colorBuffers.emplace_back(static_cast<u32>(GL_COLOR_ATTACHMENT0 + i));
-			}
+        // Attachments
+        if (!m_ColorAttachmentSpecifications.empty())
+        {
+            m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
+            auto colorAttachmentSize = m_ColorAttachments.size();
+            Utils::CreateTextures(multisample, static_cast<int>(colorAttachmentSize), m_ColorAttachments.data());
 
-			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
-		}
-		else if (m_ColorAttachments.empty())
-		{
-			// Only depth-pass
-			glDrawBuffer(GL_NONE);
-		}
-		OLO_CORE_ASSERT(glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer is incomplete!");
+            for (sizet i = 0; i < colorAttachmentSize; ++i)
+            {
+                Utils::BindTexture(m_ColorAttachments[i]);
+                // TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
+                GLenum internalFormat = Utils::OloFBColorTextureFormatToGL(m_ColorAttachmentSpecifications[i].TextureFormat);
+                Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], static_cast<int>(m_Specification.Samples), internalFormat, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height), static_cast<u32>(i));
+            }
+        }
 
-		// Calculate framebuffer memory usage
-		sizet framebufferMemory = 0;
-		
-		// Color attachments
-		for (sizet i = 0; i < m_ColorAttachments.size(); ++i)
-		{
-			// Estimate color attachment memory
-			u32 bytesPerPixel = 4; // Default RGBA8
-			// TODO: Could improve this by checking actual format
-			framebufferMemory += static_cast<sizet>(m_Specification.Width) * m_Specification.Height * bytesPerPixel;
-		}
-		
-		// Depth attachment
-		if (m_DepthAttachment != 0)
-		{
-			u32 depthBytesPerPixel = 4; // DEPTH24_STENCIL8
-			framebufferMemory += static_cast<sizet>(m_Specification.Width) * m_Specification.Height * depthBytesPerPixel;
-		}
-				// Track GPU memory allocation
-		OLO_TRACK_GPU_ALLOC(this, 
-		                     framebufferMemory, 
-		                     RendererMemoryTracker::ResourceType::Framebuffer, 
-		                     "OpenGL Framebuffer");
+        if (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None)
+        {
+            Utils::CreateTextures(multisample, 1, &m_DepthAttachment);
+            Utils::BindTexture(m_DepthAttachment);
 
-		// Register with GPU Resource Inspector
-		GPUResourceInspector::GetInstance().RegisterFramebuffer(m_RendererID, "OpenGL Framebuffer", "Framebuffer");
+            GLenum format = Utils::OloFBDepthTextureFormatToGL(m_DepthAttachmentSpecification.TextureFormat);
+            Utils::AttachDepthTexture(m_RendererID, m_DepthAttachment, static_cast<int>(m_Specification.Samples), format, GL_DEPTH_STENCIL_ATTACHMENT, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height));
+        }
 
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	}
+        if (m_ColorAttachments.size() > 1)
+        {
+            std::vector<GLenum> colorBuffers;
+            auto colorAttachmentSize = static_cast<int>(m_ColorAttachments.size());
+            for (int i = 0; i < colorAttachmentSize; ++i)
+            {
+                colorBuffers.emplace_back(static_cast<u32>(GL_COLOR_ATTACHMENT0 + i));
+            }
 
-	void OpenGLFramebuffer::Bind()
-	{
-		glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
-		glViewport(0, 0, static_cast<GLsizei>(m_Specification.Width), static_cast<GLsizei>(m_Specification.Height));
+            glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
+        }
+        else if (m_ColorAttachments.empty())
+        {
+            // Only depth-pass
+            glDrawBuffer(GL_NONE);
+        }
+        OLO_CORE_ASSERT(glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer is incomplete!");
 
-		bool isIntegerFramebuffer = false;
-		for (const auto& spec : m_ColorAttachmentSpecifications)
-		{
-			if (spec.TextureFormat == FramebufferTextureFormat::RED_INTEGER)
-			{
-				isIntegerFramebuffer = true;
-				break;
-			}
-		}
+        // Calculate framebuffer memory usage
+        sizet framebufferMemory = 0;
 
-		if (isIntegerFramebuffer)
-		{
-			glDisable(GL_BLEND);
-			glDisable(GL_DITHER);
-		}
-		else
-		{
-			glEnable(GL_BLEND);
-			glEnable(GL_DITHER);
-		}
-	}
+        // Color attachments
+        for (sizet i = 0; i < m_ColorAttachments.size(); ++i)
+        {
+            // Estimate color attachment memory
+            u32 bytesPerPixel = 4; // Default RGBA8
+            // TODO: Could improve this by checking actual format
+            framebufferMemory += static_cast<sizet>(m_Specification.Width) * m_Specification.Height * bytesPerPixel;
+        }
 
-	void OpenGLFramebuffer::Unbind()
-	{
-		ApplyPostProcessing();
-	}
+        // Depth attachment
+        if (m_DepthAttachment != 0)
+        {
+            u32 depthBytesPerPixel = 4; // DEPTH24_STENCIL8
+            framebufferMemory += static_cast<sizet>(m_Specification.Width) * m_Specification.Height * depthBytesPerPixel;
+        }
+        // Track GPU memory allocation
+        OLO_TRACK_GPU_ALLOC(this,
+                            framebufferMemory,
+                            RendererMemoryTracker::ResourceType::Framebuffer,
+                            "OpenGL Framebuffer");
 
-	void OpenGLFramebuffer::Resize(u32 width, u32 height)
-	{
-		if ((0 == width) || (0 == height) || (width > s_MaxFramebufferSize) || (height > s_MaxFramebufferSize))
-		{
-			OLO_CORE_WARN("Attempted to resize framebuffer to {0}, {1}", width, height);
-			return;
-		}
+        // Register with GPU Resource Inspector
+        GPUResourceInspector::GetInstance().RegisterFramebuffer(m_RendererID, "OpenGL Framebuffer", "Framebuffer");
 
-		m_Specification.Width = width;
-		m_Specification.Height = height;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
 
-		Invalidate();
-	}
+    void OpenGLFramebuffer::Bind()
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
+        glViewport(0, 0, static_cast<GLsizei>(m_Specification.Width), static_cast<GLsizei>(m_Specification.Height));
 
-	int OpenGLFramebuffer::ReadPixel(const u32 attachmentIndex, const int x, const int y)
-	{
-		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
+        bool isIntegerFramebuffer = false;
+        for (const auto& spec : m_ColorAttachmentSpecifications)
+        {
+            if (spec.TextureFormat == FramebufferTextureFormat::RED_INTEGER)
+            {
+                isIntegerFramebuffer = true;
+                break;
+            }
+        }
 
-		glReadBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
-		int pixelData{};
-		glReadPixels(x, y, 1, 1, GL_RED_INTEGER, GL_INT, &pixelData);
-		return pixelData;
-	}
+        if (isIntegerFramebuffer)
+        {
+            glDisable(GL_BLEND);
+            glDisable(GL_DITHER);
+        }
+        else
+        {
+            glEnable(GL_BLEND);
+            glEnable(GL_DITHER);
+        }
+    }
 
-	void OpenGLFramebuffer::ClearAttachment(const u32 attachmentIndex, const int value)
-	{
-		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
+    void OpenGLFramebuffer::Unbind()
+    {
+        ApplyPostProcessing();
+    }
 
-		auto const& spec = m_ColorAttachmentSpecifications[attachmentIndex];
-		glClearTexImage(m_ColorAttachments[attachmentIndex], 0, Utils::OloFBTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
-	}
+    void OpenGLFramebuffer::Resize(u32 width, u32 height)
+    {
+        if ((0 == width) || (0 == height) || (width > s_MaxFramebufferSize) || (height > s_MaxFramebufferSize))
+        {
+            OLO_CORE_WARN("Attempted to resize framebuffer to {0}, {1}", width, height);
+            return;
+        }
 
-}
+        m_Specification.Width = width;
+        m_Specification.Height = height;
+
+        Invalidate();
+    }
+
+    int OpenGLFramebuffer::ReadPixel(const u32 attachmentIndex, const int x, const int y)
+    {
+        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
+
+        glReadBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
+        int pixelData{};
+        glReadPixels(x, y, 1, 1, GL_RED_INTEGER, GL_INT, &pixelData);
+        return pixelData;
+    }
+
+    void OpenGLFramebuffer::ClearAttachment(const u32 attachmentIndex, const int value)
+    {
+        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
+
+        auto const& spec = m_ColorAttachmentSpecifications[attachmentIndex];
+        glClearTexImage(m_ColorAttachments[attachmentIndex], 0, Utils::OloFBTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
+    }
+
+} // namespace OloEngine

@@ -12,14 +12,14 @@ namespace OloEngine
 {
     // Forward declaration
     class ShaderLibrary;
-	class RefCounted;
-    
+    class RefCounted;
+
     enum class IBLQuality
     {
-        Low = 0,     // Fast generation, lower quality
-        Medium = 1,  // Balanced quality/performance
-        High = 2,    // High quality, slower generation
-        Ultra = 3    // Maximum quality, longest generation time
+        Low = 0,    // Fast generation, lower quality
+        Medium = 1, // Balanced quality/performance
+        High = 2,   // High quality, slower generation
+        Ultra = 3   // Maximum quality, longest generation time
     };
 
     struct IBLConfiguration
@@ -28,18 +28,18 @@ namespace OloEngine
         IBLQuality Quality = IBLQuality::Medium;
         bool UseImportanceSampling = true;
         bool UseSphericalHarmonics = false; // Alternative to irradiance cubemap
-        
+
         // Resolution settings
-        u32 IrradianceResolution = 32;      // Diffuse irradiance map resolution
-        u32 PrefilterResolution = 128;      // Specular prefilter map resolution
-        u32 BRDFLutResolution = 512;        // BRDF lookup table resolution
-        
+        u32 IrradianceResolution = 32; // Diffuse irradiance map resolution
+        u32 PrefilterResolution = 128; // Specular prefilter map resolution
+        u32 BRDFLutResolution = 512;   // BRDF lookup table resolution
+
         // Sample counts for Monte Carlo integration
-        u32 IrradianceSamples = 1024;       // Samples for irradiance generation
-        u32 PrefilterSamples = 1024;        // Samples for prefilter generation
-        
+        u32 IrradianceSamples = 1024; // Samples for irradiance generation
+        u32 PrefilterSamples = 1024;  // Samples for prefilter generation
+
         // Performance optimization
-        bool EnableMultithreading = true;   // Use multiple threads for generation
+        bool EnableMultithreading = true; // Use multiple threads for generation
     };
 
     struct EnvironmentMapSpecification
@@ -49,12 +49,12 @@ namespace OloEngine
         ImageFormat Format = ImageFormat::RGB32F;
         bool GenerateIBL = true;
         bool GenerateMipmaps = true;
-        IBLConfiguration IBLConfig;         // Enhanced IBL configuration
+        IBLConfiguration IBLConfig; // Enhanced IBL configuration
     };
 
     class EnvironmentMap : public RendererResource
     {
-    public:
+      public:
         EnvironmentMap(const EnvironmentMapSpecification& spec);
         ~EnvironmentMap() = default;
 
@@ -67,30 +67,51 @@ namespace OloEngine
         static Ref<EnvironmentMap> CreateFromEquirectangular(const std::string& filePath);
 
         // Get textures
-        const Ref<TextureCubemap>& GetEnvironmentMap() const { return m_EnvironmentMap; }
-        const Ref<TextureCubemap>& GetIrradianceMap() const { return m_IrradianceMap; }
-        const Ref<TextureCubemap>& GetPrefilterMap() const { return m_PrefilterMap; }
-        const Ref<Texture2D>& GetBRDFLutMap() const { return m_BRDFLutMap; }
+        const Ref<TextureCubemap>& GetEnvironmentMap() const
+        {
+            return m_EnvironmentMap;
+        }
+        const Ref<TextureCubemap>& GetIrradianceMap() const
+        {
+            return m_IrradianceMap;
+        }
+        const Ref<TextureCubemap>& GetPrefilterMap() const
+        {
+            return m_PrefilterMap;
+        }
+        const Ref<Texture2D>& GetBRDFLutMap() const
+        {
+            return m_BRDFLutMap;
+        }
 
         // Check if IBL is available
-        bool HasIBL() const { return m_IrradianceMap && m_PrefilterMap && m_BRDFLutMap; }
+        bool HasIBL() const
+        {
+            return m_IrradianceMap && m_PrefilterMap && m_BRDFLutMap;
+        }
 
         // Get specification
-        const EnvironmentMapSpecification& GetSpecification() const { return m_Specification; }
-        
+        const EnvironmentMapSpecification& GetSpecification() const
+        {
+            return m_Specification;
+        }
+
         // Enhanced IBL configuration
         void SetIBLConfiguration(const IBLConfiguration& config);
-        const IBLConfiguration& GetIBLConfiguration() const { return m_Specification.IBLConfig; }
-        
+        const IBLConfiguration& GetIBLConfiguration() const
+        {
+            return m_Specification.IBLConfig;
+        }
+
         // Generate IBL with custom settings
         void RegenerateIBL(const IBLConfiguration& config);
 
-    private:
+      private:
         void GenerateIBLTextures();
         void GenerateIrradianceMap();
         void GeneratePrefilterMap();
         void GenerateBRDFLut();
-        
+
         // Enhanced IBL generation with configurable quality
         void GenerateIBLWithConfig(const IBLConfiguration& config);
         void GenerateIrradianceMapWithConfig(const IBLConfiguration& config);
@@ -100,17 +121,23 @@ namespace OloEngine
         Ref<TextureCubemap> ConvertEquirectangularToCubemap(const std::string& filePath);
 
         // Asset interface
-        static AssetType GetStaticType() { return AssetType::EnvMap; }
-        virtual AssetType GetAssetType() const override { return GetStaticType(); }
+        static AssetType GetStaticType()
+        {
+            return AssetType::EnvMap;
+        }
+        virtual AssetType GetAssetType() const override
+        {
+            return GetStaticType();
+        }
 
-    private:
+      private:
         EnvironmentMapSpecification m_Specification;
         Ref<TextureCubemap> m_EnvironmentMap;
         Ref<TextureCubemap> m_IrradianceMap;
         Ref<TextureCubemap> m_PrefilterMap;
         Ref<Texture2D> m_BRDFLutMap;
-        
+
         // Static shader library for IBL operations
         static ShaderLibrary* s_ShaderLibrary;
     };
-}
+} // namespace OloEngine

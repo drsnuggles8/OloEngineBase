@@ -10,7 +10,7 @@ namespace OloEngine::Tasks
 {
     // @enum EExtendedTaskPriority
     // @brief Extended task priorities including inline execution and named threads
-    // 
+    //
     // These priorities extend the basic ETaskPriority with special execution modes:
     // - None: Use the regular task priority
     // - Inline: Execute immediately on the calling thread (no scheduling)
@@ -18,9 +18,9 @@ namespace OloEngine::Tasks
     // - Named thread priorities: For integration with game/render thread model
     enum class EExtendedTaskPriority : i8
     {
-        None,           ///< Use regular task priority
-        Inline,         ///< Execute inline without scheduling
-        TaskEvent,      ///< Task event - optimized for events, skips scheduling
+        None,      ///< Use regular task priority
+        Inline,    ///< Execute inline without scheduling
+        TaskEvent, ///< Task event - optimized for events, skips scheduling
 
         // Named thread support (for integration with game/render thread model)
         GameThreadNormalPri,
@@ -49,8 +49,7 @@ namespace OloEngine::Tasks
             return nullptr;
         }
 
-        static const char* ExtendedTaskPriorityToStr[] =
-        {
+        static const char* ExtendedTaskPriorityToStr[] = {
             "None",
             "Inline",
             "TaskEvent",
@@ -84,24 +83,26 @@ namespace OloEngine::Tasks
         // Case-insensitive comparison helper
         auto StrCmpI = [](const char* a, const char* b) -> bool
         {
-            if (!a || !b) return false;
+            if (!a || !b)
+                return false;
             while (*a && *b)
             {
                 char ca = (*a >= 'A' && *a <= 'Z') ? (*a + 32) : *a;
                 char cb = (*b >= 'A' && *b <= 'Z') ? (*b + 32) : *b;
-                if (ca != cb) return false;
+                if (ca != cb)
+                    return false;
                 ++a;
                 ++b;
             }
             return *a == *b;
         };
 
-#define CONVERT_EXTENDED_TASK_PRIORITY(PriorityName) \
-        if (StrCmpI(ExtendedPriorityStr, ToString(EExtendedTaskPriority::PriorityName))) \
-        { \
-            OutExtendedPriority = EExtendedTaskPriority::PriorityName; \
-            return true; \
-        }
+#define CONVERT_EXTENDED_TASK_PRIORITY(PriorityName)                                 \
+    if (StrCmpI(ExtendedPriorityStr, ToString(EExtendedTaskPriority::PriorityName))) \
+    {                                                                                \
+        OutExtendedPriority = EExtendedTaskPriority::PriorityName;                   \
+        return true;                                                                 \
+    }
 
         CONVERT_EXTENDED_TASK_PRIORITY(None);
         CONVERT_EXTENDED_TASK_PRIORITY(Inline);

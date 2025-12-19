@@ -1,10 +1,10 @@
 /**
  * @file MutexLockRateTest.cpp
  * @brief Lock rate benchmarks for OloEngine mutex implementations
- * 
+ *
  * Ported from UE5.7's Tests/Async/MutexLockRateTest.cpp
  * Tests: FMutex, FRecursiveMutex, FSharedMutex, FSharedRecursiveMutex, FExternalMutex
- * 
+ *
  * These are benchmarks rather than unit tests - they measure lock/unlock throughput
  * across varying thread counts. Run with --gtest_filter=*LockRate* for benchmark output.
  */
@@ -38,7 +38,7 @@ using namespace OloEngine::LowLevelTasks;
 // Test Utilities
 // ============================================================================
 
-template <typename BodyType>
+template<typename BodyType>
 static double TestConcurrency(const i32 TaskCount, BodyType&& Body)
 {
     constexpr i32 MaxTaskCount = 256;
@@ -61,12 +61,11 @@ static double TestConcurrency(const i32 TaskCount, BodyType&& Body)
 
     for (i32 TaskIndex = 1; TaskIndex < TaskCount; ++TaskIndex)
     {
-        Tasks[TaskIndex].Init("LockRateTask", LowLevelTasks::ETaskPriority::Normal, 
-            [&TaskBody, TaskIndex]
-            {
-                TaskBody(TaskIndex);
-            }
-        );
+        Tasks[TaskIndex].Init("LockRateTask", LowLevelTasks::ETaskPriority::Normal,
+                              [&TaskBody, TaskIndex]
+                              {
+                                  TaskBody(TaskIndex);
+                              });
         OLO_CORE_VERIFY(LowLevelTasks::TryLaunch(Tasks[TaskIndex]));
     }
 
@@ -95,13 +94,13 @@ static double TestConcurrency(const i32 TaskCount, BodyType&& Body)
     return std::chrono::duration<double>(EndTime - StartTime).count();
 }
 
-template <typename LockType>
+template<typename LockType>
 static void TestLockRate(LockType& Mutex, i32 LockTarget, i32 IterationCount)
 {
-    std::cout << std::setw(8) << "Threads" 
-              << std::setw(14) << "LockRate" 
-              << std::setw(14) << "Mean" 
-              << std::setw(14) << "StdDev" 
+    std::cout << std::setw(8) << "Threads"
+              << std::setw(14) << "LockRate"
+              << std::setw(14) << "Mean"
+              << std::setw(14) << "StdDev"
               << std::endl;
 
     struct FIteration
@@ -113,36 +112,35 @@ static void TestLockRate(LockType& Mutex, i32 LockTarget, i32 IterationCount)
     TArray<FIteration> Iterations;
 
     const i32 ThreadLimit = static_cast<i32>(FScheduler::Get().GetNumWorkers());
-    
+
     for (i32 ThreadCount = 1; ThreadCount <= ThreadLimit; ++ThreadCount)
     {
         Iterations.Reset(IterationCount);
-        
+
         for (i32 Iteration = 0; Iteration < IterationCount; ++Iteration)
         {
             TArray<i64> LockCountByThread;
             LockCountByThread.SetNumZeroed(ThreadCount);
             std::atomic<bool> bStop = false;
             std::atomic<i64> LockCount = 0;
-            
-            const double Duration = TestConcurrency(ThreadCount, 
-                [&Mutex, &LockCount, &LockCountByThread, LockTarget, &bStop](i32 ThreadIndex)
-                {
-                    i64 ThreadLockCount = 0;
-                    while (!bStop.load(std::memory_order_relaxed))
-                    {
-                        Mutex.Lock();
-                        Mutex.Unlock();
-                        if (++ThreadLockCount >= LockTarget && ThreadIndex == 0)
-                        {
-                            bStop.store(true, std::memory_order_relaxed);
-                        }
-                    }
-                    LockCount.fetch_add(ThreadLockCount, std::memory_order_relaxed);
-                    LockCountByThread[ThreadIndex] = ThreadLockCount;
-                }
-            );
-            
+
+            const double Duration = TestConcurrency(ThreadCount,
+                                                    [&Mutex, &LockCount, &LockCountByThread, LockTarget, &bStop](i32 ThreadIndex)
+                                                    {
+                                                        i64 ThreadLockCount = 0;
+                                                        while (!bStop.load(std::memory_order_relaxed))
+                                                        {
+                                                            Mutex.Lock();
+                                                            Mutex.Unlock();
+                                                            if (++ThreadLockCount >= LockTarget && ThreadIndex == 0)
+                                                            {
+                                                                bStop.store(true, std::memory_order_relaxed);
+                                                            }
+                                                        }
+                                                        LockCount.fetch_add(ThreadLockCount, std::memory_order_relaxed);
+                                                        LockCountByThread[ThreadIndex] = ThreadLockCount;
+                                                    });
+
             FIteration NewIter;
             NewIter.LockRate = static_cast<i64>(LockCount / Duration);
             NewIter.LockCount = LockCount;
@@ -152,14 +150,14 @@ static void TestLockRate(LockType& Mutex, i32 LockTarget, i32 IterationCount)
 
         // Sort by lock rate and take the best iteration
         // Using raw pointers since TArray iterator doesn't support operator-
-        std::sort(Iterations.GetData(), Iterations.GetData() + Iterations.Num(), 
-            [](const FIteration& A, const FIteration& B) { return A.LockRate < B.LockRate; }
-        );
-        
+        std::sort(Iterations.GetData(), Iterations.GetData() + Iterations.Num(),
+                  [](const FIteration& A, const FIteration& B)
+                  { return A.LockRate < B.LockRate; });
+
         const FIteration& BestIteration = Iterations.Last();
         const i64 LockRate = BestIteration.LockRate;
         const i64 LockCountMean = BestIteration.LockCount / ThreadCount;
-        
+
         // Calculate standard deviation
         i64 SumSquaredDiff = 0;
         for (i64 ThreadLockCount : BestIteration.LockCountByThread)
@@ -183,7 +181,7 @@ static void TestLockRate(LockType& Mutex, i32 LockTarget, i32 IterationCount)
 
 class MutexLockRateTest : public ::testing::Test
 {
-protected:
+  protected:
     static void SetUpTestSuite()
     {
         // Start workers for concurrent testing
@@ -197,8 +195,8 @@ protected:
 
     // Benchmark configuration - reduced for automated testing
     // Run manually with larger values for detailed benchmarks
-    static constexpr i32 LockTarget = 8192;      // Locks before stopping
-    static constexpr i32 IterationCount = 4;     // Iterations per thread count
+    static constexpr i32 LockTarget = 8192;  // Locks before stopping
+    static constexpr i32 IterationCount = 4; // Iterations per thread count
 };
 
 // ============================================================================
@@ -236,20 +234,20 @@ TEST_F(MutexLockRateTest, DISABLED_SharedRecursiveMutexLockRate)
 namespace
 {
 
-// External mutex with test params (in anonymous namespace to avoid ODR issues)
-// Uses bits 7 and 6 for testing that the mutex works with any bit positions
-struct FExternalMutexLockRateTestParams
-{
-    constexpr static u8 IsLockedFlag = 1 << 7;
-    constexpr static u8 MayHaveWaitingLockFlag = 1 << 6;
-};
+    // External mutex with test params (in anonymous namespace to avoid ODR issues)
+    // Uses bits 7 and 6 for testing that the mutex works with any bit positions
+    struct FExternalMutexLockRateTestParams
+    {
+        constexpr static u8 IsLockedFlag = 1 << 7;
+        constexpr static u8 MayHaveWaitingLockFlag = 1 << 6;
+    };
 
 } // anonymous namespace
 
 TEST_F(MutexLockRateTest, DISABLED_ExternalMutexLockRate)
 {
     std::cout << "\n=== TExternalMutex Lock Rate ===" << std::endl;
-    std::atomic<u8> State{0};
+    std::atomic<u8> State{ 0 };
     TExternalMutex<FExternalMutexLockRateTestParams> Mutex(State);
     TestLockRate(Mutex, LockTarget, IterationCount);
 }
@@ -264,29 +262,27 @@ TEST_F(MutexLockRateTest, SmokeTest)
     FMutex Mutex;
     constexpr i32 QuickLockTarget = 1000;
     constexpr i32 QuickIterations = 1;
-    
-    std::atomic<i64> TotalLocks{0};
-    std::atomic<bool> bStop{false};
-    
-    const double Duration = TestConcurrency(2, 
-        [&Mutex, &TotalLocks, &bStop, QuickLockTarget](i32 ThreadIndex)
-        {
-            i64 Count = 0;
-            while (!bStop.load(std::memory_order_relaxed))
-            {
-                Mutex.Lock();
-                Mutex.Unlock();
-                if (++Count >= QuickLockTarget && ThreadIndex == 0)
-                {
-                    bStop.store(true, std::memory_order_relaxed);
-                }
-            }
-            TotalLocks.fetch_add(Count, std::memory_order_relaxed);
-        }
-    );
-    
+
+    std::atomic<i64> TotalLocks{ 0 };
+    std::atomic<bool> bStop{ false };
+
+    const double Duration = TestConcurrency(2,
+                                            [&Mutex, &TotalLocks, &bStop, QuickLockTarget](i32 ThreadIndex)
+                                            {
+                                                i64 Count = 0;
+                                                while (!bStop.load(std::memory_order_relaxed))
+                                                {
+                                                    Mutex.Lock();
+                                                    Mutex.Unlock();
+                                                    if (++Count >= QuickLockTarget && ThreadIndex == 0)
+                                                    {
+                                                        bStop.store(true, std::memory_order_relaxed);
+                                                    }
+                                                }
+                                                TotalLocks.fetch_add(Count, std::memory_order_relaxed);
+                                            });
+
     // Just verify we completed without issues
     EXPECT_GT(TotalLocks.load(), 0);
     EXPECT_GT(Duration, 0.0);
 }
-

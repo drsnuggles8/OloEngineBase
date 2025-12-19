@@ -15,4 +15,4 @@ namespace OloEngine
         return PlaceholderAssetManager::GetPlaceholderAsset(type);
     }
 
-}
+} // namespace OloEngine

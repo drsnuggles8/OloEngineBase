@@ -6,10 +6,10 @@
 /**
  * @file Async.h
  * @brief Convenient functions for executing code asynchronously
- * 
+ *
  * Provides easy-to-use Async(), AsyncThread(), and AsyncPool() functions
  * that return TFuture objects for the results.
- * 
+ *
  * Ported from Unreal Engine's Async/Async.h
  */
 
@@ -69,10 +69,9 @@ namespace OloEngine
     template<typename ResultType>
     class TAsyncRunnable : public FRunnable
     {
-    public:
+      public:
         TAsyncRunnable(TUniqueFunction<ResultType()>&& InFunction, TPromise<ResultType>&& InPromise)
-            : m_Function(MoveTemp(InFunction))
-            , m_Promise(MoveTemp(InPromise))
+            : m_Function(MoveTemp(InFunction)), m_Promise(MoveTemp(InPromise))
         {
         }
 
@@ -82,7 +81,7 @@ namespace OloEngine
 
             // Mark as complete so the thread can be cleaned up
             m_bComplete.store(true, std::memory_order_release);
-            
+
             return 0;
         }
 
@@ -102,13 +101,16 @@ namespace OloEngine
             m_Thread = InThread;
         }
 
-        FRunnableThread* GetThread() const { return m_Thread; }
+        FRunnableThread* GetThread() const
+        {
+            return m_Thread;
+        }
 
-    private:
+      private:
         TUniqueFunction<ResultType()> m_Function;
         TPromise<ResultType> m_Promise;
         FRunnableThread* m_Thread = nullptr;
-        std::atomic<bool> m_bComplete{false};
+        std::atomic<bool> m_bComplete{ false };
     };
 
     namespace Private
@@ -120,14 +122,14 @@ namespace OloEngine
         {
             static i32 GetNext()
             {
-                static std::atomic<i32> s_Counter{0};
+                static std::atomic<i32> s_Counter{ 0 };
                 return s_Counter.fetch_add(1, std::memory_order_relaxed);
             }
         };
 
         /**
          * @brief Clean up completed async threads
-         * 
+         *
          * This is scheduled on the task graph to delete the runnable and thread
          * after execution completes.
          */
@@ -147,7 +149,7 @@ namespace OloEngine
 
     /**
      * @brief Execute a function asynchronously
-     * 
+     *
      * Usage examples:
      * @code
      * // Using lambda
@@ -155,21 +157,21 @@ namespace OloEngine
      *     return 123;
      * });
      * int Value = Result.Get(); // Blocks until complete
-     * 
+     *
      * // Fire and forget
      * Async(EAsyncExecution::Thread, []() {
      *     DoSomeLongRunningWork();
      * });
      * @endcode
-     * 
+     *
      * @param Execution The execution method to use
      * @param Callable The function to execute
      * @param CompletionCallback Optional callback when execution completes
      * @return A TFuture that will receive the return value
      */
     template<typename CallableType>
-    auto Async(EAsyncExecution Execution, CallableType&& Callable, 
-               TUniqueFunction<void()> CompletionCallback = nullptr) 
+    auto Async(EAsyncExecution Execution, CallableType&& Callable,
+               TUniqueFunction<void()> CompletionCallback = nullptr)
         -> TFuture<decltype(Forward<CallableType>(Callable)())>
     {
         using ResultType = decltype(Forward<CallableType>(Callable)());
@@ -179,14 +181,14 @@ namespace OloEngine
 
         switch (Execution)
         {
-        case EAsyncExecution::TaskGraph:
+            case EAsyncExecution::TaskGraph:
             {
                 // Launch on the task scheduler
                 LowLevelTasks::FTask* Task = new LowLevelTasks::FTask();
                 Task->Init(
                     "AsyncTask",
                     LowLevelTasks::ETaskPriority::Normal,
-                    [Function = MoveTemp(Function), Promise = MoveTemp(Promise), 
+                    [Function = MoveTemp(Function), Promise = MoveTemp(Promise),
                      Callback = MoveTemp(CompletionCallback), Task]() mutable
                     {
                         SetPromise(Promise, Function);
@@ -196,102 +198,98 @@ namespace OloEngine
                         }
                         delete Task;
                     },
-                    LowLevelTasks::ETaskFlags::DefaultFlags
-                );
+                    LowLevelTasks::ETaskFlags::DefaultFlags);
                 LowLevelTasks::TryLaunch(*Task);
             }
             break;
 
-        case EAsyncExecution::Thread:
-            if (FPlatformProcess::SupportsMultithreading())
-            {
-                // Create a dedicated thread
-                auto* Runnable = new TAsyncRunnable<ResultType>(MoveTemp(Function), MoveTemp(Promise));
-                
-                char ThreadName[64];
-                snprintf(ThreadName, sizeof(ThreadName), "TAsync %d", Private::FAsyncThreadIndex::GetNext());
-                
-                FRunnableThread* Thread = FRunnableThread::Create(
-                    Runnable,
-                    ThreadName,
-                    0,  // Default stack size
-                    EThreadPriority::TPri_Normal
-                );
-
-                if (Thread)
+            case EAsyncExecution::Thread:
+                if (FPlatformProcess::SupportsMultithreading())
                 {
-                    Runnable->SetThread(Thread);
-                    
-                    // Schedule cleanup on task graph after completion
-                    // The thread will self-clean via the runnable's Exit()
-                    LowLevelTasks::FTask* CleanupTask = new LowLevelTasks::FTask();
-                    CleanupTask->Init(
-                        "AsyncCleanup",
-                        LowLevelTasks::ETaskPriority::BackgroundLow,
-                        [Runnable, Thread, Callback = MoveTemp(CompletionCallback), CleanupTask]() mutable
-                        {
-                            // Wait for completion and clean up
-                            Thread->WaitForCompletion();
-                            delete Thread;
-                            delete Runnable;
-                            if (Callback)
+                    // Create a dedicated thread
+                    auto* Runnable = new TAsyncRunnable<ResultType>(MoveTemp(Function), MoveTemp(Promise));
+
+                    char ThreadName[64];
+                    snprintf(ThreadName, sizeof(ThreadName), "TAsync %d", Private::FAsyncThreadIndex::GetNext());
+
+                    FRunnableThread* Thread = FRunnableThread::Create(
+                        Runnable,
+                        ThreadName,
+                        0, // Default stack size
+                        EThreadPriority::TPri_Normal);
+
+                    if (Thread)
+                    {
+                        Runnable->SetThread(Thread);
+
+                        // Schedule cleanup on task graph after completion
+                        // The thread will self-clean via the runnable's Exit()
+                        LowLevelTasks::FTask* CleanupTask = new LowLevelTasks::FTask();
+                        CleanupTask->Init(
+                            "AsyncCleanup",
+                            LowLevelTasks::ETaskPriority::BackgroundLow,
+                            [Runnable, Thread, Callback = MoveTemp(CompletionCallback), CleanupTask]() mutable
                             {
-                                Callback();
-                            }
-                            delete CleanupTask;
-                        },
-                        LowLevelTasks::ETaskFlags::DefaultFlags
-                    );
-                    LowLevelTasks::TryLaunch(*CleanupTask);
+                                // Wait for completion and clean up
+                                Thread->WaitForCompletion();
+                                delete Thread;
+                                delete Runnable;
+                                if (Callback)
+                                {
+                                    Callback();
+                                }
+                                delete CleanupTask;
+                            },
+                            LowLevelTasks::ETaskFlags::DefaultFlags);
+                        LowLevelTasks::TryLaunch(*CleanupTask);
+                    }
+                    else
+                    {
+                        // Thread creation failed, run synchronously
+                        delete Runnable;
+                        TPromise<ResultType> SyncPromise;
+                        TFuture<ResultType> SyncFuture = SyncPromise.GetFuture();
+                        SetPromise(SyncPromise, Function);
+                        if (CompletionCallback)
+                        {
+                            CompletionCallback();
+                        }
+                        return SyncFuture;
+                    }
                 }
                 else
                 {
-                    // Thread creation failed, run synchronously
-                    delete Runnable;
-                    TPromise<ResultType> SyncPromise;
-                    TFuture<ResultType> SyncFuture = SyncPromise.GetFuture();
-                    SetPromise(SyncPromise, Function);
+                    // No multithreading, run synchronously
+                    SetPromise(Promise, Function);
                     if (CompletionCallback)
                     {
                         CompletionCallback();
                     }
-                    return SyncFuture;
                 }
-            }
-            else
-            {
-                // No multithreading, run synchronously
-                SetPromise(Promise, Function);
-                if (CompletionCallback)
-                {
-                    CompletionCallback();
-                }
-            }
-            break;
+                break;
 
-        case EAsyncExecution::ThreadPool:
-            // ThreadPool requires FQueuedThreadPool - use AsyncPool() directly
-            // Fall back to TaskGraph for now
-            {
-                LowLevelTasks::FTask* Task = new LowLevelTasks::FTask();
-                Task->Init(
-                    "AsyncPoolTask",
-                    LowLevelTasks::ETaskPriority::BackgroundNormal,
-                    [Function = MoveTemp(Function), Promise = MoveTemp(Promise), 
-                     Callback = MoveTemp(CompletionCallback), Task]() mutable
-                    {
-                        SetPromise(Promise, Function);
-                        if (Callback)
+            case EAsyncExecution::ThreadPool:
+                // ThreadPool requires FQueuedThreadPool - use AsyncPool() directly
+                // Fall back to TaskGraph for now
+                {
+                    LowLevelTasks::FTask* Task = new LowLevelTasks::FTask();
+                    Task->Init(
+                        "AsyncPoolTask",
+                        LowLevelTasks::ETaskPriority::BackgroundNormal,
+                        [Function = MoveTemp(Function), Promise = MoveTemp(Promise),
+                         Callback = MoveTemp(CompletionCallback), Task]() mutable
                         {
-                            Callback();
-                        }
-                        delete Task;
-                    },
-                    LowLevelTasks::ETaskFlags::DefaultFlags
-                );
-                LowLevelTasks::TryLaunch(*Task);
-            }
-            break;
+                            SetPromise(Promise, Function);
+                            if (Callback)
+                            {
+                                Callback();
+                            }
+                            delete Task;
+                        },
+                        LowLevelTasks::ETaskFlags::DefaultFlags);
+                    LowLevelTasks::TryLaunch(*Task);
+                }
+                break;
         }
 
         return MoveTemp(Future);
@@ -299,7 +297,7 @@ namespace OloEngine
 
     /**
      * @brief Execute a function asynchronously using a separate thread
-     * 
+     *
      * @param Callable The function to execute
      * @param StackSize Stack size for the thread (0 = default)
      * @param ThreadPri Thread priority
@@ -307,10 +305,10 @@ namespace OloEngine
      * @return A TFuture that will receive the return value
      */
     template<typename CallableType>
-    auto AsyncThread(CallableType&& Callable, 
-                     u32 StackSize = 0, 
-                     EThreadPriority ThreadPri = EThreadPriority::TPri_Normal, 
-                     TUniqueFunction<void()> CompletionCallback = nullptr) 
+    auto AsyncThread(CallableType&& Callable,
+                     u32 StackSize = 0,
+                     EThreadPriority ThreadPri = EThreadPriority::TPri_Normal,
+                     TUniqueFunction<void()> CompletionCallback = nullptr)
         -> TFuture<decltype(Forward<CallableType>(Callable)())>
     {
         using ResultType = decltype(Forward<CallableType>(Callable)());
@@ -321,21 +319,20 @@ namespace OloEngine
         if (FPlatformProcess::SupportsMultithreading())
         {
             auto* Runnable = new TAsyncRunnable<ResultType>(MoveTemp(Function), MoveTemp(Promise));
-            
+
             char ThreadName[64];
             snprintf(ThreadName, sizeof(ThreadName), "TAsyncThread %d", Private::FAsyncThreadIndex::GetNext());
-            
+
             FRunnableThread* Thread = FRunnableThread::Create(
                 Runnable,
                 ThreadName,
                 StackSize,
-                ThreadPri
-            );
+                ThreadPri);
 
             if (Thread)
             {
                 Runnable->SetThread(Thread);
-                
+
                 // Schedule cleanup
                 LowLevelTasks::FTask* CleanupTask = new LowLevelTasks::FTask();
                 CleanupTask->Init(
@@ -352,8 +349,7 @@ namespace OloEngine
                         }
                         delete CleanupTask;
                     },
-                    LowLevelTasks::ETaskFlags::DefaultFlags
-                );
+                    LowLevelTasks::ETaskFlags::DefaultFlags);
                 LowLevelTasks::TryLaunch(*CleanupTask);
             }
             else
@@ -383,10 +379,10 @@ namespace OloEngine
 
     /**
      * @brief Execute a task on the task scheduler
-     * 
+     *
      * Convenience function to quickly launch a task without creating
      * a promise/future pair.
-     * 
+     *
      * @param Priority Task priority
      * @param Function The function to execute
      */
@@ -401,8 +397,7 @@ namespace OloEngine
                 Function();
                 delete Task;
             },
-            LowLevelTasks::ETaskFlags::DefaultFlags
-        );
+            LowLevelTasks::ETaskFlags::DefaultFlags);
         LowLevelTasks::TryLaunch(*Task);
     }
 

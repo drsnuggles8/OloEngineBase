@@ -18,9 +18,12 @@
 namespace OloEngine
 {
     // Forward declarations
-    template<typename ResultType> class TFuture;
-    template<typename ResultType> class TSharedFuture;
-    template<typename ResultType> class TPromise;
+    template<typename ResultType>
+    class TFuture;
+    template<typename ResultType>
+    class TSharedFuture;
+    template<typename ResultType>
+    class TPromise;
 
     /**
      * @class FFutureState
@@ -28,7 +31,7 @@ namespace OloEngine
      */
     class FFutureState
     {
-    public:
+      public:
         FFutureState() = default;
 
         FFutureState(TUniqueFunction<void()>&& InCompletionCallback)
@@ -92,7 +95,7 @@ namespace OloEngine
             }
         }
 
-    protected:
+      protected:
         void MarkComplete()
         {
             TUniqueFunction<void()> Continuation;
@@ -109,11 +112,11 @@ namespace OloEngine
             }
         }
 
-    private:
+      private:
         mutable FMutex m_Mutex;
         TUniqueFunction<void()> m_CompletionCallback;
         mutable FManualResetEvent m_CompletionEvent;
-        std::atomic<bool> m_bComplete{false};
+        std::atomic<bool> m_bComplete{ false };
     };
 
     /**
@@ -123,7 +126,7 @@ namespace OloEngine
     template<typename ResultType>
     class TFutureState : public FFutureState
     {
-    public:
+      public:
         TFutureState() = default;
 
         TFutureState(TUniqueFunction<void()>&& CompletionCallback)
@@ -165,7 +168,7 @@ namespace OloEngine
             MarkComplete();
         }
 
-    private:
+      private:
         alignas(ResultType) u8 m_Result[sizeof(ResultType)];
         bool m_bHasResult = false;
     };
@@ -174,7 +177,7 @@ namespace OloEngine
     template<>
     class TFutureState<void> : public FFutureState
     {
-    public:
+      public:
         TFutureState() = default;
 
         TFutureState(TUniqueFunction<void()>&& CompletionCallback)
@@ -196,18 +199,18 @@ namespace OloEngine
     /**
      * @class TFuture
      * @brief A future represents an asynchronous result that will be available later
-     * 
+     *
      * Use TFuture to receive the result of an asynchronous operation.
      * The result can be retrieved with Get() which blocks until available.
-     * 
+     *
      * Example:
      * @code
      * TPromise<int> Promise;
      * TFuture<int> Future = Promise.GetFuture();
-     * 
+     *
      * // On another thread or later:
      * Promise.SetValue(42);
-     * 
+     *
      * // This blocks until value is set:
      * int Result = Future.Get();
      * @endcode
@@ -215,7 +218,7 @@ namespace OloEngine
     template<typename ResultType>
     class TFuture
     {
-    public:
+      public:
         TFuture() = default;
 
         TFuture(const TFuture&) = delete;
@@ -340,14 +343,14 @@ namespace OloEngine
         auto Then(FuncType&& Func)
         {
             using NextResultType = std::invoke_result_t<FuncType, TFuture<ResultType>>;
-            
+
             TPromise<NextResultType> NextPromise;
             TFuture<NextResultType> NextFuture = NextPromise.GetFuture();
 
             auto StateCapture = m_State;
             m_State->SetContinuation(
-                [Promise = MoveTemp(NextPromise), 
-                 State = MoveTemp(StateCapture), 
+                [Promise = MoveTemp(NextPromise),
+                 State = MoveTemp(StateCapture),
                  Continuation = Forward<FuncType>(Func)]() mutable
                 {
                     TFuture<ResultType> CompletedFuture(MoveTemp(State));
@@ -360,8 +363,7 @@ namespace OloEngine
                     {
                         Promise.SetValue(Continuation(MoveTemp(CompletedFuture)));
                     }
-                }
-            );
+                });
 
             // Invalidate this future after setting continuation
             m_State.reset();
@@ -376,14 +378,14 @@ namespace OloEngine
         auto Next(FuncType&& Func)
         {
             return Then([Continuation = Forward<FuncType>(Func)](TFuture<ResultType> Self) mutable
-            {
-                return Continuation(Self.Consume());
-            });
+                        { return Continuation(Self.Consume()); });
         }
 
-    private:
-        template<typename> friend class TPromise;
-        template<typename> friend class TSharedFuture;
+      private:
+        template<typename>
+        friend class TPromise;
+        template<typename>
+        friend class TSharedFuture;
 
         explicit TFuture(std::shared_ptr<TFutureState<ResultType>> InState)
             : m_State(MoveTemp(InState))
@@ -397,7 +399,7 @@ namespace OloEngine
     template<>
     class TFuture<void>
     {
-    public:
+      public:
         TFuture() = default;
 
         TFuture(const TFuture&) = delete;
@@ -414,8 +416,14 @@ namespace OloEngine
             return *this;
         }
 
-        bool IsValid() const { return m_State != nullptr; }
-        bool IsReady() const { return IsValid() && m_State->IsComplete(); }
+        bool IsValid() const
+        {
+            return m_State != nullptr;
+        }
+        bool IsReady() const
+        {
+            return IsValid() && m_State->IsComplete();
+        }
 
         void Get() const
         {
@@ -467,13 +475,13 @@ namespace OloEngine
         auto Then(FuncType&& Func)
         {
             using NextResultType = std::invoke_result_t<FuncType, TFuture<void>>;
-            
+
             TPromise<NextResultType> NextPromise;
             TFuture<NextResultType> NextFuture = NextPromise.GetFuture();
 
             auto StateCapture = m_State;
             m_State->SetContinuation(
-                [Promise = MoveTemp(NextPromise), 
+                [Promise = MoveTemp(NextPromise),
                  State = MoveTemp(StateCapture),
                  Continuation = Forward<FuncType>(Func)]() mutable
                 {
@@ -487,8 +495,7 @@ namespace OloEngine
                     {
                         Promise.SetValue(Continuation(MoveTemp(CompletedFuture)));
                     }
-                }
-            );
+                });
 
             m_State.reset();
             return NextFuture;
@@ -498,15 +505,16 @@ namespace OloEngine
         auto Next(FuncType&& Func)
         {
             return Then([Continuation = Forward<FuncType>(Func)](TFuture<void> Self) mutable
-            {
+                        {
                 Self.Consume();
-                return Continuation();
-            });
+                return Continuation(); });
         }
 
-    private:
-        template<typename> friend class TPromise;
-        template<typename> friend class TSharedFuture;
+      private:
+        template<typename>
+        friend class TPromise;
+        template<typename>
+        friend class TSharedFuture;
 
         explicit TFuture(std::shared_ptr<TFutureState<void>> InState)
             : m_State(MoveTemp(InState))
@@ -519,15 +527,15 @@ namespace OloEngine
     /**
      * @class TSharedFuture
      * @brief A shared future that can be copied and shared between multiple consumers
-     * 
+     *
      * Unlike TFuture which is move-only, TSharedFuture can be copied and allows
      * multiple threads to wait on the same result.
-     * 
+     *
      * Example:
      * @code
      * TFuture<int> Future = GetAsyncResult();
      * TSharedFuture<int> SharedFuture = Future.Share();
-     * 
+     *
      * // Both threads can now wait on the same result
      * TSharedFuture<int> Copy = SharedFuture;
      * @endcode
@@ -535,7 +543,7 @@ namespace OloEngine
     template<typename ResultType>
     class TSharedFuture
     {
-    public:
+      public:
         TSharedFuture() = default;
 
         /**
@@ -615,7 +623,7 @@ namespace OloEngine
             }
         }
 
-    private:
+      private:
         std::shared_ptr<TFutureState<ResultType>> m_State;
     };
 
@@ -623,7 +631,7 @@ namespace OloEngine
     template<>
     class TSharedFuture<void>
     {
-    public:
+      public:
         TSharedFuture() = default;
 
         TSharedFuture(TFuture<void>&& Future)
@@ -636,8 +644,14 @@ namespace OloEngine
         TSharedFuture(TSharedFuture&& Other) noexcept = default;
         TSharedFuture& operator=(TSharedFuture&& Other) noexcept = default;
 
-        bool IsValid() const { return m_State != nullptr; }
-        bool IsReady() const { return IsValid() && m_State->IsComplete(); }
+        bool IsValid() const
+        {
+            return m_State != nullptr;
+        }
+        bool IsReady() const
+        {
+            return IsValid() && m_State->IsComplete();
+        }
 
         void Get() const
         {
@@ -668,7 +682,7 @@ namespace OloEngine
             }
         }
 
-    private:
+      private:
         std::shared_ptr<TFutureState<void>> m_State;
     };
 
@@ -687,12 +701,12 @@ namespace OloEngine
     /**
      * @class TPromise
      * @brief A promise is used to set the result of a TFuture
-     * 
+     *
      * Example:
      * @code
      * TPromise<int> Promise;
      * TFuture<int> Future = Promise.GetFuture();
-     * 
+     *
      * // Later, set the result:
      * Promise.SetValue(42);
      * @endcode
@@ -700,7 +714,7 @@ namespace OloEngine
     template<typename ResultType>
     class TPromise
     {
-    public:
+      public:
         TPromise()
             : m_State(std::make_shared<TFutureState<ResultType>>())
         {
@@ -722,7 +736,7 @@ namespace OloEngine
 
         /**
          * @brief Get the future associated with this promise
-         * 
+         *
          * This should only be called once per promise.
          */
         TFuture<ResultType> GetFuture()
@@ -751,7 +765,7 @@ namespace OloEngine
             m_State->EmplaceResult(Forward<Args>(InArgs)...);
         }
 
-    private:
+      private:
         std::shared_ptr<TFutureState<ResultType>> m_State;
     };
 
@@ -759,7 +773,7 @@ namespace OloEngine
     template<>
     class TPromise<void>
     {
-    public:
+      public:
         TPromise()
             : m_State(std::make_shared<TFutureState<void>>())
         {
@@ -791,7 +805,7 @@ namespace OloEngine
             m_State->EmplaceResult();
         }
 
-    private:
+      private:
         std::shared_ptr<TFutureState<void>> m_State;
     };
 

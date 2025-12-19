@@ -3,13 +3,13 @@
 /**
  * @file ContainerAllocationPolicies.h
  * @brief Container allocation policies for OloEngine containers
- * 
+ *
  * Provides allocator policies used by TArray and other containers:
  * - TAllocatorTraits: Trait system for allocator capabilities
  * - TAlignedHeapAllocator: Heap allocator with custom alignment
  * - TSizedHeapAllocator: Heap allocator with configurable index size
  * - DefaultCalculateSlack*: Functions for computing slack/growth
- * 
+ *
  * Ported from Unreal Engine's Containers/ContainerAllocationPolicies.h
  */
 
@@ -24,53 +24,62 @@
 
 namespace OloEngine
 {
-    // ============================================================================
-    // Configuration Macros
-    // ============================================================================
+// ============================================================================
+// Configuration Macros
+// ============================================================================
 
-    // This option disables array slack for initial allocations, e.g where TArray::SetNum
-    // is called. This tends to save a lot of memory with almost no measured performance cost.
-    #ifndef CONTAINER_INITIAL_ALLOC_ZERO_SLACK
-    #define CONTAINER_INITIAL_ALLOC_ZERO_SLACK 1
-    #endif
+// This option disables array slack for initial allocations, e.g where TArray::SetNum
+// is called. This tends to save a lot of memory with almost no measured performance cost.
+#ifndef CONTAINER_INITIAL_ALLOC_ZERO_SLACK
+#define CONTAINER_INITIAL_ALLOC_ZERO_SLACK 1
+#endif
 
-    // Memory saving mode - if enabled, reduces slack growth
-    #ifndef AGGRESSIVE_MEMORY_SAVING
-    #define AGGRESSIVE_MEMORY_SAVING 0
-    #endif
+// Memory saving mode - if enabled, reduces slack growth
+#ifndef AGGRESSIVE_MEMORY_SAVING
+#define AGGRESSIVE_MEMORY_SAVING 0
+#endif
 
-    // Slack growth factor (numerator / denominator)
-    #ifndef OLO_CONTAINER_SLACK_GROWTH_FACTOR_NUMERATOR
-        #if AGGRESSIVE_MEMORY_SAVING
-            #define OLO_CONTAINER_SLACK_GROWTH_FACTOR_NUMERATOR 1
-        #else
-            #define OLO_CONTAINER_SLACK_GROWTH_FACTOR_NUMERATOR 3
-        #endif
-    #endif
+// Slack growth factor (numerator / denominator)
+#ifndef OLO_CONTAINER_SLACK_GROWTH_FACTOR_NUMERATOR
+#if AGGRESSIVE_MEMORY_SAVING
+#define OLO_CONTAINER_SLACK_GROWTH_FACTOR_NUMERATOR 1
+#else
+#define OLO_CONTAINER_SLACK_GROWTH_FACTOR_NUMERATOR 3
+#endif
+#endif
 
-    #ifndef OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR
-        #if AGGRESSIVE_MEMORY_SAVING
-            #define OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR 4
-        #else
-            #define OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR 8
-        #endif
-    #endif
+#ifndef OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR
+#if AGGRESSIVE_MEMORY_SAVING
+#define OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR 4
+#else
+#define OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR 8
+#endif
+#endif
 
-    static_assert(OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR > 0, 
+    static_assert(OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR > 0,
                   "OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR must be greater than 0");
-    static_assert(OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR > OLO_CONTAINER_SLACK_GROWTH_FACTOR_NUMERATOR, 
+    static_assert(OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR > OLO_CONTAINER_SLACK_GROWTH_FACTOR_NUMERATOR,
                   "OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR must be greater than OLO_CONTAINER_SLACK_GROWTH_FACTOR_NUMERATOR");
 
     // ============================================================================
     // Numeric Limits Helper
     // ============================================================================
 
-    template <typename T>
+    template<typename T>
     struct TNumericLimits
     {
-        static constexpr T Max() { return std::numeric_limits<T>::max(); }
-        static constexpr T Min() { return std::numeric_limits<T>::min(); }
-        static constexpr T Lowest() { return std::numeric_limits<T>::lowest(); }
+        static constexpr T Max()
+        {
+            return std::numeric_limits<T>::max();
+        }
+        static constexpr T Min()
+        {
+            return std::numeric_limits<T>::min();
+        }
+        static constexpr T Lowest()
+        {
+            return std::numeric_limits<T>::lowest();
+        }
     };
 
     // ============================================================================
@@ -79,7 +88,7 @@ namespace OloEngine
 
     /**
      * @brief Calculate slack when shrinking an array
-     * 
+     *
      * @param NewMax            The number of elements to allocate space for
      * @param CurrentMax        The number of elements for which space is currently allocated
      * @param BytesPerElement   The number of bytes/element
@@ -87,9 +96,9 @@ namespace OloEngine
      * @param Alignment         Alignment requirement
      * @return The recommended allocation size
      */
-    template <typename SizeType>
-    OLO_FINLINE SizeType DefaultCalculateSlackShrink(SizeType NewMax, SizeType CurrentMax, sizet BytesPerElement, 
-                                                      bool bAllowQuantize, u32 Alignment = DEFAULT_ALIGNMENT)
+    template<typename SizeType>
+    OLO_FINLINE SizeType DefaultCalculateSlackShrink(SizeType NewMax, SizeType CurrentMax, sizet BytesPerElement,
+                                                     bool bAllowQuantize, u32 Alignment = DEFAULT_ALIGNMENT)
     {
         SizeType Retval;
         OLO_CORE_ASSERT(NewMax < CurrentMax, "NewMax must be less than CurrentMax");
@@ -99,7 +108,7 @@ namespace OloEngine
         const sizet CurrentSlackBytes = static_cast<sizet>(CurrentMax - NewMax) * BytesPerElement;
         const bool bTooManySlackBytes = CurrentSlackBytes >= 16384;
         const bool bTooManySlackElements = 3 * NewMax < 2 * CurrentMax;
-        
+
         if ((bTooManySlackBytes || bTooManySlackElements) && (CurrentSlackElements > 64 || !NewMax))
         {
             Retval = NewMax;
@@ -121,7 +130,7 @@ namespace OloEngine
 
     /**
      * @brief Calculate slack when growing an array
-     * 
+     *
      * @param NewMax            The number of elements to allocate space for
      * @param CurrentMax        The number of elements for which space is currently allocated
      * @param BytesPerElement   The number of bytes/element
@@ -129,24 +138,24 @@ namespace OloEngine
      * @param Alignment         Alignment requirement
      * @return The recommended allocation size
      */
-    template <typename SizeType>
-    OLO_FINLINE SizeType DefaultCalculateSlackGrow(SizeType NewMax, SizeType CurrentMax, sizet BytesPerElement, 
-                                                    bool bAllowQuantize, u32 Alignment = DEFAULT_ALIGNMENT)
+    template<typename SizeType>
+    OLO_FINLINE SizeType DefaultCalculateSlackGrow(SizeType NewMax, SizeType CurrentMax, sizet BytesPerElement,
+                                                   bool bAllowQuantize, u32 Alignment = DEFAULT_ALIGNMENT)
     {
-    #if AGGRESSIVE_MEMORY_SAVING
+#if AGGRESSIVE_MEMORY_SAVING
         const sizet FirstGrow = 1;
         const sizet ConstantGrow = 0;
-    #else
+#else
         const sizet FirstGrow = 4;
         const sizet ConstantGrow = 16;
-    #endif
+#endif
 
         SizeType Retval;
         OLO_CORE_ASSERT(NewMax > CurrentMax && NewMax > 0, "NewMax must be greater than CurrentMax and positive");
 
         sizet Grow = FirstGrow; // this is the amount for the first alloc
 
-    #if CONTAINER_INITIAL_ALLOC_ZERO_SLACK
+#if CONTAINER_INITIAL_ALLOC_ZERO_SLACK
         if (CurrentMax)
         {
             // Allocate slack for the array proportional to its size.
@@ -156,13 +165,13 @@ namespace OloEngine
         {
             Grow = static_cast<sizet>(NewMax);
         }
-    #else
+#else
         if (CurrentMax || static_cast<sizet>(NewMax) > Grow)
         {
             // Allocate slack for the array proportional to its size.
             Grow = static_cast<sizet>(NewMax) + OLO_CONTAINER_SLACK_GROWTH_FACTOR_NUMERATOR * static_cast<sizet>(NewMax) / OLO_CONTAINER_SLACK_GROWTH_FACTOR_DENOMINATOR + ConstantGrow;
         }
-    #endif
+#endif
 
         if (bAllowQuantize)
         {
@@ -172,7 +181,7 @@ namespace OloEngine
         {
             Retval = static_cast<SizeType>(Grow);
         }
-        
+
         // NumElements and MaxElements are stored in signed integers so we must be careful not to overflow here.
         if (NewMax > Retval)
         {
@@ -184,20 +193,20 @@ namespace OloEngine
 
     /**
      * @brief Calculate slack when reserving space
-     * 
+     *
      * @param NewMax            The number of elements to allocate space for
      * @param BytesPerElement   The number of bytes/element
      * @param bAllowQuantize    Whether to quantize the allocation size
      * @param Alignment         Alignment requirement
      * @return The recommended allocation size
      */
-    template <typename SizeType>
-    OLO_FINLINE SizeType DefaultCalculateSlackReserve(SizeType NewMax, sizet BytesPerElement, 
-                                                       bool bAllowQuantize, u32 Alignment = DEFAULT_ALIGNMENT)
+    template<typename SizeType>
+    OLO_FINLINE SizeType DefaultCalculateSlackReserve(SizeType NewMax, sizet BytesPerElement,
+                                                      bool bAllowQuantize, u32 Alignment = DEFAULT_ALIGNMENT)
     {
         SizeType Retval = NewMax;
         OLO_CORE_ASSERT(NewMax > 0, "NewMax must be positive");
-        
+
         if (bAllowQuantize)
         {
             Retval = static_cast<SizeType>(FMemory::QuantizeSize(static_cast<sizet>(Retval) * BytesPerElement, Alignment) / BytesPerElement);
@@ -228,20 +237,32 @@ namespace OloEngine
      * @struct TAllocatorTraitsBase
      * @brief Base traits for allocators
      */
-    template <typename AllocatorType>
+    template<typename AllocatorType>
     struct TAllocatorTraitsBase
     {
-        enum { IsZeroConstruct           = false };  // Does the allocator zero-initialize new memory?
-        enum { SupportsFreezeMemoryImage = false };  // Can the allocator be frozen for memory images?
-        enum { SupportsElementAlignment  = false };  // Does the allocator support custom element alignment?
-        enum { SupportsSlackTracking     = false };  // Does the allocator support slack tracking?
+        enum
+        {
+            IsZeroConstruct = false
+        }; // Does the allocator zero-initialize new memory?
+        enum
+        {
+            SupportsFreezeMemoryImage = false
+        }; // Can the allocator be frozen for memory images?
+        enum
+        {
+            SupportsElementAlignment = false
+        }; // Does the allocator support custom element alignment?
+        enum
+        {
+            SupportsSlackTracking = false
+        }; // Does the allocator support slack tracking?
     };
 
     /**
      * @struct TAllocatorTraits
      * @brief Traits for container allocators - specialize for custom allocators
      */
-    template <typename AllocatorType>
+    template<typename AllocatorType>
     struct TAllocatorTraits : TAllocatorTraitsBase<AllocatorType>
     {
     };
@@ -250,27 +271,46 @@ namespace OloEngine
      * @struct TCanMoveBetweenAllocators
      * @brief Check if data can be moved between two allocator types
      */
-    template <typename FromAllocatorType, typename ToAllocatorType>
+    template<typename FromAllocatorType, typename ToAllocatorType>
     struct TCanMoveBetweenAllocators
     {
-        enum { Value = false };
+        enum
+        {
+            Value = false
+        };
     };
 
     // ============================================================================
     // Bits to Size Type Mapping
     // ============================================================================
 
-    template <i32 IndexSize>
+    template<i32 IndexSize>
     struct TBitsToSizeType
     {
         // Fabricate a compile-time false result that's still dependent on the template parameter
         static_assert(IndexSize == IndexSize + 1, "Unsupported allocator index size.");
     };
 
-    template <> struct TBitsToSizeType<8>  { using Type = i8;  };
-    template <> struct TBitsToSizeType<16> { using Type = i16; };
-    template <> struct TBitsToSizeType<32> { using Type = i32; };
-    template <> struct TBitsToSizeType<64> { using Type = i64; };
+    template<>
+    struct TBitsToSizeType<8>
+    {
+        using Type = i8;
+    };
+    template<>
+    struct TBitsToSizeType<16>
+    {
+        using Type = i16;
+    };
+    template<>
+    struct TBitsToSizeType<32>
+    {
+        using Type = i32;
+    };
+    template<>
+    struct TBitsToSizeType<64>
+    {
+        using Type = i64;
+    };
 
     // ============================================================================
     // TAlignedHeapAllocator
@@ -286,36 +326,43 @@ namespace OloEngine
 
         [[noreturn]] inline void OnInvalidSizedHeapAllocatorNum(i32 IndexSize, i64 NewNum, sizet NumBytesPerElement)
         {
-            OLO_CORE_ASSERT(false, "Invalid sized heap allocator num: IndexSize={}, NewNum={}, NumBytesPerElement={}", 
-                           IndexSize, NewNum, NumBytesPerElement);
+            OLO_CORE_ASSERT(false, "Invalid sized heap allocator num: IndexSize={}, NewNum={}, NumBytesPerElement={}",
+                            IndexSize, NewNum, NumBytesPerElement);
             std::abort(); // In case asserts are disabled
         }
-    }
+    } // namespace Detail
 
     /**
      * @class TAlignedHeapAllocator
      * @brief Heap allocator with custom alignment
-     * 
+     *
      * The indirect allocation policy always allocates the elements indirectly.
-     * 
+     *
      * @tparam Alignment The alignment for allocations (default: DEFAULT_ALIGNMENT)
      */
     template<u32 Alignment = DEFAULT_ALIGNMENT>
     class TAlignedHeapAllocator
     {
-    public:
+      public:
         using SizeType = i32;
 
-        enum { NeedsElementType = false };
-        enum { RequireRangeCheck = true };
+        enum
+        {
+            NeedsElementType = false
+        };
+        enum
+        {
+            RequireRangeCheck = true
+        };
 
         class ForAnyElementType
         {
-        public:
+          public:
             /** Default constructor. */
             ForAnyElementType()
                 : Data(nullptr)
-            {}
+            {
+            }
 
             /**
              * Moves the state of another allocator into this one.
@@ -424,7 +471,7 @@ namespace OloEngine
             }
 #endif
 
-        private:
+          private:
             ForAnyElementType(const ForAnyElementType&) = delete;
             ForAnyElementType& operator=(const ForAnyElementType&) = delete;
 
@@ -437,12 +484,12 @@ namespace OloEngine
         {
             static constexpr sizet MinimumAlignment = (Alignment <= __STDCPP_DEFAULT_NEW_ALIGNMENT__) ? __STDCPP_DEFAULT_NEW_ALIGNMENT__ : Alignment;
 
-        public:
+          public:
             /** Default constructor. */
             ForElementType()
             {
-                static_assert(alignof(ElementType) <= MinimumAlignment, 
-                    "Using TAlignedHeapAllocator with an alignment lower than the element type's alignment - please update the alignment parameter");
+                static_assert(alignof(ElementType) <= MinimumAlignment,
+                              "Using TAlignedHeapAllocator with an alignment lower than the element type's alignment - please update the alignment parameter");
             }
 
             OLO_FINLINE ElementType* GetAllocation() const
@@ -452,11 +499,17 @@ namespace OloEngine
         };
     };
 
-    template <u32 Alignment>
+    template<u32 Alignment>
     struct TAllocatorTraits<TAlignedHeapAllocator<Alignment>> : TAllocatorTraitsBase<TAlignedHeapAllocator<Alignment>>
     {
-        enum { IsZeroConstruct = true };
-        enum { SupportsSlackTracking = true };
+        enum
+        {
+            IsZeroConstruct = true
+        };
+        enum
+        {
+            SupportsSlackTracking = true
+        };
     };
 
     // ============================================================================
@@ -466,48 +519,56 @@ namespace OloEngine
     /**
      * @class TSizedHeapAllocator
      * @brief Heap allocator with configurable index size
-     * 
+     *
      * The indirect allocation policy always allocates the elements indirectly.
-     * 
+     *
      * @tparam IndexSize Size of the index type in bits (8, 16, 32, or 64)
      * @tparam BaseMallocType The malloc type to use for allocations (default: FMemory)
      */
-    template <i32 IndexSize, typename BaseMallocType = FMemory>
+    template<i32 IndexSize, typename BaseMallocType = FMemory>
     class TSizedHeapAllocator
     {
-    public:
+      public:
         using SizeType = typename TBitsToSizeType<IndexSize>::Type;
         using BaseMalloc = BaseMallocType;
 
-    private:
+      private:
         using USizeType = std::make_unsigned_t<SizeType>;
 
-    public:
-        enum { NeedsElementType = false };
-        enum { RequireRangeCheck = true };
+      public:
+        enum
+        {
+            NeedsElementType = false
+        };
+        enum
+        {
+            RequireRangeCheck = true
+        };
 
         class ForAnyElementType
         {
-            template <i32, typename>
+            template<i32, typename>
             friend class TSizedHeapAllocator;
 
-        public:
+          public:
             /** Default constructor. */
             constexpr ForAnyElementType()
                 : Data(nullptr)
-            {}
+            {
+            }
 
             /** Explicitly consteval constructor for compile-time constant arrays. */
             explicit consteval ForAnyElementType(EConstEval)
                 : Data(nullptr)
-            {}
+            {
+            }
 
             /**
              * Moves the state of another allocator into this one.
              * Assumes that the allocator is currently empty.
              * @param Other - The allocator to move the state from.
              */
-            template <typename OtherAllocator>
+            template<typename OtherAllocator>
             OLO_FINLINE void MoveToEmptyFromOtherAllocator(typename OtherAllocator::ForAnyElementType& Other)
             {
                 OLO_CORE_ASSERT(reinterpret_cast<void*>(this) != reinterpret_cast<void*>(&Other), "Cannot move to self");
@@ -664,7 +725,7 @@ namespace OloEngine
             }
 #endif
 
-        private:
+          private:
             ForAnyElementType(const ForAnyElementType&) = delete;
             ForAnyElementType& operator=(const ForAnyElementType&) = delete;
 
@@ -675,14 +736,15 @@ namespace OloEngine
         template<typename ElementType>
         class ForElementType : public ForAnyElementType
         {
-        public:
+          public:
             /** Default constructor. */
             ForElementType() = default;
 
             /** Explicitly consteval constructor for compile-time constant arrays. */
             explicit consteval ForElementType(EConstEval)
                 : ForAnyElementType(ConstEval)
-            {}
+            {
+            }
 
             OLO_FINLINE ElementType* GetAllocation() const
             {
@@ -691,19 +753,31 @@ namespace OloEngine
         };
     };
 
-    template <u8 IndexSize>
+    template<u8 IndexSize>
     struct TAllocatorTraits<TSizedHeapAllocator<IndexSize>> : TAllocatorTraitsBase<TSizedHeapAllocator<IndexSize>>
     {
-        enum { IsZeroConstruct          = true };
-        enum { SupportsElementAlignment = true };
-        enum { SupportsSlackTracking    = true };
+        enum
+        {
+            IsZeroConstruct = true
+        };
+        enum
+        {
+            SupportsElementAlignment = true
+        };
+        enum
+        {
+            SupportsSlackTracking = true
+        };
     };
 
     // Allow conversions between different int width versions of the allocator
-    template <u8 FromIndexSize, u8 ToIndexSize>
+    template<u8 FromIndexSize, u8 ToIndexSize>
     struct TCanMoveBetweenAllocators<TSizedHeapAllocator<FromIndexSize>, TSizedHeapAllocator<ToIndexSize>>
     {
-        enum { Value = true };
+        enum
+        {
+            Value = true
+        };
     };
 
     // ============================================================================
@@ -711,10 +785,10 @@ namespace OloEngine
     // ============================================================================
 
     /** Default sized allocator (32-bit indices) - inherits from TSizedHeapAllocator<32> */
-    template <i32 IndexSize>
+    template<i32 IndexSize>
     class TSizedDefaultAllocator : public TSizedHeapAllocator<IndexSize>
     {
-    public:
+      public:
         using Typedef = TSizedHeapAllocator<IndexSize>;
     };
 
@@ -728,19 +802,19 @@ namespace OloEngine
     using FHeapAllocator = TSizedHeapAllocator<32>;
 
     // Traits for default allocator
-    template <i32 IndexSize>
+    template<i32 IndexSize>
     struct TAllocatorTraits<TSizedDefaultAllocator<IndexSize>> : TAllocatorTraits<typename TSizedDefaultAllocator<IndexSize>::Typedef>
     {
     };
 
-    template <>
+    template<>
     struct TAllocatorTraits<FDefaultAllocator> : TAllocatorTraits<typename FDefaultAllocator::Typedef>
     {
     };
 
     // Allow moving between different sized default allocators
-    template <i32 FromIndexSize, i32 ToIndexSize>
-    struct TCanMoveBetweenAllocators<TSizedDefaultAllocator<FromIndexSize>, TSizedDefaultAllocator<ToIndexSize>> 
+    template<i32 FromIndexSize, i32 ToIndexSize>
+    struct TCanMoveBetweenAllocators<TSizedDefaultAllocator<FromIndexSize>, TSizedDefaultAllocator<ToIndexSize>>
         : TCanMoveBetweenAllocators<typename TSizedDefaultAllocator<FromIndexSize>::Typedef, typename TSizedDefaultAllocator<ToIndexSize>::Typedef>
     {
     };
@@ -752,11 +826,11 @@ namespace OloEngine
     namespace Detail
     {
         // This concept allows us to support allocators which don't specify `enum { ShrinkByDefault = ...; }`.
-        template <typename AllocatorType>
+        template<typename AllocatorType>
         concept CHasShrinkByDefault = requires { AllocatorType::ShrinkByDefault; };
 
         // Returns the value of AllocatorType::ShrinkByDefault if the enum exists, or bFallback if the enum is absent.
-        template <bool bFallback, typename AllocatorType>
+        template<bool bFallback, typename AllocatorType>
         consteval bool ShrinkByDefaultOr()
         {
             if constexpr (CHasShrinkByDefault<AllocatorType>)
@@ -768,35 +842,44 @@ namespace OloEngine
                 return bFallback;
             }
         }
-    }
+    } // namespace Detail
 
     /**
      * @class TSizedInlineAllocator
      * @brief Inline allocator with secondary heap fallback
-     * 
+     *
      * Allocates up to NumInlineElements in embedded storage, then falls back to
      * a secondary allocator for larger allocations.
-     * 
+     *
      * @tparam NumInlineElements    Maximum number of elements to store inline
      * @tparam IndexSize           Size of the index type in bits (8, 16, 32, or 64)
      * @tparam SecondaryAllocator  Allocator to use when inline storage is exceeded
      */
-    template <u32 NumInlineElements, i32 IndexSize, typename SecondaryAllocator = FDefaultAllocator>
+    template<u32 NumInlineElements, i32 IndexSize, typename SecondaryAllocator = FDefaultAllocator>
     class TSizedInlineAllocator
     {
-    public:
+      public:
         using SizeType = typename TBitsToSizeType<IndexSize>::Type;
 
         static_assert(std::is_same_v<SizeType, typename SecondaryAllocator::SizeType>, "Secondary allocator SizeType mismatch");
 
-        enum { NeedsElementType = true };
-        enum { RequireRangeCheck = true };
-        enum { ShrinkByDefault = Detail::ShrinkByDefaultOr<true, SecondaryAllocator>() };
+        enum
+        {
+            NeedsElementType = true
+        };
+        enum
+        {
+            RequireRangeCheck = true
+        };
+        enum
+        {
+            ShrinkByDefault = Detail::ShrinkByDefaultOr<true, SecondaryAllocator>()
+        };
 
         template<typename ElementType>
         class ForElementType
         {
-        public:
+          public:
             /** Default constructor. */
             constexpr ForElementType()
             {
@@ -813,8 +896,10 @@ namespace OloEngine
             /** Explicitly consteval constructor for compile-time constant arrays. */
             explicit consteval ForElementType(EConstEval)
                 : InlineData() // Force value initialization
-                , SecondaryData(ConstEval)
-            {}
+                  ,
+                  SecondaryData(ConstEval)
+            {
+            }
 
             /**
              * Moves the state of another allocator into this one.
@@ -832,7 +917,7 @@ namespace OloEngine
                 }
 
                 // Move secondary storage in any case.
-                // This will move secondary storage if it exists but will also handle the case where 
+                // This will move secondary storage if it exists but will also handle the case where
                 // secondary storage is used in Other but not in *this.
                 SecondaryData.MoveToEmpty(Other.SecondaryData);
             }
@@ -858,8 +943,8 @@ namespace OloEngine
                     // If the old allocation wasn't in the inline data area, relocate it into the inline data area.
                     if (SecondaryData.GetAllocation())
                     {
-                        RelocateConstructItems<ElementType>(static_cast<void*>(InlineData), 
-                            reinterpret_cast<ElementType*>(SecondaryData.GetAllocation()), CurrentNum);
+                        RelocateConstructItems<ElementType>(static_cast<void*>(InlineData),
+                                                            reinterpret_cast<ElementType*>(SecondaryData.GetAllocation()), CurrentNum);
 
                         // Free the old indirect allocation.
                         SecondaryData.ResizeAllocation(0, 0, NumBytesPerElement);
@@ -886,17 +971,13 @@ namespace OloEngine
             OLO_FINLINE SizeType CalculateSlackReserve(SizeType NewMax, sizet NumBytesPerElement) const
             {
                 // If the elements use less space than the inline allocation, only use the inline allocation as slack.
-                return NewMax <= static_cast<SizeType>(NumInlineElements) ?
-                    static_cast<SizeType>(NumInlineElements) :
-                    SecondaryData.CalculateSlackReserve(NewMax, NumBytesPerElement);
+                return NewMax <= static_cast<SizeType>(NumInlineElements) ? static_cast<SizeType>(NumInlineElements) : SecondaryData.CalculateSlackReserve(NewMax, NumBytesPerElement);
             }
 
             OLO_FINLINE SizeType CalculateSlackShrink(SizeType NewMax, SizeType CurrentMax, sizet NumBytesPerElement) const
             {
                 // If the elements use less space than the inline allocation, only use the inline allocation as slack.
-                return NewMax <= static_cast<SizeType>(NumInlineElements) ?
-                    static_cast<SizeType>(NumInlineElements) :
-                    SecondaryData.CalculateSlackShrink(NewMax, CurrentMax, NumBytesPerElement);
+                return NewMax <= static_cast<SizeType>(NumInlineElements) ? static_cast<SizeType>(NumInlineElements) : SecondaryData.CalculateSlackShrink(NewMax, CurrentMax, NumBytesPerElement);
             }
 
             OLO_FINLINE SizeType CalculateSlackGrow(SizeType NewMax, SizeType CurrentMax, sizet NumBytesPerElement) const
@@ -905,9 +986,7 @@ namespace OloEngine
                 // Also, when computing slack growth, don't count inline elements -- the slack algorithm has a special
                 // case to save memory on the initial heap allocation, versus subsequent reallocations, and we don't
                 // want the inline elements to be treated as if they were the first heap allocation.
-                return NewMax <= static_cast<SizeType>(NumInlineElements) ?
-                    static_cast<SizeType>(NumInlineElements) :
-                    SecondaryData.CalculateSlackGrow(NewMax, CurrentMax <= static_cast<SizeType>(NumInlineElements) ? 0 : CurrentMax, NumBytesPerElement);
+                return NewMax <= static_cast<SizeType>(NumInlineElements) ? static_cast<SizeType>(NumInlineElements) : SecondaryData.CalculateSlackGrow(NewMax, CurrentMax <= static_cast<SizeType>(NumInlineElements) ? 0 : CurrentMax, NumBytesPerElement);
             }
 
             sizet GetAllocatedSize(SizeType CurrentMax, sizet NumBytesPerElement) const
@@ -950,7 +1029,7 @@ namespace OloEngine
             }
 #endif
 
-        private:
+          private:
             ForElementType(const ForElementType&) = delete;
             ForElementType& operator=(const ForElementType&) = delete;
 
@@ -970,18 +1049,21 @@ namespace OloEngine
         using ForAnyElementType = void;
     };
 
-    template <u32 NumInlineElements, i32 IndexSize, typename SecondaryAllocator>
-    struct TAllocatorTraits<TSizedInlineAllocator<NumInlineElements, IndexSize, SecondaryAllocator>> 
+    template<u32 NumInlineElements, i32 IndexSize, typename SecondaryAllocator>
+    struct TAllocatorTraits<TSizedInlineAllocator<NumInlineElements, IndexSize, SecondaryAllocator>>
         : TAllocatorTraitsBase<TSizedInlineAllocator<NumInlineElements, IndexSize, SecondaryAllocator>>
     {
-        enum { SupportsSlackTracking = true };
+        enum
+        {
+            SupportsSlackTracking = true
+        };
     };
 
     // Convenience aliases
-    template <u32 NumInlineElements, typename SecondaryAllocator = FDefaultAllocator>
+    template<u32 NumInlineElements, typename SecondaryAllocator = FDefaultAllocator>
     using TInlineAllocator = TSizedInlineAllocator<NumInlineElements, 32, SecondaryAllocator>;
 
-    template <u32 NumInlineElements, typename SecondaryAllocator = FDefaultAllocator64>
+    template<u32 NumInlineElements, typename SecondaryAllocator = FDefaultAllocator64>
     using TInlineAllocator64 = TSizedInlineAllocator<NumInlineElements, 64, SecondaryAllocator>;
 
     // ============================================================================
@@ -992,16 +1074,16 @@ namespace OloEngine
      * @class TSizedNonshrinkingAllocator
      * @brief Heap allocator that prevents automatic shrinking unless explicitly requested
      */
-    template <i32 IndexSize>
+    template<i32 IndexSize>
     class TSizedNonshrinkingAllocator : public TSizedHeapAllocator<IndexSize>
     {
-    public:
+      public:
         using Typedef = TSizedHeapAllocator<IndexSize>;
         static constexpr bool ShrinkByDefault = false;
     };
 
-    template <i32 IndexSize>
-    struct TAllocatorTraits<TSizedNonshrinkingAllocator<IndexSize>> 
+    template<i32 IndexSize>
+    struct TAllocatorTraits<TSizedNonshrinkingAllocator<IndexSize>>
         : TAllocatorTraits<typename TSizedNonshrinkingAllocator<IndexSize>::Typedef>
     {
     };
@@ -1013,24 +1095,30 @@ namespace OloEngine
     /**
      * @class TFixedAllocator
      * @brief Fixed-size inline allocator with no secondary storage
-     * 
+     *
      * Allocates up to a specified number of elements inline with the container.
      * Does not provide secondary storage when inline storage is exhausted.
      */
-    template <u32 NumInlineElements>
+    template<u32 NumInlineElements>
     class TFixedAllocator
     {
-    public:
+      public:
         using SizeType = i32;
 
-        enum { NeedsElementType = true };
-        enum { RequireRangeCheck = true };
+        enum
+        {
+            NeedsElementType = true
+        };
+        enum
+        {
+            RequireRangeCheck = true
+        };
         static constexpr bool ShrinkByDefault = false;
 
-        template <typename ElementType>
+        template<typename ElementType>
         class ForElementType
         {
-        public:
+          public:
             ForElementType() = default;
 
             OLO_FINLINE void MoveToEmpty(ForElementType& Other)
@@ -1046,8 +1134,8 @@ namespace OloEngine
 
             void ResizeAllocation(SizeType /*CurrentNum*/, SizeType NewMax, sizet /*NumBytesPerElement*/)
             {
-                OLO_CORE_ASSERT(NewMax >= 0 && static_cast<u32>(NewMax) <= NumInlineElements, 
-                               "TFixedAllocator cannot allocate more than NumInlineElements");
+                OLO_CORE_ASSERT(NewMax >= 0 && static_cast<u32>(NewMax) <= NumInlineElements,
+                                "TFixedAllocator cannot allocate more than NumInlineElements");
             }
 
             OLO_FINLINE SizeType CalculateSlackReserve(SizeType NewMax, sizet /*NumBytesPerElement*/) const
@@ -1082,7 +1170,7 @@ namespace OloEngine
                 return static_cast<SizeType>(NumInlineElements);
             }
 
-        private:
+          private:
             ForElementType(const ForElementType&) = delete;
             ForElementType& operator=(const ForElementType&) = delete;
 
@@ -1097,8 +1185,8 @@ namespace OloEngine
         using ForAnyElementType = void;
     };
 
-    template <u32 NumInlineElements>
-    struct TAllocatorTraits<TFixedAllocator<NumInlineElements>> 
+    template<u32 NumInlineElements>
+    struct TAllocatorTraits<TFixedAllocator<NumInlineElements>>
         : TAllocatorTraitsBase<TFixedAllocator<NumInlineElements>>
     {
     };
@@ -1110,37 +1198,43 @@ namespace OloEngine
     /**
      * @class TNonRelocatableInlineAllocator
      * @brief Inline allocator variant that caches the data pointer
-     * 
-     * A variant of TInlineAllocator with a secondary heap allocator that is allowed to store 
-     * a pointer to its inline elements. This allows caching a pointer to the elements which 
-     * avoids any conditional logic in GetAllocation(), but prevents the allocator being 
+     *
+     * A variant of TInlineAllocator with a secondary heap allocator that is allowed to store
+     * a pointer to its inline elements. This allows caching a pointer to the elements which
+     * avoids any conditional logic in GetAllocation(), but prevents the allocator being
      * trivially relocatable.
-     * 
-     * All OloEngine allocators typically rely on elements being trivially relocatable, so 
+     *
+     * All OloEngine allocators typically rely on elements being trivially relocatable, so
      * instances of this allocator cannot be used in other containers.
      *
-     * NOTE: instances of this allocator - or containers which use them - are non-trivially-relocatable, 
+     * NOTE: instances of this allocator - or containers which use them - are non-trivially-relocatable,
      * but the allocator still expects elements themselves to be trivially-relocatable.
      */
-    template <u32 NumInlineElements>
+    template<u32 NumInlineElements>
     class TNonRelocatableInlineAllocator
     {
-    public:
+      public:
         using SizeType = i32;
 
-        enum { NeedsElementType = true };
-        enum { RequireRangeCheck = true };
+        enum
+        {
+            NeedsElementType = true
+        };
+        enum
+        {
+            RequireRangeCheck = true
+        };
 
-        template <typename ElementType>
+        template<typename ElementType>
         class ForElementType
         {
-        public:
+          public:
             /** Default constructor - points to inline storage */
             ForElementType()
                 : Data(GetInlineElements())
             {
-                static_assert(alignof(ElementType) <= DEFAULT_ALIGNMENT, 
-                    "TNonRelocatableInlineAllocator uses default alignment, which is lower than the element type's alignment");
+                static_assert(alignof(ElementType) <= DEFAULT_ALIGNMENT,
+                              "TNonRelocatableInlineAllocator uses default alignment, which is lower than the element type's alignment");
             }
 
             ~ForElementType()
@@ -1153,10 +1247,10 @@ namespace OloEngine
 
             /**
              * @brief Moves the state of another allocator into this one
-             * 
-             * Assumes that the allocator is currently empty, i.e. memory may be allocated 
+             *
+             * Assumes that the allocator is currently empty, i.e. memory may be allocated
              * but any existing elements have already been destructed (if necessary).
-             * 
+             *
              * @param Other The allocator to move the state from
              */
             OLO_FINLINE void MoveToEmpty(ForElementType& Other)
@@ -1221,25 +1315,19 @@ namespace OloEngine
             OLO_FINLINE SizeType CalculateSlackReserve(SizeType NewMax, sizet NumBytesPerElement) const
             {
                 // If the elements use less space than the inline allocation, only use the inline allocation as slack.
-                return (static_cast<u32>(NewMax) <= NumInlineElements) ? 
-                    static_cast<SizeType>(NumInlineElements) : 
-                    DefaultCalculateSlackReserve(NewMax, NumBytesPerElement, true);
+                return (static_cast<u32>(NewMax) <= NumInlineElements) ? static_cast<SizeType>(NumInlineElements) : DefaultCalculateSlackReserve(NewMax, NumBytesPerElement, true);
             }
 
             OLO_FINLINE SizeType CalculateSlackShrink(SizeType NewMax, SizeType CurrentMax, sizet NumBytesPerElement) const
             {
                 // If the elements use less space than the inline allocation, only use the inline allocation as slack.
-                return (static_cast<u32>(NewMax) <= NumInlineElements) ? 
-                    static_cast<SizeType>(NumInlineElements) : 
-                    DefaultCalculateSlackShrink(NewMax, CurrentMax, NumBytesPerElement, true);
+                return (static_cast<u32>(NewMax) <= NumInlineElements) ? static_cast<SizeType>(NumInlineElements) : DefaultCalculateSlackShrink(NewMax, CurrentMax, NumBytesPerElement, true);
             }
 
             OLO_FINLINE SizeType CalculateSlackGrow(SizeType NewMax, SizeType CurrentMax, sizet NumBytesPerElement) const
             {
                 // If the elements use less space than the inline allocation, only use the inline allocation as slack.
-                return (static_cast<u32>(NewMax) <= NumInlineElements) ? 
-                    static_cast<SizeType>(NumInlineElements) : 
-                    DefaultCalculateSlackGrow(NewMax, CurrentMax, NumBytesPerElement, true);
+                return (static_cast<u32>(NewMax) <= NumInlineElements) ? static_cast<SizeType>(NumInlineElements) : DefaultCalculateSlackGrow(NewMax, CurrentMax, NumBytesPerElement, true);
             }
 
             sizet GetAllocatedSize(SizeType CurrentMax, sizet NumBytesPerElement) const
@@ -1257,7 +1345,7 @@ namespace OloEngine
                 return static_cast<SizeType>(NumInlineElements);
             }
 
-        private:
+          private:
             ForElementType(const ForElementType&) = delete;
             ForElementType& operator=(const ForElementType&) = delete;
 
@@ -1277,20 +1365,23 @@ namespace OloEngine
         using ForAnyElementType = void;
     };
 
-    template <u32 NumInlineElements>
-    struct TAllocatorTraits<TNonRelocatableInlineAllocator<NumInlineElements>> 
+    template<u32 NumInlineElements>
+    struct TAllocatorTraits<TNonRelocatableInlineAllocator<NumInlineElements>>
         : TAllocatorTraitsBase<TNonRelocatableInlineAllocator<NumInlineElements>>
     {
-        enum { SupportsSlackTracking = true };
+        enum
+        {
+            SupportsSlackTracking = true
+        };
     };
 
-    // ============================================================================
-    // Bit Array Constants
-    // ============================================================================
+// ============================================================================
+// Bit Array Constants
+// ============================================================================
 
-    // We want these to be correctly typed as i32, but we don't want them to have linkage, so we make them macros
-    #define NumBitsPerDWORD (static_cast<i32>(32))
-    #define NumBitsPerDWORDLogTwo (static_cast<i32>(5))
+// We want these to be correctly typed as i32, but we don't want them to have linkage, so we make them macros
+#define NumBitsPerDWORD (static_cast<i32>(32))
+#define NumBitsPerDWORDLogTwo (static_cast<i32>(5))
 
     // ============================================================================
     // FDefaultBitArrayAllocator
@@ -1301,11 +1392,11 @@ namespace OloEngine
     /** Default bit array allocator (inline with 4 DWORDs) */
     class FDefaultBitArrayAllocator : public TInlineAllocator<4>
     {
-    public:
+      public:
         using Typedef = TInlineAllocator<4>;
     };
 
-    template <>
+    template<>
     struct TAllocatorTraits<FDefaultBitArrayAllocator> : TAllocatorTraits<typename FDefaultBitArrayAllocator::Typedef>
     {
     };
@@ -1318,21 +1409,21 @@ namespace OloEngine
      * @class TSparseArrayAllocator
      * @brief Encapsulates allocators used by TSparseArray
      */
-    template <typename InElementAllocator = FDefaultAllocator, typename InBitArrayAllocator = FDefaultBitArrayAllocator>
+    template<typename InElementAllocator = FDefaultAllocator, typename InBitArrayAllocator = FDefaultBitArrayAllocator>
     class TSparseArrayAllocator
     {
-    public:
+      public:
         using ElementAllocator = InElementAllocator;
         using BitArrayAllocator = InBitArrayAllocator;
     };
 
-    template <typename InElementAllocator, typename InBitArrayAllocator>
-    struct TAllocatorTraits<TSparseArrayAllocator<InElementAllocator, InBitArrayAllocator>> 
+    template<typename InElementAllocator, typename InBitArrayAllocator>
+    struct TAllocatorTraits<TSparseArrayAllocator<InElementAllocator, InBitArrayAllocator>>
         : TAllocatorTraitsBase<TSparseArrayAllocator<InElementAllocator, InBitArrayAllocator>>
     {
         enum
         {
-            SupportsFreezeMemoryImage = TAllocatorTraits<InElementAllocator>::SupportsFreezeMemoryImage && 
+            SupportsFreezeMemoryImage = TAllocatorTraits<InElementAllocator>::SupportsFreezeMemoryImage &&
                                         TAllocatorTraits<InBitArrayAllocator>::SupportsFreezeMemoryImage,
         };
     };
@@ -1341,12 +1432,12 @@ namespace OloEngine
      * @class TAlignedSparseArrayAllocator
      * @brief Sparse array allocator with custom alignment
      */
-    template <u32 Alignment = DEFAULT_ALIGNMENT, 
-              typename InElementAllocator = TAlignedHeapAllocator<Alignment>, 
-              typename InBitArrayAllocator = FDefaultBitArrayAllocator>
+    template<u32 Alignment = DEFAULT_ALIGNMENT,
+             typename InElementAllocator = TAlignedHeapAllocator<Alignment>,
+             typename InBitArrayAllocator = FDefaultBitArrayAllocator>
     class TAlignedSparseArrayAllocator
     {
-    public:
+      public:
         using ElementAllocator = InElementAllocator;
         using BitArrayAllocator = InBitArrayAllocator;
     };
@@ -1355,13 +1446,13 @@ namespace OloEngine
      * @class TInlineSparseArrayAllocator
      * @brief Inline sparse array allocator with secondary storage fallback
      */
-    template <u32 NumInlineElements, typename SecondaryAllocator = TSparseArrayAllocator<FDefaultAllocator, FDefaultAllocator>>
+    template<u32 NumInlineElements, typename SecondaryAllocator = TSparseArrayAllocator<FDefaultAllocator, FDefaultAllocator>>
     class TInlineSparseArrayAllocator
     {
-    private:
+      private:
         static constexpr u32 InlineBitArrayDWORDs = (NumInlineElements + 32 - 1) / 32;
 
-    public:
+      public:
         using ElementAllocator = TInlineAllocator<NumInlineElements, typename SecondaryAllocator::ElementAllocator>;
         using BitArrayAllocator = TInlineAllocator<InlineBitArrayDWORDs, typename SecondaryAllocator::BitArrayAllocator>;
     };
@@ -1370,13 +1461,13 @@ namespace OloEngine
      * @class TFixedSparseArrayAllocator
      * @brief Fixed-size sparse array allocator with no secondary storage
      */
-    template <u32 NumInlineElements>
+    template<u32 NumInlineElements>
     class TFixedSparseArrayAllocator
     {
-    private:
+      private:
         static constexpr u32 InlineBitArrayDWORDs = (NumInlineElements + 32 - 1) / 32;
 
-    public:
+      public:
         using ElementAllocator = TFixedAllocator<NumInlineElements>;
         using BitArrayAllocator = TFixedAllocator<InlineBitArrayDWORDs>;
     };
@@ -1387,35 +1478,34 @@ namespace OloEngine
 
     namespace CompactSetAllocatorHelpers
     {
-        template <u32 NumInlineElements, i32 ElementSize>
+        template<u32 NumInlineElements, i32 ElementSize>
         constexpr i32 CalculateRequiredBytes()
         {
             constexpr u32 TypeSize = 1 + (NumInlineElements > 0xff) + (NumInlineElements > 0xffff) * 2;
-            constexpr u32 HashSize = NumInlineElements < 8 ? 4 : 
-                (1u << (32 - __builtin_clz((NumInlineElements / 2) + 1 - 1))); // RoundUpToPowerOfTwo
+            constexpr u32 HashSize = NumInlineElements < 8 ? 4 : (1u << (32 - __builtin_clz((NumInlineElements / 2) + 1 - 1))); // RoundUpToPowerOfTwo
             return static_cast<i32>(Align(NumInlineElements * ElementSize, 4) + 4 + (NumInlineElements + HashSize) * TypeSize);
         }
-    }
+    } // namespace CompactSetAllocatorHelpers
 
     /**
      * @class TCompactSetAllocator
      * @brief Allocator for TCompactSet
      */
-    template <typename InElementAllocator = FDefaultAllocator>
+    template<typename InElementAllocator = FDefaultAllocator>
     struct TCompactSetAllocator
     {
-        template <typename ElementType>
+        template<typename ElementType>
         struct AllocatorAlignment
         {
             static constexpr sizet Value = alignof(typename InElementAllocator::template ForElementType<u8>);
         };
 
-        template <i32 ElementSize>
+        template<i32 ElementSize>
         using ElementAllocator = InElementAllocator;
     };
 
-    template <typename InElementAllocator>
-    struct TAllocatorTraits<TCompactSetAllocator<InElementAllocator>> 
+    template<typename InElementAllocator>
+    struct TAllocatorTraits<TCompactSetAllocator<InElementAllocator>>
         : TAllocatorTraitsBase<TCompactSetAllocator<InElementAllocator>>
     {
         enum
@@ -1428,15 +1518,15 @@ namespace OloEngine
      * @class TInlineCompactSetAllocator
      * @brief Inline compact set allocator with secondary storage fallback
      */
-    template <u32 NumInlineElements, typename SecondaryAllocator = TCompactSetAllocator<>>
+    template<u32 NumInlineElements, typename SecondaryAllocator = TCompactSetAllocator<>>
     struct TInlineCompactSetAllocator
     {
-        template <i32 ElementSize>
+        template<i32 ElementSize>
         using ElementAllocator = TInlineAllocator<
             CompactSetAllocatorHelpers::CalculateRequiredBytes<NumInlineElements, ElementSize>(),
             typename SecondaryAllocator::template ElementAllocator<ElementSize>>;
 
-        template <typename ElementType>
+        template<typename ElementType>
         struct AllocatorAlignment
         {
             static constexpr sizet ElementAlignof = alignof(ElementType);
@@ -1450,14 +1540,14 @@ namespace OloEngine
      * @class TFixedCompactSetAllocator
      * @brief Fixed-size compact set allocator with no secondary storage
      */
-    template <u32 NumInlineElements>
+    template<u32 NumInlineElements>
     struct TFixedCompactSetAllocator
     {
-        template <i32 ElementSize>
+        template<i32 ElementSize>
         using ElementAllocator = TFixedAllocator<
             CompactSetAllocatorHelpers::CalculateRequiredBytes<NumInlineElements, ElementSize>()>;
 
-        template <typename ElementType>
+        template<typename ElementType>
         struct AllocatorAlignment
         {
             static constexpr sizet ElementAlignof = alignof(ElementType);
@@ -1467,14 +1557,14 @@ namespace OloEngine
         };
     };
 
-    // ============================================================================
-    // TSparseSetAllocator
-    // ============================================================================
+// ============================================================================
+// TSparseSetAllocator
+// ============================================================================
 
-    // Default configuration values
-    #ifndef DEFAULT_NUMBER_OF_ELEMENTS_PER_HASH_BUCKET
-    #define DEFAULT_NUMBER_OF_ELEMENTS_PER_HASH_BUCKET 2
-    #endif
+// Default configuration values
+#ifndef DEFAULT_NUMBER_OF_ELEMENTS_PER_HASH_BUCKET
+#define DEFAULT_NUMBER_OF_ELEMENTS_PER_HASH_BUCKET 2
+#endif
     constexpr u32 DEFAULT_BASE_NUMBER_OF_HASH_BUCKETS = 8;
     constexpr u32 DEFAULT_MIN_NUMBER_OF_HASHED_ELEMENTS = 4;
 
@@ -1482,7 +1572,7 @@ namespace OloEngine
      * @class TSparseSetAllocator
      * @brief Encapsulates allocators used by TSparseSet
      */
-    template <
+    template<
         typename InSparseArrayAllocator = TSparseArrayAllocator<>,
         typename InHashAllocator = TInlineAllocator<1, FDefaultAllocator>,
         u32 AverageNumberOfElementsPerHashBucket = DEFAULT_NUMBER_OF_ELEMENTS_PER_HASH_BUCKET,
@@ -1490,7 +1580,7 @@ namespace OloEngine
         u32 MinNumberOfHashedElements = DEFAULT_MIN_NUMBER_OF_HASHED_ELEMENTS>
     class TSparseSetAllocator
     {
-    public:
+      public:
         static OLO_FINLINE u32 GetNumberOfHashBuckets(u32 NumHashedElements)
         {
             if (NumHashedElements >= MinNumberOfHashedElements)
@@ -1513,20 +1603,20 @@ namespace OloEngine
         using HashAllocator = InHashAllocator;
     };
 
-    template <
+    template<
         typename InSparseArrayAllocator,
         typename InHashAllocator,
         u32 AverageNumberOfElementsPerHashBucket,
         u32 BaseNumberOfHashBuckets,
         u32 MinNumberOfHashedElements>
-    struct TAllocatorTraits<TSparseSetAllocator<InSparseArrayAllocator, InHashAllocator, 
-        AverageNumberOfElementsPerHashBucket, BaseNumberOfHashBuckets, MinNumberOfHashedElements>>
+    struct TAllocatorTraits<TSparseSetAllocator<InSparseArrayAllocator, InHashAllocator,
+                                                AverageNumberOfElementsPerHashBucket, BaseNumberOfHashBuckets, MinNumberOfHashedElements>>
         : TAllocatorTraitsBase<TSparseSetAllocator<InSparseArrayAllocator, InHashAllocator,
-            AverageNumberOfElementsPerHashBucket, BaseNumberOfHashBuckets, MinNumberOfHashedElements>>
+                                                   AverageNumberOfElementsPerHashBucket, BaseNumberOfHashBuckets, MinNumberOfHashedElements>>
     {
         enum
         {
-            SupportsFreezeMemoryImage = TAllocatorTraits<InSparseArrayAllocator>::SupportsFreezeMemoryImage && 
+            SupportsFreezeMemoryImage = TAllocatorTraits<InSparseArrayAllocator>::SupportsFreezeMemoryImage &&
                                         TAllocatorTraits<InHashAllocator>::SupportsFreezeMemoryImage,
         };
     };
@@ -1535,25 +1625,26 @@ namespace OloEngine
      * @class TInlineSparseSetAllocator
      * @brief Inline sparse set allocator with secondary storage fallback
      */
-    template <
+    template<
         u32 NumInlineElements,
         typename SecondaryAllocator = TSparseSetAllocator<TSparseArrayAllocator<FDefaultAllocator, FDefaultAllocator>, FDefaultAllocator>,
         u32 AverageNumberOfElementsPerHashBucket = DEFAULT_NUMBER_OF_ELEMENTS_PER_HASH_BUCKET,
         u32 MinNumberOfHashedElements = DEFAULT_MIN_NUMBER_OF_HASHED_ELEMENTS>
     class TInlineSparseSetAllocator
     {
-    private:
-        static constexpr u32 NumInlineHashBuckets = (NumInlineElements + AverageNumberOfElementsPerHashBucket - 1) / 
-                                                     AverageNumberOfElementsPerHashBucket;
-        static_assert(NumInlineHashBuckets > 0 && !(NumInlineHashBuckets & (NumInlineHashBuckets - 1)), 
-                     "Number of inline buckets must be a power of two");
+      private:
+        static constexpr u32 NumInlineHashBuckets = (NumInlineElements + AverageNumberOfElementsPerHashBucket - 1) /
+                                                    AverageNumberOfElementsPerHashBucket;
+        static_assert(NumInlineHashBuckets > 0 && !(NumInlineHashBuckets & (NumInlineHashBuckets - 1)),
+                      "Number of inline buckets must be a power of two");
 
-    public:
+      public:
         static OLO_FINLINE u32 GetNumberOfHashBuckets(u32 NumHashedElements)
         {
             // RoundUpToPowerOfTwo
             u32 Value = NumHashedElements / AverageNumberOfElementsPerHashBucket;
-            if (Value == 0) Value = 1;
+            if (Value == 0)
+                Value = 1;
             --Value;
             Value |= Value >> 1;
             Value |= Value >> 2;
@@ -1562,8 +1653,10 @@ namespace OloEngine
             Value |= Value >> 16;
             ++Value;
 
-            if (Value < NumInlineHashBuckets) return NumInlineHashBuckets;
-            if (NumHashedElements < MinNumberOfHashedElements) return NumInlineHashBuckets;
+            if (Value < NumInlineHashBuckets)
+                return NumInlineHashBuckets;
+            if (NumHashedElements < MinNumberOfHashedElements)
+                return NumInlineHashBuckets;
             return Value;
         }
 
@@ -1575,23 +1668,24 @@ namespace OloEngine
      * @class TFixedSparseSetAllocator
      * @brief Fixed-size sparse set allocator with no secondary storage
      */
-    template <
+    template<
         u32 NumInlineElements,
         u32 AverageNumberOfElementsPerHashBucket = DEFAULT_NUMBER_OF_ELEMENTS_PER_HASH_BUCKET,
         u32 MinNumberOfHashedElements = DEFAULT_MIN_NUMBER_OF_HASHED_ELEMENTS>
     class TFixedSparseSetAllocator
     {
-    private:
-        static constexpr u32 NumInlineHashBuckets = (NumInlineElements + AverageNumberOfElementsPerHashBucket - 1) / 
-                                                     AverageNumberOfElementsPerHashBucket;
-        static_assert(NumInlineHashBuckets > 0 && !(NumInlineHashBuckets & (NumInlineHashBuckets - 1)), 
-                     "Number of inline buckets must be a power of two");
+      private:
+        static constexpr u32 NumInlineHashBuckets = (NumInlineElements + AverageNumberOfElementsPerHashBucket - 1) /
+                                                    AverageNumberOfElementsPerHashBucket;
+        static_assert(NumInlineHashBuckets > 0 && !(NumInlineHashBuckets & (NumInlineHashBuckets - 1)),
+                      "Number of inline buckets must be a power of two");
 
-    public:
+      public:
         static OLO_FINLINE u32 GetNumberOfHashBuckets(u32 NumHashedElements)
         {
             u32 Value = NumHashedElements / AverageNumberOfElementsPerHashBucket;
-            if (Value == 0) Value = 1;
+            if (Value == 0)
+                Value = 1;
             --Value;
             Value |= Value >> 1;
             Value |= Value >> 2;
@@ -1600,8 +1694,10 @@ namespace OloEngine
             Value |= Value >> 16;
             ++Value;
 
-            if (Value < NumInlineHashBuckets) return NumInlineHashBuckets;
-            if (NumHashedElements < MinNumberOfHashedElements) return NumInlineHashBuckets;
+            if (Value < NumInlineHashBuckets)
+                return NumInlineHashBuckets;
+            if (NumHashedElements < MinNumberOfHashedElements)
+                return NumInlineHashBuckets;
             return Value;
         }
 
@@ -1616,21 +1712,21 @@ namespace OloEngine
     /** Default sparse set allocator */
     class FDefaultSparseSetAllocator : public TSparseSetAllocator<>
     {
-    public:
+      public:
         using Typedef = TSparseSetAllocator<>;
     };
 
     /** Default compact set allocator */
     class FDefaultCompactSetAllocator : public TCompactSetAllocator<>
     {
-    public:
+      public:
         using Typedef = TCompactSetAllocator<>;
     };
 
     /** Default sparse array allocator */
     class FDefaultSparseArrayAllocator : public TSparseArrayAllocator<>
     {
-    public:
+      public:
         using Typedef = TSparseArrayAllocator<>;
     };
 
@@ -1638,91 +1734,91 @@ namespace OloEngine
     // TSetAllocator / FDefaultSetAllocator (conditional on OLO_USE_COMPACT_SET_AS_DEFAULT)
     // ============================================================================
 
-    #ifndef OLO_USE_COMPACT_SET_AS_DEFAULT
-    #define OLO_USE_COMPACT_SET_AS_DEFAULT 0
-    #endif
+#ifndef OLO_USE_COMPACT_SET_AS_DEFAULT
+#define OLO_USE_COMPACT_SET_AS_DEFAULT 0
+#endif
 
-    #if OLO_USE_COMPACT_SET_AS_DEFAULT
-    
+#if OLO_USE_COMPACT_SET_AS_DEFAULT
+
     /** Default set allocator uses TCompactSetAllocator */
     class FDefaultSetAllocator : public TCompactSetAllocator<>
     {
-    public:
+      public:
         using Typedef = TCompactSetAllocator<>;
     };
 
-    template <
+    template<
         typename InSparseArrayAllocator = TSparseArrayAllocator<>,
         typename InHashAllocator = TInlineAllocator<1, FDefaultAllocator>,
         u32... N>
     class TSetAllocator : public TCompactSetAllocator<InHashAllocator>
     {
-    public:
+      public:
         using Typedef = TCompactSetAllocator<InHashAllocator>;
     };
 
-    template <u32 N, typename S = TCompactSetAllocator<>, u32... NN>
+    template<u32 N, typename S = TCompactSetAllocator<>, u32... NN>
     class TInlineSetAllocator : public TInlineCompactSetAllocator<N, S>
     {
-    public:
+      public:
         using Typedef = TInlineCompactSetAllocator<N, S>;
     };
 
-    template <u32 N, u32... Y>
+    template<u32 N, u32... Y>
     class TFixedSetAllocator : public TFixedCompactSetAllocator<N>
     {
-    public:
+      public:
         using Typedef = TFixedCompactSetAllocator<N>;
     };
 
-    #else // !OLO_USE_COMPACT_SET_AS_DEFAULT
+#else // !OLO_USE_COMPACT_SET_AS_DEFAULT
 
     /** Default set allocator uses TSparseSetAllocator */
     class FDefaultSetAllocator : public TSparseSetAllocator<>
     {
-    public:
+      public:
         using Typedef = TSparseSetAllocator<>;
     };
 
-    template <
+    template<
         typename InSparseArrayAllocator = TSparseArrayAllocator<>,
         typename InHashAllocator = TInlineAllocator<1, FDefaultAllocator>,
         u32... N>
     class TSetAllocator : public TSparseSetAllocator<InSparseArrayAllocator, InHashAllocator, N...>
     {
-    public:
+      public:
         using Typedef = TSparseSetAllocator<InSparseArrayAllocator, InHashAllocator, N...>;
     };
 
-    template <
+    template<
         u32 N,
         typename S = TSparseSetAllocator<TSparseArrayAllocator<FDefaultAllocator, FDefaultAllocator>, FDefaultAllocator>,
         u32... NN>
     class TInlineSetAllocator : public TInlineSparseSetAllocator<N, S, NN...>
     {
-    public:
+      public:
         using Typedef = TInlineSparseSetAllocator<N, S, NN...>;
     };
 
-    template <u32... N>
+    template<u32... N>
     class TFixedSetAllocator : public TFixedSparseSetAllocator<N...>
     {
-    public:
+      public:
         using Typedef = TFixedSparseSetAllocator<N...>;
     };
 
-    #endif // OLO_USE_COMPACT_SET_AS_DEFAULT
+#endif // OLO_USE_COMPACT_SET_AS_DEFAULT
 
     // ============================================================================
     // Allocator Trait Specializations for Default Aliases
     // ============================================================================
 
-    template <>
+    template<>
     struct TAllocatorTraits<FDefaultSetAllocator> : TAllocatorTraits<typename FDefaultSetAllocator::Typedef>
     {
     };
 
-    template <>
+    template<>
     struct TAllocatorTraits<FDefaultSparseSetAllocator> : TAllocatorTraits<typename FDefaultSparseSetAllocator::Typedef>
     {
     };
@@ -1730,7 +1826,7 @@ namespace OloEngine
     // NOTE: TAllocatorTraits<FDefaultBitArrayAllocator> is defined earlier in the file
     // (immediately after the class definition) to avoid instantiation order issues
 
-    template <>
+    template<>
     struct TAllocatorTraits<FDefaultSparseArrayAllocator> : TAllocatorTraits<typename FDefaultSparseArrayAllocator::Typedef>
     {
     };

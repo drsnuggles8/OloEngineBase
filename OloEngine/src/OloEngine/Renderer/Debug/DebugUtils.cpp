@@ -124,7 +124,8 @@ namespace OloEngine
             static bool s_ShowConfirmation = false;
             static char s_CurrentLabel[256] = "";
 
-            bool resetConfirmed = false;            if (ImGui::Button(label))
+            bool resetConfirmed = false;
+            if (ImGui::Button(label))
             {
                 s_ShowConfirmation = true;
 #if defined(_MSC_VER)
@@ -165,5 +166,5 @@ namespace OloEngine
 
             return resetConfirmed;
         }
-    }
-}
+    } // namespace DebugUtils
+} // namespace OloEngine

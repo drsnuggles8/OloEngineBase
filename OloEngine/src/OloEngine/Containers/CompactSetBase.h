@@ -3,16 +3,16 @@
 /**
  * @file CompactSetBase.h
  * @brief Base class for TCompactSet providing memory management
- * 
+ *
  * TCompactSetBase manages the memory layout of the compact set:
  * - Data Array: Element storage (contiguous, no holes)
  * - Hash Size: 4-byte integer for hash table size
  * - Collision List: Per-element next index for hash collisions
  * - Hash Table: Power of 2 table for first-index lookup
- * 
+ *
  * Memory layout:
  * [Data Array][Hash Size (4 bytes)][Collision List][Hash Table]
- * 
+ *
  * Ported from Unreal Engine's Containers/CompactSetBase.h
  */
 
@@ -39,15 +39,15 @@ namespace OloEngine
     /**
      * @class TCompactSetBase
      * @brief Base class providing common functionality for TCompactSet
-     * 
+     *
      * Uses FCompactSetLayout to describe element layout for type-erased operations.
-     * 
+     *
      * @tparam Allocator The allocator type (e.g., FDefaultAllocator)
      */
-    template <typename Allocator>
+    template<typename Allocator>
     class TCompactSetBase
     {
-    public:
+      public:
         using AllocatorType = Allocator;
         using SizeType = typename AllocatorType::SizeType;
 
@@ -106,13 +106,13 @@ namespace OloEngine
             return GetTotalMemoryRequiredInBytes(MaxElements, *GetHashTableMemory(Layout), Layout);
         }
 
-    protected:
+      protected:
         using HashCountType = u32;
         static constexpr sizet HashCountSize = sizeof(HashCountType);
         using ElementAllocatorType = typename AllocatorType::template ForElementType<u8>;
 
         static_assert(std::is_same_v<SizeType, i32>, "TCompactSet currently only supports 32-bit allocators");
-        static_assert(sizeof(HashCountType) == CompactHashTable::GetMemoryAlignment(), 
+        static_assert(sizeof(HashCountType) == CompactHashTable::GetMemoryAlignment(),
                       "Hashtable alignment changed, need to update HashCountType");
 
         // ====================================================================
@@ -122,9 +122,7 @@ namespace OloEngine
         [[nodiscard]] OLO_FINLINE TCompactSetBase() = default;
 
         [[nodiscard]] explicit consteval TCompactSetBase(EConstEval)
-            : Elements(ConstEval)
-            , NumElements(0)
-            , MaxElements(0)
+            : Elements(ConstEval), NumElements(0), MaxElements(0)
         {
         }
 
@@ -132,8 +130,7 @@ namespace OloEngine
          * @brief Constructor for intrusive optional unset state
          */
         [[nodiscard]] explicit TCompactSetBase(FIntrusiveUnsetOptionalState Tag)
-            : NumElements(0)
-            , MaxElements(INDEX_NONE)
+            : NumElements(0), MaxElements(INDEX_NONE)
         {
         }
 
@@ -200,10 +197,10 @@ namespace OloEngine
         [[nodiscard]] OLO_FINLINE static constexpr sizet GetTotalMemoryRequiredInBytes(
             u32 InNumElements, u32 InHashCount, const FCompactSetLayout Layout)
         {
-            return InNumElements ? 
-                GetElementsSizeInBytes(InNumElements, Layout) + 
-                CompactHashTable::GetMemoryRequiredInBytes(InNumElements, InHashCount) + 
-                HashCountSize : 0;
+            return InNumElements ? GetElementsSizeInBytes(InNumElements, Layout) +
+                                       CompactHashTable::GetMemoryRequiredInBytes(InNumElements, InHashCount) +
+                                       HashCountSize
+                                 : 0;
         }
 
         /**
@@ -212,10 +209,10 @@ namespace OloEngine
         [[nodiscard]] OLO_FINLINE static constexpr sizet GetTotalMemoryRequiredInBytes(
             u32 InNumElements, const FCompactSetLayout Layout)
         {
-            return InNumElements ? 
-                GetElementsSizeInBytes(InNumElements, Layout) + 
-                CompactHashTable::GetMemoryRequiredInBytes(InNumElements, GetHashCount(InNumElements)) + 
-                HashCountSize : 0;
+            return InNumElements ? GetElementsSizeInBytes(InNumElements, Layout) +
+                                       CompactHashTable::GetMemoryRequiredInBytes(InNumElements, GetHashCount(InNumElements)) +
+                                       HashCountSize
+                                 : 0;
         }
 
         /**
@@ -232,10 +229,10 @@ namespace OloEngine
             // Given some space in memory and a requested size for hash table, figure out how many elements we can fit in the remaining space
             const u32 TypeSize = CompactHashTable::GetTypeSize(MinElementCount);
             const u32 TypeShift = CompactHashTable::GetTypeShift(MinElementCount);
-            const sizet AvailableBytes = TotalBytes - sizeof(HashCountType) - (static_cast<sizet>(HashCount) << TypeShift); // Remove hashtable and HashCount data
-            const sizet MaxElements = AvailableBytes / (Layout.Size + TypeSize); // Calculate the max available ignoring the fact that the hash data has to be aligned
+            const sizet AvailableBytes = TotalBytes - sizeof(HashCountType) - (static_cast<sizet>(HashCount) << TypeShift);                  // Remove hashtable and HashCount data
+            const sizet MaxElements = AvailableBytes / (Layout.Size + TypeSize);                                                             // Calculate the max available ignoring the fact that the hash data has to be aligned
             const sizet RealAvailableBytes = AlignDown(AvailableBytes - (MaxElements << TypeShift), CompactHashTable::GetMemoryAlignment()); // Remove the max required indexes and align down
-            return FMath::Min<SizeType>(static_cast<SizeType>(MaxElements), static_cast<SizeType>(RealAvailableBytes / Layout.Size)); // Now we can get the true number of elements we could potentially use within the aligned space
+            return FMath::Min<SizeType>(static_cast<SizeType>(MaxElements), static_cast<SizeType>(RealAvailableBytes / Layout.Size));        // Now we can get the true number of elements we could potentially use within the aligned space
         }
 
         // ====================================================================
@@ -250,14 +247,11 @@ namespace OloEngine
          */
         [[nodiscard]] i32 AllocatorCalculateSlackGrow(i32 NewMaxElements, const FCompactSetLayout& Layout) const
         {
-            const sizet OldHashCount = MaxElements > 0 ? 
-                *reinterpret_cast<u32*>(Elements.GetAllocation() + GetElementsSizeInBytes(MaxElements, Layout)) : 0;
-            const sizet OldSize = MaxElements > 0 ? 
-                GetTotalMemoryRequiredInBytes(MaxElements, static_cast<u32>(OldHashCount), Layout) : 0;
+            const sizet OldHashCount = MaxElements > 0 ? *reinterpret_cast<u32*>(Elements.GetAllocation() + GetElementsSizeInBytes(MaxElements, Layout)) : 0;
+            const sizet OldSize = MaxElements > 0 ? GetTotalMemoryRequiredInBytes(MaxElements, static_cast<u32>(OldHashCount), Layout) : 0;
 
             const sizet NewHashCount = NewMaxElements > 0 ? GetHashCount(NewMaxElements) : 0;
-            const sizet NewSize = NewMaxElements > 0 ? 
-                GetTotalMemoryRequiredInBytes(NewMaxElements, static_cast<u32>(NewHashCount), Layout) : 0;
+            const sizet NewSize = NewMaxElements > 0 ? GetTotalMemoryRequiredInBytes(NewMaxElements, static_cast<u32>(NewHashCount), Layout) : 0;
             sizet NewSlackSize = 0;
 
             if constexpr (TAllocatorTraits<AllocatorType>::SupportsElementAlignment)
@@ -292,8 +286,8 @@ namespace OloEngine
             }
 
             OLO_CORE_ASSERT(SlackNumElements >= NewMaxElements, "Slack calculation error");
-            OLO_CORE_ASSERT(GetTotalMemoryRequiredInBytes(SlackNumElements, static_cast<u32>(SlackHashCount), Layout) <= NewSlackSize, 
-                           "Slack size calculation error");
+            OLO_CORE_ASSERT(GetTotalMemoryRequiredInBytes(SlackNumElements, static_cast<u32>(SlackHashCount), Layout) <= NewSlackSize,
+                            "Slack size calculation error");
 
             return SlackNumElements;
         }
@@ -316,21 +310,17 @@ namespace OloEngine
 
             if (NewMaxElements != MaxElements)
             {
-                const sizet OldHashCount = MaxElements > 0 ? 
-                    *reinterpret_cast<u32*>(Elements.GetAllocation() + GetElementsSizeInBytes(MaxElements, Layout)) : 0;
-                const sizet OldSize = MaxElements > 0 ? 
-                    GetTotalMemoryRequiredInBytes(MaxElements, static_cast<u32>(OldHashCount), Layout) : 0;
+                const sizet OldHashCount = MaxElements > 0 ? *reinterpret_cast<u32*>(Elements.GetAllocation() + GetElementsSizeInBytes(MaxElements, Layout)) : 0;
+                const sizet OldSize = MaxElements > 0 ? GetTotalMemoryRequiredInBytes(MaxElements, static_cast<u32>(OldHashCount), Layout) : 0;
 
-                const sizet NewHashCount = NewMaxElements > 0 ? 
-                    CompactHashTable::GetHashCount(NewMaxElements) : 0;
-                const sizet NewSize = NewMaxElements > 0 ? 
-                    GetTotalMemoryRequiredInBytes(NewMaxElements, static_cast<u32>(NewHashCount), Layout) : 0;
+                const sizet NewHashCount = NewMaxElements > 0 ? CompactHashTable::GetHashCount(NewMaxElements) : 0;
+                const sizet NewSize = NewMaxElements > 0 ? GetTotalMemoryRequiredInBytes(NewMaxElements, static_cast<u32>(NewHashCount), Layout) : 0;
 
                 if (bPreserve && NewMaxElements > MaxElements && OldHashCount == NewHashCount)
                 {
-                    OLO_CORE_ASSERT(NewSize >= 0 && NewSize <= std::numeric_limits<i32>::max(), 
-                        "Invalid size for TSet[{}]: NewMaxElements[{}] ElementSize[{}] HashCount[{}]", 
-                        NewSize, NewMaxElements, Layout.Size, NewHashCount);
+                    OLO_CORE_ASSERT(NewSize >= 0 && NewSize <= std::numeric_limits<i32>::max(),
+                                    "Invalid size for TSet[{}]: NewMaxElements[{}] ElementSize[{}] HashCount[{}]",
+                                    NewSize, NewMaxElements, Layout.Size, NewHashCount);
 
                     // Preserving and growing with same hash count - copy everything
                     if constexpr (TAllocatorTraits<AllocatorType>::SupportsElementAlignment)

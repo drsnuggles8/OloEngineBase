@@ -16,34 +16,34 @@ namespace OloEngine::Audio
     */
     struct WaveSource
     {
-        MonoCircularBuffer<f32, 1920 * 2> m_Channels;   // Interleaved stereo sample data (L,R,L,R,...)
+        MonoCircularBuffer<f32, 1920 * 2> m_Channels; // Interleaved stereo sample data (L,R,L,R,...)
 
-        i64 m_TotalFrames = 0;                    // Total frames in the source to be set by the reader on the first read, used by Wave Player
-        i64 m_StartPosition = 0;                  // Frame position in source to wrap around when reached the end of the source
-        i64 m_ReadPosition = 0;                   // Frame position in source to read next time from (this is where this source is being read by a NodeProcessor)
-        u64 m_WaveHandle = 0;                     // Source Wave Asset handle
-        const char* m_WaveName = nullptr;         // Wave Asset name for debugging purposes
-        
+        i64 m_TotalFrames = 0;            // Total frames in the source to be set by the reader on the first read, used by Wave Player
+        i64 m_StartPosition = 0;          // Frame position in source to wrap around when reached the end of the source
+        i64 m_ReadPosition = 0;           // Frame position in source to read next time from (this is where this source is being read by a NodeProcessor)
+        u64 m_WaveHandle = 0;             // Source Wave Asset handle
+        const char* m_WaveName = nullptr; // Wave Asset name for debugging purposes
+
         // Cached audio data pointer for lock-free access in audio thread
         // This should be set during initialization and remain valid for the lifetime of the WaveSource
         // Using atomic pointer ensures thread-safe access without locks in the realtime callback
-        std::atomic<const AudioData*> m_CachedAudioData{nullptr};
-        
+        std::atomic<const AudioData*> m_CachedAudioData{ nullptr };
+
         // Thread-safe flag to track if we've logged missing data error for this source
         // Prevents log spam when audio data fails to load
-        std::atomic<bool> m_MissingDataLogged{false};
+        std::atomic<bool> m_MissingDataLogged{ false };
 
         // Callback wrapper that encapsulates function pointer with context
         struct RefillCallback final
         {
-            using FuncPtr = bool(*)(WaveSource&, void*) noexcept;
+            using FuncPtr = bool (*)(WaveSource&, void*) noexcept;
 
-        public:
+          public:
             RefillCallback() = default;
             RefillCallback(FuncPtr ptr, void* ctx = nullptr) noexcept : m_FuncPtr(ptr), m_Context(ctx) {}
-            
+
             // Copy constructor - rebind to the new instance
-            RefillCallback(const RefillCallback& other) 
+            RefillCallback(const RefillCallback& other)
                 : m_InstanceFunc(other.m_InstanceFunc)
             {
                 if (other.m_InstanceFunc)
@@ -56,9 +56,9 @@ namespace OloEngine::Audio
                     m_Context = other.m_Context;
                 }
             }
-            
+
             // Move constructor - rebind to the new instance
-            RefillCallback(RefillCallback&& other) noexcept 
+            RefillCallback(RefillCallback&& other) noexcept
                 : m_InstanceFunc(std::move(other.m_InstanceFunc))
             {
                 if (m_InstanceFunc)
@@ -75,7 +75,7 @@ namespace OloEngine::Audio
                     other.m_Context = nullptr;
                 }
             }
-            
+
             // Copy assignment - rebind to this instance
             RefillCallback& operator=(const RefillCallback& other)
             {
@@ -94,7 +94,7 @@ namespace OloEngine::Audio
                 }
                 return *this;
             }
-            
+
             // Move assignment - rebind to this instance
             RefillCallback& operator=(RefillCallback&& other) noexcept
             {
@@ -117,7 +117,7 @@ namespace OloEngine::Audio
                 }
                 return *this;
             }
-            
+
             // Assignment from std::function - uses per-instance storage
             RefillCallback& operator=(const std::function<bool(WaveSource&)>& func)
             {
@@ -131,28 +131,47 @@ namespace OloEngine::Audio
                 return m_FuncPtr ? m_FuncPtr(source, m_Context) : false;
             }
 
-            explicit operator bool() const noexcept { return m_FuncPtr != nullptr; }
+            explicit operator bool() const noexcept
+            {
+                return m_FuncPtr != nullptr;
+            }
 
             // Read-only accessors for inspection
-            [[nodiscard]] FuncPtr GetFunctionPointer() const noexcept { return m_FuncPtr; }
-            [[nodiscard]] void* GetContext() const noexcept { return m_Context; }
-            [[nodiscard]] bool IsInstanceBacked() const noexcept { return static_cast<bool>(m_InstanceFunc); }
+            [[nodiscard]] FuncPtr GetFunctionPointer() const noexcept
+            {
+                return m_FuncPtr;
+            }
+            [[nodiscard]] void* GetContext() const noexcept
+            {
+                return m_Context;
+            }
+            [[nodiscard]] bool IsInstanceBacked() const noexcept
+            {
+                return static_cast<bool>(m_InstanceFunc);
+            }
 
-        private:
+          private:
             FuncPtr m_FuncPtr = nullptr;
             void* m_Context = nullptr;
-            
+
             // Per-instance storage to avoid cross-instance interference
             std::function<bool(WaveSource&)> m_InstanceFunc;
-            
+
             // Helper to set up the trampoline lambda that wraps m_InstanceFunc
             // Binds the function pointer to this instance's context
             void SetupInstanceTrampoline() noexcept
             {
-                m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool
+                {
                     auto* self = static_cast<RefillCallback*>(ctx);
-                    try { return self->m_InstanceFunc(source); }
-                    catch (...) { return false; }
+                    try
+                    {
+                        return self->m_InstanceFunc(source);
+                    }
+                    catch (...)
+                    {
+                        return false;
+                    }
                 };
                 m_Context = this;
             }
@@ -163,7 +182,7 @@ namespace OloEngine::Audio
         [[nodiscard]] inline bool Refill() noexcept
         {
             OLO_PROFILE_FUNCTION();
-            
+
             return m_OnRefill(*this);
         }
 

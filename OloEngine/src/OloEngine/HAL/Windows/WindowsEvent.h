@@ -5,10 +5,10 @@
 
 // @file WindowsEvent.h
 // @brief Windows-specific implementation of FEvent
-// 
+//
 // Implements the Windows version of the FEvent interface using
 // native Win32 event handles.
-// 
+//
 // Ported from Unreal Engine's Windows/WindowsEvent.h
 
 #include "OloEngine/HAL/Event.h"
@@ -19,15 +19,14 @@ namespace OloEngine
 {
     // @class FEventWin
     // @brief Windows implementation of FEvent interface
-    // 
+    //
     // Uses Win32 CreateEvent/SetEvent/ResetEvent/WaitForSingleObject
     class FEventWin : public FEvent
     {
-    public:
+      public:
         // @brief Default constructor
         FEventWin()
-            : m_Event(nullptr)
-            , m_ManualReset(false)
+            : m_Event(nullptr), m_ManualReset(false)
         {
         }
 
@@ -95,7 +94,7 @@ namespace OloEngine
             return (WaitForSingleObject(m_Event, WaitTime) == WAIT_OBJECT_0);
         }
 
-    private:
+      private:
         // @brief Handle to the Win32 event
         HANDLE m_Event;
 

@@ -9,7 +9,7 @@
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Core/Base.h"
 
-namespace OloEngine 
+namespace OloEngine
 {
     void AudioFileSourceSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
@@ -23,7 +23,7 @@ namespace OloEngine
 
         // Get the file path for this asset
         auto filePath = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         if (!std::filesystem::exists(filePath))
         {
             OLO_CORE_ERROR("AudioFileSourceSerializer: File does not exist: {}", filePath.string());
@@ -38,11 +38,11 @@ namespace OloEngine
         f64 sampleRate = 0.0;
         f64 duration = 0.0;
         u16 bitDepth = 0;
-        
+
         // Note: numFrames is not retrieved as duration (which is calculated from numFrames in AudioLoader)
         // provides the same information in a more useful format for the AudioFile asset
         u32 unusedNumFrames = 0; // Required by AudioLoader API but not used
-        
+
         if (!Audio::AudioLoader::GetAudioFileInfo(filePath, numChannels, unusedNumFrames, sampleRate, duration, bitDepth))
         {
             OLO_CORE_ERROR("AudioFileSourceSerializer: Failed to get audio file info for: {}", filePath.string());
@@ -64,8 +64,8 @@ namespace OloEngine
         // Validate channel count is within u16 range before casting
         if (numChannels > std::numeric_limits<u16>::max())
         {
-            OLO_CORE_ERROR("AudioFileSourceSerializer: Channel count {} exceeds maximum supported channels ({})", 
-                          numChannels, std::numeric_limits<u16>::max());
+            OLO_CORE_ERROR("AudioFileSourceSerializer: Channel count {} exceeds maximum supported channels ({})",
+                           numChannels, std::numeric_limits<u16>::max());
             // Create a default AudioFile asset
             asset = Ref<AudioFile>::Create();
             asset->SetHandle(metadata.Handle);
@@ -75,9 +75,9 @@ namespace OloEngine
         // Create AudioFile asset with loaded metadata
         asset = Ref<AudioFile>::Create(duration, static_cast<u32>(sampleRate), bitDepth, static_cast<u16>(numChannels), fileSize);
         asset->SetHandle(metadata.Handle);
-        
-        OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {} - Duration: {:.2f}s, Channels: {}, SampleRate: {}, BitDepth: {}", 
-                      metadata.Handle, duration, numChannels, sampleRate, bitDepth);
+
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {} - Duration: {:.2f}s, Channels: {}, SampleRate: {}, BitDepth: {}",
+                       metadata.Handle, duration, numChannels, sampleRate, bitDepth);
         return true;
     }
 
@@ -97,7 +97,7 @@ namespace OloEngine
         // Get the file path for this asset
         auto path = Project::GetAssetDirectory() / Project::GetAssetManager()->GetAssetMetadata(handle).FilePath;
         auto relativePath = std::filesystem::relative(path, Project::GetAssetDirectory());
-        
+
         std::string filePath;
         if (relativePath.empty())
             filePath = path.string();
@@ -108,8 +108,8 @@ namespace OloEngine
         stream.WriteString(filePath);
 
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
-        
-        OLO_CORE_TRACE("AudioFileSourceSerializer: Serialized AudioFile to pack - Handle: {0}, Path: {1}, Size: {2}", 
+
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Serialized AudioFile to pack - Handle: {0}, Path: {1}, Size: {2}",
                        handle, filePath, outInfo.Size);
         return true;
     }
@@ -119,7 +119,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         stream.SetStreamPosition(assetInfo.PackedOffset);
-        
+
         std::string filePath;
         stream.ReadString(filePath);
 
@@ -128,8 +128,8 @@ namespace OloEngine
         Ref<AudioFile> audioFile = Ref<AudioFile>::Create();
         audioFile->SetHandle(assetInfo.Handle);
 
-        OLO_CORE_TRACE("AudioFileSourceSerializer: Deserialized AudioFile from pack - Handle: {0}, Path: {1}", 
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Deserialized AudioFile from pack - Handle: {0}, Path: {1}",
                        assetInfo.Handle, filePath);
         return audioFile;
     }
-}
+} // namespace OloEngine

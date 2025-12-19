@@ -19,7 +19,7 @@ namespace OloEngine
     }
 
     ThreadLocalCache::ThreadLocalCache(ThreadLocalCache&& other) noexcept
-        : m_CurrentBlock(other.m_CurrentBlock), 
+        : m_CurrentBlock(other.m_CurrentBlock),
           m_FirstBlock(other.m_FirstBlock),
           m_DefaultBlockSize(other.m_DefaultBlockSize),
           m_TotalAllocated(other.m_TotalAllocated),
@@ -50,10 +50,10 @@ namespace OloEngine
     void* ThreadLocalCache::Allocate(sizet size, sizet alignment)
     {
         OLO_PROFILE_FUNCTION();
-		if (size == 0)
-            {
-				return nullptr;
-			}
+        if (size == 0)
+        {
+            return nullptr;
+        }
 
         // Validate alignment to avoid undefined behavior
         OLO_CORE_ASSERT(alignment > 0, "Alignment must be greater than 0");
@@ -73,7 +73,7 @@ namespace OloEngine
             // Calculate the required block size (at least the default size or the requested size)
             sizet requiredSize = std::max(m_DefaultBlockSize, alignedSize);
             AddBlock(requiredSize);
-            
+
             // Recalculate addresses with the new block
             currentAddr = reinterpret_cast<sizet>(m_CurrentBlock->Data + m_CurrentBlock->Offset);
             alignedAddr = (currentAddr + alignment - 1) & ~(alignment - 1);
@@ -82,7 +82,7 @@ namespace OloEngine
 
         // Update the offset in the current block
         m_CurrentBlock->Offset += size + alignmentPadding;
-        
+
         m_TotalAllocated += size;
 
         // Return aligned pointer
@@ -98,10 +98,10 @@ namespace OloEngine
             block->Offset = 0;
             block = block->Next;
         }
-        
+
         // Reset the current block to the first block
         m_CurrentBlock = m_FirstBlock;
-        
+
         // Reset tracking metrics
         m_TotalAllocated = 0;
         m_WastedMemory = 0;
@@ -148,4 +148,4 @@ namespace OloEngine
 
         OLO_CORE_TRACE("ThreadLocalCache: Added new block of size {0} bytes", newBlock->Size);
     }
-}
+} // namespace OloEngine

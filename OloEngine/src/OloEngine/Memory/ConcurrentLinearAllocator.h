@@ -2,30 +2,30 @@
 
 // @file ConcurrentLinearAllocator.h
 // @brief Fast lock-free linear allocator for OloEngine
-// 
-// This fast linear allocator can be used for temporary allocations, and is best suited 
-// for allocations that are produced and consumed on different threads and within the 
-// lifetime of a frame. Although the lifetime of any individual allocation is not 
-// hard-tied to a frame (tracking is done using the BlockHeader::NumAllocations atomic 
-// variable), the application will eventually run OOM if allocations are not cleaned up 
+//
+// This fast linear allocator can be used for temporary allocations, and is best suited
+// for allocations that are produced and consumed on different threads and within the
+// lifetime of a frame. Although the lifetime of any individual allocation is not
+// hard-tied to a frame (tracking is done using the BlockHeader::NumAllocations atomic
+// variable), the application will eventually run OOM if allocations are not cleaned up
 // in a timely manner.
-// 
-// There is a fast-path version of the allocator that skips AllocationHeaders by aligning 
-// the BlockHeader with the BlockSize, so that headers can easily be found by AligningDown 
+//
+// There is a fast-path version of the allocator that skips AllocationHeaders by aligning
+// the BlockHeader with the BlockSize, so that headers can easily be found by AligningDown
 // the address of the Allocation itself.
-// 
-// The allocator works by allocating a larger block in TLS which has a Header at the front 
+//
+// The allocator works by allocating a larger block in TLS which has a Header at the front
 // which contains the atomic, and all allocations are then allocated from this block:
 //
 // --------------------------------------------------------------------------------------------
-// | BlockHeader(atomic counter etc.) | Alignment Waste | AllocationHeader(size, optional) | 
-// | Memory used for Allocation | Alignment Waste | AllocationHeader(size, optional) | 
-// | Memory used for Allocation | FreeSpace ... 
+// | BlockHeader(atomic counter etc.) | Alignment Waste | AllocationHeader(size, optional) |
+// | Memory used for Allocation | Alignment Waste | AllocationHeader(size, optional) |
+// | Memory used for Allocation | FreeSpace ...
 // --------------------------------------------------------------------------------------------
 //
 // The allocator is most often used concurrently, but also supports single-threaded use cases,
 // so it can be used for an array scratchpad.
-// 
+//
 // Ported from Unreal Engine's ConcurrentLinearAllocator.h
 
 #include "OloEngine/Core/Base.h"
@@ -45,7 +45,7 @@
 
 // Tracy integration for memory profiling
 #if TRACY_ENABLE
-    #include <tracy/Tracy.hpp>
+#include <tracy/Tracy.hpp>
 #endif
 
 namespace OloEngine
@@ -120,7 +120,7 @@ namespace OloEngine
     // OloEngine uses Tracy for memory profiling instead of UE's LLM system.
     // These macros are defined for API compatibility but expand to nothing.
 
-    #define LLM_IF_ENABLED(x)
+#define LLM_IF_ENABLED(x)
 
     // Forward declarations
     template<typename BlockAllocationTag, ELinearAllocatorThreadPolicy ThreadPolicy>
@@ -133,16 +133,16 @@ namespace OloEngine
     namespace Private
     {
         // @brief Called when invalid parameters are passed to array allocator
-        // 
+        //
         // This is marked [[noreturn]] as it will always terminate the program.
         // In UE, this is declared in a separate compilation unit.
-        // 
+        //
         // @param NewNum The invalid number of elements requested
         // @param NumBytesPerElement Bytes per element
         [[noreturn]] inline void OnInvalidConcurrentLinearArrayAllocatorNum(i32 NewNum, sizet NumBytesPerElement)
         {
-            OLO_CORE_ASSERT(false, "Invalid ConcurrentLinearArrayAllocator parameters: NewNum={}, NumBytesPerElement={}", 
-                           NewNum, NumBytesPerElement);
+            OLO_CORE_ASSERT(false, "Invalid ConcurrentLinearArrayAllocator parameters: NewNum={}, NumBytesPerElement={}",
+                            NewNum, NumBytesPerElement);
             std::abort(); // Ensure we never return
         }
     } // namespace Private
@@ -176,10 +176,10 @@ namespace OloEngine
 
     // @class TBlockAllocationCache
     // @brief Thread-local cache for single-block reuse
-    // 
+    //
     // Caches a single freed block in TLS to avoid allocator round-trips
     // for the common pattern of allocate-use-free.
-    // 
+    //
     // @tparam BlockSize Size of blocks to cache
     // @tparam Allocator Underlying allocator type
     template<u32 BlockSize, typename Allocator = AlignedAllocator>
@@ -206,7 +206,7 @@ namespace OloEngine
             return Ret;
         }
 
-    public:
+      public:
         static constexpr bool SupportsAlignment = Allocator::SupportsAlignment;
         static constexpr bool UsesFMalloc = Allocator::UsesFMalloc;
         static constexpr u32 MaxAlignment = Allocator::MaxAlignment;
@@ -244,18 +244,18 @@ namespace OloEngine
 
     // @class TBlockAllocationLockFreeCache
     // @brief Lock-free page-based block cache using PageAllocator
-    // 
+    //
     // Uses the global PageAllocator for 64K blocks, falls back to
     // the provided allocator for other sizes.
-    // 
+    //
     // @tparam BlockSize Size of blocks (must be DEFAULT_PAGE_SIZE for page allocator)
     // @tparam Allocator Fallback allocator for non-page-sized allocations
     template<u32 BlockSize, typename Allocator = AlignedAllocator>
     class TBlockAllocationLockFreeCache
     {
-    public:
+      public:
         static_assert(BlockSize == DEFAULT_PAGE_SIZE, "Only 64k pages are supported with this cache.");
-        
+
         static constexpr bool SupportsAlignment = Allocator::SupportsAlignment;
         static constexpr bool UsesFMalloc = Allocator::UsesFMalloc;
         static constexpr u32 MaxAlignment = Allocator::MaxAlignment;
@@ -292,7 +292,7 @@ namespace OloEngine
 
     // @struct DefaultBlockAllocationTag
     // @brief Default configuration for the linear allocator
-    // 
+    //
     // Controls:
     // - Block size (64KB default)
     // - Whether oversized allocations are allowed
@@ -300,10 +300,10 @@ namespace OloEngine
     // - Whether block allocation should be inlined
     struct DefaultBlockAllocationTag
     {
-        static constexpr u32 BlockSize = 64 * 1024;           // Block size (64KB)
-        static constexpr bool AllowOversizedBlocks = true;    // Support allocations > BlockSize
-        static constexpr bool RequiresAccurateSize = true;    // GetAllocationSize returns exact size
-        static constexpr bool InlineBlockAllocation = false;  // NOINLINE block allocation for code size
+        static constexpr u32 BlockSize = 64 * 1024;          // Block size (64KB)
+        static constexpr bool AllowOversizedBlocks = true;   // Support allocations > BlockSize
+        static constexpr bool RequiresAccurateSize = true;   // GetAllocationSize returns exact size
+        static constexpr bool InlineBlockAllocation = false; // NOINLINE block allocation for code size
         static constexpr const char* TagName = "DefaultLinear";
 
         using Allocator = TBlockAllocationLockFreeCache<BlockSize, AlignedAllocator>;
@@ -317,8 +317,8 @@ namespace OloEngine
     // @brief Controls thread-safety of the linear allocator
     enum class ELinearAllocatorThreadPolicy
     {
-        ThreadSafe,     ///< Use atomic operations for thread safety
-        NotThreadSafe   ///< Single-threaded operation, no atomics
+        ThreadSafe,   ///< Use atomic operations for thread safety
+        NotThreadSafe ///< Single-threaded operation, no atomics
     };
 
     // ========================================================================
@@ -327,33 +327,28 @@ namespace OloEngine
 
     // @class TLinearAllocatorBase
     // @brief Core linear allocator implementation
-    // 
+    //
     // A bump allocator that allocates from 64KB blocks. Blocks are freed
     // when all allocations within them are freed.
-    // 
+    //
     // @tparam BlockAllocationTag Configuration tag (block size, allocator, etc.)
     // @tparam ThreadPolicy Thread safety policy
     template<typename BlockAllocationTag, ELinearAllocatorThreadPolicy ThreadPolicy>
     class TLinearAllocatorBase
     {
         // Determine if we can use the fast path (no allocation headers)
-        static constexpr bool SupportsFastPath = 
-            ((BlockAllocationTag::BlockSize <= (64 * 1024)) 
-             && (OLO_MAX_VIRTUAL_MEMORY_ALIGNMENT >= 64 * 1024))
-            && IsPowerOfTwo(BlockAllocationTag::BlockSize)
-            && !OLO_ASAN_ENABLED 
-            && !BlockAllocationTag::RequiresAccurateSize
-            && BlockAllocationTag::Allocator::SupportsAlignment;
+        static constexpr bool SupportsFastPath =
+            ((BlockAllocationTag::BlockSize <= (64 * 1024)) && (OLO_MAX_VIRTUAL_MEMORY_ALIGNMENT >= 64 * 1024)) && IsPowerOfTwo(BlockAllocationTag::BlockSize) && !OLO_ASAN_ENABLED && !BlockAllocationTag::RequiresAccurateSize && BlockAllocationTag::Allocator::SupportsAlignment;
 
         struct BlockHeader;
 
         // @class AllocationHeader
         // @brief Per-allocation header storing block offset and size
-        // 
+        //
         // Only used when SupportsFastPath is false.
         class AllocationHeader
         {
-        public:
+          public:
             OLO_FINLINE AllocationHeader(BlockHeader* InBlockHeader, sizet InAllocationSize)
             {
                 uptr Offset = uptr(this) - uptr(InBlockHeader);
@@ -374,7 +369,7 @@ namespace OloEngine
                 return static_cast<sizet>(m_AllocationSize);
             }
 
-        private:
+          private:
             u32 m_BlockHeaderOffset; // Negative offset from allocation to BlockHeader
             u32 m_AllocationSize;    // Size of the allocation following this header
         };
@@ -393,7 +388,7 @@ namespace OloEngine
 
         // @struct BlockHeader
         // @brief Header at the start of each allocated block
-        // 
+        //
         // Contains the allocation counter and next allocation pointer.
         struct BlockHeader
         {
@@ -440,18 +435,17 @@ namespace OloEngine
             using NumAllocationsType = std::conditional_t<
                 ThreadPolicy == ELinearAllocatorThreadPolicy::ThreadSafe,
                 AtomicUInt,
-                PlainUInt
-            >;
+                PlainUInt>;
 
             // Tracks live allocations + UINT_MAX (fixed up when block is closed)
             NumAllocationsType NumAllocations{ .Value = std::numeric_limits<unsigned int>::max() };
-            
+
             // Padding to avoid false sharing between NumAllocations and other fields
             u8 Padding[OLO_PLATFORM_CACHE_LINE_SIZE - sizeof(std::atomic_uint)];
-            
+
             // Next address to allocate from
             uptr NextAllocationPtr;
-            
+
             // TLS-local count of allocations from this block
             unsigned int Num = 0;
         };
@@ -487,13 +481,13 @@ namespace OloEngine
             if constexpr (!BlockAllocationTag::InlineBlockAllocation)
             {
                 static_assert(BlockAllocationTag::BlockSize >= sizeof(BlockHeader) + sizeof(AllocationHeader),
-                             "BlockSize must be large enough for headers");
-                
+                              "BlockSize must be large enough for headers");
+
                 u32 BlockAlignment = SupportsFastPath ? BlockAllocationTag::BlockSize : alignof(BlockHeader);
                 Header = new (BlockAllocationTag::Allocator::Malloc(BlockAllocationTag::BlockSize, BlockAlignment)) BlockHeader;
                 MemoryTrace_MarkAllocAsHeap(u64(Header), EMemoryTraceRootHeap::SystemMemory);
                 OLO_CORE_ASSERT(IsAligned(Header, BlockAlignment), "Block not properly aligned");
-                
+
                 if constexpr (!SupportsFastPath)
                 {
                     OLO_ASAN_POISON_MEMORY_REGION(Header + 1, BlockAllocationTag::BlockSize - sizeof(BlockHeader));
@@ -504,7 +498,7 @@ namespace OloEngine
             }
         }
 
-    public:
+      public:
         // @brief Allocate memory with compile-time known alignment
         // @tparam Alignment Alignment requirement
         // @param Size Number of bytes to allocate
@@ -531,7 +525,7 @@ namespace OloEngine
         static void* Malloc(sizet Size, u32 Alignment)
         {
             OLO_CORE_ASSERT(Alignment >= 1 && IsPowerOfTwo(Alignment), "Alignment must be power of two");
-            
+
             if constexpr (!SupportsFastPath)
             {
                 Alignment = (Alignment < alignof(AllocationHeader)) ? static_cast<u32>(alignof(AllocationHeader)) : Alignment;
@@ -542,20 +536,20 @@ namespace OloEngine
             }
 
             static thread_local BlockHeader* s_Header = nullptr;
-            
+
             if (s_Header == nullptr)
             {
             AllocateNewBlock:
                 if constexpr (BlockAllocationTag::InlineBlockAllocation)
                 {
                     static_assert(BlockAllocationTag::BlockSize >= sizeof(BlockHeader) + sizeof(AllocationHeader),
-                                 "BlockSize must be large enough for headers");
-                    
+                                  "BlockSize must be large enough for headers");
+
                     u32 BlockAlignment = SupportsFastPath ? BlockAllocationTag::BlockSize : static_cast<u32>(alignof(BlockHeader));
                     s_Header = new (BlockAllocationTag::Allocator::Malloc(BlockAllocationTag::BlockSize, BlockAlignment)) BlockHeader;
                     MemoryTrace_MarkAllocAsHeap(u64(s_Header), EMemoryTraceRootHeap::SystemMemory);
                     OLO_CORE_ASSERT(IsAligned(s_Header, BlockAlignment), "Block not properly aligned");
-                    
+
                     if constexpr (!SupportsFastPath)
                     {
                         OLO_ASAN_POISON_MEMORY_REGION(s_Header + 1, BlockAllocationTag::BlockSize - sizeof(BlockHeader));
@@ -600,15 +594,15 @@ namespace OloEngine
                         LargeHeader->NextAllocationPtr = uptr(LargeHeader) + HeaderSize + Size + Alignment;
                         LargeHeader->NumAllocations.Store(1, std::memory_order_release);
 
-                        OLO_CORE_ASSERT(LargeAlignedOffset + Size <= LargeHeader->NextAllocationPtr, 
-                                       "Oversized allocation overflow");
+                        OLO_CORE_ASSERT(LargeAlignedOffset + Size <= LargeHeader->NextAllocationPtr,
+                                        "Oversized allocation overflow");
                         MemoryTrace_Alloc(u64(LargeAlignedOffset), Size, Alignment);
                         LLM_IF_ENABLED(/* FLowLevelMemTracker::Get().OnLowLevelAlloc(...) */);
                         return reinterpret_cast<void*>(LargeAlignedOffset);
                     }
                 }
                 OLO_CORE_ASSERT(HeaderSize + Size + Alignment <= BlockAllocationTag::BlockSize,
-                               "Allocation too large for block");
+                                "Allocation too large for block");
             }
             else
             {
@@ -645,8 +639,8 @@ namespace OloEngine
                         LargeHeader->NumAllocations.Store(1, std::memory_order_release);
 
                         OLO_CORE_ASSERT(LargeAlignedOffset + Size <= LargeHeader->NextAllocationPtr,
-                                       "Oversized allocation overflow");
-                        AllocationHeader* AllocHeader = new (reinterpret_cast<AllocationHeader*>(LargeAlignedOffset) - 1) 
+                                        "Oversized allocation overflow");
+                        AllocationHeader* AllocHeader = new (reinterpret_cast<AllocationHeader*>(LargeAlignedOffset) - 1)
                             AllocationHeader(LargeHeader, Size);
                         OLO_ASAN_POISON_MEMORY_REGION(AllocHeader, sizeof(AllocationHeader));
 
@@ -656,7 +650,7 @@ namespace OloEngine
                     }
                 }
                 OLO_CORE_ASSERT(HeaderSize + Size + Alignment <= BlockAllocationTag::BlockSize,
-                               "Allocation too large for block");
+                                "Allocation too large for block");
             }
 
             // Block is full - close it and allocate a new one
@@ -683,7 +677,7 @@ namespace OloEngine
             {
                 MemoryTrace_Free(u64(Pointer));
                 LLM_IF_ENABLED(/* FLowLevelMemTracker::Get().OnLowLevelFree(...) */);
-                
+
                 if constexpr (SupportsFastPath)
                 {
                     BlockHeader* Header = reinterpret_cast<BlockHeader*>(
@@ -782,43 +776,43 @@ namespace OloEngine
 
     // @class TConcurrentLinearObject
     // @brief CRTP base class for objects that use the concurrent linear allocator
-    // 
+    //
     // Inherit from this class to override operator new/delete to use
     // the concurrent linear allocator.
-    // 
+    //
     // @tparam ObjectType The derived class type (CRTP)
     // @tparam BlockAllocationTag Allocator configuration tag
     template<typename ObjectType, typename BlockAllocationTag = DefaultBlockAllocationTag>
     class TConcurrentLinearObject
     {
-    public:
+      public:
         static void* operator new(sizet Size)
         {
             static_assert(TIsDerivedFrom<ObjectType, TConcurrentLinearObject<ObjectType, BlockAllocationTag>>::value,
-                         "TConcurrentLinearObject must be base of its ObjectType (see CRTP)");
+                          "TConcurrentLinearObject must be base of its ObjectType (see CRTP)");
             static_assert(alignof(ObjectType) <= BlockAllocationTag::Allocator::MaxAlignment,
-                         "ObjectType alignment exceeds allocator maximum");
+                          "ObjectType alignment exceeds allocator maximum");
             return TConcurrentLinearAllocator<BlockAllocationTag>::template Malloc<alignof(ObjectType)>(Size);
         }
 
         static void* operator new(sizet /*Size*/, void* Object)
         {
             static_assert(TIsDerivedFrom<ObjectType, TConcurrentLinearObject<ObjectType, BlockAllocationTag>>::value,
-                         "TConcurrentLinearObject must be base of its ObjectType (see CRTP)");
+                          "TConcurrentLinearObject must be base of its ObjectType (see CRTP)");
             return Object;
         }
 
         static void* operator new[](sizet Size)
         {
             static_assert(alignof(ObjectType) <= BlockAllocationTag::Allocator::MaxAlignment,
-                         "ObjectType alignment exceeds allocator maximum");
+                          "ObjectType alignment exceeds allocator maximum");
             return TConcurrentLinearAllocator<BlockAllocationTag>::template Malloc<alignof(ObjectType)>(Size);
         }
 
         static void* operator new(sizet Size, std::align_val_t AlignVal)
         {
             static_assert(alignof(ObjectType) <= BlockAllocationTag::Allocator::MaxAlignment,
-                         "ObjectType alignment exceeds allocator maximum");
+                          "ObjectType alignment exceeds allocator maximum");
             OLO_CORE_ASSERT(sizet(AlignVal) == alignof(ObjectType), "Alignment mismatch");
             return TConcurrentLinearAllocator<BlockAllocationTag>::template Malloc<alignof(ObjectType)>(Size);
         }
@@ -826,7 +820,7 @@ namespace OloEngine
         static void* operator new[](sizet Size, std::align_val_t AlignVal)
         {
             static_assert(alignof(ObjectType) <= BlockAllocationTag::Allocator::MaxAlignment,
-                         "ObjectType alignment exceeds allocator maximum");
+                          "ObjectType alignment exceeds allocator maximum");
             OLO_CORE_ASSERT(sizet(AlignVal) == alignof(ObjectType), "Alignment mismatch");
             return TConcurrentLinearAllocator<BlockAllocationTag>::template Malloc<alignof(ObjectType)>(Size);
         }
@@ -850,7 +844,7 @@ namespace OloEngine
     inline i32 DefaultCalculateSlackGrow(i32 NewMax, i32 CurrentMax, sizet NumBytesPerElement, bool /*bAllowQuantize*/)
     {
         i32 Retval;
-        
+
         // Aggressive growth to avoid many reallocations
         if (CurrentMax || NewMax > 0)
         {
@@ -892,16 +886,16 @@ namespace OloEngine
 
     // @class TLinearArrayAllocatorBase
     // @brief Array allocator using the linear allocator for backing storage
-    // 
+    //
     // Provides an STL-compatible allocator interface for dynamic arrays
     // that use the concurrent linear allocator.
-    // 
+    //
     // @tparam BlockAllocationTag Allocator configuration
     // @tparam ThreadPolicy Thread safety policy
     template<typename BlockAllocationTag, ELinearAllocatorThreadPolicy ThreadPolicy>
     class TLinearArrayAllocatorBase
     {
-    public:
+      public:
         using SizeType = i32;
 
         static constexpr bool NeedsElementType = true;
@@ -910,9 +904,9 @@ namespace OloEngine
         template<typename ElementType>
         class ForElementType
         {
-        public:
+          public:
             ForElementType() = default;
-            
+
             ~ForElementType()
             {
                 if (m_Data)
@@ -946,14 +940,13 @@ namespace OloEngine
                 static_assert(sizeof(i32) <= sizeof(sizet), "sizet expected to be larger than i32");
 
                 // Check for under/overflow
-                if (OLO_UNLIKELY(NewMax < 0 || NumBytesPerElement < 1 
-                    || NumBytesPerElement > static_cast<sizet>(std::numeric_limits<i32>::max())))
+                if (OLO_UNLIKELY(NewMax < 0 || NumBytesPerElement < 1 || NumBytesPerElement > static_cast<sizet>(std::numeric_limits<i32>::max())))
                 {
                     Private::OnInvalidConcurrentLinearArrayAllocatorNum(NewMax, NumBytesPerElement);
                 }
 
                 static_assert(alignof(ElementType) <= BlockAllocationTag::Allocator::MaxAlignment,
-                             "Element alignment exceeds allocator maximum");
+                              "Element alignment exceeds allocator maximum");
                 m_Data = static_cast<ElementType*>(TLinearAllocatorBase<BlockAllocationTag, ThreadPolicy>::Realloc(
                     m_Data, NewMax * NumBytesPerElement, alignof(ElementType)));
             }
@@ -988,7 +981,7 @@ namespace OloEngine
                 return 0;
             }
 
-        private:
+          private:
             ForElementType(const ForElementType&) = delete;
             ForElementType& operator=(const ForElementType&) = delete;
             ElementType* m_Data = nullptr;
@@ -1029,7 +1022,7 @@ namespace OloEngine
 
     // @brief Specialization for TConcurrentLinearArrayAllocator - zero constructs
     template<typename BlockAllocationTag>
-    struct TAllocatorTraits<TConcurrentLinearArrayAllocator<BlockAllocationTag>> 
+    struct TAllocatorTraits<TConcurrentLinearArrayAllocator<BlockAllocationTag>>
         : TAllocatorTraitsBase<TConcurrentLinearArrayAllocator<BlockAllocationTag>>
     {
         static constexpr bool IsZeroConstruct = true;
@@ -1040,31 +1033,29 @@ namespace OloEngine
     // ========================================================================
 
     // @brief Bit array allocator using inline storage backed by concurrent linear allocator
-    // 
+    //
     // Uses TInlineAllocator with 4 inline elements for small bit arrays,
     // falling back to TConcurrentLinearArrayAllocator for larger allocations.
     template<typename BlockAllocationTag>
     using TConcurrentLinearBitArrayAllocator = TInlineAllocator<4, TConcurrentLinearArrayAllocator<BlockAllocationTag>>;
 
     // @brief Sparse array allocator using concurrent linear allocation
-    // 
-    // Uses TConcurrentLinearArrayAllocator for elements and 
+    //
+    // Uses TConcurrentLinearArrayAllocator for elements and
     // TConcurrentLinearBitArrayAllocator for the free list bitmap.
     template<typename BlockAllocationTag>
     using TConcurrentLinearSparseArrayAllocator = TSparseArrayAllocator<
-        TConcurrentLinearArrayAllocator<BlockAllocationTag>, 
-        TConcurrentLinearBitArrayAllocator<BlockAllocationTag>
-    >;
+        TConcurrentLinearArrayAllocator<BlockAllocationTag>,
+        TConcurrentLinearBitArrayAllocator<BlockAllocationTag>>;
 
     // @brief Set allocator using concurrent linear allocation
-    // 
+    //
     // Uses TConcurrentLinearSparseArrayAllocator for sparse storage and
     // TInlineAllocator with 1 inline element for hash buckets.
     template<typename BlockAllocationTag>
     using TConcurrentLinearSetAllocator = TSetAllocator<
-        TConcurrentLinearSparseArrayAllocator<BlockAllocationTag>, 
-        TInlineAllocator<1, TConcurrentLinearBitArrayAllocator<BlockAllocationTag>>
-    >;
+        TConcurrentLinearSparseArrayAllocator<BlockAllocationTag>,
+        TInlineAllocator<1, TConcurrentLinearBitArrayAllocator<BlockAllocationTag>>>;
 
     // Default allocator type aliases
     using ConcurrentLinearBitArrayAllocator = TConcurrentLinearBitArrayAllocator<DefaultBlockAllocationTag>;
@@ -1077,10 +1068,10 @@ namespace OloEngine
 
     // @class TConcurrentLinearBulkObjectAllocator
     // @brief Allocator that tracks objects for bulk destruction
-    // 
+    //
     // All allocated objects are linked together and can be destroyed
     // atomically with BulkDelete(). Useful for frame-lifetime allocations.
-    // 
+    //
     // @tparam BlockAllocationTag Allocator configuration
     template<typename BlockAllocationTag>
     class TConcurrentLinearBulkObjectAllocator
@@ -1097,7 +1088,7 @@ namespace OloEngine
         struct TObject final : Allocation
         {
             TObject() = default;
-            
+
             virtual ~TObject() override
             {
                 T* Alloc = reinterpret_cast<T*>(uptr(this) + Align(sizeof(TObject<T>), static_cast<sizet>(alignof(T))));
@@ -1133,16 +1124,16 @@ namespace OloEngine
 
         std::atomic<Allocation*> m_Next{ nullptr };
 
-    public:
+      public:
         TConcurrentLinearBulkObjectAllocator() = default;
-        
+
         ~TConcurrentLinearBulkObjectAllocator()
         {
             BulkDelete();
         }
 
         // @brief Delete all allocated objects
-        // 
+        //
         // Calls destructors for all objects and frees memory.
         void BulkDelete()
         {
@@ -1171,9 +1162,9 @@ namespace OloEngine
 
             // Link into list atomically
             Alloc->Next = m_Next.load(std::memory_order_relaxed);
-            while (!m_Next.compare_exchange_strong(Alloc->Next, Alloc, 
-                                                    std::memory_order_release, 
-                                                    std::memory_order_relaxed))
+            while (!m_Next.compare_exchange_strong(Alloc->Next, Alloc,
+                                                   std::memory_order_release,
+                                                   std::memory_order_relaxed))
             {
             }
             return Result;
@@ -1244,13 +1235,13 @@ namespace OloEngine
             return Alloc;
         }
 
-    private:
+      private:
         template<typename T>
         T* CreateNoInit()
         {
             sizet TotalSize = Align(sizeof(TObject<T>), static_cast<sizet>(alignof(T))) + sizeof(T);
             TObject<T>* Object = new (TConcurrentLinearAllocator<BlockAllocationTag>::template Malloc<
-                (alignof(TObject<T>) > alignof(T) ? alignof(TObject<T>) : alignof(T))>(TotalSize)) TObject<T>();
+                                      (alignof(TObject<T>) > alignof(T) ? alignof(TObject<T>) : alignof(T))>(TotalSize)) TObject<T>();
 
             T* Alloc = reinterpret_cast<T*>(uptr(Object) + Align(sizeof(TObject<T>), static_cast<sizet>(alignof(T))));
             OLO_CORE_ASSERT(IsAligned(Alloc, alignof(T)), "Object not aligned");
@@ -1258,8 +1249,8 @@ namespace OloEngine
 
             Object->Next = m_Next.load(std::memory_order_relaxed);
             while (!m_Next.compare_exchange_weak(Object->Next, Object,
-                                                  std::memory_order_release,
-                                                  std::memory_order_relaxed))
+                                                 std::memory_order_release,
+                                                 std::memory_order_relaxed))
             {
             }
             return Alloc;
@@ -1270,7 +1261,7 @@ namespace OloEngine
         {
             sizet TotalSize = Align(sizeof(TObjectArray<T>), static_cast<sizet>(alignof(T))) + (sizeof(T) * Num);
             TObjectArray<T>* Array = new (TConcurrentLinearAllocator<BlockAllocationTag>::template Malloc<
-                (alignof(TObjectArray<T>) > alignof(T) ? alignof(TObjectArray<T>) : alignof(T))>(TotalSize)) TObjectArray<T>(Num);
+                                          (alignof(TObjectArray<T>) > alignof(T) ? alignof(TObjectArray<T>) : alignof(T))>(TotalSize)) TObjectArray<T>(Num);
 
             T* Alloc = reinterpret_cast<T*>(uptr(Array) + Align(sizeof(TObjectArray<T>), static_cast<sizet>(alignof(T))));
             OLO_CORE_ASSERT(IsAligned(Alloc, alignof(T)), "Array not aligned");
@@ -1278,8 +1269,8 @@ namespace OloEngine
 
             Array->Next = m_Next.load(std::memory_order_relaxed);
             while (!m_Next.compare_exchange_weak(Array->Next, Array,
-                                                  std::memory_order_release,
-                                                  std::memory_order_relaxed))
+                                                 std::memory_order_release,
+                                                 std::memory_order_relaxed))
             {
             }
             return Alloc;

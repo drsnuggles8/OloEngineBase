@@ -1,7 +1,7 @@
 /**
  * @file TaskSystemTest.cpp
  * @brief Unit tests for the OloEngine Task System
- * 
+ *
  * Ported from UE5.7's Tasks/TasksTest.cpp
  * Tests cover: Launch, Wait, FTaskEvent, FPipe, nested tasks, prerequisites,
  *              FTaskConcurrencyLimiter, WaitAny, deep retraction, CancellationToken,
@@ -35,7 +35,7 @@ using namespace OloEngine::Tasks;
 
 class TaskTestBase : public ::testing::Test
 {
-protected:
+  protected:
     static void SetUpTestSuite()
     {
         // Start worker threads before any task tests run
@@ -58,7 +58,7 @@ protected:
 
 class TaskSystemTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(TaskSystemTest, FireAndForgetTask)
@@ -67,9 +67,8 @@ TEST_F(TaskSystemTest, FireAndForgetTask)
     Launch(
         "FireAndForget",
         [] {},
-        ETaskPriority::High
-    );
-    
+        ETaskPriority::High);
+
     // Give it time to execute
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
@@ -78,21 +77,25 @@ TEST_F(TaskSystemTest, LaunchAndWait)
 {
     // Launch a task and wait till it's executed
     bool executed = false;
-    Launch("LaunchAndWait", [&executed] { executed = true; }).Wait();
+    Launch("LaunchAndWait", [&executed]
+           { executed = true; })
+        .Wait();
     EXPECT_TRUE(executed);
 }
 
 TEST_F(TaskSystemTest, TaskWithResult)
 {
     // Basic use-case with result
-    TTask<int> Task = Launch("TaskWithResult", [] { return 42; });
+    TTask<int> Task = Launch("TaskWithResult", []
+                             { return 42; });
     EXPECT_EQ(Task.GetResult(), 42);
 }
 
 TEST_F(TaskSystemTest, TaskWithResultPostponed)
 {
     // Postpone waiting so the task is executed first
-    TTask<int> Task = Launch("TaskWithResultPostponed", [] { return 42; });
+    TTask<int> Task = Launch("TaskWithResultPostponed", []
+                             { return 42; });
     while (!Task.IsCompleted())
     {
         std::this_thread::yield();
@@ -103,7 +106,8 @@ TEST_F(TaskSystemTest, TaskWithResultPostponed)
 TEST_F(TaskSystemTest, WaitForCompletion)
 {
     std::atomic<bool> Done{ false };
-    FTask Task = Launch("WaitForCompletion", [&Done] { Done = true; });
+    FTask Task = Launch("WaitForCompletion", [&Done]
+                        { Done = true; });
     while (!Task.IsCompleted())
     {
         std::this_thread::yield();
@@ -116,7 +120,9 @@ TEST_F(TaskSystemTest, MutableLambda)
 {
     // Mutable lambda compilation check
     Launch("MutableLambda", []() mutable {}).Wait();
-    Launch("MutableLambdaWithResult", []() mutable { return false; }).GetResult();
+    Launch("MutableLambdaWithResult", []() mutable
+           { return false; })
+        .GetResult();
 }
 
 TEST_F(TaskSystemTest, FreeTaskMemory)
@@ -130,10 +136,11 @@ TEST_F(TaskSystemTest, FreeTaskMemory)
 TEST_F(TaskSystemTest, WaitingForMultipleTasks)
 {
     std::atomic<int> Counter{ 0 };
-    TArray<FTask> Tasks
-    {
-        Launch("Task1", [&Counter] { ++Counter; }),
-        Launch("Task2", [&Counter] { ++Counter; })
+    TArray<FTask> Tasks{
+        Launch("Task1", [&Counter]
+               { ++Counter; }),
+        Launch("Task2", [&Counter]
+               { ++Counter; })
     };
     Wait(Tasks);
     EXPECT_EQ(Counter.load(), 2);
@@ -145,14 +152,14 @@ TEST_F(TaskSystemTest, WaitingForMultipleTasks)
 
 class TaskEventTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(TaskEventTest, BasicTrigger)
 {
     FTaskEvent Event{ "BasicTrigger" };
     EXPECT_FALSE(Event.IsCompleted());
-    
+
     Event.Trigger();
     EXPECT_TRUE(Event.IsCompleted());
     EXPECT_TRUE(Event.Wait(FMonotonicTimeSpan::FromMilliseconds(0)));
@@ -172,12 +179,13 @@ TEST_F(TaskEventTest, BlocksUntilTriggered)
 {
     FTaskEvent Event{ "BlocksUntilTriggered" };
     EXPECT_FALSE(Event.IsCompleted());
-    
+
     // Check that waiting blocks
-    FTask Task = Launch("WaitOnEvent", [&Event] { Event.Wait(); });
+    FTask Task = Launch("WaitOnEvent", [&Event]
+                        { Event.Wait(); });
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_FALSE(Task.IsCompleted());
-    
+
     Event.Trigger();
     EXPECT_TRUE(Event.IsCompleted());
     Task.Wait();
@@ -189,12 +197,13 @@ TEST_F(TaskEventTest, TaskAsPrerequisite)
     // A task is not executed until its prerequisite (FTaskEvent) is completed
     FTaskEvent Prereq{ "Prereq" };
     std::atomic<bool> Executed{ false };
-    
-    FTask Task = Launch("WaitOnPrereq", [&Executed] { Executed = true; }, Prereq);
+
+    FTask Task = Launch("WaitOnPrereq", [&Executed]
+                        { Executed = true; }, Prereq);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_FALSE(Task.IsCompleted());
     EXPECT_FALSE(Executed.load());
-    
+
     Prereq.Trigger();
     Task.Wait();
     EXPECT_TRUE(Executed.load());
@@ -215,7 +224,7 @@ TEST_F(TaskEventTest, EmptyPrerequisite)
 
 class NestedTasksTest : public TaskTestBase
 {
-protected:
+  protected:
     void SetUp() override {}
     void TearDown() override {}
 };
@@ -224,20 +233,19 @@ TEST_F(NestedTasksTest, SingleNestedTask)
 {
     FTaskEvent FinishSignal{ "FinishSignal" };
     std::atomic<bool> Executed{ false };
-    
+
     FTask Task = Launch("ParentTask",
-        [&FinishSignal, &Executed]
-        {
-            AddNested(FinishSignal);
-            Executed = true;
-        }
-    );
+                        [&FinishSignal, &Executed]
+                        {
+                            AddNested(FinishSignal);
+                            Executed = true;
+                        });
 
     // Wait a bit - task should execute but not complete until nested is done
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     EXPECT_TRUE(Executed.load());
     EXPECT_FALSE(Task.Wait(FMonotonicTimeSpan::FromMilliseconds(50)));
-    
+
     FinishSignal.Trigger();
     Task.Wait();
     EXPECT_TRUE(Task.IsCompleted());
@@ -246,13 +254,13 @@ TEST_F(NestedTasksTest, SingleNestedTask)
 TEST_F(NestedTasksTest, NestedTaskCompletedDuringParent)
 {
     Launch("ParentTask",
-        []
-        {
-            FTask NestedTask = Launch("NestedTask", [] {});
-            AddNested(NestedTask);
-            NestedTask.Wait();
-        }
-    ).Wait();
+           []
+           {
+               FTask NestedTask = Launch("NestedTask", [] {});
+               AddNested(NestedTask);
+               NestedTask.Wait();
+           })
+        .Wait();
 }
 
 TEST_F(NestedTasksTest, MultipleNestedTasks)
@@ -262,13 +270,12 @@ TEST_F(NestedTasksTest, MultipleNestedTasks)
     FTaskEvent Signal3{ "Signal3" };
 
     FTask Task = Launch("ParentTask",
-        [&Signal1, &Signal2, &Signal3]
-        {
-            AddNested(Signal1);
-            AddNested(Signal2);
-            AddNested(Signal3);
-        }
-    );
+                        [&Signal1, &Signal2, &Signal3]
+                        {
+                            AddNested(Signal1);
+                            AddNested(Signal2);
+                            AddNested(Signal3);
+                        });
 
     EXPECT_FALSE(Task.Wait(FMonotonicTimeSpan::FromMilliseconds(50)));
     Signal1.Trigger();
@@ -286,7 +293,7 @@ TEST_F(NestedTasksTest, MultipleNestedTasks)
 
 class PipeTest : public TaskTestBase
 {
-protected:
+  protected:
     void SetUp() override {}
     void TearDown() override {}
 };
@@ -304,25 +311,24 @@ TEST_F(PipeTest, SequentialExecution)
 {
     FPipe Pipe{ "SequentialPipe" };
     std::atomic<int> Order{ 0 };
-    
+
     bool bTask1Done = false;
-    FTask Task1 = Pipe.Launch("Task1", 
-        [&bTask1Done, &Order] 
-        { 
-            std::this_thread::sleep_for(std::chrono::milliseconds(50)); 
-            EXPECT_EQ(Order.load(), 0);
-            Order = 1;
-            bTask1Done = true; 
-        }
-    );
-    
-    Pipe.Launch("Task2", [&bTask1Done, &Order] 
-    { 
+    FTask Task1 = Pipe.Launch("Task1",
+                              [&bTask1Done, &Order]
+                              {
+                                  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                                  EXPECT_EQ(Order.load(), 0);
+                                  Order = 1;
+                                  bTask1Done = true;
+                              });
+
+    Pipe.Launch("Task2", [&bTask1Done, &Order]
+                { 
         EXPECT_TRUE(bTask1Done);
         EXPECT_EQ(Order.load(), 1);
-        Order = 2;
-    }).Wait();
-    
+        Order = 2; })
+        .Wait();
+
     EXPECT_EQ(Order.load(), 2);
     Pipe.WaitUntilEmpty();
 }
@@ -330,7 +336,7 @@ TEST_F(PipeTest, SequentialExecution)
 TEST_F(PipeTest, MultipleTasksAfterCompletion)
 {
     FPipe Pipe{ "MultiCompletePipe" };
-    
+
     Pipe.Launch("Task1", [] {}).Wait();
     Pipe.Launch("Task2", [] {}).Wait();
     Pipe.WaitUntilEmpty();
@@ -340,11 +346,11 @@ TEST_F(PipeTest, PipeWithPrerequisites)
 {
     FPipe Pipe{ "PrereqPipe" };
     FTaskEvent Prereq{ "Prereq" };
-    
+
     FTask Task = Pipe.Launch("Task", [] {}, Prereq);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_FALSE(Task.IsCompleted());
-    
+
     Prereq.Trigger();
     Task.Wait();
     Pipe.WaitUntilEmpty();
@@ -372,7 +378,7 @@ TEST_F(PipeTest, WaitUntilEmptyWithPrereq)
     EXPECT_FALSE(Pipe.HasWork());
 
     FTask Task1 = Pipe.Launch("Task1", [] {}, Prereq);
-    
+
     // Make sure the pipe knows about the task even if it has prereq
     EXPECT_TRUE(Pipe.HasWork());
     EXPECT_FALSE(Task1.IsCompleted());
@@ -397,7 +403,7 @@ TEST_F(PipeTest, WaitUntilEmptyWithPrereq)
 
 class TaskDependenciesTest : public TaskTestBase
 {
-protected:
+  protected:
     void SetUp() override {}
     void TearDown() override {}
 };
@@ -406,14 +412,16 @@ TEST_F(TaskDependenciesTest, SinglePrerequisite)
 {
     FTaskEvent Event{ "Event" };
     std::atomic<bool> TaskExecuted{ false };
-    
-    FTask Prereq = Launch("Prereq", [&Event] { Event.Wait(); });
-    FTask Task = Launch("Task", [&TaskExecuted] { TaskExecuted = true; }, Prereq);
-    
+
+    FTask Prereq = Launch("Prereq", [&Event]
+                          { Event.Wait(); });
+    FTask Task = Launch("Task", [&TaskExecuted]
+                        { TaskExecuted = true; }, Prereq);
+
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_FALSE(Task.IsCompleted());
     EXPECT_FALSE(TaskExecuted.load());
-    
+
     Event.Trigger();
     Task.Wait();
     EXPECT_TRUE(TaskExecuted.load());
@@ -423,10 +431,12 @@ TEST_F(TaskDependenciesTest, MultiplePrerequisites)
 {
     FTaskEvent Prereq1{ "Prereq1" };
     FTaskEvent Event{ "Event" };
-    FTask Prereq2 = Launch("Prereq2", [&Event] { Event.Wait(); });
+    FTask Prereq2 = Launch("Prereq2", [&Event]
+                           { Event.Wait(); });
     std::atomic<bool> TaskExecuted{ false };
 
-    TTask<void> Task = Launch("Task", [&TaskExecuted] { TaskExecuted = true; }, Prerequisites(Prereq1, Prereq2));
+    TTask<void> Task = Launch("Task", [&TaskExecuted]
+                              { TaskExecuted = true; }, Prerequisites(Prereq1, Prereq2));
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_FALSE(Task.IsCompleted());
 
@@ -464,7 +474,7 @@ TEST_F(TaskDependenciesTest, PipedTaskWithPrerequisite)
 
 class TaskStressTest : public TaskTestBase
 {
-protected:
+  protected:
     void SetUp() override {}
     void TearDown() override {}
 };
@@ -473,15 +483,16 @@ TEST_F(TaskStressTest, ManyTasks)
 {
     constexpr int NumTasks = 1000;
     std::atomic<int> Counter{ 0 };
-    
+
     TArray<FTask> Tasks;
     Tasks.Reserve(NumTasks);
-    
+
     for (int i = 0; i < NumTasks; ++i)
     {
-        Tasks.Add(Launch("StressTask", [&Counter] { ++Counter; }));
+        Tasks.Add(Launch("StressTask", [&Counter]
+                         { ++Counter; }));
     }
-    
+
     Wait(Tasks);
     EXPECT_EQ(Counter.load(), NumTasks);
 }
@@ -491,26 +502,26 @@ TEST_F(TaskStressTest, NestedSpawning)
     constexpr int NumGroups = 10;
     constexpr int TasksPerGroup = 100;
     std::atomic<int> Counter{ 0 };
-    
+
     TArray<FTask> Groups;
     Groups.Reserve(NumGroups);
-    
+
     for (int g = 0; g < NumGroups; ++g)
     {
         Groups.Add(Launch("SpawnerGroup",
-            [&Counter]
-            {
-                TArray<FTask> Tasks;
-                Tasks.Reserve(TasksPerGroup);
-                for (int t = 0; t < TasksPerGroup; ++t)
-                {
-                    Tasks.Add(Launch("NestedTask", [&Counter] { ++Counter; }));
-                }
-                Wait(Tasks);
-            }
-        ));
+                          [&Counter]
+                          {
+                              TArray<FTask> Tasks;
+                              Tasks.Reserve(TasksPerGroup);
+                              for (int t = 0; t < TasksPerGroup; ++t)
+                              {
+                                  Tasks.Add(Launch("NestedTask", [&Counter]
+                                                   { ++Counter; }));
+                              }
+                              Wait(Tasks);
+                          }));
     }
-    
+
     Wait(Groups);
     EXPECT_EQ(Counter.load(), NumGroups * TasksPerGroup);
 }
@@ -522,29 +533,28 @@ TEST_F(TaskStressTest, PipeStress)
     std::atomic<int> Counter{ 0 };
     std::atomic<bool> bConcurrentExecution{ false };
     std::atomic<bool> bExecuting{ false };
-    
+
     TArray<FTask> Tasks;
     Tasks.Reserve(NumTasks);
-    
+
     for (int i = 0; i < NumTasks; ++i)
     {
-        Tasks.Add(Pipe.Launch("PipeTask", 
-            [&Counter, &bConcurrentExecution, &bExecuting]
-            {
-                if (bExecuting.load())
-                {
-                    bConcurrentExecution = true;
-                }
-                bExecuting = true;
-                ++Counter;
-                bExecuting = false;
-            }
-        ));
+        Tasks.Add(Pipe.Launch("PipeTask",
+                              [&Counter, &bConcurrentExecution, &bExecuting]
+                              {
+                                  if (bExecuting.load())
+                                  {
+                                      bConcurrentExecution = true;
+                                  }
+                                  bExecuting = true;
+                                  ++Counter;
+                                  bExecuting = false;
+                              }));
     }
-    
+
     Wait(Tasks);
     Pipe.WaitUntilEmpty();
-    
+
     EXPECT_EQ(Counter.load(), NumTasks);
     EXPECT_FALSE(bConcurrentExecution.load()) << "Pipe tasks should not execute concurrently";
 }
@@ -555,7 +565,7 @@ TEST_F(TaskStressTest, PipeStress)
 
 class MakeCompletedTaskTest : public TaskTestBase
 {
-protected:
+  protected:
     void SetUp() override {}
     void TearDown() override {}
 };
@@ -580,7 +590,7 @@ TEST_F(MakeCompletedTaskTest, MoveOnlyResult)
 
 class IsAwaitableTest : public TaskTestBase
 {
-protected:
+  protected:
     void SetUp() override {}
     void TearDown() override {}
 };
@@ -589,12 +599,11 @@ TEST_F(IsAwaitableTest, BasicIsAwaitable)
 {
     FTask Task;
     Task.Launch("IsAwaitableTask",
-        [&Task] 
-        {
-            // Task.Wait() would deadlock if called here inside its execution
-            EXPECT_FALSE(Task.IsAwaitable());
-        }
-    );
+                [&Task]
+                {
+                    // Task.Wait() would deadlock if called here inside its execution
+                    EXPECT_FALSE(Task.IsAwaitable());
+                });
     EXPECT_TRUE(Task.IsAwaitable());
     Task.Wait();
 }
@@ -605,13 +614,13 @@ TEST_F(IsAwaitableTest, BasicIsAwaitable)
 
 class WaitAnyTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(WaitAnyTest, BlocksIfNoneCompleted)
 {
     // blocks if none of tasks is completed
-    FTaskEvent Blocker{ "Blocker" };  // blocks all tasks
+    FTaskEvent Blocker{ "Blocker" }; // blocks all tasks
 
     TArray<FTask> Tasks;
     Tasks.Add(Launch("Task1", [] {}, Blocker));
@@ -619,12 +628,12 @@ TEST_F(WaitAnyTest, BlocksIfNoneCompleted)
 
     // Should timeout since no task is complete
     i32 Result = WaitAny(Tasks, FMonotonicTimeSpan::FromMilliseconds(10.0));
-    EXPECT_EQ(Result, -1);  // INDEX_NONE
+    EXPECT_EQ(Result, -1); // INDEX_NONE
 
     Blocker.Trigger();
 
     Result = WaitAny(Tasks);
-    EXPECT_NE(Result, -1);  // Some task completed
+    EXPECT_NE(Result, -1); // Some task completed
 }
 
 TEST_F(WaitAnyTest, DoesNotWaitForAllTasks)
@@ -634,10 +643,10 @@ TEST_F(WaitAnyTest, DoesNotWaitForAllTasks)
 
     TArray<FTask> Tasks;
     Tasks.Add(Launch("Task1", [] {}));
-    Tasks.Add(Launch("Task2", [] {}, Blocker));  // is blocked
+    Tasks.Add(Launch("Task2", [] {}, Blocker)); // is blocked
 
     i32 Result = WaitAny(Tasks);
-    EXPECT_EQ(Result, 0);  // First task completed
+    EXPECT_EQ(Result, 0); // First task completed
 
     Blocker.Trigger();
 }
@@ -648,13 +657,13 @@ TEST_F(WaitAnyTest, DoesNotWaitForAllTasks)
 
 class AnyTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(AnyTest, BlocksIfNoneCompleted)
 {
     // blocks if none of tasks is completed
-    FTaskEvent Blocker{ "Blocker" };  // blocks all tasks
+    FTaskEvent Blocker{ "Blocker" }; // blocks all tasks
 
     TArray<FTask> Tasks;
     Tasks.Add(Launch("Task1", [] {}, Blocker));
@@ -676,7 +685,7 @@ TEST_F(AnyTest, DoesNotWaitForAllTasks)
 
     TArray<FTask> Tasks;
     Tasks.Add(Launch("Task1", [] {}));
-    Tasks.Add(Launch("Task2", [] {}, Blocker));  // is blocked
+    Tasks.Add(Launch("Task2", [] {}, Blocker)); // is blocked
 
     Any(Tasks).Wait();
 
@@ -691,45 +700,44 @@ TEST_F(AnyTest, DoesNotWaitForAllTasks)
 
 class TaskConcurrencyLimiterTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(TaskConcurrencyLimiterTest, BasicConcurrencyLimit)
 {
     constexpr u32 MaxConcurrency = 4;
     constexpr u32 NumItems = 100;
-    
+
     std::atomic<u32> CurrentConcurrency{ 0 };
     std::atomic<u32> ActualMaxConcurrency{ 0 };
     std::atomic<u32> NumProcessed{ 0 };
-    
+
     FTaskConcurrencyLimiter Limiter(MaxConcurrency);
-    
+
     for (u32 i = 0; i < NumItems; ++i)
     {
         Limiter.Push("LimitedTask",
-            [&CurrentConcurrency, &ActualMaxConcurrency, &NumProcessed, MaxConcurrency](u32 Slot)
-            {
-                EXPECT_LT(Slot, MaxConcurrency);
-                
-                u32 Current = CurrentConcurrency.fetch_add(1, std::memory_order_relaxed) + 1;
-                EXPECT_LE(Current, MaxConcurrency);
-                
-                // Track max concurrency reached
-                u32 Max = ActualMaxConcurrency.load(std::memory_order_relaxed);
-                while (Current > Max && !ActualMaxConcurrency.compare_exchange_weak(Max, Current))
-                {
-                    // Retry
-                }
-                
-                std::this_thread::yield();
-                
-                CurrentConcurrency.fetch_sub(1, std::memory_order_relaxed);
-                NumProcessed.fetch_add(1, std::memory_order_release);
-            }
-        );
+                     [&CurrentConcurrency, &ActualMaxConcurrency, &NumProcessed, MaxConcurrency](u32 Slot)
+                     {
+                         EXPECT_LT(Slot, MaxConcurrency);
+
+                         u32 Current = CurrentConcurrency.fetch_add(1, std::memory_order_relaxed) + 1;
+                         EXPECT_LE(Current, MaxConcurrency);
+
+                         // Track max concurrency reached
+                         u32 Max = ActualMaxConcurrency.load(std::memory_order_relaxed);
+                         while (Current > Max && !ActualMaxConcurrency.compare_exchange_weak(Max, Current))
+                         {
+                             // Retry
+                         }
+
+                         std::this_thread::yield();
+
+                         CurrentConcurrency.fetch_sub(1, std::memory_order_relaxed);
+                         NumProcessed.fetch_add(1, std::memory_order_release);
+                     });
     }
-    
+
     Limiter.Wait();
     EXPECT_EQ(NumProcessed.load(std::memory_order_acquire), NumItems);
 }
@@ -739,41 +747,39 @@ TEST_F(TaskConcurrencyLimiterTest, MultipleProducers)
     constexpr u32 MaxConcurrency = 8;
     constexpr u32 NumItems = 1000;
     constexpr u32 NumPushingTasks = 10;
-    
+
     std::atomic<u32> CurrentConcurrency{ 0 };
     std::atomic<u32> NumProcessed{ 0 };
-    
+
     TArray<FTask> PushingTasks;
     PushingTasks.Reserve(NumPushingTasks);
-    
+
     FTaskConcurrencyLimiter Limiter(MaxConcurrency);
-    
+
     for (u32 i = 0; i < NumPushingTasks; ++i)
     {
         PushingTasks.Add(Launch("Pusher",
-            [&Limiter, &CurrentConcurrency, &NumProcessed, MaxConcurrency]
-            {
-                for (u32 j = 0; j < NumItems / NumPushingTasks; ++j)
-                {
-                    Limiter.Push("LimitedTask",
-                        [&CurrentConcurrency, &NumProcessed, MaxConcurrency](u32 Slot)
-                        {
-                            EXPECT_LT(Slot, MaxConcurrency);
-                            
-                            u32 Current = CurrentConcurrency.fetch_add(1, std::memory_order_relaxed) + 1;
-                            EXPECT_LE(Current, MaxConcurrency);
-                            
-                            std::this_thread::yield();
-                            
-                            CurrentConcurrency.fetch_sub(1, std::memory_order_relaxed);
-                            NumProcessed.fetch_add(1, std::memory_order_release);
-                        }
-                    );
-                }
-            }
-        ));
+                                [&Limiter, &CurrentConcurrency, &NumProcessed, MaxConcurrency]
+                                {
+                                    for (u32 j = 0; j < NumItems / NumPushingTasks; ++j)
+                                    {
+                                        Limiter.Push("LimitedTask",
+                                                     [&CurrentConcurrency, &NumProcessed, MaxConcurrency](u32 Slot)
+                                                     {
+                                                         EXPECT_LT(Slot, MaxConcurrency);
+
+                                                         u32 Current = CurrentConcurrency.fetch_add(1, std::memory_order_relaxed) + 1;
+                                                         EXPECT_LE(Current, MaxConcurrency);
+
+                                                         std::this_thread::yield();
+
+                                                         CurrentConcurrency.fetch_sub(1, std::memory_order_relaxed);
+                                                         NumProcessed.fetch_add(1, std::memory_order_release);
+                                                     });
+                                    }
+                                }));
     }
-    
+
     Wait(PushingTasks);
     Limiter.Wait();
     EXPECT_EQ(NumProcessed.load(std::memory_order_acquire), NumItems);
@@ -783,31 +789,30 @@ TEST_F(TaskConcurrencyLimiterTest, SlotsDoNotOverlap)
 {
     constexpr u32 MaxConcurrency = 4;
     constexpr u32 NumItems = 100;
-    
+
     std::atomic<bool> Slots[MaxConcurrency] = {};
     std::atomic<u32> NumProcessed{ 0 };
-    
+
     FTaskConcurrencyLimiter Limiter(MaxConcurrency);
-    
+
     for (u32 i = 0; i < NumItems; ++i)
     {
         Limiter.Push("LimitedTask",
-            [&Slots, &NumProcessed, MaxConcurrency](u32 Slot)
-            {
-                EXPECT_LT(Slot, MaxConcurrency);
-                
-                // Verify slot was not in use
-                bool WasInUse = Slots[Slot].exchange(true, std::memory_order_relaxed);
-                EXPECT_FALSE(WasInUse) << "Slot " << Slot << " was already in use!";
-                
-                std::this_thread::yield();
-                
-                Slots[Slot].store(false, std::memory_order_relaxed);
-                NumProcessed.fetch_add(1, std::memory_order_release);
-            }
-        );
+                     [&Slots, &NumProcessed, MaxConcurrency](u32 Slot)
+                     {
+                         EXPECT_LT(Slot, MaxConcurrency);
+
+                         // Verify slot was not in use
+                         bool WasInUse = Slots[Slot].exchange(true, std::memory_order_relaxed);
+                         EXPECT_FALSE(WasInUse) << "Slot " << Slot << " was already in use!";
+
+                         std::this_thread::yield();
+
+                         Slots[Slot].store(false, std::memory_order_relaxed);
+                         NumProcessed.fetch_add(1, std::memory_order_release);
+                     });
     }
-    
+
     Limiter.Wait();
     EXPECT_EQ(NumProcessed.load(std::memory_order_acquire), NumItems);
 }
@@ -818,7 +823,7 @@ TEST_F(TaskConcurrencyLimiterTest, SlotsDoNotOverlap)
 
 class DeepRetractionTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(DeepRetractionTest, TwoLevelsDeep)
@@ -829,10 +834,9 @@ TEST_F(DeepRetractionTest, TwoLevelsDeep)
     FTask P21 = Launch("P21", [] {}, Prerequisites(P11, P12));
     FTask P22 = Launch("P22", [] {});
     FTask N11, N12, N21, N22;
-    
-    FTask Task = Launch("MainTask",
-        [&N11, &N12, &N21, &N22]
-        {
+
+    FTask Task = Launch("MainTask", [&N11, &N12, &N21, &N22]
+                        {
             AddNested(N11 = Launch("N11",
                 [&N21, &N22]
                 {
@@ -840,13 +844,10 @@ TEST_F(DeepRetractionTest, TwoLevelsDeep)
                     AddNested(N22 = Launch("N22", [] {}));
                 }
             ));
-            AddNested(N12 = Launch("N12", [] {}));
-        },
-        Prerequisites(P21, P22)
-    );
-    
+            AddNested(N12 = Launch("N12", [] {})); }, Prerequisites(P21, P22));
+
     Task.Wait();
-    
+
     EXPECT_TRUE(P11.IsCompleted());
     EXPECT_TRUE(P12.IsCompleted());
     EXPECT_TRUE(P21.IsCompleted());
@@ -863,7 +864,7 @@ TEST_F(DeepRetractionTest, TwoLevelsDeep)
 
 class InlineTaskTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(InlineTaskTest, InlineExecution)
@@ -871,33 +872,21 @@ TEST_F(InlineTaskTest, InlineExecution)
     FTaskEvent Block{ "Block" };
     bool bFirstDone = false;
     bool bSecondDone = false;
-    
+
     // Launch tasks with inline priority - they execute when their prereqs complete
-    FTask Task1 = Launch("Task1", 
-        [&bFirstDone, &bSecondDone] 
-        { 
+    FTask Task1 = Launch("Task1", [&bFirstDone, &bSecondDone]
+                         { 
             EXPECT_FALSE(bSecondDone); 
-            bFirstDone = true; 
-        }, 
-        Block,
-        ETaskPriority::Normal, 
-        EExtendedTaskPriority::Inline
-    );
-    
-    FTask Task2 = Launch("Task2", 
-        [&bFirstDone, &bSecondDone] 
-        { 
+            bFirstDone = true; }, Block, ETaskPriority::Normal, EExtendedTaskPriority::Inline);
+
+    FTask Task2 = Launch("Task2", [&bFirstDone, &bSecondDone]
+                         { 
             EXPECT_TRUE(bFirstDone); 
-            bSecondDone = true; 
-        }, 
-        Prerequisites(Block, Task1),
-        ETaskPriority::Normal, 
-        EExtendedTaskPriority::Inline
-    );
-    
+            bSecondDone = true; }, Prerequisites(Block, Task1), ETaskPriority::Normal, EExtendedTaskPriority::Inline);
+
     Block.Trigger();
     Wait(TArray<FTask>{ Task1, Task2 });
-    
+
     EXPECT_TRUE(bFirstDone);
     EXPECT_TRUE(bSecondDone);
 }
@@ -908,15 +897,15 @@ TEST_F(InlineTaskTest, InlineExecution)
 
 class MoveOnlyResultTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(MoveOnlyResultTest, UniquePtr)
 {
-    TTask<std::unique_ptr<int>> Task = Launch("MoveOnlyTask", 
-        [] { return std::make_unique<int>(42); }
-    );
-    
+    TTask<std::unique_ptr<int>> Task = Launch("MoveOnlyTask",
+                                              []
+                                              { return std::make_unique<int>(42); });
+
     std::unique_ptr<int> Result = std::move(Task.GetResult());
     EXPECT_EQ(*Result, 42);
 }
@@ -925,7 +914,7 @@ TEST_F(MoveOnlyResultTest, MoveConstructableOnly)
 {
     static std::atomic<u32> ConstructionsNum{ 0 };
     static std::atomic<u32> DestructionsNum{ 0 };
-    
+
     struct FMoveConstructable
     {
         FMoveConstructable()
@@ -949,12 +938,14 @@ TEST_F(MoveOnlyResultTest, MoveConstructableOnly)
     };
 
     {
-        Launch("MoveConstructableTask", [] { return FMoveConstructable{}; }).GetResult();
+        Launch("MoveConstructableTask", []
+               { return FMoveConstructable{}; })
+            .GetResult();
     }
-    
+
     // Wait for any background destructions
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    
+
     // At least one construction and destruction should have occurred
     EXPECT_GE(ConstructionsNum.load(), 1u);
 }
@@ -965,17 +956,15 @@ TEST_F(MoveOnlyResultTest, MoveConstructableOnly)
 
 class TaskSelfAccessTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(TaskSelfAccessTest, AccessTaskDuringExecution)
 {
     // accessing the task from inside its execution
     FTask Task;
-    Task.Launch("SelfAccessTask", [&Task] 
-    { 
-        EXPECT_FALSE(Task.IsCompleted()); 
-    });
+    Task.Launch("SelfAccessTask", [&Task]
+                { EXPECT_FALSE(Task.IsCompleted()); });
     Task.Wait();
     EXPECT_TRUE(Task.IsCompleted());
 }
@@ -986,22 +975,21 @@ TEST_F(TaskSelfAccessTest, AccessTaskDuringExecution)
 
 class NestedTaskStressTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(NestedTaskStressTest, ManyNestedTasks)
 {
     constexpr u64 Num = 1000;
-    
+
     for (u64 i = 0; i < Num; ++i)
     {
         FTask Nested;
         FTask Parent = Launch("Parent",
-            [&Nested]
-            {
-                AddNested(Nested = Launch("Nested", [] {}));
-            }
-        );
+                              [&Nested]
+                              {
+                                  AddNested(Nested = Launch("Nested", [] {}));
+                              });
         Parent.Wait();
         EXPECT_TRUE(Nested.IsCompleted());
         EXPECT_TRUE(Parent.IsCompleted());
@@ -1014,7 +1002,7 @@ TEST_F(NestedTaskStressTest, ManyNestedTasks)
 
 class ConcurrentEventTriggerTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(ConcurrentEventTriggerTest, TriggerFromMultipleThreads)
@@ -1024,20 +1012,19 @@ TEST_F(ConcurrentEventTriggerTest, TriggerFromMultipleThreads)
     {
         FTaskEvent Event{ "ConcurrentTriggerEvent" };
         FTask DeferredTask = Launch("DeferredTask", [] {}, Event);
-        
+
         constexpr int NumThreads = 8;
         std::vector<std::thread> Threads;
         Threads.reserve(NumThreads);
-        
+
         for (int t = 0; t < NumThreads; ++t)
         {
             Threads.emplace_back([&Event, &DeferredTask]
-            {
+                                 {
                 Event.Trigger();
-                DeferredTask.Wait();
-            });
+                DeferredTask.Wait(); });
         }
-        
+
         for (auto& Thread : Threads)
         {
             Thread.join();
@@ -1053,7 +1040,7 @@ TEST_F(ConcurrentEventTriggerTest, TriggerFromMultipleThreads)
 
 class LowLevelTaskUserDataTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(LowLevelTaskUserDataTest, SetUserDataBeforeLaunch)
@@ -1061,29 +1048,28 @@ TEST_F(LowLevelTaskUserDataTest, SetUserDataBeforeLaunch)
     // Test that SetUserData works when called before TryLaunch
     std::atomic<void*> ReceivedUserData{ nullptr };
     std::atomic<bool> TaskExecuted{ false };
-    
+
     LowLevelTasks::FTask Task;
     void* ExpectedUserData = reinterpret_cast<void*>(static_cast<uptr>(42));
-    
+
     Task.Init("UserDataTest", LowLevelTasks::ETaskPriority::Default,
-        [&ReceivedUserData, &TaskExecuted, &Task]()
-        {
-            ReceivedUserData.store(Task.GetUserData(), std::memory_order_release);
-            TaskExecuted.store(true, std::memory_order_release);
-        }
-    );
-    
+              [&ReceivedUserData, &TaskExecuted, &Task]()
+              {
+                  ReceivedUserData.store(Task.GetUserData(), std::memory_order_release);
+                  TaskExecuted.store(true, std::memory_order_release);
+              });
+
     // Set user data BEFORE launching
     Task.SetUserData(ExpectedUserData);
-    
+
     LowLevelTasks::TryLaunch(Task, LowLevelTasks::EQueuePreference::GlobalQueuePreference, true);
-    
+
     // Spin-wait for completion
     while (!Task.IsCompleted())
     {
         std::this_thread::yield();
     }
-    
+
     EXPECT_TRUE(TaskExecuted.load());
     EXPECT_EQ(ReceivedUserData.load(), ExpectedUserData);
 }
@@ -1094,30 +1080,29 @@ TEST_F(LowLevelTaskUserDataTest, SetUserDataWithSharedTask)
     // TSharedPtr<FTask> with lambda capturing the shared ptr
     std::atomic<u32> ReceivedSlot{ 0xFFFFFFFF };
     std::atomic<bool> TaskExecuted{ false };
-    
+
     TSharedPtr<LowLevelTasks::FTask> Task = MakeShared<LowLevelTasks::FTask>();
     constexpr u32 ExpectedSlot = 7;
-    
+
     Task->Init("SharedUserDataTest", LowLevelTasks::ETaskPriority::Default,
-        [&ReceivedSlot, &TaskExecuted, Task]()  // Capture Task by value (TSharedPtr copy)
-        {
-            u32 Slot = static_cast<u32>(reinterpret_cast<uptr>(Task->GetUserData()));
-            ReceivedSlot.store(Slot, std::memory_order_release);
-            TaskExecuted.store(true, std::memory_order_release);
-        }
-    );
-    
+               [&ReceivedSlot, &TaskExecuted, Task]() // Capture Task by value (TSharedPtr copy)
+               {
+                   u32 Slot = static_cast<u32>(reinterpret_cast<uptr>(Task->GetUserData()));
+                   ReceivedSlot.store(Slot, std::memory_order_release);
+                   TaskExecuted.store(true, std::memory_order_release);
+               });
+
     // Set user data BEFORE launching (same pattern as TaskConcurrencyLimiter)
     Task->SetUserData(reinterpret_cast<void*>(static_cast<uptr>(ExpectedSlot)));
-    
+
     LowLevelTasks::TryLaunch(*Task, LowLevelTasks::EQueuePreference::GlobalQueuePreference, true);
-    
+
     // Spin-wait for completion
     while (!Task->IsCompleted())
     {
         std::this_thread::yield();
     }
-    
+
     EXPECT_TRUE(TaskExecuted.load());
     EXPECT_EQ(ReceivedSlot.load(), ExpectedSlot);
 }
@@ -1128,36 +1113,35 @@ TEST_F(LowLevelTaskUserDataTest, SetUserDataWithQueuedTask)
     // Task is queued, then later popped and launched with SetUserData
     std::atomic<u32> ReceivedSlot{ 0xFFFFFFFF };
     std::atomic<bool> TaskExecuted{ false };
-    
+
     TSharedPtr<LowLevelTasks::FTask> Task = MakeShared<LowLevelTasks::FTask>();
     constexpr u32 ExpectedSlot = 3;
-    
+
     Task->Init("QueuedUserDataTest", LowLevelTasks::ETaskPriority::Default,
-        [&ReceivedSlot, &TaskExecuted, Task]()  // Capture Task by value (TSharedPtr copy)
-        {
-            u32 Slot = static_cast<u32>(reinterpret_cast<uptr>(Task->GetUserData()));
-            ReceivedSlot.store(Slot, std::memory_order_release);
-            TaskExecuted.store(true, std::memory_order_release);
-        }
-    );
-    
+               [&ReceivedSlot, &TaskExecuted, Task]() // Capture Task by value (TSharedPtr copy)
+               {
+                   u32 Slot = static_cast<u32>(reinterpret_cast<uptr>(Task->GetUserData()));
+                   ReceivedSlot.store(Slot, std::memory_order_release);
+                   TaskExecuted.store(true, std::memory_order_release);
+               });
+
     // Simulate queue: store raw pointer, then retrieve and set user data
     TLockFreePointerListFIFO<LowLevelTasks::FTask, OLO_PLATFORM_CACHE_LINE_SIZE> WorkQueue;
     WorkQueue.Push(Task.Get());
-    
+
     // Pop from queue and set user data before launching (same as ProcessQueue)
     LowLevelTasks::FTask* PoppedTask = WorkQueue.Pop();
     ASSERT_NE(PoppedTask, nullptr);
-    
+
     PoppedTask->SetUserData(reinterpret_cast<void*>(static_cast<uptr>(ExpectedSlot)));
     LowLevelTasks::TryLaunch(*PoppedTask, LowLevelTasks::EQueuePreference::GlobalQueuePreference, true);
-    
+
     // Spin-wait for completion
     while (!Task->IsCompleted())
     {
         std::this_thread::yield();
     }
-    
+
     EXPECT_TRUE(TaskExecuted.load());
     EXPECT_EQ(ReceivedSlot.load(), ExpectedSlot);
 }
@@ -1167,46 +1151,45 @@ TEST_F(LowLevelTaskUserDataTest, ConcurrencyLimiterSimulation)
     // Full simulation of FTaskConcurrencyLimiter with multiple tasks
     constexpr u32 MaxConcurrency = 4;
     constexpr u32 NumTasks = 20;
-    
+
     std::atomic<u32> CompletedCount{ 0 };
     std::atomic<bool> AnyFailure{ false };
-    
+
     TLockFreePointerListFIFO<LowLevelTasks::FTask, OLO_PLATFORM_CACHE_LINE_SIZE> WorkQueue;
     TArray<TSharedPtr<LowLevelTasks::FTask>> Tasks;
     Tasks.Reserve(NumTasks);
-    
+
     // Phase 1: Create and queue all tasks (similar to Push)
     for (u32 i = 0; i < NumTasks; ++i)
     {
         TSharedPtr<LowLevelTasks::FTask> Task = MakeShared<LowLevelTasks::FTask>();
         Tasks.Add(Task);
-        
+
         Task->Init("SimTask", LowLevelTasks::ETaskPriority::Default,
-            [&CompletedCount, &AnyFailure, Task, MaxConcurrency]()
-            {
-                u32 Slot = static_cast<u32>(reinterpret_cast<uptr>(Task->GetUserData()));
-                if (Slot >= MaxConcurrency)
-                {
-                    AnyFailure.store(true, std::memory_order_release);
-                }
-                CompletedCount.fetch_add(1, std::memory_order_release);
-            }
-        );
-        
+                   [&CompletedCount, &AnyFailure, Task, MaxConcurrency]()
+                   {
+                       u32 Slot = static_cast<u32>(reinterpret_cast<uptr>(Task->GetUserData()));
+                       if (Slot >= MaxConcurrency)
+                       {
+                           AnyFailure.store(true, std::memory_order_release);
+                       }
+                       CompletedCount.fetch_add(1, std::memory_order_release);
+                   });
+
         WorkQueue.Push(Task.Get());
     }
-    
+
     // Phase 2: Pop and launch all tasks with slots (similar to ProcessQueue)
     u32 SlotCounter = 0;
     while (LowLevelTasks::FTask* PoppedTask = WorkQueue.Pop())
     {
         u32 Slot = SlotCounter % MaxConcurrency;
         SlotCounter++;
-        
+
         PoppedTask->SetUserData(reinterpret_cast<void*>(static_cast<uptr>(Slot)));
         LowLevelTasks::TryLaunch(*PoppedTask, LowLevelTasks::EQueuePreference::GlobalQueuePreference, true);
     }
-    
+
     // Wait for all tasks
     for (const auto& Task : Tasks)
     {
@@ -1215,7 +1198,7 @@ TEST_F(LowLevelTaskUserDataTest, ConcurrencyLimiterSimulation)
             std::this_thread::yield();
         }
     }
-    
+
     EXPECT_FALSE(AnyFailure.load());
     EXPECT_EQ(CompletedCount.load(), NumTasks);
 }
@@ -1226,23 +1209,22 @@ TEST_F(LowLevelTaskUserDataTest, SimpleFTaskConcurrencyLimiterTest)
     constexpr u32 MaxConcurrency = 2;
     std::atomic<u32> ReceivedSlots{ 0 };
     std::atomic<bool> AnyBadSlot{ false };
-    
+
     FTaskConcurrencyLimiter Limiter(MaxConcurrency);
-    
+
     // Push a single task
     Limiter.Push("SingleTask",
-        [&ReceivedSlots, &AnyBadSlot, MaxConcurrency](u32 Slot)
-        {
-            if (Slot >= MaxConcurrency)
-            {
-                AnyBadSlot.store(true, std::memory_order_release);
-            }
-            ReceivedSlots.fetch_add(1, std::memory_order_release);
-        }
-    );
-    
+                 [&ReceivedSlots, &AnyBadSlot, MaxConcurrency](u32 Slot)
+                 {
+                     if (Slot >= MaxConcurrency)
+                     {
+                         AnyBadSlot.store(true, std::memory_order_release);
+                     }
+                     ReceivedSlots.fetch_add(1, std::memory_order_release);
+                 });
+
     Limiter.Wait();
-    
+
     EXPECT_FALSE(AnyBadSlot.load());
     EXPECT_EQ(ReceivedSlots.load(), 1u);
 }
@@ -1254,25 +1236,24 @@ TEST_F(LowLevelTaskUserDataTest, MultipleFTaskConcurrencyLimiterTest)
     constexpr u32 NumTasks = 100;
     std::atomic<u32> CompletedCount{ 0 };
     std::atomic<bool> AnyBadSlot{ false };
-    
+
     FTaskConcurrencyLimiter Limiter(MaxConcurrency);
-    
+
     for (u32 i = 0; i < NumTasks; ++i)
     {
         Limiter.Push("MultiTask",
-            [&CompletedCount, &AnyBadSlot, MaxConcurrency](u32 Slot)
-            {
-                if (Slot >= MaxConcurrency)
-                {
-                    AnyBadSlot.store(true, std::memory_order_release);
-                }
-                CompletedCount.fetch_add(1, std::memory_order_release);
-            }
-        );
+                     [&CompletedCount, &AnyBadSlot, MaxConcurrency](u32 Slot)
+                     {
+                         if (Slot >= MaxConcurrency)
+                         {
+                             AnyBadSlot.store(true, std::memory_order_release);
+                         }
+                         CompletedCount.fetch_add(1, std::memory_order_release);
+                     });
     }
-    
+
     Limiter.Wait();
-    
+
     EXPECT_FALSE(AnyBadSlot.load());
     EXPECT_EQ(CompletedCount.load(), NumTasks);
 }
@@ -1283,7 +1264,7 @@ TEST_F(LowLevelTaskUserDataTest, MultipleFTaskConcurrencyLimiterTest)
 
 class CancellationTokenTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(CancellationTokenTest, BasicCancellation)
@@ -1297,21 +1278,19 @@ TEST_F(CancellationTokenTest, BasicCancellation)
 
     // Check that a task sees cancellation request
     FTask Task1 = Launch("CancellationTest1",
-        [&CancellationToken, &BlockExecution, &TaskSawCancellation]
-        {
-            BlockExecution.Wait();
-            TaskSawCancellation = CancellationToken.IsCanceled();
-        }
-    );
+                         [&CancellationToken, &BlockExecution, &TaskSawCancellation]
+                         {
+                             BlockExecution.Wait();
+                             TaskSawCancellation = CancellationToken.IsCanceled();
+                         });
 
     // Same token can be used with multiple tasks to cancel them all
     // A task can ignore cancellation request
     FTask Task2 = Launch("CancellationTest2",
-        [&CancellationToken, &Task2Executed]
-        {
-            Task2Executed = true;
-        }
-    );
+                         [&CancellationToken, &Task2Executed]
+                         {
+                             Task2Executed = true;
+                         });
 
     CancellationToken.Cancel();
     BlockExecution.Notify();
@@ -1335,15 +1314,14 @@ TEST_F(CancellationTokenTest, MultipleTasks)
     for (u32 i = 0; i < NumTasks; ++i)
     {
         Tasks.Add(Launch("MultiCancelTest",
-            [&CancellationToken, &TasksSawCancellation, &StartEvent]
-            {
-                StartEvent.Wait();
-                if (CancellationToken.IsCanceled())
-                {
-                    TasksSawCancellation.fetch_add(1, std::memory_order_relaxed);
-                }
-            }
-        ));
+                         [&CancellationToken, &TasksSawCancellation, &StartEvent]
+                         {
+                             StartEvent.Wait();
+                             if (CancellationToken.IsCanceled())
+                             {
+                                 TasksSawCancellation.fetch_add(1, std::memory_order_relaxed);
+                             }
+                         }));
     }
 
     // Cancel before releasing the tasks
@@ -1361,7 +1339,7 @@ TEST_F(CancellationTokenTest, MultipleTasks)
 
 class WorkerRestartTest : public TaskTestBase
 {
-protected:
+  protected:
 };
 
 TEST_F(WorkerRestartTest, LoneStandbyWorker)
@@ -1377,34 +1355,27 @@ TEST_F(WorkerRestartTest, LoneStandbyWorker)
     FManualResetEvent LocalQueueEvent;
 
     FTask Oversubscriber = Launch("Oversubscriber",
-        [&]()
-        {
-            LowLevelTasks::FOversubscriptionScope _;
-            OversubscriberReadyEvent.Notify();
-            OversubscriberDoneEvent.Wait();
-        }
-    );
+                                  [&]()
+                                  {
+                                      LowLevelTasks::FOversubscriptionScope _;
+                                      OversubscriberReadyEvent.Notify();
+                                      OversubscriberDoneEvent.Wait();
+                                  });
 
     // Wait until the oversubscription scope is active
     OversubscriberReadyEvent.Wait();
 
     FTask Oversubscribee = Launch("Oversubscribee",
-        [&]()
-        {
-            OversubscribeeReadyEvent.Notify();
-            OversubscribeeDoneEvent.Wait();
-        }
-    );
+                                  [&]()
+                                  {
+                                      OversubscribeeReadyEvent.Notify();
+                                      OversubscribeeDoneEvent.Wait();
+                                  });
 
     // The first subsequent of a task is sent to the local queue
     // so setup ourself to be the subsequent of the oversubscribee.
-    Launch("LocalQueueTask",
-        [&]()
-        {
-            LocalQueueEvent.Notify();
-        },
-        Prerequisites(Oversubscribee)
-    );
+    Launch("LocalQueueTask", [&]()
+           { LocalQueueEvent.Notify(); }, Prerequisites(Oversubscribee));
 
     // Wait until the oversubscribee task is launched.
     OversubscribeeReadyEvent.Wait();
@@ -1428,16 +1399,15 @@ TEST_F(WorkerRestartTest, RestartWorkersAndOversubscription)
 {
     // Stress test RestartWorkers while having task performing oversubscription
     constexpr i32 NumIterations = 100; // Reduced from 10000 for faster test execution
-    
+
     for (i32 Index = 0; Index < NumIterations; ++Index)
     {
         FTask Task = Launch("OversubTask",
-            [&]()
-            {
-                // Just trigger oversubscription
-                LowLevelTasks::FOversubscriptionScope _;
-            }
-        );
+                            [&]()
+                            {
+                                // Just trigger oversubscription
+                                LowLevelTasks::FOversubscriptionScope _;
+                            });
 
         // For the repro to work we need to trigger oversubscription right between the time
         // we acquire the critical section and before the waiting queues are shut down.
@@ -1460,18 +1430,17 @@ TEST_F(WorkerRestartTest, DISABLED_RestartWorkersAndExternalThreads)
 
     // Use Async(EAsyncExecution::Thread, ...) like UE5.7 does
     Async(EAsyncExecution::Thread,
-        [&Done, &bExit]()
-        {
-            while (!bExit.load(std::memory_order_relaxed))
-            {
-                Launch("ExternalTask", []() {}).Wait();
-            }
-            Done.Notify();
-        }
-    );
+          [&Done, &bExit]()
+          {
+              while (!bExit.load(std::memory_order_relaxed))
+              {
+                  Launch("ExternalTask", []() {}).Wait();
+              }
+              Done.Notify();
+          });
 
     constexpr i32 NumIterations = 1000; // Match UE5.7's iteration count
-    
+
     for (i32 Index = 0; Index < NumIterations; ++Index)
     {
         // For the repro to work we need to launch tasks to try to start new workers while
@@ -1492,17 +1461,13 @@ TEST_F(WorkerRestartTest, BackgroundWithNormalAsPrereq)
     // which exercises some code in the scheduler to send the task to the global queue
     // and always wake up a worker since background tasks can't run on normal threads.
     constexpr i32 NumIterations = 100;
-    
+
     for (i32 Index = 0; Index < NumIterations; ++Index)
     {
         // Launch Normal task first and use it as prereq for the background one
         FTask NormalTask = Launch("NormalTask", []() {});
-        
-        FTask BackgroundTask = Launch("BackgroundTask",
-            []() {},
-            Prerequisites(NormalTask),
-            LowLevelTasks::ETaskPriority::BackgroundNormal
-        );
+
+        FTask BackgroundTask = Launch("BackgroundTask", []() {}, Prerequisites(NormalTask), LowLevelTasks::ETaskPriority::BackgroundNormal);
 
         // Wait with timeout to detect deadlocks
         auto StartTime = std::chrono::steady_clock::now();

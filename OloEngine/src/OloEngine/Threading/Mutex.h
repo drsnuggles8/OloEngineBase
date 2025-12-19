@@ -12,7 +12,7 @@ namespace OloEngine
     // A one-byte mutex that is not fair and does not support recursive locking.
     class FMutex final
     {
-    public:
+      public:
         constexpr FMutex() = default;
 
         // Construct in a locked state. Avoids an expensive compare-and-swap at creation time.
@@ -33,7 +33,7 @@ namespace OloEngine
         {
             u8 Expected = m_State.load(std::memory_order_relaxed);
             return !(Expected & IsLockedFlag) &&
-                m_State.compare_exchange_strong(Expected, Expected | IsLockedFlag, std::memory_order_acquire, std::memory_order_relaxed);
+                   m_State.compare_exchange_strong(Expected, Expected | IsLockedFlag, std::memory_order_acquire, std::memory_order_relaxed);
         }
 
         OLO_FINLINE void Lock()
@@ -61,20 +61,20 @@ namespace OloEngine
         // Try to wake a waiting thread. Returns true if a thread was woken.
         [[nodiscard]] bool TryWakeWaitingThread();
 
-    private:
+      private:
         void LockSlow();
         void WakeWaitingThread();
 
         // FParams for TIntrusiveMutex delegation - defined in Mutex.cpp
         struct FParams;
 
-    public:
+      public:
         // Public for intrusive mutex access
         static constexpr u8 IsLockedFlag = 1 << 0;
         static constexpr u8 MayHaveWaitingLockFlag = 1 << 1;
 
-    private:
-        friend void LockSlowCanWait(FMutex*);  // Allow internal lambda access
+      private:
+        friend void LockSlowCanWait(FMutex*); // Allow internal lambda access
 
         std::atomic<u8> m_State = 0;
     };

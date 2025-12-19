@@ -1,12 +1,12 @@
 #pragma once
-n// @file LockFreeFixedSizeAllocator.h
+n // @file LockFreeFixedSizeAllocator.h
 // @brief Lock-free fixed-size block allocator for OloEngine
-// 
+//
 // Provides efficient thread-safe allocation of fixed-size memory blocks:
 // - TLockFreeFixedSizeAllocator: Simple lock-free allocator with free list
 // - TLockFreeFixedSizeAllocator_TLSCacheBase: TLS-cached version for better performance
 // - TLockFreeClassAllocator: Type-safe wrapper for class instances
-// 
+//
 // Ported from Unreal Engine's LockFreeFixedSizeAllocator.h
 
 #include "OloEngine/Core/Base.h"
@@ -24,7 +24,7 @@ n// @file LockFreeFixedSizeAllocator.h
 #define USE_NAIVE_TLockFreeFixedSizeAllocator_TLSCacheBase (0)
 #endif
 
-namespace OloEngine
+    namespace OloEngine
 {
     // ========================================================================
     // TLS-Cached Fixed Size Allocator Base
@@ -32,10 +32,10 @@ namespace OloEngine
 
     // @class TLockFreeFixedSizeAllocator_TLSCacheBase
     // @brief Thread safe, lock free pooling allocator with TLS caching
-    // 
+    //
     // Never returns free space, even at shutdown.
     // Alignment isn't handled; assumes FMemory::Malloc will work.
-    // 
+    //
     // @tparam SIZE Size of each allocation block
     // @tparam TBundleRecycler The type used for recycling bundles
     // @tparam TTrackingCounter Counter type for tracking (FNoopCounter for release)
@@ -48,11 +48,11 @@ namespace OloEngine
             NUM_PER_BUNDLE = SIZE_PER_BUNDLE / SIZE
         };
 
-    public:
+      public:
         TLockFreeFixedSizeAllocator_TLSCacheBase()
         {
-            static_assert(SIZE >= static_cast<i32>(sizeof(void*)) && SIZE % sizeof(void*) == 0, 
-                         "Blocks in TLockFreeFixedSizeAllocator must be at least the size of a pointer.");
+            static_assert(SIZE >= static_cast<i32>(sizeof(void*)) && SIZE % sizeof(void*) == 0,
+                          "Blocks in TLockFreeFixedSizeAllocator must be at least the size of a pointer.");
         }
 
         // Destructor, leaks all of the memory
@@ -148,7 +148,7 @@ namespace OloEngine
             return m_NumFree;
         }
 
-    private:
+      private:
         // struct for the TLS cache.
         struct FThreadLocalCache
         {
@@ -157,9 +157,7 @@ namespace OloEngine
             i32 NumPartial;
 
             FThreadLocalCache()
-                : FullBundle(nullptr)
-                , PartialBundle(nullptr)
-                , NumPartial(0)
+                : FullBundle(nullptr), PartialBundle(nullptr), NumPartial(0)
             {
             }
         };
@@ -186,17 +184,17 @@ namespace OloEngine
 
     // @class TLockFreeFixedSizeAllocator
     // @brief Thread safe, lock free pooling allocator of fixed size blocks
-    // 
+    //
     // Only returns free space when the allocator is destroyed or Trim() is called.
     // Alignment isn't handled; assumes FMemory::Malloc will work.
-    // 
+    //
     // @tparam SIZE Size of each allocation block
     // @tparam TPaddingForCacheContention Cache line padding size (use PLATFORM_CACHE_LINE_SIZE)
     // @tparam TTrackingCounter Counter type for tracking (FNoopCounter for release)
     template<i32 SIZE, i32 TPaddingForCacheContention, typename TTrackingCounter = FNoopCounter>
     class TLockFreeFixedSizeAllocator
     {
-    public:
+      public:
         TLockFreeFixedSizeAllocator() = default;
 
         // Destructor, returns all memory via Memory::Free
@@ -216,7 +214,7 @@ namespace OloEngine
         void* Allocate(i32 Alignment = OLO_DEFAULT_ALIGNMENT)
         {
             void* MemoryBlock = nullptr;
-            
+
             m_NumUsed.Increment();
             if (Alignment <= 4096)
             {
@@ -231,7 +229,7 @@ namespace OloEngine
             {
                 MemoryBlock = FMemory::Malloc(SIZE, Alignment);
             }
-            
+
             return MemoryBlock;
         }
 
@@ -268,7 +266,7 @@ namespace OloEngine
             return m_NumFree.GetValue();
         }
 
-    private:
+      private:
         // Lock free list of free memory blocks.
         TLockFreePointerListUnordered<void, TPaddingForCacheContention> m_FreeList;
 
@@ -285,15 +283,15 @@ namespace OloEngine
 
     // @class TLockFreeFixedSizeAllocator_TLSCache
     // @brief Thread safe, lock free pooling allocator with TLS caching
-    // 
+    //
     // Never returns free space, even at shutdown.
     // Alignment isn't handled, assumes FMemory::Malloc will work.
     template<i32 SIZE, i32 TPaddingForCacheContention, typename TTrackingCounter = FNoopCounter>
-    class TLockFreeFixedSizeAllocator_TLSCache 
+    class TLockFreeFixedSizeAllocator_TLSCache
         : public TLockFreeFixedSizeAllocator_TLSCacheBase<
-            SIZE, 
-            TLockFreePointerListUnordered<void*, TPaddingForCacheContention>, 
-            TTrackingCounter>
+              SIZE,
+              TLockFreePointerListUnordered<void*, TPaddingForCacheContention>,
+              TTrackingCounter>
     {
     };
 
@@ -303,15 +301,15 @@ namespace OloEngine
 
     // @class TLockFreeClassAllocator
     // @brief Thread safe, lock free pooling allocator of memory for instances of T
-    // 
+    //
     // Never returns free space until program shutdown.
-    // 
+    //
     // @tparam T The type to allocate
     // @tparam TPaddingForCacheContention Cache line padding size
     template<class T, i32 TPaddingForCacheContention>
     class TLockFreeClassAllocator : private TLockFreeFixedSizeAllocator<sizeof(T), TPaddingForCacheContention, FNoopCounter>
     {
-    public:
+      public:
         // Returns a memory block of size sizeof(T).
         // @return Pointer to the allocated memory.
         void* Allocate()
@@ -337,12 +335,12 @@ namespace OloEngine
 
     // @class TLockFreeClassAllocator_TLSCache
     // @brief Thread safe, lock free pooling allocator for class T with TLS caching
-    // 
+    //
     // Never returns free space until program shutdown.
     template<class T, i32 TPaddingForCacheContention>
     class TLockFreeClassAllocator_TLSCache : private TLockFreeFixedSizeAllocator_TLSCache<sizeof(T), TPaddingForCacheContention, FNoopCounter>
     {
-    public:
+      public:
         // Returns a memory block of size sizeof(T).
         // @return Pointer to the allocated memory.
         void* Allocate()

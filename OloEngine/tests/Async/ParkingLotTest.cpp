@@ -1,7 +1,7 @@
 /**
  * @file ParkingLotTest.cpp
  * @brief Unit tests for the ParkingLot synchronization primitive
- * 
+ *
  * Ported from UE5.7's Async/ParkingLotTest.cpp
  * Tests cover: Wait, WaitFor, WaitUntil, WakeOne, FIFO ordering
  */
@@ -25,7 +25,7 @@ using namespace OloEngine;
 
 class ParkingLotTest : public ::testing::Test
 {
-protected:
+  protected:
     void SetUp() override {}
     void TearDown() override {}
 };
@@ -35,11 +35,11 @@ TEST_F(ParkingLotTest, CanWaitReturnsFalse)
     i32 Value = 0;
     i32 CanWaitCount = 0;
     i32 BeforeWaitCount = 0;
-    
-    ParkingLot::FWaitState State = ParkingLot::Wait(&Value,
-        [&CanWaitCount] { ++CanWaitCount; return false; },
-        [&BeforeWaitCount] { ++BeforeWaitCount; });
-    
+
+    ParkingLot::FWaitState State = ParkingLot::Wait(&Value, [&CanWaitCount]
+                                                    { ++CanWaitCount; return false; }, [&BeforeWaitCount]
+                                                    { ++BeforeWaitCount; });
+
     EXPECT_EQ(CanWaitCount, 1);
     EXPECT_EQ(BeforeWaitCount, 0);
     EXPECT_FALSE(State.bDidWait);
@@ -52,12 +52,11 @@ TEST_F(ParkingLotTest, WaitForWithTimeout)
     i32 Value = 0;
     i32 CanWaitCount = 0;
     i32 BeforeWaitCount = 0;
-    
-    ParkingLot::FWaitState State = ParkingLot::WaitFor(&Value,
-        [&CanWaitCount] { ++CanWaitCount; return true; },
-        [&BeforeWaitCount] { ++BeforeWaitCount; },
-        FMonotonicTimeSpan::FromMilliseconds(1.0));
-    
+
+    ParkingLot::FWaitState State = ParkingLot::WaitFor(&Value, [&CanWaitCount]
+                                                       { ++CanWaitCount; return true; }, [&BeforeWaitCount]
+                                                       { ++BeforeWaitCount; }, FMonotonicTimeSpan::FromMilliseconds(1.0));
+
     EXPECT_EQ(CanWaitCount, 1);
     EXPECT_EQ(BeforeWaitCount, 1);
     EXPECT_TRUE(State.bDidWait);
@@ -70,12 +69,11 @@ TEST_F(ParkingLotTest, WaitUntilWithTimeout)
     i32 Value = 0;
     i32 CanWaitCount = 0;
     i32 BeforeWaitCount = 0;
-    
-    ParkingLot::FWaitState State = ParkingLot::WaitUntil(&Value,
-        [&CanWaitCount] { ++CanWaitCount; return true; },
-        [&BeforeWaitCount] { ++BeforeWaitCount; },
-        FMonotonicTimePoint::Now() + FMonotonicTimeSpan::FromMilliseconds(1.0));
-    
+
+    ParkingLot::FWaitState State = ParkingLot::WaitUntil(&Value, [&CanWaitCount]
+                                                         { ++CanWaitCount; return true; }, [&BeforeWaitCount]
+                                                         { ++BeforeWaitCount; }, FMonotonicTimePoint::Now() + FMonotonicTimeSpan::FromMilliseconds(1.0));
+
     EXPECT_EQ(CanWaitCount, 1);
     EXPECT_EQ(BeforeWaitCount, 1);
     EXPECT_TRUE(State.bDidWait);
@@ -88,7 +86,7 @@ TEST_F(ParkingLotTest, FIFOOrderingAndWakeToken)
     constexpr i32 TaskCount = 5;
     std::vector<std::thread> Threads;
     Threads.reserve(TaskCount);
-    
+
     std::atomic<i32> WaitCount{ 0 };
     ParkingLot::FWaitState WaitStates[TaskCount];
 
@@ -96,7 +94,7 @@ TEST_F(ParkingLotTest, FIFOOrderingAndWakeToken)
     for (i32 Index = 0; Index < TaskCount; ++Index)
     {
         Threads.emplace_back([&WaitCount, OutState = &WaitStates[Index]]
-        {
+                             {
             i32 CanWaitCount = 0;
             i32 BeforeWaitCount = 0;
             *OutState = ParkingLot::Wait(&WaitCount,
@@ -104,8 +102,7 @@ TEST_F(ParkingLotTest, FIFOOrderingAndWakeToken)
                 [&BeforeWaitCount, &WaitCount] { ++BeforeWaitCount; WaitCount.fetch_add(1); });
             WaitCount.fetch_sub(1);
             EXPECT_EQ(CanWaitCount, 1);
-            EXPECT_EQ(BeforeWaitCount, 1);
-        });
+            EXPECT_EQ(BeforeWaitCount, 1); });
 
         // Spin until the task is waiting
         while (WaitCount.load() != Index + 1)
@@ -120,12 +117,11 @@ TEST_F(ParkingLotTest, FIFOOrderingAndWakeToken)
     {
         i32 WakeCount = 0;
         ParkingLot::WakeOne(&WaitCount, [&WakeCount, &Sequence, Index](ParkingLot::FWakeState WakeState) -> u64
-        {
+                            {
             ++WakeCount;
             EXPECT_EQ(WakeState.bDidWake, (Index < TaskCount));
             EXPECT_EQ(WakeState.bHasWaitingThreads, (Index + 1 < TaskCount));
-            return ++Sequence;
-        });
+            return ++Sequence; });
         // The callback must be invoked exactly once
         EXPECT_EQ(WakeCount, 1);
     }
@@ -157,7 +153,7 @@ TEST_F(ParkingLotTest, WakeAll)
     constexpr i32 TaskCount = 5;
     std::vector<std::thread> Threads;
     Threads.reserve(TaskCount);
-    
+
     std::atomic<i32> WaitCount{ 0 };
     std::atomic<i32> WokenCount{ 0 };
 
@@ -165,12 +161,11 @@ TEST_F(ParkingLotTest, WakeAll)
     for (i32 Index = 0; Index < TaskCount; ++Index)
     {
         Threads.emplace_back([&WaitCount, &WokenCount]
-        {
+                             {
             ParkingLot::Wait(&WaitCount,
                 [] { return true; },
                 [&WaitCount] { WaitCount.fetch_add(1); });
-            WokenCount.fetch_add(1);
-        });
+            WokenCount.fetch_add(1); });
     }
 
     // Spin until all tasks are waiting
@@ -190,4 +185,3 @@ TEST_F(ParkingLotTest, WakeAll)
 
     EXPECT_EQ(WokenCount.load(), TaskCount);
 }
-

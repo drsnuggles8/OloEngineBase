@@ -13,12 +13,15 @@ namespace OloEngine
     /// FileStreamWriter
     class FileStreamWriter : public StreamWriter
     {
-    public:
+      public:
         explicit FileStreamWriter(const std::filesystem::path& path);
         FileStreamWriter(const FileStreamWriter&) = delete;
         virtual ~FileStreamWriter() noexcept = default;
 
-        [[nodiscard]] bool IsStreamGood() const final { return m_Stream.good(); }
+        [[nodiscard]] bool IsStreamGood() const final
+        {
+            return m_Stream.good();
+        }
         [[nodiscard]] u64 GetStreamPosition() final
         {
             const auto pos = m_Stream.tellp();
@@ -30,7 +33,7 @@ namespace OloEngine
         }
         bool WriteData(const char* data, sizet size) final;
 
-    private:
+      private:
         std::filesystem::path m_Path;
         std::ofstream m_Stream;
     };
@@ -39,14 +42,20 @@ namespace OloEngine
     /// FileStreamReader
     class FileStreamReader : public StreamReader
     {
-    public:
+      public:
         explicit FileStreamReader(const std::filesystem::path& path);
         FileStreamReader(const FileStreamReader&) = delete;
         ~FileStreamReader() noexcept override = default;
 
-        [[nodiscard]] const std::filesystem::path& GetFilePath() const { return m_Path; }
+        [[nodiscard]] const std::filesystem::path& GetFilePath() const
+        {
+            return m_Path;
+        }
 
-        [[nodiscard]] bool IsStreamGood() const final { return m_Stream.good(); }
+        [[nodiscard]] bool IsStreamGood() const final
+        {
+            return m_Stream.good();
+        }
         [[nodiscard]] u64 GetStreamPosition() override
         {
             const auto pos = m_Stream.tellg();
@@ -58,7 +67,7 @@ namespace OloEngine
         }
         bool ReadData(char* destination, sizet size) override;
 
-    private:
+      private:
         std::filesystem::path m_Path;
         std::ifstream m_Stream;
     };

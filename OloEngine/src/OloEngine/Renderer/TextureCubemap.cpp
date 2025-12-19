@@ -9,7 +9,7 @@ namespace OloEngine
     Ref<TextureCubemap> TextureCubemap::Create(const std::vector<std::string>& facePaths)
     {
         OLO_CORE_ASSERT(facePaths.size() == 6, "Cubemap requires exactly 6 face textures!");
-        
+
         switch (Renderer::GetAPI())
         {
             case RendererAPI::API::None:
@@ -45,4 +45,4 @@ namespace OloEngine
         OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
         return nullptr;
     }
-}
+} // namespace OloEngine

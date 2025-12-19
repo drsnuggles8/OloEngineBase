@@ -8,7 +8,7 @@ namespace OloEngine
 {
     class RenderCommand
     {
-    public:
+      public:
         static void Init()
         {
             s_RendererAPI->Init();
@@ -202,9 +202,12 @@ namespace OloEngine
             s_RendererAPI->SetColorMask(red, green, blue, alpha);
         }
 
-        static RendererAPI& GetRendererAPI() { return *s_RendererAPI; }
+        static RendererAPI& GetRendererAPI()
+        {
+            return *s_RendererAPI;
+        }
 
-    private:
+      private:
         static Scope<RendererAPI> s_RendererAPI;
     };
-}
+} // namespace OloEngine

@@ -21,11 +21,10 @@ namespace OloEngine
 
     // @brief Shader resource variant - supports all bindable resource types
     using ShaderResource = std::variant<
-        std::monostate,  // Represents "no resource"
+        std::monostate, // Represents "no resource"
         Ref<UniformBuffer>,
         Ref<Texture2D>,
-        Ref<TextureCubemap>
-    >;
+        Ref<TextureCubemap>>;
 
     // @brief Shader resource input structure for legacy compatibility
     struct ShaderResourceInput
@@ -33,14 +32,14 @@ namespace OloEngine
         ShaderResourceType Type = ShaderResourceType::None;
         u32 BindingPoint = 0;
         ShaderResource Resource;
-        
+
         // Legacy constructors for backward compatibility
         ShaderResourceInput() = default;
-        explicit ShaderResourceInput(Ref<UniformBuffer> buffer) 
+        explicit ShaderResourceInput(Ref<UniformBuffer> buffer)
             : Type(ShaderResourceType::UniformBuffer), Resource(buffer) {}
-        explicit ShaderResourceInput(Ref<Texture2D> texture) 
+        explicit ShaderResourceInput(Ref<Texture2D> texture)
             : Type(ShaderResourceType::Texture2D), Resource(texture) {}
-        explicit ShaderResourceInput(Ref<TextureCubemap> texture) 
+        explicit ShaderResourceInput(Ref<TextureCubemap> texture)
             : Type(ShaderResourceType::TextureCube), Resource(texture) {}
     };
 
@@ -51,20 +50,20 @@ namespace OloEngine
         u32 BindingPoint;
         std::string Name;
         ShaderResourceType Type;
-        u32 Offset = 0;  // For buffers
-        u32 Size = 0;    // For buffers
-        
+        u32 Offset = 0; // For buffers
+        u32 Size = 0;   // For buffers
+
         bool IsValid() const;
         u32 GetHandle() const;
     };
 
     // @brief Shader resource registry for managing all shader resource types
-    // 
+    //
     // This class provides a unified system for managing uniform buffers, textures,
     // and other shader resources with SPIR-V reflection and frame-in-flight support.
     class ShaderResourceRegistry
     {
-    public:
+      public:
         ShaderResourceRegistry() = default;
         explicit ShaderResourceRegistry(const Ref<Shader>& shader);
         ~ShaderResourceRegistry() = default;
@@ -74,10 +73,16 @@ namespace OloEngine
         void Shutdown();
 
         // @brief Set the associated shader for this registry
-        void SetShader(const Ref<Shader>& shader) { m_Shader = shader; }
+        void SetShader(const Ref<Shader>& shader)
+        {
+            m_Shader = shader;
+        }
 
         // @brief Get the associated shader
-        Ref<Shader> GetShader() const { return m_Shader; }
+        Ref<Shader> GetShader() const
+        {
+            return m_Shader;
+        }
 
         // Resource discovery from reflection
         // @brief Discover resources from SPIR-V reflection data
@@ -151,7 +156,10 @@ namespace OloEngine
         const ResourceBinding* GetBindingInfo(const std::string& resourceName) const;
 
         // @brief Apply all bindings (legacy compatibility)
-        void ApplyBindings() { BindAll(); }
+        void ApplyBindings()
+        {
+            BindAll();
+        }
 
         // Frame-in-flight management
         // @brief Set frame-in-flight manager for multi-frame buffering
@@ -168,7 +176,10 @@ namespace OloEngine
         const ResourceBinding* GetBinding(const std::string& name) const;
 
         // @brief Get all bindings
-        const std::unordered_map<std::string, ResourceBinding>& GetBindings() const { return m_Bindings; }
+        const std::unordered_map<std::string, ResourceBinding>& GetBindings() const
+        {
+            return m_Bindings;
+        }
 
         // Standardized Binding Layout Validation
         // @brief Validate shader binding layout against standards
@@ -180,7 +191,7 @@ namespace OloEngine
         // @brief Check if texture binding matches standard layout
         bool IsStandardTextureBinding(u32 binding, const std::string& name) const;
 
-    private:
+      private:
         Ref<Shader> m_Shader;
         std::unordered_map<std::string, ResourceBinding> m_Bindings;
         Ref<InflightFrameManager> m_FrameManager;
@@ -190,11 +201,11 @@ namespace OloEngine
         // Helper methods
         void BindUniformBuffer(const ResourceBinding& binding);
         void BindTexture(const ResourceBinding& binding);
-        
+
         // GLSL source parsing fallbacks
         std::string ParseUBONameFromGLSL(u32 binding) const;
         std::string ParseUBONameFromGLSL(u32 binding, const std::string& filePath) const;
         std::string ParseTextureNameFromGLSL(u32 binding) const;
         std::string ParseTextureNameFromGLSL(u32 binding, const std::string& filePath) const;
     };
-}
+} // namespace OloEngine

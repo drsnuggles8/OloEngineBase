@@ -29,39 +29,38 @@ namespace OloEngine::LowLevelTasks::Private
 
     // @struct FWaitEvent
     // @brief A node in the waiting queue representing a sleeping thread
-    // 
+    //
     // The struct is naturally 64 bytes aligned, the extra alignment just
     // re-enforces this assumption and will error if it changes in the future.
     struct alignas(64) FWaitEvent
     {
-        std::atomic<u64>     Next{ 0 };
-        u64                  Epoch{ 0 };
+        std::atomic<u64> Next{ 0 };
+        u64 Epoch{ 0 };
         std::atomic<EWaitState> State{ EWaitState::NotSignaled };
-        FEventRef            Event{ EEventMode::ManualReset };
-        bool                 bIsStandby{ false };
+        FEventRef Event{ EEventMode::ManualReset };
+        bool bIsStandby{ false };
     };
 
     // @class FWaitingQueue
     // @brief A queue that manages sleeping and waking worker threads
-    // 
+    //
     // This implements a parking lot pattern for efficient thread synchronization.
     // Workers prepare to wait, commit to waiting, and can be woken up by notifications.
     class FWaitingQueue
     {
-        u32                            m_ThreadCount{ 0 };    // Normal amount of threads when there is no oversubscription.
-        u32                            m_MaxThreadCount{ 0 }; // Max limit that can be reached during oversubscription period.
-        TFunction<void()>              m_CreateThread;
-        std::atomic<u32>               m_Oversubscription{ 0 };
-        std::atomic<u64>               m_State;
-        std::atomic<u64>               m_StandbyState;
-        TAlignedArray<FWaitEvent>&     m_NodesArray;
-        std::atomic<bool>              m_bIsShuttingDown{ false };
+        u32 m_ThreadCount{ 0 };    // Normal amount of threads when there is no oversubscription.
+        u32 m_MaxThreadCount{ 0 }; // Max limit that can be reached during oversubscription period.
+        TFunction<void()> m_CreateThread;
+        std::atomic<u32> m_Oversubscription{ 0 };
+        std::atomic<u64> m_State;
+        std::atomic<u64> m_StandbyState;
+        TAlignedArray<FWaitEvent>& m_NodesArray;
+        std::atomic<bool> m_bIsShuttingDown{ false };
         FOversubscriptionLimitReached& m_OversubscriptionLimitReachedEvent;
 
-    public:
+      public:
         FWaitingQueue(TAlignedArray<FWaitEvent>& InNodesArray, FOversubscriptionLimitReached& InOversubscriptionLimitReachedEvent)
-            : m_NodesArray(InNodesArray)
-            , m_OversubscriptionLimitReachedEvent(InOversubscriptionLimitReachedEvent)
+            : m_NodesArray(InNodesArray), m_OversubscriptionLimitReachedEvent(InOversubscriptionLimitReachedEvent)
         {
         }
 
@@ -107,13 +106,13 @@ namespace OloEngine::LowLevelTasks::Private
             return NotifyInternal(Count);
         }
 
-    private:
-        bool  TryStartNewThread();
-        i32   NotifyInternal(i32 Count);
-        void  Park(FWaitEvent* Node, FOutOfWork& OutOfWork, i32 SpinCycles, i32 WaitCycles);
-        i32   Unpark(FWaitEvent* InNode);
-        void  CheckState(u64 State, bool bIsWaiter = false);
-        void  CheckStandbyState(u64 State);
+      private:
+        bool TryStartNewThread();
+        i32 NotifyInternal(i32 Count);
+        void Park(FWaitEvent* Node, FOutOfWork& OutOfWork, i32 SpinCycles, i32 WaitCycles);
+        i32 Unpark(FWaitEvent* InNode);
+        void CheckState(u64 State, bool bIsWaiter = false);
+        void CheckStandbyState(u64 State);
     };
 
 } // namespace OloEngine::LowLevelTasks::Private

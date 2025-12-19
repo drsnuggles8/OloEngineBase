@@ -41,12 +41,12 @@ namespace OloEngine
     // AnimationClip: a set of bone animations and duration
     class AnimationClip : public RefCounted
     {
-    public:
+      public:
         std::string Name;
         float Duration = 0.0f; // In seconds
-        
+
         /**
-         * @brief Vector of bone animations. 
+         * @brief Vector of bone animations.
          * @warning After modifying this vector (adding, removing, or changing elements),
          * you must call InvalidateBoneCache() to maintain cache validity.
          */
@@ -54,23 +54,23 @@ namespace OloEngine
 
         // Finds the animation for a given bone name
         const BoneAnimation* FindBoneAnimation(const std::string& boneName) const;
-        
+
         // Initialize the bone lookup cache for performance
         void InitializeBoneCache() const;
-        
+
         /**
          * @brief Invalidate the bone lookup cache - must be called after modifying BoneAnimations
-         * 
+         *
          * The internal cache stores pointers to BoneAnimation elements. Any modification
          * to the BoneAnimations vector (resize, push_back, erase, etc.) can invalidate
          * these pointers, leading to undefined behavior. Call this method after any
          * structural changes to BoneAnimations to ensure cache safety.
          */
         void InvalidateBoneCache();
-        
-    private:
+
+      private:
         // Cache for O(1) bone animation lookups
         mutable std::unordered_map<std::string, const BoneAnimation*> m_BoneCache;
         mutable bool m_CacheInitialized = false;
     };
-}
+} // namespace OloEngine

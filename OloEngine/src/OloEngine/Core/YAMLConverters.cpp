@@ -1,6 +1,7 @@
 #include "YAMLConverters.h"
 
-namespace YAML {
+namespace YAML
+{
 
     // UUID converter implementation
     Node convert<OloEngine::UUID>::encode(const OloEngine::UUID& uuid)
@@ -165,4 +166,4 @@ namespace YAML {
         return true;
     }
 
-}
+} // namespace YAML

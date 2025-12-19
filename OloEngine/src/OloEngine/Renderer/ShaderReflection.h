@@ -14,7 +14,7 @@ namespace OloEngine
     // @brief SPIR-V reflection system for extracting all shader resource information
     class ShaderReflection
     {
-    public:
+      public:
         // @brief Information about a uniform block discovered in shader
         struct UniformBlockInfo
         {
@@ -45,13 +45,22 @@ namespace OloEngine
         bool ReflectFromSPIRV(const std::vector<u32>& spirvBytecode);
 
         // @brief Get all discovered uniform blocks
-        const std::vector<UniformBlockInfo>& GetUniformBlocks() const { return m_UniformBlocks; }
+        const std::vector<UniformBlockInfo>& GetUniformBlocks() const
+        {
+            return m_UniformBlocks;
+        }
 
         // @brief Get all discovered textures
-        const std::vector<TextureInfo>& GetTextures() const { return m_Textures; }
+        const std::vector<TextureInfo>& GetTextures() const
+        {
+            return m_Textures;
+        }
 
         // @brief Get all discovered resources (generic)
-        const std::vector<ResourceInfo>& GetResources() const { return m_Resources; }
+        const std::vector<ResourceInfo>& GetResources() const
+        {
+            return m_Resources;
+        }
 
         // @brief Get uniform block by name
         const UniformBlockInfo* GetUniformBlock(const std::string& name) const;
@@ -62,7 +71,7 @@ namespace OloEngine
         // @brief Clear all reflection data
         void Clear();
 
-    private:
+      private:
         std::vector<UniformBlockInfo> m_UniformBlocks;
         std::vector<TextureInfo> m_Textures;
         std::vector<ResourceInfo> m_Resources;
@@ -70,11 +79,11 @@ namespace OloEngine
 
         // @brief Parse SPIR-V and extract all resource information
         void ParseSPIRVUniforms(const std::vector<u32>& spirvBytecode);
-        
+
         // @brief Parse SPIR-V and extract texture/sampler information
         void ParseSPIRVTextures(const std::vector<u32>& spirvBytecode);
-        
+
         // @brief Convert SPIR-V type to ShaderDataType
         ShaderDataType ConvertSPIRVType(const spirv_cross::SPIRType& type);
     };
-}
+} // namespace OloEngine

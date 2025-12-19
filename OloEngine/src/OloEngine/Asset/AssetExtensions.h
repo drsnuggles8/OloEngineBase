@@ -12,14 +12,14 @@ namespace OloEngine
 {
     /**
      * @brief Static mapping of file extensions to asset types
-     * 
+     *
      * This class provides functionality to automatically detect asset types
      * based on file extensions. It supports common formats as well as
      * OloEngine-specific formats.
      */
     class AssetExtensions
     {
-    public:
+      public:
         /**
          * @brief Get asset type from file extension
          * @param extension File extension (with or without leading dot)
@@ -59,7 +59,7 @@ namespace OloEngine
          */
         static const std::unordered_map<std::string, AssetType>& GetExtensionMap();
 
-    private:
+      private:
         /**
          * @brief Initialize the extension to asset type mapping
          */
@@ -93,6 +93,6 @@ namespace OloEngine
         constexpr const char* Prefab = ".oloprefab";
         constexpr const char* Script = ".oloscript";
         constexpr const char* MeshCollider = ".olomc";
-    }
+    } // namespace OloExtensions
 
-}
+} // namespace OloEngine

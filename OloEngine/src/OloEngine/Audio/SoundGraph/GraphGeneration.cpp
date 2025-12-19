@@ -50,7 +50,7 @@ namespace OloEngine::Audio::SoundGraph
 
             ConstructIO();
             ParseNodes();
-            
+
             if (m_OutPrototype->m_Nodes.empty())
             {
                 OLO_CORE_ERROR("GraphGenerator: No valid nodes found in prototype");
@@ -76,7 +76,7 @@ namespace OloEngine::Audio::SoundGraph
                     inputName = "InRight";
                 else
                     inputName = "In" + std::to_string(i);
-                
+
                 Prototype::Endpoint input(Identifier(inputName), choc::value::Value(0.0f));
                 m_OutPrototype->m_Inputs.push_back(input);
             }
@@ -84,11 +84,11 @@ namespace OloEngine::Audio::SoundGraph
             for (u32 i = 0; i < m_Options.m_NumOutChannels; ++i)
             {
                 Identifier outputID = m_OutputChannelIdentifiers[i];
-                
+
                 Prototype::Endpoint output(outputID, choc::value::Value(0.0f));
                 m_OutPrototype->m_Outputs.push_back(output);
             }
-            
+
             // Add standard graph events
             m_OutPrototype->m_Inputs.emplace_back(Identifier("Play"), choc::value::Value(0.0f));
             m_OutPrototype->m_Outputs.emplace_back(SoundGraph::IDs::OnFinished, choc::value::Value(0.0f));
@@ -97,13 +97,13 @@ namespace OloEngine::Audio::SoundGraph
         void ParseNodes()
         {
             OLO_PROFILE_FUNCTION();
-            
+
             // Copy nodes from the source prototype to the output prototype
             m_OutPrototype->m_Nodes = m_Options.m_GraphPrototype->m_Nodes;
-            
+
             // Copy local variable plugs so they are available for CreateInstance step 2
             m_OutPrototype->m_LocalVariablePlugs = m_Options.m_GraphPrototype->m_LocalVariablePlugs;
-            
+
             // Validate that all node types are supported by our factory
             for (const auto& node : m_OutPrototype->m_Nodes)
             {
@@ -117,19 +117,19 @@ namespace OloEngine::Audio::SoundGraph
         void ParseConnections()
         {
             OLO_PROFILE_FUNCTION();
-            
+
             // Validate and copy connections from the source prototype
             m_OutPrototype->m_Connections.clear();
-            
+
             if (!m_Options.m_GraphPrototype)
             {
                 OLO_CORE_WARN("GraphGenerator: No graph prototype provided for connection parsing");
                 return;
             }
-            
+
             sizet validConnections = 0;
             sizet invalidConnections = 0;
-            
+
             // Build a hash set of all node IDs for O(1) lookup during connection validation
             std::unordered_set<UUID> nodeIDs;
             nodeIDs.reserve(m_Options.m_GraphPrototype->m_Nodes.size());
@@ -137,7 +137,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 nodeIDs.insert(node.m_ID);
             }
-            
+
             for (const auto& connection : m_Options.m_GraphPrototype->m_Connections)
             {
                 // Validate connection endpoints are not empty
@@ -147,56 +147,56 @@ namespace OloEngine::Audio::SoundGraph
                     invalidConnections++;
                     continue;
                 }
-                
+
                 if (!connection.m_Destination.m_EndpointID.IsValid())
                 {
                     OLO_CORE_WARN("GraphGenerator: Connection has empty destination endpoint");
                     invalidConnections++;
                     continue;
                 }
-                
+
                 // Validate source and destination nodes exist in prototype (only for node-targeting connections)
-                
+
                 // Determine which endpoints require real nodes based on connection type
                 bool sourceRequiresNode = (connection.m_Type == Prototype::Connection::NodeValue_NodeValue ||
-                                        connection.m_Type == Prototype::Connection::NodeEvent_NodeEvent ||
-                                        connection.m_Type == Prototype::Connection::NodeValue_GraphValue ||
-                                        connection.m_Type == Prototype::Connection::NodeEvent_GraphEvent);
-                
+                                           connection.m_Type == Prototype::Connection::NodeEvent_NodeEvent ||
+                                           connection.m_Type == Prototype::Connection::NodeValue_GraphValue ||
+                                           connection.m_Type == Prototype::Connection::NodeEvent_GraphEvent);
+
                 bool destinationRequiresNode = (connection.m_Type == Prototype::Connection::NodeValue_NodeValue ||
                                                 connection.m_Type == Prototype::Connection::NodeEvent_NodeEvent ||
                                                 connection.m_Type == Prototype::Connection::GraphValue_NodeValue ||
                                                 connection.m_Type == Prototype::Connection::GraphEvent_NodeEvent);
-            
+
                 // Only validate node existence for endpoints that actually require nodes
-                bool sourceNodeExists = !sourceRequiresNode;  // Default to true for non-node endpoints
-                bool destinationNodeExists = !destinationRequiresNode;  // Default to true for non-node endpoints
-            
+                bool sourceNodeExists = !sourceRequiresNode;           // Default to true for non-node endpoints
+                bool destinationNodeExists = !destinationRequiresNode; // Default to true for non-node endpoints
+
                 // Use O(1) hash set lookup instead of O(n) linear search
                 if (sourceRequiresNode)
                 {
                     sourceNodeExists = nodeIDs.contains(connection.m_Source.m_NodeID);
                 }
-                
+
                 if (destinationRequiresNode)
                 {
                     destinationNodeExists = nodeIDs.contains(connection.m_Destination.m_NodeID);
                 }
-                
+
                 if (sourceRequiresNode && !sourceNodeExists)
                 {
                     OLO_CORE_WARN("GraphGenerator: Connection references non-existent source node {}", static_cast<u64>(connection.m_Source.m_NodeID));
                     invalidConnections++;
                     continue;
                 }
-                
+
                 if (destinationRequiresNode && !destinationNodeExists)
                 {
                     OLO_CORE_WARN("GraphGenerator: Connection references non-existent destination node {}", static_cast<u64>(connection.m_Destination.m_NodeID));
                     invalidConnections++;
                     continue;
                 }
-            
+
                 // Validate connection type is valid using explicit allow-list
                 bool isValidConnectionType = false;
                 switch (connection.m_Type)
@@ -214,45 +214,45 @@ namespace OloEngine::Audio::SoundGraph
                         isValidConnectionType = false;
                         break;
                 }
-                
+
                 if (!isValidConnectionType)
                 {
                     OLO_CORE_WARN("GraphGenerator: Connection has invalid connection type {}", static_cast<i32>(connection.m_Type));
                     invalidConnections++;
                     continue;
                 }
-                
+
                 // Validate that event connections only connect to event endpoints
                 bool isEventConnection = (connection.m_Type == Prototype::Connection::NodeEvent_NodeEvent ||
-                                        connection.m_Type == Prototype::Connection::GraphEvent_NodeEvent ||
-                                        connection.m_Type == Prototype::Connection::NodeEvent_GraphEvent);
-                
+                                          connection.m_Type == Prototype::Connection::GraphEvent_NodeEvent ||
+                                          connection.m_Type == Prototype::Connection::NodeEvent_GraphEvent);
+
                 bool isValueConnection = (connection.m_Type == Prototype::Connection::NodeValue_NodeValue ||
-                                        connection.m_Type == Prototype::Connection::GraphValue_NodeValue ||
-                                        connection.m_Type == Prototype::Connection::NodeValue_GraphValue ||
-                                        connection.m_Type == Prototype::Connection::LocalVariable_NodeValue);
-                
+                                          connection.m_Type == Prototype::Connection::GraphValue_NodeValue ||
+                                          connection.m_Type == Prototype::Connection::NodeValue_GraphValue ||
+                                          connection.m_Type == Prototype::Connection::LocalVariable_NodeValue);
+
                 // Basic endpoint compatibility validation
                 // For now, we assume same-type connections are compatible
                 // More sophisticated type checking would require endpoint type information
                 if (isEventConnection)
                 {
-                    OLO_CORE_TRACE("GraphGenerator: Validated event connection from endpoint {} to {}", 
-                        static_cast<u64>(connection.m_Source.m_EndpointID), static_cast<u64>(connection.m_Destination.m_EndpointID));
+                    OLO_CORE_TRACE("GraphGenerator: Validated event connection from endpoint {} to {}",
+                                   static_cast<u64>(connection.m_Source.m_EndpointID), static_cast<u64>(connection.m_Destination.m_EndpointID));
                 }
                 else if (isValueConnection)
                 {
-                    OLO_CORE_TRACE("GraphGenerator: Validated value connection from endpoint {} to {}", 
-                        static_cast<u64>(connection.m_Source.m_EndpointID), static_cast<u64>(connection.m_Destination.m_EndpointID));
+                    OLO_CORE_TRACE("GraphGenerator: Validated value connection from endpoint {} to {}",
+                                   static_cast<u64>(connection.m_Source.m_EndpointID), static_cast<u64>(connection.m_Destination.m_EndpointID));
                 }
-                
+
                 // Connection is valid, add to output prototype
                 m_OutPrototype->m_Connections.push_back(connection);
                 validConnections++;
             }
-                        
-            OLO_CORE_INFO("GraphGenerator: Validated {} connections ({} valid, {} invalid)", 
-                m_Options.m_GraphPrototype->m_Connections.size(), validConnections, invalidConnections);
+
+            OLO_CORE_INFO("GraphGenerator: Validated {} connections ({} valid, {} invalid)",
+                          m_Options.m_GraphPrototype->m_Connections.size(), validConnections, invalidConnections);
         }
 
         void ParseWaveReferences()
@@ -262,7 +262,7 @@ namespace OloEngine::Audio::SoundGraph
             // Scan through nodes and collect any wave asset references
             m_OutWaveAssets.clear();
             std::unordered_set<UUID> seenAssets;
-            
+
             for (const auto& node : m_Options.m_GraphPrototype->m_Nodes)
             {
                 // Check each default value plug for potential asset handles
@@ -284,7 +284,7 @@ namespace OloEngine::Audio::SoundGraph
                     }
                 }
             }
-            
+
             OLO_CORE_INFO("GraphGenerator: Collected {} wave asset references", m_OutWaveAssets.size());
         }
     };
@@ -293,13 +293,13 @@ namespace OloEngine::Audio::SoundGraph
     Ref<Prototype> ConstructPrototype(const GraphGeneratorOptions& options, std::vector<UUID>& waveAssetsToLoad)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         auto prototype = Ref<Prototype>::Create();
         prototype->m_DebugName = options.m_Name;
         prototype->m_ID = UUID();
 
         GraphGenerator generator(options, prototype);
-        
+
         if (!generator.Run())
         {
             OLO_CORE_ERROR("Failed to construct graph prototype: {}", options.m_Name);
@@ -333,7 +333,7 @@ namespace OloEngine::Audio::SoundGraph
             // Set output channel IDs from the prototype outputs
             graph->m_OutputChannelIDs.clear();
             graph->m_OutputChannelIDs.reserve(prototype->m_Outputs.size());
-            
+
             // Filter outputs to only include channel outputs (exclude events like "OnFinished")
             for (const auto& output : prototype->m_Outputs)
             {
@@ -374,15 +374,14 @@ namespace OloEngine::Audio::SoundGraph
                     {
                         // Create a default value plug for this input
                         auto defaultValuePlug = CreateScope<StreamWriter>(
-                            inputIt->second, 
-                            defaultPlug.m_DefaultValue, 
-                            defaultPlug.m_EndpointID
-                        );
-                        
+                            inputIt->second,
+                            defaultPlug.m_DefaultValue,
+                            defaultPlug.m_EndpointID);
+
                         node->DefaultValuePlugs.push_back(std::move(defaultValuePlug));
                     }
                 }
-                
+
                 graph->AddNode(std::move(node));
             }
         }
@@ -392,65 +391,58 @@ namespace OloEngine::Audio::SoundGraph
             for (const auto& connection : prototype->m_Connections)
             {
                 bool success = false;
-                
+
                 switch (connection.m_Type)
                 {
                     case Prototype::Connection::NodeValue_NodeValue:
                         success = graph->AddValueConnection(
-                            connection.m_Source.m_NodeID, 
+                            connection.m_Source.m_NodeID,
                             connection.m_Source.m_EndpointID,
-                            connection.m_Destination.m_NodeID, 
-                            connection.m_Destination.m_EndpointID
-                        );
+                            connection.m_Destination.m_NodeID,
+                            connection.m_Destination.m_EndpointID);
                         break;
 
                     case Prototype::Connection::NodeEvent_NodeEvent:
                         success = graph->AddEventConnection(
-                            connection.m_Source.m_NodeID, 
+                            connection.m_Source.m_NodeID,
                             connection.m_Source.m_EndpointID,
-                            connection.m_Destination.m_NodeID, 
-                            connection.m_Destination.m_EndpointID
-                        );
+                            connection.m_Destination.m_NodeID,
+                            connection.m_Destination.m_EndpointID);
                         break;
 
                     case Prototype::Connection::GraphValue_NodeValue:
                         success = graph->AddInputValueRoute(
                             connection.m_Source.m_EndpointID,
-                            connection.m_Destination.m_NodeID, 
-                            connection.m_Destination.m_EndpointID
-                        );
+                            connection.m_Destination.m_NodeID,
+                            connection.m_Destination.m_EndpointID);
                         break;
 
                     case Prototype::Connection::GraphEvent_NodeEvent:
                         success = graph->AddInputEventsRoute(
                             connection.m_Source.m_EndpointID,
-                            connection.m_Destination.m_NodeID, 
-                            connection.m_Destination.m_EndpointID
-                        );
+                            connection.m_Destination.m_NodeID,
+                            connection.m_Destination.m_EndpointID);
                         break;
 
                     case Prototype::Connection::NodeValue_GraphValue:
                         success = graph->AddToGraphOutputConnection(
-                            connection.m_Source.m_NodeID, 
+                            connection.m_Source.m_NodeID,
                             connection.m_Source.m_EndpointID,
-                            connection.m_Destination.m_EndpointID
-                        );
+                            connection.m_Destination.m_EndpointID);
                         break;
 
                     case Prototype::Connection::NodeEvent_GraphEvent:
                         success = graph->AddToGraphOutEventConnection(
-                            connection.m_Source.m_NodeID, 
+                            connection.m_Source.m_NodeID,
                             connection.m_Source.m_EndpointID,
-                            connection.m_Destination.m_EndpointID
-                        );
+                            connection.m_Destination.m_EndpointID);
                         break;
 
                     case Prototype::Connection::LocalVariable_NodeValue:
                         success = graph->AddLocalVariableRoute(
                             connection.m_Source.m_EndpointID,
-                            connection.m_Destination.m_NodeID, 
-                            connection.m_Destination.m_EndpointID
-                        );
+                            connection.m_Destination.m_NodeID,
+                            connection.m_Destination.m_EndpointID);
                         break;
 
                     default:
@@ -461,8 +453,8 @@ namespace OloEngine::Audio::SoundGraph
                 if (!success)
                 {
                     OLO_CORE_WARN("Failed to establish connection from {}:{} to {}:{}",
-                        connection.m_Source.m_NodeID, connection.m_Source.m_EndpointID.GetHash(),
-                        connection.m_Destination.m_NodeID, connection.m_Destination.m_EndpointID.GetHash());
+                                  connection.m_Source.m_NodeID, connection.m_Source.m_EndpointID.GetHash(),
+                                  connection.m_Destination.m_NodeID, connection.m_Destination.m_EndpointID.GetHash());
                 }
             }
         }
@@ -470,8 +462,8 @@ namespace OloEngine::Audio::SoundGraph
         void InitializeGraph(Ref<SoundGraph>& graph, const Ref<Prototype>& prototype)
         {
             graph->Init();
-            
-            OLO_CORE_INFO("Created SoundGraph instance '{}' with {} nodes and {} connections", 
+
+            OLO_CORE_INFO("Created SoundGraph instance '{}' with {} nodes and {} connections",
                           prototype->m_DebugName, prototype->m_Nodes.size(), prototype->m_Connections.size());
         }
     } // anonymous namespace
@@ -479,7 +471,7 @@ namespace OloEngine::Audio::SoundGraph
     Ref<SoundGraph> CreateInstance(const Ref<Prototype>& prototype)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         if (!prototype)
         {
             OLO_CORE_ERROR("Cannot create SoundGraph instance from null prototype");
@@ -487,19 +479,19 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         auto graph = Ref<SoundGraph>::Create(prototype->m_DebugName, prototype->m_ID);
-        
+
         // Step 1: Set up graph inputs and outputs
         SetupGraphIO(graph, prototype);
-        
+
         // Step 2: Set up local variables
         SetupLocalVariables(graph, prototype);
-        
+
         // Step 3: Create all nodes
         CreateGraphNodes(graph, prototype);
-        
+
         // Step 4: Establish all connections between nodes
         EstablishConnections(graph, prototype);
-        
+
         // Step 5: Initialize the graph
         InitializeGraph(graph, prototype);
 

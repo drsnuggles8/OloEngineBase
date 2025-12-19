@@ -13,7 +13,7 @@ namespace OloEngine
 
     class CommandMemoryManager
     {
-    public:
+      public:
         struct Statistics
         {
             u32 ActiveAllocatorCount = 0;
@@ -49,7 +49,7 @@ namespace OloEngine
                 s_Stats.TotalAllocations++;
                 s_Stats.PeakPacketCount = std::max(s_Stats.PeakPacketCount, s_Stats.ActivePacketCount);
             }
-            
+
             return packet;
         }
 
@@ -59,7 +59,7 @@ namespace OloEngine
         static void ResetAllocators();
         static Statistics GetStatistics();
 
-    private:
+      private:
         static CommandAllocator* GetCurrentThreadAllocator();
 
         static std::vector<std::unique_ptr<CommandAllocator>> s_AllocatorPool;
@@ -70,4 +70,4 @@ namespace OloEngine
         static Statistics s_Stats;
         static bool s_Initialized;
     };
-}
+} // namespace OloEngine

@@ -3,7 +3,7 @@
 /**
  * @file BinarySearch.h
  * @brief Binary search algorithms
- * 
+ *
  * Ported from Unreal Engine's Algo/BinarySearch.h
  */
 
@@ -17,71 +17,71 @@ namespace OloEngine
 {
     /**
      * Performs binary search, resulting in position of the first element >= Value
-         *
-         * @param First Pointer to array
-         * @param Num Number of elements in array
-         * @param Value Value to look for
-         * @param Projection Called on values in array to get type that can be compared to Value
-         * @param SortPredicate Predicate for sort comparison
-         *
-         * @returns Position of the first element >= Value, may be == Num
-         */
-        template <typename RangeValueType, typename SizeType, typename PredicateValueType, typename ProjectionType, typename SortPredicateType>
-        SizeType LowerBoundInternal(RangeValueType* First, const SizeType Num, const PredicateValueType& Value, ProjectionType Projection, SortPredicateType SortPredicate)
+     *
+     * @param First Pointer to array
+     * @param Num Number of elements in array
+     * @param Value Value to look for
+     * @param Projection Called on values in array to get type that can be compared to Value
+     * @param SortPredicate Predicate for sort comparison
+     *
+     * @returns Position of the first element >= Value, may be == Num
+     */
+    template<typename RangeValueType, typename SizeType, typename PredicateValueType, typename ProjectionType, typename SortPredicateType>
+    SizeType LowerBoundInternal(RangeValueType* First, const SizeType Num, const PredicateValueType& Value, ProjectionType Projection, SortPredicateType SortPredicate)
+    {
+        // Current start of sequence to check
+        SizeType Start = 0;
+        // Size of sequence to check
+        SizeType Size = Num;
+
+        // With this method, if Size is even it will do one more comparison than necessary, but because Size can be predicted by the CPU it is faster in practice
+        while (Size > 0)
         {
-            // Current start of sequence to check
-            SizeType Start = 0;
-            // Size of sequence to check
-            SizeType Size = Num;
+            const SizeType LeftoverSize = Size % 2;
+            Size = Size / 2;
 
-            // With this method, if Size is even it will do one more comparison than necessary, but because Size can be predicted by the CPU it is faster in practice
-            while (Size > 0)
-            {
-                const SizeType LeftoverSize = Size % 2;
-                Size = Size / 2;
+            const SizeType CheckIndex = Start + Size;
+            const SizeType StartIfLess = CheckIndex + LeftoverSize;
 
-                const SizeType CheckIndex = Start + Size;
-                const SizeType StartIfLess = CheckIndex + LeftoverSize;
+            auto&& CheckValue = Invoke(Projection, First[CheckIndex]);
+            Start = SortPredicate(CheckValue, Value) ? StartIfLess : Start;
+        }
+        return Start;
+    }
 
-                auto&& CheckValue = Invoke(Projection, First[CheckIndex]);
-                Start = SortPredicate(CheckValue, Value) ? StartIfLess : Start;
-            }
-            return Start;
+    /**
+     * Performs binary search, resulting in position of the first element that is larger than the given value
+     *
+     * @param First Pointer to array
+     * @param Num Number of elements in array
+     * @param Value Value to look for
+     * @param SortPredicate Predicate for sort comparison
+     *
+     * @returns Position of the first element > Value, may be == Num
+     */
+    template<typename RangeValueType, typename SizeType, typename PredicateValueType, typename ProjectionType, typename SortPredicateType>
+    SizeType UpperBoundInternal(RangeValueType* First, const SizeType Num, const PredicateValueType& Value, ProjectionType Projection, SortPredicateType SortPredicate)
+    {
+        // Current start of sequence to check
+        SizeType Start = 0;
+        // Size of sequence to check
+        SizeType Size = Num;
+
+        // With this method, if Size is even it will do one more comparison than necessary, but because Size can be predicted by the CPU it is faster in practice
+        while (Size > 0)
+        {
+            const SizeType LeftoverSize = Size % 2;
+            Size = Size / 2;
+
+            const SizeType CheckIndex = Start + Size;
+            const SizeType StartIfLess = CheckIndex + LeftoverSize;
+
+            auto&& CheckValue = Invoke(Projection, First[CheckIndex]);
+            Start = !SortPredicate(Value, CheckValue) ? StartIfLess : Start;
         }
 
-        /**
-         * Performs binary search, resulting in position of the first element that is larger than the given value
-         *
-         * @param First Pointer to array
-         * @param Num Number of elements in array
-         * @param Value Value to look for
-         * @param SortPredicate Predicate for sort comparison
-         *
-         * @returns Position of the first element > Value, may be == Num
-         */
-        template <typename RangeValueType, typename SizeType, typename PredicateValueType, typename ProjectionType, typename SortPredicateType>
-        SizeType UpperBoundInternal(RangeValueType* First, const SizeType Num, const PredicateValueType& Value, ProjectionType Projection, SortPredicateType SortPredicate)
-        {
-            // Current start of sequence to check
-            SizeType Start = 0;
-            // Size of sequence to check
-            SizeType Size = Num;
-
-            // With this method, if Size is even it will do one more comparison than necessary, but because Size can be predicted by the CPU it is faster in practice
-            while (Size > 0)
-            {
-                const SizeType LeftoverSize = Size % 2;
-                Size = Size / 2;
-
-                const SizeType CheckIndex = Start + Size;
-                const SizeType StartIfLess = CheckIndex + LeftoverSize;
-
-                auto&& CheckValue = Invoke(Projection, First[CheckIndex]);
-                Start = !SortPredicate(Value, CheckValue) ? StartIfLess : Start;
-            }
-
-            return Start;
-        }
+        return Start;
+    }
 
     namespace Algo
     {
@@ -94,13 +94,13 @@ namespace OloEngine
          *
          * @returns Position of the first element >= Value, may be position after last element in range
          */
-        template <typename RangeType, typename ValueType, typename SortPredicateType>
+        template<typename RangeType, typename ValueType, typename SortPredicateType>
         [[nodiscard]] OLO_FINLINE auto LowerBound(const RangeType& Range, const ValueType& Value, SortPredicateType SortPredicate) -> decltype(GetNum(Range))
         {
             return LowerBoundInternal(GetData(Range), GetNum(Range), Value, FIdentityFunctor(), SortPredicate);
         }
-        
-        template <typename RangeType, typename ValueType>
+
+        template<typename RangeType, typename ValueType>
         [[nodiscard]] OLO_FINLINE auto LowerBound(const RangeType& Range, const ValueType& Value) -> decltype(GetNum(Range))
         {
             return LowerBoundInternal(GetData(Range), GetNum(Range), Value, FIdentityFunctor(), TLess<>());
@@ -116,13 +116,13 @@ namespace OloEngine
          *
          * @returns Position of the first element >= Value, may be position after last element in range
          */
-        template <typename RangeType, typename ValueType, typename ProjectionType, typename SortPredicateType>
+        template<typename RangeType, typename ValueType, typename ProjectionType, typename SortPredicateType>
         [[nodiscard]] OLO_FINLINE auto LowerBoundBy(const RangeType& Range, const ValueType& Value, ProjectionType Projection, SortPredicateType SortPredicate) -> decltype(GetNum(Range))
         {
             return LowerBoundInternal(GetData(Range), GetNum(Range), Value, Projection, SortPredicate);
         }
-        
-        template <typename RangeType, typename ValueType, typename ProjectionType>
+
+        template<typename RangeType, typename ValueType, typename ProjectionType>
         [[nodiscard]] OLO_FINLINE auto LowerBoundBy(const RangeType& Range, const ValueType& Value, ProjectionType Projection) -> decltype(GetNum(Range))
         {
             return LowerBoundInternal(GetData(Range), GetNum(Range), Value, Projection, TLess<>());
@@ -137,13 +137,13 @@ namespace OloEngine
          *
          * @returns Position of the first element > Value, may be past end of range
          */
-        template <typename RangeType, typename ValueType, typename SortPredicateType>
+        template<typename RangeType, typename ValueType, typename SortPredicateType>
         [[nodiscard]] OLO_FINLINE auto UpperBound(const RangeType& Range, const ValueType& Value, SortPredicateType SortPredicate) -> decltype(GetNum(Range))
         {
             return UpperBoundInternal(GetData(Range), GetNum(Range), Value, FIdentityFunctor(), SortPredicate);
         }
-        
-        template <typename RangeType, typename ValueType>
+
+        template<typename RangeType, typename ValueType>
         [[nodiscard]] OLO_FINLINE auto UpperBound(const RangeType& Range, const ValueType& Value) -> decltype(GetNum(Range))
         {
             return UpperBoundInternal(GetData(Range), GetNum(Range), Value, FIdentityFunctor(), TLess<>());
@@ -159,13 +159,13 @@ namespace OloEngine
          *
          * @returns Position of the first element > Value, may be past end of range
          */
-        template <typename RangeType, typename ValueType, typename ProjectionType, typename SortPredicateType>
+        template<typename RangeType, typename ValueType, typename ProjectionType, typename SortPredicateType>
         [[nodiscard]] OLO_FINLINE auto UpperBoundBy(const RangeType& Range, const ValueType& Value, ProjectionType Projection, SortPredicateType SortPredicate) -> decltype(GetNum(Range))
         {
             return UpperBoundInternal(GetData(Range), GetNum(Range), Value, Projection, SortPredicate);
         }
-        
-        template <typename RangeType, typename ValueType, typename ProjectionType>
+
+        template<typename RangeType, typename ValueType, typename ProjectionType>
         [[nodiscard]] OLO_FINLINE auto UpperBoundBy(const RangeType& Range, const ValueType& Value, ProjectionType Projection) -> decltype(GetNum(Range))
         {
             return UpperBoundInternal(GetData(Range), GetNum(Range), Value, Projection, TLess<>());
@@ -179,7 +179,7 @@ namespace OloEngine
          * @param SortPredicate Predicate for sort comparison, defaults to <
          * @return Index of found element, or INDEX_NONE
          */
-        template <typename RangeType, typename ValueType, typename SortPredicateType>
+        template<typename RangeType, typename ValueType, typename SortPredicateType>
         [[nodiscard]] auto BinarySearch(const RangeType& Range, const ValueType& Value, SortPredicateType SortPredicate) -> decltype(GetNum(Range))
         {
             auto CheckIndex = LowerBound(Range, Value, SortPredicate);
@@ -194,8 +194,8 @@ namespace OloEngine
             }
             return INDEX_NONE;
         }
-        
-        template <typename RangeType, typename ValueType>
+
+        template<typename RangeType, typename ValueType>
         [[nodiscard]] OLO_FINLINE auto BinarySearch(const RangeType& Range, const ValueType& Value)
         {
             return BinarySearch(Range, Value, TLess<>());
@@ -210,7 +210,7 @@ namespace OloEngine
          * @param SortPredicate Predicate for sort comparison, defaults to <
          * @return Index of found element, or INDEX_NONE
          */
-        template <typename RangeType, typename ValueType, typename ProjectionType, typename SortPredicateType>
+        template<typename RangeType, typename ValueType, typename ProjectionType, typename SortPredicateType>
         [[nodiscard]] auto BinarySearchBy(const RangeType& Range, const ValueType& Value, ProjectionType Projection, SortPredicateType SortPredicate) -> decltype(GetNum(Range))
         {
             auto CheckIndex = LowerBoundBy(Range, Value, Projection, SortPredicate);
@@ -225,8 +225,8 @@ namespace OloEngine
             }
             return INDEX_NONE;
         }
-        
-        template <typename RangeType, typename ValueType, typename ProjectionType>
+
+        template<typename RangeType, typename ValueType, typename ProjectionType>
         [[nodiscard]] OLO_FINLINE auto BinarySearchBy(const RangeType& Range, const ValueType& Value, ProjectionType Projection)
         {
             return BinarySearchBy(Range, Value, Projection, TLess<>());

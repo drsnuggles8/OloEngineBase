@@ -11,12 +11,12 @@ namespace OloEngine
     // A basic mutex ownership wrapper that locks on construction and unlocks on destruction.
     //
     // LockType must contain Lock() and Unlock() functions.
-    // 
+    //
     // Use with mutex types like FMutex and FRecursiveMutex.
-    template <typename LockType>
+    template<typename LockType>
     class TUniqueLock final
     {
-    public:
+      public:
         TUniqueLock(const TUniqueLock&) = delete;
         TUniqueLock& operator=(const TUniqueLock&) = delete;
 
@@ -31,19 +31,19 @@ namespace OloEngine
             m_Mutex.Unlock();
         }
 
-    private:
+      private:
         LockType& m_Mutex;
     };
 
     // A mutex ownership wrapper that allows dynamic locking, unlocking, and deferred locking.
     //
     // LockType must contain Lock() and Unlock() functions.
-    // 
+    //
     // Use with mutex types like FMutex and FRecursiveMutex.
-    template <typename LockType>
+    template<typename LockType>
     class TDynamicUniqueLock final
     {
-    public:
+      public:
         TDynamicUniqueLock() = default;
 
         TDynamicUniqueLock(const TDynamicUniqueLock&) = delete;
@@ -65,8 +65,7 @@ namespace OloEngine
 
         // Move from another lock, transferring any ownership to this lock.
         [[nodiscard]] OLO_FINLINE TDynamicUniqueLock(TDynamicUniqueLock&& Other)
-            : m_Mutex(Other.m_Mutex)
-            , m_bLocked(Other.m_bLocked)
+            : m_Mutex(Other.m_Mutex), m_bLocked(Other.m_bLocked)
         {
             Other.m_Mutex = nullptr;
             Other.m_bLocked = false;
@@ -124,7 +123,7 @@ namespace OloEngine
             return OwnsLock();
         }
 
-    private:
+      private:
         LockType* m_Mutex = nullptr;
         bool m_bLocked = false;
     };

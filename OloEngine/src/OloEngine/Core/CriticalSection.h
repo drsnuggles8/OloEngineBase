@@ -3,21 +3,21 @@
 /**
  * @file CriticalSection.h
  * @brief Platform-specific recursive mutex with spin-wait optimization
- * 
+ *
  * Provides FCriticalSection matching UE5.7's implementation:
  * - Recursive (same thread can lock multiple times)
  * - Spin-wait before blocking (reduces context switch overhead)
  * - Uses CRITICAL_SECTION on Windows, pthread_mutex on POSIX
- * 
+ *
  * Ported from Unreal Engine's HAL/CriticalSection.h and Windows/WindowsCriticalSection.h
  */
 
 #include "OloEngine/Core/Base.h"
 
 #if defined(OLO_PLATFORM_WINDOWS)
-    #include <Windows.h>
+#include <Windows.h>
 #else
-    #include <pthread.h>
+#include <pthread.h>
 #endif
 
 namespace OloEngine
@@ -27,14 +27,14 @@ namespace OloEngine
     /**
      * @class FWindowsCriticalSection
      * @brief Windows CRITICAL_SECTION wrapper with spin-wait optimization
-     * 
+     *
      * Uses InitializeCriticalSectionAndSpinCount with a spin count of 4000,
      * matching UE5.7's default. The spin count reduces context switches for
      * short critical sections by spinning in user mode before blocking.
      */
     class FWindowsCriticalSection
     {
-    public:
+      public:
         /** Spin count before yielding to OS scheduler. UE5.7 uses 4000. */
         static constexpr DWORD SpinCount = 4000;
 
@@ -81,7 +81,7 @@ namespace OloEngine
             LeaveCriticalSection(&CriticalSection);
         }
 
-    private:
+      private:
         CRITICAL_SECTION CriticalSection;
     };
 
@@ -96,7 +96,7 @@ namespace OloEngine
      */
     class FPThreadsCriticalSection
     {
-    public:
+      public:
         FPThreadsCriticalSection()
         {
             pthread_mutexattr_t MutexAttributes;
@@ -132,7 +132,7 @@ namespace OloEngine
             pthread_mutex_unlock(&Mutex);
         }
 
-    private:
+      private:
         pthread_mutex_t Mutex;
     };
 
@@ -144,10 +144,10 @@ namespace OloEngine
     /**
      * @class FScopeLock
      * @brief RAII lock guard for FCriticalSection
-     * 
+     *
      * Locks on construction, unlocks on destruction.
      * Provides exception-safe locking.
-     * 
+     *
      * Usage:
      * @code
      *     FCriticalSection Mutex;
@@ -159,7 +159,7 @@ namespace OloEngine
      */
     class FScopeLock
     {
-    public:
+      public:
         /**
          * @brief Construct and immediately lock the critical section
          * @param InSyncObject Pointer to the critical section to lock
@@ -182,7 +182,7 @@ namespace OloEngine
         FScopeLock(FScopeLock&&) = delete;
         FScopeLock& operator=(FScopeLock&&) = delete;
 
-    private:
+      private:
         FCriticalSection* SyncObject;
     };
 

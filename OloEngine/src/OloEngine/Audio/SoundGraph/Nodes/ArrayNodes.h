@@ -11,7 +11,11 @@
 
 #include <glm/glm.hpp>
 
-#define DECLARE_ID(name) static constexpr Identifier s_##name{ #name }
+#define DECLARE_ID(name)                 \
+    static constexpr Identifier s_##name \
+    {                                    \
+        #name                            \
+    }
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -29,8 +33,8 @@ namespace OloEngine::Audio::SoundGraph
                 return static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
             }
             return (*seedPtr == -1)
-                ? static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count())
-                : *seedPtr;
+                       ? static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count())
+                       : *seedPtr;
         }
     } // namespace Detail
 
@@ -44,15 +48,18 @@ namespace OloEngine::Audio::SoundGraph
         {
             DECLARE_ID(Next);
             DECLARE_ID(Reset);
-        private:
+
+          private:
             IDs() = delete;
         };
 
         explicit GetRandom(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
-            AddInEvent(IDs::s_Next, [this](float v) { (void)v; m_NextFlag.SetDirty(); });
-            AddInEvent(IDs::s_Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
-            
+            AddInEvent(IDs::s_Next, [this](float v)
+                       { (void)v; m_NextFlag.SetDirty(); });
+            AddInEvent(IDs::s_Reset, [this](float v)
+                       { (void)v; m_ResetFlag.SetDirty(); });
+
             RegisterEndpoints();
         }
 
@@ -63,7 +70,7 @@ namespace OloEngine::Audio::SoundGraph
 
             // Initialize random generator with seed
             m_Random.SetSeed(GetSeedValue());
-            
+
             m_OutElement = T{};
         }
 
@@ -89,7 +96,7 @@ namespace OloEngine::Audio::SoundGraph
         OutputEvent m_OutOnReset{ *this };
         T m_OutElement{ T{} };
 
-    private:
+      private:
         Flag m_NextFlag;
         Flag m_ResetFlag;
         FastRandomPCG m_Random;
@@ -117,11 +124,11 @@ namespace OloEngine::Audio::SoundGraph
 
             // Compute valid index range within array bounds
             i32 arraySize = static_cast<i32>(m_InArray->size());
-            
+
             // Clamp both bounds to valid array indices [0, arraySize-1]
             i32 minIndex = (m_InMin) ? std::clamp(*m_InMin, 0, arraySize - 1) : 0;
             i32 maxIndex = (m_InMax) ? std::clamp(*m_InMax, 0, arraySize - 1) : arraySize - 1;
-            
+
             // Ensure minIndex <= maxIndex by swapping if necessary
             if (minIndex > maxIndex)
             {
@@ -130,7 +137,7 @@ namespace OloEngine::Audio::SoundGraph
 
             // Generate random index within valid bounds
             i32 randomIndex = m_Random.GetInt32InRange(minIndex, maxIndex);
-            
+
             // Validate index is within bounds (safety check)
             if (randomIndex >= 0 && randomIndex < arraySize)
             {
@@ -162,7 +169,8 @@ namespace OloEngine::Audio::SoundGraph
         struct IDs
         {
             DECLARE_ID(Trigger);
-        private:
+
+          private:
             IDs() = delete;
         };
 
@@ -170,8 +178,9 @@ namespace OloEngine::Audio::SoundGraph
         {
             OLO_PROFILE_FUNCTION();
 
-            AddInEvent(IDs::s_Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
-            
+            AddInEvent(IDs::s_Trigger, [this](float v)
+                       { (void)v; m_TriggerFlag.SetDirty(); });
+
             RegisterEndpoints();
         }
 
@@ -199,7 +208,7 @@ namespace OloEngine::Audio::SoundGraph
         OutputEvent m_OutOnTrigger{ *this };
         T m_OutElement{ T{} };
 
-    private:
+      private:
         Flag m_TriggerFlag;
 
         void RegisterEndpoints();
@@ -236,7 +245,7 @@ namespace OloEngine::Audio::SoundGraph
             // Perform bounds checking against actual array size
             i32 index = *m_InIndex;
             i32 arraySize = static_cast<i32>(m_InArray->size());
-            
+
             if (index >= 0 && index < arraySize)
             {
                 // Valid index - get element from array
@@ -261,16 +270,19 @@ namespace OloEngine::Audio::SoundGraph
         {
             DECLARE_ID(Next);
             DECLARE_ID(Reset);
-        private:
+
+          private:
             IDs() = delete;
         };
 
         explicit Random(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
             OLO_PROFILE_FUNCTION();
-            AddInEvent(IDs::s_Next, [this](float v) { (void)v; m_NextFlag.SetDirty(); });
-            AddInEvent(IDs::s_Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
-            
+            AddInEvent(IDs::s_Next, [this](float v)
+                       { (void)v; m_NextFlag.SetDirty(); });
+            AddInEvent(IDs::s_Reset, [this](float v)
+                       { (void)v; m_ResetFlag.SetDirty(); });
+
             RegisterEndpoints();
         }
 
@@ -281,14 +293,14 @@ namespace OloEngine::Audio::SoundGraph
 
             // Initialize random generator with seed
             m_Random.SetSeed(GetSeedValue());
-            
+
             m_OutValue = T{};
         }
 
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
-            
+
             if (m_NextFlag.CheckAndResetIfDirty())
                 ProcessNext();
 
@@ -306,7 +318,7 @@ namespace OloEngine::Audio::SoundGraph
         OutputEvent m_OutOnReset{ *this };
         T m_OutValue{ T{} };
 
-    private:
+      private:
         Flag m_NextFlag;
         Flag m_ResetFlag;
         FastRandomPCG m_Random;
@@ -334,20 +346,20 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             T randomValue;
-            
+
             // Get type-appropriate bounds and normalize min/max ordering
             T minValue, maxValue;
-            
+
             if constexpr (std::is_same_v<T, f32>)
             {
                 // For f32, clamp to reasonable audio range
                 minValue = glm::clamp(*m_InMin, static_cast<f32>(-1000.0), static_cast<f32>(1000.0));
                 maxValue = glm::clamp(*m_InMax, static_cast<f32>(-1000.0), static_cast<f32>(1000.0));
-                
+
                 // Ensure min <= max
                 if (minValue > maxValue)
                     std::swap(minValue, maxValue);
-                    
+
                 randomValue = m_Random.GetFloat32InRange(minValue, maxValue);
             }
             else if constexpr (std::is_integral_v<T>)
@@ -357,18 +369,18 @@ namespace OloEngine::Audio::SoundGraph
                 constexpr T typeMax = static_cast<T>(100000);
                 minValue = glm::clamp(*m_InMin, typeMin, typeMax);
                 maxValue = glm::clamp(*m_InMax, typeMin, typeMax);
-                
+
                 // Ensure min <= max
                 if (minValue > maxValue)
                     std::swap(minValue, maxValue);
-                    
+
                 randomValue = static_cast<T>(m_Random.GetInt32InRange(static_cast<i32>(minValue), static_cast<i32>(maxValue)));
             }
             else
             {
                 randomValue = T{};
             }
-            
+
             m_OutValue = randomValue;
             m_OutOnNext(1.0f);
         }

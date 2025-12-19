@@ -2,12 +2,12 @@
 
 // @file IntrusiveUnsetOptionalState.h
 // @brief Facilities for intrusive TOptional state optimization
-// 
+//
 // Allows types to have an intrusive invalid state which can act as
 // TOptional's 'unset' state, saving space. A class in such a state will only ever be
 // compared against FIntrusiveUnsetOptionalState or destructed.
 //
-// A class should implement a constructor taking FIntrusiveUnsetOptionalState, and an 
+// A class should implement a constructor taking FIntrusiveUnsetOptionalState, and an
 // equality comparison operator against FIntrusiveUnsetOptionalState, which will put a
 // class instance into the 'unset' state (in the case of the constructor) and allow testing
 // of its unset state.
@@ -26,7 +26,7 @@
 // {
 //     // This static member should be constexpr, public and equal to true.
 //     static constexpr bool bHasIntrusiveUnsetOptionalState = true;
-// 
+//
 //     // This typedef must match the type itself
 //     using IntrusiveUnsetOptionalStateType = FMyType;
 //
@@ -59,7 +59,7 @@
 //     // Non-negative indices are part of the class invariant.
 //     int32 Index;
 // };
-// 
+//
 // Ported from Unreal Engine's Misc/IntrusiveUnsetOptionalState.h
 
 #include <type_traits>
@@ -67,7 +67,7 @@
 namespace OloEngine
 {
     // Forward declaration for TOptional (when/if we port it)
-    template <typename>
+    template<typename>
     struct TOptional;
 
     namespace Private
@@ -82,29 +82,29 @@ namespace OloEngine
     {
         // Defined in the OloEngine namespace for consistency with TOptional.
 
-        template <typename>
+        template<typename>
         friend struct TOptional;
 
         friend struct Private::FOptional;
 
-    private:
+      private:
         explicit FIntrusiveUnsetOptionalState() = default;
     };
 
     // Checks if a type supports intrusive unset optional state.
-    // 
+    //
     // @tparam T The type to check
-    // @return true if T has bHasIntrusiveUnsetOptionalState = true and 
+    // @return true if T has bHasIntrusiveUnsetOptionalState = true and
     //         IntrusiveUnsetOptionalStateType matches T
-    template <typename T>
+    template<typename T>
     constexpr bool HasIntrusiveUnsetOptionalState()
     {
         // Ensure the type has a nested bHasIntrusiveUnsetOptionalState, and as derived types are not guaranteed to have
         // an intrusive state even if the base does, ensure IntrusiveUnsetOptionalStateType matches the type in the optional.
-        if constexpr (requires { 
-            { T::bHasIntrusiveUnsetOptionalState } -> std::convertible_to<bool>; 
-            requires std::same_as<const typename T::IntrusiveUnsetOptionalStateType, const T>; 
-        })
+        if constexpr (requires {
+                          { T::bHasIntrusiveUnsetOptionalState } -> std::convertible_to<bool>;
+                          requires std::same_as<const typename T::IntrusiveUnsetOptionalStateType, const T>;
+                      })
         {
             return T::bHasIntrusiveUnsetOptionalState;
         }

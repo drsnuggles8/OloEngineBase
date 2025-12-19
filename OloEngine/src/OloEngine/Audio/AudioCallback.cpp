@@ -7,16 +7,16 @@ namespace OloEngine::Audio
     {
         // Assert that the node is valid
         OLO_CORE_ASSERT(pNode != nullptr);
-        
+
         // Safe cast: ProcessingNode has ma_node_base as first member, making this layout-compatible
         AudioCallback::ProcessingNode* node = static_cast<AudioCallback::ProcessingNode*>(static_cast<void*>(pNode));
-        
+
         // Runtime type validation: verify this is actually a ProcessingNode instance
-        OLO_CORE_ASSERT(node->m_TypeId == AudioCallback::ProcessingNode::s_MagicTypeId, 
-            "Invalid node type! Expected ProcessingNode but got different type. This indicates memory corruption or incorrect node usage.");
-        
+        OLO_CORE_ASSERT(node->m_TypeId == AudioCallback::ProcessingNode::s_MagicTypeId,
+                        "Invalid node type! Expected ProcessingNode but got different type. This indicates memory corruption or incorrect node usage.");
+
         AudioCallback* callback = node->m_Callback;
-        
+
         // Early return if callback is null to avoid dereferencing
         if (!callback)
             return;
@@ -42,10 +42,10 @@ namespace OloEngine::Audio
     bool AudioCallback::Initialize(ma_engine* engine, const BusConfig& busConfig)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         m_Engine = engine;
         m_BusConfig = busConfig;
-        
+
         if (!engine || !engine->pDevice)
         {
             OLO_CORE_ERROR("Engine or device is null");
@@ -59,9 +59,9 @@ namespace OloEngine::Audio
         m_MaxBlockSize = blockSize;
 
         OLO_CORE_ASSERT(!busConfig.m_InputBuses.empty() && !busConfig.m_OutputBuses.empty(), "Bus config must have input and output buses");
-        for (const auto& bus : busConfig.m_InputBuses)  
+        for (const auto& bus : busConfig.m_InputBuses)
             OLO_CORE_ASSERT(bus > 0, "Input bus channel count must be > 0");
-        for (const auto& bus : busConfig.m_OutputBuses) 
+        for (const auto& bus : busConfig.m_OutputBuses)
             OLO_CORE_ASSERT(bus > 0, "Output bus channel count must be > 0");
 
         if (m_Node.m_Initialized)
@@ -91,10 +91,10 @@ namespace OloEngine::Audio
         // Initialize node with required layout
         m_VTable.onProcess = processing_node_process_pcm_frames;
         m_VTable.onGetRequiredInputFrameCount = nullptr;
-        m_VTable.inputBusCount  = static_cast<ma_uint8>(busConfig.m_InputBuses.size());
+        m_VTable.inputBusCount = static_cast<ma_uint8>(busConfig.m_InputBuses.size());
         m_VTable.outputBusCount = static_cast<ma_uint8>(busConfig.m_OutputBuses.size());
         m_VTable.flags = MA_NODE_FLAG_CONTINUOUS_PROCESSING | MA_NODE_FLAG_ALLOW_NULL_INPUT;
-        
+
         ma_result result;
 
         ma_node_config nodeConfig = ma_node_config_init();
@@ -138,7 +138,7 @@ namespace OloEngine::Audio
     void AudioCallback::Uninitialize()
     {
         OLO_PROFILE_FUNCTION();
-        
+
         if (m_Node.m_Initialized)
         {
             ma_node_set_state(&m_Node, ma_node_state_stopped);

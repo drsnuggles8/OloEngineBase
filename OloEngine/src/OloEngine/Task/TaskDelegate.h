@@ -16,33 +16,39 @@ namespace OloEngine::LowLevelTasks
     namespace Private
     {
         // @brief DeclVal implementation for IsInvocable checks
-        template <typename T>
+        template<typename T>
         T&& DeclVal();
 
         // @brief Void helper for SFINAE
-        template <typename T>
+        template<typename T>
         struct TVoid
         {
             using Type = void;
         };
 
         // @brief IsInvocable implementation
-        template <typename, typename CallableType, typename... ArgTypes>
+        template<typename, typename CallableType, typename... ArgTypes>
         struct TIsInvocableImpl
         {
-            enum { Value = false };
+            enum
+            {
+                Value = false
+            };
         };
 
-        template <typename CallableType, typename... ArgTypes>
+        template<typename CallableType, typename... ArgTypes>
         struct TIsInvocableImpl<typename TVoid<decltype(Invoke(DeclVal<CallableType>(), DeclVal<ArgTypes>()...))>::Type, CallableType, ArgTypes...>
         {
-            enum { Value = true };
+            enum
+            {
+                Value = true
+            };
         };
     } // namespace Private
 
     // @brief Traits class which tests if an instance of CallableType can be invoked with
     //        a list of the arguments of the types provided.
-    template <typename CallableType, typename... ArgTypes>
+    template<typename CallableType, typename... ArgTypes>
     struct TIsInvocable : Private::TIsInvocableImpl<void, CallableType, ArgTypes...>
     {
     };
@@ -60,13 +66,13 @@ namespace OloEngine::LowLevelTasks
         {
             return;
         }
-    }
+    } // namespace TaskDelegate_Impl
 
     // @class TTaskDelegate
     // @brief Version of TUniqueFunction<ReturnType()> that is less wasteful with its memory
-    // 
+    //
     // This class might be removed when TUniqueFunction<ReturnType()> is fixed.
-    // 
+    //
     // @tparam ReturnType(ParamTypes...) Function signature
     // @tparam TotalSize Total size of the delegate including inline storage
     template<typename = void(), u32 = OLO_PLATFORM_CACHE_LINE_SIZE>
@@ -208,7 +214,7 @@ namespace OloEngine::LowLevelTasks
                     {
                         Self->Move(Dest.m_CallableWrapper, Dest.m_InlineStorage, InlineData, DestInlineSize);
                     }
-                } ScopeExit{this, Destination, InlineData, DestInlineSize};
+                } ScopeExit{ this, Destination, InlineData, DestInlineSize };
 
                 return Call(InlineData, Params...);
             }
@@ -238,13 +244,13 @@ namespace OloEngine::LowLevelTasks
         template<typename TCallableType>
         struct TTaskDelegateImpl<TCallableType, true> final : TTaskDelegateBase
         {
-        private:
+          private:
             OLO_FINLINE TTaskDelegateImpl(void* DstData, void* SrcData)
             {
                 FMemory::Memcpy(DstData, SrcData, sizeof(TCallableType*));
             }
 
-        public:
+          public:
             template<typename CallableT>
             OLO_FINLINE TTaskDelegateImpl(CallableT&& Callable, void* InlineData)
             {
@@ -281,7 +287,7 @@ namespace OloEngine::LowLevelTasks
                     {
                         Self->Move(Dest.m_CallableWrapper, Dest.m_InlineStorage, InlineData, DestInlineSize);
                     }
-                } ScopeExit{this, Destination, InlineData, DestInlineSize};
+                } ScopeExit{ this, Destination, InlineData, DestInlineSize };
 
                 return Call(InlineData, Params...);
             }
@@ -310,7 +316,7 @@ namespace OloEngine::LowLevelTasks
             }
         };
 
-    public:
+      public:
         TTaskDelegate()
         {
             static_assert(TotalSize % 8 == 0, "TotalSize must be divisible by 8");
@@ -359,10 +365,10 @@ namespace OloEngine::LowLevelTasks
         }
 
         template<u32 SourceTotalSize>
-        ThisClass& operator= (const TTaskDelegate<ReturnType(ParamTypes...), SourceTotalSize>&) = delete;
+        ThisClass& operator=(const TTaskDelegate<ReturnType(ParamTypes...), SourceTotalSize>&) = delete;
 
         template<u32 SourceTotalSize>
-        ThisClass& operator= (TTaskDelegate<ReturnType(ParamTypes...), SourceTotalSize>&& Other)
+        ThisClass& operator=(TTaskDelegate<ReturnType(ParamTypes...), SourceTotalSize>&& Other)
         {
             GetWrapper()->Destroy(m_InlineStorage);
             Other.GetWrapper()->Move(m_CallableWrapper, m_InlineStorage, Other.m_InlineStorage, InlineStorageSize);
@@ -370,7 +376,7 @@ namespace OloEngine::LowLevelTasks
         }
 
         template<typename CallableT>
-        ThisClass& operator= (CallableT&& Callable)
+        ThisClass& operator=(CallableT&& Callable)
         {
             using TCallableType = std::decay_t<CallableT>;
             GetWrapper()->Destroy(m_InlineStorage);
@@ -406,7 +412,7 @@ namespace OloEngine::LowLevelTasks
             return GetWrapper()->DelegateSize();
         }
 
-    private:
+      private:
         static constexpr u32 InlineStorageSize = TotalSize - sizeof(TTaskDelegateBase);
         mutable char m_InlineStorage[InlineStorageSize];
         TTaskDelegateBase m_CallableWrapper;

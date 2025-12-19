@@ -57,7 +57,7 @@ namespace OloEngine::LowLevelTasks::Private
             // as missing in Tracy, especially in case we never wake up again (i.e. deadlock / crash).
             // This matches UE5.7's TRACE_CPUPROFILER_EVENT_FLUSH() call.
             TRACE_CPUPROFILER_EVENT_FLUSH();
-            
+
             // Disallow oversubscription for this wait
             Private::FOversubscriptionAllowedScope OversubscriptionScope(false);
 
@@ -71,7 +71,7 @@ namespace OloEngine::LowLevelTasks::Private
             // thread-local memory cache back if we have any.
             FMemory::MarkTLSCachesAsUsedOnCurrentThread();
         }
-    }
+    } // namespace WaitingQueueImpl
 
     void FWaitingQueue::Init(u32 InThreadCount, u32 InMaxThreadCount, TFunction<void()> InCreateThread, u32 InActiveThreadCount)
     {
@@ -186,7 +186,7 @@ namespace OloEngine::LowLevelTasks::Private
         }
         else
         {
-            // Avoid too much contention on commit as it's not healthy. 
+            // Avoid too much contention on commit as it's not healthy.
             // Prefer going back validating if anything has come up in the task queues
             // in between commit retries.
             return false;
@@ -278,7 +278,7 @@ namespace OloEngine::LowLevelTasks::Private
         {
             CheckStandbyState(LocalState);
             // We store the active thread count in the waiters slot, so decrement it by 1.
-            const u64 Waiters  = (LocalState & WaiterMask) - WaiterInc;
+            const u64 Waiters = (LocalState & WaiterMask) - WaiterInc;
             const u64 NewEpoch = (LocalState & EpochMask) + EpochInc;
             const u64 NewState = static_cast<u64>(Node - &m_NodesArray[0]) | NewEpoch | Waiters;
 
@@ -409,8 +409,8 @@ namespace OloEngine::LowLevelTasks::Private
             for (;;)
             {
                 CheckState(LocalState);
-                const u64 Waiters  = (LocalState & WaiterMask) >> WaiterShift;
-                const u64 Signals  = (LocalState & SignalMask) >> SignalShift;
+                const u64 Waiters = (LocalState & WaiterMask) >> WaiterShift;
+                const u64 Signals = (LocalState & SignalMask) >> SignalShift;
                 const u64 NewEpoch = (LocalState & EpochMask) + EpochInc;
                 const bool bNotifyAll = Count >= m_NodesArray.Num();
 
@@ -444,7 +444,7 @@ namespace OloEngine::LowLevelTasks::Private
                     if (!bNotifyAll && (Signals < Waiters))
                     {
                         Notifications++;
-                        break;  // unblocked pre-wait thread
+                        break; // unblocked pre-wait thread
                     }
 
                     if ((LocalState & StackMask) == StackMask)
@@ -481,7 +481,7 @@ namespace OloEngine::LowLevelTasks::Private
         using namespace WaitingQueueImpl;
 
         // Spinning for a very short while helps reduce signaling cost
-        // since we're giving the other threads a final chance to wake us with an 
+        // since we're giving the other threads a final chance to wake us with an
         // atomic only instead of a more costly kernel call.
         for (i32 Spin = 0; Spin < SpinCycles; ++Spin)
         {
@@ -518,7 +518,7 @@ namespace OloEngine::LowLevelTasks::Private
         using namespace WaitingQueueImpl;
 
         i32 UnparkedCount = 0;
-        for (FWaitEvent* Node = InNode; Node != nullptr; )
+        for (FWaitEvent* Node = InNode; Node != nullptr;)
         {
             u64 NextNode = Node->Next.load(std::memory_order_relaxed) & StackMask;
             FWaitEvent* Next = NextNode == StackMask ? nullptr : &m_NodesArray[static_cast<sizet>(NextNode)];

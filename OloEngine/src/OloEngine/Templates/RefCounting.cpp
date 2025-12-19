@@ -6,8 +6,8 @@
 
 namespace OloEngine::Private
 {
-	void CheckRefCountIsNonZero()
-	{
-		OLO_CORE_ASSERT(false, "Release() was called on an object which is already at a zero refcount.");
-	}
-}
+    void CheckRefCountIsNonZero()
+    {
+        OLO_CORE_ASSERT(false, "Release() was called on an object which is already at a zero refcount.");
+    }
+} // namespace OloEngine::Private

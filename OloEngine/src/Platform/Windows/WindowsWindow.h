@@ -7,47 +7,64 @@
 
 namespace OloEngine
 {
-	class WindowsWindow : public Window
-	{
-	public:
-		explicit WindowsWindow(const WindowProps& props);
-		~WindowsWindow() override;
+    class WindowsWindow : public Window
+    {
+      public:
+        explicit WindowsWindow(const WindowProps& props);
+        ~WindowsWindow() override;
 
-		void OnUpdate() override;
+        void OnUpdate() override;
 
-		[[nodiscard("Store this!")]] unsigned int GetWidth() const noexcept override { return m_Data.Width; }
-		[[nodiscard("Store this!")]] unsigned int GetHeight() const noexcept override { return m_Data.Height; }
+        [[nodiscard("Store this!")]] unsigned int GetWidth() const noexcept override
+        {
+            return m_Data.Width;
+        }
+        [[nodiscard("Store this!")]] unsigned int GetHeight() const noexcept override
+        {
+            return m_Data.Height;
+        }
 
-		// Add framebuffer size methods
-		[[nodiscard("Store this!")]] unsigned int GetFramebufferWidth() const override;
-		[[nodiscard("Store this!")]] unsigned int GetFramebufferHeight() const override;
+        // Add framebuffer size methods
+        [[nodiscard("Store this!")]] unsigned int GetFramebufferWidth() const override;
+        [[nodiscard("Store this!")]] unsigned int GetFramebufferHeight() const override;
 
-		// Window attributes
-		void SetEventCallback(const EventCallbackFn& callback) override { m_Data.EventCallback = callback; }
-		void SetVSync(bool enabled) override;
-		[[nodiscard("Store this!")]] bool IsVSync() const override { return m_Data.VSync; }
+        // Window attributes
+        void SetEventCallback(const EventCallbackFn& callback) override
+        {
+            m_Data.EventCallback = callback;
+        }
+        void SetVSync(bool enabled) override;
+        [[nodiscard("Store this!")]] bool IsVSync() const override
+        {
+            return m_Data.VSync;
+        }
 
-		[[nodiscard("Store this!")]] void* GetNativeWindow() const noexcept override { return m_Window; }
+        [[nodiscard("Store this!")]] void* GetNativeWindow() const noexcept override
+        {
+            return m_Window;
+        }
 
-		void SetTitle(const std::string& title) override;
-	private:
-		virtual void Init(const WindowProps& props);
-		virtual void Shutdown();
-	private:
-		GLFWwindow* m_Window{};
-		Scope<GraphicsContext> m_Context;
+        void SetTitle(const std::string& title) override;
 
-		struct WindowData
-		{
-			std::string Title;
-			unsigned int Width{};
-			unsigned int Height{};
-			bool VSync{};
+      private:
+        virtual void Init(const WindowProps& props);
+        virtual void Shutdown();
 
-			EventCallbackFn EventCallback;
-		};
+      private:
+        GLFWwindow* m_Window{};
+        Scope<GraphicsContext> m_Context;
 
-		WindowData m_Data;
-	};
+        struct WindowData
+        {
+            std::string Title;
+            unsigned int Width{};
+            unsigned int Height{};
+            bool VSync{};
 
-}
+            EventCallbackFn EventCallback;
+        };
+
+        WindowData m_Data;
+    };
+
+} // namespace OloEngine

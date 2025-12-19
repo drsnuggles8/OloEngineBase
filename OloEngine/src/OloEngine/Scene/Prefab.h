@@ -10,11 +10,11 @@
 namespace OloEngine
 {
     // @brief Prefab asset containing a reusable entity hierarchy
-    // 
+    //
     // Prefabs allow creating reusable entity templates that can be instantiated
     // multiple times in scenes. They store a complete entity hierarchy with all
     // components and can be nested within other prefabs.
-    // 
+    //
     // Features:
     // - Complete entity hierarchy serialization
     // - Nested prefab support
@@ -22,7 +22,7 @@ namespace OloEngine
     // - Runtime instantiation with transform overrides
     class Prefab : public Asset
     {
-    public:
+      public:
         Prefab();
         virtual ~Prefab();
 
@@ -33,25 +33,37 @@ namespace OloEngine
 
         // @brief Get static asset type
         // @return AssetType::Prefab
-        static AssetType GetStaticType() { return AssetType::Prefab; }
+        static AssetType GetStaticType()
+        {
+            return AssetType::Prefab;
+        }
 
         // @brief Get asset type of this instance
         // @return AssetType::Prefab
-        virtual AssetType GetAssetType() const override { return GetStaticType(); }
+        virtual AssetType GetAssetType() const override
+        {
+            return GetStaticType();
+        }
 
         // @brief Get list of all assets referenced by this prefab
         // @param recursive Whether to recursively include assets from nested prefabs
         // @return Pair of (asset list, missing asset list)
-        std::pair<std::unordered_set<AssetHandle>, std::unordered_set<AssetHandle>> 
-            GetAssetList(bool recursive = true);
+        std::pair<std::unordered_set<AssetHandle>, std::unordered_set<AssetHandle>>
+        GetAssetList(bool recursive = true);
 
         // @brief Get the prefab's scene containing the entity hierarchy
         // @return Reference to the prefab scene
-        Ref<Scene> GetScene() const { return m_Scene; }
+        Ref<Scene> GetScene() const
+        {
+            return m_Scene;
+        }
 
         // @brief Get the root entity of the prefab
         // @return Root entity of the prefab
-        Entity GetRootEntity() const { return m_Entity; }
+        Entity GetRootEntity() const
+        {
+            return m_Entity;
+        }
 
         // @brief Instantiate prefab into a target scene
         // @param targetScene Scene to instantiate the prefab into
@@ -59,7 +71,7 @@ namespace OloEngine
         // @return Instantiated entity in the target scene
         Entity Instantiate(Scene& targetScene, UUID uuid = UUID()) const;
 
-    private:
+      private:
         // @brief Create prefab entity by copying from source entity
         // @param entity Source entity to copy from
         // @return New prefab entity
@@ -70,7 +82,7 @@ namespace OloEngine
         // @param targetEntity Entity to copy components to
         void CopyEntityComponents(Entity sourceEntity, Entity targetEntity) const;
 
-    private:
+      private:
         Ref<Scene> m_Scene;
         Entity m_Entity;
 
@@ -78,4 +90,4 @@ namespace OloEngine
         friend class PrefabSerializer;
         friend class PrefabEditor;
     };
-}
+} // namespace OloEngine

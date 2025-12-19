@@ -13,7 +13,7 @@ namespace OloEngine
 {
     class StreamWriter;
     class StreamReader;
-}
+} // namespace OloEngine
 
 namespace OloEngine::Audio::SoundGraph
 {

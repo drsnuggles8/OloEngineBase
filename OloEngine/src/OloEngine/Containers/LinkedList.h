@@ -6,14 +6,14 @@
 /**
  * @file LinkedList.h
  * @brief Various linked list containers
- * 
+ *
  * Contains:
  * - TLinkedList: Non-intrusive single linked list with separate element storage
  * - TDoubleLinkedList: Non-intrusive double linked list
  * - TList: Simple single linked list
- * 
+ *
  * For intrusive linked lists, see IntrusiveLinkedList.h
- * 
+ *
  * Ported from Unreal Engine's Containers/List.h
  */
 
@@ -23,19 +23,21 @@
 namespace OloEngine
 {
     // Forward declarations
-    template<class ElementType> class TLinkedList;
-    template<class ElementType> class TDoubleLinkedList;
+    template<class ElementType>
+    class TLinkedList;
+    template<class ElementType>
+    class TDoubleLinkedList;
 
     /**
      * @class TLinkedListIterator
      * @brief Iterator for non-intrusive linked lists
      */
-    template <class ContainerType, class ElementType>
+    template<class ContainerType, class ElementType>
     class TLinkedListIterator : public TLinkedListIteratorBase<ContainerType>
     {
         using Super = TLinkedListIteratorBase<ContainerType>;
 
-    public:
+      public:
         [[nodiscard]] explicit TLinkedListIterator(ContainerType* FirstLink)
             : Super(FirstLink)
         {
@@ -65,17 +67,17 @@ namespace OloEngine
     /**
      * @class TLinkedList
      * @brief Non-intrusive single linked list
-     * 
+     *
      * Unlike TIntrusiveLinkedList, this stores elements separately from the links.
      * This allows storing types that don't inherit from the list node class.
-     * 
+     *
      * Example:
      * @code
      * TLinkedList<int>* Head = nullptr;
-     * 
+     *
      * auto* Node = new TLinkedList<int>(42);
      * Node->LinkHead(Head);
-     * 
+     *
      * for (auto It = TLinkedList<int>::TIterator(Head); It; ++It)
      * {
      *     printf("%d\n", *It);
@@ -87,13 +89,12 @@ namespace OloEngine
     {
         using Super = TLinkedListBase<TLinkedList<ElementType>, ElementType, TLinkedListIterator>;
 
-    public:
+      public:
         /**
          * @brief Default constructor
          */
         [[nodiscard]] TLinkedList()
-            : Super()
-            , m_Element()
+            : Super(), m_Element()
         {
         }
 
@@ -102,8 +103,7 @@ namespace OloEngine
          * @param InElement The element value
          */
         [[nodiscard]] explicit TLinkedList(const ElementType& InElement)
-            : Super()
-            , m_Element(InElement)
+            : Super(), m_Element(InElement)
         {
         }
 
@@ -112,8 +112,7 @@ namespace OloEngine
          * @param InElement The element value to move
          */
         [[nodiscard]] explicit TLinkedList(ElementType&& InElement)
-            : Super()
-            , m_Element(MoveTemp(InElement))
+            : Super(), m_Element(MoveTemp(InElement))
         {
         }
 
@@ -149,7 +148,7 @@ namespace OloEngine
             return m_Element;
         }
 
-    private:
+      private:
         ElementType m_Element;
     };
 
@@ -164,7 +163,7 @@ namespace OloEngine
     template<class ElementType>
     class TDoubleLinkedListIterator
     {
-    public:
+      public:
         using NodeType = typename TDoubleLinkedList<ElementType>::TDoubleLinkedListNode;
 
         [[nodiscard]] explicit TDoubleLinkedListIterator(NodeType* StartingNode)
@@ -244,24 +243,24 @@ namespace OloEngine
             return m_CurrentNode != Other.m_CurrentNode;
         }
 
-    private:
+      private:
         NodeType* m_CurrentNode;
     };
 
     /**
      * @class TDoubleLinkedList
      * @brief Non-intrusive double linked list
-     * 
+     *
      * A double linked list with nodes containing the element value.
      * Supports forward and backward iteration.
-     * 
+     *
      * Example:
      * @code
      * TDoubleLinkedList<int> List;
      * List.AddTail(1);
      * List.AddTail(2);
      * List.AddHead(0);
-     * 
+     *
      * for (auto It = List.GetHead(); It; ++It)
      * {
      *     printf("%d\n", *It);
@@ -271,14 +270,14 @@ namespace OloEngine
     template<class ElementType>
     class TDoubleLinkedList
     {
-    public:
+      public:
         /**
          * @class TDoubleLinkedListNode
          * @brief Node in the double linked list
          */
         class TDoubleLinkedListNode
         {
-        public:
+          public:
             friend class TDoubleLinkedList;
 
             /**
@@ -286,9 +285,7 @@ namespace OloEngine
              * @param InValue Value to store
              */
             [[nodiscard]] explicit TDoubleLinkedListNode(const ElementType& InValue)
-                : m_Value(InValue)
-                , m_NextNode(nullptr)
-                , m_PrevNode(nullptr)
+                : m_Value(InValue), m_NextNode(nullptr), m_PrevNode(nullptr)
             {
             }
 
@@ -297,35 +294,51 @@ namespace OloEngine
              * @param InValue Value to move
              */
             [[nodiscard]] explicit TDoubleLinkedListNode(ElementType&& InValue)
-                : m_Value(MoveTemp(InValue))
-                , m_NextNode(nullptr)
-                , m_PrevNode(nullptr)
+                : m_Value(MoveTemp(InValue)), m_NextNode(nullptr), m_PrevNode(nullptr)
             {
             }
 
             /**
              * @brief Get the value (const)
              */
-            [[nodiscard]] const ElementType& GetValue() const { return m_Value; }
+            [[nodiscard]] const ElementType& GetValue() const
+            {
+                return m_Value;
+            }
 
             /**
              * @brief Get the value (mutable)
              */
-            [[nodiscard]] ElementType& GetValue() { return m_Value; }
+            [[nodiscard]] ElementType& GetValue()
+            {
+                return m_Value;
+            }
 
             /**
              * @brief Get next node
              */
-            [[nodiscard]] TDoubleLinkedListNode* GetNextNode() { return m_NextNode; }
-            [[nodiscard]] const TDoubleLinkedListNode* GetNextNode() const { return m_NextNode; }
+            [[nodiscard]] TDoubleLinkedListNode* GetNextNode()
+            {
+                return m_NextNode;
+            }
+            [[nodiscard]] const TDoubleLinkedListNode* GetNextNode() const
+            {
+                return m_NextNode;
+            }
 
             /**
              * @brief Get previous node
              */
-            [[nodiscard]] TDoubleLinkedListNode* GetPrevNode() { return m_PrevNode; }
-            [[nodiscard]] const TDoubleLinkedListNode* GetPrevNode() const { return m_PrevNode; }
+            [[nodiscard]] TDoubleLinkedListNode* GetPrevNode()
+            {
+                return m_PrevNode;
+            }
+            [[nodiscard]] const TDoubleLinkedListNode* GetPrevNode() const
+            {
+                return m_PrevNode;
+            }
 
-        protected:
+          protected:
             ElementType m_Value;
             TDoubleLinkedListNode* m_NextNode;
             TDoubleLinkedListNode* m_PrevNode;
@@ -338,9 +351,7 @@ namespace OloEngine
          * @brief Default constructor - empty list
          */
         TDoubleLinkedList()
-            : m_HeadNode(nullptr)
-            , m_TailNode(nullptr)
-            , m_ListSize(0)
+            : m_HeadNode(nullptr), m_TailNode(nullptr), m_ListSize(0)
         {
         }
 
@@ -358,9 +369,7 @@ namespace OloEngine
 
         // Movable
         TDoubleLinkedList(TDoubleLinkedList&& Other) noexcept
-            : m_HeadNode(Other.m_HeadNode)
-            , m_TailNode(Other.m_TailNode)
-            , m_ListSize(Other.m_ListSize)
+            : m_HeadNode(Other.m_HeadNode), m_TailNode(Other.m_TailNode), m_ListSize(Other.m_ListSize)
         {
             Other.m_HeadNode = nullptr;
             Other.m_TailNode = nullptr;
@@ -387,26 +396,44 @@ namespace OloEngine
         /**
          * @brief Get head node
          */
-        [[nodiscard]] TDoubleLinkedListNode* GetHead() { return m_HeadNode; }
-        [[nodiscard]] const TDoubleLinkedListNode* GetHead() const { return m_HeadNode; }
+        [[nodiscard]] TDoubleLinkedListNode* GetHead()
+        {
+            return m_HeadNode;
+        }
+        [[nodiscard]] const TDoubleLinkedListNode* GetHead() const
+        {
+            return m_HeadNode;
+        }
 
         /**
          * @brief Get tail node
          */
-        [[nodiscard]] TDoubleLinkedListNode* GetTail() { return m_TailNode; }
-        [[nodiscard]] const TDoubleLinkedListNode* GetTail() const { return m_TailNode; }
+        [[nodiscard]] TDoubleLinkedListNode* GetTail()
+        {
+            return m_TailNode;
+        }
+        [[nodiscard]] const TDoubleLinkedListNode* GetTail() const
+        {
+            return m_TailNode;
+        }
 
         // ====== Capacity ======
 
         /**
          * @brief Get number of elements
          */
-        [[nodiscard]] i32 Num() const { return m_ListSize; }
+        [[nodiscard]] i32 Num() const
+        {
+            return m_ListSize;
+        }
 
         /**
          * @brief Check if list is empty
          */
-        [[nodiscard]] bool IsEmpty() const { return m_ListSize == 0; }
+        [[nodiscard]] bool IsEmpty() const
+        {
+            return m_ListSize == 0;
+        }
 
         // ====== Modifiers ======
 
@@ -624,10 +651,16 @@ namespace OloEngine
 
         // ====== Iteration ======
 
-        [[nodiscard]] friend TIterator begin(TDoubleLinkedList& List) { return TIterator(List.m_HeadNode); }
-        [[nodiscard]] friend TIterator end(TDoubleLinkedList& /*List*/) { return TIterator(nullptr); }
+        [[nodiscard]] friend TIterator begin(TDoubleLinkedList& List)
+        {
+            return TIterator(List.m_HeadNode);
+        }
+        [[nodiscard]] friend TIterator end(TDoubleLinkedList& /*List*/)
+        {
+            return TIterator(nullptr);
+        }
 
-    private:
+      private:
         TDoubleLinkedListNode* m_HeadNode;
         TDoubleLinkedListNode* m_TailNode;
         i32 m_ListSize;
@@ -640,14 +673,14 @@ namespace OloEngine
     /**
      * @class TList
      * @brief Simple single linked list
-     * 
+     *
      * A minimal single linked list implementation.
      * Simpler than TLinkedList but less feature-rich.
      */
     template<class ElementType>
     class TList
     {
-    public:
+      public:
         /**
          * @brief List node
          */
@@ -657,14 +690,12 @@ namespace OloEngine
             TListNode* Next;
 
             TListNode(const ElementType& InElement, TListNode* InNext = nullptr)
-                : Element(InElement)
-                , Next(InNext)
+                : Element(InElement), Next(InNext)
             {
             }
 
             TListNode(ElementType&& InElement, TListNode* InNext = nullptr)
-                : Element(MoveTemp(InElement))
-                , Next(InNext)
+                : Element(MoveTemp(InElement)), Next(InNext)
             {
             }
         };
@@ -717,12 +748,18 @@ namespace OloEngine
         /**
          * @brief Get head node
          */
-        [[nodiscard]] TListNode* GetHead() const { return m_Head; }
+        [[nodiscard]] TListNode* GetHead() const
+        {
+            return m_Head;
+        }
 
         /**
          * @brief Check if empty
          */
-        [[nodiscard]] bool IsEmpty() const { return m_Head == nullptr; }
+        [[nodiscard]] bool IsEmpty() const
+        {
+            return m_Head == nullptr;
+        }
 
         /**
          * @brief Clear all nodes
@@ -739,7 +776,7 @@ namespace OloEngine
             m_Head = nullptr;
         }
 
-    private:
+      private:
         TListNode* m_Head;
     };
 

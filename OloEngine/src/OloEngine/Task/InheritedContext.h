@@ -11,12 +11,12 @@
 
 // @file InheritedContext.h
 // @brief Extends inherited context to cover async execution
-// 
+//
 // UE5.7 uses InheritedContext to capture and restore:
 // - LLM (Low-Level Memory) tracker tags for memory attribution
 // - Memory trace tags for profiler memory tracking
 // - Metadata trace IDs for call stack attribution
-// 
+//
 // OloEngine uses Tracy for profiling which handles most of this automatically.
 // This implementation provides:
 // - Task tags (thread type identification)
@@ -29,25 +29,25 @@
 
 // LLM (Low-Level Memory) tracker - currently stubbed for future implementation
 #ifndef OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
-    #define OLO_ENABLE_LOW_LEVEL_MEM_TRACKER 0
+#define OLO_ENABLE_LOW_LEVEL_MEM_TRACKER 0
 #endif
 
 // Memory trace for profiler attribution
 #ifndef OLO_MEMORY_TAGS_TRACE_ENABLED
-    #if OLO_PROFILE && TRACY_ENABLE
-        #define OLO_MEMORY_TAGS_TRACE_ENABLED 1
-    #else
-        #define OLO_MEMORY_TAGS_TRACE_ENABLED 0
-    #endif
+#if OLO_PROFILE && TRACY_ENABLE
+#define OLO_MEMORY_TAGS_TRACE_ENABLED 1
+#else
+#define OLO_MEMORY_TAGS_TRACE_ENABLED 0
+#endif
 #endif
 
 // Metadata trace for call stack capture
 #ifndef OLO_TRACE_METADATA_ENABLED
-    #if OLO_PROFILE && TRACY_ENABLE
-        #define OLO_TRACE_METADATA_ENABLED 1
-    #else
-        #define OLO_TRACE_METADATA_ENABLED 0
-    #endif
+#if OLO_PROFILE && TRACY_ENABLE
+#define OLO_TRACE_METADATA_ENABLED 1
+#else
+#define OLO_TRACE_METADATA_ENABLED 0
+#endif
 #endif
 
 namespace OloEngine
@@ -69,7 +69,7 @@ namespace OloEngine
 
     // @struct FLLMActiveTagsCapture
     // @brief Structure representing captured LLM Tags
-    // 
+    //
     // UE5.7 captures pointers to active tag data. OloEngine uses a simplified
     // version that stores tag indices for future integration.
     struct FLLMActiveTagsCapture
@@ -128,8 +128,7 @@ namespace OloEngine
     struct FMemScope
     {
         explicit FMemScope([[maybe_unused]] i32 InMemTag)
-            : m_PreviousTag(MemoryTrace_GetActiveTag())
-            , m_bActive(true)
+            : m_PreviousTag(MemoryTrace_GetActiveTag()), m_bActive(true)
         {
             // TODO: Set active tag when memory tracing is implemented
             (void)m_PreviousTag;
@@ -143,7 +142,7 @@ namespace OloEngine
             }
         }
 
-    private:
+      private:
         i32 m_PreviousTag = 0;
         bool m_bActive = false;
     };
@@ -177,7 +176,7 @@ namespace OloEngine
             // TODO: Cleanup
         }
 
-    private:
+      private:
         u32 m_MetadataId = 0;
     };
 #endif // OLO_TRACE_METADATA_ENABLED
@@ -188,10 +187,10 @@ namespace OloEngine
 
     // @class FInheritedContextScope
     // @brief Restores an inherited context for the current scope
-    // 
+    //
     // An instance must be obtained by calling FInheritedContextBase::RestoreInheritedContext()
     // This is an RAII scope that automatically restores the captured context.
-    // 
+    //
     // In OloEngine, this captures and restores:
     // - Task tags (thread type identification)
     // - LLM tags (when OLO_ENABLE_LOW_LEVEL_MEM_TRACKER is enabled)
@@ -199,24 +198,25 @@ namespace OloEngine
     // - Metadata trace IDs (when OLO_TRACE_METADATA_ENABLED is enabled)
     class FInheritedContextScope
     {
-    public:
+      public:
         // Non-copyable
         FInheritedContextScope(const FInheritedContextScope&) = delete;
         FInheritedContextScope& operator=(const FInheritedContextScope&) = delete;
 
         // Movable - transfers ownership of context restoration
         FInheritedContextScope(FInheritedContextScope&& Other) noexcept
-            : m_CapturedTag(Other.m_CapturedTag)
-            , m_PreviousTag(Other.m_PreviousTag)
-            , m_bOwnsContext(Other.m_bOwnsContext)
+            : m_CapturedTag(Other.m_CapturedTag), m_PreviousTag(Other.m_PreviousTag), m_bOwnsContext(Other.m_bOwnsContext)
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
-            , m_LLMScopes(std::move(Other.m_LLMScopes))
+              ,
+              m_LLMScopes(std::move(Other.m_LLMScopes))
 #endif
 #if OLO_MEMORY_TAGS_TRACE_ENABLED
-            , m_MemScope(std::move(Other.m_MemScope))
+              ,
+              m_MemScope(std::move(Other.m_MemScope))
 #endif
 #if OLO_TRACE_METADATA_ENABLED
-            , m_MetaScope(std::move(Other.m_MetaScope))
+              ,
+              m_MetaScope(std::move(Other.m_MetaScope))
 #endif
         {
             Other.m_bOwnsContext = false; // Transfer ownership
@@ -231,7 +231,7 @@ namespace OloEngine
                 {
                     OLO::FTaskTagScope::SwapTag(m_PreviousTag);
                 }
-                
+
                 m_CapturedTag = Other.m_CapturedTag;
                 m_PreviousTag = Other.m_PreviousTag;
                 m_bOwnsContext = Other.m_bOwnsContext;
@@ -260,7 +260,7 @@ namespace OloEngine
             // LLMScopes, MemScope, MetaScope destructors handle their own cleanup
         }
 
-    private:
+      private:
         friend class FInheritedContextBase;
 
         // Full constructor with all context types (used by FInheritedContextBase)
@@ -268,26 +268,30 @@ namespace OloEngine
             OLO::ETaskTag InCapturedTag,
             bool bHasCapturedContext
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
-            , const FLLMActiveTagsCapture& InLLMTags
+            ,
+            const FLLMActiveTagsCapture& InLLMTags
 #endif
 #if OLO_MEMORY_TAGS_TRACE_ENABLED
-            , i32 InMemTag
+            ,
+            i32 InMemTag
 #endif
 #if OLO_TRACE_METADATA_ENABLED
-            , u32 InMetadataId
+            ,
+            u32 InMetadataId
 #endif
-        )
-            : m_CapturedTag(InCapturedTag)
-            , m_PreviousTag(OLO::ETaskTag::ENone)
-            , m_bOwnsContext(bHasCapturedContext)
+            )
+            : m_CapturedTag(InCapturedTag), m_PreviousTag(OLO::ETaskTag::ENone), m_bOwnsContext(bHasCapturedContext)
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
-            , m_LLMScopes(InLLMTags)
+              ,
+              m_LLMScopes(InLLMTags)
 #endif
 #if OLO_MEMORY_TAGS_TRACE_ENABLED
-            , m_MemScope(InMemTag)
+              ,
+              m_MemScope(InMemTag)
 #endif
 #if OLO_TRACE_METADATA_ENABLED
-            , m_MetaScope(InMetadataId)
+              ,
+              m_MetaScope(InMetadataId)
 #endif
         {
             if (m_bOwnsContext)
@@ -324,12 +328,12 @@ namespace OloEngine
 
     // @class FInheritedContextBase
     // @brief Base class for capturing and restoring task execution context
-    // 
+    //
     // This class extends inherited context (memory tags, profiling metadata) to cover
     // async execution. It is intended to be used as a base class for task implementations.
-    // 
+    //
     // When profiling/tracing is compiled out, this class has minimal overhead.
-    // 
+    //
     // Usage:
     // @code
     // class FMyTask : public FInheritedContextBase
@@ -339,7 +343,7 @@ namespace OloEngine
     //     {
     //         CaptureInheritedContext(); // Capture at launch site
     //     }
-    //     
+    //
     //     void Execute()
     //     {
     //         FInheritedContextScope Scope = RestoreInheritedContext();
@@ -348,7 +352,7 @@ namespace OloEngine
     //     }
     // };
     // @endcode
-    // 
+    //
     // Key integrations:
     // - Task Tags: Captures which thread type spawned the task
     // - LLM: Captures active Low-Level Memory tracker tags for attribution
@@ -356,11 +360,11 @@ namespace OloEngine
     // - Metadata Trace: Captures call stack ID for attribution
     class FInheritedContextBase
     {
-    public:
+      public:
         FInheritedContextBase() = default;
 
         // @brief Capture the current thread's context for later restoration
-        // 
+        //
         // Must be called in the inherited context, e.g., on launching an async task.
         // This captures memory tags, trace IDs, and other profiling metadata.
         void CaptureInheritedContext()
@@ -368,7 +372,7 @@ namespace OloEngine
             // Capture the current thread's task tag
             m_CapturedTaskTag = OLO::FTaskTagScope::GetCurrentTag();
             m_bContextCaptured = true;
-            
+
             // Capture LLM tags if enabled
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
             m_InheritedLLMTags.CaptureActiveTagData();
@@ -386,10 +390,10 @@ namespace OloEngine
         }
 
         // @brief Restore the captured context for the current scope
-        // 
+        //
         // Must be called where the inherited context should be restored,
         // e.g., at the start of async task execution.
-        // 
+        //
         // @return RAII scope that restores the context until it goes out of scope
         [[nodiscard]] FInheritedContextScope RestoreInheritedContext()
         {
@@ -397,29 +401,38 @@ namespace OloEngine
                 m_CapturedTaskTag,
                 m_bContextCaptured
 #if OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
-                , m_InheritedLLMTags
+                ,
+                m_InheritedLLMTags
 #endif
 #if OLO_MEMORY_TAGS_TRACE_ENABLED
-                , m_InheritedMemTag
+                ,
+                m_InheritedMemTag
 #endif
 #if OLO_TRACE_METADATA_ENABLED
-                , m_InheritedMetadataId
+                ,
+                m_InheritedMetadataId
 #endif
             );
         }
 
         // @brief Check if context was captured
         // @return true if CaptureInheritedContext() was called
-        bool HasCapturedContext() const { return m_bContextCaptured; }
+        bool HasCapturedContext() const
+        {
+            return m_bContextCaptured;
+        }
 
         // @brief Get the captured task tag
         // @return The task tag that was active when context was captured
-        OLO::ETaskTag GetCapturedTaskTag() const { return m_CapturedTaskTag; }
+        OLO::ETaskTag GetCapturedTaskTag() const
+        {
+            return m_CapturedTaskTag;
+        }
 
-    private:
+      private:
         // Captured task tag (which thread type created this task)
         OLO::ETaskTag m_CapturedTaskTag = OLO::ETaskTag::ENone;
-        
+
         // Whether context has been captured
         bool m_bContextCaptured = false;
 

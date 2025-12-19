@@ -13,7 +13,8 @@ namespace OloEngine
     RuntimeAssetSystem::RuntimeAssetSystem()
         : m_Thread("Runtime Asset Thread")
     {
-        m_Thread.Dispatch([this]() { AssetThreadFunc(); });
+        m_Thread.Dispatch([this]()
+                          { AssetThreadFunc(); });
     }
 
     RuntimeAssetSystem::~RuntimeAssetSystem()
@@ -52,7 +53,7 @@ namespace OloEngine
                     {
                         break; // No more work, exit inner loop
                     }
-                    
+
                     requestOpt = m_AssetLoadingQueue.front();
                     m_AssetLoadingQueue.pop();
                 }
@@ -78,11 +79,11 @@ namespace OloEngine
                 {
                     OLO_CORE_ERROR("RuntimeAssetSystem: Unknown exception during asset loading for handle {}", request.Handle);
                 }
-                
+
                 // Move asset to completed queue with capacity check
                 {
                     std::scoped_lock<std::mutex> lock(m_CompletedAssetsMutex);
-                    
+
                     // Implement back-pressure: limit completed queue size
                     constexpr sizet MAX_COMPLETED_QUEUE_SIZE = 1000;
                     if (m_CompletedAssets.size() >= MAX_COMPLETED_QUEUE_SIZE)
@@ -90,8 +91,8 @@ namespace OloEngine
                         OLO_CORE_WARN("RuntimeAssetSystem: Completed assets queue is full ({} items), dropping oldest asset", m_CompletedAssets.size());
                         m_CompletedAssets.pop(); // Remove oldest asset
                     }
-                    
-                    m_CompletedAssets.push({request.Handle, asset});
+
+                    m_CompletedAssets.push({ request.Handle, asset });
                 }
 
                 // Remove from pending set
@@ -106,7 +107,8 @@ namespace OloEngine
                 // Wait for new assets to load or stop signal
                 std::unique_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
                 m_AssetLoadingQueueCV.wait(lock,
-                    [this] { return !m_AssetLoadingQueue.empty() || !m_Running.load(std::memory_order_acquire); });
+                                           [this]
+                                           { return !m_AssetLoadingQueue.empty() || !m_Running.load(std::memory_order_acquire); });
             }
         }
     }
@@ -151,13 +153,13 @@ namespace OloEngine
         // This method is called from the main thread to process completed assets
         // In a full implementation, this would notify the RuntimeAssetManager
         // of newly loaded assets. For now, we just clear the completed queue.
-        
+
         std::scoped_lock<std::mutex> lock(m_CompletedAssetsMutex);
         while (!m_CompletedAssets.empty())
         {
             auto [handle, asset] = m_CompletedAssets.front();
             m_CompletedAssets.pop();
-            
+
             if (asset)
             {
                 OLO_CORE_TRACE("RuntimeAssetSystem: Asset loaded and ready: {}", static_cast<u64>(handle));
@@ -192,7 +194,7 @@ namespace OloEngine
         // 1. Find the asset in the active asset pack
         // 2. Deserialize the asset from binary data
         // 3. Return the loaded asset
-        
+
         OLO_CORE_ERROR("LoadAssetFromPack not implemented - asset pack loading not yet supported for handle {0}", handle);
         return nullptr;
     }

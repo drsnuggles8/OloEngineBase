@@ -23,7 +23,8 @@ namespace OloEngine
         sizet len = std::strlen(defaultPath);
         sizet copyLen = std::min(len, m_OutputPathBuffer.size() - 1);
         std::memcpy(m_OutputPathBuffer.data(), defaultPath, copyLen);
-        m_OutputPathBuffer[copyLen] = '\0';    }
+        m_OutputPathBuffer[copyLen] = '\0';
+    }
 
     AssetPackBuilderPanel::~AssetPackBuilderPanel()
     {
@@ -39,11 +40,11 @@ namespace OloEngine
     {
         // Synchronize output path buffer from settings
         std::string pathStr = m_BuildSettings.m_OutputPath.string();
-        
+
         // Safely copy to buffer with bounds checking
         sizet copyLength = std::min(pathStr.length(), m_OutputPathBuffer.size() - 1);
         std::memcpy(m_OutputPathBuffer.data(), pathStr.c_str(), copyLength);
-        m_OutputPathBuffer[copyLength] = '\0';  // Ensure null termination
+        m_OutputPathBuffer[copyLength] = '\0'; // Ensure null termination
     }
 
     void AssetPackBuilderPanel::OnImGuiRender(bool& isOpen)
@@ -63,10 +64,10 @@ namespace OloEngine
             {
                 // Join the completed thread
                 m_BuildThread.join();
-                
+
                 m_HasBuildResult.store(true);
-                m_BuildProgressPermille.store(1000);  // 100% in permille
-                
+                m_BuildProgressPermille.store(1000); // 100% in permille
+
                 if (m_LastBuildResult.m_Success)
                 {
                     OLO_CORE_INFO("Asset pack build completed successfully: {}", m_LastBuildResult.m_OutputPath.string());
@@ -79,16 +80,16 @@ namespace OloEngine
 
             RenderBuildSettings();
             ImGui::Separator();
-            
+
             RenderBuildActions();
             ImGui::Separator();
-            
+
             if (m_IsBuildInProgress.load())
             {
                 RenderBuildProgress();
                 ImGui::Separator();
             }
-            
+
             if (m_HasBuildResult.load())
             {
                 RenderBuildResults();
@@ -107,12 +108,12 @@ namespace OloEngine
             ImGui::Text("Output Path:");
             ImGui::SameLine();
             bool pathChanged = ImGui::InputText("##OutputPath", m_OutputPathBuffer.data(), m_OutputPathBuffer.size());
-            
+
             // Validate path on change
             if (pathChanged)
             {
                 std::string inputPath = m_OutputPathBuffer.data();
-                
+
                 // Automatically append .olopack extension if missing
                 std::filesystem::path fsPath(inputPath);
                 if (fsPath.extension() != ".olopack")
@@ -123,7 +124,7 @@ namespace OloEngine
                     std::memcpy(m_OutputPathBuffer.data(), inputPath.c_str(), len);
                     m_OutputPathBuffer[len] = '\0';
                 }
-                
+
                 // Validate the path
                 if (ValidateOutputPath(inputPath, m_OutputPathError))
                 {
@@ -132,7 +133,7 @@ namespace OloEngine
                 }
                 // If invalid, don't update m_OutputPath but keep the error message for display
             }
-            
+
             // Display validation error if any
             if (!m_OutputPathError.empty())
             {
@@ -225,7 +226,7 @@ namespace OloEngine
             // Status information
             ImGui::Spacing();
             ImGui::Text("Project: %s", Project::GetActive() ? Project::GetActive()->GetConfig().Name.c_str() : "None");
-            
+
             std::filesystem::path assetDir = Project::GetActive() ? Project::GetAssetDirectory() : "";
             ImGui::Text("Assets Directory: %s", assetDir.string().c_str());
 
@@ -258,7 +259,7 @@ namespace OloEngine
             if (m_LastBuildResult.m_Success)
             {
                 ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "✓ Build Successful");
-                
+
                 ImGui::Text("Output File: %s", m_LastBuildResult.m_OutputPath.string().c_str());
                 ImGui::Text("Assets Packed: %zu", m_LastBuildResult.m_AssetCount);
                 ImGui::Text("Scenes Packed: %zu", m_LastBuildResult.m_SceneCount);
@@ -317,7 +318,8 @@ namespace OloEngine
 
         // Start build thread
         m_IsBuildInProgress.store(true);
-        m_BuildThread = std::jthread([this](std::stop_token stopToken) {
+        m_BuildThread = std::jthread([this](std::stop_token stopToken)
+                                     {
             // Create a cancellation flag bridge for the AssetPackBuilder API
             std::atomic<bool> cancelRequested{false};
             
@@ -352,8 +354,7 @@ namespace OloEngine
             
             // Store result and mark build complete
             m_LastBuildResult = result;
-            m_IsBuildInProgress.store(false);
-        });
+            m_IsBuildInProgress.store(false); });
 
         OLO_CORE_INFO("Started asset pack build to: {}", m_BuildSettings.m_OutputPath.string());
     }
@@ -370,13 +371,13 @@ namespace OloEngine
         {
             m_BuildThread.request_stop();
         }
-        
+
         // Update UI state immediately for responsive feedback
         m_IsBuildInProgress.store(false);
         m_BuildProgressPermille.store(0);
-        
+
         OLO_CORE_INFO("Asset pack build cancellation requested");
-        
+
         // Note: The actual build may continue in the background until completion
         // The destructor will wait() on the future to ensure proper cleanup
     }
@@ -424,7 +425,7 @@ namespace OloEngine
                 return false;
             }
             testStream.close();
-            std::filesystem::remove(testFile);  // Clean up test file
+            std::filesystem::remove(testFile); // Clean up test file
         }
         catch (const std::exception& e)
         {
@@ -435,4 +436,4 @@ namespace OloEngine
         errorMessage.clear();
         return true;
     }
-}
+} // namespace OloEngine

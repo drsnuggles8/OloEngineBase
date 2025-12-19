@@ -25,17 +25,17 @@ namespace OloEngine
     /**
      * Multi-producer/multi-consumer unbounded concurrent queue (implemented as a Stack) that is atomically consumed
      * and is reset to its default empty state. Validated and run through atomic race detector.
-     * 
+     *
      * This queue is optimized for the consume-all pattern where all items are atomically removed and processed
      * at once, rather than individual pop operations.
-     * 
+     *
      * @tparam T The element type to store
      * @tparam AllocatorType Allocator class that provides Malloc/Free static methods. Defaults to FMemory.
      */
     template<typename T, typename AllocatorType = FMemory>
     class TConsumeAllMpmcQueue final
     {
-    public:
+      public:
         TConsumeAllMpmcQueue(const TConsumeAllMpmcQueue&) = delete;
         TConsumeAllMpmcQueue& operator=(const TConsumeAllMpmcQueue&) = delete;
 
@@ -56,10 +56,10 @@ namespace OloEngine
          * @returns EConsumeAllMpmcQueueResult::WasEmpty if the Queue was empty before,
          *          or EConsumeAllMpmcQueueResult::HadItems if there were already items in it.
          */
-        template <typename... ArgTypes>
+        template<typename... ArgTypes>
         EConsumeAllMpmcQueueResult ProduceItem(ArgTypes&&... Args)
         {
-            FNode* New = ::new(AllocatorType::Malloc(sizeof(FNode), alignof(FNode))) FNode;
+            FNode* New = ::new (AllocatorType::Malloc(sizeof(FNode), alignof(FNode))) FNode;
             ::new (static_cast<void*>(&New->Item)) T(Forward<ArgTypes>(Args)...);
 
             // Atomically append to the top of the Queue
@@ -68,7 +68,7 @@ namespace OloEngine
             {
                 New->Next.store(Prev, std::memory_order_relaxed);
             } while (!m_Head.compare_exchange_weak(Prev, New, std::memory_order_acq_rel, std::memory_order_relaxed));
-            
+
             return Prev == nullptr ? EConsumeAllMpmcQueueResult::WasEmpty : EConsumeAllMpmcQueueResult::HadItems;
         }
 
@@ -104,7 +104,7 @@ namespace OloEngine
             return m_Head.load(std::memory_order_relaxed) == nullptr;
         }
 
-    private:
+      private:
         struct FNode
         {
             std::atomic<FNode*> Next{ nullptr };

@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
-#include "OloEngine/Renderer/EnvironmentMap.h"  // For IBLConfiguration
+#include "OloEngine/Renderer/EnvironmentMap.h" // For IBLConfiguration
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -29,9 +29,8 @@ namespace OloEngine
         if (!s_IBLCameraUBO)
         {
             s_IBLCameraUBO = UniformBuffer::Create(
-                ShaderBindingLayout::CameraUBO::GetSize(), 
-                ShaderBindingLayout::UBO_CAMERA
-            );
+                ShaderBindingLayout::CameraUBO::GetSize(),
+                ShaderBindingLayout::UBO_CAMERA);
         }
 
         // Prepare camera data
@@ -56,15 +55,15 @@ namespace OloEngine
             OLO_CORE_ERROR("IBLPrecompute::GenerateIrradianceMap: IrradianceConvolution shader not found");
             return;
         }
-        
+
         auto shader = shaderLibrary.Get("IrradianceConvolution");
 
         // Bind environment map
         environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
-        
+
         // Use the render to cubemap helper
         RenderToCubemap(irradianceMap, shader, GetCubeMesh());
-        
+
         OLO_CORE_INFO("Irradiance map generation complete");
     }
 
@@ -78,37 +77,37 @@ namespace OloEngine
             OLO_CORE_ERROR("IBLPrecompute::GeneratePrefilterMap: IBLPrefilter shader not found");
             return;
         }
-        
+
         auto shader = shaderLibrary.Get("IBLPrefilter");
 
         // Bind environment map
         environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
-        
+
         // Create IBL parameters uniform buffer
         auto iblParamsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLParametersUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
-        
+
         // Generate each mip level with different roughness values
-        const u32 maxMipLevels = 5; // 0 to 4
+        const u32 maxMipLevels = 5;                             // 0 to 4
         const u32 sampleCounts[] = { 1024, 512, 256, 128, 64 }; // More samples for lower roughness
-        
+
         for (u32 mip = 0; mip < maxMipLevels; ++mip)
         {
             f32 roughness = static_cast<f32>(mip) / static_cast<f32>(maxMipLevels - 1);
-            
+
             // Update IBL parameters with sample count for importance sampling
             ShaderBindingLayout::IBLParametersUBO iblParams;
             iblParams.Roughness = roughness;
             iblParams.ExposureAdjustment = static_cast<f32>(sampleCounts[mip]); // Use exposure for sample count
-            iblParams.IBLIntensity = 1.0f;        // Default IBL intensity
-            iblParams.IBLRotation = 0.0f;         // Default rotation
-            
+            iblParams.IBLIntensity = 1.0f;                                      // Default IBL intensity
+            iblParams.IBLRotation = 0.0f;                                       // Default rotation
+
             iblParamsUBO->SetData(&iblParams, sizeof(iblParams));
-            
+
             shader->Bind();
-            
+
             RenderToCubemap(prefilterMap, shader, GetCubeMesh(), mip);
         }
-        
+
         OLO_CORE_INFO("Prefiltered environment map generation complete");
     }
 
@@ -122,11 +121,11 @@ namespace OloEngine
             OLO_CORE_ERROR("IBLPrecompute::GenerateBRDFLut: BRDFLutGeneration shader not found");
             return;
         }
-        
+
         auto shader = shaderLibrary.Get("BRDFLutGeneration");
 
         RenderToTexture(brdfLutMap, shader, GetQuadMesh());
-        
+
         OLO_CORE_INFO("BRDF lookup table generation complete");
     }
 
@@ -137,10 +136,10 @@ namespace OloEngine
 
         // Load HDR image
         stbi_set_flip_vertically_on_load(true);
-        
+
         i32 width, height, channels;
         f32* data = stbi_loadf(filePath.c_str(), &width, &height, &channels, 0);
-        
+
         if (!data)
         {
             OLO_CORE_ERROR("Failed to load HDR image: {}", filePath);
@@ -153,10 +152,10 @@ namespace OloEngine
         hdrSpec.Height = height;
         hdrSpec.Format = channels == 3 ? ImageFormat::RGB32F : ImageFormat::RGBA32F;
         hdrSpec.GenerateMips = false;
-        
+
         auto hdrTexture = Texture2D::Create(hdrSpec);
         hdrTexture->SetData(data, width * height * channels * sizeof(f32));
-        
+
         stbi_image_free(data);
 
         // Create cubemap
@@ -164,8 +163,8 @@ namespace OloEngine
         cubemapSpec.Width = resolution;
         cubemapSpec.Height = resolution;
         cubemapSpec.Format = ImageFormat::RGB32F;
-        cubemapSpec.GenerateMips = false;  // We'll render to mips manually
-        
+        cubemapSpec.GenerateMips = false; // We'll render to mips manually
+
         auto cubemap = TextureCubemap::Create(cubemapSpec);
 
         // Get shader for conversion
@@ -174,15 +173,15 @@ namespace OloEngine
             OLO_CORE_ERROR("IBLPrecompute::ConvertEquirectangularToCubemap: EquirectangularToCubemap shader not found");
             return nullptr;
         }
-        
+
         auto shader = shaderLibrary.Get("EquirectangularToCubemap");
 
         // Bind HDR texture
         hdrTexture->Bind(0);
-        
+
         // Render to cubemap
         RenderToCubemap(cubemap, shader, GetCubeMesh());
-        
+
         OLO_CORE_INFO("Equirectangular to cubemap conversion complete");
         return cubemap;
     }
@@ -190,7 +189,7 @@ namespace OloEngine
     Ref<TextureCubemap> IBLPrecompute::CreateCubemapFromFaces(const std::vector<std::string>& facePaths)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         if (facePaths.size() != 6)
         {
             OLO_CORE_ERROR("IBLPrecompute::CreateCubemapFromFaces: Expected 6 face paths, got {}", facePaths.size());
@@ -200,23 +199,23 @@ namespace OloEngine
         return TextureCubemap::Create(facePaths);
     }
 
-    void IBLPrecompute::RenderToCubemap(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader, 
-                                       const Ref<Mesh>& cubeMesh, u32 mipLevel)
+    void IBLPrecompute::RenderToCubemap(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader,
+                                        const Ref<Mesh>& cubeMesh, u32 mipLevel)
     {
         OLO_PROFILE_FUNCTION();
 
         // Calculate viewport size for this mip level
         u32 mipWidth = cubemap->GetWidth() >> mipLevel;
         u32 mipHeight = cubemap->GetHeight() >> mipLevel;
-        
+
         // View matrices for each face
         const glm::mat4 captureViews[] = {
-            glm::lookAt(glm::vec3(0.0f), glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // +X
-            glm::lookAt(glm::vec3(0.0f), glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // -X
-            glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f)), // +Y
-            glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f)), // -Y
-            glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f)), // +Z
-            glm::lookAt(glm::vec3(0.0f), glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f))  // -Z
+            glm::lookAt(glm::vec3(0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),  // +X
+            glm::lookAt(glm::vec3(0.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)), // -X
+            glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)),   // +Y
+            glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)), // -Y
+            glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),  // +Z
+            glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))  // -Z
         };
 
         const glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
@@ -244,7 +243,7 @@ namespace OloEngine
             framebuffer->Bind();
             RenderCommand::SetViewport(0, 0, mipWidth, mipHeight);
             RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-            
+
             // Clear framebuffer
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -255,23 +254,23 @@ namespace OloEngine
 
             // Now copy from framebuffer to cubemap face using glCopyImageSubData
             u32 framebufferColorTexture = framebuffer->GetColorAttachmentRendererID(0);
-            
+
             // Check for OpenGL errors before the copy operation
             GLenum error = glGetError();
             if (error != GL_NO_ERROR)
             {
                 OLO_CORE_WARN("OpenGL error before copy: {0}", error);
             }
-            
+
             // Use glCopyImageSubData instead of glCopyTextureSubImage3D for better compatibility
             glCopyImageSubData(
-                framebufferColorTexture, GL_TEXTURE_2D, 0,  // Source texture, target, level
-                0, 0, 0,                                     // Source x, y, z
-                cubemap->GetRendererID(), GL_TEXTURE_CUBE_MAP, 0,  // Dest texture, target, ALWAYS use level 0
-                0, 0, i,                                     // Dest x, y, z (z = face index)
-                static_cast<GLsizei>(mipWidth), static_cast<GLsizei>(mipHeight), 1  // Width, height, depth
+                framebufferColorTexture, GL_TEXTURE_2D, 0,                         // Source texture, target, level
+                0, 0, 0,                                                           // Source x, y, z
+                cubemap->GetRendererID(), GL_TEXTURE_CUBE_MAP, 0,                  // Dest texture, target, ALWAYS use level 0
+                0, 0, i,                                                           // Dest x, y, z (z = face index)
+                static_cast<GLsizei>(mipWidth), static_cast<GLsizei>(mipHeight), 1 // Width, height, depth
             );
-            
+
             // Check for errors after the copy
             error = glGetError();
             if (error != GL_NO_ERROR)
@@ -279,16 +278,16 @@ namespace OloEngine
                 OLO_CORE_ERROR("OpenGL error during cubemap face copy {0}: {1}", i, error);
             }
         }
-        
+
         framebuffer->Unbind();
-        
+
         // Restore previous OpenGL state
         if (wasStencilTestEnabled)
             glEnable(GL_STENCIL_TEST);
     }
 
-    void IBLPrecompute::RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader, 
-                                       const Ref<Mesh>& quadMesh)
+    void IBLPrecompute::RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader,
+                                        const Ref<Mesh>& quadMesh)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -297,7 +296,7 @@ namespace OloEngine
         fbSpec.Width = texture->GetWidth();
         fbSpec.Height = texture->GetHeight();
         fbSpec.Attachments = { FramebufferTextureFormat::RG32F, FramebufferTextureFormat::Depth };
-        
+
         auto framebuffer = Framebuffer::Create(fbSpec);
 
         // Store previous OpenGL state
@@ -309,7 +308,7 @@ namespace OloEngine
         framebuffer->Bind();
         RenderCommand::SetViewport(0, 0, texture->GetWidth(), texture->GetHeight());
         RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-        
+
         // Clear only color and depth buffers for IBL framebuffer
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -320,20 +319,20 @@ namespace OloEngine
         RenderCommand::DrawIndexed(vertexArray);
 
         framebuffer->Unbind();
-        
+
         // Copy framebuffer to texture using DSA
         u32 framebufferColorTexture = framebuffer->GetColorAttachmentRendererID(0);
-        
+
         // Copy from framebuffer color attachment to the texture
         glCopyTextureSubImage2D(
-            texture->GetRendererID(),              // Destination texture
-            0,                                     // Mip level
-            0, 0,                                  // X and Y offsets in destination
-            0, 0,                                  // X and Y offsets in source
-            static_cast<GLsizei>(texture->GetWidth()),  // Width
-            static_cast<GLsizei>(texture->GetHeight())  // Height
+            texture->GetRendererID(),                  // Destination texture
+            0,                                         // Mip level
+            0, 0,                                      // X and Y offsets in destination
+            0, 0,                                      // X and Y offsets in source
+            static_cast<GLsizei>(texture->GetWidth()), // Width
+            static_cast<GLsizei>(texture->GetHeight()) // Height
         );
-        
+
         // Restore previous OpenGL state
         if (wasStencilTestEnabled)
             glEnable(GL_STENCIL_TEST);
@@ -358,10 +357,10 @@ namespace OloEngine
     }
 
     // Enhanced IBL generation methods implementation
-    void IBLPrecompute::GenerateIrradianceMapAdvanced(const Ref<TextureCubemap>& environmentMap, 
-                                                     const Ref<TextureCubemap>& irradianceMap, 
-                                                     ShaderLibrary& shaderLibrary, 
-                                                     const IBLConfiguration& config)
+    void IBLPrecompute::GenerateIrradianceMapAdvanced(const Ref<TextureCubemap>& environmentMap,
+                                                      const Ref<TextureCubemap>& irradianceMap,
+                                                      ShaderLibrary& shaderLibrary,
+                                                      const IBLConfiguration& config)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Generating enhanced irradiance map with {} samples", config.IrradianceSamples);
@@ -387,7 +386,7 @@ namespace OloEngine
         shader->Bind();
         shader->SetInt("u_EnvironmentMap", 9);
         shader->SetInt("u_SampleCount", config.IrradianceSamples);
-        
+
         // Set quality-based parameters
         switch (config.Quality)
         {
@@ -407,25 +406,25 @@ namespace OloEngine
 
         // Bind environment map
         environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
-        
+
         // Use enhanced rendering with configuration
         RenderToCubemapAdvanced(irradianceMap, shader, GetCubeMesh(), config);
-        
+
         OLO_CORE_INFO("Enhanced irradiance map generation complete");
     }
 
-    void IBLPrecompute::GeneratePrefilterMapAdvanced(const Ref<TextureCubemap>& environmentMap, 
-                                                    const Ref<TextureCubemap>& prefilterMap, 
-                                                    ShaderLibrary& shaderLibrary, 
-                                                    const IBLConfiguration& config)
+    void IBLPrecompute::GeneratePrefilterMapAdvanced(const Ref<TextureCubemap>& environmentMap,
+                                                     const Ref<TextureCubemap>& prefilterMap,
+                                                     ShaderLibrary& shaderLibrary,
+                                                     const IBLConfiguration& config)
     {
         OLO_PROFILE_FUNCTION();
-        OLO_CORE_INFO("Generating enhanced prefilter map with {} samples and importance sampling: {}", 
-                     config.PrefilterSamples, config.UseImportanceSampling);
+        OLO_CORE_INFO("Generating enhanced prefilter map with {} samples and importance sampling: {}",
+                      config.PrefilterSamples, config.UseImportanceSampling);
 
         Ref<Shader> shader = nullptr;
         const std::string preferredShader = config.UseImportanceSampling ? "IBLPrefilterImportance" : "IBLPrefilter";
-        
+
         if (shaderLibrary.Exists(preferredShader))
         {
             shader = shaderLibrary.Get(preferredShader);
@@ -444,23 +443,23 @@ namespace OloEngine
 
         // Bind environment map
         environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
-        
+
         // Generate mipmaps with varying roughness values and sample counts
         const u32 maxMipLevels = 5;
         for (u32 mip = 0; mip < maxMipLevels; ++mip)
         {
             float roughness = static_cast<float>(mip) / static_cast<float>(maxMipLevels - 1);
-            
+
             // Calculate sample count based on quality and mip level
             u32 sampleCount = config.PrefilterSamples >> mip; // Reduce samples for higher mips
-            sampleCount = std::max(sampleCount, 32u); // Minimum sample count
-            
+            sampleCount = std::max(sampleCount, 32u);         // Minimum sample count
+
             shader->Bind();
             shader->SetInt("u_EnvironmentMap", ShaderBindingLayout::TEX_ENVIRONMENT);
             shader->SetFloat("u_Roughness", roughness);
             shader->SetInt("u_SampleCount", sampleCount);
             shader->SetInt("u_UseImportanceSampling", config.UseImportanceSampling ? 1 : 0);
-            
+
             // Set quality parameters
             switch (config.Quality)
             {
@@ -477,16 +476,16 @@ namespace OloEngine
                     shader->SetFloat("u_QualityMultiplier", 2.0f);
                     break;
             }
-            
+
             RenderToCubemapAdvanced(prefilterMap, shader, GetCubeMesh(), config, mip);
         }
-        
+
         OLO_CORE_INFO("Enhanced prefilter map generation complete");
     }
 
-    void IBLPrecompute::GenerateBRDFLutAdvanced(const Ref<Texture2D>& brdfLutMap, 
-                                              ShaderLibrary& shaderLibrary, 
-                                              const IBLConfiguration& config)
+    void IBLPrecompute::GenerateBRDFLutAdvanced(const Ref<Texture2D>& brdfLutMap,
+                                                ShaderLibrary& shaderLibrary,
+                                                const IBLConfiguration& config)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Generating enhanced BRDF LUT");
@@ -511,7 +510,7 @@ namespace OloEngine
         // Configure shader with enhanced settings
         shader->Bind();
         shader->SetInt("u_SampleCount", 1024); // High sample count for BRDF LUT accuracy
-        
+
         // Set quality parameters
         switch (config.Quality)
         {
@@ -528,28 +527,28 @@ namespace OloEngine
                 shader->SetInt("u_SampleCount", 2048);
                 break;
         }
-        
+
         RenderToTextureAdvanced(brdfLutMap, shader, GetQuadMesh(), config);
-        
+
         OLO_CORE_INFO("Enhanced BRDF LUT generation complete");
     }
 
     // Enhanced rendering methods
-    void IBLPrecompute::RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader, 
-                                              const Ref<Mesh>& cubeMesh, const IBLConfiguration& config, u32 mipLevel)
+    void IBLPrecompute::RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader,
+                                                const Ref<Mesh>& cubeMesh, const IBLConfiguration& config, u32 mipLevel)
     {
         // Use standard render method for now - can be enhanced with parallel rendering if needed
         RenderToCubemap(cubemap, shader, cubeMesh, mipLevel);
-        
+
         // Future enhancement: implement parallel face rendering if config.EnableMultithreading is true
     }
 
-    void IBLPrecompute::RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader, 
-                                              const Ref<Mesh>& quadMesh, const IBLConfiguration& config)
+    void IBLPrecompute::RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader,
+                                                const Ref<Mesh>& quadMesh, const IBLConfiguration& config)
     {
         // Use standard render method for now - can be enhanced with additional quality parameters
         RenderToTexture(texture, shader, quadMesh);
-        
+
         // Future enhancement: implement additional quality-based optimizations
     }
-}
+} // namespace OloEngine

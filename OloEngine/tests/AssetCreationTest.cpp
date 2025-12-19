@@ -5,7 +5,7 @@
 using namespace OloEngine;
 
 // @brief Tests for asset creation and basic functionality
-    class AssetCreationTest : public ::testing::Test
+class AssetCreationTest : public ::testing::Test
 {
 };
 
@@ -54,15 +54,15 @@ TEST_F(AssetCreationTest, ScriptFileAsset_Creation)
 TEST_F(AssetCreationTest, ColliderMaterial_Basic)
 {
     ColliderMaterial material;
-    
+
     // Test default values
     EXPECT_FLOAT_EQ(material.GetStaticFriction(), 0.6f) << "Default static friction should be 0.6";
     EXPECT_FLOAT_EQ(material.GetRestitution(), 0.0f) << "Default restitution should be 0.0";
-    
+
     // Test assignment through setters
     material.SetStaticFriction(0.8f);
     material.SetRestitution(0.2f);
-    
+
     EXPECT_FLOAT_EQ(material.GetStaticFriction(), 0.8f) << "Static friction should be assignable";
     EXPECT_FLOAT_EQ(material.GetRestitution(), 0.2f) << "Restitution should be assignable";
 }

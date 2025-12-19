@@ -2,11 +2,11 @@
 
 // @file LockFreeList.h
 // @brief Lock-free linked list implementations for OloEngine
-// 
+//
 // This is a complete port of UE5's indexed pointer-based lock-free lists.
 // The key to ABA safety is using indexed pointers with a 38-bit ABA counter
 // instead of raw pointers.
-// 
+//
 // Key components:
 // - FIndexedPointer: 64-bit value combining 26-bit index + 38-bit ABA counter
 // - TLockFreeAllocOnceIndexedAllocator: Pre-allocated link pool (never frees)
@@ -15,7 +15,7 @@
 // - FLockFreePointerFIFOBase: FIFO queue using indexed pointers
 // - FStallingTaskQueue: Priority-based task queue with thread stalling
 // - TClosableLockFreePointerListUnorderedSingleConsumer: Closable list for dependencies
-// 
+//
 // Ported from Unreal Engine's LockFreeList.h
 
 #include "OloEngine/Core/Base.h"
@@ -29,26 +29,26 @@
 
 namespace OloEngine
 {
-    // ========================================================================
-    // Configuration Constants
-    // ========================================================================
+// ========================================================================
+// Configuration Constants
+// ========================================================================
 
-    // Maximum number of lock-free links (2^26 = ~67 million)
-    #define MAX_LOCK_FREE_LINKS_AS_BITS (26)
-    #define MAX_LOCK_FREE_LINKS (1 << MAX_LOCK_FREE_LINKS_AS_BITS)
-    
-    // Maximum value for the ABA counter (38 bits)
-    #define MAX_TAG_BITS_VALUE (u64(1) << (64 - MAX_LOCK_FREE_LINKS_AS_BITS))
+// Maximum number of lock-free links (2^26 = ~67 million)
+#define MAX_LOCK_FREE_LINKS_AS_BITS (26)
+#define MAX_LOCK_FREE_LINKS (1 << MAX_LOCK_FREE_LINKS_AS_BITS)
+
+// Maximum value for the ABA counter (38 bits)
+#define MAX_TAG_BITS_VALUE (u64(1) << (64 - MAX_LOCK_FREE_LINKS_AS_BITS))
 
     // ========================================================================
     // Debug/Test Helpers
     // ========================================================================
 
-    #if OLO_DEBUG
-        #define checkLockFreePointerList(x) OLO_CORE_ASSERT(x, "LockFreeList check failed")
-    #else
-        #define checkLockFreePointerList(x) ((void)0)
-    #endif
+#if OLO_DEBUG
+#define checkLockFreePointerList(x) OLO_CORE_ASSERT(x, "LockFreeList check failed")
+#else
+#define checkLockFreePointerList(x) ((void)0)
+#endif
 
     // Test critical stalls - for finding livelocks in lock-free code
     // When enabled, randomly sleeps at critical points to encourage race conditions
@@ -89,11 +89,11 @@ namespace OloEngine
 
     // @class TLockFreeAllocOnceIndexedAllocator
     // @brief Pre-allocated pool of items accessed by index
-    // 
+    //
     // This allocator never frees memory - it only recycles indices.
     // This is critical for ABA safety because the same index always
     // points to the same memory location.
-    // 
+    //
     // @tparam T Type of items to allocate
     // @tparam MaxTotalItems Maximum total items
     // @tparam ItemsPerPage Items per allocation page
@@ -102,7 +102,7 @@ namespace OloEngine
     {
         static constexpr unsigned int MaxBlocks = (MaxTotalItems + ItemsPerPage - 1) / ItemsPerPage;
 
-    public:
+      public:
         [[nodiscard]] TLockFreeAllocOnceIndexedAllocator()
         {
             ++m_NextIndex; // skip index 0 (null pointer)
@@ -140,31 +140,30 @@ namespace OloEngine
             }
             u32 BlockIndex = Index / ItemsPerPage;
             u32 SubIndex = Index % ItemsPerPage;
-            checkLockFreePointerList(Index < m_NextIndex.load(std::memory_order_relaxed) && 
-                                    Index < MaxTotalItems && 
-                                    BlockIndex < MaxBlocks && 
-                                    m_Pages[BlockIndex]);
+            checkLockFreePointerList(Index < m_NextIndex.load(std::memory_order_relaxed) &&
+                                     Index < MaxTotalItems &&
+                                     BlockIndex < MaxBlocks &&
+                                     m_Pages[BlockIndex]);
             return m_Pages[BlockIndex] + SubIndex;
         }
 
-    private:
+      private:
         [[nodiscard]] void* GetRawItem(u32 Index)
         {
             u32 BlockIndex = Index / ItemsPerPage;
             u32 SubIndex = Index % ItemsPerPage;
-            checkLockFreePointerList(Index && 
-                                    Index < m_NextIndex.load(std::memory_order_relaxed) && 
-                                    Index < MaxTotalItems && 
-                                    BlockIndex < MaxBlocks);
+            checkLockFreePointerList(Index &&
+                                     Index < m_NextIndex.load(std::memory_order_relaxed) &&
+                                     Index < MaxTotalItems &&
+                                     BlockIndex < MaxBlocks);
             if (!m_Pages[BlockIndex])
             {
                 T* NewBlock = static_cast<T*>(LockFreeAllocLinks(ItemsPerPage * sizeof(T)));
                 checkLockFreePointerList(IsAligned(NewBlock, alignof(T)));
-                
+
                 // Atomic compare-exchange to set the page
                 T* Expected = nullptr;
-                if (!std::atomic_ref(m_Pages[BlockIndex]).compare_exchange_strong(
-                    Expected, NewBlock, std::memory_order_release, std::memory_order_relaxed))
+                if (!std::atomic_ref(m_Pages[BlockIndex]).compare_exchange_strong(Expected, NewBlock, std::memory_order_release, std::memory_order_relaxed))
                 {
                     // Another thread beat us - discard our block
                     checkLockFreePointerList(m_Pages[BlockIndex] && m_Pages[BlockIndex] != NewBlock);
@@ -178,7 +177,7 @@ namespace OloEngine
             return static_cast<void*>(m_Pages[BlockIndex] + SubIndex);
         }
 
-        alignas(OLO_PLATFORM_CACHE_LINE_SIZE) std::atomic<u32> m_NextIndex{0};
+        alignas(OLO_PLATFORM_CACHE_LINE_SIZE) std::atomic<u32> m_NextIndex{ 0 };
         alignas(OLO_PLATFORM_CACHE_LINE_SIZE) T* m_Pages[MaxBlocks];
     };
 
@@ -188,11 +187,11 @@ namespace OloEngine
 
     // @struct FIndexedPointer
     // @brief 64-bit atomic pointer combining index and ABA counter
-    // 
+    //
     // Layout:
     // - Bits 0-25: Index (26 bits, supports up to 67 million links)
     // - Bits 26-63: ABA counter/state (38 bits)
-    // 
+    //
     // The ABA counter prevents the ABA problem by ensuring that even if
     // an index is recycled, the counter will be different.
     struct alignas(8) FIndexedPointer
@@ -202,18 +201,18 @@ namespace OloEngine
         // @brief Initialize to zero (only for non-recycled pointers)
         void Init()
         {
-            static_assert(((MAX_LOCK_FREE_LINKS - 1) & MAX_LOCK_FREE_LINKS) == 0, 
-                         "MAX_LOCK_FREE_LINKS must be a power of two");
+            static_assert(((MAX_LOCK_FREE_LINKS - 1) & MAX_LOCK_FREE_LINKS) == 0,
+                          "MAX_LOCK_FREE_LINKS must be a power of two");
             m_Ptrs.store(0, std::memory_order_relaxed);
         }
 
         // @brief Set both pointer and counter/state
         inline void SetAll(u32 Ptr, u64 CounterAndState)
         {
-            checkLockFreePointerList(Ptr < MAX_LOCK_FREE_LINKS && 
-                                    CounterAndState < MAX_TAG_BITS_VALUE);
-            m_Ptrs.store(u64(Ptr) | (CounterAndState << MAX_LOCK_FREE_LINKS_AS_BITS), 
-                        std::memory_order_relaxed);
+            checkLockFreePointerList(Ptr < MAX_LOCK_FREE_LINKS &&
+                                     CounterAndState < MAX_TAG_BITS_VALUE);
+            m_Ptrs.store(u64(Ptr) | (CounterAndState << MAX_LOCK_FREE_LINKS_AS_BITS),
+                         std::memory_order_relaxed);
         }
 
         // @brief Get the index portion
@@ -280,31 +279,31 @@ namespace OloEngine
         // @param Exchange Value to set if comparison succeeds
         // @param Comparand Expected current value
         // @return True if exchange succeeded
-        inline bool InterlockedCompareExchange(const FIndexedPointer& Exchange, 
+        inline bool InterlockedCompareExchange(const FIndexedPointer& Exchange,
                                                const FIndexedPointer& Comparand)
         {
             TestCriticalStall();
             u64 Expected = Comparand.m_Ptrs.load(std::memory_order_relaxed);
             return m_Ptrs.compare_exchange_strong(
-                Expected, 
+                Expected,
                 Exchange.m_Ptrs.load(std::memory_order_relaxed),
-                std::memory_order_acq_rel, 
+                std::memory_order_acq_rel,
                 std::memory_order_relaxed);
         }
 
         [[nodiscard]] OLO_FINLINE bool operator==(const FIndexedPointer& Other) const
         {
-            return m_Ptrs.load(std::memory_order_relaxed) == 
+            return m_Ptrs.load(std::memory_order_relaxed) ==
                    Other.m_Ptrs.load(std::memory_order_relaxed);
         }
 
         [[nodiscard]] OLO_FINLINE bool operator!=(const FIndexedPointer& Other) const
         {
-            return m_Ptrs.load(std::memory_order_relaxed) != 
+            return m_Ptrs.load(std::memory_order_relaxed) !=
                    Other.m_Ptrs.load(std::memory_order_relaxed);
         }
 
-    private:
+      private:
         std::atomic<u64> m_Ptrs;
     };
 
@@ -314,16 +313,16 @@ namespace OloEngine
 
     // @struct FIndexedLockFreeLink
     // @brief Link node for lock-free lists
-    // 
+    //
     // Contains:
     // - DoubleNext: For FIFO queues (needs ABA counter)
     // - Payload: The actual data pointer
     // - SingleNext: For LIFO stacks (index only, no ABA counter needed)
     struct FIndexedLockFreeLink
     {
-        FIndexedPointer     DoubleNext;
-        std::atomic<void*>  Payload;
-        std::atomic<u32>    SingleNext;
+        FIndexedPointer DoubleNext;
+        std::atomic<void*> Payload;
+        std::atomic<u32> SingleNext;
     };
 
     // ========================================================================
@@ -332,12 +331,12 @@ namespace OloEngine
 
     // @struct FLockFreeLinkPolicy
     // @brief Policy class for lock-free link allocation
-    // 
+    //
     // Provides the allocator and helper functions for working with indexed links.
     struct FLockFreeLinkPolicy
     {
         static constexpr int MAX_BITS_IN_TLinkPtr = MAX_LOCK_FREE_LINKS_AS_BITS;
-        
+
         using TDoublePtr = FIndexedPointer;
         using TLink = FIndexedLockFreeLink;
         using TLinkPtr = u32;
@@ -360,7 +359,7 @@ namespace OloEngine
 
         static u32 AllocLockFreeLink();
         static void FreeLockFreeLink(u32 Item);
-        
+
         static TAllocator s_LinkAllocator;
     };
 
@@ -370,10 +369,10 @@ namespace OloEngine
 
     // @class FLockFreePointerListLIFORoot
     // @brief Low-level LIFO stack root using indexed pointers
-    // 
+    //
     // This is the core implementation that handles the atomic operations.
     // Higher-level classes wrap this to provide payload handling.
-    // 
+    //
     // @tparam TPaddingForCacheContention Cache line padding
     // @tparam TABAInc ABA counter increment (use > 1 for state bits)
     template<int TPaddingForCacheContention, u64 TABAInc = 1>
@@ -383,17 +382,17 @@ namespace OloEngine
         using TLink = FLockFreeLinkPolicy::TLink;
         using TLinkPtr = FLockFreeLinkPolicy::TLinkPtr;
 
-    public:
+      public:
         FLockFreePointerListLIFORoot(const FLockFreePointerListLIFORoot&) = delete;
         FLockFreePointerListLIFORoot& operator=(const FLockFreePointerListLIFORoot&) = delete;
 
         [[nodiscard]] inline FLockFreePointerListLIFORoot()
         {
             // Ensure we have enough counter bits to avoid ABA problem
-            static_assert(MAX_TAG_BITS_VALUE / TABAInc >= (1 << 23), 
-                         "Risk of ABA problem - need more counter bits");
-            static_assert((TABAInc & (TABAInc - 1)) == 0, 
-                         "TABAInc must be power of two");
+            static_assert(MAX_TAG_BITS_VALUE / TABAInc >= (1 << 23),
+                          "Risk of ABA problem - need more counter bits");
+            static_assert((TABAInc & (TABAInc - 1)) == 0,
+                          "TABAInc must be power of two");
             Reset();
         }
 
@@ -540,7 +539,7 @@ namespace OloEngine
             return LocalHead.template GetState<TABAInc>();
         }
 
-    private:
+      private:
         alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : 1) TDoublePtr m_Head;
     };
 
@@ -550,7 +549,7 @@ namespace OloEngine
 
     // @class FLockFreePointerListLIFOBase
     // @brief LIFO stack with payload handling
-    // 
+    //
     // Wraps FLockFreePointerListLIFORoot to provide:
     // - Automatic link allocation/deallocation
     // - Payload storage and retrieval
@@ -562,7 +561,7 @@ namespace OloEngine
         using TLink = FLockFreeLinkPolicy::TLink;
         using TLinkPtr = FLockFreeLinkPolicy::TLinkPtr;
 
-    public:
+      public:
         FLockFreePointerListLIFOBase(const FLockFreePointerListLIFOBase&) = delete;
         FLockFreePointerListLIFOBase& operator=(const FLockFreePointerListLIFOBase&) = delete;
 
@@ -570,12 +569,16 @@ namespace OloEngine
 
         ~FLockFreePointerListLIFOBase()
         {
-            while (Pop()) {}
+            while (Pop())
+            {
+            }
         }
 
         void Reset()
         {
-            while (Pop()) {}
+            while (Pop())
+            {
+            }
             m_RootList.Reset();
         }
 
@@ -700,7 +703,7 @@ namespace OloEngine
             return m_RootList.GetState();
         }
 
-    private:
+      private:
         FLockFreePointerListLIFORoot<TPaddingForCacheContention, TABAInc> m_RootList;
     };
 
@@ -710,7 +713,7 @@ namespace OloEngine
 
     // @class FLockFreePointerFIFOBase
     // @brief FIFO queue using indexed pointers
-    // 
+    //
     // Uses the Michael & Scott algorithm with indexed pointers for ABA safety.
     // Items come out in the order they were pushed.
     template<class T, int TPaddingForCacheContention, u64 TABAInc = 1>
@@ -720,7 +723,7 @@ namespace OloEngine
         using TLink = FLockFreeLinkPolicy::TLink;
         using TLinkPtr = FLockFreeLinkPolicy::TLinkPtr;
 
-    public:
+      public:
         FLockFreePointerFIFOBase(const FLockFreePointerFIFOBase&) = delete;
         FLockFreePointerFIFOBase& operator=(const FLockFreePointerFIFOBase&) = delete;
 
@@ -738,7 +741,9 @@ namespace OloEngine
 
         ~FLockFreePointerFIFOBase()
         {
-            while (Pop()) {}
+            while (Pop())
+            {
+            }
             FLockFreeLinkPolicy::FreeLockFreeLink(m_Head.GetPtr());
         }
 
@@ -749,7 +754,7 @@ namespace OloEngine
             TLinkPtr Item = FLockFreeLinkPolicy::AllocLockFreeLink();
             FLockFreeLinkPolicy::DerefLink(Item)->Payload.store(InPayload, std::memory_order_relaxed);
             TDoublePtr LocalTail;
-            
+
             while (true)
             {
                 LocalTail.AtomicRead(m_Tail);
@@ -758,7 +763,7 @@ namespace OloEngine
                 LocalNext.AtomicRead(LocalTailP->DoubleNext);
                 TDoublePtr TestLocalTail;
                 TestLocalTail.AtomicRead(m_Tail);
-                
+
                 if (TestLocalTail == LocalTail)
                 {
                     if (LocalNext.GetPtr())
@@ -784,7 +789,7 @@ namespace OloEngine
                     }
                 }
             }
-            
+
             // Try to swing tail to new node
             TestCriticalStall();
             TDoublePtr NewTail;
@@ -799,7 +804,7 @@ namespace OloEngine
         {
             T* Result = nullptr;
             TDoublePtr LocalHead;
-            
+
             while (true)
             {
                 LocalHead.AtomicRead(m_Head);
@@ -809,7 +814,7 @@ namespace OloEngine
                 LocalNext.AtomicRead(FLockFreeLinkPolicy::DerefLink(LocalHead.GetPtr())->DoubleNext);
                 TDoublePtr LocalHeadTest;
                 LocalHeadTest.AtomicRead(m_Head);
-                
+
                 if (LocalHead == LocalHeadTest)
                 {
                     if (LocalHead.GetPtr() == LocalTail.GetPtr())
@@ -830,8 +835,7 @@ namespace OloEngine
                         // Read payload before CAS
                         TestCriticalStall();
                         Result = static_cast<T*>(
-                            FLockFreeLinkPolicy::DerefLink(LocalNext.GetPtr())->Payload.load(
-                                std::memory_order_relaxed));
+                            FLockFreeLinkPolicy::DerefLink(LocalNext.GetPtr())->Payload.load(std::memory_order_relaxed));
                         TDoublePtr NewHead;
                         NewHead.AdvanceCounterAndState(LocalHead, TABAInc);
                         NewHead.SetPtr(LocalNext.GetPtr());
@@ -842,7 +846,7 @@ namespace OloEngine
                     }
                 }
             }
-            
+
             FLockFreeLinkPolicy::FreeLockFreeLink(LocalHead.GetPtr());
             return Result;
         }
@@ -868,7 +872,7 @@ namespace OloEngine
             return !LocalNext.GetPtr();
         }
 
-    private:
+      private:
         alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : 1) TDoublePtr m_Head;
         alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : 1) TDoublePtr m_Tail;
     };
@@ -879,7 +883,7 @@ namespace OloEngine
 
     // @class FStallingTaskQueue
     // @brief Priority-based task queue with thread stalling support
-    // 
+    //
     // Used by the task system for scheduling tasks with different priorities.
     // Threads can register as "stalled" when no work is available, and will
     // be woken up when new work arrives.
@@ -890,7 +894,7 @@ namespace OloEngine
         using TLink = FLockFreeLinkPolicy::TLink;
         using TLinkPtr = FLockFreeLinkPolicy::TLinkPtr;
 
-    public:
+      public:
         FStallingTaskQueue(const FStallingTaskQueue&) = delete;
         FStallingTaskQueue& operator=(const FStallingTaskQueue&) = delete;
 
@@ -912,7 +916,7 @@ namespace OloEngine
             TDoublePtr NewMasterState;
             NewMasterState.AdvanceCounterAndState(LocalMasterState, 1);
             i32 ThreadToWake = FindThreadToWake(LocalMasterState.GetPtr());
-            
+
             if (ThreadToWake >= 0)
             {
                 NewMasterState.SetPtr(TurnOffBit(LocalMasterState.GetPtr(), ThreadToWake));
@@ -921,13 +925,13 @@ namespace OloEngine
             {
                 NewMasterState.SetPtr(LocalMasterState.GetPtr());
             }
-            
+
             while (!m_MasterState.InterlockedCompareExchange(NewMasterState, LocalMasterState))
             {
                 LocalMasterState.AtomicRead(m_MasterState);
                 NewMasterState.AdvanceCounterAndState(LocalMasterState, 1);
                 ThreadToWake = FindThreadToWake(LocalMasterState.GetPtr());
-                
+
                 if (ThreadToWake >= 0)
                 {
                     NewMasterState.SetPtr(TurnOffBit(LocalMasterState.GetPtr(), ThreadToWake));
@@ -947,13 +951,13 @@ namespace OloEngine
         [[nodiscard]] T* Pop(i32 MyThread, bool bAllowStall)
         {
             OLO_CORE_ASSERT(MyThread >= 0 && MyThread < FLockFreeLinkPolicy::MAX_BITS_IN_TLinkPtr,
-                           "Invalid thread index");
+                            "Invalid thread index");
 
             while (true)
             {
                 TDoublePtr LocalMasterState;
                 LocalMasterState.AtomicRead(m_MasterState);
-                
+
                 // Try each priority queue
                 for (i32 Index = 0; Index < NumPriorities; Index++)
                 {
@@ -974,12 +978,12 @@ namespace OloEngine
                         }
                     }
                 }
-                
+
                 if (!bAllowStall)
                 {
                     break; // Not stalling, queues are empty
                 }
-                
+
                 // Register as stalled
                 TDoublePtr NewMasterState;
                 NewMasterState.AdvanceCounterAndState(LocalMasterState, 1);
@@ -992,7 +996,7 @@ namespace OloEngine
             return nullptr;
         }
 
-    private:
+      private:
         [[nodiscard]] static i32 FindThreadToWake(TLinkPtr Ptr)
         {
             i32 Result = -1;
@@ -1037,7 +1041,7 @@ namespace OloEngine
     template<class T, int TPaddingForCacheContention>
     class TLockFreePointerListLIFOPad : private FLockFreePointerListLIFOBase<T, TPaddingForCacheContention>
     {
-    public:
+      public:
         void Push(T* NewItem)
         {
             FLockFreePointerListLIFOBase<T, TPaddingForCacheContention>::Push(NewItem);
@@ -1085,7 +1089,7 @@ namespace OloEngine
     template<class T, int TPaddingForCacheContention>
     class TLockFreePointerListFIFO : private FLockFreePointerFIFOBase<T, TPaddingForCacheContention>
     {
-    public:
+      public:
         void Push(T* NewItem)
         {
             FLockFreePointerFIFOBase<T, TPaddingForCacheContention>::Push(NewItem);
@@ -1110,14 +1114,14 @@ namespace OloEngine
 
     // @class TClosableLockFreePointerListUnorderedSingleConsumer
     // @brief Closable list for task dependencies (single consumer)
-    // 
+    //
     // Can be atomically closed to prevent further pushes.
     // Used for task dependency tracking.
     template<class T, int TPaddingForCacheContention>
-    class TClosableLockFreePointerListUnorderedSingleConsumer 
+    class TClosableLockFreePointerListUnorderedSingleConsumer
         : private FLockFreePointerListLIFOBase<T, TPaddingForCacheContention, 2>
     {
-    public:
+      public:
         void Reset()
         {
             FLockFreePointerListLIFOBase<T, TPaddingForCacheContention, 2>::Reset();
@@ -1129,8 +1133,9 @@ namespace OloEngine
         bool PushIfNotClosed(T* NewItem)
         {
             return FLockFreePointerListLIFOBase<T, TPaddingForCacheContention, 2>::PushIf(
-                NewItem, 
-                [](u64 State) -> bool { return !(State & 1); });
+                NewItem,
+                [](u64 State) -> bool
+                { return !(State & 1); });
         }
 
         // @brief Pop all items and atomically close the list

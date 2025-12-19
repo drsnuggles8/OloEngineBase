@@ -2,11 +2,11 @@
 
 // @file Archive.h
 // @brief Archive serialization interface for containers and data
-// 
+//
 // This provides an implementation of UE's FArchive interface ported from
 // Unreal Engine's Serialization/Archive.h. The archive system handles
 // reading/writing data in a platform-independent way.
-// 
+//
 // Key classes:
 // - FArchiveState: Base state flags and version info (inherited by FArchive)
 // - FArchive: Main serialization class with operator<< for primitives
@@ -14,7 +14,7 @@
 // - FMemoryReader: Reads from a memory buffer
 // - FMemoryWriter: Writes to a memory buffer
 // - FStructuredArchive: Hierarchical serialization (JSON/XML-like)
-// 
+//
 // Ported from Unreal Engine's Serialization/Archive.h
 
 #include "OloEngine/Core/Base.h"
@@ -35,18 +35,21 @@ namespace OloEngine
     struct FPlatformTypeLayoutParameters;
     class FSHA1;
 
-    // ============================================================================
-    // Helper Macro for bitpacked booleans
-    // ============================================================================
+// ============================================================================
+// Helper Macro for bitpacked booleans
+// ============================================================================
 
-    // Helper macro to make serializing a bitpacked boolean in an archive easier.
-    // NOTE: The condition is there to avoid overwriting a value that is the same
-    #define FArchive_Serialize_BitfieldBool(ARCHIVE, BITFIELD_BOOL) \
-        { \
-            bool TEMP_BITFIELD_BOOL = BITFIELD_BOOL; \
-            ARCHIVE << TEMP_BITFIELD_BOOL; \
-            if (BITFIELD_BOOL != TEMP_BITFIELD_BOOL) { BITFIELD_BOOL = TEMP_BITFIELD_BOOL; } \
-        }
+// Helper macro to make serializing a bitpacked boolean in an archive easier.
+// NOTE: The condition is there to avoid overwriting a value that is the same
+#define FArchive_Serialize_BitfieldBool(ARCHIVE, BITFIELD_BOOL) \
+    {                                                           \
+        bool TEMP_BITFIELD_BOOL = BITFIELD_BOOL;                \
+        ARCHIVE << TEMP_BITFIELD_BOOL;                          \
+        if (BITFIELD_BOOL != TEMP_BITFIELD_BOOL)                \
+        {                                                       \
+            BITFIELD_BOOL = TEMP_BITFIELD_BOOL;                 \
+        }                                                       \
+    }
 
     // ============================================================================
     // FArchiveState - Archive State Base Struct
@@ -54,12 +57,12 @@ namespace OloEngine
 
     // @struct FArchiveState
     // @brief Base state for archives containing all flags and version info
-    // 
+    //
     // This is ported from UE's FArchiveState which separates state from the
     // serialization logic. FArchive privately inherits from this.
     struct FArchiveState
     {
-    private:
+      private:
         // Only FArchive is allowed to instantiate this, by inheritance
         friend class FArchive;
 
@@ -68,7 +71,7 @@ namespace OloEngine
         FArchiveState& operator=(const FArchiveState& ArchiveToCopy) = default;
         virtual ~FArchiveState() = default;
 
-    protected:
+      protected:
         // Copies all of the members
         void CopyTrivialFArchiveStatusMembers(const FArchiveState& ArchiveStatusToCopy)
         {
@@ -104,7 +107,7 @@ namespace OloEngine
             ArMaxSerializeSize = ArchiveStatusToCopy.ArMaxSerializeSize;
         }
 
-    public:
+      public:
         // Returns lowest level archive state, proxy archives will override this.
         virtual FArchiveState& GetInnermostState()
         {
@@ -118,25 +121,44 @@ namespace OloEngine
         }
 
         // Sets ArIsError to true.
-        void SetError() { ArIsError = true; }
+        void SetError()
+        {
+            ArIsError = true;
+        }
 
         // Sets ArIsError to false, this does not clear any CriticalErrors
-        void ClearError() { ArIsError = false; }
+        void ClearError()
+        {
+            ArIsError = false;
+        }
 
         // Sets the archiver IsCriticalError and IsError to true.
-        void SetCriticalError() { ArIsCriticalError = true; ArIsError = true; }
+        void SetCriticalError()
+        {
+            ArIsCriticalError = true;
+            ArIsError = true;
+        }
 
         // Called to get the computed size from a size-detecting archive after it has finished serializing.
-        virtual void CountBytes(sizet InNum, sizet InMax) { }
+        virtual void CountBytes(sizet InNum, sizet InMax) {}
 
         // Returns the name of the Archive. Useful for getting the name of the package.
-        [[nodiscard]] virtual std::string GetArchiveName() const { return "FArchive"; }
+        [[nodiscard]] virtual std::string GetArchiveName() const
+        {
+            return "FArchive";
+        }
 
         // Returns the current location within the backing data storage. Returns INDEX_NONE if not supported.
-        [[nodiscard]] virtual i64 Tell() { return INDEX_NONE; }
+        [[nodiscard]] virtual i64 Tell()
+        {
+            return INDEX_NONE;
+        }
 
         // Returns total size of the backing data storage.
-        [[nodiscard]] virtual i64 TotalSize() { return INDEX_NONE; }
+        [[nodiscard]] virtual i64 TotalSize()
+        {
+            return INDEX_NONE;
+        }
 
         // Returns true if the current location within the backing data storage is at the end.
         [[nodiscard]] virtual bool AtEnd()
@@ -160,130 +182,250 @@ namespace OloEngine
         }
 
         // Sets a flag indicating that this archive contains native or generated code.
-        void ThisContainsCode() { ArContainsCode = true; }
+        void ThisContainsCode()
+        {
+            ArContainsCode = true;
+        }
 
         // Sets a flag indicating that this archive contains a ULevel or UWorld object.
-        void ThisContainsMap() { ArContainsMap = true; }
+        void ThisContainsMap()
+        {
+            ArContainsMap = true;
+        }
 
         // Sets a flag indicating that this archive contains data required to be gathered for localization.
-        void ThisRequiresLocalizationGather() { ArRequiresLocalizationGather = true; }
+        void ThisRequiresLocalizationGather()
+        {
+            ArRequiresLocalizationGather = true;
+        }
 
         // ========================================================================
         // State Query Methods
         // ========================================================================
 
         // Returns true if this archive is for loading data.
-        [[nodiscard]] bool IsLoading() const { return ArIsLoading; }
+        [[nodiscard]] bool IsLoading() const
+        {
+            return ArIsLoading;
+        }
 
         // Returns true if this archive is for saving data.
-        [[nodiscard]] bool IsSaving() const { return ArIsSaving; }
+        [[nodiscard]] bool IsSaving() const
+        {
+            return ArIsSaving;
+        }
 
         // Returns true if this archive is transacting (undo/redo).
-        [[nodiscard]] bool IsTransacting() const { return ArIsTransacting; }
+        [[nodiscard]] bool IsTransacting() const
+        {
+            return ArIsTransacting;
+        }
 
         // Returns true if this archive serializes to a structured text format.
-        [[nodiscard]] bool IsTextFormat() const { return ArIsTextFormat; }
+        [[nodiscard]] bool IsTextFormat() const
+        {
+            return ArIsTextFormat;
+        }
 
         // Returns true if this archive wants properties to be serialized in binary form.
-        [[nodiscard]] bool WantBinaryPropertySerialization() const { return ArWantBinaryPropertySerialization; }
+        [[nodiscard]] bool WantBinaryPropertySerialization() const
+        {
+            return ArWantBinaryPropertySerialization;
+        }
 
         // Returns true if this archive wants to always save strings in UTF16 format.
-        [[nodiscard]] bool IsForcingUnicode() const { return ArForceUnicode; }
+        [[nodiscard]] bool IsForcingUnicode() const
+        {
+            return ArForceUnicode;
+        }
 
         // Returns true if this archive saves to persistent storage.
-        [[nodiscard]] bool IsPersistent() const { return ArIsPersistent; }
+        [[nodiscard]] bool IsPersistent() const
+        {
+            return ArIsPersistent;
+        }
 
         // Returns true if this archive contains errors.
-        [[nodiscard]] bool IsError() const { return ArIsError; }
+        [[nodiscard]] bool IsError() const
+        {
+            return ArIsError;
+        }
 
         // For compatibility
-        [[nodiscard]] bool GetError() const { return ArIsError; }
+        [[nodiscard]] bool GetError() const
+        {
+            return ArIsError;
+        }
 
         // Returns true if this archive contains critical errors that cannot be recovered from.
-        [[nodiscard]] bool IsCriticalError() const { return ArIsCriticalError; }
+        [[nodiscard]] bool IsCriticalError() const
+        {
+            return ArIsCriticalError;
+        }
 
         // Returns true if this archive contains native or generated code.
-        [[nodiscard]] bool ContainsCode() const { return ArContainsCode; }
+        [[nodiscard]] bool ContainsCode() const
+        {
+            return ArContainsCode;
+        }
 
         // Returns true if this archive contains a ULevel or UWorld object.
-        [[nodiscard]] bool ContainsMap() const { return ArContainsMap; }
+        [[nodiscard]] bool ContainsMap() const
+        {
+            return ArContainsMap;
+        }
 
         // Returns true if this archive contains data required to be gathered for localization.
-        [[nodiscard]] bool RequiresLocalizationGather() const { return ArRequiresLocalizationGather; }
+        [[nodiscard]] bool RequiresLocalizationGather() const
+        {
+            return ArRequiresLocalizationGather;
+        }
 
         // Returns true if this archive should always swap bytes.
-        [[nodiscard]] bool ForceByteSwapping() const { return ArForceByteSwapping; }
+        [[nodiscard]] bool ForceByteSwapping() const
+        {
+            return ArForceByteSwapping;
+        }
 
         // Returns true if this archive is currently serializing class/struct default values.
-        [[nodiscard]] bool IsSerializingDefaults() const { return (ArSerializingDefaults > 0); }
+        [[nodiscard]] bool IsSerializingDefaults() const
+        {
+            return (ArSerializingDefaults > 0);
+        }
 
         // Returns true if this archive should ignore archetype references for structs and classes.
-        [[nodiscard]] bool IsIgnoringArchetypeRef() const { return ArIgnoreArchetypeRef; }
+        [[nodiscard]] bool IsIgnoringArchetypeRef() const
+        {
+            return ArIgnoreArchetypeRef;
+        }
 
         // Returns true if this archive should handle delta serialization for properties.
-        [[nodiscard]] bool DoDelta() const { return !ArNoDelta; }
+        [[nodiscard]] bool DoDelta() const
+        {
+            return !ArNoDelta;
+        }
 
         // Returns true if this archive should perform delta serialization within properties.
-        [[nodiscard]] bool DoIntraPropertyDelta() const { return !ArNoIntraPropertyDelta; }
+        [[nodiscard]] bool DoIntraPropertyDelta() const
+        {
+            return !ArNoIntraPropertyDelta;
+        }
 
         // Returns true if this archive should ignore the Outer reference in UObject.
-        [[nodiscard]] bool IsIgnoringOuterRef() const { return ArIgnoreOuterRef; }
+        [[nodiscard]] bool IsIgnoringOuterRef() const
+        {
+            return ArIgnoreOuterRef;
+        }
 
         // Returns true if this archive should ignore the ClassGeneratedBy reference in UClass.
-        [[nodiscard]] bool IsIgnoringClassGeneratedByRef() const { return ArIgnoreClassGeneratedByRef; }
+        [[nodiscard]] bool IsIgnoringClassGeneratedByRef() const
+        {
+            return ArIgnoreClassGeneratedByRef;
+        }
 
         // Returns true if this archive should ignore the Class reference in UObject.
-        [[nodiscard]] bool IsIgnoringClassRef() const { return ArIgnoreClassRef; }
+        [[nodiscard]] bool IsIgnoringClassRef() const
+        {
+            return ArIgnoreClassRef;
+        }
 
         // Returns true if this archive should allow lazy loading of bulk / secondary data.
-        [[nodiscard]] bool IsAllowingLazyLoading() const { return ArAllowLazyLoading; }
+        [[nodiscard]] bool IsAllowingLazyLoading() const
+        {
+            return ArAllowLazyLoading;
+        }
 
         // Returns true if this archive is only looking for UObject references.
-        [[nodiscard]] bool IsObjectReferenceCollector() const { return ArIsObjectReferenceCollector; }
+        [[nodiscard]] bool IsObjectReferenceCollector() const
+        {
+            return ArIsObjectReferenceCollector;
+        }
 
         // Returns true if this archive should modify/search weak object references as well as strong ones.
-        [[nodiscard]] bool IsModifyingWeakAndStrongReferences() const { return ArIsModifyingWeakAndStrongReferences; }
+        [[nodiscard]] bool IsModifyingWeakAndStrongReferences() const
+        {
+            return ArIsModifyingWeakAndStrongReferences;
+        }
 
         // Returns true if this archive is counting memory.
-        [[nodiscard]] bool IsCountingMemory() const { return ArIsCountingMemory; }
+        [[nodiscard]] bool IsCountingMemory() const
+        {
+            return ArIsCountingMemory;
+        }
 
         // Returns this archive's property serialization modifier flags.
-        [[nodiscard]] u32 GetPortFlags() const { return ArPortFlags; }
+        [[nodiscard]] u32 GetPortFlags() const
+        {
+            return ArPortFlags;
+        }
 
         // Checks to see if any of the passed in property serialization modifier flags are set.
-        [[nodiscard]] bool HasAnyPortFlags(u32 Flags) const { return ((ArPortFlags & Flags) != 0); }
+        [[nodiscard]] bool HasAnyPortFlags(u32 Flags) const
+        {
+            return ((ArPortFlags & Flags) != 0);
+        }
 
         // Checks to see if all of the passed in property serialization modifier flags are set.
-        [[nodiscard]] bool HasAllPortFlags(u32 Flags) const { return ((ArPortFlags & Flags) == Flags); }
+        [[nodiscard]] bool HasAllPortFlags(u32 Flags) const
+        {
+            return ((ArPortFlags & Flags) == Flags);
+        }
 
         // Returns true if this archive should ignore bulk data.
-        [[nodiscard]] bool ShouldSkipBulkData() const { return ArShouldSkipBulkData; }
+        [[nodiscard]] bool ShouldSkipBulkData() const
+        {
+            return ArShouldSkipBulkData;
+        }
 
         // Returns the maximum size of data that this archive is allowed to serialize.
-        [[nodiscard]] i64 GetMaxSerializeSize() const { return ArMaxSerializeSize; }
+        [[nodiscard]] i64 GetMaxSerializeSize() const
+        {
+            return ArMaxSerializeSize;
+        }
 
         // Returns true if editor only properties are being filtered from the archive.
-        [[nodiscard]] bool IsFilterEditorOnly() const { return ArIsFilterEditorOnly; }
+        [[nodiscard]] bool IsFilterEditorOnly() const
+        {
+            return ArIsFilterEditorOnly;
+        }
 
         // Sets a flag indicating that this archive needs to filter editor-only content.
-        virtual void SetFilterEditorOnly(bool InFilterEditorOnly) { ArIsFilterEditorOnly = InFilterEditorOnly; }
+        virtual void SetFilterEditorOnly(bool InFilterEditorOnly)
+        {
+            ArIsFilterEditorOnly = InFilterEditorOnly;
+        }
 
         // Indicates whether this archive is saving/loading game state
-        [[nodiscard]] bool IsSaveGame() const { return ArIsSaveGame; }
+        [[nodiscard]] bool IsSaveGame() const
+        {
+            return ArIsSaveGame;
+        }
 
         // Whether or not this archive is serializing data being sent/received by the netcode
-        [[nodiscard]] bool IsNetArchive() const { return ArIsNetArchive; }
+        [[nodiscard]] bool IsNetArchive() const
+        {
+            return ArIsNetArchive;
+        }
 
         // Toggle byte order swapping.
         // @param Enabled set to true to enable byte order swapping
-        void SetByteSwapping(bool Enabled) { ArForceByteSwapping = Enabled; }
+        void SetByteSwapping(bool Enabled)
+        {
+            ArForceByteSwapping = Enabled;
+        }
 
         // Sets the archive's property serialization modifier flags
         // @param InPortFlags the new flags to use for property serialization
-        void SetPortFlags(u32 InPortFlags) { ArPortFlags = InPortFlags; }
+        void SetPortFlags(u32 InPortFlags)
+        {
+            ArPortFlags = InPortFlags;
+        }
 
         // Checks whether the archive is used to resolve out-of-date enum indexes
-        [[nodiscard]] virtual bool UseToResolveEnumerators() const { return false; }
+        [[nodiscard]] virtual bool UseToResolveEnumerators() const
+        {
+            return false;
+        }
 
         // Resets all of the base archive members.
         virtual void Reset()
@@ -325,28 +467,49 @@ namespace OloEngine
         // ========================================================================
 
         // Sets whether this archive is for loading data.
-        virtual void SetIsLoading(bool bInIsLoading) { ArIsLoading = bInIsLoading; }
+        virtual void SetIsLoading(bool bInIsLoading)
+        {
+            ArIsLoading = bInIsLoading;
+        }
 
         // Sets whether this archive is for saving data.
-        virtual void SetIsSaving(bool bInIsSaving) { ArIsSaving = bInIsSaving; }
+        virtual void SetIsSaving(bool bInIsSaving)
+        {
+            ArIsSaving = bInIsSaving;
+        }
 
         // Sets whether this archive is for transacting.
-        virtual void SetIsTransacting(bool bInIsTransacting) { ArIsTransacting = bInIsTransacting; }
+        virtual void SetIsTransacting(bool bInIsTransacting)
+        {
+            ArIsTransacting = bInIsTransacting;
+        }
 
         // Sets whether this archive is in text format.
-        virtual void SetIsTextFormat(bool bInIsTextFormat) { ArIsTextFormat = bInIsTextFormat; }
+        virtual void SetIsTextFormat(bool bInIsTextFormat)
+        {
+            ArIsTextFormat = bInIsTextFormat;
+        }
 
         // Sets whether this archive wants binary property serialization.
-        virtual void SetWantBinaryPropertySerialization(bool bInWantBinary) { ArWantBinaryPropertySerialization = bInWantBinary; }
+        virtual void SetWantBinaryPropertySerialization(bool bInWantBinary)
+        {
+            ArWantBinaryPropertySerialization = bInWantBinary;
+        }
 
         // Sets whether this archive wants to force saving as Unicode.
-        virtual void SetForceUnicode(bool bInForceUnicode) { ArForceUnicode = bInForceUnicode; }
+        virtual void SetForceUnicode(bool bInForceUnicode)
+        {
+            ArForceUnicode = bInForceUnicode;
+        }
 
         // Sets whether this archive is to persistent storage.
-        virtual void SetIsPersistent(bool bInIsPersistent) { ArIsPersistent = bInIsPersistent; }
+        virtual void SetIsPersistent(bool bInIsPersistent)
+        {
+            ArIsPersistent = bInIsPersistent;
+        }
 
-    // These will be protected in FArchive but accessible via using declarations
-    protected:
+        // These will be protected in FArchive but accessible via using declarations
+      protected:
         // Whether this archive is for loading data.
         u8 ArIsLoading : 1 = false;
 
@@ -368,14 +531,14 @@ namespace OloEngine
         // Whether this archive saves to persistent storage.
         u8 ArIsPersistent : 1 = false;
 
-    private:
+      private:
         // Whether this archive contains errors.
         u8 ArIsError : 1 = false;
 
         // Whether this archive contains critical errors that cannot be recovered from.
         u8 ArIsCriticalError : 1 = false;
 
-    public:
+      public:
         // Quickly tell if an archive contains script code.
         u8 ArContainsCode : 1 = false;
 
@@ -447,15 +610,15 @@ namespace OloEngine
     // @class FArchive
     // @brief Base class for archives that can be used for loading, saving, and garbage
     //        collecting in a byte order neutral way.
-    // 
+    //
     // Archives handle reading/writing data in a platform-independent way.
     // Derived classes implement specific storage backends (file, memory, network, etc.)
-    // 
+    //
     // Ported from UE's FArchive - privately inherits FArchiveState and exposes
     // functionality via using declarations (matching UE's pattern).
     class FArchive : private FArchiveState
     {
-    public:
+      public:
         FArchive() = default;
         FArchive(const FArchive&) = default;
         FArchive& operator=(const FArchive& ArchiveToCopy) = default;
@@ -465,103 +628,109 @@ namespace OloEngine
         // Using declarations to expose FArchiveState functionality
         // ========================================================================
 
-        using FArchiveState::SetArchiveState;
-        using FArchiveState::SetError;
-        using FArchiveState::ClearError;
-        using FArchiveState::SetCriticalError;
-        using FArchiveState::GetInnermostState;
-        using FArchiveState::CountBytes;
-        using FArchiveState::GetArchiveName;
-        using FArchiveState::Tell;
-        using FArchiveState::TotalSize;
         using FArchiveState::AtEnd;
+        using FArchiveState::ClearError;
+        using FArchiveState::ContainsCode;
+        using FArchiveState::ContainsMap;
+        using FArchiveState::CountBytes;
+        using FArchiveState::DoDelta;
+        using FArchiveState::DoIntraPropertyDelta;
+        using FArchiveState::ForceByteSwapping;
+        using FArchiveState::GetArchiveName;
+        using FArchiveState::GetError;
+        using FArchiveState::GetInnermostState;
+        using FArchiveState::GetMaxSerializeSize;
+        using FArchiveState::GetPortFlags;
+        using FArchiveState::HasAllPortFlags;
+        using FArchiveState::HasAnyPortFlags;
+        using FArchiveState::IsAllowingLazyLoading;
         using FArchiveState::IsByteSwapping;
+        using FArchiveState::IsCountingMemory;
+        using FArchiveState::IsCriticalError;
+        using FArchiveState::IsError;
+        using FArchiveState::IsFilterEditorOnly;
+        using FArchiveState::IsForcingUnicode;
+        using FArchiveState::IsIgnoringArchetypeRef;
+        using FArchiveState::IsIgnoringClassGeneratedByRef;
+        using FArchiveState::IsIgnoringClassRef;
+        using FArchiveState::IsIgnoringOuterRef;
+        using FArchiveState::IsLoading;
+        using FArchiveState::IsModifyingWeakAndStrongReferences;
+        using FArchiveState::IsNetArchive;
+        using FArchiveState::IsObjectReferenceCollector;
+        using FArchiveState::IsPersistent;
+        using FArchiveState::IsSaveGame;
+        using FArchiveState::IsSaving;
+        using FArchiveState::IsSerializingDefaults;
+        using FArchiveState::IsTextFormat;
+        using FArchiveState::IsTransacting;
+        using FArchiveState::RequiresLocalizationGather;
+        using FArchiveState::Reset;
+        using FArchiveState::SetArchiveState;
+        using FArchiveState::SetByteSwapping;
+        using FArchiveState::SetCriticalError;
+        using FArchiveState::SetError;
+        using FArchiveState::SetFilterEditorOnly;
+        using FArchiveState::SetForceUnicode;
+        using FArchiveState::SetIsLoading;
+        using FArchiveState::SetIsPersistent;
+        using FArchiveState::SetIsSaving;
+        using FArchiveState::SetIsTextFormat;
+        using FArchiveState::SetIsTransacting;
+        using FArchiveState::SetPortFlags;
+        using FArchiveState::SetWantBinaryPropertySerialization;
+        using FArchiveState::ShouldSkipBulkData;
+        using FArchiveState::Tell;
         using FArchiveState::ThisContainsCode;
         using FArchiveState::ThisContainsMap;
         using FArchiveState::ThisRequiresLocalizationGather;
-        using FArchiveState::IsLoading;
-        using FArchiveState::IsSaving;
-        using FArchiveState::IsTransacting;
-        using FArchiveState::IsTextFormat;
-        using FArchiveState::WantBinaryPropertySerialization;
-        using FArchiveState::IsForcingUnicode;
-        using FArchiveState::IsPersistent;
-        using FArchiveState::IsError;
-        using FArchiveState::GetError;
-        using FArchiveState::IsCriticalError;
-        using FArchiveState::ContainsCode;
-        using FArchiveState::ContainsMap;
-        using FArchiveState::RequiresLocalizationGather;
-        using FArchiveState::ForceByteSwapping;
-        using FArchiveState::IsSerializingDefaults;
-        using FArchiveState::IsIgnoringArchetypeRef;
-        using FArchiveState::DoDelta;
-        using FArchiveState::DoIntraPropertyDelta;
-        using FArchiveState::IsIgnoringOuterRef;
-        using FArchiveState::IsIgnoringClassGeneratedByRef;
-        using FArchiveState::IsIgnoringClassRef;
-        using FArchiveState::IsAllowingLazyLoading;
-        using FArchiveState::IsObjectReferenceCollector;
-        using FArchiveState::IsModifyingWeakAndStrongReferences;
-        using FArchiveState::IsCountingMemory;
-        using FArchiveState::GetPortFlags;
-        using FArchiveState::HasAnyPortFlags;
-        using FArchiveState::HasAllPortFlags;
-        using FArchiveState::ShouldSkipBulkData;
-        using FArchiveState::GetMaxSerializeSize;
-        using FArchiveState::IsFilterEditorOnly;
-        using FArchiveState::SetFilterEditorOnly;
-        using FArchiveState::IsSaveGame;
-        using FArchiveState::IsNetArchive;
-        using FArchiveState::SetByteSwapping;
-        using FArchiveState::SetPortFlags;
+        using FArchiveState::TotalSize;
         using FArchiveState::UseToResolveEnumerators;
-        using FArchiveState::Reset;
-        using FArchiveState::SetIsLoading;
-        using FArchiveState::SetIsSaving;
-        using FArchiveState::SetIsTransacting;
-        using FArchiveState::SetIsTextFormat;
-        using FArchiveState::SetWantBinaryPropertySerialization;
-        using FArchiveState::SetForceUnicode;
-        using FArchiveState::SetIsPersistent;
+        using FArchiveState::WantBinaryPropertySerialization;
 
         // Expose public flags
+        using FArchiveState::ArAllowLazyLoading;
         using FArchiveState::ArContainsCode;
         using FArchiveState::ArContainsMap;
-        using FArchiveState::ArRequiresLocalizationGather;
         using FArchiveState::ArForceByteSwapping;
         using FArchiveState::ArIgnoreArchetypeRef;
-        using FArchiveState::ArNoDelta;
-        using FArchiveState::ArNoIntraPropertyDelta;
-        using FArchiveState::ArIgnoreOuterRef;
         using FArchiveState::ArIgnoreClassGeneratedByRef;
         using FArchiveState::ArIgnoreClassRef;
-        using FArchiveState::ArAllowLazyLoading;
-        using FArchiveState::ArIsObjectReferenceCollector;
-        using FArchiveState::ArIsModifyingWeakAndStrongReferences;
+        using FArchiveState::ArIgnoreOuterRef;
         using FArchiveState::ArIsCountingMemory;
-        using FArchiveState::ArShouldSkipBulkData;
         using FArchiveState::ArIsFilterEditorOnly;
-        using FArchiveState::ArIsSaveGame;
+        using FArchiveState::ArIsModifyingWeakAndStrongReferences;
         using FArchiveState::ArIsNetArchive;
-        using FArchiveState::ArSerializingDefaults;
-        using FArchiveState::ArPortFlags;
+        using FArchiveState::ArIsObjectReferenceCollector;
+        using FArchiveState::ArIsSaveGame;
         using FArchiveState::ArMaxSerializeSize;
+        using FArchiveState::ArNoDelta;
+        using FArchiveState::ArNoIntraPropertyDelta;
+        using FArchiveState::ArPortFlags;
+        using FArchiveState::ArRequiresLocalizationGather;
+        using FArchiveState::ArSerializingDefaults;
+        using FArchiveState::ArShouldSkipBulkData;
 
         // ========================================================================
         // Archive State Access
         // ========================================================================
 
         // Returns the low level archive state for this archive.
-        FArchiveState& GetArchiveState() { return static_cast<FArchiveState&>(*this); }
-        const FArchiveState& GetArchiveState() const { return static_cast<const FArchiveState&>(*this); }
+        FArchiveState& GetArchiveState()
+        {
+            return static_cast<FArchiveState&>(*this);
+        }
+        const FArchiveState& GetArchiveState() const
+        {
+            return static_cast<const FArchiveState&>(*this);
+        }
 
         // ========================================================================
         // Position / Size / Serialization
         // ========================================================================
 
         // Attempts to set the current offset into backing data storage.
-        virtual void Seek(i64 InPos) { }
+        virtual void Seek(i64 InPos) {}
 
         // Serialize raw bytes
         virtual void Serialize(void* V, i64 Length)
@@ -608,9 +777,9 @@ namespace OloEngine
                     }
 
                     u8 NextByte;
-                    Serialize(&NextByte, 1);             // Read next byte
-                    More = NextByte & 1;                 // Check 1 bit to see if there's more after this
-                    NextByte = NextByte >> 1;            // Shift to get actual 7 bit value
+                    Serialize(&NextByte, 1);  // Read next byte
+                    More = NextByte & 1;      // Check 1 bit to see if there's more after this
+                    NextByte = NextByte >> 1; // Shift to get actual 7 bit value
                     TempValue += static_cast<u32>(NextByte) << (7 * Count++);
                 }
 
@@ -625,12 +794,12 @@ namespace OloEngine
                 u32 Remaining = Value;
                 while (true)
                 {
-                    u8 NextByte = Remaining & 0x7f;      // Get next 7 bits to write
-                    Remaining = Remaining >> 7;          // Update remaining
-                    NextByte = NextByte << 1;            // Make room for 'more' bit
+                    u8 NextByte = Remaining & 0x7f; // Get next 7 bits to write
+                    Remaining = Remaining >> 7;     // Update remaining
+                    NextByte = NextByte << 1;       // Make room for 'more' bit
                     if (Remaining > 0)
                     {
-                        NextByte |= 1;                   // Set more bit
+                        NextByte |= 1; // Set more bit
                         PackedBytes[PackedByteCount++] = NextByte;
                     }
                     else
@@ -643,74 +812,83 @@ namespace OloEngine
             }
         }
 
-    // Packs 64-bit int value into bytes of 7 bits with 8th bit for 'more'
-    virtual void SerializeIntPacked64(u64& Value)
-    {
-        constexpr sizet MaxBytes = 10;
-
-        if (IsLoading())
+        // Packs 64-bit int value into bytes of 7 bits with 8th bit for 'more'
+        virtual void SerializeIntPacked64(u64& Value)
         {
-            u64 TempValue = 0;
-            u8 Count = 0;
-            u8 More = 1;
-            while (More)
+            constexpr sizet MaxBytes = 10;
+
+            if (IsLoading())
             {
-                if (Count >= MaxBytes)
+                u64 TempValue = 0;
+                u8 Count = 0;
+                u8 More = 1;
+                while (More)
                 {
-                    // Too many bytes - corrupted data
-                    SetError();
-                    Value = 0;
-                    return;
+                    if (Count >= MaxBytes)
+                    {
+                        // Too many bytes - corrupted data
+                        SetError();
+                        Value = 0;
+                        return;
+                    }
+
+                    u8 NextByte;
+                    Serialize(&NextByte, 1);  // Read next byte
+                    More = NextByte & 1;      // Check 1 bit to see if there's more after this
+                    NextByte = NextByte >> 1; // Shift to get actual 7 bit value
+                    TempValue += static_cast<u64>(NextByte) << (7 * Count++);
                 }
 
-                u8 NextByte;
-                Serialize(&NextByte, 1);             // Read next byte
-                More = NextByte & 1;                 // Check 1 bit to see if there's more after this
-                NextByte = NextByte >> 1;            // Shift to get actual 7 bit value
-                TempValue += static_cast<u64>(NextByte) << (7 * Count++);
+                Value = TempValue;
             }
-
-            Value = TempValue;
+            else
+            {
+                u8 PackedBytes[MaxBytes];
+                i32 PackedByteCount = 0;
+                u64 Remaining = Value;
+                while (true)
+                {
+                    u8 NextByte = Remaining & 0x7f; // Get next 7 bits to write
+                    Remaining = Remaining >> 7;     // Update remaining
+                    NextByte = NextByte << 1;       // Make room for 'more' bit
+                    if (Remaining > 0)
+                    {
+                        NextByte |= 1; // Set more bit
+                        PackedBytes[PackedByteCount++] = NextByte;
+                    }
+                    else
+                    {
+                        PackedBytes[PackedByteCount++] = NextByte;
+                        break;
+                    }
+                }
+                Serialize(PackedBytes, PackedByteCount); // Actually serialize the bytes we made
+            }
         }
-        else
+
+        // Sets a flag indicating that this archive is currently serializing class/struct defaults.
+        void StartSerializingDefaults()
         {
-            u8 PackedBytes[MaxBytes];
-            i32 PackedByteCount = 0;
-            u64 Remaining = Value;
-            while (true)
-            {
-                u8 NextByte = Remaining & 0x7f;      // Get next 7 bits to write
-                Remaining = Remaining >> 7;          // Update remaining
-                NextByte = NextByte << 1;            // Make room for 'more' bit
-                if (Remaining > 0)
-                {
-                    NextByte |= 1;                   // Set more bit
-                    PackedBytes[PackedByteCount++] = NextByte;
-                }
-                else
-                {
-                    PackedBytes[PackedByteCount++] = NextByte;
-                    break;
-                }
-            }
-            Serialize(PackedBytes, PackedByteCount); // Actually serialize the bytes we made
+            ArSerializingDefaults++;
         }
-    }
-
-    // Sets a flag indicating that this archive is currently serializing class/struct defaults.
-        void StartSerializingDefaults() { ArSerializingDefaults++; }
 
         // Indicate that this archive is no longer serializing class/struct defaults.
-        void StopSerializingDefaults() { ArSerializingDefaults--; }
+        void StopSerializingDefaults()
+        {
+            ArSerializingDefaults--;
+        }
 
         // Flushes cache and frees internal data.
-        virtual void FlushCache() { }
+        virtual void FlushCache() {}
 
         // Attempts to finish writing any buffered data to disk/permanent storage.
-        virtual void Flush() { }
+        virtual void Flush() {}
 
         // Attempts to close and finalize any handles used for backing data storage.
-        virtual bool Close() { return !IsError(); }
+        virtual bool Close()
+        {
+            return !IsError();
+        }
 
         // ========================================================================
         // Byte Order Serialization
@@ -850,7 +1028,7 @@ namespace OloEngine
         {
             i32 Length = static_cast<i32>(Value.length());
             Ar << Length;
-            
+
             if (Ar.IsLoading())
             {
                 // Validate length to prevent corrupted/malicious data from causing issues
@@ -860,20 +1038,20 @@ namespace OloEngine
                     Value.clear();
                     return Ar;
                 }
-                
+
                 Value.resize(Length);
             }
-            
+
             if (Length > 0)
             {
                 Ar.Serialize(Value.data(), Length);
             }
-            
+
             return Ar;
         }
 
         // Serializes enum classes as their underlying type.
-        template <typename EnumType>
+        template<typename EnumType>
             requires std::is_enum_v<EnumType>
         friend FArchive& operator<<(FArchive& Ar, EnumType& Value)
         {
@@ -887,14 +1065,13 @@ namespace OloEngine
         // Seeks to and restores the position of an archive.
         class FScopeSeekTo
         {
-        public:
+          public:
             FScopeSeekTo(FArchive& InAr, i64 InPos)
-                : Ar(InAr)
-                , SavedPos(InAr.Tell())
+                : Ar(InAr), SavedPos(InAr.Tell())
             {
                 Ar.Seek(InPos);
             }
-            
+
             ~FScopeSeekTo()
             {
                 Ar.Seek(SavedPos);
@@ -903,12 +1080,12 @@ namespace OloEngine
             FScopeSeekTo(const FScopeSeekTo&) = delete;
             FScopeSeekTo& operator=(const FScopeSeekTo&) = delete;
 
-        private:
+          private:
             FArchive& Ar;
             i64 SavedPos;
         };
 
-    private:
+      private:
         // ========================================================================
         // Private ByteOrderSerialize Implementations
         // ========================================================================
@@ -917,8 +1094,8 @@ namespace OloEngine
         template<typename T>
         FArchive& ByteOrderSerialize(T& Value)
         {
-            static_assert(std::is_unsigned_v<T>, 
-                "To reduce the number of template instances, cast 'Value' to a u16&, u32& or u64& prior to the call.");
+            static_assert(std::is_unsigned_v<T>,
+                          "To reduce the number of template instances, cast 'Value' to a u16&, u32& or u64& prior to the call.");
 
             if (!IsByteSwapping()) // Most likely case (hot path)
             {
@@ -947,8 +1124,8 @@ namespace OloEngine
         {
             Serialize(&Value, sizeof(Value));
             Value = ((Value >> 24) & 0x000000FF) |
-                    ((Value >> 8)  & 0x0000FF00) |
-                    ((Value << 8)  & 0x00FF0000) |
+                    ((Value >> 8) & 0x0000FF00) |
+                    ((Value << 8) & 0x00FF0000) |
                     ((Value << 24) & 0xFF000000);
             return *this;
         }
@@ -959,8 +1136,8 @@ namespace OloEngine
             Value = ((Value >> 56) & 0x00000000000000FFULL) |
                     ((Value >> 40) & 0x000000000000FF00ULL) |
                     ((Value >> 24) & 0x0000000000FF0000ULL) |
-                    ((Value >> 8)  & 0x00000000FF000000ULL) |
-                    ((Value << 8)  & 0x000000FF00000000ULL) |
+                    ((Value >> 8) & 0x00000000FF000000ULL) |
+                    ((Value << 8) & 0x000000FF00000000ULL) |
                     ((Value << 24) & 0x0000FF0000000000ULL) |
                     ((Value << 40) & 0x00FF000000000000ULL) |
                     ((Value << 56) & 0xFF00000000000000ULL);
@@ -987,13 +1164,16 @@ namespace OloEngine
 
     // @class FMemoryArchive
     // @brief Archive that reads/writes to memory
-    // 
+    //
     // Ported from UE's FMemoryArchive - base class for FMemoryReader and FMemoryWriter.
     class FMemoryArchive : public FArchive
     {
-    public:
+      public:
         // Returns the name of the Archive.
-        [[nodiscard]] std::string GetArchiveName() const override { return "FMemoryArchive"; }
+        [[nodiscard]] std::string GetArchiveName() const override
+        {
+            return "FMemoryArchive";
+        }
 
         void Seek(i64 InPos) override
         {
@@ -1005,7 +1185,7 @@ namespace OloEngine
             return Offset;
         }
 
-    protected:
+      protected:
         // Current offset into the data
         i64 Offset = 0;
     };
@@ -1016,38 +1196,34 @@ namespace OloEngine
 
     // @class FMemoryReader
     // @brief Archive for reading from a memory buffer
-    // 
+    //
     // Ported from UE's FMemoryReader - reads from a const TArray<uint8>&
     class FMemoryReader : public FMemoryArchive
     {
-    public:
+      public:
         // Constructor
-        // 
+        //
         // @param InBytes The buffer to read from
         // @param bIsPersistent Whether this archive is persistent
-        // 
+        //
         // @note The caller must guarantee that InBytes remains valid for the lifetime of this FMemoryReader.
         //       This archive stores a pointer to the data and does not take ownership.
         explicit FMemoryReader(const std::vector<u8>& InBytes, bool bIsPersistent = false)
-            : Bytes(InBytes.data())
-            , NumBytes(static_cast<i64>(InBytes.size()))
-            , LimitSize(static_cast<i64>(InBytes.size()))
+            : Bytes(InBytes.data()), NumBytes(static_cast<i64>(InBytes.size())), LimitSize(static_cast<i64>(InBytes.size()))
         {
             SetIsLoading(true);
             SetIsPersistent(bIsPersistent);
         }
 
         // Constructor with raw pointer
-        // 
+        //
         // @param InBytes Pointer to buffer
         // @param InNumBytes Size of buffer
         // @param bIsPersistent Whether this archive is persistent
-        // 
+        //
         // @note The caller must guarantee that the buffer at InBytes remains valid for the lifetime of this FMemoryReader.
         FMemoryReader(const u8* InBytes, i64 InNumBytes, bool bIsPersistent = false)
-            : Bytes(InBytes)
-            , NumBytes(InNumBytes)
-            , LimitSize(InNumBytes)
+            : Bytes(InBytes), NumBytes(InNumBytes), LimitSize(InNumBytes)
         {
             SetIsLoading(true);
             SetIsPersistent(bIsPersistent);
@@ -1074,7 +1250,10 @@ namespace OloEngine
             }
         }
 
-        [[nodiscard]] std::string GetArchiveName() const override { return "FMemoryReader"; }
+        [[nodiscard]] std::string GetArchiveName() const override
+        {
+            return "FMemoryReader";
+        }
 
         // Set a limit on how much of the buffer can be read
         // @param NewLimitSize The new limit size
@@ -1086,7 +1265,7 @@ namespace OloEngine
             }
         }
 
-    protected:
+      protected:
         const u8* Bytes;
         i64 NumBytes;
         i64 LimitSize;
@@ -1098,7 +1277,7 @@ namespace OloEngine
 
     // @class FMemoryReaderView
     // @brief Archive for reading from a memory view that doesn't own the data
-    // 
+    //
     // Similar to FMemoryReader but using a span-like interface.
     using FMemoryReaderView = FMemoryReader;
 
@@ -1108,13 +1287,13 @@ namespace OloEngine
 
     // @class FMemoryWriter
     // @brief Archive for writing to a memory buffer
-    // 
+    //
     // Ported from UE's FMemoryWriter - writes to a TArray<uint8>&
     class FMemoryWriter : public FMemoryArchive
     {
-    public:
+      public:
         // Constructor
-        // 
+        //
         // @param InBytes The buffer to write to
         // @param bIsPersistent Whether this archive is persistent
         // @param bSetOffset Whether to set offset to the end of the buffer
@@ -1150,7 +1329,7 @@ namespace OloEngine
                 {
                     Bytes.resize(Bytes.size() + static_cast<sizet>(NumBytesToAdd));
                 }
-                
+
                 if (Num > 0)
                 {
                     std::memcpy(Bytes.data() + Offset, Data, static_cast<sizet>(Num));
@@ -1159,12 +1338,18 @@ namespace OloEngine
             }
         }
 
-        [[nodiscard]] std::string GetArchiveName() const override { return "FMemoryWriter"; }
+        [[nodiscard]] std::string GetArchiveName() const override
+        {
+            return "FMemoryWriter";
+        }
 
         // Returns the written bytes
-        [[nodiscard]] const std::vector<u8>& GetWrittenBytes() const { return Bytes; }
+        [[nodiscard]] const std::vector<u8>& GetWrittenBytes() const
+        {
+            return Bytes;
+        }
 
-    protected:
+      protected:
         std::vector<u8>& Bytes;
     };
 
@@ -1174,15 +1359,15 @@ namespace OloEngine
 
     // @class FStructuredArchive
     // @brief Archive supporting structured/hierarchical serialization
-    // 
+    //
     // Provides a way to serialize data in a structured format (like JSON/XML)
     // rather than as a flat binary stream. This is useful for debugging
     // and for formats that need named fields.
-    // 
+    //
     // Ported from UE's FStructuredArchive
     class FStructuredArchive
     {
-    public:
+      public:
         class FSlot;
         class FRecord;
         class FArray;
@@ -1195,8 +1380,14 @@ namespace OloEngine
         }
 
         // @return the underlying FArchive
-        [[nodiscard]] FArchive& GetUnderlyingArchive() { return UnderlyingArchive; }
-        [[nodiscard]] const FArchive& GetUnderlyingArchive() const { return UnderlyingArchive; }
+        [[nodiscard]] FArchive& GetUnderlyingArchive()
+        {
+            return UnderlyingArchive;
+        }
+        [[nodiscard]] const FArchive& GetUnderlyingArchive() const
+        {
+            return UnderlyingArchive;
+        }
 
         // Get the root slot
         [[nodiscard]] FSlot GetSlot();
@@ -1205,14 +1396,17 @@ namespace OloEngine
         // @brief A slot in a structured archive that can hold a value
         class FSlot
         {
-        public:
+          public:
             explicit FSlot(FStructuredArchive& InArchive)
                 : Archive(InArchive)
             {
             }
 
             // @return the underlying archive
-            [[nodiscard]] FArchive& GetUnderlyingArchive() { return Archive.GetUnderlyingArchive(); }
+            [[nodiscard]] FArchive& GetUnderlyingArchive()
+            {
+                return Archive.GetUnderlyingArchive();
+            }
 
             // Enter an array with the given element count
             [[nodiscard]] FArray EnterArray(i32& NumElements);
@@ -1221,14 +1415,14 @@ namespace OloEngine
             [[nodiscard]] FRecord EnterRecord();
 
             // Serialize a value directly
-            template <typename T>
+            template<typename T>
             FSlot& operator<<(T& Value)
             {
                 Archive.GetUnderlyingArchive() << Value;
                 return *this;
             }
 
-        private:
+          private:
             FStructuredArchive& Archive;
         };
 
@@ -1236,11 +1430,9 @@ namespace OloEngine
         // @brief An array in a structured archive
         class FArray
         {
-        public:
+          public:
             FArray(FStructuredArchive& InArchive, i32 InNumElements)
-                : Archive(InArchive)
-                , NumElements(InNumElements)
-                , CurrentIndex(0)
+                : Archive(InArchive), NumElements(InNumElements), CurrentIndex(0)
             {
             }
 
@@ -1251,7 +1443,7 @@ namespace OloEngine
                 return FSlot(Archive);
             }
 
-        private:
+          private:
             FStructuredArchive& Archive;
             i32 NumElements;
             i32 CurrentIndex;
@@ -1261,7 +1453,7 @@ namespace OloEngine
         // @brief A record (object) in a structured archive
         class FRecord
         {
-        public:
+          public:
             explicit FRecord(FStructuredArchive& InArchive)
                 : Archive(InArchive)
             {
@@ -1274,9 +1466,12 @@ namespace OloEngine
             }
 
             // @return the underlying archive
-            [[nodiscard]] FArchive& GetUnderlyingArchive() { return Archive.GetUnderlyingArchive(); }
+            [[nodiscard]] FArchive& GetUnderlyingArchive()
+            {
+                return Archive.GetUnderlyingArchive();
+            }
 
-        private:
+          private:
             FStructuredArchive& Archive;
         };
 
@@ -1284,7 +1479,7 @@ namespace OloEngine
         // @brief A stream in a structured archive for sequential access
         class FStream
         {
-        public:
+          public:
             explicit FStream(FStructuredArchive& InArchive)
                 : Archive(InArchive)
             {
@@ -1296,7 +1491,7 @@ namespace OloEngine
                 return FSlot(Archive);
             }
 
-        private:
+          private:
             FStructuredArchive& Archive;
         };
 
@@ -1304,10 +1499,9 @@ namespace OloEngine
         // @brief A map in a structured archive
         class FMap
         {
-        public:
+          public:
             FMap(FStructuredArchive& InArchive, i32 InNumElements)
-                : Archive(InArchive)
-                , NumElements(InNumElements)
+                : Archive(InArchive), NumElements(InNumElements)
             {
             }
 
@@ -1319,12 +1513,12 @@ namespace OloEngine
                 return FRecord(Archive);
             }
 
-        private:
+          private:
             FStructuredArchive& Archive;
             i32 NumElements;
         };
 
-    private:
+      private:
         FArchive& UnderlyingArchive;
     };
 

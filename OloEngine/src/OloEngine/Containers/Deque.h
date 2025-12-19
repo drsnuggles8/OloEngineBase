@@ -12,7 +12,7 @@
 namespace OloEngine
 {
     // Forward declarations
-    template <typename InElementType, typename InAllocatorType = FDefaultAllocator>
+    template<typename InElementType, typename InAllocatorType = FDefaultAllocator>
     class TDeque;
 
     namespace Deque
@@ -23,7 +23,7 @@ namespace OloEngine
              * Efficient wrap-around function that avoids modulo operator.
              * Assumes Index never exceeds twice the Range value.
              */
-            template <typename SizeType>
+            template<typename SizeType>
             OLO_FINLINE SizeType WrapAround(SizeType Index, SizeType Range)
             {
                 return (Index < Range) ? Index : Index - Range;
@@ -32,10 +32,10 @@ namespace OloEngine
             /**
              * TDeque iterator base class
              */
-            template <typename InElementType, typename InSizeType>
+            template<typename InElementType, typename InSizeType>
             class TIteratorBase
             {
-            public:
+              public:
                 using ElementType = InElementType;
                 using SizeType = InSizeType;
 
@@ -80,7 +80,7 @@ namespace OloEngine
                     return !(*this == Other);
                 }
 
-            private:
+              private:
                 ElementType* Data = nullptr;
                 SizeType Range = 0;
                 SizeType Offset = 0;
@@ -91,34 +91,34 @@ namespace OloEngine
     /**
      * @class TDeque
      * @brief Sequential double-ended queue (deque) container class
-     * 
+     *
      * A dynamically sized sequential queue that supports efficient insertion
      * and removal at both ends. Uses a circular buffer internally.
-     * 
+     *
      * @tparam InElementType The type of elements stored
      * @tparam InAllocatorType The allocator type (default: FDefaultAllocator)
-     * 
+     *
      * Example:
      * @code
      * TDeque<int> Queue;
      * Queue.PushLast(1);
      * Queue.PushLast(2);
      * Queue.PushFirst(0);  // Queue is now: 0, 1, 2
-     * 
+     *
      * int First = Queue.First();  // 0
      * int Last = Queue.Last();    // 2
-     * 
+     *
      * Queue.PopFirst();  // Queue is now: 1, 2
      * Queue.PopLast();   // Queue is now: 1
      * @endcode
      */
-    template <typename InElementType, typename InAllocatorType>
+    template<typename InElementType, typename InAllocatorType>
     class TDeque
     {
-        template <typename AnyElementType, typename AnyAllocatorType>
+        template<typename AnyElementType, typename AnyAllocatorType>
         friend class TDeque;
 
-    public:
+      public:
         using AllocatorType = InAllocatorType;
         using SizeType = typename InAllocatorType::SizeType;
         using ElementType = InElementType;
@@ -236,9 +236,18 @@ namespace OloEngine
         // Size / Capacity
         // ============================================================================
 
-        OLO_FINLINE bool IsEmpty() const { return m_Count == 0; }
-        OLO_FINLINE SizeType Max() const { return m_Capacity; }
-        OLO_FINLINE SizeType Num() const { return m_Count; }
+        OLO_FINLINE bool IsEmpty() const
+        {
+            return m_Count == 0;
+        }
+        OLO_FINLINE SizeType Max() const
+        {
+            return m_Capacity;
+        }
+        OLO_FINLINE SizeType Num() const
+        {
+            return m_Count;
+        }
 
         SIZE_T GetAllocatedSize() const
         {
@@ -253,7 +262,7 @@ namespace OloEngine
          * @brief Constructs an element in place at the back of the queue
          * @return Reference to the constructed element
          */
-        template <typename... ArgsType>
+        template<typename... ArgsType>
         ElementType& EmplaceLast(ArgsType&&... Args)
         {
             GrowIfRequired();
@@ -268,7 +277,7 @@ namespace OloEngine
          * @brief Constructs an element in place at the front of the queue
          * @return Reference to the constructed element
          */
-        template <typename... ArgsType>
+        template<typename... ArgsType>
         ElementType& EmplaceFirst(ArgsType&&... Args)
         {
             GrowIfRequired();
@@ -279,16 +288,40 @@ namespace OloEngine
             return *Target;
         }
 
-        OLO_FINLINE void PushLast(const ElementType& Element) { EmplaceLast(Element); }
-        OLO_FINLINE void PushLast(ElementType&& Element) { EmplaceLast(MoveTemp(Element)); }
-        OLO_FINLINE void PushFirst(const ElementType& Element) { EmplaceFirst(Element); }
-        OLO_FINLINE void PushFirst(ElementType&& Element) { EmplaceFirst(MoveTemp(Element)); }
+        OLO_FINLINE void PushLast(const ElementType& Element)
+        {
+            EmplaceLast(Element);
+        }
+        OLO_FINLINE void PushLast(ElementType&& Element)
+        {
+            EmplaceLast(MoveTemp(Element));
+        }
+        OLO_FINLINE void PushFirst(const ElementType& Element)
+        {
+            EmplaceFirst(Element);
+        }
+        OLO_FINLINE void PushFirst(ElementType&& Element)
+        {
+            EmplaceFirst(MoveTemp(Element));
+        }
 
         // Aliases for compatibility with std::deque interface
-        OLO_FINLINE void push_back(const ElementType& Element) { PushLast(Element); }
-        OLO_FINLINE void push_back(ElementType&& Element) { PushLast(MoveTemp(Element)); }
-        OLO_FINLINE void push_front(const ElementType& Element) { PushFirst(Element); }
-        OLO_FINLINE void push_front(ElementType&& Element) { PushFirst(MoveTemp(Element)); }
+        OLO_FINLINE void push_back(const ElementType& Element)
+        {
+            PushLast(Element);
+        }
+        OLO_FINLINE void push_back(ElementType&& Element)
+        {
+            PushLast(MoveTemp(Element));
+        }
+        OLO_FINLINE void push_front(const ElementType& Element)
+        {
+            PushFirst(Element);
+        }
+        OLO_FINLINE void push_front(ElementType&& Element)
+        {
+            PushFirst(MoveTemp(Element));
+        }
 
         /**
          * @brief Removes the element at the back of the queue
@@ -316,15 +349,36 @@ namespace OloEngine
         }
 
         // Aliases for compatibility with std::deque interface
-        OLO_FINLINE void pop_back() { PopLast(); }
-        OLO_FINLINE void pop_front() { PopFirst(); }
+        OLO_FINLINE void pop_back()
+        {
+            PopLast();
+        }
+        OLO_FINLINE void pop_front()
+        {
+            PopFirst();
+        }
 
         // Aliases for front/back access
-        OLO_FINLINE ElementType& front() { return First(); }
-        OLO_FINLINE const ElementType& front() const { return First(); }
-        OLO_FINLINE ElementType& back() { return Last(); }
-        OLO_FINLINE const ElementType& back() const { return Last(); }
-        OLO_FINLINE bool empty() const { return IsEmpty(); }
+        OLO_FINLINE ElementType& front()
+        {
+            return First();
+        }
+        OLO_FINLINE const ElementType& front() const
+        {
+            return First();
+        }
+        OLO_FINLINE ElementType& back()
+        {
+            return Last();
+        }
+        OLO_FINLINE const ElementType& back() const
+        {
+            return Last();
+        }
+        OLO_FINLINE bool empty() const
+        {
+            return IsEmpty();
+        }
 
         /**
          * @brief Try to pop and return the last element
@@ -415,10 +469,22 @@ namespace OloEngine
         // Iterators
         // ============================================================================
 
-        OLO_FINLINE ConstIteratorType begin() const { return ConstIteratorType(GetData(), Max(), m_Head); }
-        OLO_FINLINE IteratorType begin() { return IteratorType(GetData(), Max(), m_Head); }
-        OLO_FINLINE ConstIteratorType end() const { return ConstIteratorType(GetData(), Max(), m_Head + m_Count); }
-        OLO_FINLINE IteratorType end() { return IteratorType(GetData(), Max(), m_Head + m_Count); }
+        OLO_FINLINE ConstIteratorType begin() const
+        {
+            return ConstIteratorType(GetData(), Max(), m_Head);
+        }
+        OLO_FINLINE IteratorType begin()
+        {
+            return IteratorType(GetData(), Max(), m_Head);
+        }
+        OLO_FINLINE ConstIteratorType end() const
+        {
+            return ConstIteratorType(GetData(), Max(), m_Head + m_Count);
+        }
+        OLO_FINLINE IteratorType end()
+        {
+            return IteratorType(GetData(), Max(), m_Head + m_Count);
+        }
 
         // ============================================================================
         // Comparison Operators
@@ -448,7 +514,7 @@ namespace OloEngine
             return !(*this == Other);
         }
 
-    private:
+      private:
         // ============================================================================
         // Private Helpers
         // ============================================================================
@@ -563,8 +629,8 @@ namespace OloEngine
                 RelocateConstructItems<ElementType>(reinterpret_cast<ElementType*>(TempStorage.GetAllocation()), GetData(), m_Tail);
                 const SizeType HeadToEndOffset = m_Capacity - m_Head;
                 ShiftElementsLeft(HeadToEndOffset);
-                RelocateConstructItems<ElementType>(GetData() + HeadToEndOffset, 
-                    reinterpret_cast<ElementType*>(TempStorage.GetAllocation()), m_Tail);
+                RelocateConstructItems<ElementType>(GetData() + HeadToEndOffset,
+                                                    reinterpret_cast<ElementType*>(TempStorage.GetAllocation()), m_Tail);
             }
         }
 

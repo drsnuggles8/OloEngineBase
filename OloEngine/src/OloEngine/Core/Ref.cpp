@@ -5,14 +5,15 @@
 #include <mutex>
 #include <atomic>
 
-namespace OloEngine {
+namespace OloEngine
+{
 
     struct LiveReferencesData
     {
         std::unordered_set<void*> references;
         std::mutex mutex;
-        std::atomic<bool> isValid{true};
-        
+        std::atomic<bool> isValid{ true };
+
         ~LiveReferencesData()
         {
             isValid = false;
@@ -42,50 +43,50 @@ namespace OloEngine {
     }
 
     namespace RefUtils
-	{
+    {
         void AddToLiveReferences(void* instance)
         {
             auto& data = GetLiveReferencesData();
-            
+
             // Check if the tracking system is still valid
             if (!data.isValid.load(std::memory_order_acquire))
             {
                 // System is shutting down, don't attempt to access the hash table
                 return;
             }
-            
+
             std::scoped_lock<std::mutex> lock(data.mutex);
             OLO_CORE_ASSERT(instance);
-            
+
             // Double-check after acquiring the lock
             if (!data.isValid.load(std::memory_order_acquire))
             {
                 return;
             }
-            
+
             data.references.insert(instance);
         }
 
         void RemoveFromLiveReferences(void* instance)
         {
             auto& data = GetLiveReferencesData();
-            
+
             // Check if the tracking system is still valid before doing anything
             if (!data.isValid.load(std::memory_order_acquire))
             {
                 // System is shutting down, don't attempt to access the hash table
                 return;
             }
-            
+
             std::scoped_lock<std::mutex> lock(data.mutex);
             OLO_CORE_ASSERT(instance);
-            
+
             // Double-check after acquiring the lock
             if (!data.isValid.load(std::memory_order_acquire))
             {
                 return;
             }
-            
+
             auto it = data.references.find(instance);
             if (it != data.references.end())
             {
@@ -96,25 +97,25 @@ namespace OloEngine {
         bool IsLive(void* instance)
         {
             auto& data = GetLiveReferencesData();
-            
+
             // Check if the tracking system is still valid
             if (!data.isValid.load(std::memory_order_acquire))
             {
                 // System is shutting down, assume all references are dead
                 return false;
             }
-            
+
             std::scoped_lock<std::mutex> lock(data.mutex);
             OLO_CORE_ASSERT(instance);
-            
+
             // Double-check after acquiring the lock
             if (!data.isValid.load(std::memory_order_acquire))
             {
                 return false;
             }
-            
+
             return data.references.find(instance) != data.references.end();
         }
-    }
+    } // namespace RefUtils
 
-}
+} // namespace OloEngine

@@ -1,26 +1,26 @@
 #pragma once
-n// @file NoopCounter.h
+n // @file NoopCounter.h
 // @brief No-operation counter for release builds
-// 
+//
 // Provides a fake counter that performs no actual operations.
 // Used in shipping/distribution builds where tracking overhead
 // should be eliminated but the API needs to remain consistent.
-// 
+//
 // Ported from Unreal Engine's NoopCounter.h
 
 #include "OloEngine/Core/Base.h"
 #include <atomic>
 
-namespace OloEngine
+    namespace OloEngine
 {
     // @class FNoopCounter
     // @brief Fake thread-safe counter with no actual operations
-    // 
+    //
     // Used to avoid cluttering code with #ifdefs when counters are
     // only used for debugging. All operations are no-ops that return 0.
     class FNoopCounter
     {
-    public:
+      public:
         using IntegerType = i32;
 
         FNoopCounter() = default;
@@ -65,13 +65,13 @@ namespace OloEngine
 
     // @class FAtomicCounter
     // @brief Thread-safe counter using std::atomic
-    // 
+    //
     // Provides the same interface as FNoopCounter but with actual
     // atomic operations. Use this for debug/development builds where
     // tracking allocation counts is useful.
     class FAtomicCounter
     {
-    public:
+      public:
         using IntegerType = i32;
 
         FAtomicCounter() : m_Counter(0) {}
@@ -136,7 +136,7 @@ namespace OloEngine
             return m_Counter.load(std::memory_order_relaxed);
         }
 
-    private:
+      private:
         std::atomic<i32> m_Counter;
     };
 

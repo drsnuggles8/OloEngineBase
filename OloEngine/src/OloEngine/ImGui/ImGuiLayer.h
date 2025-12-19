@@ -8,23 +8,27 @@
 
 namespace OloEngine
 {
-	class ImGuiLayer : public Layer
-	{
-	public:
-		ImGuiLayer();
-		~ImGuiLayer() override = default;
+    class ImGuiLayer : public Layer
+    {
+      public:
+        ImGuiLayer();
+        ~ImGuiLayer() override = default;
 
-		void OnAttach() override;
-		void OnDetach() override;
-		void OnEvent(Event& e) override;
+        void OnAttach() override;
+        void OnDetach() override;
+        void OnEvent(Event& e) override;
 
-		static void Begin();
-		static void End();
+        static void Begin();
+        static void End();
 
-		void BlockEvents(bool const block) { m_BlockEvents = block; }
+        void BlockEvents(bool const block)
+        {
+            m_BlockEvents = block;
+        }
 
-		static void SetDarkThemeColors();
-	private:
-		bool m_BlockEvents = true;
-	};
-}
+        static void SetDarkThemeColors();
+
+      private:
+        bool m_BlockEvents = true;
+    };
+} // namespace OloEngine

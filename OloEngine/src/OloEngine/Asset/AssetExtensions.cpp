@@ -13,7 +13,7 @@ namespace OloEngine
         std::call_once(s_InitFlag, InitializeExtensionMap);
 
         std::string normalizedExt = NormalizeExtension(std::string(extension));
-        
+
         auto it = s_ExtensionMap.find(normalizedExt);
         return (it != s_ExtensionMap.end()) ? it->second : AssetType::None;
     }
@@ -132,9 +132,10 @@ namespace OloEngine
 
         // Convert to lowercase
         std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                      [](unsigned char c) { return std::tolower(c); });
+                       [](unsigned char c)
+                       { return std::tolower(c); });
 
         return normalized;
     }
 
-}
+} // namespace OloEngine

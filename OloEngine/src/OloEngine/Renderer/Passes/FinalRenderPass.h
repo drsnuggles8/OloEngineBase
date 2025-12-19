@@ -8,13 +8,13 @@
 namespace OloEngine
 {
     // @brief Render pass for the final screen output.
-    // 
+    //
     // This pass takes the output from a previous pass (typically the scene pass) and
     // renders it to the default framebuffer (screen) using a fullscreen triangle.
     // It can optionally apply post-processing effects.
     class FinalRenderPass : public RenderPass
     {
-    public:
+      public:
         FinalRenderPass();
         ~FinalRenderPass() override = default;
 
@@ -27,9 +27,9 @@ namespace OloEngine
         void SetInputFramebuffer(const Ref<Framebuffer>& input);
         [[nodiscard]] Ref<Framebuffer> GetInputFramebuffer() const;
 
-    private:
-        Ref<Framebuffer> m_InputFramebuffer;         // The framebuffer to render to the screen
-        Ref<Shader> m_BlitShader;                    // Shader for blitting the framebuffer to the screen
-        Ref<VertexArray> m_FullscreenTriangleVA;     // Vertex array for the fullscreen triangle
+      private:
+        Ref<Framebuffer> m_InputFramebuffer;     // The framebuffer to render to the screen
+        Ref<Shader> m_BlitShader;                // Shader for blitting the framebuffer to the screen
+        Ref<VertexArray> m_FullscreenTriangleVA; // Vertex array for the fullscreen triangle
     };
-}
+} // namespace OloEngine

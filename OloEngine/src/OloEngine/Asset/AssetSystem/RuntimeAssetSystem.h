@@ -16,11 +16,11 @@ namespace OloEngine
 {
     /**
      * @brief Runtime asset system for optimized async loading
-     * 
+     *
      * The RuntimeAssetSystem provides optimized asset loading for shipping builds.
      * It loads assets from asset packs with minimal overhead and provides
      * efficient async loading for runtime performance.
-     * 
+     *
      * Key differences from EditorAssetSystem:
      * - Simpler queue management (no file monitoring)
      * - Asset pack-based loading only
@@ -28,7 +28,7 @@ namespace OloEngine
      */
     class RuntimeAssetSystem : public RefCounted
     {
-    public:
+      public:
         RuntimeAssetSystem();
         ~RuntimeAssetSystem();
 
@@ -63,7 +63,10 @@ namespace OloEngine
          * @brief Check if the asset thread is running
          * @return True if the thread is active
          */
-        bool IsRunning() const noexcept { return m_Running.load(std::memory_order_acquire); }
+        bool IsRunning() const noexcept
+        {
+            return m_Running.load(std::memory_order_acquire);
+        }
 
         /**
          * @brief Check if an asset is in the pending queue
@@ -78,7 +81,7 @@ namespace OloEngine
          */
         sizet GetPendingAssetCount() const noexcept;
 
-    private:
+      private:
         /**
          * @brief Main asset thread function
          */
@@ -91,7 +94,7 @@ namespace OloEngine
          */
         Ref<Asset> LoadAssetFromPack(AssetHandle handle);
 
-    private:
+      private:
         Thread m_Thread;
         std::atomic<bool> m_Running = true;
 

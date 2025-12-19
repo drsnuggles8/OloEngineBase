@@ -11,7 +11,7 @@ namespace OloEngine::LowLevelTasks
     {
         // @class FOversubscriptionTls
         // @brief Thread-local storage for oversubscription state
-        // 
+        //
         // Tracks whether oversubscription is allowed on the current thread.
         // This is used to control whether additional worker threads can be
         // spawned during blocking operations.
@@ -23,21 +23,23 @@ namespace OloEngine::LowLevelTasks
 
             static bool& GetIsOversubscriptionAllowedRef();
 
-        public:
-            static bool IsOversubscriptionAllowed() { return s_bIsOversubscriptionAllowed; }
+          public:
+            static bool IsOversubscriptionAllowed()
+            {
+                return s_bIsOversubscriptionAllowed;
+            }
         };
 
         // @class FOversubscriptionAllowedScope
         // @brief RAII scope guard for temporarily changing oversubscription permission
         class FOversubscriptionAllowedScope
         {
-        public:
+          public:
             FOversubscriptionAllowedScope(const FOversubscriptionAllowedScope&) = delete;
             FOversubscriptionAllowedScope& operator=(const FOversubscriptionAllowedScope&) = delete;
 
             explicit FOversubscriptionAllowedScope(bool bIsOversubscriptionAllowed)
-                : m_bValue(FOversubscriptionTls::GetIsOversubscriptionAllowedRef())
-                , m_bPreviousValue(m_bValue)
+                : m_bValue(FOversubscriptionTls::GetIsOversubscriptionAllowedRef()), m_bPreviousValue(m_bValue)
             {
                 m_bValue = bIsOversubscriptionAllowed;
             }
@@ -47,21 +49,21 @@ namespace OloEngine::LowLevelTasks
                 m_bValue = m_bPreviousValue;
             }
 
-        private:
+          private:
             bool& m_bValue;
-            bool  m_bPreviousValue;
+            bool m_bPreviousValue;
         };
 
     } // namespace Private
 
     // @class FOversubscriptionScope
     // @brief RAII scope guard for incrementing/decrementing oversubscription count
-    // 
+    //
     // When a blocking operation occurs (like waiting for I/O), this scope can be
     // used to allow additional worker threads to be spawned to maintain throughput.
     class FOversubscriptionScope
     {
-    public:
+      public:
         FOversubscriptionScope(const FOversubscriptionScope&) = delete;
         FOversubscriptionScope& operator=(const FOversubscriptionScope&) = delete;
 
@@ -81,7 +83,7 @@ namespace OloEngine::LowLevelTasks
             }
         }
 
-    private:
+      private:
         void TryIncrementOversubscription();
         void DecrementOversubscription();
 

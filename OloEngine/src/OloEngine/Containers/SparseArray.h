@@ -3,20 +3,20 @@
 /**
  * @file SparseArray.h
  * @brief Sparse array container with O(1) add/remove using free list
- * 
+ *
  * Provides a dynamically sized array where element indices aren't necessarily
  * contiguous. Memory is allocated for all elements in the array's index range,
  * but it allows O(1) element removal that doesn't invalidate indices of other
  * elements.
- * 
+ *
  * Key components:
  * - TSparseArrayElementOrFreeListLink: Union overlapping element data with free list links
  * - FSparseArrayAllocationInfo: Allocation result with index and pointer
  * - TSparseArrayBase: Base class with type-erased operations
  * - TSparseArray: Type-safe sparse array template
- * 
+ *
  * Used as a foundation for TSet's element storage.
- * 
+ *
  * Ported from Unreal Engine's Containers/SparseArray.h
  */
 
@@ -35,9 +35,9 @@
 
 // Ranged-for iterator checks in debug builds
 #if defined(OLO_DIST) || defined(NDEBUG)
-    #define TSPARSEARRAY_RANGED_FOR_CHECKS 0
+#define TSPARSEARRAY_RANGED_FOR_CHECKS 0
 #else
-    #define TSPARSEARRAY_RANGED_FOR_CHECKS 1
+#define TSPARSEARRAY_RANGED_FOR_CHECKS 1
 #endif
 
 namespace OloEngine
@@ -46,7 +46,7 @@ namespace OloEngine
     // Forward Declarations
     // ============================================================================
 
-    template <typename InElementType, typename Allocator>
+    template<typename InElementType, typename Allocator>
     class TSparseArray;
 
     // ============================================================================
@@ -66,8 +66,10 @@ namespace OloEngine
 } // namespace OloEngine
 
 // Forward declarations of placement new operators (must be at global scope)
-template <typename T, typename Allocator> void* operator new(sizet Size, OloEngine::TSparseArray<T, Allocator>& Array);
-template <typename T, typename Allocator> void* operator new(sizet Size, OloEngine::TSparseArray<T, Allocator>& Array, std::int32_t Index);
+template<typename T, typename Allocator>
+void* operator new(sizet Size, OloEngine::TSparseArray<T, Allocator>& Array);
+template<typename T, typename Allocator>
+void* operator new(sizet Size, OloEngine::TSparseArray<T, Allocator>& Array, std::int32_t Index);
 
 // Allow placement new with FSparseArrayAllocationInfo (must be at global scope)
 inline void* operator new(sizet, const OloEngine::FSparseArrayAllocationInfo& Allocation)
@@ -87,17 +89,16 @@ namespace OloEngine
     /**
      * @struct TSparseArrayElementOrFreeListLink
      * @brief Union type that stores either an element or free list link info
-     * 
+     *
      * For allocated slots, ElementData contains the actual element.
      * For free slots, PrevFreeIndex/NextFreeIndex form a doubly-linked free list.
      */
-    template <typename ElementType>
+    template<typename ElementType>
     union TSparseArrayElementOrFreeListLink
     {
         /** Braces are needed to explicitly value-initialize the union */
         TSparseArrayElementOrFreeListLink()
-            : PrevFreeIndex(-1)
-            , NextFreeIndex(-1)
+            : PrevFreeIndex(-1), NextFreeIndex(-1)
         {
         }
 
@@ -119,21 +120,21 @@ namespace OloEngine
     /**
      * @class TSparseArrayBase
      * @brief Type-erased base class for sparse array operations
-     * 
+     *
      * Contains all operations that don't depend on the actual element type,
      * avoiding template instantiation for compatible types.
      */
-    template <sizet SizeOfElementType, sizet AlignOfElementType, typename Allocator>
+    template<sizet SizeOfElementType, sizet AlignOfElementType, typename Allocator>
     class TSparseArrayBase
     {
-    protected:
+      protected:
         /** Constructor for intrusive optional unset state */
         [[nodiscard]] explicit TSparseArrayBase(FIntrusiveUnsetOptionalState)
             : Data(FIntrusiveUnsetOptionalState{})
         {
         }
 
-    public:
+      public:
         // ========================================================================
         // Constructors
         // ========================================================================
@@ -141,8 +142,7 @@ namespace OloEngine
         [[nodiscard]] constexpr TSparseArrayBase() = default;
 
         [[nodiscard]] explicit consteval TSparseArrayBase(EConstEval)
-            : Data(ConstEval)
-            , AllocationFlags(ConstEval)
+            : Data(ConstEval), AllocationFlags(ConstEval)
         {
         }
 
@@ -484,7 +484,7 @@ namespace OloEngine
 
         /**
          * @brief Sort the free list for deterministic allocation order
-         * 
+         *
          * Makes subsequent allocations occur at the lowest available position.
          */
         void SortFreeList()
@@ -540,8 +540,7 @@ namespace OloEngine
                     do
                     {
                         --EndIndex;
-                    }
-                    while (!AllocationFlags[EndIndex]);
+                    } while (!AllocationFlags[EndIndex]);
 
                     RelocateConstructItems<FElementOrFreeListLink>(DataPtr + FreeIndex, DataPtr + EndIndex, 1);
                     AllocationFlags[FreeIndex] = true;
@@ -563,9 +562,9 @@ namespace OloEngine
             return bResult;
         }
 
-    protected:
+      protected:
         // Move helper for derived classes
-        template <typename ArrayType>
+        template<typename ArrayType>
         static void Move(ArrayType& To, ArrayType& From)
         {
             To.Data = MoveTemp(From.Data);
@@ -586,8 +585,7 @@ namespace OloEngine
          * to avoid instantiating TArray redundantly for compatible types.
          */
         using FElementOrFreeListLink = TSparseArrayElementOrFreeListLink<
-            TAlignedBytes<SizeOfElementType, AlignOfElementType>
-        >;
+            TAlignedBytes<SizeOfElementType, AlignOfElementType>>;
 
         using DataType = TArray<FElementOrFreeListLink, typename Allocator::ElementAllocator>;
         DataType Data;
@@ -609,28 +607,28 @@ namespace OloEngine
     /**
      * @class TSparseArray
      * @brief A dynamically sized array where element indices aren't necessarily contiguous
-     * 
+     *
      * Memory is allocated for all elements in the array's index range, but removed
      * elements leave holes that can be reused. This allows O(1) removal without
      * invalidating indices of other elements.
-     * 
+     *
      * @tparam InElementType  The type of elements stored
      * @tparam Allocator      The allocator policy (default: FDefaultSparseArrayAllocator)
      */
-    template <typename InElementType, typename Allocator = FDefaultSparseArrayAllocator>
+    template<typename InElementType, typename Allocator = FDefaultSparseArrayAllocator>
     class TSparseArray : public TSparseArrayBase<sizeof(InElementType), alignof(InElementType), Allocator>
     {
         using SuperType = TSparseArrayBase<sizeof(InElementType), alignof(InElementType), Allocator>;
         using ElementType = InElementType;
 
-    public:
-        using SuperType::Data;
+      public:
         using SuperType::AllocationFlags;
+        using SuperType::Data;
         using SuperType::FirstFreeIndex;
         using SuperType::NumFreeIndices;
-        using typename SuperType::FElementOrFreeListLink;
-        using typename SuperType::DataType;
         using typename SuperType::AllocationBitArrayType;
+        using typename SuperType::DataType;
+        using typename SuperType::FElementOrFreeListLink;
 
         // ========================================================================
         // Intrusive TOptional<TSparseArray> State
@@ -735,8 +733,7 @@ namespace OloEngine
                         if (Other.IsAllocated(Index))
                         {
                             ::new (reinterpret_cast<u8*>(&DestElement.ElementData)) ElementType(
-                                *reinterpret_cast<const ElementType*>(&SrcElement.ElementData)
-                            );
+                                *reinterpret_cast<const ElementType*>(&SrcElement.ElementData));
                         }
                         else
                         {
@@ -808,19 +805,18 @@ namespace OloEngine
         // ========================================================================
 
         using SuperType::GetMaxIndex;
-        using SuperType::IsEmpty;
-        using SuperType::Num;
-        using SuperType::Max;
-        using SuperType::IsValidIndex;
         using SuperType::IsAllocated;
+        using SuperType::IsEmpty;
+        using SuperType::IsValidIndex;
+        using SuperType::Max;
+        using SuperType::Num;
 
         /** Access element by index */
         [[nodiscard]] ElementType& operator[](i32 Index)
         {
             OLO_CORE_ASSERT(IsAllocated(Index), "Accessing unallocated sparse array element");
             return *reinterpret_cast<ElementType*>(
-                &reinterpret_cast<FElementOrFreeListLink*>(Data.GetData())[Index].ElementData
-            );
+                &reinterpret_cast<FElementOrFreeListLink*>(Data.GetData())[Index].ElementData);
         }
 
         /** Access element by index (const) */
@@ -828,8 +824,7 @@ namespace OloEngine
         {
             OLO_CORE_ASSERT(IsAllocated(Index), "Accessing unallocated sparse array element");
             return *reinterpret_cast<const ElementType*>(
-                &reinterpret_cast<const FElementOrFreeListLink*>(Data.GetData())[Index].ElementData
-            );
+                &reinterpret_cast<const FElementOrFreeListLink*>(Data.GetData())[Index].ElementData);
         }
 
         // ========================================================================
@@ -858,7 +853,7 @@ namespace OloEngine
         }
 
         /** Construct an element in place */
-        template <typename... ArgsType>
+        template<typename... ArgsType>
         i32 Emplace(ArgsType&&... Args)
         {
             FSparseArrayAllocationInfo Allocation = AddUninitialized();
@@ -867,7 +862,7 @@ namespace OloEngine
         }
 
         /** Construct at the lowest free index */
-        template <typename... ArgsType>
+        template<typename... ArgsType>
         i32 EmplaceAtLowestFreeIndex(i32& LowestFreeIndexSearchStart, ArgsType&&... Args)
         {
             FSparseArrayAllocationInfo Allocation = AddUninitializedAtLowestFreeIndex(LowestFreeIndexSearchStart);
@@ -876,7 +871,7 @@ namespace OloEngine
         }
 
         /** Construct at a specific index */
-        template <typename... ArgsType>
+        template<typename... ArgsType>
         i32 EmplaceAt(i32 Index, ArgsType&&... Args)
         {
             FSparseArrayAllocationInfo Allocation;
@@ -970,9 +965,9 @@ namespace OloEngine
         // Other Operations
         // ========================================================================
 
+        using SuperType::Compact;
         using SuperType::Reserve;
         using SuperType::Shrink;
-        using SuperType::Compact;
         using SuperType::SortFreeList;
 
         /** Compact elements while preserving iteration order */
@@ -998,7 +993,7 @@ namespace OloEngine
         }
 
         /** Sort elements using a predicate */
-        template <typename PredicateClass>
+        template<typename PredicateClass>
         void Sort(const PredicateClass& Predicate)
         {
             if (Num() > 0)
@@ -1018,7 +1013,7 @@ namespace OloEngine
         }
 
         /** Stable sort elements using a predicate (preserves relative order of equal elements) */
-        template <typename PredicateClass>
+        template<typename PredicateClass>
         void StableSort(const PredicateClass& Predicate)
         {
             if (Num() > 0)
@@ -1038,7 +1033,7 @@ namespace OloEngine
         }
 
         /** Find an element by predicate */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] i32 IndexOfByPredicate(Predicate Pred) const
         {
             for (TConstIterator It(*this); It; ++It)
@@ -1130,21 +1125,20 @@ namespace OloEngine
         // ========================================================================
 
         /** Base iterator class */
-        template <bool bConst>
+        template<bool bConst>
         class TBaseIterator
         {
-        public:
+          public:
             using ArrayType = std::conditional_t<bConst, const TSparseArray, TSparseArray>;
             using IteratedElementType = std::conditional_t<bConst, const ElementType, ElementType>;
 
-        private:
+          private:
             ArrayType& Array;
             TConstSetBitIterator<typename Allocator::BitArrayAllocator> BitArrayIt;
 
-        public:
+          public:
             [[nodiscard]] explicit TBaseIterator(ArrayType& InArray, i32 StartIndex = 0)
-                : Array(InArray)
-                , BitArrayIt(InArray.AllocationFlags, StartIndex)
+                : Array(InArray), BitArrayIt(InArray.AllocationFlags, StartIndex)
             {
             }
 
@@ -1190,7 +1184,8 @@ namespace OloEngine
             }
 
             /** Remove current element (mutable iterator only) */
-            void RemoveCurrent() requires (!bConst)
+            void RemoveCurrent()
+                requires(!bConst)
             {
                 Array.RemoveAt(GetIndex());
             }
@@ -1203,11 +1198,9 @@ namespace OloEngine
         /** Ranged-for iterator with modification checking */
         class TRangedForIterator : public TIterator
         {
-        public:
+          public:
             [[nodiscard]] TRangedForIterator(TSparseArray& InArray, i32 StartIndex = 0)
-                : TIterator(InArray, StartIndex)
-                , InitialNum(InArray.Num())
-                , ArrayPtr(&InArray)
+                : TIterator(InArray, StartIndex), InitialNum(InArray.Num()), ArrayPtr(&InArray)
             {
             }
 
@@ -1218,7 +1211,7 @@ namespace OloEngine
                 return static_cast<const TIterator&>(*this) != static_cast<const TIterator&>(Rhs);
             }
 
-        private:
+          private:
             i32 InitialNum;
             TSparseArray* ArrayPtr;
         };
@@ -1226,11 +1219,9 @@ namespace OloEngine
         /** Const ranged-for iterator with modification checking */
         class TRangedForConstIterator : public TConstIterator
         {
-        public:
+          public:
             [[nodiscard]] TRangedForConstIterator(const TSparseArray& InArray, i32 StartIndex = 0)
-                : TConstIterator(InArray, StartIndex)
-                , InitialNum(InArray.Num())
-                , ArrayPtr(&InArray)
+                : TConstIterator(InArray, StartIndex), InitialNum(InArray.Num()), ArrayPtr(&InArray)
             {
             }
 
@@ -1241,7 +1232,7 @@ namespace OloEngine
                 return static_cast<const TConstIterator&>(*this) != static_cast<const TConstIterator&>(Rhs);
             }
 
-        private:
+          private:
             i32 InitialNum;
             const TSparseArray* ArrayPtr;
         };
@@ -1263,19 +1254,30 @@ namespace OloEngine
         }
 
         /** Range-based for loop support */
-        [[nodiscard]] TRangedForIterator begin() { return TRangedForIterator(*this); }
-        [[nodiscard]] TRangedForConstIterator begin() const { return TRangedForConstIterator(*this); }
-        [[nodiscard]] TRangedForIterator end() { return TRangedForIterator(*this, GetMaxIndex()); }
-        [[nodiscard]] TRangedForConstIterator end() const { return TRangedForConstIterator(*this, GetMaxIndex()); }
+        [[nodiscard]] TRangedForIterator begin()
+        {
+            return TRangedForIterator(*this);
+        }
+        [[nodiscard]] TRangedForConstIterator begin() const
+        {
+            return TRangedForConstIterator(*this);
+        }
+        [[nodiscard]] TRangedForIterator end()
+        {
+            return TRangedForIterator(*this, GetMaxIndex());
+        }
+        [[nodiscard]] TRangedForConstIterator end() const
+        {
+            return TRangedForConstIterator(*this, GetMaxIndex());
+        }
 
         /** An iterator which only iterates over elements matching a subset bit array */
-        template <typename SubsetAllocator = FDefaultAllocator>
+        template<typename SubsetAllocator = FDefaultAllocator>
         class TConstSubsetIterator
         {
-        public:
+          public:
             [[nodiscard]] TConstSubsetIterator(const TSparseArray& InArray, const TBitArray<SubsetAllocator>& InBitArray)
-                : Array(InArray)
-                , BitArrayIt(InArray.AllocationFlags, InBitArray)
+                : Array(InArray), BitArrayIt(InArray.AllocationFlags, InBitArray)
             {
             }
 
@@ -1317,7 +1319,7 @@ namespace OloEngine
                 return BitArrayIt;
             }
 
-        private:
+          private:
             const TSparseArray& Array;
             TConstDualSetBitIterator<typename Allocator::BitArrayAllocator, SubsetAllocator> BitArrayIt;
         };
@@ -1379,12 +1381,12 @@ namespace OloEngine
                 const FTypeLayoutDesc& ElementTypeDesc = StaticGetTypeLayoutDesc<ElementType>();
                 TSparseArray* DstObject = reinterpret_cast<TSparseArray*>(Dst);
                 {
-                    ::new(static_cast<void*>(&DstObject->Data)) DataType();
+                    ::new (static_cast<void*>(&DstObject->Data)) DataType();
                     DstObject->Data.SetNumUninitialized(this->Data.Num());
                     for (i32 i = 0; i < this->Data.Num(); ++i)
                     {
-                        const FElementOrFreeListLink& Elem    = reinterpret_cast<const FElementOrFreeListLink*>(this->Data.GetData())[i];
-                              FElementOrFreeListLink& DstElem = reinterpret_cast<      FElementOrFreeListLink*>(DstObject->Data.GetData())[i];
+                        const FElementOrFreeListLink& Elem = reinterpret_cast<const FElementOrFreeListLink*>(this->Data.GetData())[i];
+                        FElementOrFreeListLink& DstElem = reinterpret_cast<FElementOrFreeListLink*>(DstObject->Data.GetData())[i];
                         if (this->AllocationFlags[i])
                         {
                             Context.UnfreezeObject(&Elem.ElementData, ElementTypeDesc, &DstElem.ElementData);
@@ -1397,13 +1399,13 @@ namespace OloEngine
                     }
                 }
 
-                ::new(static_cast<void*>(&DstObject->AllocationFlags)) AllocationBitArrayType(this->AllocationFlags);
+                ::new (static_cast<void*>(&DstObject->AllocationFlags)) AllocationBitArrayType(this->AllocationFlags);
                 DstObject->FirstFreeIndex = this->FirstFreeIndex;
                 DstObject->NumFreeIndices = this->NumFreeIndices;
             }
             else
             {
-                ::new(Dst) TSparseArray();
+                ::new (Dst) TSparseArray();
             }
         }
 
@@ -1416,14 +1418,14 @@ namespace OloEngine
             }
         }
 
-    private:
+      private:
         /** Extracts the element value from the sparse array's element structure for sorting */
-        template <typename PredicateClass>
+        template<typename PredicateClass>
         class FElementCompareClass
         {
             const PredicateClass& Predicate;
 
-        public:
+          public:
             [[nodiscard]] FElementCompareClass(const PredicateClass& InPredicate)
                 : Predicate(InPredicate)
             {
@@ -1433,8 +1435,7 @@ namespace OloEngine
             {
                 return Predicate(
                     *reinterpret_cast<const ElementType*>(&A.ElementData),
-                    *reinterpret_cast<const ElementType*>(&B.ElementData)
-                );
+                    *reinterpret_cast<const ElementType*>(&B.ElementData));
             }
         };
     };
@@ -1448,7 +1449,7 @@ namespace OloEngine
 /**
  * Placement new operator that allocates a new element in the sparse array
  */
-template <typename T, typename Allocator>
+template<typename T, typename Allocator>
 void* operator new(sizet Size, OloEngine::TSparseArray<T, Allocator>& Array)
 {
     OLO_CORE_ASSERT(Size == sizeof(T));
@@ -1459,7 +1460,7 @@ void* operator new(sizet Size, OloEngine::TSparseArray<T, Allocator>& Array)
 /**
  * Placement new operator that allocates an element at a specific index in the sparse array
  */
-template <typename T, typename Allocator>
+template<typename T, typename Allocator>
 void* operator new(sizet Size, OloEngine::TSparseArray<T, Allocator>& Array, std::int32_t Index)
 {
     OLO_CORE_ASSERT(Size == sizeof(T));
@@ -1476,20 +1477,20 @@ namespace OloEngine
 
     namespace Freeze
     {
-        template <typename ElementType, typename Allocator>
+        template<typename ElementType, typename Allocator>
         void IntrinsicWriteMemoryImage(FMemoryImageWriter& Writer, const TSparseArray<ElementType, Allocator>& Object, const FTypeLayoutDesc&)
         {
             Object.WriteMemoryImage(Writer);
         }
 
-        template <typename ElementType, typename Allocator>
+        template<typename ElementType, typename Allocator>
         u32 IntrinsicUnfrozenCopy(const FMemoryUnfreezeContent& Context, const TSparseArray<ElementType, Allocator>& Object, void* OutDst)
         {
             Object.CopyUnfrozen(Context, OutDst);
             return sizeof(Object);
         }
 
-        template <typename ElementType, typename Allocator>
+        template<typename ElementType, typename Allocator>
         u32 IntrinsicAppendHash(const TSparseArray<ElementType, Allocator>*, const FTypeLayoutDesc& TypeDesc, const FPlatformTypeLayoutParameters& LayoutParams, FSHA1& Hasher)
         {
             TSparseArray<ElementType, Allocator>::AppendHash(LayoutParams, Hasher);
@@ -1502,7 +1503,7 @@ namespace OloEngine
     // ============================================================================
 
     /** Serializer */
-    template <typename ElementType, typename Allocator>
+    template<typename ElementType, typename Allocator>
     FArchive& operator<<(FArchive& Ar, TSparseArray<ElementType, Allocator>& Array)
     {
         Array.CountBytes(Ar);
@@ -1514,7 +1515,7 @@ namespace OloEngine
             Array.Empty(NewNumElements);
             for (i32 ElementIndex = 0; ElementIndex < NewNumElements; ++ElementIndex)
             {
-                Ar << *::new(Array.AddUninitialized()) ElementType;
+                Ar << *::new (Array.AddUninitialized()) ElementType;
             }
         }
         else
@@ -1531,7 +1532,7 @@ namespace OloEngine
     }
 
     /** Structured archive serializer */
-    template <typename ElementType, typename Allocator>
+    template<typename ElementType, typename Allocator>
     void operator<<(FStructuredArchive::FSlot Slot, TSparseArray<ElementType, Allocator>& InArray)
     {
         i32 NumElements = InArray.Num();
@@ -1548,7 +1549,7 @@ namespace OloEngine
                 }
 
                 FStructuredArchive::FSlot ElementSlot = Array.EnterElement();
-                ElementSlot << *::new(InArray.AddUninitialized()) ElementType;
+                ElementSlot << *::new (InArray.AddUninitialized()) ElementType;
             }
         }
         else
@@ -1565,7 +1566,7 @@ namespace OloEngine
     // Hash Function
     // ============================================================================
 
-    template <typename ElementType, typename Allocator>
+    template<typename ElementType, typename Allocator>
     [[nodiscard]] u32 GetTypeHash(const TSparseArray<ElementType, Allocator>& Array)
     {
         u32 Hash = 0;

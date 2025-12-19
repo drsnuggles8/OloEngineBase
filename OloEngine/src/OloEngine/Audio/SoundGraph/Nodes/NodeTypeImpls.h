@@ -3,30 +3,30 @@
 #include "OloEngine/Audio/SoundGraph/NodeDescriptors.h"
 #include "NodeTypes.h"
 
-namespace OloEngine::Audio::SoundGraph 
+namespace OloEngine::Audio::SoundGraph
 {
-    //==============================================================================
-    // Template implementations for nodes - following Hazel's NodeTypeImpls.h pattern
-    //==============================================================================
+//==============================================================================
+// Template implementations for nodes - following Hazel's NodeTypeImpls.h pattern
+//==============================================================================
 
-    /// @brief Macro to generate template implementations for node types
-    /// @param NodeType The node type class name (e.g., Add, Multiply)
-    /// Generates:
-    /// - Constructor: NodeType<T>::NodeType(const char* dbgName, UUID id)
-    /// - Init method: void NodeType<T>::Init()
-    #define IMPLEMENT_NODE_TYPE(NodeType)                                          \
-        template<typename T>                                                       \
-        NodeType<T>::NodeType(const char* dbgName, UUID id)                        \
-            : NodeProcessor(dbgName, id)                                           \
-        {                                                                          \
-            EndpointUtilities::RegisterEndpoints(this);                            \
-        }                                                                          \
-                                                                                   \
-        template<typename T>                                                       \
-        void NodeType<T>::Init()                                                   \
-        {                                                                          \
-            EndpointUtilities::InitializeInputs(this);                             \
-        }
+/// @brief Macro to generate template implementations for node types
+/// @param NodeType The node type class name (e.g., Add, Multiply)
+/// Generates:
+/// - Constructor: NodeType<T>::NodeType(const char* dbgName, UUID id)
+/// - Init method: void NodeType<T>::Init()
+#define IMPLEMENT_NODE_TYPE(NodeType)                   \
+    template<typename T>                                \
+    NodeType<T>::NodeType(const char* dbgName, UUID id) \
+        : NodeProcessor(dbgName, id)                    \
+    {                                                   \
+        EndpointUtilities::RegisterEndpoints(this);     \
+    }                                                   \
+                                                        \
+    template<typename T>                                \
+    void NodeType<T>::Init()                            \
+    {                                                   \
+        EndpointUtilities::InitializeInputs(this);      \
+    }
 
     //==============================================================================
     // Math Nodes Template Implementations
@@ -42,6 +42,6 @@ namespace OloEngine::Audio::SoundGraph
     IMPLEMENT_NODE_TYPE(Power)
     IMPLEMENT_NODE_TYPE(Abs)
 
-    #undef IMPLEMENT_NODE_TYPE
+#undef IMPLEMENT_NODE_TYPE
 
 } // namespace OloEngine::Audio::SoundGraph

@@ -18,56 +18,68 @@
 
 // Convenience macros for shader debugging (only in debug builds)
 #ifdef OLO_DEBUG
-    #define OLO_SHADER_REGISTER(shader) \
-        OloEngine::ShaderDebugger::GetInstance().RegisterShader(shader)
-    #define OLO_SHADER_REGISTER_MANUAL(rendererID, name, filePath) \
-        OloEngine::ShaderDebugger::GetInstance().RegisterShader(rendererID, name, filePath)
-    #define OLO_SHADER_UNREGISTER(rendererID) \
-        OloEngine::ShaderDebugger::GetInstance().UnregisterShader(rendererID)
-    #define OLO_SHADER_COMPILATION_START(name, filepath) \
-        OloEngine::ShaderDebugger::GetInstance().OnCompilationStart(name, filepath)
-    #define OLO_SHADER_COMPILATION_END(rendererID, success, errorMsg, compileTime) \
-        OloEngine::ShaderDebugger::GetInstance().OnCompilationEnd(rendererID, success, errorMsg, compileTime)
-    #define OLO_SHADER_RELOAD_START(rendererID) \
-        OloEngine::ShaderDebugger::GetInstance().OnReloadStart(rendererID)
-    #define OLO_SHADER_RELOAD_END(rendererID, success) \
-        OloEngine::ShaderDebugger::GetInstance().OnReloadEnd(rendererID, success)
-    #define OLO_SHADER_BIND(rendererID) \
-        OloEngine::ShaderDebugger::GetInstance().OnShaderBind(rendererID)
-    #define OLO_SHADER_UNIFORM_SET(rendererID, name, type) \
-        OloEngine::ShaderDebugger::GetInstance().OnUniformSet(rendererID, name, type)
-    #define OLO_SHADER_SET_SOURCE(rendererID, stage, original, generated, spirv) \
-        OloEngine::ShaderDebugger::GetInstance().SetShaderSource(rendererID, stage, original, generated, spirv)
+#define OLO_SHADER_REGISTER(shader) \
+    OloEngine::ShaderDebugger::GetInstance().RegisterShader(shader)
+#define OLO_SHADER_REGISTER_MANUAL(rendererID, name, filePath) \
+    OloEngine::ShaderDebugger::GetInstance().RegisterShader(rendererID, name, filePath)
+#define OLO_SHADER_UNREGISTER(rendererID) \
+    OloEngine::ShaderDebugger::GetInstance().UnregisterShader(rendererID)
+#define OLO_SHADER_COMPILATION_START(name, filepath) \
+    OloEngine::ShaderDebugger::GetInstance().OnCompilationStart(name, filepath)
+#define OLO_SHADER_COMPILATION_END(rendererID, success, errorMsg, compileTime) \
+    OloEngine::ShaderDebugger::GetInstance().OnCompilationEnd(rendererID, success, errorMsg, compileTime)
+#define OLO_SHADER_RELOAD_START(rendererID) \
+    OloEngine::ShaderDebugger::GetInstance().OnReloadStart(rendererID)
+#define OLO_SHADER_RELOAD_END(rendererID, success) \
+    OloEngine::ShaderDebugger::GetInstance().OnReloadEnd(rendererID, success)
+#define OLO_SHADER_BIND(rendererID) \
+    OloEngine::ShaderDebugger::GetInstance().OnShaderBind(rendererID)
+#define OLO_SHADER_UNIFORM_SET(rendererID, name, type) \
+    OloEngine::ShaderDebugger::GetInstance().OnUniformSet(rendererID, name, type)
+#define OLO_SHADER_SET_SOURCE(rendererID, stage, original, generated, spirv) \
+    OloEngine::ShaderDebugger::GetInstance().SetShaderSource(rendererID, stage, original, generated, spirv)
 #else
-    #define OLO_SHADER_REGISTER(shader)
-    #define OLO_SHADER_REGISTER_MANUAL(rendererID, name, filePath)
-    #define OLO_SHADER_UNREGISTER(rendererID)
-    #define OLO_SHADER_COMPILATION_START(name, filepath)
-    #define OLO_SHADER_COMPILATION_END(rendererID, success, errorMsg, compileTime)
-    #define OLO_SHADER_RELOAD_START(rendererID)
-    #define OLO_SHADER_RELOAD_END(rendererID, success)
-    #define OLO_SHADER_BIND(rendererID)
-    #define OLO_SHADER_UNIFORM_SET(rendererID, name, type)
-    #define OLO_SHADER_SET_SOURCE(rendererID, stage, original, generated, spirv)
+#define OLO_SHADER_REGISTER(shader)
+#define OLO_SHADER_REGISTER_MANUAL(rendererID, name, filePath)
+#define OLO_SHADER_UNREGISTER(rendererID)
+#define OLO_SHADER_COMPILATION_START(name, filepath)
+#define OLO_SHADER_COMPILATION_END(rendererID, success, errorMsg, compileTime)
+#define OLO_SHADER_RELOAD_START(rendererID)
+#define OLO_SHADER_RELOAD_END(rendererID, success)
+#define OLO_SHADER_BIND(rendererID)
+#define OLO_SHADER_UNIFORM_SET(rendererID, name, type)
+#define OLO_SHADER_SET_SOURCE(rendererID, stage, original, generated, spirv)
 #endif
 
 namespace OloEngine
 {
     // @brief Comprehensive shader debugging and analysis tool
-    // 
+    //
     // Provides detailed inspection of shader compilation, uniforms, performance,
     // source code viewing, hot-reload tracking, and SPIR-V analysis.
     class ShaderDebugger
     {
-    public:
+      public:
         enum class UniformType : u8
         {
-            Int, IntArray, Float, Float2, Float3, Float4, Mat3, Mat4, Sampler2D, SamplerCube
+            Int,
+            IntArray,
+            Float,
+            Float2,
+            Float3,
+            Float4,
+            Mat3,
+            Mat4,
+            Sampler2D,
+            SamplerCube
         };
 
         enum class ShaderStage : u8
         {
-            Vertex = 0, Fragment = 1, Geometry = 2, Compute = 3
+            Vertex = 0,
+            Fragment = 1,
+            Geometry = 2,
+            Compute = 3
         };
 
         struct UniformInfo
@@ -75,9 +87,9 @@ namespace OloEngine
             std::string m_Name;
             UniformType m_Type;
             u32 m_Location = 0;
-            u32 m_Size = 1; // Array size or 1 for non-arrays
+            u32 m_Size = 1;          // Array size or 1 for non-arrays
             std::string m_LastValue; // String representation of last set value
-            u32 m_SetCount = 0; // How many times this uniform has been set
+            u32 m_SetCount = 0;      // How many times this uniform has been set
             std::chrono::steady_clock::time_point m_LastSetTime;
         };
 
@@ -96,16 +108,16 @@ namespace OloEngine
             u32 m_TextureUnit = 0;
             std::string m_Type; // "sampler2D", "samplerCube", etc.
         };
-        
+
         struct CompilationResult
         {
             bool m_Success = false;
             std::string m_ErrorMessage;
             f64 m_CompileTimeMs = 0.0;
             std::chrono::steady_clock::time_point m_Timestamp;
-            sizet m_VertexGeometrySPIRVSize = 0; // Vertex + Geometry stages
+            sizet m_VertexGeometrySPIRVSize = 0;  // Vertex + Geometry stages
             sizet m_FragmentComputeSPIRVSize = 0; // Fragment + Compute stages
-            u32 m_InstructionCount = 0; // Estimated from SPIR-V
+            u32 m_InstructionCount = 0;           // Estimated from SPIR-V
         };
 
         struct ResourceBindingInfo
@@ -128,20 +140,20 @@ namespace OloEngine
             u32 m_RendererID = 0;
             std::string m_Name;
             std::string m_FilePath;
-            
+
             // Source code
             std::unordered_map<ShaderStage, std::string> m_OriginalSource;
             std::unordered_map<ShaderStage, std::string> m_GeneratedGLSL;
             std::unordered_map<ShaderStage, std::vector<u8>> m_SPIRVBinary;
-            
+
             // Reflection data
             std::vector<UniformInfo> m_Uniforms;
             std::vector<UniformBufferInfo> m_UniformBuffers;
             std::vector<SamplerInfo> m_Samplers;
-            
+
             // Resource binding information from UniformBufferRegistry
             std::vector<ResourceBindingInfo> m_ResourceBindings;
-            
+
             // Performance and usage tracking
             CompilationResult m_LastCompilation;
             std::vector<ReloadEvent> m_ReloadHistory;
@@ -149,7 +161,7 @@ namespace OloEngine
             std::chrono::steady_clock::time_point m_LastBindTime;
             f64 m_TotalActiveTimeMs = 0.0; // Time spent bound
             std::chrono::steady_clock::time_point m_LastActivationTime;
-            
+
             // Status
             bool m_IsActive = false;
             bool m_HasErrors = false;
@@ -216,10 +228,10 @@ namespace OloEngine
         // @param originalSource Original GLSL source
         // @param generatedGLSL Generated OpenGL GLSL (if different)
         // @param spirvBinary SPIR-V binary data
-        void SetShaderSource(u32 rendererID, ShaderStage stage, 
-                           const std::string& originalSource, 
-                           const std::string& generatedGLSL = "",
-                           const std::vector<u8>& spirvBinary = {});
+        void SetShaderSource(u32 rendererID, ShaderStage stage,
+                             const std::string& originalSource,
+                             const std::string& generatedGLSL = "",
+                             const std::vector<u8>& spirvBinary = {});
 
         // @brief Render the debug UI
         // @param open Pointer to boolean controlling window visibility
@@ -233,7 +245,10 @@ namespace OloEngine
 
         // @brief Get all tracked shaders
         // @return Map of renderer ID to shader info
-        const std::unordered_map<u32, ShaderInfo>& GetAllShaders() const { return m_Shaders; }
+        const std::unordered_map<u32, ShaderInfo>& GetAllShaders() const
+        {
+            return m_Shaders;
+        }
 
         // @brief Export shader debugging report
         // @param filePath Output file path
@@ -250,13 +265,13 @@ namespace OloEngine
         // @param rendererID OpenGL shader program ID
         void ClearResourceBindings(u32 rendererID);
 
-    private:
+      private:
         ShaderDebugger() = default;
         ~ShaderDebugger() = default;
 
         // Non-copyable
         ShaderDebugger(const ShaderDebugger&) = delete;
-        ShaderDebugger& operator=(const ShaderDebugger&) = delete;        // UI rendering methods
+        ShaderDebugger& operator=(const ShaderDebugger&) = delete; // UI rendering methods
         void RenderShaderList();
         void RenderShaderDetails(const ShaderInfo& shaderInfo);
         void RenderSourceCode(const ShaderInfo& shaderInfo);
@@ -274,7 +289,7 @@ namespace OloEngine
         ImVec4 GetShaderStageColor(ShaderStage stage) const;
         void AnalyzeSPIRV(const std::vector<u8>& spirvData, u32& instructionCount) const;
         void AnalyzeSPIRVFromWords(const std::vector<u32>& spirvWords, u32& instructionCount) const;
-        
+
         // Advanced SPIR-V analysis methods
         std::string GenerateSPIRVDisassembly(const std::vector<u8>& spirvData) const;
         void PerformOptimizationAnalysis(const std::vector<u8>& spirvData) const;
@@ -283,7 +298,7 @@ namespace OloEngine
         bool m_IsInitialized = false;
         mutable std::mutex m_ShaderMutex;
         std::unordered_map<u32, ShaderInfo> m_Shaders;
-        
+
         // Compilation tracking
         struct PendingCompilation
         {
@@ -313,11 +328,16 @@ namespace OloEngine
     {
         switch (stage)
         {
-            case GL_VERTEX_SHADER:   return ShaderDebugger::ShaderStage::Vertex;
-            case GL_FRAGMENT_SHADER: return ShaderDebugger::ShaderStage::Fragment;
-            case GL_GEOMETRY_SHADER: return ShaderDebugger::ShaderStage::Geometry;
-            case GL_COMPUTE_SHADER:  return ShaderDebugger::ShaderStage::Compute;
-            default: return ShaderDebugger::ShaderStage::Vertex;
+            case GL_VERTEX_SHADER:
+                return ShaderDebugger::ShaderStage::Vertex;
+            case GL_FRAGMENT_SHADER:
+                return ShaderDebugger::ShaderStage::Fragment;
+            case GL_GEOMETRY_SHADER:
+                return ShaderDebugger::ShaderStage::Geometry;
+            case GL_COMPUTE_SHADER:
+                return ShaderDebugger::ShaderStage::Compute;
+            default:
+                return ShaderDebugger::ShaderStage::Vertex;
         }
     }
-}
+} // namespace OloEngine

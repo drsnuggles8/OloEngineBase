@@ -3,25 +3,25 @@
 /**
  * @file PlatformTLS.h
  * @brief Platform Thread-Local Storage abstraction
- * 
+ *
  * Provides manual TLS slot management matching UE5.7's FPlatformTLS.
- * 
+ *
  * This is preferred over C++ thread_local because:
  * 1. No destructor ordering issues during thread exit
  * 2. No DLL boundary problems on Windows
  * 3. Explicit control over lifetime (can intentionally skip cleanup on thread exit)
  * 4. Works correctly in static initialization/destruction order
  * 5. Matches UE5.7 pattern for easier code porting
- * 
+ *
  * Ported from Unreal Engine's HAL/PlatformTLS.h and Windows/WindowsPlatformTLS.h
  */
 
 #include "OloEngine/Core/Base.h"
 
 #if defined(OLO_PLATFORM_WINDOWS)
-    #include <Windows.h>
+#include <Windows.h>
 #else
-    #include <pthread.h>
+#include <pthread.h>
 #endif
 
 namespace OloEngine
@@ -29,29 +29,29 @@ namespace OloEngine
     /**
      * @class FPlatformTLS
      * @brief Cross-platform Thread-Local Storage API
-     * 
+     *
      * Provides low-level TLS slot management. Each slot can store a void* per thread.
      * Slots must be explicitly allocated and freed.
-     * 
+     *
      * @note Unlike C++ thread_local, destructors are NOT automatically called on thread exit.
      *       This is intentional - it avoids issues during thread teardown and matches UE5.7 behavior.
-     * 
+     *
      * Usage:
      * @code
      *     // At initialization (main thread)
      *     u32 Slot = FPlatformTLS::AllocTlsSlot();
-     *     
+     *
      *     // Per-thread usage
      *     FPlatformTLS::SetTlsValue(Slot, myData);
      *     void* data = FPlatformTLS::GetTlsValue(Slot);
-     *     
+     *
      *     // At shutdown
      *     FPlatformTLS::FreeTlsSlot(Slot);
      * @endcode
      */
     class FPlatformTLS
     {
-    public:
+      public:
         /** Invalid TLS slot sentinel value */
         static constexpr u32 InvalidTlsSlot = 0xFFFFFFFF;
 
@@ -78,8 +78,8 @@ namespace OloEngine
             // This cast works on common POSIX systems but may need platform-specific handling.
             // UE5.7 uses syscall(SYS_gettid) on GNU systems for better compatibility.
             // For now, verify at compile-time that the cast is safe.
-            static_assert(sizeof(u32) == sizeof(pthread_t), 
-                "pthread_t cannot be converted to u32 - platform-specific GetCurrentThreadId() needed");
+            static_assert(sizeof(u32) == sizeof(pthread_t),
+                          "pthread_t cannot be converted to u32 - platform-specific GetCurrentThreadId() needed");
             return static_cast<u32>(pthread_self());
 #endif
         }

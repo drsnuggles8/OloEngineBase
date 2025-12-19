@@ -13,73 +13,88 @@ int main(int argc, char** argv);
 
 namespace OloEngine
 {
-	struct ApplicationCommandLineArgs
-	{
-		int Count = 0;
-		char** Args = nullptr;
+    struct ApplicationCommandLineArgs
+    {
+        int Count = 0;
+        char** Args = nullptr;
 
-		const char* operator[](const int index) const
-		{
-			OLO_CORE_ASSERT(index < Count);
-			return Args[index];
-		}
-	};
+        const char* operator[](const int index) const
+        {
+            OLO_CORE_ASSERT(index < Count);
+            return Args[index];
+        }
+    };
 
-	struct ApplicationSpecification
-	{
-		std::string Name = "OloEngine Application";
-		std::string WorkingDirectory;
-		ApplicationCommandLineArgs CommandLineArgs;
-		RendererType PreferredRenderer = RendererType::Renderer2D;
-	};
+    struct ApplicationSpecification
+    {
+        std::string Name = "OloEngine Application";
+        std::string WorkingDirectory;
+        ApplicationCommandLineArgs CommandLineArgs;
+        RendererType PreferredRenderer = RendererType::Renderer2D;
+    };
 
-	class Application
-	{
-	public:
-		explicit Application(ApplicationSpecification  specification);
-		virtual ~Application();
+    class Application
+    {
+      public:
+        explicit Application(ApplicationSpecification specification);
+        virtual ~Application();
 
-		void OnEvent(Event& e);
+        void OnEvent(Event& e);
 
-		void PushLayer(Layer* layer);
-		void PushOverlay(Layer* layer);
-		void PopLayer(Layer* layer);
-		void PopOverlay(Layer* layer);
+        void PushLayer(Layer* layer);
+        void PushOverlay(Layer* layer);
+        void PopLayer(Layer* layer);
+        void PopOverlay(Layer* layer);
 
-		[[nodiscard("Store this!")]] Window& GetWindow() { return *m_Window; }
+        [[nodiscard("Store this!")]] Window& GetWindow()
+        {
+            return *m_Window;
+        }
 
-		[[nodiscard("Store this!")]] static Application& Get() { return *s_Instance; }
+        [[nodiscard("Store this!")]] static Application& Get()
+        {
+            return *s_Instance;
+        }
 
-		void Close();
+        void Close();
 
-		[[nodiscard("Store this!")]] ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
+        [[nodiscard("Store this!")]] ImGuiLayer* GetImGuiLayer()
+        {
+            return m_ImGuiLayer;
+        }
 
-		[[nodiscard("Store this!")]] const ApplicationSpecification& GetSpecification() const { return m_Specification; }
+        [[nodiscard("Store this!")]] const ApplicationSpecification& GetSpecification() const
+        {
+            return m_Specification;
+        }
 
-		void SubmitToMainThread(const std::function<void()>& function);
-	private:
-		void Run();
-		bool OnWindowClose(WindowCloseEvent const& e);
-		bool OnWindowResize(WindowResizeEvent const& e);
+        void SubmitToMainThread(const std::function<void()>& function);
 
-		void ExecuteMainThreadQueue();
-	private:
-		ApplicationSpecification m_Specification;
-		Scope<Window> m_Window;
-		ImGuiLayer* m_ImGuiLayer;
-		bool m_Running = true;
-		bool m_Minimized = false;
-		LayerStack m_LayerStack;
-		f32 m_LastFrameTime = 0.0f;
+      private:
+        void Run();
+        bool OnWindowClose(WindowCloseEvent const& e);
+        bool OnWindowResize(WindowResizeEvent const& e);
 
-		std::vector<std::function<void()>> m_MainThreadQueue;
-		std::mutex m_MainThreadQueueMutex;
-	private:
-		static Application* s_Instance;
-		friend int ::main(int argc, char** argv);
-	};
+        void ExecuteMainThreadQueue();
 
-	// To be defined in CLIENT
-	Application* CreateApplication(ApplicationCommandLineArgs args);
+      private:
+        ApplicationSpecification m_Specification;
+        Scope<Window> m_Window;
+        ImGuiLayer* m_ImGuiLayer;
+        bool m_Running = true;
+        bool m_Minimized = false;
+        LayerStack m_LayerStack;
+        f32 m_LastFrameTime = 0.0f;
 
-}
+        std::vector<std::function<void()>> m_MainThreadQueue;
+        std::mutex m_MainThreadQueueMutex;
+
+      private:
+        static Application* s_Instance;
+        friend int ::main(int argc, char** argv);
+    };
+
+    // To be defined in CLIENT
+    Application* CreateApplication(ApplicationCommandLineArgs args);
+
+} // namespace OloEngine

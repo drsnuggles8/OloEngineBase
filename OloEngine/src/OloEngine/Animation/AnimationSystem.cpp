@@ -15,11 +15,14 @@ namespace OloEngine::Animation
     {
 
         // Advance and loop animation time for current and next clips
-        auto LoopTime = [](float t, const Ref<AnimationClip>& clip) -> float {
+        auto LoopTime = [](float t, const Ref<AnimationClip>& clip) -> float
+        {
             if (clip && clip->Duration > 0.0f)
             {
-                while (t >= clip->Duration) t -= clip->Duration;
-                while (t < 0.0f) t += clip->Duration;
+                while (t >= clip->Duration)
+                    t -= clip->Duration;
+                while (t < 0.0f)
+                    t += clip->Duration;
             }
             return t;
         };
@@ -47,16 +50,19 @@ namespace OloEngine::Animation
         }
 
         // Helper structure to hold TRS components
-        struct TRSFrame {
+        struct TRSFrame
+        {
             glm::vec3 translation;
             glm::quat rotation;
             glm::vec3 scale;
         };
 
         // Helper lambda to sample a clip at a given time and return TRS components
-        auto SampleClipTRS = [](const Ref<AnimationClip>& clip, float time, const std::string& boneName) -> TRSFrame {
+        auto SampleClipTRS = [](const Ref<AnimationClip>& clip, float time, const std::string& boneName) -> TRSFrame
+        {
             TRSFrame result = { glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f) };
-            if (!clip) return result;
+            if (!clip)
+                return result;
             const auto* boneAnim = clip->FindBoneAnimation(boneName);
             if (boneAnim)
             {
@@ -69,9 +75,10 @@ namespace OloEngine::Animation
         };
 
         // Helper lambda to convert TRS to matrix
-        auto TRSToMatrix = [](const TRSFrame& trs) -> glm::mat4 {
-            return glm::translate(glm::mat4(1.0f), trs.translation) * 
-                   glm::mat4_cast(trs.rotation) * 
+        auto TRSToMatrix = [](const TRSFrame& trs) -> glm::mat4
+        {
+            return glm::translate(glm::mat4(1.0f), trs.translation) *
+                   glm::mat4_cast(trs.rotation) *
                    glm::scale(glm::mat4(1.0f), trs.scale);
         };
 
@@ -79,18 +86,18 @@ namespace OloEngine::Animation
         for (sizet i = 0; i < skeleton.m_BoneNames.size(); ++i)
         {
             const std::string& boneName = skeleton.m_BoneNames[i];
-            
+
             if (animState.m_Blending && animState.m_NextClip)
             {
                 // Sample both clips and blend at TRS level (more efficient than matrix decomposition)
                 TRSFrame trsA = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName);
                 TRSFrame trsB = SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName);
-                
+
                 TRSFrame blendedTRS;
                 blendedTRS.translation = glm::mix(trsA.translation, trsB.translation, animState.m_BlendFactor);
                 blendedTRS.rotation = glm::slerp(trsA.rotation, trsB.rotation, animState.m_BlendFactor);
                 blendedTRS.scale = glm::mix(trsA.scale, trsB.scale, animState.m_BlendFactor);
-                
+
                 skeleton.m_LocalTransforms[i] = TRSToMatrix(blendedTRS);
             }
             else if (animState.m_CurrentClip)
@@ -129,4 +136,4 @@ namespace OloEngine::Animation
             }
         }
     }
-}
+} // namespace OloEngine::Animation

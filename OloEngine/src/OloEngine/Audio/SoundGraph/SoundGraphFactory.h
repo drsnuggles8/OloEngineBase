@@ -10,11 +10,11 @@ namespace OloEngine::Audio::SoundGraph
 {
     class Factory
     {
-    public:
+      public:
         [[nodiscard]] static std::unique_ptr<NodeProcessor> Create(Identifier nodeTypeID, UUID nodeID);
         [[nodiscard]] static bool Contains(Identifier nodeTypeID);
 
-    private:
+      private:
         Factory() = delete;
     };
 

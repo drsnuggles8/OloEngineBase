@@ -31,8 +31,8 @@
 namespace OloEngine::Audio::SoundGraph
 {
     // Use Flag utilities from OloEngine namespace
-    using OloEngine::Flag;
     using OloEngine::AtomicFlag;
+    using OloEngine::Flag;
 
 } // namespace OloEngine::Audio::SoundGraph
 
@@ -66,10 +66,10 @@ namespace OloEngine::Audio::SoundGraph
         std::string m_DebugName;
         UUID m_ID;
 
-    protected:
+      protected:
         f32 m_SampleRate = 48000.0f;
 
-    public:
+      public:
         //==============================================================================
         /// Base Input/Output structures
 
@@ -102,7 +102,7 @@ namespace OloEngine::Audio::SoundGraph
             inline virtual void operator()(f32 value) noexcept
             {
                 OLO_PROFILE_FUNCTION();
-                
+
                 if (m_Event)
                     m_Event(value);
             }
@@ -121,7 +121,7 @@ namespace OloEngine::Audio::SoundGraph
             inline void operator()(f32 value) noexcept
             {
                 OLO_PROFILE_FUNCTION();
-                
+
                 // Iterate through weak_ptr connections, cleaning up expired ones
                 auto it = m_DestinationEvents.begin();
                 while (it != m_DestinationEvents.end())
@@ -141,7 +141,7 @@ namespace OloEngine::Audio::SoundGraph
             void AddDestination(std::shared_ptr<InputEvent> dest)
             {
                 OLO_PROFILE_FUNCTION();
-                
+
                 if (dest)
                     m_DestinationEvents.push_back(std::weak_ptr<InputEvent>(dest));
             }
@@ -157,7 +157,7 @@ namespace OloEngine::Audio::SoundGraph
         InputEvent& AddInEvent(Identifier id, InputEvent::EventFunction function = nullptr)
         {
             OLO_PROFILE_FUNCTION();
-            
+
             auto inputEvent = std::make_shared<InputEvent>(*this, function);
             const auto& [element, inserted] = InEvents.try_emplace(id, inputEvent);
             OLO_CORE_ASSERT(inserted, "Input event with this ID already exists");
@@ -167,7 +167,7 @@ namespace OloEngine::Audio::SoundGraph
         void AddOutEvent(Identifier id, OutputEvent& out)
         {
             OLO_PROFILE_FUNCTION();
-            
+
             const auto& [element, inserted] = OutEvents.insert({ id, std::ref(out) });
             OLO_CORE_ASSERT(inserted, "Output event with this ID already exists");
         }
@@ -175,10 +175,10 @@ namespace OloEngine::Audio::SoundGraph
         choc::value::ValueView& AddInStream(Identifier id, choc::value::ValueView* source = nullptr)
         {
             OLO_PROFILE_FUNCTION();
-            
+
             const auto& [element, inserted] = InputStreams.try_emplace(id);
             OLO_CORE_ASSERT(inserted, "Input stream with this ID already exists");
-            
+
             if (source)
                 element->second = *source;
 
@@ -189,12 +189,12 @@ namespace OloEngine::Audio::SoundGraph
         choc::value::ValueView& AddOutStream(Identifier id, T& memberVariable)
         {
             OLO_PROFILE_FUNCTION();
-            
+
             const auto& [element, inserted] = OutputStreams.try_emplace(id,
-                choc::value::ValueView(choc::value::Type::createPrimitive<T>(),
-                    &memberVariable,
-                    nullptr));
-            
+                                                                        choc::value::ValueView(choc::value::Type::createPrimitive<T>(),
+                                                                                               &memberVariable,
+                                                                                               nullptr));
+
             OLO_CORE_ASSERT(inserted, "Output stream with this ID already exists");
             return element->second;
         }
@@ -202,7 +202,10 @@ namespace OloEngine::Audio::SoundGraph
         //==============================================================================
         /// Virtual interface - must be implemented by derived nodes
 
-        virtual void SetSampleRate(f32 sampleRate) { m_SampleRate = sampleRate; }
+        virtual void SetSampleRate(f32 sampleRate)
+        {
+            m_SampleRate = sampleRate;
+        }
         virtual void Init() {}
         virtual void Process() {}
 
@@ -221,50 +224,68 @@ namespace OloEngine::Audio::SoundGraph
         //==============================================================================
         /// Convenience accessors
 
-        inline choc::value::ValueView& InValue(const Identifier& id) { return InputStreams.at(id); }
-        inline choc::value::ValueView& OutValue(const Identifier& id) { return OutputStreams.at(id); }
-        inline InputEvent& InEvent(const Identifier& id) { return *InEvents.at(id); }
-        inline OutputEvent& OutEvent(const Identifier& id) { return OutEvents.at(id).get(); }
+        inline choc::value::ValueView& InValue(const Identifier& id)
+        {
+            return InputStreams.at(id);
+        }
+        inline choc::value::ValueView& OutValue(const Identifier& id)
+        {
+            return OutputStreams.at(id);
+        }
+        inline InputEvent& InEvent(const Identifier& id)
+        {
+            return *InEvents.at(id);
+        }
+        inline OutputEvent& OutEvent(const Identifier& id)
+        {
+            return OutEvents.at(id).get();
+        }
 
         // Additional helper methods for SoundGraph integration
-        inline std::shared_ptr<InputEvent> GetInputEvent(const Identifier& id) 
-        { 
+        inline std::shared_ptr<InputEvent> GetInputEvent(const Identifier& id)
+        {
             auto it = InEvents.find(id);
             return it != InEvents.end() ? it->second : nullptr;
         }
-        
-        inline OutputEvent* GetOutputEvent(const Identifier& id) 
-        { 
+
+        inline OutputEvent* GetOutputEvent(const Identifier& id)
+        {
             auto it = OutEvents.find(id);
             return it != OutEvents.end() ? &(it->second.get()) : nullptr;
         }
 
-        inline const char* GetDisplayName() const { return m_DebugName.c_str(); }
-        inline bool HasParameter(const Identifier& id) const { return ParameterInfos.find(id) != ParameterInfos.end(); }
+        inline const char* GetDisplayName() const
+        {
+            return m_DebugName.c_str();
+        }
+        inline bool HasParameter(const Identifier& id) const
+        {
+            return ParameterInfos.find(id) != ParameterInfos.end();
+        }
 
         //==============================================================================
         /// Parameter access wrapper for InitializeInputs functionality
-        
+
         template<typename T>
         struct ParameterWrapper
         {
             T m_Value;
             Identifier m_ID;
-            
+
             ParameterWrapper(const T& value, Identifier id) : m_Value(value), m_ID(id) {}
         };
-        
+
         // Storage for parameter wrappers (must persist for pointer stability)
         std::unordered_map<Identifier, std::shared_ptr<void>> m_ParameterWrappers;
-        
+
         // Mutex for thread-safe parameter access
         mutable std::shared_mutex m_ParameterMutex;
-        
+
         template<typename T>
         std::shared_ptr<ParameterWrapper<T>> GetParameter(const Identifier& id)
         {
             OLO_PROFILE_FUNCTION();
-            
+
             // First, try to find existing wrapper with shared lock (read-only)
             {
                 std::shared_lock<std::shared_mutex> lock(m_ParameterMutex);
@@ -274,22 +295,22 @@ namespace OloEngine::Audio::SoundGraph
                     return std::static_pointer_cast<ParameterWrapper<T>>(wrapperIt->second);
                 }
             }
-            
+
             // Not found in cache, need to create it - acquire exclusive lock
             std::unique_lock<std::shared_mutex> lock(m_ParameterMutex);
-            
+
             // Double-check: another thread might have created it while we were waiting for the lock
             auto wrapperIt = m_ParameterWrappers.find(id);
             if (wrapperIt != m_ParameterWrappers.end())
             {
                 return std::static_pointer_cast<ParameterWrapper<T>>(wrapperIt->second);
             }
-            
+
             // Find the parameter in the storage
             auto it = m_ParameterStorage.find(id);
             if (it == m_ParameterStorage.end())
                 return nullptr;
-            
+
             // Try to get the typed value from the any storage
             try
             {
@@ -305,7 +326,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         //==============================================================================
-        /// Parameter system	
+        /// Parameter system
         struct ParameterInfo
         {
             Identifier m_ID;
@@ -313,7 +334,7 @@ namespace OloEngine::Audio::SoundGraph
             std::string m_TypeName;
         };
         std::unordered_map<Identifier, ParameterInfo> ParameterInfos;
-        
+
         /// Storage for parameter values (for GetParameter access)
         std::unordered_map<Identifier, std::any> m_ParameterStorage;
 
@@ -321,20 +342,20 @@ namespace OloEngine::Audio::SoundGraph
         void AddParameter(Identifier id, std::string_view debugName, const T& defaultValue)
         {
             OLO_PROFILE_FUNCTION();
-            
+
             // Add input stream for this parameter
             auto& stream = AddInStream(id);
-            
+
             // Create default value plug
             auto defaultPlug = std::make_shared<StreamWriter>(stream, T(defaultValue), id);
             DefaultValuePlugs.push_back(defaultPlug);
-            
+
             // Store parameter value for GetParameter access (thread-safe)
             {
                 std::unique_lock<std::shared_mutex> lock(m_ParameterMutex);
                 m_ParameterStorage[id] = defaultValue;
             }
-            
+
             // Store parameter info for debugging
             ParameterInfo info;
             info.m_ID = id;
@@ -350,10 +371,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         template<typename T>
         explicit StreamWriter(const choc::value::ValueView& destination, T&& externalObjectOrDefaultValue, Identifier destinationID, UUID id = UUID()) noexcept
-            : NodeProcessor("Stream Writer", id)
-            , m_DestinationID(destinationID)
-            , m_OutputValue(std::forward<T>(externalObjectOrDefaultValue))
-            , m_DestinationView(destination)
+            : NodeProcessor("Stream Writer", id), m_DestinationID(destinationID), m_OutputValue(std::forward<T>(externalObjectOrDefaultValue)), m_DestinationView(destination)
         {
             // Write the default value into the destination immediately
             m_DestinationView = m_OutputValue;
@@ -368,7 +386,7 @@ namespace OloEngine::Audio::SoundGraph
         inline void operator<<(f32 value) noexcept
         {
             OLO_PROFILE_FUNCTION();
-            
+
             m_OutputValue = choc::value::Value(value);
             m_DestinationView = m_OutputValue;
         }
@@ -394,7 +412,7 @@ namespace OloEngine::Audio::SoundGraph
     inline void StreamWriter::operator<<(const choc::value::ValueView& value) noexcept
     {
         OLO_PROFILE_FUNCTION();
-        
+
         m_OutputValue = value;
         m_DestinationView = m_OutputValue;
     }
@@ -403,7 +421,7 @@ namespace OloEngine::Audio::SoundGraph
     inline void StreamWriter::operator<<(choc::value::ValueView value) noexcept
     {
         OLO_PROFILE_FUNCTION();
-        
+
         m_OutputValue = value;
         m_DestinationView = m_OutputValue;
     }

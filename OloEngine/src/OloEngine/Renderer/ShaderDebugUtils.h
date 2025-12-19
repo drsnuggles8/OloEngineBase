@@ -8,8 +8,8 @@ namespace OloEngine
     {
         // Debug function to disable shader caching for development
         void SetDisableShaderCache(bool disable);
-        
+
         // Check if shader cache is disabled
         bool IsShaderCacheDisabled();
-    }
-}
+    } // namespace ShaderDebugUtils
+} // namespace OloEngine

@@ -5,11 +5,11 @@
 
 // @file WordMutex.h
 // @brief A mutex that is the size of a pointer and does not depend on ParkingLot.
-// 
+//
 // This mutex uses an intrusive linked list of waiting threads instead of the
 // global ParkingLot hash table. It's useful when you need a mutex that has
 // minimal dependencies and a predictable size.
-// 
+//
 // Ported from Unreal Engine's Async/WordMutex.h
 
 #include "OloEngine/Core/Base.h"
@@ -26,16 +26,16 @@ namespace OloEngine
     //
     // Prefer FMutex to FWordMutex whenever possible. FMutex is typically more
     // efficient due to ParkingLot optimizations.
-    // 
+    //
     // This mutex is not fair and does not support recursive locking.
-    // 
+    //
     // State layout:
     // - Bit 0: IsLockedFlag - set when the mutex is locked
     // - Bit 1: IsQueueLockedFlag - set when a thread is traversing the wait queue
     // - Bits 2+: QueueMask - pointer to the tail of the intrusive wait queue
     class FWordMutex final
     {
-    public:
+      public:
         constexpr FWordMutex() = default;
 
         FWordMutex(const FWordMutex&) = delete;
@@ -46,16 +46,16 @@ namespace OloEngine
         [[nodiscard]] inline bool TryLock()
         {
             uptr Expected = 0;
-            return m_State.compare_exchange_strong(Expected, IsLockedFlag, 
-                std::memory_order_acquire, std::memory_order_relaxed);
+            return m_State.compare_exchange_strong(Expected, IsLockedFlag,
+                                                   std::memory_order_acquire, std::memory_order_relaxed);
         }
 
         // @brief Acquire the lock, blocking until available
         inline void Lock()
         {
             uptr Expected = 0;
-            if (OLO_LIKELY(m_State.compare_exchange_weak(Expected, IsLockedFlag, 
-                std::memory_order_acquire, std::memory_order_relaxed)))
+            if (OLO_LIKELY(m_State.compare_exchange_weak(Expected, IsLockedFlag,
+                                                         std::memory_order_acquire, std::memory_order_relaxed)))
             {
                 return;
             }
@@ -66,7 +66,7 @@ namespace OloEngine
         // @brief Release the lock
         inline void Unlock()
         {
-            // Unlock immediately to allow other threads to acquire the lock 
+            // Unlock immediately to allow other threads to acquire the lock
             // while this thread looks for a thread to wake.
             uptr CurrentState = m_State.fetch_sub(IsLockedFlag, std::memory_order_release);
             OLO_CORE_ASSERT(CurrentState & IsLockedFlag, "FWordMutex::Unlock called when not locked");
@@ -84,9 +84,9 @@ namespace OloEngine
             UnlockSlow(CurrentState);
         }
 
-    private:
+      private:
         // @brief Node for the intrusive wait queue
-        // 
+        //
         // This is a doubly-linked list where:
         // - Prev: points from tail toward head (set when enqueuing)
         // - Next: points from head toward tail (set when dequeuing)
@@ -104,7 +104,7 @@ namespace OloEngine
         void LockSlow()
         {
             static_assert((alignof(FQueueNode) & QueueMask) == alignof(FQueueNode),
-                "Alignment of FQueueNode is insufficient to pack flags into the lower bits.");
+                          "Alignment of FQueueNode is insufficient to pack flags into the lower bits.");
 
             constexpr i32 SpinLimit = 40;
             i32 SpinCount = 0;
@@ -116,8 +116,8 @@ namespace OloEngine
                 // Acquiring the lock despite the queue means that this lock is not FIFO and thus not fair.
                 if (!(CurrentState & IsLockedFlag))
                 {
-                    if (m_State.compare_exchange_weak(CurrentState, CurrentState | IsLockedFlag, 
-                        std::memory_order_acquire, std::memory_order_relaxed))
+                    if (m_State.compare_exchange_weak(CurrentState, CurrentState | IsLockedFlag,
+                                                      std::memory_order_acquire, std::memory_order_relaxed))
                     {
                         return;
                     }
@@ -146,21 +146,21 @@ namespace OloEngine
                     Self.Next = &Self;
                 }
 
-                // Swap this thread in as the tail, which makes it visible to any other thread 
+                // Swap this thread in as the tail, which makes it visible to any other thread
                 // that acquires the queue lock.
-                if (!m_State.compare_exchange_weak(CurrentState, 
-                    (CurrentState & ~QueueMask) | reinterpret_cast<uptr>(&Self), 
-                    std::memory_order_acq_rel, std::memory_order_relaxed))
+                if (!m_State.compare_exchange_weak(CurrentState,
+                                                   (CurrentState & ~QueueMask) | reinterpret_cast<uptr>(&Self),
+                                                   std::memory_order_acq_rel, std::memory_order_relaxed))
                 {
                     continue;
                 }
 
-                // Do not enter oversubscription during a wait on a mutex since the wait is 
-                // generally too short for it to matter and it can worsen performance a lot 
+                // Do not enter oversubscription during a wait on a mutex since the wait is
+                // generally too short for it to matter and it can worsen performance a lot
                 // for heavily contended locks.
                 LowLevelTasks::Private::FOversubscriptionAllowedScope _(false);
 
-                // Wait until another thread wakes this thread, which can happen as soon as 
+                // Wait until another thread wakes this thread, which can happen as soon as
                 // the preceding store completes.
                 Self.Event.Wait();
 
@@ -177,8 +177,8 @@ namespace OloEngine
             for (;;)
             {
                 // Try to lock the queue.
-                if (m_State.compare_exchange_weak(CurrentState, CurrentState | IsQueueLockedFlag, 
-                    std::memory_order_acquire, std::memory_order_relaxed))
+                if (m_State.compare_exchange_weak(CurrentState, CurrentState | IsQueueLockedFlag,
+                                                  std::memory_order_acquire, std::memory_order_relaxed))
                 {
                     CurrentState |= IsQueueLockedFlag;
                     break;
@@ -193,12 +193,12 @@ namespace OloEngine
 
             for (;;)
             {
-                // This thread now holds the queue lock. Neither the queue nor State will change 
+                // This thread now holds the queue lock. Neither the queue nor State will change
                 // while the queue is locked.
                 // The state points to the tail of the queue, and each node points to the previous node.
                 FQueueNode* Tail = reinterpret_cast<FQueueNode*>(CurrentState & QueueMask);
 
-                // Traverse from the tail to find the head and set next pointers for any nodes 
+                // Traverse from the tail to find the head and set next pointers for any nodes
                 // added since the last unlock.
                 for (FQueueNode* Node = Tail; !Tail->Next;)
                 {
@@ -209,14 +209,14 @@ namespace OloEngine
                     Node = Prev;
                 }
 
-                // Another thread may acquire the lock while this thread has been finding a thread 
-                // to unlock. That case will not be detected on the first iteration of the loop, 
-                // but only when this thread has failed to unlock the queue at least once. 
+                // Another thread may acquire the lock while this thread has been finding a thread
+                // to unlock. That case will not be detected on the first iteration of the loop,
+                // but only when this thread has failed to unlock the queue at least once.
                 // Attempt to unlock the queue here and allow the next unlock to find a thread to wake.
                 if (CurrentState & IsLockedFlag)
                 {
-                    if (m_State.compare_exchange_weak(CurrentState, CurrentState & ~IsQueueLockedFlag, 
-                        std::memory_order_release, std::memory_order_acquire))
+                    if (m_State.compare_exchange_weak(CurrentState, CurrentState & ~IsQueueLockedFlag,
+                                                      std::memory_order_release, std::memory_order_acquire))
                     {
                         return;
                     }
@@ -229,10 +229,10 @@ namespace OloEngine
                 // Remove the head from the queue and unlock the queue.
                 if (FQueueNode* NewHead = Head->Next; NewHead == Head)
                 {
-                    // Unlock and clear the queue. Failure needs to restart the loop, because 
+                    // Unlock and clear the queue. Failure needs to restart the loop, because
                     // newly-added nodes will have a pointer to the node being removed.
-                    if (!m_State.compare_exchange_strong(CurrentState, CurrentState & IsLockedFlag, 
-                        std::memory_order_release, std::memory_order_acquire))
+                    if (!m_State.compare_exchange_strong(CurrentState, CurrentState & IsLockedFlag,
+                                                         std::memory_order_release, std::memory_order_acquire))
                     {
                         continue;
                     }
@@ -259,7 +259,7 @@ namespace OloEngine
         static constexpr uptr IsQueueLockedFlag = 1 << 1;
         static constexpr uptr QueueMask = ~(IsLockedFlag | IsQueueLockedFlag);
 
-        std::atomic<uptr> m_State{0};
+        std::atomic<uptr> m_State{ 0 };
     };
 
 } // namespace OloEngine

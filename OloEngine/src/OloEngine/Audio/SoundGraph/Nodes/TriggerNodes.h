@@ -4,7 +4,11 @@
 #include "OloEngine/Core/UUID.h"
 #include <cmath>
 
-#define DECLARE_ID(name) static constexpr Identifier name{ #name }
+#define DECLARE_ID(name)             \
+    static constexpr Identifier name \
+    {                                \
+        #name                        \
+    }
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -17,14 +21,17 @@ namespace OloEngine::Audio::SoundGraph
         {
             DECLARE_ID(s_Start);
             DECLARE_ID(s_Stop);
-        private:
+
+          private:
             IDs() = delete;
         };
 
         explicit RepeatTrigger(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
-            AddInEvent(IDs::s_Start, [this](f32 v) { (void)v; m_StartFlag.SetDirty(); });
-            AddInEvent(IDs::s_Stop, [this](f32 v) { (void)v; m_StopFlag.SetDirty(); });
+            AddInEvent(IDs::s_Start, [this](f32 v)
+                       { (void)v; m_StartFlag.SetDirty(); });
+            AddInEvent(IDs::s_Stop, [this](f32 v)
+                       { (void)v; m_StopFlag.SetDirty(); });
 
             RegisterEndpoints();
         }
@@ -32,7 +39,7 @@ namespace OloEngine::Audio::SoundGraph
         void Init() final
         {
             OLO_PROFILE_FUNCTION();
-            
+
             InitializeInputs();
 
             m_FrameTime = 1.0f / m_SampleRate;
@@ -43,7 +50,7 @@ namespace OloEngine::Audio::SoundGraph
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
-            
+
             if (m_StartFlag.CheckAndResetIfDirty())
                 StartTrigger();
             if (m_StopFlag.CheckAndResetIfDirty())
@@ -52,7 +59,7 @@ namespace OloEngine::Audio::SoundGraph
             if (m_Playing)
             {
                 m_Counter += m_FrameTime;
-                
+
                 // Guard against zero/negative/non-finite period to prevent infinite loop
                 static constexpr f32 kMinPeriod = 0.001f; // 1ms minimum period (1000 Hz max frequency)
                 f32 safePeriod;
@@ -60,7 +67,7 @@ namespace OloEngine::Audio::SoundGraph
                     safePeriod = kMinPeriod;
                 else
                     safePeriod = *m_InPeriod;
-                
+
                 // Handle multiple periods if frame time exceeds period, preserving overshoot
                 while (m_Counter >= safePeriod)
                 {
@@ -75,7 +82,7 @@ namespace OloEngine::Audio::SoundGraph
         f32* m_InPeriod = nullptr;
         OutputEvent m_OutTrigger{ *this };
 
-    private:
+      private:
         bool m_Playing = false;
         f32 m_Counter = 0.0f;
         f32 m_FrameTime = 0.0f;
@@ -89,7 +96,7 @@ namespace OloEngine::Audio::SoundGraph
         void StartTrigger()
         {
             OLO_PROFILE_FUNCTION();
-            
+
             m_Playing = true;
             m_Counter = 0.0f;
             m_OutTrigger(1.0f);
@@ -98,7 +105,7 @@ namespace OloEngine::Audio::SoundGraph
         void StopTrigger()
         {
             OLO_PROFILE_FUNCTION();
-            
+
             m_Playing = false;
             m_Counter = 0.0f;
         }
@@ -113,14 +120,17 @@ namespace OloEngine::Audio::SoundGraph
         {
             DECLARE_ID(s_Trigger);
             DECLARE_ID(s_Reset);
-        private:
+
+          private:
             IDs() = delete;
         };
 
         explicit TriggerCounter(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
-            AddInEvent(IDs::s_Trigger, [this](f32 v) { (void)v; m_TriggerFlag.SetDirty(); });
-            AddInEvent(IDs::s_Reset, [this](f32 v) { (void)v; m_ResetFlag.SetDirty(); });
+            AddInEvent(IDs::s_Trigger, [this](f32 v)
+                       { (void)v; m_TriggerFlag.SetDirty(); });
+            AddInEvent(IDs::s_Reset, [this](f32 v)
+                       { (void)v; m_ResetFlag.SetDirty(); });
 
             RegisterEndpoints();
         }
@@ -128,7 +138,7 @@ namespace OloEngine::Audio::SoundGraph
         void Init() final
         {
             OLO_PROFILE_FUNCTION();
-            
+
             InitializeInputs();
 
             m_OutCount = 0;
@@ -138,7 +148,7 @@ namespace OloEngine::Audio::SoundGraph
         void Process() final
         {
             OLO_PROFILE_FUNCTION();
-            
+
             if (m_TriggerFlag.CheckAndResetIfDirty())
                 ProcessTrigger();
 
@@ -169,7 +179,7 @@ namespace OloEngine::Audio::SoundGraph
         OutputEvent m_OutOnTrigger{ *this };
         OutputEvent m_OutOnReset{ *this };
 
-    private:
+      private:
         Flag m_TriggerFlag;
         Flag m_ResetFlag;
         bool m_PendingAutoReset = false;
@@ -180,7 +190,7 @@ namespace OloEngine::Audio::SoundGraph
         void ProcessTrigger()
         {
             OLO_PROFILE_FUNCTION();
-            
+
             ++m_OutCount;
             m_OutValue = (*m_InStepSize) * m_OutCount + (*m_InStartValue);
 
@@ -196,7 +206,7 @@ namespace OloEngine::Audio::SoundGraph
         void ProcessReset()
         {
             OLO_PROFILE_FUNCTION();
-            
+
             m_OutValue = (*m_InStartValue);
             m_OutCount = 0;
             m_OutOnReset(1.0f);
@@ -213,14 +223,17 @@ namespace OloEngine::Audio::SoundGraph
         {
             DECLARE_ID(s_Trigger);
             DECLARE_ID(s_Reset);
-        private:
+
+          private:
             IDs() = delete;
         };
 
         explicit DelayedTrigger(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
-            AddInEvent(IDs::s_Trigger, [this](f32 v) { (void)v; m_TriggerFlag.SetDirty(); });
-            AddInEvent(IDs::s_Reset, [this](f32 v) { (void)v; m_ResetFlag.SetDirty(); });
+            AddInEvent(IDs::s_Trigger, [this](f32 v)
+                       { (void)v; m_TriggerFlag.SetDirty(); });
+            AddInEvent(IDs::s_Reset, [this](f32 v)
+                       { (void)v; m_ResetFlag.SetDirty(); });
 
             RegisterEndpoints();
         }
@@ -228,7 +241,7 @@ namespace OloEngine::Audio::SoundGraph
         void Init() final
         {
             OLO_PROFILE_FUNCTION();
-            
+
             InitializeInputs();
 
             m_FrameTime = 1.0f / m_SampleRate;
@@ -260,7 +273,7 @@ namespace OloEngine::Audio::SoundGraph
         OutputEvent m_OutDelayedTrigger{ *this };
         OutputEvent m_OutOnReset{ *this };
 
-    private:
+      private:
         bool m_Waiting = false;
         f32 m_Counter = 0.0f;
         f32 m_FrameTime = 0.0f;
@@ -274,7 +287,7 @@ namespace OloEngine::Audio::SoundGraph
         void StartDelay()
         {
             OLO_PROFILE_FUNCTION();
-            
+
             m_Waiting = true;
             m_Counter = 0.0f;
         }
@@ -282,7 +295,7 @@ namespace OloEngine::Audio::SoundGraph
         void ProcessReset()
         {
             OLO_PROFILE_FUNCTION();
-            
+
             m_Waiting = false;
             m_Counter = 0.0f;
             m_OutOnReset(1.0f);

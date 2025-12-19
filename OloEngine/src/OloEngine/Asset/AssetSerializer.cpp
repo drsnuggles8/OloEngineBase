@@ -46,7 +46,7 @@ namespace OloEngine
             OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to create texture: {}", metadata.FilePath.string());
             return false;
         }
-        
+
         texture->m_Handle = metadata.Handle;
         bool result = texture->IsLoaded();
         if (!result)
@@ -54,7 +54,7 @@ namespace OloEngine
             texture->SetFlag(AssetFlag::Invalid, true);
             OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to load texture: {}", metadata.FilePath.string());
         }
-        
+
         asset = texture; // Direct assignment - Ref<Texture2D> should convert to Ref<Asset>
         return result;
     }
@@ -69,27 +69,27 @@ namespace OloEngine
         }
 
         outInfo.Offset = stream.GetStreamPosition();
-        
+
         // Write texture metadata
         const auto& spec = texture->GetSpecification();
         stream.WriteRaw<u32>(spec.Width);
         stream.WriteRaw<u32>(spec.Height);
         stream.WriteRaw<u32>(static_cast<u32>(spec.Format));
         stream.WriteRaw<bool>(spec.GenerateMips);
-        
+
         // Write texture path for reference
         const std::string& path = texture->GetPath();
         stream.WriteString(path);
-        
+
         // Write additional metadata for better texture recreation
         stream.WriteRaw<bool>(texture->HasAlphaChannel());
         stream.WriteRaw<bool>(texture->IsLoaded());
-        
+
         // Add texture creation timestamp for dependency tracking
         auto now = std::chrono::steady_clock::now();
         auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
         stream.WriteRaw<i64>(timestamp);
-        
+
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         return true;
     }
@@ -97,38 +97,38 @@ namespace OloEngine
     Ref<Asset> TextureSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
         stream.SetStreamPosition(assetInfo.PackedOffset);
-        
+
         // Read texture metadata
         u32 width;
         u32 height;
         u32 formatInt;
         bool generateMips;
-        
+
         stream.ReadRaw(width);
         stream.ReadRaw(height);
         stream.ReadRaw(formatInt);
         stream.ReadRaw(generateMips);
-        
+
         ImageFormat format = static_cast<ImageFormat>(formatInt);
         std::string path;
         stream.ReadString(path);
-        
+
         // Read additional metadata to maintain cursor consistency
         bool hasAlphaChannel;
         bool isLoaded;
         i64 timestamp;
-        
+
         stream.ReadRaw(hasAlphaChannel);
         stream.ReadRaw(isLoaded);
         stream.ReadRaw(timestamp);
-        
+
         // Create texture specification
         TextureSpecification spec;
         spec.Width = width;
         spec.Height = height;
         spec.Format = format;
         spec.GenerateMips = generateMips;
-        
+
         // Create texture from path if available, otherwise from specification
         Ref<Texture2D> texture;
         if (!path.empty())
@@ -139,13 +139,13 @@ namespace OloEngine
         {
             texture = Texture2D::Create(spec);
         }
-        
+
         if (!texture)
         {
             OLO_CORE_ERROR("TextureSerializer::DeserializeFromAssetPack - Failed to create texture");
             return nullptr;
         }
-        
+
         return texture;
     }
 
@@ -175,13 +175,13 @@ namespace OloEngine
             OLO_CORE_ERROR("FontSerializer::SerializeToAssetPack - Invalid font asset");
             return false;
         }
-        
+
         // Write font name and data
         stream.WriteString(font->GetName());
-        
+
         // TODO: Read font file data and write to stream
         // This should read the original font file and write its contents
-        
+
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         return true;
     }
@@ -192,12 +192,12 @@ namespace OloEngine
 
         std::string name;
         stream.ReadString(name);
-        
+
         // TODO: Read font data buffer and create font
         // Buffer fontData;
         // stream.ReadBuffer(fontData);
         // return Font::Create(name, fontData);
-        
+
         OLO_CORE_WARN("FontSerializer::DeserializeFromAssetPack not yet fully implemented");
         return nullptr;
     }
@@ -287,10 +287,10 @@ namespace OloEngine
             {
                 // Serialize shader name
                 out << YAML::Key << "Shader" << YAML::Value << material->GetShader()->GetName();
-                
+
                 // Serialize material textures
                 out << YAML::Key << "Textures" << YAML::Value << YAML::BeginMap;
-                
+
                 // Serialize PBR texture maps
                 if (material->GetAlbedoMap() && material->GetAlbedoMap()->m_Handle != 0)
                     out << YAML::Key << "AlbedoMap" << YAML::Value << material->GetAlbedoMap()->m_Handle;
@@ -302,7 +302,7 @@ namespace OloEngine
                     out << YAML::Key << "AOMap" << YAML::Value << material->GetAOMap()->m_Handle;
                 if (material->GetEmissiveMap() && material->GetEmissiveMap()->m_Handle != 0)
                     out << YAML::Key << "EmissiveMap" << YAML::Value << material->GetEmissiveMap()->m_Handle;
-                
+
                 // Serialize dynamic texture uniforms
                 const auto& texture2DUniforms = material->GetTexture2DUniforms();
                 for (const auto& [name, texture] : texture2DUniforms)
@@ -313,35 +313,35 @@ namespace OloEngine
                     }
                 }
                 out << YAML::EndMap;
-                
+
                 // Serialize material properties
                 out << YAML::Key << "Properties" << YAML::Value << YAML::BeginMap;
-                
+
                 // Serialize PBR properties with consistent map structure
                 out << YAML::Key << "BaseColor" << YAML::Value << YAML::BeginMap;
                 out << YAML::Key << "type" << YAML::Value << "vec4";
-                out << YAML::Key << "value" << YAML::Value << YAML::Flow << YAML::BeginSeq 
-                    << material->GetBaseColorFactor().x << material->GetBaseColorFactor().y 
+                out << YAML::Key << "value" << YAML::Value << YAML::Flow << YAML::BeginSeq
+                    << material->GetBaseColorFactor().x << material->GetBaseColorFactor().y
                     << material->GetBaseColorFactor().z << material->GetBaseColorFactor().w << YAML::EndSeq;
                 out << YAML::EndMap;
-                
+
                 out << YAML::Key << "Metallic" << YAML::Value << YAML::BeginMap;
                 out << YAML::Key << "type" << YAML::Value << "float";
                 out << YAML::Key << "value" << YAML::Value << material->GetMetallicFactor();
                 out << YAML::EndMap;
-                
+
                 out << YAML::Key << "Roughness" << YAML::Value << YAML::BeginMap;
                 out << YAML::Key << "type" << YAML::Value << "float";
                 out << YAML::Key << "value" << YAML::Value << material->GetRoughnessFactor();
                 out << YAML::EndMap;
-                
+
                 out << YAML::Key << "Emission" << YAML::Value << YAML::BeginMap;
                 out << YAML::Key << "type" << YAML::Value << "vec4";
-                out << YAML::Key << "value" << YAML::Value << YAML::Flow << YAML::BeginSeq 
-                    << material->GetEmissiveFactor().x << material->GetEmissiveFactor().y 
+                out << YAML::Key << "value" << YAML::Value << YAML::Flow << YAML::BeginSeq
+                    << material->GetEmissiveFactor().x << material->GetEmissiveFactor().y
                     << material->GetEmissiveFactor().z << material->GetEmissiveFactor().w << YAML::EndSeq;
                 out << YAML::EndMap;
-                
+
                 // Serialize dynamic float uniforms
                 const auto& floatUniforms = material->GetFloatUniforms();
                 for (const auto& [name, value] : floatUniforms)
@@ -351,18 +351,18 @@ namespace OloEngine
                     out << YAML::Key << "value" << YAML::Value << value;
                     out << YAML::EndMap;
                 }
-                
+
                 // Serialize dynamic vec3 uniforms
                 const auto& vec3Uniforms = material->GetVec3Uniforms();
                 for (const auto& [name, value] : vec3Uniforms)
                 {
                     out << YAML::Key << name << YAML::Value << YAML::BeginMap;
                     out << YAML::Key << "type" << YAML::Value << "vec3";
-                    out << YAML::Key << "value" << YAML::Value << YAML::Flow << YAML::BeginSeq 
+                    out << YAML::Key << "value" << YAML::Value << YAML::Flow << YAML::BeginSeq
                         << value.x << value.y << value.z << YAML::EndSeq;
                     out << YAML::EndMap;
                 }
-                
+
                 out << YAML::EndMap;
 
                 // Serialize material flags
@@ -457,7 +457,7 @@ namespace OloEngine
             {
                 std::string textureName = textureNode.first.as<std::string>();
                 AssetHandle textureHandle = textureNode.second.as<AssetHandle>(0);
-                
+
                 if (textureHandle != 0)
                 {
                     auto texture = AssetManager::GetAsset<Texture2D>(textureHandle);
@@ -468,7 +468,7 @@ namespace OloEngine
                 }
             }
         }
-        
+
         // Load properties/uniforms
         if (materialNode["Properties"])
         {
@@ -476,12 +476,12 @@ namespace OloEngine
             {
                 std::string propName = propNode.first.as<std::string>();
                 const auto& valueNode = propNode.second;
-                
+
                 // Determine the type and set the appropriate material property
                 if (valueNode["type"])
                 {
                     std::string type = valueNode["type"].as<std::string>();
-                    
+
                     if (type == "float")
                     {
                         material->Set(propName, valueNode["value"].as<float>());
@@ -550,7 +550,7 @@ namespace OloEngine
     bool EnvironmentSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         if (!std::filesystem::exists(path))
         {
             OLO_CORE_ERROR("EnvironmentSerializer::TryLoadData - File does not exist: {}", path.string());
@@ -567,7 +567,7 @@ namespace OloEngine
 
         environment->m_Handle = metadata.Handle;
         asset = environment;
-        
+
         OLO_CORE_TRACE("EnvironmentSerializer::TryLoadData - Successfully loaded environment: {}", path.string());
         return true;
     }
@@ -590,7 +590,7 @@ namespace OloEngine
         stream.WriteRaw(static_cast<u32>(spec.Format));
         stream.WriteRaw(spec.GenerateIBL);
         stream.WriteRaw(spec.GenerateMipmaps);
-        
+
         // Serialize IBL configuration
         const auto& iblConfig = spec.IBLConfig;
         stream.WriteRaw(static_cast<u32>(iblConfig.Quality));
@@ -611,24 +611,24 @@ namespace OloEngine
     Ref<Asset> EnvironmentSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
         stream.SetStreamPosition(assetInfo.PackedOffset);
-        
+
         // Read environment specification
         EnvironmentMapSpecification spec;
         stream.ReadString(spec.FilePath);
         stream.ReadRaw(spec.Resolution);
-        
+
         u32 formatValue;
         stream.ReadRaw(formatValue);
         spec.Format = static_cast<ImageFormat>(formatValue);
-        
+
         stream.ReadRaw(spec.GenerateIBL);
         stream.ReadRaw(spec.GenerateMipmaps);
-        
+
         // Read IBL configuration
         u32 qualityValue;
         stream.ReadRaw(qualityValue);
         spec.IBLConfig.Quality = static_cast<IBLQuality>(qualityValue);
-        
+
         stream.ReadRaw(spec.IBLConfig.UseImportanceSampling);
         stream.ReadRaw(spec.IBLConfig.UseSphericalHarmonics);
         stream.ReadRaw(spec.IBLConfig.IrradianceResolution);
@@ -637,7 +637,7 @@ namespace OloEngine
         stream.ReadRaw(spec.IBLConfig.IrradianceSamples);
         stream.ReadRaw(spec.IBLConfig.PrefilterSamples);
         stream.ReadRaw(spec.IBLConfig.EnableMultithreading);
-        
+
         // Recreate environment map from specification
         auto environment = EnvironmentMap::Create(spec);
         if (!environment)
@@ -667,7 +667,7 @@ namespace OloEngine
 
         // Get the file path for analysis
         std::filesystem::path filePath = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         // Initialize default values
         double duration = 0.0;
         u32 samplingRate = 44100;
@@ -680,7 +680,8 @@ namespace OloEngine
         if (std::filesystem::exists(filePath, ec) && !ec)
         {
             fileSize = std::filesystem::file_size(filePath, ec);
-            if (ec) fileSize = 0;
+            if (ec)
+                fileSize = 0;
         }
 
         // Basic audio file format detection and analysis
@@ -692,8 +693,8 @@ namespace OloEngine
             // Basic WAV header analysis
             if (GetWavFileInfo(filePath, duration, samplingRate, bitDepth, numChannels))
             {
-                OLO_CORE_TRACE("AudioFileSourceSerializer: Analyzed WAV file - Duration: {:.2f}s, Rate: {}Hz, Depth: {}bit, Channels: {}", 
-                              duration, samplingRate, bitDepth, numChannels);
+                OLO_CORE_TRACE("AudioFileSourceSerializer: Analyzed WAV file - Duration: {:.2f}s, Rate: {}Hz, Depth: {}bit, Channels: {}",
+                               duration, samplingRate, bitDepth, numChannels);
             }
         }
         else if (extension == ".mp3" || extension == ".ogg" || extension == ".flac")
@@ -704,24 +705,25 @@ namespace OloEngine
             {
                 // Estimate duration based on average bitrate assumptions
                 double estimatedBitrate = 128000.0; // 128 kbps average for compressed audio
-                if (extension == ".flac") estimatedBitrate = 1000000.0; // 1 Mbps for FLAC
-                
+                if (extension == ".flac")
+                    estimatedBitrate = 1000000.0; // 1 Mbps for FLAC
+
                 duration = (fileSize * 8.0) / estimatedBitrate; // Convert bytes to duration
-                samplingRate = 44100; // Standard CD quality
-                bitDepth = 16;        // Standard for compressed formats
-                numChannels = 2;      // Assume stereo
+                samplingRate = 44100;                           // Standard CD quality
+                bitDepth = 16;                                  // Standard for compressed formats
+                numChannels = 2;                                // Assume stereo
             }
-            
-            OLO_CORE_TRACE("AudioFileSourceSerializer: Estimated audio properties for {} - Duration: {:.2f}s (estimated)", 
-                          extension, duration);
+
+            OLO_CORE_TRACE("AudioFileSourceSerializer: Estimated audio properties for {} - Duration: {:.2f}s (estimated)",
+                           extension, duration);
         }
 
         // Create AudioFile asset with extracted/estimated metadata
         asset = Ref<AudioFile>::Create(duration, samplingRate, bitDepth, numChannels, fileSize);
         asset->SetHandle(metadata.Handle);
-        
-        OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {} - {}MB", 
-                      metadata.Handle, fileSize / (1024 * 1024));
+
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {} - {}MB",
+                       metadata.Handle, fileSize / (1024 * 1024));
         return true;
     }
 
@@ -741,7 +743,7 @@ namespace OloEngine
         // Get the file path for this asset
         auto path = Project::GetAssetDirectory() / Project::GetAssetManager()->GetAssetMetadata(handle).FilePath;
         auto relativePath = std::filesystem::relative(path, Project::GetAssetDirectory());
-        
+
         std::string filePath;
         if (relativePath.empty())
             filePath = path.string();
@@ -752,8 +754,8 @@ namespace OloEngine
         stream.WriteString(filePath);
 
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
-        
-        OLO_CORE_TRACE("AudioFileSourceSerializer: Serialized AudioFile to pack - Handle: {0}, Path: {1}, Size: {2}", 
+
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Serialized AudioFile to pack - Handle: {0}, Path: {1}, Size: {2}",
                        handle, filePath, outInfo.Size);
         return true;
     }
@@ -763,7 +765,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         stream.SetStreamPosition(assetInfo.PackedOffset);
-        
+
         std::string filePath;
         stream.ReadString(filePath);
 
@@ -772,7 +774,7 @@ namespace OloEngine
         Ref<AudioFile> audioFile = Ref<AudioFile>::Create();
         audioFile->SetHandle(assetInfo.Handle);
 
-        OLO_CORE_TRACE("AudioFileSourceSerializer: Deserialized AudioFile from pack - Handle: {0}, Path: {1}", 
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Deserialized AudioFile from pack - Handle: {0}, Path: {1}",
                        assetInfo.Handle, filePath);
         return audioFile;
     }
@@ -810,34 +812,34 @@ namespace OloEngine
         // Find fmt chunk
         bool fmtFound = false;
         u32 dataSize = 0;
-        
+
         while (!file.eof() && (!fmtFound || dataSize == 0))
         {
             char chunkId[4];
             u32 chunkSize;
-            
+
             file.read(chunkId, 4);
             file.read(reinterpret_cast<char*>(&chunkSize), 4);
-            
+
             if (std::strncmp(chunkId, "fmt ", 4) == 0)
             {
                 // Read format chunk
                 u16 audioFormat, channels, blockAlign, bitsPerSample;
                 u32 sampleRate, byteRate;
-                
+
                 file.read(reinterpret_cast<char*>(&audioFormat), 2);
                 file.read(reinterpret_cast<char*>(&channels), 2);
                 file.read(reinterpret_cast<char*>(&sampleRate), 4);
                 file.read(reinterpret_cast<char*>(&byteRate), 4);
                 file.read(reinterpret_cast<char*>(&blockAlign), 2);
                 file.read(reinterpret_cast<char*>(&bitsPerSample), 2);
-                
+
                 // Store values
                 numChannels = channels;
                 samplingRate = sampleRate;
                 bitDepth = bitsPerSample;
                 fmtFound = true;
-                
+
                 // Skip any extra fmt data
                 if (chunkSize > 16)
                 {
@@ -865,9 +867,9 @@ namespace OloEngine
             {
                 duration = static_cast<double>(dataSize) / (samplingRate * bytesPerSample);
             }
-            
-            OLO_CORE_TRACE("AudioFileSourceSerializer: WAV analysis complete - {}Hz, {}bit, {} channels, {:.2f}s", 
-                          samplingRate, bitDepth, numChannels, duration);
+
+            OLO_CORE_TRACE("AudioFileSourceSerializer: WAV analysis complete - {}Hz, {}bit, {} channels, {:.2f}s",
+                           samplingRate, bitDepth, numChannels, duration);
             return true;
         }
 
@@ -939,7 +941,7 @@ namespace OloEngine
             OLO_CORE_ERROR("PrefabSerializer::Serialize - Failed to open file for writing: {}", metadata.FilePath.string());
             return;
         }
-        
+
         fout << yamlString;
         fout.close();
     }
@@ -1072,7 +1074,7 @@ namespace OloEngine
 
         // Set up the prefab with the deserialized scene
         prefab->m_Scene = scene;
-        
+
         // Find the root entity (assuming it's the first entity in the scene)
         auto entities = scene->GetAllEntitiesWith<IDComponent>();
         if (!entities.empty())
@@ -1105,14 +1107,14 @@ namespace OloEngine
     {
         Ref<Scene> scene = Ref<Scene>(new Scene());
         SceneSerializer serializer(scene);
-        
+
         if (serializer.Deserialize(metadata.FilePath))
         {
             scene->m_Handle = metadata.Handle;
             asset = scene; // Direct assignment - Ref<Scene> should convert to Ref<Asset>
             return true;
         }
-        
+
         return false;
     }
 
@@ -1126,17 +1128,17 @@ namespace OloEngine
         }
 
         outInfo.Offset = stream.GetStreamPosition();
-        
+
         // Serialize scene to YAML string directly
         std::string yamlData = SerializeToString(scene);
-        
+
         // Write YAML data size and content
         u32 dataSize = (u32)yamlData.size();
         stream.WriteRaw(dataSize);
         stream.WriteData(yamlData.c_str(), dataSize);
-        
+
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
-        
+
         OLO_CORE_TRACE("SceneAssetSerializer::SerializeToAssetPack - Serialized scene, size: {} bytes", outInfo.Size);
         return true;
     }
@@ -1144,27 +1146,27 @@ namespace OloEngine
     Ref<Asset> SceneAssetSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
         stream.SetStreamPosition(assetInfo.PackedOffset);
-        
+
         // Read YAML data size and content
         u32 dataSize;
         stream.ReadRaw(dataSize);
-        
+
         std::vector<char> yamlData(dataSize + 1);
         stream.ReadData(yamlData.data(), dataSize);
         yamlData[dataSize] = '\0'; // Null terminate
-        
+
         // Create scene and deserialize from YAML
         auto scene = Ref<Scene>(new Scene());
-        
+
         if (!DeserializeFromString(yamlData.data(), scene))
         {
             OLO_CORE_ERROR("SceneAssetSerializer::DeserializeFromAssetPack - Failed to deserialize scene from YAML");
             return nullptr;
         }
-        
+
         // scene->m_Handle = assetInfo.Handle; // TODO: Scene doesn't have Handle member
         scene->m_Handle = assetInfo.Handle;
-        
+
         OLO_CORE_TRACE("SceneAssetSerializer::DeserializeFromAssetPack - Deserialized scene from pack");
         return scene; // Direct return - Ref<Scene> should convert to Ref<Asset>
     }
@@ -1221,7 +1223,7 @@ namespace OloEngine
         std::string yamlString = SerializeToYAML(meshCollider);
 
         std::filesystem::path filepath = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         // Ensure parent directory exists
         std::filesystem::path parentDir = filepath.parent_path();
         if (!parentDir.empty())
@@ -1233,10 +1235,10 @@ namespace OloEngine
                 return;
             }
         }
-        
+
         // Create temporary file for atomic write
         std::filesystem::path tempFilepath = parentDir / (filepath.filename().string() + ".tmp");
-        
+
         // Write to temporary file
         std::ofstream fout(tempFilepath);
         if (!fout.is_open())
@@ -1244,11 +1246,11 @@ namespace OloEngine
             OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to open temporary file for writing: {}", tempFilepath.string());
             return;
         }
-        
+
         fout << yamlString;
         fout.flush(); // Ensure data is written to the file
         fout.close();
-        
+
         // Atomically rename temp file to final file
         std::error_code ec;
         std::filesystem::rename(tempFilepath, filepath, ec);
@@ -1259,14 +1261,14 @@ namespace OloEngine
             std::filesystem::remove(tempFilepath, ec);
             return;
         }
-        
+
         OLO_CORE_TRACE("MeshColliderSerializer::Serialize - Successfully serialized MeshCollider to: {}", filepath.string());
     }
 
     bool MeshColliderSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         if (!std::filesystem::exists(path))
         {
             OLO_CORE_ERROR("MeshColliderSerializer::TryLoadData - File does not exist: {}", path.string());
@@ -1303,7 +1305,7 @@ namespace OloEngine
         }
 
         auto meshCollider = Ref<MeshColliderAsset>::Create();
-        
+
         // Use the YAML deserializer to load the data
         bool success = DeserializeFromYAML(strStream.str(), meshCollider);
         if (!success)
@@ -1314,7 +1316,7 @@ namespace OloEngine
 
         meshCollider->SetHandle(metadata.Handle);
         asset = meshCollider;
-        
+
         OLO_CORE_TRACE("MeshColliderSerializer::TryLoadData - Successfully loaded mesh collider: {}", path.string());
         return true;
     }
@@ -1334,8 +1336,8 @@ namespace OloEngine
         outInfo.Offset = stream.GetStreamPosition();
         stream.WriteString(yamlString);
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
-        
-        OLO_CORE_TRACE("MeshColliderSerializer: Serialized MeshCollider to pack - Handle: {0}, Size: {1}", 
+
+        OLO_CORE_TRACE("MeshColliderSerializer: Serialized MeshCollider to pack - Handle: {0}, Size: {1}",
                        handle, outInfo.Size);
         return true;
     }
@@ -1345,13 +1347,13 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         stream.SetStreamPosition(assetInfo.PackedOffset);
-        
+
         std::string yamlString;
         stream.ReadString(yamlString);
 
         Ref<MeshColliderAsset> meshCollider = Ref<MeshColliderAsset>::Create();
         bool success = DeserializeFromYAML(yamlString, meshCollider);
-        
+
         if (!success)
         {
             OLO_CORE_ERROR("MeshColliderSerializer: Failed to deserialize MeshCollider from YAML - Handle: {0}", assetInfo.Handle);
@@ -1367,13 +1369,13 @@ namespace OloEngine
     {
         YAML::Emitter out;
         out << YAML::BeginMap; // MeshCollider
-        
+
         out << YAML::Key << "MeshCollider" << YAML::Value;
         out << YAML::BeginMap; // Asset Data
-        
+
         // Serialize ColliderMesh asset reference
         out << YAML::Key << "ColliderMesh" << YAML::Value << meshCollider->m_ColliderMesh;
-        
+
         // Serialize Material properties
         out << YAML::Key << "Material" << YAML::Value;
         out << YAML::BeginMap; // Material
@@ -1382,7 +1384,7 @@ namespace OloEngine
         out << YAML::Key << "Restitution" << YAML::Value << meshCollider->m_Material.GetRestitution();
         out << YAML::Key << "Density" << YAML::Value << meshCollider->m_Material.GetDensity();
         out << YAML::EndMap; // Material
-        
+
         // Serialize other properties
         out << YAML::Key << "EnableVertexWelding" << YAML::Value << meshCollider->m_EnableVertexWelding;
         out << YAML::Key << "VertexWeldTolerance" << YAML::Value << meshCollider->m_VertexWeldTolerance;
@@ -1391,16 +1393,16 @@ namespace OloEngine
         out << YAML::Key << "AreaTestEpsilon" << YAML::Value << meshCollider->m_AreaTestEpsilon;
         out << YAML::Key << "ShiftVerticesToOrigin" << YAML::Value << meshCollider->m_ShiftVerticesToOrigin;
         out << YAML::Key << "AlwaysShareShape" << YAML::Value << meshCollider->m_AlwaysShareShape;
-        
+
         // Serialize collision complexity
         out << YAML::Key << "CollisionComplexity" << YAML::Value << (int)meshCollider->m_CollisionComplexity;
-        
+
         // Serialize scale
         out << YAML::Key << "ColliderScale" << YAML::Value << meshCollider->m_ColliderScale;
-        
+
         out << YAML::EndMap; // Asset Data
         out << YAML::EndMap; // MeshCollider
-        
+
         return std::string(out.c_str());
     }
 
@@ -1414,13 +1416,13 @@ namespace OloEngine
                 OLO_CORE_ERROR("MeshColliderSerializer: No MeshCollider node found in YAML");
                 return false;
             }
-            
+
             YAML::Node meshColliderNode = data["MeshCollider"];
-            
+
             // Deserialize ColliderMesh asset reference
             if (meshColliderNode["ColliderMesh"])
                 targetMeshCollider->m_ColliderMesh = meshColliderNode["ColliderMesh"].as<AssetHandle>();
-            
+
             // Deserialize Material properties
             if (meshColliderNode["Material"])
             {
@@ -1443,19 +1445,19 @@ namespace OloEngine
                     material.SetStaticFriction(std::clamp(staticFriction, 0.0f, 1.0f));
                     material.SetDynamicFriction(std::clamp(dynamicFriction, 0.0f, 1.0f));
                 }
-                
+
                 float restitution = materialNode["Restitution"].as<float>(0.0f);
                 float density = materialNode["Density"].as<float>(1000.0f);
-                
+
                 // Clamp restitution to valid range [0.0, 1.0]
                 material.SetRestitution(std::clamp(restitution, 0.0f, 1.0f));
-                
+
                 // Clamp density to sensible positive range [MIN_DENSITY, 1e6]
                 material.SetDensity(std::clamp(density, ColliderMaterial::MIN_DENSITY, 1e6f));
-                
+
                 targetMeshCollider->m_Material = material;
             }
-            
+
             // Deserialize other properties
             if (meshColliderNode["EnableVertexWelding"])
                 targetMeshCollider->m_EnableVertexWelding = meshColliderNode["EnableVertexWelding"].as<bool>();
@@ -1471,15 +1473,15 @@ namespace OloEngine
                 targetMeshCollider->m_ShiftVerticesToOrigin = meshColliderNode["ShiftVerticesToOrigin"].as<bool>();
             if (meshColliderNode["AlwaysShareShape"])
                 targetMeshCollider->m_AlwaysShareShape = meshColliderNode["AlwaysShareShape"].as<bool>();
-            
+
             // Deserialize collision complexity
             if (meshColliderNode["CollisionComplexity"])
                 targetMeshCollider->m_CollisionComplexity = (ECollisionComplexity)meshColliderNode["CollisionComplexity"].as<int>();
-            
+
             // Deserialize scale
             if (meshColliderNode["ColliderScale"])
                 targetMeshCollider->m_ColliderScale = meshColliderNode["ColliderScale"].as<glm::vec3>();
-            
+
             return true;
         }
         catch (const YAML::Exception& e)
@@ -1546,7 +1548,6 @@ namespace OloEngine
     // ScriptFileSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    
     void ScriptFileSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
@@ -1556,7 +1557,7 @@ namespace OloEngine
 
         std::ofstream fout(Project::GetAssetDirectory() / metadata.FilePath);
         fout << yamlString;
-        
+
         OLO_CORE_TRACE("ScriptFileSerializer: Serialized ScriptFile to YAML - Handle: {0}", metadata.Handle);
     }
 
@@ -1565,7 +1566,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto path = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         if (!std::filesystem::exists(path))
         {
             OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - File does not exist: {}", path.string());
@@ -1581,10 +1582,10 @@ namespace OloEngine
 
         std::stringstream strStream;
         strStream << file.rdbuf();
-        
+
         Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create();
         bool success = DeserializeFromYAML(strStream.str(), scriptAsset);
-        
+
         if (!success)
         {
             OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - Failed to deserialize from YAML");
@@ -1593,7 +1594,7 @@ namespace OloEngine
 
         scriptAsset->SetHandle(metadata.Handle);
         asset = scriptAsset;
-        
+
         OLO_CORE_TRACE("ScriptFileSerializer::TryLoadData - Successfully loaded script file: {}", path.string());
         return true;
     }
@@ -1613,8 +1614,8 @@ namespace OloEngine
         outInfo.Offset = stream.GetStreamPosition();
         stream.WriteString(yamlString);
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
-        
-        OLO_CORE_TRACE("ScriptFileSerializer: Serialized ScriptFile to pack - Handle: {0}, Size: {1}", 
+
+        OLO_CORE_TRACE("ScriptFileSerializer: Serialized ScriptFile to pack - Handle: {0}, Size: {1}",
                        handle, outInfo.Size);
         return true;
     }
@@ -1624,13 +1625,13 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         stream.SetStreamPosition(assetInfo.PackedOffset);
-        
+
         std::string yamlString;
         stream.ReadString(yamlString);
 
         Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create();
         bool success = DeserializeFromYAML(yamlString, scriptAsset);
-        
+
         if (!success)
         {
             OLO_CORE_ERROR("ScriptFileSerializer: Failed to deserialize ScriptFile from YAML - Handle: {0}", assetInfo.Handle);
@@ -1646,16 +1647,16 @@ namespace OloEngine
     {
         YAML::Emitter out;
         out << YAML::BeginMap; // ScriptFile
-        
+
         out << YAML::Key << "ScriptFile" << YAML::Value;
         out << YAML::BeginMap; // Asset Data
-        
+
         out << YAML::Key << "ClassNamespace" << YAML::Value << scriptAsset->GetClassNamespace();
         out << YAML::Key << "ClassName" << YAML::Value << scriptAsset->GetClassName();
-        
+
         out << YAML::EndMap; // Asset Data
         out << YAML::EndMap; // ScriptFile
-        
+
         return std::string(out.c_str());
     }
 
@@ -1669,14 +1670,14 @@ namespace OloEngine
                 OLO_CORE_ERROR("ScriptFileSerializer: No ScriptFile node found in YAML");
                 return false;
             }
-            
+
             YAML::Node scriptNode = data["ScriptFile"];
-            
+
             if (scriptNode["ClassNamespace"])
                 targetScriptAsset->SetClassNamespace(scriptNode["ClassNamespace"].as<std::string>());
             if (scriptNode["ClassName"])
                 targetScriptAsset->SetClassName(scriptNode["ClassName"].as<std::string>());
-            
+
             return true;
         }
         catch (const YAML::Exception& e)
@@ -1693,7 +1694,7 @@ namespace OloEngine
     bool MeshSourceSerializer::TryLoadData(const AssetMetadata& metadata, [[maybe_unused]] Ref<Asset>& asset) const
     {
         std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         if (!std::filesystem::exists(path))
         {
             OLO_CORE_ERROR("MeshSourceSerializer::TryLoadData - File does not exist: {}", path.string());
@@ -1708,13 +1709,13 @@ namespace OloEngine
         //     OLO_CORE_ERROR("MeshSourceSerializer::TryLoadData - Failed to load mesh source: {}", path.string());
         //     return false;
         // }
-        // 
+        //
         // meshSource->SetHandle(metadata.Handle);
         // asset = meshSource;
-        // 
-        // OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Successfully loaded mesh source: {} ({} submeshes)", 
+        //
+        // OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Successfully loaded mesh source: {} ({} submeshes)",
         //               path.string(), meshSource->GetSubmeshes().size());
-        
+
         OLO_CORE_WARN("MeshSourceSerializer::TryLoadData - MeshSource class not implemented yet");
         return false;
     }
@@ -1747,24 +1748,24 @@ namespace OloEngine
         }
 
         std::filesystem::path filepath = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Mesh" << YAML::Value << YAML::BeginMap;
-        
+
         // TODO: Current Mesh class doesn't have GetSubmeshes/GetMaterials methods
         // Serialize mesh properties
         // out << YAML::Key << "SubmeshCount" << YAML::Value << mesh->GetSubmeshes().size();
-        
+
         // For now, just serialize basic mesh info
         out << YAML::Key << "VertexCount" << YAML::Value << mesh->GetVertices().size();
         out << YAML::Key << "IndexCount" << YAML::Value << mesh->GetIndices().size();
         // For now, just serialize basic mesh info
         out << YAML::Key << "VertexCount" << YAML::Value << mesh->GetVertices().size();
         out << YAML::Key << "IndexCount" << YAML::Value << mesh->GetIndices().size();
-        
+
         // TODO: Implement submesh and material serialization when those features are added
-        // 
+        //
         // // Serialize submeshes
         // out << YAML::Key << "Submeshes" << YAML::Value << YAML::BeginSeq;
         // for (const auto& submesh : mesh->GetSubmeshes())
@@ -1775,20 +1776,20 @@ namespace OloEngine
         //     out << YAML::Key << "IndexCount" << YAML::Value << submesh.IndexCount;
         //     out << YAML::Key << "VertexCount" << YAML::Value << submesh.VertexCount;
         //     out << YAML::Key << "MaterialIndex" << YAML::Value << submesh.MaterialIndex;
-        //     
+        //
         //     // Serialize transform
         //     out << YAML::Key << "Transform" << YAML::Value << submesh.Transform;
-        //     
+        //
         //     // Serialize bounding box
         //     out << YAML::Key << "BoundingBox" << YAML::Value << YAML::BeginMap;
         //     out << YAML::Key << "Min" << YAML::Value << submesh.BoundingBox.Min;
         //     out << YAML::Key << "Max" << YAML::Value << submesh.BoundingBox.Max;
         //     out << YAML::EndMap;
-        //     
+        //
         //     out << YAML::EndMap;
         // }
         // out << YAML::EndSeq;
-        // 
+        //
         // // Serialize materials
         // out << YAML::Key << "Materials" << YAML::Value << YAML::BeginSeq;
         // for (const auto& material : mesh->GetMaterials())
@@ -1796,21 +1797,21 @@ namespace OloEngine
         //     out << (material ? material->Handle : AssetHandle(0));
         // }
         // out << YAML::EndSeq;
-        
+
         out << YAML::EndMap;
         out << YAML::EndMap;
-        
+
         std::ofstream fout(filepath);
         fout << out.c_str();
         fout.close();
-        
+
         OLO_CORE_TRACE("MeshSerializer::Serialize - Serialized mesh to: {}", filepath.string());
     }
 
     bool MeshSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         if (!std::filesystem::exists(path))
         {
             OLO_CORE_ERROR("MeshSerializer::TryLoadData - File does not exist: {}", path.string());
@@ -1848,10 +1849,10 @@ namespace OloEngine
 
         // Create mesh
         auto mesh = Ref<Mesh>(new Mesh());
-        
+
         // TODO: Current Mesh class doesn't support submeshes and materials like expected
         // For now, just load basic mesh data
-        // 
+        //
         // // Load submeshes
         // if (meshNode["Submeshes"])
         // {
@@ -1865,17 +1866,17 @@ namespace OloEngine
         //         submesh.VertexCount = submeshNode["VertexCount"].as<u32>();
         //         submesh.MaterialIndex = submeshNode["MaterialIndex"].as<u32>();
         //         submesh.Transform = submeshNode["Transform"].as<glm::mat4>();
-        //         
+        //
         //         // Load bounding box
         //         auto bbNode = submeshNode["BoundingBox"];
         //         submesh.BoundingBox.Min = bbNode["Min"].as<glm::vec3>();
         //         submesh.BoundingBox.Max = bbNode["Max"].as<glm::vec3>();
-        //         
+        //
         //         submeshes.push_back(submesh);
         //     }
         //     mesh->SetSubmeshes(submeshes);
         // }
-        // 
+        //
         // // Load materials
         // if (meshNode["Materials"])
         // {
@@ -1898,7 +1899,7 @@ namespace OloEngine
 
         mesh->m_Handle = metadata.Handle;
         asset = mesh;
-        
+
         OLO_CORE_TRACE("MeshSerializer::TryLoadData - Successfully loaded mesh: {}", path.string());
         return true;
     }
@@ -1917,7 +1918,7 @@ namespace OloEngine
                 if (staticMesh)
                 {
                     AssetManager::DeregisterDependencies(metadata.Handle);
-                    
+
                     // Register MeshSource dependency
                     AssetHandle meshSourceHandle = staticMesh->GetMeshSource();
                     if (meshSourceHandle != 0)
@@ -1925,7 +1926,7 @@ namespace OloEngine
                         AssetManager::RegisterDependency(meshSourceHandle, metadata.Handle);
                         OLO_CORE_TRACE("MeshSerializer: Registered MeshSource dependency - StaticMesh {0} depends on MeshSource {1}", metadata.Handle, meshSourceHandle);
                     }
-                    
+
                     // Register material dependencies
                     auto materialTable = staticMesh->GetMaterials();
                     if (materialTable)
@@ -1975,13 +1976,13 @@ namespace OloEngine
         {
             meshSourceHandle = mesh->GetMeshSource()->GetHandle();
         }
-        
+
         stream.WriteRaw<AssetHandle>(meshSourceHandle);
         stream.WriteRaw<u32>(mesh->GetSubmeshIndex());
 
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
-        
-        OLO_CORE_TRACE("MeshSerializer: Serialized Mesh to pack - Handle: {0}, MeshSource: {1}, SubmeshIndex: {2}, Size: {3}", 
+
+        OLO_CORE_TRACE("MeshSerializer: Serialized Mesh to pack - Handle: {0}, MeshSource: {1}, SubmeshIndex: {2}, Size: {3}",
                        handle, meshSourceHandle, mesh->GetSubmeshIndex(), outInfo.Size);
         return true;
     }
@@ -1991,11 +1992,11 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         stream.SetStreamPosition(assetInfo.PackedOffset);
-        
+
         // Read mesh properties
         AssetHandle meshSourceHandle;
         stream.ReadRaw<AssetHandle>(meshSourceHandle);
-        
+
         u32 submeshIndex;
         stream.ReadRaw<u32>(submeshIndex);
 
@@ -2009,7 +2010,7 @@ namespace OloEngine
         Ref<Mesh> mesh = Ref<Mesh>(new Mesh(meshSource, submeshIndex));
         mesh->SetHandle(assetInfo.Handle);
 
-        OLO_CORE_TRACE("MeshSerializer: Deserialized Mesh from pack - Handle: {0}, MeshSource: {1}, SubmeshIndex: {2}", 
+        OLO_CORE_TRACE("MeshSerializer: Deserialized Mesh from pack - Handle: {0}, MeshSource: {1}, SubmeshIndex: {2}",
                        assetInfo.Handle, meshSourceHandle, submeshIndex);
         return mesh;
     }
@@ -2028,20 +2029,20 @@ namespace OloEngine
         }
 
         std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         try
         {
             YAML::Emitter out;
             out << YAML::BeginMap;
             out << YAML::Key << "StaticMesh" << YAML::Value;
             out << YAML::BeginMap;
-            
+
             // Serialize mesh source handle
             out << YAML::Key << "MeshSource" << YAML::Value << staticMesh->GetMeshSource();
-            
+
             // Serialize collider generation flag
             out << YAML::Key << "GenerateColliders" << YAML::Value << staticMesh->ShouldGenerateColliders();
-            
+
             // Serialize submesh indices if not using all submeshes
             const auto& submeshIndices = staticMesh->GetSubmeshes();
             if (!submeshIndices.empty())
@@ -2054,14 +2055,14 @@ namespace OloEngine
                 }
                 out << YAML::EndSeq;
             }
-            
+
             out << YAML::EndMap;
             out << YAML::EndMap;
 
             std::ofstream fout(path);
             fout << out.c_str();
             fout.close();
-            
+
             OLO_CORE_TRACE("StaticMeshSerializer::Serialize - Successfully serialized static mesh to: {}", path.string());
         }
         catch (const std::exception& e)
@@ -2073,7 +2074,7 @@ namespace OloEngine
     bool StaticMeshSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         if (!std::filesystem::exists(path))
         {
             OLO_CORE_ERROR("StaticMeshSerializer::TryLoadData - File does not exist: {}", path.string());
@@ -2084,7 +2085,7 @@ namespace OloEngine
         {
             // Load YAML file with static mesh configuration
             YAML::Node yamlData = YAML::LoadFile(path.string());
-            
+
             if (!yamlData["StaticMesh"])
             {
                 OLO_CORE_ERROR("StaticMeshSerializer::TryLoadData - Invalid static mesh file (missing StaticMesh node): {}", path.string());
@@ -2092,7 +2093,7 @@ namespace OloEngine
             }
 
             YAML::Node meshNode = yamlData["StaticMesh"];
-            
+
             // Get the mesh source handle
             AssetHandle meshSourceHandle = meshNode["MeshSource"].as<u64>(0);
             if (meshSourceHandle == 0)
@@ -2103,7 +2104,7 @@ namespace OloEngine
 
             // Get optional settings
             bool generateColliders = meshNode["GenerateColliders"].as<bool>(false);
-            
+
             // Get submesh indices (optional)
             std::vector<u32> submeshIndices;
             if (meshNode["Submeshes"])
@@ -2127,7 +2128,7 @@ namespace OloEngine
 
             staticMesh->SetHandle(metadata.Handle);
             asset = staticMesh;
-            
+
             OLO_CORE_TRACE("StaticMeshSerializer::TryLoadData - Successfully loaded static mesh: {}", path.string());
             return true;
         }
@@ -2146,7 +2147,7 @@ namespace OloEngine
     void StaticMeshSerializer::RegisterDependencies(const AssetMetadata& metadata) const
     {
         std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         if (!std::filesystem::exists(path))
         {
             OLO_CORE_WARN("StaticMeshSerializer::RegisterDependencies - File does not exist: {}", path.string());
@@ -2157,9 +2158,9 @@ namespace OloEngine
         {
             // Deregister existing dependencies first
             AssetManager::DeregisterDependencies(metadata.Handle);
-            
+
             YAML::Node yamlData = YAML::LoadFile(path.string());
-            
+
             if (!yamlData["StaticMesh"])
             {
                 OLO_CORE_WARN("StaticMeshSerializer::RegisterDependencies - Invalid static mesh file: {}", path.string());
@@ -2167,7 +2168,7 @@ namespace OloEngine
             }
 
             YAML::Node meshNode = yamlData["StaticMesh"];
-            
+
             // Register mesh source dependency
             AssetHandle meshSourceHandle = meshNode["MeshSource"].as<u64>(0);
             if (meshSourceHandle != 0)
@@ -2175,19 +2176,19 @@ namespace OloEngine
                 AssetManager::RegisterDependency(meshSourceHandle, metadata.Handle);
                 OLO_CORE_TRACE("StaticMeshSerializer: Registered MeshSource dependency - StaticMesh {0} depends on MeshSource {1}", metadata.Handle, meshSourceHandle);
             }
-            
+
             // Register material dependencies from MaterialTable
             if (meshNode["MaterialTable"])
             {
                 YAML::Node materialTable = meshNode["MaterialTable"];
-                
+
                 if (materialTable["Materials"] && materialTable["Materials"].IsMap())
                 {
                     for (const auto& materialEntry : materialTable["Materials"])
                     {
                         u32 materialIndex = materialEntry.first.as<u32>();
                         AssetHandle materialHandle = materialEntry.second.as<AssetHandle>(0);
-                        
+
                         if (materialHandle != 0)
                         {
                             AssetManager::RegisterDependency(materialHandle, metadata.Handle);
@@ -2217,15 +2218,15 @@ namespace OloEngine
         }
 
         outInfo.Offset = stream.GetStreamPosition();
-        
+
         try
         {
             // Write mesh source handle
             stream.WriteRaw<AssetHandle>(staticMesh->GetMeshSource());
-            
+
             // Write collider generation flag
             stream.WriteRaw<bool>(staticMesh->ShouldGenerateColliders());
-            
+
             // Write submesh indices
             const auto& submeshIndices = staticMesh->GetSubmeshes();
             stream.WriteRaw<u32>(static_cast<u32>(submeshIndices.size()));
@@ -2251,17 +2252,17 @@ namespace OloEngine
             // Read mesh source handle
             AssetHandle meshSourceHandle;
             stream.ReadRaw(meshSourceHandle);
-            
+
             // Read collider generation flag
             bool generateColliders;
             stream.ReadRaw(generateColliders);
-            
+
             // Read submesh indices
             u32 submeshCount;
             stream.ReadRaw(submeshCount);
             std::vector<u32> submeshIndices;
             submeshIndices.reserve(submeshCount);
-            
+
             for (u32 i = 0; i < submeshCount; ++i)
             {
                 u32 submeshIndex;
@@ -2335,7 +2336,7 @@ namespace OloEngine
         std::string animationName = animationNode["AnimationName"].as<std::string>();
         bool extractRootMotion = animationNode["ExtractRootMotion"] ? animationNode["ExtractRootMotion"].as<bool>() : false;
         u32 rootBoneIndex = animationNode["RootBoneIndex"] ? animationNode["RootBoneIndex"].as<u32>() : 0;
-        
+
         glm::vec3 rootTranslationMask = glm::vec3(1.0f);
         if (animationNode["RootTranslationMask"])
         {
@@ -2347,7 +2348,7 @@ namespace OloEngine
                 rootTranslationMask.z = maskNode[2].as<float>();
             }
         }
-        
+
         glm::vec3 rootRotationMask = glm::vec3(1.0f);
         if (animationNode["RootRotationMask"])
         {
@@ -2359,13 +2360,13 @@ namespace OloEngine
                 rootRotationMask.z = maskNode[2].as<float>();
             }
         }
-        
+
         bool discardRootMotion = animationNode["DiscardRootMotion"] ? animationNode["DiscardRootMotion"].as<bool>() : false;
 
-        animationAsset = Ref<AnimationAsset>(new AnimationAsset(animationSource, mesh, animationName, 
-                                                              extractRootMotion, rootBoneIndex, 
-                                                              rootTranslationMask, rootRotationMask, 
-                                                              discardRootMotion));
+        animationAsset = Ref<AnimationAsset>(new AnimationAsset(animationSource, mesh, animationName,
+                                                                extractRootMotion, rootBoneIndex,
+                                                                rootTranslationMask, rootRotationMask,
+                                                                discardRootMotion));
         return true;
     }
 
@@ -2533,7 +2534,7 @@ namespace OloEngine
     void SoundGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
-        
+
         Ref<SoundGraphAsset> soundGraphAsset = asset.As<SoundGraphAsset>();
         if (!soundGraphAsset)
         {
@@ -2543,7 +2544,7 @@ namespace OloEngine
 
         // Resolve absolute path by anchoring to project asset directory
         std::filesystem::path absolutePath = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         std::filesystem::path parentDir = absolutePath.parent_path();
         if (!parentDir.empty())
         {
@@ -2565,12 +2566,12 @@ namespace OloEngine
     bool SoundGraphSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
-        
+
         Ref<SoundGraphAsset> soundGraphAsset = Ref<SoundGraphAsset>::Create();
-        
+
         // Resolve absolute path by anchoring to project asset directory
         std::filesystem::path absolutePath = Project::GetAssetDirectory() / metadata.FilePath;
-        
+
         if (!Audio::SoundGraph::SoundGraphSerializer::Deserialize(*soundGraphAsset, absolutePath))
         {
             OLO_CORE_ERROR("SoundGraphSerializer::TryLoadData - Failed to deserialize SoundGraph from '{}'", absolutePath.string());
@@ -2579,7 +2580,7 @@ namespace OloEngine
 
         // Set the asset handle from metadata
         soundGraphAsset->SetHandle(metadata.Handle);
-        
+
         asset = soundGraphAsset;
         return true;
     }
@@ -2600,13 +2601,13 @@ namespace OloEngine
 
         // Serialize the SoundGraphAsset to YAML string
         std::string yamlData = Audio::SoundGraph::SoundGraphSerializer::SerializeToString(*soundGraphAsset);
-        
+
         // Write the YAML data as a string to the pack
         stream.WriteString(yamlData);
-        
+
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
-        
-        OLO_CORE_TRACE("SoundGraphSerializer::SerializeToAssetPack - Serialized SoundGraph '{}' to pack, Size: {} bytes", 
+
+        OLO_CORE_TRACE("SoundGraphSerializer::SerializeToAssetPack - Serialized SoundGraph '{}' to pack, Size: {} bytes",
                        soundGraphAsset->GetName(), outInfo.Size);
         return true;
     }
@@ -2633,7 +2634,7 @@ namespace OloEngine
         // Set the handle
         soundGraphAsset->SetHandle(assetInfo.Handle);
 
-        OLO_CORE_TRACE("SoundGraphSerializer::DeserializeFromAssetPack - Deserialized SoundGraph '{}' from pack, Handle: {}", 
+        OLO_CORE_TRACE("SoundGraphSerializer::DeserializeFromAssetPack - Deserialized SoundGraph '{}' from pack, Handle: {}",
                        soundGraphAsset->GetName(), assetInfo.Handle);
         return soundGraphAsset;
     }

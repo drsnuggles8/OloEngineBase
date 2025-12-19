@@ -3,15 +3,15 @@
 /**
  * @file MpscQueue.h
  * @brief Fast multi-producer/single-consumer unbounded concurrent queue
- * 
+ *
  * Based on http://www.1024cores.net/home/lock-free-algorithms/queues/non-intrusive-mpsc-node-based-queue
- * 
+ *
  * Features:
  * - Lock-free for producers
  * - Single consumer (not thread-safe for multiple consumers)
  * - Unbounded (dynamically allocates nodes)
  * - FIFO ordering
- * 
+ *
  * Ported from Unreal Engine's Containers/MpscQueue.h
  */
 
@@ -29,14 +29,14 @@ namespace OloEngine
     /**
      * @class TMpscQueue
      * @brief Fast multi-producer/single-consumer unbounded concurrent queue
-     * 
+     *
      * @tparam T Element type
      * @tparam AllocatorType Memory allocator (defaults to FMemory)
      */
     template<typename T, typename AllocatorType = FMemory>
     class TMpscQueue final
     {
-    public:
+      public:
         using ElementType = T;
 
         // Non-copyable
@@ -48,7 +48,7 @@ namespace OloEngine
          */
         TMpscQueue()
         {
-            FNode* Sentinel = ::new(AllocatorType::Malloc(sizeof(FNode), alignof(FNode))) FNode;
+            FNode* Sentinel = ::new (AllocatorType::Malloc(sizeof(FNode), alignof(FNode))) FNode;
             m_Head.store(Sentinel, std::memory_order_relaxed);
             m_Tail = Sentinel;
         }
@@ -78,10 +78,10 @@ namespace OloEngine
          * @tparam ArgTypes Constructor argument types
          * @param Args Arguments forwarded to element constructor
          */
-        template <typename... ArgTypes>
+        template<typename... ArgTypes>
         void Enqueue(ArgTypes&&... Args)
         {
-            FNode* New = ::new(AllocatorType::Malloc(sizeof(FNode), alignof(FNode))) FNode;
+            FNode* New = ::new (AllocatorType::Malloc(sizeof(FNode), alignof(FNode))) FNode;
             ::new (static_cast<void*>(&New->Value)) ElementType(Forward<ArgTypes>(Args)...);
 
             FNode* Prev = m_Head.exchange(New, std::memory_order_acq_rel);
@@ -131,7 +131,7 @@ namespace OloEngine
         /**
          * @brief Peek at the front element without removing it (single consumer only)
          * @return Pointer to the front element, or nullptr if queue is empty
-         * 
+         *
          * @note There's no overload with std::optional as it doesn't support references
          */
         [[nodiscard]] ElementType* Peek() const
@@ -155,15 +155,15 @@ namespace OloEngine
             return m_Tail->Next.load(std::memory_order_acquire) == nullptr;
         }
 
-    private:
+      private:
         struct FNode
         {
             std::atomic<FNode*> Next{ nullptr };
             TTypeCompatibleBytes<ElementType> Value;
         };
 
-    private:
-        std::atomic<FNode*> m_Head; // accessed only by producers
+      private:
+        std::atomic<FNode*> m_Head;                              // accessed only by producers
         /*alignas(OLO_PLATFORM_CACHE_LINE_SIZE)*/ FNode* m_Tail; // accessed only by consumer
     };
 
