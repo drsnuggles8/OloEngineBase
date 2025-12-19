@@ -1,5 +1,5 @@
 #pragma once
-n // @file NoopCounter.h
+// @file NoopCounter.h
 // @brief No-operation counter for release builds
 //
 // Provides a fake counter that performs no actual operations.
@@ -11,7 +11,7 @@ n // @file NoopCounter.h
 #include "OloEngine/Core/Base.h"
 #include <atomic>
 
-    namespace OloEngine
+namespace OloEngine
 {
     // @class FNoopCounter
     // @brief Fake thread-safe counter with no actual operations

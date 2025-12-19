@@ -1,5 +1,5 @@
 #pragma once
-n // @file LockFreeFixedSizeAllocator.h
+// @file LockFreeFixedSizeAllocator.h
 // @brief Lock-free fixed-size block allocator for OloEngine
 //
 // Provides efficient thread-safe allocation of fixed-size memory blocks:
@@ -24,7 +24,7 @@ n // @file LockFreeFixedSizeAllocator.h
 #define USE_NAIVE_TLockFreeFixedSizeAllocator_TLSCacheBase (0)
 #endif
 
-    namespace OloEngine
+namespace OloEngine
 {
     // ========================================================================
     // TLS-Cached Fixed Size Allocator Base

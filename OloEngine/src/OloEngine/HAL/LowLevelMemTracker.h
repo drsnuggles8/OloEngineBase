@@ -1,8 +1,5 @@
-// LowLevelMemTracker.h - Low-Level Memory Tracker for OloEngine
-// Ported from UE5.7 HAL/LowLevelMemTracker.h
-
 #pragma once
-n // @file LowLevelMemTracker.h
+// @file LowLevelMemTracker.h
 // @brief Low-Level Memory Tracker (LLM) for tracking all memory allocations
 //
 // LLM provides detailed per-allocation memory tracking with hierarchical tags.
@@ -37,7 +34,7 @@ n // @file LowLevelMemTracker.h
 #include <cstdint>
 #include <string_view>
 
-    namespace OloEngine
+namespace OloEngine
 {
 
     // ============================================================================

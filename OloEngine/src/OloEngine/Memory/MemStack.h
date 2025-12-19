@@ -554,8 +554,7 @@ namespace OloEngine
             // Note: For stack allocator, we cannot shrink - we can only grow.
             // Growing creates a new allocation and the old one is "leaked"
             // (will be freed when FMemMark is popped).
-            */
-                void ResizeAllocation(SizeType CurrentNum, SizeType NewMax, sizet NumBytesPerElement)
+            void ResizeAllocation(SizeType CurrentNum, SizeType NewMax, sizet NumBytesPerElement)
             {
                 OLO_CORE_ASSERT(NewMax >= 0, "NewMax must be non-negative");
 

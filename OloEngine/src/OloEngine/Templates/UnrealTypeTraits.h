@@ -757,9 +757,8 @@ namespace OloEngine
     // Types that can be bitwise relocated:
     // - Are trivially copyable and trivially destructible, OR
     // - Have been explicitly marked as relocatable
-    */
-        template<typename T>
-        struct TCanBitwiseRelocate
+    template<typename T>
+    struct TCanBitwiseRelocate
     {
         enum
         {
@@ -1689,8 +1688,8 @@ namespace OloEngine
 
     // @struct TLosesQualifiersFromTo
     // @brief Tests if qualifiers are lost between one type and another
-    **Examples : *-TLosesQualifiersFromTo_V<const T1, T2> == true * -TLosesQualifiersFromTo_V<volatile T1, const volatile T2> == false * / template<typename From, typename To>
-                                                                                                                                           struct TLosesQualifiersFromTo
+    template<typename From, typename To>
+    struct TLosesQualifiersFromTo
     {
         static constexpr bool Value = !std::is_same_v<TCopyQualifiersFromTo_T<From, To>, To>;
     };

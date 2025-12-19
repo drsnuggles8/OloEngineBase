@@ -1,5 +1,5 @@
 #pragma once
-n // @file PageAllocator.h
+// @file PageAllocator.h
 // @brief Lock-free page-based memory allocator for OloEngine
 //
 // Provides a simple page allocator that manages fixed-size memory pages.
@@ -15,7 +15,7 @@ n // @file PageAllocator.h
 #include "OloEngine/Memory/LockFreeFixedSizeAllocator.h"
 #include "OloEngine/Memory/NoopCounter.h"
 
-    namespace OloEngine
+namespace OloEngine
 {
     // ========================================================================
     // Forward Declaration
