@@ -9,7 +9,8 @@
 #include "OloEngine/Serialization/AssetPackFile.h"
 
 // Forward declarations
-namespace YAML {
+namespace YAML
+{
     class Node;
 }
 
@@ -34,23 +35,26 @@ namespace OloEngine
 
     class AssetSerializer
     {
-    public:
+      public:
         virtual ~AssetSerializer() noexcept = default;
-        
+
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const = 0;
         [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const = 0;
         virtual void RegisterDependencies([[maybe_unused]] const AssetMetadata& metadata) const {}
 
         [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const = 0;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const = 0;
-        
+
         // Virtual method for scene-specific deserialization, returns nullptr by default
-        virtual Ref<Scene> DeserializeSceneFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::SceneInfo& sceneInfo) const { return nullptr; }
+        virtual Ref<Scene> DeserializeSceneFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::SceneInfo& sceneInfo) const
+        {
+            return nullptr;
+        }
     };
 
     class TextureSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override {}
         [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
@@ -60,7 +64,7 @@ namespace OloEngine
 
     class FontSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override {}
         [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
@@ -70,14 +74,15 @@ namespace OloEngine
 
     class MaterialAssetSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         virtual void RegisterDependencies(const AssetMetadata& metadata) const override;
 
         [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
-    private:
+
+      private:
         std::string SerializeToYAML(Ref<MaterialAsset> materialAsset) const;
         std::string GetYAML(const AssetMetadata& metadata) const;
         void RegisterDependenciesFromYAML(const std::string& yamlString, AssetHandle handle) const;
@@ -86,7 +91,7 @@ namespace OloEngine
 
     class EnvironmentSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override {}
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
@@ -96,14 +101,14 @@ namespace OloEngine
 
     class AudioFileSourceSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
-    
-    private:
+
+      private:
         [[nodiscard]] bool GetWavFileInfo(const std::filesystem::path& filePath, double& duration, u32& samplingRate, u16& bitDepth, u16& numChannels) const;
     };
 
@@ -125,43 +130,44 @@ namespace OloEngine
 
     class PrefabSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
-    
-    private:
+
+      private:
         std::string SerializeToYAML(const Ref<Prefab>& prefab) const;
         [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<Prefab>& prefab) const;
     };
 
     class SceneAssetSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
         virtual Ref<Scene> DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const override;
-        
+
         // String serialization methods for asset pack support
         std::string SerializeToString(const Ref<Scene>& scene) const;
         [[nodiscard]] bool DeserializeFromString(const std::string& yamlString, Ref<Scene>& scene) const;
     };
-        
+
     class MeshColliderSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         virtual void RegisterDependencies(const AssetMetadata& metadata) const override;
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
-    private:
+
+      private:
         std::string SerializeToYAML(Ref<MeshColliderAsset> meshCollider) const;
         bool DeserializeFromYAML(const std::string& yamlString, Ref<MeshColliderAsset> targetMeshCollider) const;
         void RegisterDependenciesFromYAML(const std::string& yamlString, AssetHandle handle) const;
@@ -169,13 +175,14 @@ namespace OloEngine
 
     class ScriptFileSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
-    private:
+
+      private:
         std::string SerializeToYAML(Ref<ScriptFileAsset> scriptAsset) const;
         bool DeserializeFromYAML(const std::string& yamlString, Ref<ScriptFileAsset> targetScriptAsset) const;
     };
@@ -183,8 +190,12 @@ namespace OloEngine
     // Missing serializers that Hazel has
     class MeshSourceSerializer : public AssetSerializer
     {
-    public:
-        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override { (void)metadata; (void)asset; }
+      public:
+        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override
+        {
+            (void)metadata;
+            (void)asset;
+        }
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -193,7 +204,7 @@ namespace OloEngine
 
     class MeshSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         virtual void RegisterDependencies(const AssetMetadata& metadata) const override;
@@ -204,7 +215,7 @@ namespace OloEngine
 
     class StaticMeshSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         virtual void RegisterDependencies(const AssetMetadata& metadata) const override;
@@ -215,7 +226,7 @@ namespace OloEngine
 
     class AnimationAssetSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         virtual void RegisterDependencies(const AssetMetadata& metadata) const override;
@@ -223,7 +234,7 @@ namespace OloEngine
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
 
-    private:
+      private:
         std::string SerializeToYAML(Ref<AnimationAsset> animationAsset) const;
         [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<AnimationAsset>& animationAsset) const;
         [[nodiscard]] bool DeserializeFromYAML(const YAML::Node& data, Ref<AnimationAsset>& animationAsset) const; // For pre-parsed YAML nodes
@@ -232,7 +243,7 @@ namespace OloEngine
 
     class AnimationGraphAssetSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         virtual void RegisterDependencies(const AssetMetadata& metadata) const override;
@@ -243,7 +254,7 @@ namespace OloEngine
 
     class SoundGraphSerializer : public AssetSerializer
     {
-    public:
+      public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 

@@ -6,10 +6,10 @@
 
 namespace OloEngine
 {
-	class FileSystem
-	{
-	public:
-		static Buffer ReadFileBinary(const std::filesystem::path& filepath);
-	};
+    class FileSystem
+    {
+      public:
+        static Buffer ReadFileBinary(const std::filesystem::path& filepath);
+    };
 
-}
+} // namespace OloEngine

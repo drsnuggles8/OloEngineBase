@@ -15,11 +15,11 @@ namespace OloEngine
 {
     /**
      * @brief Thread-safe asset metadata storage and management
-     * 
+     *
      * The AssetRegistry maintains a central database of all asset metadata
      * in the project. It provides thread-safe access to asset information
      * and handles metadata persistence and loading.
-     * 
+     *
      * Key features:
      * - Thread-safe metadata storage with UUID-based handle mapping
      * - Metadata persistence and loading from disk
@@ -29,7 +29,7 @@ namespace OloEngine
      */
     class AssetRegistry
     {
-    public:
+      public:
         AssetRegistry() = default;
         ~AssetRegistry() = default;
 
@@ -58,7 +58,7 @@ namespace OloEngine
          * @brief Get asset metadata by handle
          * @param handle Asset handle
          * @return Copy of asset metadata, or empty metadata if not found
-         * 
+         *
          * Thread-safe: Returns by value to prevent dangling references after lock release.
          * The shared_lock is released before returning, so returning a reference would be unsafe
          * if another thread concurrently removes or modifies the metadata.
@@ -69,7 +69,7 @@ namespace OloEngine
          * @brief Get asset metadata by file path
          * @param path File path of the asset
          * @return Copy of asset metadata, or empty metadata if not found
-         * 
+         *
          * Thread-safe: Returns by value to prevent dangling references after lock release.
          * The shared_lock is released before returning, so returning a reference would be unsafe
          * if another thread concurrently removes or modifies the metadata.
@@ -158,8 +158,16 @@ namespace OloEngine
         /**
          * @brief Iterator support for range-based loops
          */
-        auto begin() const { std::shared_lock lock(m_Mutex); return m_AssetMetadata.begin(); }
-        auto end() const { std::shared_lock lock(m_Mutex); return m_AssetMetadata.end(); }
+        auto begin() const
+        {
+            std::shared_lock lock(m_Mutex);
+            return m_AssetMetadata.begin();
+        }
+        auto end() const
+        {
+            std::shared_lock lock(m_Mutex);
+            return m_AssetMetadata.end();
+        }
 
         /**
          * @brief Check if the registry is empty
@@ -167,28 +175,28 @@ namespace OloEngine
          */
         bool Empty() const;
 
-    private:
+      private:
         /**
          * @brief Get next available asset handle (thread-safe)
          * @return New unique handle
-         * 
+         *
          * Uses atomic operations internally for thread safety. Can be called
          * concurrently from multiple threads without external synchronization.
          */
         AssetHandle GetNextHandle();
 
-    private:
+      private:
         // Main metadata storage (handle -> metadata)
         std::unordered_map<AssetHandle, AssetMetadata> m_AssetMetadata;
-        
+
         // Fast path lookup (path -> handle)
         std::unordered_map<std::filesystem::path, AssetHandle> m_PathToHandle;
-        
+
         // Handle generation counter (thread-safe atomic)
-        std::atomic<u64> m_HandleCounter{1};
-        
+        std::atomic<u64> m_HandleCounter{ 1 };
+
         // Thread synchronization
         mutable std::shared_mutex m_Mutex;
     };
 
-}
+} // namespace OloEngine

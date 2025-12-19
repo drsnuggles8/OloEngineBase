@@ -24,15 +24,15 @@ namespace OloEngine
             return;
 
         OLO_CORE_INFO("Initializing Shader Debugger...");
-        
+
         m_Shaders.clear();
         m_PendingCompilations.clear();
-        
+
         m_TotalCompilationTime = 0.0;
         m_TotalCompilations = 0;
         m_FailedCompilations = 0;
         m_TotalReloads = 0;
-        
+
         m_SelectedShaderID = 0;
         m_SelectedTab = 0;
         m_ShowOnlyActiveShaders = false;
@@ -50,15 +50,15 @@ namespace OloEngine
             return;
 
         OLO_CORE_INFO("Shutting down Shader Debugger...");
-        
+
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
         m_Shaders.clear();
         m_PendingCompilations.clear();
-        
+
         m_IsInitialized = false;
         OLO_CORE_INFO("Shader Debugger shutdown complete");
     }
-    
+
     void ShaderDebugger::RegisterShader(const Ref<Shader>& shader)
     {
         if (!m_IsInitialized || !shader)
@@ -68,12 +68,12 @@ namespace OloEngine
         }
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         const u32 rendererID = shader->GetRendererID();
         const std::string& name = shader->GetName();
-        
+
         OLO_CORE_INFO("ShaderDebugger: Registering shader '{0}' with ID {1}", name, rendererID);
-        
+
         // Check if shader is already registered
         if (m_Shaders.find(rendererID) != m_Shaders.end())
         {
@@ -85,22 +85,22 @@ namespace OloEngine
         info.m_RendererID = rendererID;
         info.m_Name = name;
         info.m_CreationTime = std::chrono::steady_clock::now();
-          // Initialize compilation result with zero instruction count
+        // Initialize compilation result with zero instruction count
         OLO_CORE_INFO("ShaderDebugger: RESET instruction count to 0 in OnCompilationStart (new shader): {0}", name);
         info.m_LastCompilation.m_InstructionCount = 0;
         info.m_LastCompilation.m_VertexGeometrySPIRVSize = 0;
         info.m_LastCompilation.m_FragmentComputeSPIRVSize = 0;
-        
+
         m_Shaders[rendererID] = std::move(info);
-          // Auto-select new shader if enabled
+        // Auto-select new shader if enabled
         if (m_AutoSelectNewShaders)
         {
             m_SelectedShaderID = rendererID;
         }
-        
+
         OLO_CORE_TRACE("Registered shader: {0} (ID: {1})", name, rendererID);
     }
-    
+
     void ShaderDebugger::RegisterShader(u32 rendererID, const std::string& name, const std::string& filePath)
     {
         if (!m_IsInitialized)
@@ -110,9 +110,9 @@ namespace OloEngine
         }
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         OLO_CORE_INFO("ShaderDebugger: Manually registering shader '{0}' with ID {1}", name, rendererID);
-        
+
         // Check if shader is already registered
         if (m_Shaders.find(rendererID) != m_Shaders.end())
         {
@@ -125,20 +125,20 @@ namespace OloEngine
         info.m_Name = name;
         info.m_FilePath = filePath;
         info.m_CreationTime = std::chrono::steady_clock::now();
-          // Initialize compilation result with zero instruction count
+        // Initialize compilation result with zero instruction count
         OLO_CORE_INFO("ShaderDebugger: RESET instruction count to 0 in OnCompilationStart (file-based shader): {0}", name);
         info.m_LastCompilation.m_InstructionCount = 0;
         info.m_LastCompilation.m_VertexGeometrySPIRVSize = 0;
         info.m_LastCompilation.m_FragmentComputeSPIRVSize = 0;
-        
+
         m_Shaders[rendererID] = std::move(info);
-        
+
         // Auto-select new shader if enabled
         if (m_AutoSelectNewShaders)
         {
             m_SelectedShaderID = rendererID;
         }
-        
+
         OLO_CORE_TRACE("Manually registered shader: {0} (ID: {1})", name, rendererID);
     }
 
@@ -152,33 +152,33 @@ namespace OloEngine
         if (it != m_Shaders.end())
         {
             UpdateActiveTime(it->second);
-            
+
             OLO_CORE_TRACE("Unregistered shader: {0} (ID: {1})", it->second.m_Name, rendererID);
-            
+
             // Clear selection if this shader was selected
             if (m_SelectedShaderID == rendererID)
             {
                 m_SelectedShaderID = 0;
             }
-            
+
             m_Shaders.erase(it);
         }
     }
-    
+
     void ShaderDebugger::OnCompilationStart(const std::string& name, const std::string& filepath)
     {
         if (!m_IsInitialized)
             return;
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         PendingCompilation pending;
         pending.m_Name = name;
         pending.m_FilePath = filepath;
         pending.m_StartTime = std::chrono::steady_clock::now();
-        
+
         m_PendingCompilations[name] = pending;
-        
+
         // Find and reset instruction count for this shader if it already exists
         for (auto& [id, shaderInfo] : m_Shaders)
         {
@@ -198,32 +198,32 @@ namespace OloEngine
             return;
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
-        OLO_CORE_INFO("ShaderDebugger: Compilation ended for ID {0}, Success: {1}, Time: {2:.2f}ms", 
+
+        OLO_CORE_INFO("ShaderDebugger: Compilation ended for ID {0}, Success: {1}, Time: {2:.2f}ms",
                       rendererID, success, compileTimeMs);
-        
+
         auto shaderIt = m_Shaders.find(rendererID);
         if (shaderIt != m_Shaders.end())
         {
             ShaderInfo& info = shaderIt->second;
-              // Update compilation result without resetting instruction count
+            // Update compilation result without resetting instruction count
             info.m_LastCompilation.m_Success = success;
             info.m_LastCompilation.m_ErrorMessage = errorMsg;
             info.m_LastCompilation.m_CompileTimeMs = compileTimeMs;
             info.m_LastCompilation.m_Timestamp = std::chrono::steady_clock::now();
             info.m_HasErrors = !success;
-            
-            OLO_CORE_INFO("ShaderDebugger: Final instruction count after compilation: {0}", 
-                         info.m_LastCompilation.m_InstructionCount);
-            
+
+            OLO_CORE_INFO("ShaderDebugger: Final instruction count after compilation: {0}",
+                          info.m_LastCompilation.m_InstructionCount);
+
             // Note: Instruction count is NOT reset here - it should persist from reflection
-            
+
             // Update global statistics
             m_TotalCompilationTime += compileTimeMs;
             m_TotalCompilations++;
             if (!success)
                 m_FailedCompilations++;
-            
+
             // Remove from pending compilations
             auto pendingIt = m_PendingCompilations.find(info.m_Name);
             if (pendingIt != m_PendingCompilations.end())
@@ -231,9 +231,9 @@ namespace OloEngine
                 info.m_FilePath = pendingIt->second.m_FilePath;
                 m_PendingCompilations.erase(pendingIt);
             }
-            
-            OLO_CORE_TRACE("Shader compilation ended: {0} (ID: {1}), Success: {2}, Time: {3:.2f}ms", 
-                          info.m_Name, rendererID, success, compileTimeMs);
+
+            OLO_CORE_TRACE("Shader compilation ended: {0} (ID: {1}), Success: {2}, Time: {3:.2f}ms",
+                           info.m_Name, rendererID, success, compileTimeMs);
         }
         else
         {
@@ -247,7 +247,7 @@ namespace OloEngine
             return;
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
         {
@@ -262,40 +262,40 @@ namespace OloEngine
             return;
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
         {
             ShaderInfo& info = it->second;
             info.m_IsReloading = false;
-            
+
             // Add reload event to history
             ReloadEvent event;
             event.m_Timestamp = std::chrono::steady_clock::now();
             event.m_Success = success;
             event.m_Reason = "Manual Reload";
             info.m_ReloadHistory.push_back(event);
-            
+
             // Keep only last 10 reload events
             if (info.m_ReloadHistory.size() > 10)
             {
                 info.m_ReloadHistory.erase(info.m_ReloadHistory.begin());
             }
-            
+
             m_TotalReloads++;
-            
-            OLO_CORE_TRACE("Shader reload ended: {0} (ID: {1}), Success: {2}", 
-                          info.m_Name, rendererID, success);
+
+            OLO_CORE_TRACE("Shader reload ended: {0} (ID: {1}), Success: {2}",
+                           info.m_Name, rendererID, success);
         }
     }
-    
+
     void ShaderDebugger::OnShaderBind(u32 rendererID)
     {
         if (!m_IsInitialized)
             return;
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         // First, update active time for all currently active shaders and mark them inactive
         for (auto& [id, shaderInfo] : m_Shaders)
         {
@@ -305,13 +305,13 @@ namespace OloEngine
                 shaderInfo.m_IsActive = false;
             }
         }
-        
+
         // Now update and activate the newly bound shader
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
         {
             ShaderInfo& info = it->second;
-            
+
             info.m_BindCount++;
             info.m_LastBindTime = std::chrono::steady_clock::now();
             info.m_LastActivationTime = info.m_LastBindTime;
@@ -325,16 +325,17 @@ namespace OloEngine
             return;
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
         {
             ShaderInfo& info = it->second;
-            
+
             // Find or create uniform info
             auto uniformIt = std::find_if(info.m_Uniforms.begin(), info.m_Uniforms.end(),
-                [&name](const UniformInfo& uniform) { return uniform.m_Name == name; });
-            
+                                          [&name](const UniformInfo& uniform)
+                                          { return uniform.m_Name == name; });
+
             if (uniformIt != info.m_Uniforms.end())
             {
                 uniformIt->m_SetCount++;
@@ -352,14 +353,14 @@ namespace OloEngine
             }
         }
     }
-    
+
     void ShaderDebugger::UpdateReflectionData(u32 rendererID, const std::vector<u32>& spirvData)
     {
         if (!m_IsInitialized || spirvData.empty())
             return;
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         auto it = m_Shaders.find(rendererID);
         if (it == m_Shaders.end())
         {
@@ -384,7 +385,7 @@ namespace OloEngine
                 const u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
 
                 UniformBufferInfo uboInfo;
-                
+
                 // Try to get the name from multiple sources
                 std::string name = resource.name;
                 if (name.empty() || name.find("_") == 0)
@@ -397,15 +398,27 @@ namespace OloEngine
                     // Generate a standardized name based on binding point for better debugging
                     switch (binding)
                     {
-                        case 0: name = "CameraMatrices"; break;
-                        case 1: name = "LightProperties"; break;
-                        case 2: name = "MaterialProperties"; break;
-                        case 3: name = "ModelMatrices"; break;
-                        case 4: name = "AnimationMatrices"; break;
-                        default: name = "UniformBuffer_" + std::to_string(binding); break;
+                        case 0:
+                            name = "CameraMatrices";
+                            break;
+                        case 1:
+                            name = "LightProperties";
+                            break;
+                        case 2:
+                            name = "MaterialProperties";
+                            break;
+                        case 3:
+                            name = "ModelMatrices";
+                            break;
+                        case 4:
+                            name = "AnimationMatrices";
+                            break;
+                        default:
+                            name = "UniformBuffer_" + std::to_string(binding);
+                            break;
                     }
                 }
-                
+
                 uboInfo.m_Name = name;
                 uboInfo.m_Binding = binding;
                 uboInfo.m_Size = static_cast<u32>(bufferSize);
@@ -450,11 +463,10 @@ namespace OloEngine
 
                 info.m_Samplers.push_back(samplerInfo);
             }
-              // Estimate instruction count
+            // Estimate instruction count
             u32 instructionCount = 0;
             AnalyzeSPIRVFromWords(spirvData, instructionCount);
             info.m_LastCompilation.m_InstructionCount += instructionCount;
-
         }
         catch (const std::exception& e)
         {
@@ -462,21 +474,21 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::SetShaderSource(u32 rendererID, ShaderStage stage, 
-                                        const std::string& originalSource, 
-                                        const std::string& generatedGLSL,
-                                        const std::vector<u8>& spirvBinary)
+    void ShaderDebugger::SetShaderSource(u32 rendererID, ShaderStage stage,
+                                         const std::string& originalSource,
+                                         const std::string& generatedGLSL,
+                                         const std::vector<u8>& spirvBinary)
     {
         if (!m_IsInitialized)
             return;
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
         {
             ShaderInfo& info = it->second;
-            
+
             info.m_OriginalSource[stage] = originalSource;
             if (!generatedGLSL.empty())
             {
@@ -491,12 +503,12 @@ namespace OloEngine
                     info.m_LastCompilation.m_VertexGeometrySPIRVSize += spirvBinary.size();
                 else if (stage == ShaderStage::Fragment || stage == ShaderStage::Compute)
                     info.m_LastCompilation.m_FragmentComputeSPIRVSize += spirvBinary.size();
-                
+
                 // Convert SPIR-V binary to u32 vector for analysis
                 std::vector<u32> spirvWords;
                 spirvWords.resize(spirvBinary.size() / sizeof(u32));
                 std::memcpy(spirvWords.data(), spirvBinary.data(), spirvBinary.size());
-                
+
                 // Perform reflection analysis and update instruction count
                 try
                 {
@@ -518,7 +530,9 @@ namespace OloEngine
         {
             const auto now = std::chrono::steady_clock::now();
             const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
-                now - shaderInfo.m_LastActivationTime).count() / 1000.0;
+                                      now - shaderInfo.m_LastActivationTime)
+                                      .count() /
+                                  1000.0;
             shaderInfo.m_TotalActiveTimeMs += duration;
         }
     }
@@ -526,7 +540,7 @@ namespace OloEngine
     const ShaderDebugger::ShaderInfo* ShaderDebugger::GetShaderInfo(u32 rendererID) const
     {
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         auto it = m_Shaders.find(rendererID);
         return (it != m_Shaders.end()) ? &it->second : nullptr;
     }
@@ -535,17 +549,28 @@ namespace OloEngine
     {
         switch (type)
         {
-            case UniformType::Int:        return "int";
-            case UniformType::IntArray:   return "int[]";
-            case UniformType::Float:      return "float";
-            case UniformType::Float2:     return "vec2";
-            case UniformType::Float3:     return "vec3";
-            case UniformType::Float4:     return "vec4";
-            case UniformType::Mat3:       return "mat3";
-            case UniformType::Mat4:       return "mat4";
-            case UniformType::Sampler2D:  return "sampler2D";
-            case UniformType::SamplerCube: return "samplerCube";
-            default: return "unknown";
+            case UniformType::Int:
+                return "int";
+            case UniformType::IntArray:
+                return "int[]";
+            case UniformType::Float:
+                return "float";
+            case UniformType::Float2:
+                return "vec2";
+            case UniformType::Float3:
+                return "vec3";
+            case UniformType::Float4:
+                return "vec4";
+            case UniformType::Mat3:
+                return "mat3";
+            case UniformType::Mat4:
+                return "mat4";
+            case UniformType::Sampler2D:
+                return "sampler2D";
+            case UniformType::SamplerCube:
+                return "samplerCube";
+            default:
+                return "unknown";
         }
     }
 
@@ -553,11 +578,16 @@ namespace OloEngine
     {
         switch (stage)
         {
-            case ShaderStage::Vertex:   return "Vertex";
-            case ShaderStage::Fragment: return "Fragment";
-            case ShaderStage::Geometry: return "Geometry";
-            case ShaderStage::Compute:  return "Compute";
-            default: return "Unknown";
+            case ShaderStage::Vertex:
+                return "Vertex";
+            case ShaderStage::Fragment:
+                return "Fragment";
+            case ShaderStage::Geometry:
+                return "Geometry";
+            case ShaderStage::Compute:
+                return "Compute";
+            default:
+                return "Unknown";
         }
     }
 
@@ -565,58 +595,61 @@ namespace OloEngine
     {
         switch (stage)
         {
-            case ShaderStage::Vertex:   return ImVec4(0.3f, 0.8f, 0.3f, 1.0f); // Green
-            case ShaderStage::Fragment: return ImVec4(0.8f, 0.3f, 0.3f, 1.0f); // Red
-            case ShaderStage::Geometry: return ImVec4(0.3f, 0.3f, 0.8f, 1.0f); // Blue
-            case ShaderStage::Compute:  return ImVec4(0.8f, 0.8f, 0.3f, 1.0f); // Yellow
-            default: return ImVec4(0.5f, 0.5f, 0.5f, 1.0f); // Gray
+            case ShaderStage::Vertex:
+                return ImVec4(0.3f, 0.8f, 0.3f, 1.0f); // Green
+            case ShaderStage::Fragment:
+                return ImVec4(0.8f, 0.3f, 0.3f, 1.0f); // Red
+            case ShaderStage::Geometry:
+                return ImVec4(0.3f, 0.3f, 0.8f, 1.0f); // Blue
+            case ShaderStage::Compute:
+                return ImVec4(0.8f, 0.8f, 0.3f, 1.0f); // Yellow
+            default:
+                return ImVec4(0.5f, 0.5f, 0.5f, 1.0f); // Gray
         }
     }
 
-    /**
-     * @brief Analyzes SPIR-V binary data to count instructions
-     * @param spirvData SPIR-V binary data
-     * @param instructionCount Output parameter for instruction count
-     * 
-     * Parses SPIR-V binary format to count the number of instructions.
-     * This provides a meaningful metric for shader complexity analysis.
-     */
+    // @brief Analyzes SPIR-V binary data to count instructions
+    // @param spirvData SPIR-V binary data
+    // @param instructionCount Output parameter for instruction count
+    //
+    // Parses SPIR-V binary format to count the number of instructions.
+    // This provides a meaningful metric for shader complexity analysis.
     void ShaderDebugger::AnalyzeSPIRV(const std::vector<u8>& spirvData, u32& instructionCount) const
     {
         instructionCount = 0;
-        
+
         if (spirvData.size() < 20) // Minimum SPIR-V header size
             return;
-        
+
         // Simple instruction counting - each SPIR-V instruction is at least 4 bytes
         // This is a rough estimate, actual parsing would be more complex
         const u32* data = reinterpret_cast<const u32*>(spirvData.data());
         const sizet wordCount = spirvData.size() / 4;
-        
+
         // Skip header (5 words)
         sizet offset = 5;
         while (offset < wordCount)
         {
-            if (offset >= wordCount) break;
-            
+            if (offset >= wordCount)
+                break;
+
             const u32 instruction = data[offset];
             const u32 length = instruction & 0xFFFF;
-            
-            if (length == 0) break; // Invalid instruction
-            
+
+            if (length == 0)
+                break; // Invalid instruction
+
             instructionCount++;
             offset += length;
         }
-    } 
-    
-    /**
-     * @brief Analyzes SPIR-V word data to count instructions
-     * @param spirvWords SPIR-V data as 32-bit words
-     * @param instructionCount Output parameter for instruction count
-     * 
-     * More efficient version that works with pre-converted 32-bit word data.
-     * Used internally for instruction counting during shader compilation.
-     */
+    }
+
+    // @brief Analyzes SPIR-V word data to count instructions
+    // @param spirvWords SPIR-V data as 32-bit words
+    // @param instructionCount Output parameter for instruction count
+    //
+    // More efficient version that works with pre-converted 32-bit word data.
+    // Used internally for instruction counting during shader compilation.
     void ShaderDebugger::AnalyzeSPIRVFromWords(const std::vector<u32>& spirvWords, u32& instructionCount) const
     {
         instructionCount = 0;
@@ -624,39 +657,39 @@ namespace OloEngine
         {
             return;
         }
-        
+
         // SPIR-V instruction counting
         const u32* data = spirvWords.data();
         const sizet wordCount = spirvWords.size();
-        
+
         // Skip header (5 words: magic, version, generator, bound, schema)
         sizet offset = 5;
         while (offset < wordCount)
         {
-            if (offset >= wordCount) break;
-            
+            if (offset >= wordCount)
+                break;
+
             const u32 instruction = data[offset];
             const u32 length = instruction & 0xFFFF;
-            
-            if (length == 0 || length > (wordCount - offset)) break; // Invalid instruction
-            
+
+            if (length == 0 || length > (wordCount - offset))
+                break; // Invalid instruction
+
             instructionCount++;
             offset += length;
         }
     }
 
-    /**
-     * @brief Exports a comprehensive shader debugging report to file
-     * @param filePath Path to output file
-     * @return True if export succeeded, false otherwise
-     * 
-     * Generates a detailed text report containing all shader information,
-     * compilation statistics, performance metrics, and error logs.
-     */
+    // @brief Exports a comprehensive shader debugging report to file
+    // @param filePath Path to output file
+    // @return True if export succeeded, false otherwise
+    //
+    // Generates a detailed text report containing all shader information,
+    // compilation statistics, performance metrics, and error logs.
     bool ShaderDebugger::ExportReport(const std::string& filePath) const
     {
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         try
         {
             std::ofstream file(filePath);
@@ -664,8 +697,7 @@ namespace OloEngine
                 return false;
 
             file << "OloEngine Shader Debugger Report\n";
-            file << "Generated: " << std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count() << "\n\n";
+            file << "Generated: " << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "\n\n";
 
             // Global statistics
             file << "=== Global Statistics ===\n";
@@ -673,8 +705,7 @@ namespace OloEngine
             file << "Total Compilations: " << m_TotalCompilations << "\n";
             file << "Failed Compilations: " << m_FailedCompilations << "\n";
             file << "Total Reloads: " << m_TotalReloads << "\n";
-            file << "Average Compilation Time: " << 
-                (m_TotalCompilations > 0 ? m_TotalCompilationTime / m_TotalCompilations : 0.0) << "ms\n\n";
+            file << "Average Compilation Time: " << (m_TotalCompilations > 0 ? m_TotalCompilationTime / m_TotalCompilations : 0.0) << "ms\n\n";
 
             // Per-shader details
             file << "=== Shader Details ===\n";
@@ -712,17 +743,18 @@ namespace OloEngine
     void ShaderDebugger::UpdateResourceBinding(u32 rendererID, const std::string& resourceName, ShaderResourceType type, u32 bindingPoint, bool isBound)
     {
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
         {
             // Find existing binding or create new one
             auto& bindings = it->second.m_ResourceBindings;
             auto bindingIt = std::find_if(bindings.begin(), bindings.end(),
-                [&resourceName](const ResourceBindingInfo& binding) {
-                    return binding.m_Name == resourceName;
-                });
-            
+                                          [&resourceName](const ResourceBindingInfo& binding)
+                                          {
+                                              return binding.m_Name == resourceName;
+                                          });
+
             if (bindingIt != bindings.end())
             {
                 // Update existing binding
@@ -746,7 +778,7 @@ namespace OloEngine
     void ShaderDebugger::ClearResourceBindings(u32 rendererID)
     {
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
+
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
         {
@@ -776,13 +808,13 @@ namespace OloEngine
                     ImGui::MenuItem("Show Only Active Shaders", nullptr, &m_ShowOnlyActiveShaders);
                     ImGui::MenuItem("Show Only Error Shaders", nullptr, &m_ShowOnlyErrorShaders);
                     ImGui::MenuItem("Auto-Select New Shaders", nullptr, &m_AutoSelectNewShaders);
-                    
+
                     ImGui::Separator();
                     if (ImGui::Button("Export Report"))
                     {
                         ExportReport("shader_debugger_report.txt");
                     }
-                    
+
                     ImGui::EndMenu();
                 }
                 ImGui::EndMenuBar();
@@ -799,7 +831,7 @@ namespace OloEngine
             // Right panel: Shader details
             ShaderInfo shaderInfoCopy; // Local copy to render without holding the mutex
             bool hasShaderToRender = false;
-            
+
             {
                 std::lock_guard<std::mutex> lock(m_ShaderMutex);
                 auto it = m_Shaders.find(m_SelectedShaderID);
@@ -809,7 +841,7 @@ namespace OloEngine
                     hasShaderToRender = true;
                 }
             } // Mutex unlocked here
-            
+
             if (hasShaderToRender)
             {
                 RenderShaderDetails(shaderInfoCopy);
@@ -827,7 +859,7 @@ namespace OloEngine
     void ShaderDebugger::RenderShaderList()
     {
         ImGui::Text("Shaders (%zu)", m_Shaders.size());
-        
+
         // Search filter
         ImGui::InputText("##Search", m_SearchFilter, sizeof(m_SearchFilter));
         ImGui::SameLine();
@@ -850,7 +882,7 @@ namespace OloEngine
 
         // Shader list
         ImGui::BeginChild("ShaderList", ImVec2(0, -30), true);
-        
+
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
         for (const auto& [id, info] : m_Shaders)
         {
@@ -859,26 +891,27 @@ namespace OloEngine
                 continue;
             if (m_ShowOnlyErrorShaders && !info.m_HasErrors)
                 continue;
-            
+
             // Apply search filter
             if (strlen(m_SearchFilter) > 0)
             {
-                const std::string searchLower = [this]() {
+                const std::string searchLower = [this]()
+                {
                     std::string s(m_SearchFilter);
                     std::transform(s.begin(), s.end(), s.begin(), ::tolower);
                     return s;
                 }();
-                
+
                 std::string nameLower = info.m_Name;
                 std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
-                
+
                 if (nameLower.find(searchLower) == std::string::npos)
                     continue;
             }
 
             // Render shader entry
             const bool isSelected = (m_SelectedShaderID == id);
-            
+
             ImVec4 textColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
             if (info.m_HasErrors)
                 textColor = ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
@@ -888,14 +921,14 @@ namespace OloEngine
                 textColor = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);
 
             ImGui::PushStyleColor(ImGuiCol_Text, textColor);
-            
+
             if (ImGui::Selectable(info.m_Name.c_str(), isSelected))
             {
                 m_SelectedShaderID = id;
             }
-            
+
             ImGui::PopStyleColor();
-            
+
             // Tooltip with basic info
             if (ImGui::IsItemHovered())
             {
@@ -914,7 +947,7 @@ namespace OloEngine
                 ImGui::EndTooltip();
             }
         }
-        
+
         ImGui::EndChild();
 
         // Bottom controls
@@ -932,7 +965,7 @@ namespace OloEngine
     void ShaderDebugger::RenderShaderDetails(const ShaderInfo& shaderInfo)
     {
         ImGui::Text("Shader: %s (ID: %u)", shaderInfo.m_Name.c_str(), shaderInfo.m_RendererID);
-        
+
         // Status indicators
         ImGui::SameLine(0, 20);
         if (shaderInfo.m_IsActive)
@@ -961,27 +994,29 @@ namespace OloEngine
                 ImGui::Text("File Path: %s", shaderInfo.m_FilePath.c_str());
                 ImGui::Text("Bind Count: %u", shaderInfo.m_BindCount);
                 ImGui::Text("Total Active Time: %s", DebugUtils::FormatDuration(shaderInfo.m_TotalActiveTimeMs).c_str());
-                
+
                 const auto now = std::chrono::steady_clock::now();
                 const auto creationTime = std::chrono::duration_cast<std::chrono::seconds>(
-                    now - shaderInfo.m_CreationTime).count();
+                                              now - shaderInfo.m_CreationTime)
+                                              .count();
                 ImGui::Text("Age: %lld seconds", creationTime);
 
                 if (shaderInfo.m_LastBindTime != std::chrono::steady_clock::time_point{})
                 {
                     const auto lastBindTime = std::chrono::duration_cast<std::chrono::seconds>(
-                        now - shaderInfo.m_LastBindTime).count();
+                                                  now - shaderInfo.m_LastBindTime)
+                                                  .count();
                     ImGui::Text("Last Bind: %lld seconds ago", lastBindTime);
                 }
 
                 ImGui::Separator();
 
                 // Compilation info
-                ImGui::Text("Compilation Status: %s", 
-                           shaderInfo.m_LastCompilation.m_Success ? "Success" : "Failed");
+                ImGui::Text("Compilation Status: %s",
+                            shaderInfo.m_LastCompilation.m_Success ? "Success" : "Failed");
                 ImGui::Text("Compile Time: %.2fms", shaderInfo.m_LastCompilation.m_CompileTimeMs);
                 ImGui::Text("Instruction Count: %u", shaderInfo.m_LastCompilation.m_InstructionCount);
-                  const sizet totalSPIRVSize = shaderInfo.m_LastCompilation.m_VertexGeometrySPIRVSize + 
+                const sizet totalSPIRVSize = shaderInfo.m_LastCompilation.m_VertexGeometrySPIRVSize +
                                              shaderInfo.m_LastCompilation.m_FragmentComputeSPIRVSize;
                 ImGui::Text("SPIR-V Size: %s", DebugUtils::FormatMemorySize(totalSPIRVSize).c_str());
 
@@ -1056,7 +1091,7 @@ namespace OloEngine
         ImGui::Combo("Stage", &selectedStage, stageNames, IM_ARRAYSIZE(stageNames));
 
         const ShaderStage stage = static_cast<ShaderStage>(selectedStage);
-        
+
         ImGui::Separator();
 
         // Source type tabs
@@ -1068,11 +1103,11 @@ namespace OloEngine
             {
                 // Use InputTextMultiline for selectable/copyable text
                 const std::string& sourceText = originalIt->second;
-                ImGui::InputTextMultiline("##OriginalSource", 
-                                        const_cast<char*>(sourceText.c_str()), 
-                                        sourceText.length() + 1, 
-                                        ImVec2(-1, -1), 
-                                        ImGuiInputTextFlags_ReadOnly);
+                ImGui::InputTextMultiline("##OriginalSource",
+                                          const_cast<char*>(sourceText.c_str()),
+                                          sourceText.length() + 1,
+                                          ImVec2(-1, -1),
+                                          ImGuiInputTextFlags_ReadOnly);
                 ImGui::EndTabItem();
             }
 
@@ -1082,11 +1117,11 @@ namespace OloEngine
             {
                 // Use InputTextMultiline for selectable/copyable text
                 const std::string& sourceText = generatedIt->second;
-                ImGui::InputTextMultiline("##GeneratedGLSL", 
-                                        const_cast<char*>(sourceText.c_str()), 
-                                        sourceText.length() + 1, 
-                                        ImVec2(-1, -1), 
-                                        ImGuiInputTextFlags_ReadOnly);
+                ImGui::InputTextMultiline("##GeneratedGLSL",
+                                          const_cast<char*>(sourceText.c_str()),
+                                          sourceText.length() + 1,
+                                          ImVec2(-1, -1),
+                                          ImGuiInputTextFlags_ReadOnly);
                 ImGui::EndTabItem();
             }
 
@@ -1096,26 +1131,30 @@ namespace OloEngine
             {
                 ImGui::Text("Size: %s", DebugUtils::FormatMemorySize(spirvIt->second.size()).c_str());
                 ImGui::Separator();
-                
+
                 ImGui::BeginChild("SPIRVBinary", ImVec2(0, 0), true);
-                
+
                 // Display as hex dump
                 const u8* data = spirvIt->second.data();
                 const sizet size = spirvIt->second.size();
-                
+
                 for (sizet i = 0; i < size; i += 16)
                 {
                     ImGui::Text("%08zX: ", i);
                     ImGui::SameLine();
-                    
+
                     // Hex bytes
                     for (sizet j = 0; j < 16 && (i + j) < size; ++j)
                     {
                         ImGui::SameLine();
                         ImGui::Text("%02X", data[i + j]);
-                        if (j == 7) { ImGui::SameLine(); ImGui::Text(" "); }
+                        if (j == 7)
+                        {
+                            ImGui::SameLine();
+                            ImGui::Text(" ");
+                        }
                     }
-                    
+
                     // ASCII representation
                     ImGui::SameLine(0, 20);
                     for (sizet j = 0; j < 16 && (i + j) < size; ++j)
@@ -1125,7 +1164,7 @@ namespace OloEngine
                         ImGui::Text("%c", (c >= 32 && c < 127) ? c : '.');
                     }
                 }
-                
+
                 ImGui::EndChild();
                 ImGui::EndTabItem();
             }
@@ -1140,7 +1179,7 @@ namespace OloEngine
         if (!shaderInfo.m_Uniforms.empty())
         {
             ImGui::Text("Uniforms (%zu):", shaderInfo.m_Uniforms.size());
-            
+
             if (ImGui::BeginTable("UniformsTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
             {
                 ImGui::TableSetupColumn("Name");
@@ -1153,25 +1192,26 @@ namespace OloEngine
                 for (const auto& uniform : shaderInfo.m_Uniforms)
                 {
                     ImGui::TableNextRow();
-                    
+
                     ImGui::TableSetColumnIndex(0);
                     ImGui::Text("%s", uniform.m_Name.c_str());
-                    
+
                     ImGui::TableSetColumnIndex(1);
                     ImGui::Text("%s", GetUniformTypeString(uniform.m_Type).c_str());
-                    
+
                     ImGui::TableSetColumnIndex(2);
                     ImGui::Text("%u", uniform.m_Location);
-                    
+
                     ImGui::TableSetColumnIndex(3);
                     ImGui::Text("%u", uniform.m_SetCount);
-                    
+
                     ImGui::TableSetColumnIndex(4);
                     if (uniform.m_LastSetTime != std::chrono::steady_clock::time_point{})
                     {
                         const auto now = std::chrono::steady_clock::now();
                         const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                            now - uniform.m_LastSetTime).count();
+                                                 now - uniform.m_LastSetTime)
+                                                 .count();
                         ImGui::Text("%lld s ago", elapsed);
                     }
                     else
@@ -1179,7 +1219,7 @@ namespace OloEngine
                         ImGui::Text("Never");
                     }
                 }
-                
+
                 ImGui::EndTable();
             }
         }
@@ -1190,7 +1230,7 @@ namespace OloEngine
         if (!shaderInfo.m_UniformBuffers.empty())
         {
             ImGui::Text("Uniform Buffers (%zu):", shaderInfo.m_UniformBuffers.size());
-            
+
             for (const auto& ubo : shaderInfo.m_UniformBuffers)
             {
                 if (ImGui::TreeNode(ubo.m_Name.c_str()))
@@ -1198,14 +1238,14 @@ namespace OloEngine
                     ImGui::Text("Binding: %u", ubo.m_Binding);
                     ImGui::Text("Size: %s", DebugUtils::FormatMemorySize(ubo.m_Size).c_str());
                     ImGui::Text("Members (%zu):", ubo.m_Members.size());
-                    
+
                     ImGui::Indent();
                     for (const auto& member : ubo.m_Members)
                     {
                         ImGui::BulletText("%s", member.c_str());
                     }
                     ImGui::Unindent();
-                    
+
                     ImGui::TreePop();
                 }
             }
@@ -1217,7 +1257,7 @@ namespace OloEngine
         if (!shaderInfo.m_Samplers.empty())
         {
             ImGui::Text("Samplers (%zu):", shaderInfo.m_Samplers.size());
-            
+
             if (ImGui::BeginTable("SamplersTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
             {
                 ImGui::TableSetupColumn("Name");
@@ -1229,20 +1269,20 @@ namespace OloEngine
                 for (const auto& sampler : shaderInfo.m_Samplers)
                 {
                     ImGui::TableNextRow();
-                    
+
                     ImGui::TableSetColumnIndex(0);
                     ImGui::Text("%s", sampler.m_Name.c_str());
-                    
+
                     ImGui::TableSetColumnIndex(1);
                     ImGui::Text("%s", sampler.m_Type.c_str());
-                    
+
                     ImGui::TableSetColumnIndex(2);
                     ImGui::Text("%u", sampler.m_Binding);
-                    
+
                     ImGui::TableSetColumnIndex(3);
                     ImGui::Text("%u", sampler.m_TextureUnit);
                 }
-                
+
                 ImGui::EndTable();
             }
         }
@@ -1257,7 +1297,7 @@ namespace OloEngine
     {
         ImGui::Text("Resource Bindings");
         ImGui::Separator();
-        
+
         if (!shaderInfo.m_ResourceBindings.empty())
         {
             if (ImGui::BeginTable("ResourceBindingsTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
@@ -1271,44 +1311,44 @@ namespace OloEngine
                 for (const auto& binding : shaderInfo.m_ResourceBindings)
                 {
                     ImGui::TableNextRow();
-                    
+
                     ImGui::TableSetColumnIndex(0);
                     ImGui::Text("%s", binding.m_Name.c_str());
-                    
+
                     ImGui::TableSetColumnIndex(1);
                     const char* typeStr = "Unknown";
                     switch (binding.m_Type)
                     {
-                        case OloEngine::ShaderResourceType::UniformBuffer: 
-                            typeStr = "Uniform Buffer"; 
+                        case OloEngine::ShaderResourceType::UniformBuffer:
+                            typeStr = "Uniform Buffer";
                             break;
-                        case OloEngine::ShaderResourceType::StorageBuffer: 
-                            typeStr = "Storage Buffer"; 
+                        case OloEngine::ShaderResourceType::StorageBuffer:
+                            typeStr = "Storage Buffer";
                             break;
-                        case OloEngine::ShaderResourceType::Texture2D: 
-                            typeStr = "Texture 2D"; 
+                        case OloEngine::ShaderResourceType::Texture2D:
+                            typeStr = "Texture 2D";
                             break;
-                        case OloEngine::ShaderResourceType::TextureCube: 
-                            typeStr = "Texture Cube"; 
+                        case OloEngine::ShaderResourceType::TextureCube:
+                            typeStr = "Texture Cube";
                             break;
-                        case OloEngine::ShaderResourceType::UniformBufferArray: 
-                            typeStr = "Uniform Buffer Array"; 
+                        case OloEngine::ShaderResourceType::UniformBufferArray:
+                            typeStr = "Uniform Buffer Array";
                             break;
-                        case OloEngine::ShaderResourceType::StorageBufferArray: 
-                            typeStr = "Storage Buffer Array"; 
+                        case OloEngine::ShaderResourceType::StorageBufferArray:
+                            typeStr = "Storage Buffer Array";
                             break;
-                        case OloEngine::ShaderResourceType::Texture2DArray: 
-                            typeStr = "Texture 2D Array"; 
+                        case OloEngine::ShaderResourceType::Texture2DArray:
+                            typeStr = "Texture 2D Array";
                             break;
-                        case OloEngine::ShaderResourceType::TextureCubeArray: 
-                            typeStr = "Texture Cube Array"; 
+                        case OloEngine::ShaderResourceType::TextureCubeArray:
+                            typeStr = "Texture Cube Array";
                             break;
                     }
                     ImGui::Text("%s", typeStr);
-                    
+
                     ImGui::TableSetColumnIndex(2);
                     ImGui::Text("%u", binding.m_BindingPoint);
-                    
+
                     ImGui::TableSetColumnIndex(3);
                     if (binding.m_IsBound)
                     {
@@ -1319,7 +1359,7 @@ namespace OloEngine
                         ImGui::TextColored(DebugUtils::Colors::Warning, "Unbound");
                     }
                 }
-                
+
                 ImGui::EndTable();
             }
         }
@@ -1331,7 +1371,7 @@ namespace OloEngine
         // Frame-in-flight information (Phase 1.3)
         ImGui::Separator();
         ImGui::Text("Frame-in-Flight Status");
-        
+
         // Check if we can access the shader's resource registry
         // Note: This would require extending ShaderInfo to include frame-in-flight data
         // For now, we'll show a placeholder
@@ -1348,7 +1388,7 @@ namespace OloEngine
         // Bind statistics
         ImGui::Text("Bind Count: %u", shaderInfo.m_BindCount);
         ImGui::Text("Total Active Time: %s", DebugUtils::FormatDuration(shaderInfo.m_TotalActiveTimeMs).c_str());
-        
+
         if (shaderInfo.m_BindCount > 0)
         {
             const f64 avgActiveTime = shaderInfo.m_TotalActiveTimeMs / shaderInfo.m_BindCount;
@@ -1356,7 +1396,7 @@ namespace OloEngine
         }
 
         ImGui::Separator();
-        
+
         // Compilation metrics
         ImGui::Text("Compilation Time: %s", DebugUtils::FormatDuration(shaderInfo.m_LastCompilation.m_CompileTimeMs).c_str());
         ImGui::Text("Instruction Count: %u", shaderInfo.m_LastCompilation.m_InstructionCount);
@@ -1369,21 +1409,21 @@ namespace OloEngine
 
         // Performance indicators
         ImGui::Text("Performance Indicators:");
-          if (shaderInfo.m_LastCompilation.m_CompileTimeMs > 100.0)
+        if (shaderInfo.m_LastCompilation.m_CompileTimeMs > 100.0)
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "⚠ Slow compilation (>100ms)");
         }
-        
+
         if (shaderInfo.m_LastCompilation.m_InstructionCount > 1000)
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "⚠ High instruction count (>1000)");
         }
-        
+
         if (totalSPIRVSize > 1024 * 50) // 50KB
         {
             ImGui::TextColored(DebugUtils::Colors::Warning, "⚠ Large SPIR-V binary (>50KB)");
         }
-        
+
         if (shaderInfo.m_BindCount == 0)
         {
             ImGui::TextColored(DebugUtils::Colors::Disabled, "ℹ Shader never bound");
@@ -1416,14 +1456,15 @@ namespace OloEngine
             for (auto it = shaderInfo.m_ReloadHistory.rbegin(); it != shaderInfo.m_ReloadHistory.rend(); ++it)
             {
                 const auto& event = *it;
-                
+
                 ImGui::TableNextRow();
-                
+
                 ImGui::TableSetColumnIndex(0);
                 const auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
-                    event.m_Timestamp.time_since_epoch()).count();
+                                           event.m_Timestamp.time_since_epoch())
+                                           .count();
                 ImGui::Text("%lld", timestamp);
-                
+
                 ImGui::TableSetColumnIndex(1);
                 if (event.m_Success)
                 {
@@ -1433,11 +1474,11 @@ namespace OloEngine
                 {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Failed");
                 }
-                
+
                 ImGui::TableSetColumnIndex(2);
                 ImGui::Text("%s", event.m_Reason.c_str());
             }
-            
+
             ImGui::EndTable();
         }
     }
@@ -1457,9 +1498,9 @@ namespace OloEngine
         ImGui::Text("Available Stages:");
         for (const auto& [stage, binary] : shaderInfo.m_SPIRVBinary)
         {
-            ImGui::BulletText("%s: %s", 
-                            GetShaderStageString(stage).c_str(), 
-                            DebugUtils::FormatMemorySize(binary.size()).c_str());
+            ImGui::BulletText("%s: %s",
+                              GetShaderStageString(stage).c_str(),
+                              DebugUtils::FormatMemorySize(binary.size()).c_str());
         }
 
         ImGui::Separator();
@@ -1471,19 +1512,19 @@ namespace OloEngine
 
         const ShaderStage analysisStage = static_cast<ShaderStage>(selectedStageForAnalysis);
         auto spirvIt = shaderInfo.m_SPIRVBinary.find(analysisStage);
-        
+
         if (spirvIt != shaderInfo.m_SPIRVBinary.end())
         {
             const auto& binary = spirvIt->second;
-            
+
             ImGui::Text("Stage: %s", GetShaderStageString(analysisStage).c_str());
             ImGui::Text("Binary Size: %s", DebugUtils::FormatMemorySize(binary.size()).c_str());
-            
+
             // Estimate instruction count for this stage
             u32 stageInstructionCount = 0;
             AnalyzeSPIRV(binary, stageInstructionCount);
             ImGui::Text("Estimated Instructions: %u", stageInstructionCount);
-            
+
             // Basic SPIR-V header info
             if (binary.size() >= 20)
             {
@@ -1496,8 +1537,8 @@ namespace OloEngine
         }
         else
         {
-            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), 
-                             "No SPIR-V data for %s stage", GetShaderStageString(analysisStage).c_str());
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                               "No SPIR-V data for %s stage", GetShaderStageString(analysisStage).c_str());
         }
         ImGui::Separator();
 
@@ -1505,45 +1546,45 @@ namespace OloEngine
         if (spirvIt != shaderInfo.m_SPIRVBinary.end())
         {
             const auto& binary = spirvIt->second;
-            
+
             // SPIR-V disassembly section
             static bool showDisassembly = false;
             static std::string disassemblyText;
-            
+
             if (ImGui::Button("Generate SPIR-V Disassembly"))
             {
                 disassemblyText = GenerateSPIRVDisassembly(binary);
                 showDisassembly = true;
             }
-            
+
             ImGui::SameLine();
             if (ImGui::Button("Optimize Analysis"))
             {
                 PerformOptimizationAnalysis(binary);
             }
-            
+
             if (showDisassembly && !disassemblyText.empty())
             {
                 ImGui::Separator();
                 ImGui::Text("SPIR-V Disassembly:");
-                
+
                 if (ImGui::Button("Copy to Clipboard"))
                 {
                     ImGui::SetClipboardText(disassemblyText.c_str());
                 }
-                
+
                 ImGui::SameLine();
                 if (ImGui::Button("Hide Disassembly"))
                 {
                     showDisassembly = false;
                 }
-                
+
                 // Make the disassembly text selectable and copyable
-                ImGui::InputTextMultiline("##SPIRVDisassembly", 
-                                        const_cast<char*>(disassemblyText.c_str()), 
-                                        disassemblyText.length() + 1, 
-                                        ImVec2(-1, 200), 
-                                        ImGuiInputTextFlags_ReadOnly);
+                ImGui::InputTextMultiline("##SPIRVDisassembly",
+                                          const_cast<char*>(disassemblyText.c_str()),
+                                          disassemblyText.length() + 1,
+                                          ImVec2(-1, 200),
+                                          ImGuiInputTextFlags_ReadOnly);
             }
 
             // Enhanced resource analysis using spirv-cross
@@ -1553,7 +1594,7 @@ namespace OloEngine
                 std::vector<u32> spirvWords;
                 spirvWords.resize(binary.size() / sizeof(u32));
                 std::memcpy(spirvWords.data(), binary.data(), binary.size());
-                
+
                 spirv_cross::Compiler compiler(spirvWords);
                 const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
@@ -1567,7 +1608,7 @@ namespace OloEngine
                 ImGui::Text("Input Attributes: %zu", resources.stage_inputs.size());
                 ImGui::Text("Output Attributes: %zu", resources.stage_outputs.size());
                 ImGui::Unindent();
-                
+
                 // Show entry point info
                 const auto entryPoints = compiler.get_entry_points_and_stages();
                 if (!entryPoints.empty())
@@ -1583,8 +1624,8 @@ namespace OloEngine
             }
             catch (const std::exception& e)
             {
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), 
-                                 "SPIR-V analysis failed: %s", e.what());
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                   "SPIR-V analysis failed: %s", e.what());
             }
         }
     }
@@ -1602,9 +1643,10 @@ namespace OloEngine
 
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Compilation Failed");
         ImGui::Text("Compile Time: %.2fms", shaderInfo.m_LastCompilation.m_CompileTimeMs);
-        
+
         const auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
-            shaderInfo.m_LastCompilation.m_Timestamp.time_since_epoch()).count();
+                                   shaderInfo.m_LastCompilation.m_Timestamp.time_since_epoch())
+                                   .count();
         ImGui::Text("Error Time: %lld", timestamp);
 
         ImGui::Separator();
@@ -1615,31 +1657,29 @@ namespace OloEngine
         ImGui::EndChild();
     }
 
-    /**
-     * @brief Generates human-readable SPIR-V disassembly from binary data
-     * @param spirvData SPIR-V binary data
-     * @return GLSL representation of SPIR-V code for debugging
-     * 
-     * Uses spirv-cross to convert SPIR-V binary back to readable GLSL.
-     * This helps developers understand the compiled shader structure.
-     */
+    // @brief Generates human-readable SPIR-V disassembly from binary data
+    // @param spirvData SPIR-V binary data
+    // @return GLSL representation of SPIR-V code for debugging
+    //
+    // Uses spirv-cross to convert SPIR-V binary back to readable GLSL.
+    // This helps developers understand the compiled shader structure.
     std::string ShaderDebugger::GenerateSPIRVDisassembly(const std::vector<u8>& spirvData) const
     {
         if (spirvData.empty())
             return "No SPIR-V data available";
-            
+
         try
         {
             // Convert byte vector to u32 vector for spirv-cross
             std::vector<u32> spirvWords;
             spirvWords.resize(spirvData.size() / sizeof(u32));
             std::memcpy(spirvWords.data(), spirvData.data(), spirvData.size());
-            
+
             spirv_cross::Compiler compiler(spirvWords);
-            
+
             // Generate GLSL output as a form of disassembly
             spirv_cross::CompilerGLSL glslCompiler(spirvWords);
-            
+
             // Set options for more readable output
             spirv_cross::CompilerGLSL::Options options;
             options.version = 450;
@@ -1647,17 +1687,17 @@ namespace OloEngine
             options.vulkan_semantics = false;
             options.enable_420pack_extension = true;
             glslCompiler.set_common_options(options);
-            
+
             std::string disassembly = "=== SPIR-V to GLSL Disassembly ===\n\n";
-            
+
             // Add basic information
             disassembly += "Original SPIR-V size: " + std::to_string(spirvData.size()) + " bytes\n";
             disassembly += "Word count: " + std::to_string(spirvWords.size()) + "\n\n";
-            
+
             // Add the converted GLSL
             disassembly += "=== Generated GLSL ===\n";
             disassembly += glslCompiler.compile();
-            
+
             // Add resource information
             const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
             disassembly += "\n\n=== Resource Summary ===\n";
@@ -1666,7 +1706,7 @@ namespace OloEngine
             disassembly += "Sampled images: " + std::to_string(resources.sampled_images.size()) + "\n";
             disassembly += "Storage images: " + std::to_string(resources.storage_images.size()) + "\n";
             disassembly += "Push constant buffers: " + std::to_string(resources.push_constant_buffers.size()) + "\n";
-            
+
             return disassembly;
         }
         catch (const std::exception& e)
@@ -1675,13 +1715,11 @@ namespace OloEngine
         }
     }
 
-    /**
-     * @brief Analyzes SPIR-V code for optimization opportunities
-     * @param spirvData SPIR-V binary data
-     * 
-     * Examines shader resources and instruction count to suggest performance
-     * optimizations such as reducing uniform buffer bindings or instruction count.
-     */
+    // @brief Analyzes SPIR-V code for optimization opportunities
+    // @param spirvData SPIR-V binary data
+    //
+    // Examines shader resources and instruction count to suggest performance
+    // optimizations such as reducing uniform buffer bindings or instruction count.
     void ShaderDebugger::PerformOptimizationAnalysis(const std::vector<u8>& spirvData) const
     {
         if (spirvData.empty())
@@ -1689,45 +1727,45 @@ namespace OloEngine
             OLO_CORE_WARN("Cannot perform optimization analysis: No SPIR-V data");
             return;
         }
-        
+
         try
         {
             // Convert byte vector to u32 vector for spirv-cross
             std::vector<u32> spirvWords;
             spirvWords.resize(spirvData.size() / sizeof(u32));
             std::memcpy(spirvWords.data(), spirvData.data(), spirvData.size());
-            
+
             spirv_cross::Compiler compiler(spirvWords);
             const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
-            
+
             // Analyze and log optimization opportunities
             OLO_CORE_INFO("=== Shader Optimization Analysis ===");
-            
+
             // Check for excessive uniform buffers
             if (resources.uniform_buffers.size() > 8)
             {
-                OLO_CORE_WARN("High uniform buffer count ({0}). Consider combining buffers.", 
-                             resources.uniform_buffers.size());
+                OLO_CORE_WARN("High uniform buffer count ({0}). Consider combining buffers.",
+                              resources.uniform_buffers.size());
             }
-            
+
             // Check for excessive texture bindings
             if (resources.sampled_images.size() > 16)
             {
-                OLO_CORE_WARN("High texture binding count ({0}). Consider texture arrays or atlasing.", 
-                             resources.sampled_images.size());
+                OLO_CORE_WARN("High texture binding count ({0}). Consider texture arrays or atlasing.",
+                              resources.sampled_images.size());
             }
-            
+
             // Check for storage buffers (might indicate complex compute operations)
             if (!resources.storage_buffers.empty())
             {
-                OLO_CORE_INFO("Storage buffers detected ({0}). Ensure efficient memory access patterns.", 
-                             resources.storage_buffers.size());
+                OLO_CORE_INFO("Storage buffers detected ({0}). Ensure efficient memory access patterns.",
+                              resources.storage_buffers.size());
             }
-            
+
             // Analyze instruction density
             u32 instructionCount = 0;
             AnalyzeSPIRV(spirvData, instructionCount);
-            
+
             if (instructionCount > 1000)
             {
                 OLO_CORE_WARN("High instruction count ({0}). Consider shader optimization.", instructionCount);
@@ -1740,14 +1778,14 @@ namespace OloEngine
             {
                 OLO_CORE_INFO("Reasonable instruction count ({0}).", instructionCount);
             }
-            
+
             // Check for entry points
             const auto entryPoints = compiler.get_entry_points_and_stages();
             if (entryPoints.size() > 1)
             {
                 OLO_CORE_INFO("Multiple entry points detected ({0}). Ensure correct usage.", entryPoints.size());
             }
-            
+
             OLO_CORE_INFO("=== End Optimization Analysis ===");
         }
         catch (const std::exception& e)
@@ -1755,4 +1793,4 @@ namespace OloEngine
             OLO_CORE_ERROR("Optimization analysis failed: {0}", e.what());
         }
     }
-}
+} // namespace OloEngine

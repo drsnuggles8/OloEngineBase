@@ -8,20 +8,24 @@
 
 namespace OloEngine
 {
-	class Layer
-	{
-	public:
-		explicit Layer(std::string  name = "Layer");
-		virtual ~Layer() = default;
+    class Layer
+    {
+      public:
+        explicit Layer(std::string name = "Layer");
+        virtual ~Layer() = default;
 
-		virtual void OnAttach() {}
-		virtual void OnDetach() {}
-		virtual void OnUpdate(Timestep const) {}
-		virtual void OnImGuiRender() {}
-		virtual void OnEvent(Event&) {}
+        virtual void OnAttach() {}
+        virtual void OnDetach() {}
+        virtual void OnUpdate(Timestep const) {}
+        virtual void OnImGuiRender() {}
+        virtual void OnEvent(Event&) {}
 
-		[[nodiscard("Store this!")]] const std::string& GetName() const { return m_DebugName; }
-	private:
-		std::string m_DebugName;
-	};
-}
+        [[nodiscard("Store this!")]] const std::string& GetName() const
+        {
+            return m_DebugName;
+        }
+
+      private:
+        std::string m_DebugName;
+    };
+} // namespace OloEngine

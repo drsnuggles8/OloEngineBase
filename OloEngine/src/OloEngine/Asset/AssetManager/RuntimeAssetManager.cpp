@@ -19,7 +19,7 @@ namespace OloEngine
 
         AssetImporter::Init();
         OLO_CORE_INFO("RuntimeAssetManager initialized");
-        
+
         // Load default asset pack if it exists
         const std::string assetPackPath = "Assets/AssetPack.olopack";
         std::error_code ec;
@@ -56,14 +56,14 @@ namespace OloEngine
             m_AssetThread->StopAndWait();
         }
 #endif
-        
+
         // Lock all mutexes atomically to prevent race conditions
         std::scoped_lock lock(m_AssetsMutex, m_PacksMutex, m_DependenciesMutex);
         m_LoadedAssets.clear();
         m_MemoryAssets.clear();
         m_LoadedPacks.clear();
         m_AssetDependencies.clear();
-        
+
         // Shutdown AssetImporter to release serializer resources
         AssetImporter::Shutdown();
     }
@@ -73,7 +73,7 @@ namespace OloEngine
         // Check loaded assets and memory assets under a single shared lock
         {
             std::shared_lock lock(m_AssetsMutex);
-            
+
             // Check loaded assets first
             auto it = m_LoadedAssets.find(assetHandle);
             if (it != m_LoadedAssets.end() && it->second)
@@ -96,14 +96,14 @@ namespace OloEngine
     AssetMetadata RuntimeAssetManager::GetAssetMetadata(AssetHandle handle) const noexcept
     {
         std::shared_lock lock(m_PacksMutex);
-        
+
         // Return copy of metadata from the loaded packs storage
         auto it = m_AssetMetadata.find(handle);
         if (it != m_AssetMetadata.end())
         {
             return it->second; // Return copy
         }
-        
+
         // Return empty metadata if not found
         return AssetMetadata{};
     }
@@ -116,7 +116,7 @@ namespace OloEngine
         // First check: acquire shared lock and check if asset is already loaded
         {
             std::shared_lock lock(m_AssetsMutex);
-            
+
             // Check loaded assets first
             auto it = m_LoadedAssets.find(assetHandle);
             if (it != m_LoadedAssets.end())
@@ -131,7 +131,7 @@ namespace OloEngine
         // Asset not found, need to load it - acquire unique lock for double-checked locking
         {
             std::unique_lock lock(m_AssetsMutex);
-            
+
             // Second check: verify asset wasn't loaded by another thread while we waited for the lock
             auto it = m_LoadedAssets.find(assetHandle);
             if (it != m_LoadedAssets.end())
@@ -146,12 +146,12 @@ namespace OloEngine
             // Release the lock temporarily while loading from pack (expensive operation)
             lock.unlock();
             Ref<Asset> asset = LoadAssetFromPack(assetHandle);
-            
+
             if (asset)
             {
                 // Re-acquire lock to insert the loaded asset
                 lock.lock();
-                
+
                 // Final check: ensure no other thread loaded it while we were loading
                 auto finalIt = m_LoadedAssets.find(assetHandle);
                 if (finalIt != m_LoadedAssets.end())
@@ -159,7 +159,7 @@ namespace OloEngine
                     // Another thread loaded it, return that instance
                     return finalIt->second;
                 }
-                
+
                 // Safe to insert our loaded asset
                 m_LoadedAssets[assetHandle] = asset;
                 return asset;
@@ -280,13 +280,13 @@ namespace OloEngine
     void RuntimeAssetManager::RemoveAsset(AssetHandle handle)
     {
         std::unique_lock lock(m_AssetsMutex);
-        
+
         // Remove from loaded assets
         m_LoadedAssets.erase(handle);
-        
+
         // Remove from memory assets
         m_MemoryAssets.erase(handle);
-        
+
         // Remove dependencies
         DeregisterDependencies(handle);
     }
@@ -331,7 +331,7 @@ namespace OloEngine
     std::unordered_set<AssetHandle> RuntimeAssetManager::GetAllAssetsWithType(AssetType type) const
     {
         std::unordered_set<AssetHandle> result;
-        
+
         // Check loaded assets
         {
             std::shared_lock lock(m_AssetsMutex);
@@ -340,7 +340,7 @@ namespace OloEngine
                 if (asset && asset->GetAssetType() == type)
                     result.insert(handle);
             }
-            
+
             // Check memory assets
             for (const auto& [handle, asset] : m_MemoryAssets)
             {
@@ -348,14 +348,14 @@ namespace OloEngine
                     result.insert(handle);
             }
         }
-        
+
         // Check asset pack metadata
         for (const auto& [handle, metadata] : m_AssetMetadata)
         {
             if (metadata.Type == type)
                 result.insert(handle);
         }
-        
+
         return result;
     }
 
@@ -433,7 +433,7 @@ namespace OloEngine
     {
         // For runtime, dependency updates are minimal
         // Dependencies are pre-resolved during pack creation
-        
+
         // Notify the asset that a dependency was updated
         auto asset = GetAsset(handle);
         if (asset)
@@ -482,7 +482,7 @@ namespace OloEngine
                 }
             }
         }
-        
+
         OLO_CORE_ERROR("RuntimeAssetManager::LoadAssetFromPack - Failed to load asset from any pack: {}", handle);
         return nullptr;
     }
@@ -499,4 +499,4 @@ namespace OloEngine
         return (it != m_AssetMetadata.end()) ? it->second.Type : AssetType::None;
     }
 
-}
+} // namespace OloEngine

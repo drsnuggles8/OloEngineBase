@@ -24,4 +24,4 @@ layout(binding = 0) uniform sampler2D u_Texture;
 void main()
 {
     o_Color = texture(u_Texture, v_TexCoord);
-} 
+}

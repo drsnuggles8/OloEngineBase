@@ -6,26 +6,26 @@ namespace OloEngine
 {
     enum class ViewLayerType : u8
     {
-        ThreeD = 0,         // 3D geometry
-        TwoD,               // 2D sprites/UI elements  
-        UI,                 // UI overlays
-        Skybox,             // Skybox rendering
+        ThreeD = 0, // 3D geometry
+        TwoD,       // 2D sprites/UI elements
+        UI,         // UI overlays
+        Skybox,     // Skybox rendering
         Highest = Skybox + 1
     };
 
     enum class RenderMode : u8
     {
-        Opaque = 0,         // Opaque geometry (front-to-back)
-        Transparent,        // Transparent geometry (back-to-front)
-        Additive,           // Additive blending
-        Subtractive         // Subtractive blending
+        Opaque = 0,  // Opaque geometry (front-to-back)
+        Transparent, // Transparent geometry (back-to-front)
+        Additive,    // Additive blending
+        Subtractive  // Subtractive blending
     };
 
-	/// @brief Sorting key for render commands to minimize state changes and optimize rendering order.
+    /// @brief Sorting key for render commands to minimize state changes and optimize rendering order.
     /// Uses a packed 64-bit integer for fast comparison and sorting.
     class DrawKey
     {
-    public:
+      public:
         DrawKey() = default;
         explicit DrawKey(u64 key) : m_Key(key) {}
 
@@ -53,18 +53,36 @@ namespace OloEngine
         void SetPriority(u32 priority);
 
         // Comparison operators for sorting
-        bool operator<(const DrawKey& other) const { return m_Key > other.m_Key; } // Higher values = higher priority
-        bool operator==(const DrawKey& other) const { return m_Key == other.m_Key; }
-        bool operator!=(const DrawKey& other) const { return m_Key != other.m_Key; }        // Get raw key value
-        [[nodiscard("Store this!")]] u64 GetKey() const { return m_Key; }
-        void SetKey(u64 key) { m_Key = key; }
+        bool operator<(const DrawKey& other) const
+        {
+            return m_Key > other.m_Key;
+        } // Higher values = higher priority
+        bool operator==(const DrawKey& other) const
+        {
+            return m_Key == other.m_Key;
+        }
+        bool operator!=(const DrawKey& other) const
+        {
+            return m_Key != other.m_Key;
+        } // Get raw key value
+        [[nodiscard("Store this!")]] u64 GetKey() const
+        {
+            return m_Key;
+        }
+        void SetKey(u64 key)
+        {
+            m_Key = key;
+        }
 
-        explicit operator u64() const { return m_Key; }
+        explicit operator u64() const
+        {
+            return m_Key;
+        }
 
-    private:
+      private:
         // Bit layout for 64-bit key:
         // [63:61] ViewportID (3 bits)
-        // [60:58] ViewLayer (3 bits)  
+        // [60:58] ViewLayer (3 bits)
         // [57:56] RenderMode (2 bits)
         // [55:40] ShaderID (16 bits)
         // [39:24] MaterialID (16 bits)
@@ -72,19 +90,19 @@ namespace OloEngine
 
         static constexpr u64 VIEWPORT_SHIFT = 61;
         static constexpr u64 VIEWPORT_MASK = 0x7ULL;
-        
+
         static constexpr u64 VIEWLAYER_SHIFT = 58;
         static constexpr u64 VIEWLAYER_MASK = 0x7ULL;
-        
+
         static constexpr u64 RENDERMODE_SHIFT = 56;
         static constexpr u64 RENDERMODE_MASK = 0x3ULL;
-        
+
         static constexpr u64 SHADER_SHIFT = 40;
         static constexpr u64 SHADER_MASK = 0xFFFFULL;
-        
+
         static constexpr u64 MATERIAL_SHIFT = 24;
         static constexpr u64 MATERIAL_MASK = 0xFFFFULL;
-        
+
         static constexpr u64 DEPTH_SHIFT = 0;
         static constexpr u64 DEPTH_MASK = 0xFFFFFFULL;
 
@@ -209,10 +227,14 @@ namespace OloEngine
     {
         switch (type)
         {
-            case ViewLayerType::ThreeD: return "3D";
-            case ViewLayerType::TwoD: return "2D";
-            case ViewLayerType::UI: return "UI";
-            case ViewLayerType::Skybox: return "Skybox";
+            case ViewLayerType::ThreeD:
+                return "3D";
+            case ViewLayerType::TwoD:
+                return "2D";
+            case ViewLayerType::UI:
+                return "UI";
+            case ViewLayerType::Skybox:
+                return "Skybox";
             default:
                 OLO_CORE_ASSERT(false, "Unknown ViewLayerType");
                 return "Unknown";
@@ -223,14 +245,18 @@ namespace OloEngine
     {
         switch (mode)
         {
-            case RenderMode::Opaque: return "Opaque";
-            case RenderMode::Transparent: return "Transparent";
-            case RenderMode::Additive: return "Additive";
-            case RenderMode::Subtractive: return "Subtractive";
+            case RenderMode::Opaque:
+                return "Opaque";
+            case RenderMode::Transparent:
+                return "Transparent";
+            case RenderMode::Additive:
+                return "Additive";
+            case RenderMode::Subtractive:
+                return "Subtractive";
             default:
                 OLO_CORE_ASSERT(false, "Unknown RenderMode");
                 return "Unknown";
         }
     }
 
-}
+} // namespace OloEngine

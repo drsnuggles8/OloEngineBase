@@ -2,7 +2,7 @@
 #include "SoundGraphCache.h"
 #include "SoundGraph.h"
 #include "SoundGraphSerializer.h"
-#include "SoundGraphPrototype.h"  // Must include before SoundGraphAsset.h to complete Prototype type
+#include "SoundGraphPrototype.h" // Must include before SoundGraphAsset.h to complete Prototype type
 #include "GraphGeneration.h"
 #include "OloEngine/Asset/SoundGraphAsset.h"
 
@@ -16,24 +16,21 @@ namespace OloEngine::Audio::SoundGraph
     /// SoundGraphCache Implementation
 
     SoundGraphCache::SoundGraphCache(sizet maxCacheSize, sizet maxMemoryUsage)
-        : m_MaxCacheSize(maxCacheSize)
-        , m_MaxMemoryUsage(maxMemoryUsage)
-        , m_LoaderThread("SoundGraphCache Loader")
+        : m_MaxCacheSize(maxCacheSize), m_MaxMemoryUsage(maxMemoryUsage), m_LoaderThread("SoundGraphCache Loader")
     {
         // Start async loader thread
-        m_LoaderThread.Dispatch([this]() { LoaderThreadFunc(); });
+        m_LoaderThread.Dispatch([this]()
+                                { LoaderThreadFunc(); });
     }
 
     SoundGraphCache::SoundGraphCache(const SoundGraphCacheConfig& config)
-        : m_MaxCacheSize(config.m_MaxCacheSize)
-        , m_MaxMemoryUsage(config.m_MaxMemoryUsage)
-        , m_CacheDirectory(config.m_CacheDirectory)
-        , m_LoaderThread("SoundGraphCache Loader")
+        : m_MaxCacheSize(config.m_MaxCacheSize), m_MaxMemoryUsage(config.m_MaxMemoryUsage), m_CacheDirectory(config.m_CacheDirectory), m_LoaderThread("SoundGraphCache Loader")
     {
         // Start async loader thread if enabled
         if (config.m_EnableAsyncLoading)
         {
-            m_LoaderThread.Dispatch([this]() { LoaderThreadFunc(); });
+            m_LoaderThread.Dispatch([this]()
+                                    { LoaderThreadFunc(); });
         }
     }
 
@@ -47,7 +44,7 @@ namespace OloEngine::Audio::SoundGraph
         }
         m_LoadCondition.notify_all();
         m_LoaderThread.Join();
-        
+
         Clear();
     }
 
@@ -62,7 +59,7 @@ namespace OloEngine::Audio::SoundGraph
     Ref<SoundGraph> SoundGraphCache::Get(const std::string& sourcePath)
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
-        
+
         auto it = m_CacheEntries.find(sourcePath);
         if (it == m_CacheEntries.end() || !it->second.m_IsValid)
         {
@@ -95,9 +92,9 @@ namespace OloEngine::Audio::SoundGraph
 
         // Calculate memory usage
         sizet graphMemory = CalculateGraphMemoryUsage(graph);
-        
+
         // Check if we need to evict first
-        while (m_CacheEntries.size() >= m_MaxCacheSize || 
+        while (m_CacheEntries.size() >= m_MaxCacheSize ||
                (m_CurrentMemoryUsage + graphMemory) > m_MaxMemoryUsage)
         {
             EvictLRU();
@@ -108,7 +105,7 @@ namespace OloEngine::Audio::SoundGraph
         // Check if the graph is too large to cache
         if (graphMemory > m_MaxMemoryUsage)
         {
-            OLO_CORE_WARN("SoundGraphCache::Put - Graph '{}' size ({:.1f}MB) exceeds maximum memory limit ({:.1f}MB), not caching", 
+            OLO_CORE_WARN("SoundGraphCache::Put - Graph '{}' size ({:.1f}MB) exceeds maximum memory limit ({:.1f}MB), not caching",
                           sourcePath, graphMemory / (1024.0f * 1024.0f), m_MaxMemoryUsage / (1024.0f * 1024.0f));
             return;
         }
@@ -116,8 +113,8 @@ namespace OloEngine::Audio::SoundGraph
         // Check if the graph still doesn't fit after eviction
         if ((m_CurrentMemoryUsage + graphMemory) > m_MaxMemoryUsage)
         {
-            OLO_CORE_WARN("SoundGraphCache::Put - Graph '{}' size ({:.1f}MB) cannot fit in available memory (current: {:.1f}MB, max: {:.1f}MB), not caching", 
-                          sourcePath, graphMemory / (1024.0f * 1024.0f), 
+            OLO_CORE_WARN("SoundGraphCache::Put - Graph '{}' size ({:.1f}MB) cannot fit in available memory (current: {:.1f}MB, max: {:.1f}MB), not caching",
+                          sourcePath, graphMemory / (1024.0f * 1024.0f),
                           m_CurrentMemoryUsage / (1024.0f * 1024.0f), m_MaxMemoryUsage / (1024.0f * 1024.0f));
             return;
         }
@@ -146,7 +143,7 @@ namespace OloEngine::Audio::SoundGraph
         m_CurrentMemoryUsage += graphMemory;
         UpdateLRU(sourcePath);
 
-        OLO_CORE_TRACE("SoundGraphCache: Cached graph '{}' (Memory: {:.1f}KB, Total: {:.1f}MB)", 
+        OLO_CORE_TRACE("SoundGraphCache: Cached graph '{}' (Memory: {:.1f}KB, Total: {:.1f}MB)",
                        sourcePath, graphMemory / 1024.0f, m_CurrentMemoryUsage / (1024.0f * 1024.0f));
     }
 
@@ -155,7 +152,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
 
         std::lock_guard<std::mutex> lock(m_Mutex);
-        
+
         auto it = m_CacheEntries.find(sourcePath);
         if (it != m_CacheEntries.end())
         {
@@ -170,7 +167,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
 
         std::lock_guard<std::mutex> lock(m_Mutex);
-        
+
         m_CacheEntries.clear();
         m_LRUOrder.clear();
         m_CurrentMemoryUsage = 0;
@@ -195,7 +192,7 @@ namespace OloEngine::Audio::SoundGraph
         // Remove least recently used (front in LRU order) - O(1) operation
         std::string lruPath = m_LRUOrder.front();
         m_LRUOrder.pop_front();
-        
+
         // Remove from iterator map - O(1) operation
         m_LRUPositions.erase(lruPath);
 
@@ -204,7 +201,7 @@ namespace OloEngine::Audio::SoundGraph
         {
             m_CurrentMemoryUsage -= CalculateGraphMemoryUsage(it->second.m_CachedGraph);
             m_CacheEntries.erase(it);
-            
+
             OLO_CORE_TRACE("SoundGraphCache: Evicted LRU entry '{}'", lruPath);
         }
     }
@@ -212,7 +209,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphCache::ValidateEntries()
     {
         std::vector<std::string> invalidPaths;
-        
+
         // Gather paths and cached timestamps while holding the mutex
         std::vector<std::pair<std::string, std::chrono::time_point<std::chrono::system_clock>>> pathsToCheck;
         {
@@ -222,7 +219,7 @@ namespace OloEngine::Audio::SoundGraph
                 pathsToCheck.emplace_back(path, entry.m_LastModified);
             }
         }
-        
+
         // Perform filesystem checks without holding the mutex to avoid deadlock
         for (const auto& [path, cachedModTime] : pathsToCheck)
         {
@@ -259,7 +256,7 @@ namespace OloEngine::Audio::SoundGraph
         // Remove entries that haven't been accessed recently
         auto threshold = std::chrono::system_clock::now() - std::chrono::hours(24);
         std::vector<std::string> oldPaths;
-        
+
         // Gather old paths while holding the mutex
         {
             std::lock_guard<std::mutex> lock(m_Mutex);
@@ -294,10 +291,10 @@ namespace OloEngine::Audio::SoundGraph
             auto it = m_CacheEntries.find(sourcePath);
             if (it == m_CacheEntries.end())
                 return true;
-            
+
             cachedModTime = it->second.m_LastModified;
         }
-        
+
         // Perform filesystem access outside the lock
         auto currentModTime = GetFileModificationTime(sourcePath);
         return currentModTime > cachedModTime.value();
@@ -306,7 +303,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphCache::InvalidateByPath(const std::string& sourcePath)
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
-        
+
         auto it = m_CacheEntries.find(sourcePath);
         if (it != m_CacheEntries.end())
         {
@@ -318,22 +315,22 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphCache::InvalidateByDirectory(const std::string& directoryPath)
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
-        
+
         std::vector<std::string> pathsToInvalidate;
-        
+
         // Use filesystem::path for robust directory matching
         std::filesystem::path targetDir(directoryPath);
         targetDir = targetDir.lexically_normal();
-        
+
         for (auto& [path, entry] : m_CacheEntries)
         {
             std::filesystem::path entryPath(path);
             entryPath = entryPath.lexically_normal();
-            
+
             // Check if entryPath is within targetDir by comparing parent paths
-            auto [dirEnd, entryEnd] = std::mismatch(targetDir.begin(), targetDir.end(), 
-                                                     entryPath.begin(), entryPath.end());
-            
+            auto [dirEnd, entryEnd] = std::mismatch(targetDir.begin(), targetDir.end(),
+                                                    entryPath.begin(), entryPath.end());
+
             // Match if we consumed all of targetDir and entryPath has same or more components
             if (dirEnd == targetDir.end())
             {
@@ -346,7 +343,7 @@ namespace OloEngine::Audio::SoundGraph
             m_CacheEntries[path].m_IsValid = false;
         }
 
-        OLO_CORE_INFO("SoundGraphCache: Invalidated {} entries in directory '{}'", 
+        OLO_CORE_INFO("SoundGraphCache: Invalidated {} entries in directory '{}'",
                       pathsToInvalidate.size(), directoryPath);
     }
 
@@ -363,7 +360,8 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         for (const std::string& path : sourcePaths)
         {
-            LoadAsync(path, [](const std::string& path, Ref<SoundGraph> graph) {
+            LoadAsync(path, [](const std::string& path, Ref<SoundGraph> graph)
+                      {
                 if (graph)
                 {
                     OLO_CORE_TRACE("SoundGraphCache: Preloaded graph '{}'", path);
@@ -371,8 +369,7 @@ namespace OloEngine::Audio::SoundGraph
                 else
                 {
                     OLO_CORE_WARN("SoundGraphCache: Failed to preload graph '{}'", path);
-                }
-            });
+                } });
         }
     }
 
@@ -380,10 +377,10 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(m_Mutex);
-        
+
         std::vector<std::string> paths;
         paths.reserve(m_CacheEntries.size());
-        
+
         for (const auto& [path, entry] : m_CacheEntries)
         {
             if (entry.m_IsValid)
@@ -391,7 +388,7 @@ namespace OloEngine::Audio::SoundGraph
                 paths.push_back(path);
             }
         }
-        
+
         std::sort(paths.begin(), paths.end());
         return paths;
     }
@@ -400,7 +397,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(m_Mutex);
-        
+
         auto it = m_CacheEntries.find(sourcePath);
         if (it != m_CacheEntries.end())
         {
@@ -413,17 +410,17 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(m_Mutex);
-        
+
         OLO_CORE_INFO("SoundGraphCache Statistics:");
         OLO_CORE_INFO("  Entries: {}/{}", m_CacheEntries.size(), m_MaxCacheSize);
-        OLO_CORE_INFO("  Memory Usage: {:.2f}/{:.2f} MB", 
+        OLO_CORE_INFO("  Memory Usage: {:.2f}/{:.2f} MB",
                       m_CurrentMemoryUsage / (1024.0f * 1024.0f),
                       m_MaxMemoryUsage / (1024.0f * 1024.0f));
-        
+
         // Compute hit ratio directly within the lock to avoid deadlock and ensure consistency
         u64 totalAccesses = m_HitCount + m_MissCount;
         f32 hitRatio = totalAccesses > 0 ? static_cast<f32>(m_HitCount) / static_cast<f32>(totalAccesses) : 0.0f;
-        OLO_CORE_INFO("  Hit Ratio: {:.1f}% ({}/{} requests)", 
+        OLO_CORE_INFO("  Hit Ratio: {:.1f}% ({}/{} requests)",
                       hitRatio * 100.0f, m_HitCount.load(), totalAccesses);
     }
 
@@ -452,10 +449,10 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         // Remove from current position if exists - O(1) via iterator map
         RemoveFromLRU(sourcePath);
-        
+
         // Add to back (most recently used) - O(1) operation
         m_LRUOrder.push_back(sourcePath);
-        
+
         // Store iterator for O(1) future removal
         auto it = m_LRUOrder.end();
         --it; // Point to the element we just added
@@ -489,7 +486,7 @@ namespace OloEngine::Audio::SoundGraph
 
         // NodeProcessor base class data structures
         totalMemory += sizeof(NodeProcessor);
-        
+
         // Calculate memory for all nodes in the graph
         for (const auto& node : graph->m_Nodes)
         {
@@ -497,10 +494,10 @@ namespace OloEngine::Audio::SoundGraph
             {
                 // Base node memory
                 totalMemory += sizeof(NodeProcessor);
-                
+
                 // NodeProcessor maps and vectors (approximate overhead)
                 totalMemory += 256; // Estimated overhead for maps/vectors per node
-                
+
                 // TODO: Check if this is a WavePlayer with audio data
                 // WavePlayer nodes can consume significant memory for audio samples
                 // AudioData.samples is std::vector<f32> with interleaved audio
@@ -511,13 +508,13 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         // SoundGraph-specific data structures
-        
+
         // Nodes vector overhead
         totalMemory += graph->m_Nodes.capacity() * sizeof(Scope<NodeProcessor>);
-        
+
         // WavePlayers vector (raw pointers, minimal overhead)
         totalMemory += graph->m_WavePlayers.capacity() * sizeof(NodeProcessor*);
-        
+
         // EndpointInputStreams map (changed from vector to unordered_map for O(1) lookups)
         totalMemory += graph->m_EndpointInputStreams.size() * (sizeof(Identifier) + sizeof(Scope<StreamWriter>));
         totalMemory += graph->m_EndpointInputStreams.bucket_count() * sizeof(void*); // Hash table overhead
@@ -526,11 +523,11 @@ namespace OloEngine::Audio::SoundGraph
             if (endpoint)
                 totalMemory += sizeof(StreamWriter) + 64; // StreamWriter + estimated choc::value overhead
         }
-        
+
         // InterpolatedValue map
         totalMemory += graph->m_InterpInputs.size() * (sizeof(Identifier) + sizeof(SoundGraph::InterpolatedValue));
         totalMemory += graph->m_InterpInputs.bucket_count() * sizeof(void*); // Hash table overhead
-        
+
         // LocalVariables map (changed from vector to unordered_map for O(1) lookups)
         totalMemory += graph->m_LocalVariables.size() * (sizeof(Identifier) + sizeof(Scope<StreamWriter>));
         totalMemory += graph->m_LocalVariables.bucket_count() * sizeof(void*); // Hash table overhead
@@ -539,24 +536,24 @@ namespace OloEngine::Audio::SoundGraph
             if (localVar)
                 totalMemory += sizeof(StreamWriter) + 64; // StreamWriter + estimated overhead
         }
-        
+
         // Output channel vectors
         totalMemory += graph->m_OutputChannelIDs.capacity() * sizeof(Identifier);
         totalMemory += graph->m_OutChannels.capacity() * sizeof(float);
-        
+
         // EndpointOutputStreams (NodeProcessor)
         totalMemory += sizeof(NodeProcessor) + 256; // Base size + estimated overhead
-        
+
         // Thread-safe FIFO queues (choc::fifo::SingleReaderSingleWriterFIFO)
         // These are typically allocated with fixed sizes
         // Note: Cannot access private OutgoingEvent/OutgoingMessage structs directly
         // Using estimated sizes based on typical event/message structure
-        totalMemory += 1024 * 64;  // Estimated FIFO capacity * estimated event size
+        totalMemory += 1024 * 64; // Estimated FIFO capacity * estimated event size
         totalMemory += 1024 * 32; // Estimated FIFO capacity * estimated message size
         // choc::value::ValueView objects don't own data, minimal memory overhead
         // String storage for debug names, identifiers, etc.
         totalMemory += 1024; // Estimated string storage overhead
-        
+
         return totalMemory;
     }
 
@@ -592,18 +589,18 @@ namespace OloEngine::Audio::SoundGraph
         // Use std::hash for consistent, overflow-safe hashing
         std::hash<std::string> hasher;
         std::string fileContent;
-        
+
         // Read file content efficiently
         file.seekg(0, std::ios::end);
         auto fileSize = file.tellg();
         file.seekg(0, std::ios::beg);
-        
+
         if (fileSize > 0)
         {
             fileContent.resize(static_cast<sizet>(fileSize));
             file.read(&fileContent[0], fileSize);
         }
-        
+
         // Use standard library hash function - no overflow issues
         return hasher(fileContent);
     }
@@ -614,10 +611,9 @@ namespace OloEngine::Audio::SoundGraph
         while (true)
         {
             std::unique_lock<std::mutex> lock(m_LoadQueueMutex);
-            
-            m_LoadCondition.wait(lock, [this] { 
-                return !m_LoadQueue.empty() || m_ShutdownLoader; 
-            });
+
+            m_LoadCondition.wait(lock, [this]
+                                 { return !m_LoadQueue.empty() || m_ShutdownLoader; });
 
             // Check shutdown condition under mutex protection
             if (m_ShutdownLoader && m_LoadQueue.empty())
@@ -631,7 +627,7 @@ namespace OloEngine::Audio::SoundGraph
 
                 // Load and compile the sound graph
                 Ref<SoundGraph> graph = nullptr;
-                
+
                 try
                 {
                     // Step 1: Deserialize the SoundGraphAsset from file
@@ -643,17 +639,17 @@ namespace OloEngine::Audio::SoundGraph
                             callback(sourcePath, nullptr);
                         continue;
                     }
-                    
+
                     OLO_CORE_INFO("SoundGraphCache: Successfully deserialized SoundGraphAsset '{}'", asset.m_Name);
-                    
+
                     // Step 2: Compile the asset to a Prototype
                     std::vector<UUID> waveAssetsToLoad;
                     GraphGeneratorOptions options;
                     options.m_Name = asset.m_Name;
-                    options.m_NumInChannels = 2;  // Stereo input
-                    options.m_NumOutChannels = 2; // Stereo output
+                    options.m_NumInChannels = 2;                         // Stereo input
+                    options.m_NumOutChannels = 2;                        // Stereo output
                     options.m_GraphPrototype = Ref<Prototype>::Create(); // Create empty prototype for population
-                    
+
                     // If the asset already has a compiled prototype, use it; otherwise compile from scratch
                     Ref<Prototype> prototype;
                     if (asset.m_CompiledPrototype)
@@ -665,7 +661,7 @@ namespace OloEngine::Audio::SoundGraph
                     {
                         OLO_CORE_INFO("SoundGraphCache: Compiling prototype from asset data for '{}'", asset.m_Name);
                         prototype = ConstructPrototype(options, waveAssetsToLoad);
-                        
+
                         if (!prototype)
                         {
                             OLO_CORE_ERROR("SoundGraphCache::LoaderThreadFunc - Failed to construct prototype from asset '{}'", sourcePath);
@@ -673,14 +669,14 @@ namespace OloEngine::Audio::SoundGraph
                                 callback(sourcePath, nullptr);
                             continue;
                         }
-                        
+
                         // Cache the compiled prototype in the asset for future use
                         asset.m_CompiledPrototype = prototype;
                     }
-                    
+
                     // Step 3: Create an instance of the SoundGraph from the Prototype
                     graph = CreateInstance(prototype);
-                    
+
                     if (!graph)
                     {
                         OLO_CORE_ERROR("SoundGraphCache::LoaderThreadFunc - Failed to create SoundGraph instance from prototype '{}'", sourcePath);
@@ -688,7 +684,7 @@ namespace OloEngine::Audio::SoundGraph
                             callback(sourcePath, nullptr);
                         continue;
                     }
-                    
+
                     OLO_CORE_INFO("SoundGraphCache: Successfully created SoundGraph instance '{}'", asset.m_Name);
                 }
                 catch (const std::exception& e)
@@ -701,7 +697,7 @@ namespace OloEngine::Audio::SoundGraph
                     }
                     continue;
                 }
-                
+
                 // Generate compiled path for caching with configurable base directory
                 // Convert source path to cache path (e.g., "path/file.soundgraph" -> "cache/soundgraph/file.sgc")
                 std::filesystem::path sourcePathFs(sourcePath);
@@ -710,11 +706,11 @@ namespace OloEngine::Audio::SoundGraph
                     std::lock_guard<std::mutex> cacheLock(m_Mutex);
                     compiledPath = m_CacheDirectory + sourcePathFs.stem().string() + ".sgc";
                 }
-                
+
                 // Ensure cache directory exists before writing
                 std::filesystem::path compiledPathFs(compiledPath);
                 std::filesystem::path cacheDir = compiledPathFs.parent_path();
-                
+
                 try
                 {
                     if (!std::filesystem::exists(cacheDir))
@@ -738,7 +734,7 @@ namespace OloEngine::Audio::SoundGraph
                 }
                 catch (const std::filesystem::filesystem_error& e)
                 {
-                    OLO_CORE_ERROR("SoundGraphCache: Filesystem error creating cache directory '{}': {}", 
+                    OLO_CORE_ERROR("SoundGraphCache: Filesystem error creating cache directory '{}': {}",
                                    cacheDir.string(), e.what());
                     // Continue without caching rather than failing completely
                     if (callback)
@@ -749,7 +745,7 @@ namespace OloEngine::Audio::SoundGraph
                 }
                 catch (const std::exception& e)
                 {
-                    OLO_CORE_ERROR("SoundGraphCache: Unexpected error creating cache directory '{}': {}", 
+                    OLO_CORE_ERROR("SoundGraphCache: Unexpected error creating cache directory '{}': {}",
                                    cacheDir.string(), e.what());
                     // Continue without caching rather than failing completely
                     if (callback)
@@ -758,7 +754,7 @@ namespace OloEngine::Audio::SoundGraph
                     }
                     continue;
                 }
-                
+
                 if (callback)
                 {
                     callback(sourcePath, graph);
@@ -798,7 +794,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(m_Mutex);
         m_MaxCacheSize = maxSize;
-        
+
         // Trigger eviction if current cache exceeds new limit
         while (m_CacheEntries.size() > m_MaxCacheSize && !m_CacheEntries.empty())
         {
@@ -811,7 +807,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(m_Mutex);
         m_MaxMemoryUsage = maxMemory;
-        
+
         // Trigger eviction if current memory usage exceeds new limit
         while (m_CurrentMemoryUsage > m_MaxMemoryUsage && !m_CacheEntries.empty())
         {
@@ -838,7 +834,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(m_Mutex);
         m_CacheDirectory = directory;
-        
+
         // Ensure the directory ends with a slash
         if (!m_CacheDirectory.empty() && m_CacheDirectory.back() != '/' && m_CacheDirectory.back() != '\\')
         {
@@ -864,15 +860,15 @@ namespace OloEngine::Audio::SoundGraph
         Ref<SoundGraphCache> GetGlobalCache()
         {
             std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
-            
+
             if (!s_GlobalCache)
             {
                 // Use default configuration
                 s_GlobalCache = Ref<SoundGraphCache>::Create(
-                    SoundGraphCacheConfig::s_DefaultMaxCacheSize, 
+                    SoundGraphCacheConfig::s_DefaultMaxCacheSize,
                     SoundGraphCacheConfig::s_DefaultMaxMemoryUsage);
             }
-            
+
             return s_GlobalCache;
         }
 
@@ -892,7 +888,7 @@ namespace OloEngine::Audio::SoundGraph
         void ShutdownCache()
         {
             std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
-            
+
             if (s_GlobalCache)
             {
                 s_GlobalCache->LogStatistics();
@@ -911,7 +907,7 @@ namespace OloEngine::Audio::SoundGraph
         void WarmupCacheFromDirectory(const std::string& directory, const std::string& filePattern)
         {
             std::vector<std::string> graphPaths;
-            
+
             try
             {
                 for (const auto& entry : std::filesystem::recursive_directory_iterator(directory))
@@ -946,6 +942,6 @@ namespace OloEngine::Audio::SoundGraph
         {
             OLO_CORE_INFO("SoundGraphCache: Stopped maintenance scheduler");
         }
-    }
+    } // namespace CacheUtilities
 
 } // namespace OloEngine::Audio::SoundGraph

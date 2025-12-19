@@ -15,17 +15,17 @@ namespace OloEngine
 {
     /**
      * @brief Editor asset system for handling async asset loading
-     * 
+     *
      * The EditorAssetSystem provides dedicated asset loading thread for editor builds.
      * It manages asset loading queues, file monitoring for hot-reload detection,
      * and async communication with the main thread.
-     * 
+     *
      * This system enables non-blocking asset loading in the editor while maintaining
      * thread safety and providing efficient asset update mechanisms.
      */
     class EditorAssetSystem : public RefCounted
     {
-    public:
+      public:
         EditorAssetSystem();
         ~EditorAssetSystem();
 
@@ -69,13 +69,19 @@ namespace OloEngine
          * @brief Check if the asset thread is running
          * @return True if the thread is active
          */
-        bool IsRunning() const { return m_Running; }
+        bool IsRunning() const
+        {
+            return m_Running;
+        }
 
         /**
          * @brief Get asset update performance metrics
          * @return Time spent on asset updates in milliseconds
          */
-        float GetAssetUpdatePerformance() const { return m_AssetUpdatePerf; }
+        float GetAssetUpdatePerformance() const
+        {
+            return m_AssetUpdatePerf;
+        }
 
         /**
          * @brief Get telemetry information for debugging
@@ -89,7 +95,7 @@ namespace OloEngine
          */
         sizet GetQueueLength() const;
 
-    private:
+      private:
         /**
          * @brief Asset monitor update (checks for file changes)
          */
@@ -105,7 +111,7 @@ namespace OloEngine
          */
         void EnsureAllLoadedCurrent();
 
-    private:
+      private:
         Thread m_Thread;
         std::atomic<bool> m_Running = true;
 
@@ -130,9 +136,9 @@ namespace OloEngine
         float m_AssetUpdatePerf = 0.0f;
 
         // Telemetry counters
-        mutable std::atomic<u32> m_QueuedAssetsCount{0};
-        mutable std::atomic<u32> m_LoadedAssetsCount{0};
-        mutable std::atomic<u32> m_FailedAssetsCount{0};
+        mutable std::atomic<u32> m_QueuedAssetsCount{ 0 };
+        mutable std::atomic<u32> m_LoadedAssetsCount{ 0 };
+        mutable std::atomic<u32> m_FailedAssetsCount{ 0 };
     };
 
 } // namespace OloEngine

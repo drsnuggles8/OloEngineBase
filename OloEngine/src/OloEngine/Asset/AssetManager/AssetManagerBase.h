@@ -12,15 +12,16 @@
 
 namespace OloEngine
 {
-	// Forward declarations
-	template<typename T> struct AsyncAssetResult;
-	/**
+    // Forward declarations
+    template<typename T>
+    struct AsyncAssetResult;
+    /**
      * @brief Abstract base class for asset management implementations
-     * 
+     *
      * Defines the interface that both EditorAssetManager and RuntimeAssetManager
      * must implement. This provides a unified API for asset operations while
      * allowing different implementations for development and shipping builds.
-     * 
+     *
      * The asset manager is responsible for:
      * - Loading and unloading assets
      * - Managing asset dependencies
@@ -30,7 +31,7 @@ namespace OloEngine
      */
     class AssetManagerBase : public RefCounted
     {
-    public:
+      public:
         AssetManagerBase() = default;
         virtual ~AssetManagerBase() noexcept = default;
 
@@ -70,7 +71,7 @@ namespace OloEngine
          * @brief Get asset metadata by handle
          * @param handle Handle of the asset
          * @return Copy of AssetMetadata for the asset, or empty metadata if not found
-         * 
+         *
          * Note: Runtime asset managers may return limited metadata compared to editor managers.
          * Returns a copy to ensure thread-safety and avoid dangling references after lock release.
          */
@@ -167,7 +168,7 @@ namespace OloEngine
          * @brief Register that an asset depends on another asset
          * @param handle Handle of the dependent asset
          * @param dependency Handle of the dependency asset
-         * 
+         *
          * Example: A material (handle) depends on a texture (dependency)
          */
         virtual void RegisterDependency(AssetHandle handle, AssetHandle dependency) = 0;
@@ -194,7 +195,7 @@ namespace OloEngine
 
         /**
          * @brief Synchronize with the asset loading thread
-         * 
+         *
          * Ensures any pending async operations are completed or processed
          */
         virtual void SyncWithAssetThread() noexcept = 0;
@@ -215,11 +216,11 @@ namespace OloEngine
         /**
          * @brief Iterate over all loaded assets with a callback function
          * @param callback Function to call for each loaded asset (handle, asset)
-         * 
+         *
          * Provides thread-safe iteration without exposing internal containers.
          * The callback should return true to continue iteration, false to stop.
          */
         virtual void ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const = 0;
     };
 
-}
+} // namespace OloEngine

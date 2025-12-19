@@ -4,27 +4,28 @@
 
 class Sandbox2D : public OloEngine::Layer
 {
-public:
-	Sandbox2D();
-	~Sandbox2D() final = default;
+  public:
+    Sandbox2D();
+    ~Sandbox2D() final = default;
 
-	void OnAttach() override;
-	void OnDetach() override;
+    void OnAttach() override;
+    void OnDetach() override;
 
-	void OnUpdate(OloEngine::Timestep ts) override;
-	void OnImGuiRender() override;
-	void OnEvent(OloEngine::Event& e) override;
-private:
-	OloEngine::OrthographicCameraController m_CameraController;
+    void OnUpdate(OloEngine::Timestep ts) override;
+    void OnImGuiRender() override;
+    void OnEvent(OloEngine::Event& e) override;
 
-	OloEngine::Ref<OloEngine::VertexArray> m_SquareVA;
-	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader;
+  private:
+    OloEngine::OrthographicCameraController m_CameraController;
 
-	OloEngine::Ref<OloEngine::Texture2D> m_CheckerboardTexture;
-	OloEngine::Ref<OloEngine::Texture2D> m_OtterTexture;
+    OloEngine::Ref<OloEngine::VertexArray> m_SquareVA;
+    OloEngine::Ref<OloEngine::Shader> m_FlatColorShader;
 
-	glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
+    OloEngine::Ref<OloEngine::Texture2D> m_CheckerboardTexture;
+    OloEngine::Ref<OloEngine::Texture2D> m_OtterTexture;
 
-	f32 m_Timer = 0.0f;
-	int m_Scene = 0;
+    glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
+
+    f32 m_Timer = 0.0f;
+    int m_Scene = 0;
 };

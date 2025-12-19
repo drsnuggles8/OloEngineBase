@@ -10,38 +10,34 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Manages a graph of render passes forming a complete rendering pipeline.
-     */
+    // @brief Manages a graph of render passes forming a complete rendering pipeline.
     class RenderGraph : public RefCounted
     {
-    public:
+      public:
         RenderGraph() = default;
         ~RenderGraph() = default;
-        
+
         void Init(u32 width, u32 height);
         void Shutdown();
-        
+
         // Only support RenderPass
         void AddPass(const Ref<RenderPass>& pass);
-          // Connect two passes in the graph
+        // Connect two passes in the graph
         void ConnectPass(const std::string& outputPass, const std::string& inputPass);
-        
+
         // Execute all passes in the correct order
         void Execute();
-        
+
         // Resize all passes in the graph
         void Resize(u32 width, u32 height);
-        
+
         // Set the final pass in the graph
         void SetFinalPass(const std::string& passName);
-        
-        /**
-         * @brief Get all render passes in the graph for debugging or inspection.
-         * @return Vector of render passes in the execution order
-         */
+
+        // @brief Get all render passes in the graph for debugging or inspection.
+        // @return Vector of render passes in the execution order
         [[nodiscard]] std::vector<Ref<RenderPass>> GetAllPasses() const;
-        
+
         // Get a pass by name and cast to the requested type
         template<typename T>
         Ref<T> GetPass(const std::string& name)
@@ -54,20 +50,20 @@ namespace OloEngine
         }
 
         [[nodiscard]] bool IsFinalPass(const std::string& passName) const;
-        
+
         struct ConnectionInfo
         {
             std::string OutputPass;
             std::string InputPass;
             u32 AttachmentIndex = 0;
         };
-        
+
         [[nodiscard]] std::vector<ConnectionInfo> GetConnections() const;
-        
-    private:
+
+      private:
         void UpdateDependencyGraph();
         void ResolveFinalPass();
-        
+
         std::unordered_map<std::string, Ref<RenderPass>> m_PassLookup;
         std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;
         std::unordered_map<std::string, std::vector<std::string>> m_DependentPasses;
@@ -75,4 +71,4 @@ namespace OloEngine
         std::string m_FinalPassName;
         bool m_DependencyGraphDirty = false;
     };
-}
+} // namespace OloEngine

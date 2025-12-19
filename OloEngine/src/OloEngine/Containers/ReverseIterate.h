@@ -3,11 +3,11 @@
 /**
  * @file ReverseIterate.h
  * @brief Reverse iteration utilities for containers
- * 
+ *
  * Provides:
  * - TReversePointerIterator: Reverse iterator for pointer-based ranges
  * - ReverseIterate(): Helper to iterate ranges backwards in range-for loops
- * 
+ *
  * Ported from Unreal Engine's Misc/ReverseIterate.h
  */
 
@@ -16,13 +16,13 @@
 
 /**
  * Pointer-like reverse iterator type.
- * 
+ *
  * This iterator type only supports the minimal functionality needed to support
  * C++ ranged-for syntax. For example, it does not provide post-increment ++ nor ==.
- * 
+ *
  * Note: Declared at global scope to match UE's API.
  */
-template <typename T>
+template<typename T>
 struct TReversePointerIterator
 {
     /**
@@ -55,13 +55,13 @@ struct TReversePointerIterator
         return Ptr != Rhs.Ptr;
     }
 
-private:
+  private:
     T* Ptr;
 };
 
 namespace OloEngine::Private
 {
-    template <typename RangeType>
+    template<typename RangeType>
     struct TReverseIterationAdapter
     {
         [[nodiscard]] constexpr explicit TReverseIterationAdapter(RangeType& InRange)
@@ -87,12 +87,12 @@ namespace OloEngine::Private
             return rend(Range);
         }
 
-    private:
+      private:
         RangeType& Range;
     };
 
-    template <typename ElementType, std::size_t N>
-    struct TReverseIterationAdapter<ElementType(&)[N]>
+    template<typename ElementType, std::size_t N>
+    struct TReverseIterationAdapter<ElementType (&)[N]>
     {
         [[nodiscard]] constexpr explicit TReverseIterationAdapter(ElementType* InArray)
             : Array(InArray)
@@ -115,7 +115,7 @@ namespace OloEngine::Private
             return TReversePointerIterator<ElementType>(Array);
         }
 
-    private:
+      private:
         ElementType* Array;
     };
 } // namespace OloEngine::Private
@@ -137,7 +137,7 @@ namespace OloEngine::Private
  * }
  * @endcode
  */
-template <typename RangeType>
+template<typename RangeType>
 [[nodiscard]] inline constexpr OloEngine::Private::TReverseIterationAdapter<RangeType> ReverseIterate(RangeType&& Range)
 {
     return OloEngine::Private::TReverseIterationAdapter<RangeType>(Range);

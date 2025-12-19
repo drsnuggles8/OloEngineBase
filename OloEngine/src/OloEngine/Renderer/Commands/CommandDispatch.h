@@ -5,48 +5,47 @@
 
 namespace OloEngine
 {
-	class UniformBuffer;
-	class Light;
-	class ShaderResourceRegistry;
+    class UniformBuffer;
+    class Light;
+    class ShaderResourceRegistry;
 
     class CommandDispatch
     {
-	public:
-		struct Statistics
+      public:
+        struct Statistics
         {
             u32 ShaderBinds = 0;
             u32 TextureBinds = 0;
             u32 DrawCalls = 0;
-            
-            void Reset() 
-            { 
-                ShaderBinds = 0; 
-                TextureBinds = 0; 
-                DrawCalls = 0; 
+
+            void Reset()
+            {
+                ShaderBinds = 0;
+                TextureBinds = 0;
+                DrawCalls = 0;
             }
         };
 
-		static void Initialize();
+        static void Initialize();
         static void Shutdown();
-        
-        static CommandDispatchFn GetDispatchFunction(CommandType type);	
-		
-		// State tracking for current frame rendering
-		static void ResetState();
-		static void SetViewProjectionMatrix(const glm::mat4& vp);
-		static void SetViewMatrix(const glm::mat4& view);
-		static void SetProjectionMatrix(const glm::mat4& projection);
-		static void SetSceneLight(const Light& light);
-		static void SetViewPosition(const glm::vec3& viewPos);
-		
-		// UBO access - Renderer3D provides these, CommandDispatch uses them
-		static void SetUBOReferences(
-			const Ref<UniformBuffer>& cameraUBO,
-			const Ref<UniformBuffer>& materialUBO,
-			const Ref<UniformBuffer>& lightUBO,
-			const Ref<UniformBuffer>& boneMatricesUBO,
-			const Ref<UniformBuffer>& modelMatrixUBO
-		);
+
+        static CommandDispatchFn GetDispatchFunction(CommandType type);
+
+        // State tracking for current frame rendering
+        static void ResetState();
+        static void SetViewProjectionMatrix(const glm::mat4& vp);
+        static void SetViewMatrix(const glm::mat4& view);
+        static void SetProjectionMatrix(const glm::mat4& projection);
+        static void SetSceneLight(const Light& light);
+        static void SetViewPosition(const glm::vec3& viewPos);
+
+        // UBO access - Renderer3D provides these, CommandDispatch uses them
+        static void SetUBOReferences(
+            const Ref<UniformBuffer>& cameraUBO,
+            const Ref<UniformBuffer>& materialUBO,
+            const Ref<UniformBuffer>& lightUBO,
+            const Ref<UniformBuffer>& boneMatricesUBO,
+            const Ref<UniformBuffer>& modelMatrixUBO);
 
         // State management dispatch functions
         static void SetViewport(const void* data, RendererAPI& api);
@@ -85,10 +84,10 @@ namespace OloEngine
         static void DrawMeshInstanced(const void* data, RendererAPI& api);
         static void DrawSkybox(const void* data, RendererAPI& api);
         static void DrawQuad(const void* data, RendererAPI& api);
-		
-		static Statistics& GetStatistics();
 
-	private:
+        static Statistics& GetStatistics();
+
+      private:
         static void UpdateMaterialTextureFlag(bool useTextures);
     };
-}
+} // namespace OloEngine

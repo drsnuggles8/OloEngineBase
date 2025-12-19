@@ -5,12 +5,10 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Shared constants for shaders to replace magic numbers
-     * 
-     * This file contains all constants used across shaders to ensure
-     * consistency and eliminate magic numbers in shader code.
-     */
+    // @brief Shared constants for shaders to replace magic numbers
+    //
+    // This file contains all constants used across shaders to ensure
+    // consistency and eliminate magic numbers in shader code.
     namespace ShaderConstants
     {
         // =============================================================================
@@ -41,23 +39,23 @@ namespace OloEngine
         // =============================================================================
         // RENDERING CONSTANTS
         // =============================================================================
-        
+
         // Maximum number of lights supported
         constexpr int MAX_LIGHTS = 32;
-        
+
         // Maximum number of bones for skeletal animation - centralized from ShaderBindingLayout
         constexpr int MAX_BONES = UBOStructures::AnimationConstants::MAX_BONES;
-        
+
         // Shadow mapping constants
         constexpr float SHADOW_BIAS = 0.005f;
         constexpr int SHADOW_MAP_SIZE = 1024;
-        
+
         // =============================================================================
         // TONE MAPPING CONSTANTS
         // =============================================================================
         constexpr float GAMMA = 2.2f;
         constexpr float EXPOSURE = 1.0f;
-        
+
         // Tone mapping operators
         constexpr int TONEMAP_NONE = 0;
         constexpr int TONEMAP_REINHARD = 1;
@@ -76,7 +74,7 @@ namespace OloEngine
         // This section provides GLSL-compatible constant definitions
         // that can be included in shader files
         // =============================================================================
-        
+
         static const char* GetGLSLConstants()
         {
             return R"(
@@ -125,11 +123,9 @@ const int TONEMAP_UNCHARTED2 = 3;
         // =============================================================================
         // HELPER FUNCTIONS FOR SHADER GENERATION
         // =============================================================================
-        
-        /**
-         * @brief Get GLSL preprocessor defines for constants
-         * @return String containing #define statements for all constants
-         */
+
+        // @brief Get GLSL preprocessor defines for constants
+        // @return String containing #define statements for all constants
         static std::string GetGLSLDefines()
         {
             return std::string(R"(
@@ -141,7 +137,8 @@ const int TONEMAP_UNCHARTED2 = 3;
 #define DEFAULT_DIELECTRIC_F0 0.04
 #define MAX_REFLECTION_LOD 4.0
 #define MAX_LIGHTS 32
-#define MAX_BONES )") + std::to_string(UBOStructures::AnimationConstants::MAX_BONES) + R"(
+#define MAX_BONES )") +
+                   std::to_string(UBOStructures::AnimationConstants::MAX_BONES) + R"(
 #define GAMMA 2.2
 #define TONEMAP_NONE 0
 #define TONEMAP_REINHARD 1
@@ -149,5 +146,5 @@ const int TONEMAP_UNCHARTED2 = 3;
 #define TONEMAP_UNCHARTED2 3
 )";
         }
-    }
-}
+    } // namespace ShaderConstants
+} // namespace OloEngine

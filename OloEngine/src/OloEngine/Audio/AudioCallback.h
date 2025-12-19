@@ -17,7 +17,7 @@ namespace OloEngine::Audio
     /// Simplified version of Hazel's AudioCallback adapted for OloEngine's architecture
     class AudioCallback
     {
-    public:
+      public:
         AudioCallback() = default;
         virtual ~AudioCallback() = default;
         AudioCallback(AudioCallback&&) = default;
@@ -32,7 +32,10 @@ namespace OloEngine::Audio
             std::vector<u32> m_OutputBuses;
         };
 
-        ma_node_base* GetNode() { return &m_Node.m_Base; }
+        ma_node_base* GetNode()
+        {
+            return &m_Node.m_Base;
+        }
 
         bool Initialize(ma_engine* engine, const BusConfig& busConfig);
         void Uninitialize();
@@ -41,7 +44,7 @@ namespace OloEngine::Audio
         virtual void SuspendProcessing(bool shouldBeSuspended) = 0;
         virtual bool IsSuspended() = 0;
 
-    protected:
+      protected:
         virtual bool InitBase(u32 sampleRate, u32 maxBlockSize, const BusConfig& busConfig) = 0;
         virtual void ProcessBlockBase(const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut) = 0;
         virtual void ReleaseResources() = 0;
@@ -50,18 +53,18 @@ namespace OloEngine::Audio
         ma_engine* m_Engine = nullptr;
         u32 m_MaxBlockSize = 0; // Maximum frames per block, set during initialization
 
-    private:
+      private:
         bool m_IsInitialized = false;
         ma_node_vtable m_VTable = {};
 
         friend void processing_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn,
-            float** ppFramesOut, ma_uint32* pFrameCountOut);
+                                                       float** ppFramesOut, ma_uint32* pFrameCountOut);
 
         struct ProcessingNode
         {
             // Magic constant for runtime type validation
             static constexpr u32 s_MagicTypeId = 0x414F4C4F; // "AOLO" in hex (Audio OLO)
-            
+
             ma_node_base m_Base;
             u32 m_TypeId = 0; // Will be set to s_MagicTypeId when properly initialized
             ma_engine* m_Engine;
@@ -74,21 +77,27 @@ namespace OloEngine::Audio
     template<typename T>
     class AudioCallbackInterleaved : public AudioCallback
     {
-    public:
+      public:
         virtual ~AudioCallbackInterleaved() = default;
 
-    protected:
-        bool InitBase(u32 sampleRate, u32 maxBlockSize, const BusConfig& busConfig) final 
-        { 
-            return Underlying().Init(sampleRate, maxBlockSize, busConfig); 
+      protected:
+        bool InitBase(u32 sampleRate, u32 maxBlockSize, const BusConfig& busConfig) final
+        {
+            return Underlying().Init(sampleRate, maxBlockSize, busConfig);
         }
 
-    private:
+      private:
         // CRTP interface
         AudioCallbackInterleaved() = default;
         friend T;
-        T& Underlying() { return static_cast<T&>(*this); }
-        const T& Underlying() const { return static_cast<T const&>(*this); }
+        T& Underlying()
+        {
+            return static_cast<T&>(*this);
+        }
+        const T& Underlying() const
+        {
+            return static_cast<T const&>(*this);
+        }
 
         void ProcessBlockBase(const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut) final
         {
@@ -100,10 +109,10 @@ namespace OloEngine::Audio
     template<typename T>
     class AudioCallbackDeinterleaved : public AudioCallback
     {
-    public:
+      public:
         virtual ~AudioCallbackDeinterleaved() = default;
 
-    protected:
+      protected:
         bool InitBase(u32 sampleRate, u32 maxBlockSize, const BusConfig& busConfig) final
         {
             m_InDeinterleavedBuses.resize(busConfig.m_InputBuses.size());
@@ -129,103 +138,110 @@ namespace OloEngine::Audio
             m_OutDeinterleavedBuses.clear();
         }
 
-    private:
+      private:
         // CRTP interface
         AudioCallbackDeinterleaved() = default;
         friend T;
-        T& Underlying() { return static_cast<T&>(*this); }
-        const T& Underlying() const { return static_cast<T const&>(*this); }
-
-    void ProcessBlockBase(const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut) final
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        // Cache a safe frame count - miniaudio can pass pFrameCountIn as nullptr for source-style nodes
-        ma_uint32 frameCount = pFrameCountIn ? *pFrameCountIn : (pFrameCountOut ? *pFrameCountOut : 0);
-        
-        // Real-time safety: Verify frameCount doesn't exceed pre-allocated buffer size
-        // If this assertion fires, the audio device is requesting more frames than we allocated in InitBase
-        OLO_CORE_ASSERT(frameCount <= m_MaxBlockSize, 
-            "Audio callback requested {} frames but only {} were pre-allocated. This should never happen.", 
-            frameCount, m_MaxBlockSize);
-        
-        // Early return if frame count is invalid to prevent buffer overruns
-        if (frameCount > m_MaxBlockSize || frameCount == 0)
+        T& Underlying()
         {
-            if (pFrameCountOut) *pFrameCountOut = 0;
-            return;
+            return static_cast<T&>(*this);
         }
-        
-        if (ppFramesIn != nullptr)
+        const T& Underlying() const
         {
-            // Use actual deinterleaved buffer count for safety, not m_BusConfig size
-            for (sizet i = 0; i < m_InDeinterleavedBuses.size(); ++i)
+            return static_cast<T const&>(*this);
+        }
+
+        void ProcessBlockBase(const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut) final
+        {
+            OLO_PROFILE_FUNCTION();
+
+            // Cache a safe frame count - miniaudio can pass pFrameCountIn as nullptr for source-style nodes
+            ma_uint32 frameCount = pFrameCountIn ? *pFrameCountIn : (pFrameCountOut ? *pFrameCountOut : 0);
+
+            // Real-time safety: Verify frameCount doesn't exceed pre-allocated buffer size
+            // If this assertion fires, the audio device is requesting more frames than we allocated in InitBase
+            OLO_CORE_ASSERT(frameCount <= m_MaxBlockSize,
+                            "Audio callback requested {} frames but only {} were pre-allocated. This should never happen.",
+                            frameCount, m_MaxBlockSize);
+
+            // Early return if frame count is invalid to prevent buffer overruns
+            if (frameCount > m_MaxBlockSize || frameCount == 0)
             {
-                // Verify buffer was pre-allocated to correct size (no resize in real-time thread!)
-                OLO_CORE_ASSERT(m_InDeinterleavedBuses[i].getSize().numFrames >= frameCount,
-                    "Input buffer {} has {} frames but {} requested. Buffer should be pre-allocated to maxBlockSize.",
-                    i, m_InDeinterleavedBuses[i].getSize().numFrames, frameCount);
-                
-                // Only deinterleave if the input pointer is non-null
-                if (ppFramesIn[i] != nullptr)
+                if (pFrameCountOut)
+                    *pFrameCountOut = 0;
+                return;
+            }
+
+            if (ppFramesIn != nullptr)
+            {
+                // Use actual deinterleaved buffer count for safety, not m_BusConfig size
+                for (sizet i = 0; i < m_InDeinterleavedBuses.size(); ++i)
                 {
-                    // Deinterleave only the requested frames (buffer is pre-allocated to maxBlockSize)
-                    SampleBufferOperations::Deinterleave(m_InDeinterleavedBuses[i], ppFramesIn[i], frameCount);
+                    // Verify buffer was pre-allocated to correct size (no resize in real-time thread!)
+                    OLO_CORE_ASSERT(m_InDeinterleavedBuses[i].getSize().numFrames >= frameCount,
+                                    "Input buffer {} has {} frames but {} requested. Buffer should be pre-allocated to maxBlockSize.",
+                                    i, m_InDeinterleavedBuses[i].getSize().numFrames, frameCount);
+
+                    // Only deinterleave if the input pointer is non-null
+                    if (ppFramesIn[i] != nullptr)
+                    {
+                        // Deinterleave only the requested frames (buffer is pre-allocated to maxBlockSize)
+                        SampleBufferOperations::Deinterleave(m_InDeinterleavedBuses[i], ppFramesIn[i], frameCount);
+                    }
+                    else
+                    {
+                        // Clear only the frames we're using (real-time safe)
+                        auto numChannels = m_InDeinterleavedBuses[i].getNumChannels();
+                        auto* channelPtrs = m_InDeinterleavedBuses[i].getView().data.channels;
+                        for (u32 ch = 0; ch < numChannels; ++ch)
+                            std::memset(channelPtrs[ch], 0, frameCount * sizeof(float));
+                    }
                 }
-                else
+            }
+            else
+            {
+                // Clear all input buses when no input provided (only active frames)
+                for (sizet i = 0; i < m_InDeinterleavedBuses.size(); ++i)
                 {
-                    // Clear only the frames we're using (real-time safe)
                     auto numChannels = m_InDeinterleavedBuses[i].getNumChannels();
                     auto* channelPtrs = m_InDeinterleavedBuses[i].getView().data.channels;
                     for (u32 ch = 0; ch < numChannels; ++ch)
                         std::memset(channelPtrs[ch], 0, frameCount * sizeof(float));
                 }
             }
-        }
-        else
-        {
-            // Clear all input buses when no input provided (only active frames)
-            for (sizet i = 0; i < m_InDeinterleavedBuses.size(); ++i)
-            {
-                auto numChannels = m_InDeinterleavedBuses[i].getNumChannels();
-                auto* channelPtrs = m_InDeinterleavedBuses[i].getView().data.channels;
-                for (u32 ch = 0; ch < numChannels; ++ch)
-                    std::memset(channelPtrs[ch], 0, frameCount * sizeof(float));
-            }
-        }
 
-        // Verify output buffers are pre-allocated (no resize in real-time thread!)
-        for (sizet i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
-        {
-            OLO_CORE_ASSERT(m_OutDeinterleavedBuses[i].getSize().numFrames >= frameCount,
-                "Output buffer {} has {} frames but {} requested. Buffer should be pre-allocated to maxBlockSize.",
-                i, m_OutDeinterleavedBuses[i].getSize().numFrames, frameCount);
-        }
-
-        Underlying().ProcessBlock(m_InDeinterleavedBuses, m_OutDeinterleavedBuses, frameCount);
-
-        // Use actual deinterleaved buffer count and check for null output pointers
-        if (ppFramesOut != nullptr)
-        {
+            // Verify output buffers are pre-allocated (no resize in real-time thread!)
             for (sizet i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
             {
-                // Only interleave if the output pointer is non-null
-                if (ppFramesOut[i] != nullptr)
+                OLO_CORE_ASSERT(m_OutDeinterleavedBuses[i].getSize().numFrames >= frameCount,
+                                "Output buffer {} has {} frames but {} requested. Buffer should be pre-allocated to maxBlockSize.",
+                                i, m_OutDeinterleavedBuses[i].getSize().numFrames, frameCount);
+            }
+
+            Underlying().ProcessBlock(m_InDeinterleavedBuses, m_OutDeinterleavedBuses, frameCount);
+
+            // Use actual deinterleaved buffer count and check for null output pointers
+            if (ppFramesOut != nullptr)
+            {
+                for (sizet i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
                 {
-                    // Interleave only the requested frames (buffer is pre-allocated to maxBlockSize)
-                    SampleBufferOperations::Interleave(ppFramesOut[i], m_OutDeinterleavedBuses[i], frameCount);
+                    // Only interleave if the output pointer is non-null
+                    if (ppFramesOut[i] != nullptr)
+                    {
+                        // Interleave only the requested frames (buffer is pre-allocated to maxBlockSize)
+                        SampleBufferOperations::Interleave(ppFramesOut[i], m_OutDeinterleavedBuses[i], frameCount);
+                    }
                 }
             }
+
+            // Set output frame count
+            if (pFrameCountOut != nullptr)
+            {
+                *pFrameCountOut = frameCount;
+            }
         }
-        
-        // Set output frame count
-        if (pFrameCountOut != nullptr)
-        {
-            *pFrameCountOut = frameCount;
-        }
-    }
-    
-    private:
+
+      private:
         std::vector<choc::buffer::ChannelArrayBuffer<float>> m_InDeinterleavedBuses;
         std::vector<choc::buffer::ChannelArrayBuffer<float>> m_OutDeinterleavedBuses;
     };
@@ -233,21 +249,28 @@ namespace OloEngine::Audio
     /// Function-based deinterleaved callback
     class CallbackBindedDeinterleaved : public AudioCallbackDeinterleaved<CallbackBindedDeinterleaved>
     {
-    public:
+      public:
         CallbackBindedDeinterleaved() = default;
         virtual ~CallbackBindedDeinterleaved() = default;
 
-        void SuspendProcessing(bool shouldBeSuspended) final { m_Suspended.store(shouldBeSuspended, std::memory_order_relaxed); }
-        bool IsSuspended() final { return m_Suspended.load(std::memory_order_relaxed); }
+        void SuspendProcessing(bool shouldBeSuspended) final
+        {
+            m_Suspended.store(shouldBeSuspended, std::memory_order_relaxed);
+        }
+        bool IsSuspended() final
+        {
+            return m_Suspended.load(std::memory_order_relaxed);
+        }
 
         std::function<void(const std::vector<choc::buffer::ChannelArrayBuffer<float>>& inBuffer,
-         std::vector<choc::buffer::ChannelArrayBuffer<float>>& outBuffer)> onAudioCallback;
+                           std::vector<choc::buffer::ChannelArrayBuffer<float>>& outBuffer)>
+            onAudioCallback;
 
-    private:
+      private:
         friend AudioCallbackDeinterleaved<CallbackBindedDeinterleaved>;
 
         virtual void ReleaseResources() override {}
-        
+
         // CRTP interface requirement: Init() must be implemented to satisfy the base class contract.
         // Returns true immediately as configuration happens via onAudioCallback member.
         // Parameters unused because this callback type delegates all processing to the bound function.
@@ -255,9 +278,9 @@ namespace OloEngine::Audio
         {
             return true;
         }
-        
-        void ProcessBlock(const std::vector<choc::buffer::ChannelArrayBuffer<float>>& inBuffer, 
-            std::vector<choc::buffer::ChannelArrayBuffer<float>>& outBuffer, u32 numFramesRequested)
+
+        void ProcessBlock(const std::vector<choc::buffer::ChannelArrayBuffer<float>>& inBuffer,
+                          std::vector<choc::buffer::ChannelArrayBuffer<float>>& outBuffer, u32 numFramesRequested)
         {
             if (onAudioCallback && !m_Suspended.load(std::memory_order_relaxed))
             {
@@ -271,9 +294,9 @@ namespace OloEngine::Audio
                 {
                     // Verify buffer was pre-allocated to sufficient size
                     OLO_CORE_ASSERT(channelBuffer.getSize().numFrames >= numFramesRequested,
-                        "Output buffer has {} frames but {} requested. Should be pre-allocated to maxBlockSize.",
-                        channelBuffer.getSize().numFrames, numFramesRequested);
-                    
+                                    "Output buffer has {} frames but {} requested. Should be pre-allocated to maxBlockSize.",
+                                    channelBuffer.getSize().numFrames, numFramesRequested);
+
                     // Clear only the frames we need (real-time safe, no allocation)
                     auto numChannels = channelBuffer.getNumChannels();
                     auto* channelPtrs = channelBuffer.getView().data.channels;
@@ -283,24 +306,31 @@ namespace OloEngine::Audio
             }
         }
 
-    private:
+      private:
         std::atomic<bool> m_Suspended = false;
     };
 
     /// Function-based interleaved callback
     class CallbackBindedInterleaved : public AudioCallbackInterleaved<CallbackBindedInterleaved>
     {
-    public:
+      public:
         CallbackBindedInterleaved() = default;
         virtual ~CallbackBindedInterleaved() = default;
 
-        void SuspendProcessing(bool shouldBeSuspended) final { m_Suspended.store(shouldBeSuspended, std::memory_order_relaxed); }
-        bool IsSuspended() final { return m_Suspended.load(std::memory_order_relaxed); }
+        void SuspendProcessing(bool shouldBeSuspended) final
+        {
+            m_Suspended.store(shouldBeSuspended, std::memory_order_relaxed);
+        }
+        bool IsSuspended() final
+        {
+            return m_Suspended.load(std::memory_order_relaxed);
+        }
 
         std::function<void(const float** ppFramesIn, ma_uint32* pFrameCountIn,
-            float** ppFramesOut, ma_uint32* pFrameCountOut, const BusConfig& busConfig)> onAudioCallback;
+                           float** ppFramesOut, ma_uint32* pFrameCountOut, const BusConfig& busConfig)>
+            onAudioCallback;
 
-    private:
+      private:
         friend AudioCallbackInterleaved<CallbackBindedInterleaved>;
 
         virtual void ReleaseResources() override {}
@@ -315,7 +345,7 @@ namespace OloEngine::Audio
 
             // Derive requested frame count (0 if pFrameCountIn is null)
             ma_uint32 requestedFrames = (pFrameCountIn != nullptr) ? *pFrameCountIn : 0;
-            
+
             // Always set output frame count first
             if (pFrameCountOut != nullptr)
             {
@@ -346,7 +376,7 @@ namespace OloEngine::Audio
             }
         }
 
-    private:
+      private:
         std::atomic<bool> m_Suspended = false;
     };
 

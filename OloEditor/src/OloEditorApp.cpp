@@ -8,24 +8,24 @@
 
 namespace OloEngine
 {
-	class OloEngineEditor : public Application
-	{
-	public:
-		explicit OloEngineEditor(const ApplicationSpecification& spec)
-			: Application(spec)
-		{
-			PushLayer(new EditorLayer());
-		}
+    class OloEngineEditor : public Application
+    {
+      public:
+        explicit OloEngineEditor(const ApplicationSpecification& spec)
+            : Application(spec)
+        {
+            PushLayer(new EditorLayer());
+        }
 
-		~OloEngineEditor() final = default;
-	};
+        ~OloEngineEditor() final = default;
+    };
 
-	Application* CreateApplication(ApplicationCommandLineArgs const args)
-	{
-		ApplicationSpecification spec;
-		spec.Name = "OloEditor";
-		spec.CommandLineArgs = args;
+    Application* CreateApplication(ApplicationCommandLineArgs const args)
+    {
+        ApplicationSpecification spec;
+        spec.Name = "OloEditor";
+        spec.CommandLineArgs = args;
 
-		return new OloEngineEditor(spec);
-	}
-}
+        return new OloEngineEditor(spec);
+    }
+} // namespace OloEngine

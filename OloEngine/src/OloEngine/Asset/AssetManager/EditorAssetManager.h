@@ -28,24 +28,24 @@ namespace OloEngine
 {
     /**
      * @brief Editor asset manager with file-based loading and hot-reload support
-     * 
+     *
      * The EditorAssetManager is designed for development builds where assets
      * are loaded from individual files and can be hot-reloaded when modified.
      * It provides:
-     * 
+     *
      * - File-based asset loading with hot-reload
      * - Asset registry management and serialization
      * - File system monitoring and change detection
      * - Asynchronous asset loading thread
      * - Asset metadata caching and validation
      * - Comprehensive dependency tracking and resolution
-     * 
+     *
      * This manager is more complex than RuntimeAssetManager but provides
      * the flexibility needed during development.
      */
     class EditorAssetManager : public AssetManagerBase
     {
-    public:
+      public:
         EditorAssetManager();
         virtual ~EditorAssetManager();
 
@@ -80,7 +80,7 @@ namespace OloEngine
         virtual void SyncWithAssetThread() noexcept override;
 
         virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) const override;
-        
+
         virtual std::unordered_map<AssetHandle, Ref<Asset>> GetLoadedAssets() const override;
         virtual void ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const override;
 
@@ -105,7 +105,10 @@ namespace OloEngine
          * @param handle Asset handle
          * @return Copy of asset metadata (thread-safe)
          */
-        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const noexcept override { return GetMetadata(handle); }
+        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const noexcept override
+        {
+            return GetMetadata(handle);
+        }
 
         /**
          * @brief Set asset metadata (thread-safe)
@@ -241,10 +244,10 @@ namespace OloEngine
                 auto handle = metadata.Handle;
                 auto type = metadata.Type;
                 auto path = metadata.FilePath;
-                Application::Get().SubmitToMainThread([handle, type, path]() mutable {
+                Application::Get().SubmitToMainThread([handle, type, path]() mutable
+                                                      {
                     AssetReloadedEvent evt(handle, type, path);
-                    Application::Get().OnEvent(evt);
-                });
+                    Application::Get().OnEvent(evt); });
             }
 
             return asset;
@@ -313,7 +316,7 @@ namespace OloEngine
          */
         void UpdateDependents(AssetHandle handle);
 
-    private:
+      private:
         /**
          * @brief Load an asset from file
          * @param metadata Asset metadata containing file path
@@ -341,45 +344,45 @@ namespace OloEngine
          */
         void ScanDirectoryForAssets(const std::filesystem::path& directory);
 
-    private:
+      private:
         // Asset registry for metadata management
         AssetRegistry m_AssetRegistry;
-        
+
         // Loaded assets cache
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;
-        
+
         // Memory-only assets (no backing file)
         std::unordered_map<AssetHandle, Ref<Asset>> m_MemoryAssets;
-        
+
         // Asset dependencies tracking
         std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependencies; // asset handle -> assets that it depends on
         std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependents;   // asset handle -> assets that depend on it
-        
+
         // Async asset loading system
         Ref<EditorAssetSystem> m_AssetThread;
-        
+
         // Thread synchronization
         mutable std::shared_mutex m_AssetsMutex;
         mutable std::shared_mutex m_RegistryMutex;
         mutable std::shared_mutex m_DependenciesMutex;
-        
+
 #if OLO_ASYNC_ASSETS
         // File watching thread and control
         std::thread m_FileWatcherThread;
-        std::atomic<bool> m_ShouldTerminate{false};
-        
+        std::atomic<bool> m_ShouldTerminate{ false };
+
         // Real-time file watching using filewatch library
         std::unique_ptr<filewatch::FileWatch<std::string>> m_ProjectFileWatcher;
-        
+
         // Callback for file system events
         void OnFileSystemEvent(const std::string& file, const filewatch::Event change_type);
-        
+
         // File watcher thread function
         void FileWatcherThreadFunction();
 #endif
-        
+
         // Project path for asset scanning
         std::filesystem::path m_ProjectPath;
     };
 
-}
+} // namespace OloEngine

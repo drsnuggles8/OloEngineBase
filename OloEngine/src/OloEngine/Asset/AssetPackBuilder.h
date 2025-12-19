@@ -13,14 +13,14 @@ namespace OloEngine
 {
     /**
      * @brief Utility class for building asset packs from project assets
-     * 
+     *
      * The AssetPackBuilder scans the project's asset registry and serializes
      * all assets into a single pack file for runtime distribution.
      * Inspired by Hazel's AssetPack::CreateFromActiveProject implementation.
      */
     class AssetPackBuilder final
     {
-    public:
+      public:
         /**
          * @brief Build result information
          */
@@ -44,10 +44,10 @@ namespace OloEngine
             bool m_ValidateAssets = true;
         };
 
-    public:
+      public:
         // Prevent instantiation - this is a static utility class
         AssetPackBuilder() = delete;
-        
+
         /**
          * @brief Create asset pack from active project
          * @param settings Build settings for the pack
@@ -67,7 +67,7 @@ namespace OloEngine
          */
         static BuildResult BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken = nullptr);
 
-    private:
+      private:
         /**
          * @brief Build asset pack implementation
          * @param assetManager Asset manager to use
@@ -101,4 +101,4 @@ namespace OloEngine
          */
         static Buffer GetScriptModuleBinary();
     };
-}
+} // namespace OloEngine

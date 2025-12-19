@@ -13,14 +13,22 @@ namespace OloEngine
         {
             switch (format)
             {
-                case ImageFormat::R8: return GL_RED;
-                case ImageFormat::RGB8: return GL_RGB;
-                case ImageFormat::RGBA8: return GL_RGBA;
-                case ImageFormat::R32F: return GL_RED;
-                case ImageFormat::RG32F: return GL_RG;
-                case ImageFormat::RGB32F: return GL_RGB;
-                case ImageFormat::RGBA32F: return GL_RGBA;
-                case ImageFormat::DEPTH24STENCIL8: return GL_DEPTH_STENCIL;
+                case ImageFormat::R8:
+                    return GL_RED;
+                case ImageFormat::RGB8:
+                    return GL_RGB;
+                case ImageFormat::RGBA8:
+                    return GL_RGBA;
+                case ImageFormat::R32F:
+                    return GL_RED;
+                case ImageFormat::RG32F:
+                    return GL_RG;
+                case ImageFormat::RGB32F:
+                    return GL_RGB;
+                case ImageFormat::RGBA32F:
+                    return GL_RGBA;
+                case ImageFormat::DEPTH24STENCIL8:
+                    return GL_DEPTH_STENCIL;
             }
 
             OLO_CORE_ASSERT(false, "Unknown ImageFormat!");
@@ -31,20 +39,28 @@ namespace OloEngine
         {
             switch (format)
             {
-                case ImageFormat::R8: return GL_R8;
-                case ImageFormat::RGB8: return GL_RGB8;
-                case ImageFormat::RGBA8: return GL_RGBA8;
-                case ImageFormat::R32F: return GL_R32F;
-                case ImageFormat::RG32F: return GL_RG32F;
-                case ImageFormat::RGB32F: return GL_RGB32F;
-                case ImageFormat::RGBA32F: return GL_RGBA32F;
-                case ImageFormat::DEPTH24STENCIL8: return GL_DEPTH24_STENCIL8;
+                case ImageFormat::R8:
+                    return GL_R8;
+                case ImageFormat::RGB8:
+                    return GL_RGB8;
+                case ImageFormat::RGBA8:
+                    return GL_RGBA8;
+                case ImageFormat::R32F:
+                    return GL_R32F;
+                case ImageFormat::RG32F:
+                    return GL_RG32F;
+                case ImageFormat::RGB32F:
+                    return GL_RGB32F;
+                case ImageFormat::RGBA32F:
+                    return GL_RGBA32F;
+                case ImageFormat::DEPTH24STENCIL8:
+                    return GL_DEPTH24_STENCIL8;
             }
 
             OLO_CORE_ASSERT(false, "Unknown ImageFormat!");
             return 0;
         }
-    }
+    } // namespace Utils
 
     OpenGLTextureCubemap::OpenGLTextureCubemap(const CubemapSpecification& specification)
         : m_CubemapSpecification(specification), m_Width(m_CubemapSpecification.Width), m_Height(m_CubemapSpecification.Height)
@@ -61,8 +77,8 @@ namespace OloEngine
         m_DataFormat = Utils::OloEngineImageFormatToGLDataFormat(m_CubemapSpecification.Format);
 
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &m_RendererID);
-        glTextureStorage2D(m_RendererID, m_CubemapSpecification.GenerateMips ? 4 : 1, m_InternalFormat, 
-                          static_cast<int>(m_Width), static_cast<int>(m_Height));
+        glTextureStorage2D(m_RendererID, m_CubemapSpecification.GenerateMips ? 4 : 1, m_InternalFormat,
+                           static_cast<int>(m_Width), static_cast<int>(m_Height));
 
         // Set texture parameters appropriate for cubemaps
         glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_CubemapSpecification.GenerateMips ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
@@ -75,22 +91,38 @@ namespace OloEngine
         u32 bytesPerPixel = 4; // Default to RGBA
         switch (m_Specification.Format)
         {
-            case ImageFormat::R8: bytesPerPixel = 1; break;
-            case ImageFormat::RGB8: bytesPerPixel = 3; break;
-            case ImageFormat::RGBA8: bytesPerPixel = 4; break;
-            case ImageFormat::R32F: bytesPerPixel = 4; break;
-            case ImageFormat::RG32F: bytesPerPixel = 8; break;
-            case ImageFormat::RGB32F: bytesPerPixel = 12; break;
-            case ImageFormat::RGBA32F: bytesPerPixel = 16; break;
-            case ImageFormat::DEPTH24STENCIL8: bytesPerPixel = 4; break;
+            case ImageFormat::R8:
+                bytesPerPixel = 1;
+                break;
+            case ImageFormat::RGB8:
+                bytesPerPixel = 3;
+                break;
+            case ImageFormat::RGBA8:
+                bytesPerPixel = 4;
+                break;
+            case ImageFormat::R32F:
+                bytesPerPixel = 4;
+                break;
+            case ImageFormat::RG32F:
+                bytesPerPixel = 8;
+                break;
+            case ImageFormat::RGB32F:
+                bytesPerPixel = 12;
+                break;
+            case ImageFormat::RGBA32F:
+                bytesPerPixel = 16;
+                break;
+            case ImageFormat::DEPTH24STENCIL8:
+                bytesPerPixel = 4;
+                break;
         }
         sizet cubemapMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel * 6; // 6 faces
 
         // Track GPU memory allocation
-        OLO_TRACK_GPU_ALLOC(this, 
-                             cubemapMemory, 
-                             RendererMemoryTracker::ResourceType::TextureCubemap, 
-                             "OpenGL TextureCubemap (spec)");
+        OLO_TRACK_GPU_ALLOC(this,
+                            cubemapMemory,
+                            RendererMemoryTracker::ResourceType::TextureCubemap,
+                            "OpenGL TextureCubemap (spec)");
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterTextureCubemap(m_RendererID, "TextureCubemap (spec)", "TextureCubemap");
@@ -104,17 +136,18 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         OLO_CORE_ASSERT(facePaths.size() == 6, "Cubemap must have exactly 6 face textures!");
-		m_HasAlphaChannel = false;
-        
+        m_HasAlphaChannel = false;
+
         m_Path = facePaths[0] + ",..."; // Store abbreviated path of the first face + indication of more
         LoadFaces(facePaths);
-    }    OpenGLTextureCubemap::~OpenGLTextureCubemap()
+    }
+    OpenGLTextureCubemap::~OpenGLTextureCubemap()
     {
         OLO_PROFILE_FUNCTION();
 
         // Track GPU memory deallocation
         OLO_TRACK_DEALLOC(this);
-        
+
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
@@ -126,10 +159,10 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &m_RendererID);
-        
+
         int width;
-		int height;
-		int channels;
+        int height;
+        int channels;
         stbi_set_flip_vertically_on_load(0); // Don't flip cubemap textures
 
         // First pass: check sizes and determine format
@@ -154,18 +187,18 @@ namespace OloEngine
                 // Set up the texture format based on the first face
                 switch (channels)
                 {
-                    case 1: 
-                        m_InternalFormat = GL_R8; 
-                        m_DataFormat = GL_RED; 
+                    case 1:
+                        m_InternalFormat = GL_R8;
+                        m_DataFormat = GL_RED;
                         break;
-                    case 3: 
-                        m_InternalFormat = GL_RGB8; 
-                        m_DataFormat = GL_RGB; 
+                    case 3:
+                        m_InternalFormat = GL_RGB8;
+                        m_DataFormat = GL_RGB;
                         break;
-                    case 4: 
-                        m_InternalFormat = GL_RGBA8; 
+                    case 4:
+                        m_InternalFormat = GL_RGBA8;
                         m_DataFormat = GL_RGBA;
-						m_HasAlphaChannel = true;
+                        m_HasAlphaChannel = true;
                         break;
                     default:
                         OLO_CORE_ERROR("Unsupported number of channels for cubemap texture: {}", channels);
@@ -176,8 +209,7 @@ namespace OloEngine
                 // Set up specifications
                 m_CubemapSpecification.Width = m_Width;
                 m_CubemapSpecification.Height = m_Height;
-                m_CubemapSpecification.Format = channels == 1 ? ImageFormat::R8 : 
-                                              (channels == 3 ? ImageFormat::RGB8 : ImageFormat::RGBA8);
+                m_CubemapSpecification.Format = channels == 1 ? ImageFormat::R8 : (channels == 3 ? ImageFormat::RGB8 : ImageFormat::RGBA8);
                 m_CubemapSpecification.GenerateMips = true;
 
                 m_Specification.Width = m_Width;
@@ -209,7 +241,7 @@ namespace OloEngine
             }
 
             glTextureSubImage3D(
-                m_RendererID, 
+                m_RendererID,
                 0,                          // Mipmap level
                 0, 0,                       // X and Y offsets
                 i,                          // Face index (Z offset in 3D texture terms)
@@ -235,14 +267,14 @@ namespace OloEngine
         glGenerateTextureMipmap(m_RendererID);
 
         // Calculate memory usage
-        u32 bytesPerPixel = channels; // Use actual channels from loaded images
+        u32 bytesPerPixel = channels;                                                     // Use actual channels from loaded images
         sizet cubemapMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel * 6; // 6 faces
 
         // Track GPU memory allocation
-        OLO_TRACK_GPU_ALLOC(this, 
-                             cubemapMemory, 
-                             RendererMemoryTracker::ResourceType::TextureCubemap, 
-                             "OpenGL TextureCubemap (loaded)");
+        OLO_TRACK_GPU_ALLOC(this,
+                            cubemapMemory,
+                            RendererMemoryTracker::ResourceType::TextureCubemap,
+                            "OpenGL TextureCubemap (loaded)");
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterTextureCubemap(m_RendererID, m_Path, "TextureCubemap (loaded)");
@@ -254,7 +286,7 @@ namespace OloEngine
     void OpenGLTextureCubemap::SetData(void* /*data*/, u32 /*size*/)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         OLO_CORE_ERROR("SetData is not supported for cubemaps, use SetFaceData instead");
     }
 
@@ -267,7 +299,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(size == m_Width * m_Height * bpp, "Data size doesn't match face dimensions!");
 
         glTextureSubImage3D(
-            m_RendererID, 
+            m_RendererID,
             0,                          // Mipmap level
             0, 0,                       // X and Y offsets
             faceIndex,                  // Face index (Z offset in 3D texture terms)
@@ -294,4 +326,4 @@ namespace OloEngine
 
         glBindTextureUnit(slot, m_RendererID);
     }
-}
+} // namespace OloEngine

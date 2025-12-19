@@ -3,28 +3,28 @@
 
 namespace OloEngine
 {
-	Buffer FileSystem::ReadFileBinary(const std::filesystem::path& filepath)
-	{
-		std::ifstream stream(filepath, std::ios::binary | std::ios::ate);
+    Buffer FileSystem::ReadFileBinary(const std::filesystem::path& filepath)
+    {
+        std::ifstream stream(filepath, std::ios::binary | std::ios::ate);
 
-		if (!stream)
-		{
-			return {};
-		}
+        if (!stream)
+        {
+            return {};
+        }
 
-		std::streampos end = stream.tellg();
-		stream.seekg(0, std::ios::beg);
-		auto size = static_cast<u64>(end - stream.tellg());
+        std::streampos end = stream.tellg();
+        stream.seekg(0, std::ios::beg);
+        auto size = static_cast<u64>(end - stream.tellg());
 
-		if (size == 0)
-		{
-			return {};
-		}
+        if (size == 0)
+        {
+            return {};
+        }
 
-		Buffer buffer(size);
-		stream.read(buffer.As<char>(), static_cast<std::streamsize>(size));
-		stream.close();
-		return buffer;
-	}
+        Buffer buffer(size);
+        stream.read(buffer.As<char>(), static_cast<std::streamsize>(size));
+        stream.close();
+        return buffer;
+    }
 
-}
+} // namespace OloEngine

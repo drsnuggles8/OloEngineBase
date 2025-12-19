@@ -20,30 +20,36 @@ namespace OloEngine
 {
     /**
      * @brief Base class for placeholder assets
-     * 
+     *
      * Placeholder assets are used as fallbacks when:
      * - An asset fails to load
      * - An asset is missing
      * - During async loading (temporary placeholder)
      * - Asset is corrupted or invalid
-     * 
+     *
      * Each placeholder provides basic functionality and visual/audio feedback
      * to indicate that it's a temporary substitute.
      */
     class PlaceholderAsset : public Asset
     {
-    public:
-        PlaceholderAsset(AssetType type) : m_PlaceholderType(type) 
+      public:
+        PlaceholderAsset(AssetType type) : m_PlaceholderType(type)
         {
             // Placeholder assets explicitly use handle 0 (invalid)
             SetHandle(0);
         }
         virtual ~PlaceholderAsset() = default;
 
-        AssetType GetAssetType() const override { return m_PlaceholderType; }
-        bool IsPlaceholder() const { return true; }
+        AssetType GetAssetType() const override
+        {
+            return m_PlaceholderType;
+        }
+        bool IsPlaceholder() const
+        {
+            return true;
+        }
 
-    protected:
+      protected:
         AssetType m_PlaceholderType;
     };
 
@@ -52,12 +58,15 @@ namespace OloEngine
      */
     class PlaceholderTexture : public PlaceholderAsset
     {
-    public:
+      public:
         PlaceholderTexture();
 
-        Ref<Texture2D> GetTexture() const { return m_Texture; }
+        Ref<Texture2D> GetTexture() const
+        {
+            return m_Texture;
+        }
 
-    private:
+      private:
         Ref<Texture2D> m_Texture;
         void CreatePlaceholderTexture();
     };
@@ -67,13 +76,16 @@ namespace OloEngine
      */
     class PlaceholderMaterial : public PlaceholderAsset
     {
-    public:
+      public:
         PlaceholderMaterial();
         virtual ~PlaceholderMaterial() = default;
 
-        Ref<MaterialAsset> GetMaterial() const { return m_Material; }
+        Ref<MaterialAsset> GetMaterial() const
+        {
+            return m_Material;
+        }
 
-    private:
+      private:
         Ref<MaterialAsset> m_Material;
         void CreatePlaceholderMaterial();
     };
@@ -83,13 +95,16 @@ namespace OloEngine
      */
     class PlaceholderMesh : public PlaceholderAsset
     {
-    public:
+      public:
         PlaceholderMesh();
         virtual ~PlaceholderMesh() = default;
 
-        Ref<Mesh> GetMesh() const { return m_Mesh; }
+        Ref<Mesh> GetMesh() const
+        {
+            return m_Mesh;
+        }
 
-    private:
+      private:
         Ref<Mesh> m_Mesh;
         void CreatePlaceholderMesh();
     };
@@ -99,13 +114,16 @@ namespace OloEngine
      */
     class PlaceholderAudio : public PlaceholderAsset
     {
-    public:
+      public:
         PlaceholderAudio();
         virtual ~PlaceholderAudio() = default;
 
-        Ref<AudioSource> GetAudioSource() const { return m_AudioSource; }
+        Ref<AudioSource> GetAudioSource() const
+        {
+            return m_AudioSource;
+        }
 
-    private:
+      private:
         Ref<AudioSource> m_AudioSource;
         void CreatePlaceholderAudio();
     };
@@ -115,20 +133,20 @@ namespace OloEngine
      */
     class GenericPlaceholder : public PlaceholderAsset
     {
-    public:
+      public:
         GenericPlaceholder(AssetType type) : PlaceholderAsset(type) {}
         virtual ~GenericPlaceholder() = default;
     };
 
     /**
      * @brief Placeholder asset manager
-     * 
+     *
      * Manages creation and caching of placeholder assets for different types.
      * Ensures only one placeholder instance per asset type to save memory.
      */
     class PlaceholderAssetManager
     {
-    public:
+      public:
         static void Initialize();
         static void Shutdown();
 
@@ -149,13 +167,13 @@ namespace OloEngine
         /**
          * @brief Get statistics about placeholder usage
          */
-        static sizet GetPlaceholderCount() 
-        { 
+        static sizet GetPlaceholderCount()
+        {
             std::lock_guard<std::mutex> lock(s_PlaceholderMutex);
-            return s_PlaceholderAssets.size(); 
+            return s_PlaceholderAssets.size();
         }
 
-    private:
+      private:
         static std::unordered_map<AssetType, Ref<Asset>> s_PlaceholderAssets;
         static std::mutex s_PlaceholderMutex;
         static bool s_Initialized;
@@ -163,4 +181,4 @@ namespace OloEngine
         static Ref<Asset> CreatePlaceholderAsset(AssetType type);
     };
 
-}
+} // namespace OloEngine

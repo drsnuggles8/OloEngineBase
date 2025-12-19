@@ -3,16 +3,16 @@
 /**
  * @file SetUtilities.h
  * @brief Utility types for TSet containers
- * 
+ *
  * Provides:
  * - TIsTSet: Traits class to detect TSet types
  * - BaseKeyFuncs: Base class for custom key functions
  * - DefaultKeyFuncs: Default key functions using element as key
  * - MoveByRelocate: Move-by-relocate helper
  * - FSetElementId: Opaque identifier for set elements
- * 
+ *
  * Note: EAllowShrinking is defined in Array.h and is also used by set containers.
- * 
+ *
  * Ported from Unreal Engine's Containers/SetUtilities.h
  */
 
@@ -33,61 +33,73 @@ namespace OloEngine
      * @struct TIsTSet
      * @brief Traits class which determines whether or not a type is a TSet
      */
-    template <typename T>
+    template<typename T>
     struct TIsTSet
     {
-        enum { Value = false };
+        enum
+        {
+            Value = false
+        };
     };
 
     /**
      * @struct TIsSparseSet
      * @brief Traits class which determines whether or not a type is a TSparseSet
      */
-    template <typename T>
+    template<typename T>
     struct TIsSparseSet
     {
-        enum { Value = false };
+        enum
+        {
+            Value = false
+        };
     };
 
     /**
      * @struct TIsCompactSet
      * @brief Traits class which determines whether or not a type is a TCompactSet
      */
-    template <typename T>
+    template<typename T>
     struct TIsCompactSet
     {
-        enum { Value = false };
+        enum
+        {
+            Value = false
+        };
     };
 
     /**
      * @struct BaseKeyFuncs
      * @brief The base KeyFuncs type with useful definitions; meant to be derived from
-     * 
+     *
      * bInAllowDuplicateKeys=true is slightly faster because it allows the TSet to skip
      * validating that there isn't already a duplicate entry in the TSet.
-     * 
+     *
      * @tparam ElementType          The element type stored in the set
      * @tparam InKeyType            The type used as a key
      * @tparam bInAllowDuplicateKeys Whether to allow duplicate keys (faster if true)
      */
-    template <typename ElementType, typename InKeyType, bool bInAllowDuplicateKeys = false>
+    template<typename ElementType, typename InKeyType, bool bInAllowDuplicateKeys = false>
     struct BaseKeyFuncs
     {
         using KeyType = InKeyType;
         using KeyInitType = typename TCallTraits<InKeyType>::ParamType;
         using ElementInitType = typename TCallTraits<ElementType>::ParamType;
 
-        enum { bAllowDuplicateKeys = bInAllowDuplicateKeys };
+        enum
+        {
+            bAllowDuplicateKeys = bInAllowDuplicateKeys
+        };
     };
 
     /**
      * @struct DefaultKeyFuncs
      * @brief A default implementation of the KeyFuncs used by TSet which uses the element as a key
-     * 
+     *
      * @tparam ElementType          The element type stored in the set
      * @tparam bInAllowDuplicateKeys Whether to allow duplicate keys
      */
-    template <typename ElementType, bool bInAllowDuplicateKeys = false>
+    template<typename ElementType, bool bInAllowDuplicateKeys = false>
     struct DefaultKeyFuncs : BaseKeyFuncs<ElementType, ElementType, bInAllowDuplicateKeys>
     {
         using KeyInitType = typename TTypeTraits<ElementType>::ConstPointerType;
@@ -112,7 +124,7 @@ namespace OloEngine
         /**
          * @return True if the keys match (heterogeneous comparison)
          */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] static OLO_FINLINE bool Matches(KeyInitType A, ComparableKey B)
         {
             return A == B;
@@ -125,7 +137,7 @@ namespace OloEngine
         }
 
         /** Calculates a hash index for a key (heterogeneous) */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] static OLO_FINLINE u32 GetKeyHash(ComparableKey Key)
         {
             return GetTypeHash(Key);
@@ -134,10 +146,10 @@ namespace OloEngine
 
     /**
      * @brief Move element A to B by relocating (destroying A)
-     * 
+     *
      * This is used to provide type specific behavior for a move which will destroy B.
      */
-    template <typename T>
+    template<typename T>
     inline void MoveByRelocate(T& A, T& B)
     {
         // Destruct the previous value of A
@@ -150,12 +162,12 @@ namespace OloEngine
     /**
      * @class FSetElementId
      * @brief Either NULL or an identifier for an element of a set
-     * 
+     *
      * Used to differentiate between int as an element type and an index to a specific location.
      */
     class FSetElementId
     {
-    public:
+      public:
         /** Default constructor - creates an invalid id */
         constexpr OLO_FINLINE FSetElementId() = default;
 
@@ -188,7 +200,7 @@ namespace OloEngine
             return FSetElementId(Integer);
         }
 
-    private:
+      private:
         /** The index of the element in the set's element array */
         i32 Index = INDEX_NONE;
 

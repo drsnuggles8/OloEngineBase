@@ -17,7 +17,7 @@ namespace OloEngine
     void Mesh::SetMeshSource(Ref<MeshSource> meshSource)
     {
         OLO_CORE_ASSERT(meshSource, "MeshSource cannot be null!");
-        
+
         // If changing to a different MeshSource, validate submesh index is still valid
         if (meshSource != m_MeshSource)
         {
@@ -29,7 +29,7 @@ namespace OloEngine
                 m_SubmeshIndex = 0;
             }
         }
-        
+
         m_MeshSource = meshSource;
     }
 
@@ -38,7 +38,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null! Cannot set submesh index on invalid Mesh.");
         if (submeshIndex >= m_MeshSource->GetSubmeshes().size())
         {
-            OLO_CORE_ERROR("Submesh index {} out of range! MeshSource has {} submeshes.", 
+            OLO_CORE_ERROR("Submesh index {} out of range! MeshSource has {} submeshes.",
                            submeshIndex, m_MeshSource->GetSubmeshes().size());
             OLO_CORE_ASSERT(false);
         }
@@ -74,11 +74,11 @@ namespace OloEngine
     {
         if (!m_MeshSource)
             return false;
-        
+
         const auto& submeshes = m_MeshSource->GetSubmeshes();
         if (m_SubmeshIndex >= submeshes.size())
             return false;
-        
+
         return m_MeshSource->IsSubmeshRigged(m_SubmeshIndex);
     }
 
@@ -86,28 +86,28 @@ namespace OloEngine
     {
         if (!m_MeshSource)
             return BoundingBox();
-        
-        #ifdef OLO_DEBUG_FRUSTUM_CULLING
+
+#ifdef OLO_DEBUG_FRUSTUM_CULLING
         // Debug mode: use overall MeshSource bounds to debug frustum culling issue
         return m_MeshSource->GetBoundingBox();
-        #else
+#else
         // Production mode: use submesh-specific bounding box
         const auto& submeshes = m_MeshSource->GetSubmeshes();
         if (m_SubmeshIndex < submeshes.size())
         {
             return submeshes[m_SubmeshIndex].m_BoundingBox;
         }
-        
+
         // Fallback to overall MeshSource bounds
         return m_MeshSource->GetBoundingBox();
-        #endif
+#endif
     }
 
     BoundingSphere Mesh::GetBoundingSphere() const
     {
         if (!m_MeshSource)
             return BoundingSphere();
-        
+
         // Calculate sphere from submesh bounding box
         const auto& boundingBox = GetBoundingBox();
         glm::vec3 center = (boundingBox.Min + boundingBox.Max) * 0.5f;
@@ -136,13 +136,13 @@ namespace OloEngine
     {
         if (!m_MeshSource)
             return 0;
-        
+
         const auto& submeshes = m_MeshSource->GetSubmeshes();
         if (m_SubmeshIndex < submeshes.size())
         {
             return submeshes[m_SubmeshIndex].m_IndexCount;
         }
-        
+
         // Return 0 if submesh index is invalid
         return 0;
     }
@@ -175,7 +175,7 @@ namespace OloEngine
     void StaticMesh::SetSubmeshes(const std::vector<u32>& submeshes)
     {
         m_Submeshes = submeshes;
-        
+
         // Re-setup with new submeshes (validation will be handled in SetupStaticMesh)
         SetupStaticMesh();
     }
@@ -205,7 +205,7 @@ namespace OloEngine
         // Copy materials from mesh source (use const reference to access const GetMaterials())
         const MeshSource& meshSourceRef = *meshSourceAsset;
         const auto& sourceMaterials = meshSourceRef.GetMaterials();
-        
+
         // Copy materials from the mesh source map
         for (const auto& [materialIndex, materialHandle] : sourceMaterials)
         {
@@ -245,4 +245,4 @@ namespace OloEngine
             OLO_CORE_TRACE("StaticMesh::SetupStaticMesh - Collider generation not yet implemented");
         }
     }
-}
+} // namespace OloEngine

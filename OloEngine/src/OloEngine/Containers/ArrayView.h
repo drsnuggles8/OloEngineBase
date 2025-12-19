@@ -3,21 +3,22 @@
 /**
  * @file ArrayView.h
  * @brief Non-owning view into a contiguous array of elements
- * 
+ *
  * TArrayView provides a non-owning view into a contiguous sequence of elements,
  * similar to std::span but with UE-style API. Key features:
- * 
+ *
  * - Zero-copy view into arrays, pointers, or any contiguous container
  * - Constexpr support for compile-time array manipulation
  * - Compatible with ranged-for loops
  * - Supports slicing and subviews
  * - Search and sort operations on the view
- * 
+ *
  * Ported from Unreal Engine's Containers/ArrayView.h
  */
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/ContainerAllocationPolicies.h"
+#include "OloEngine/Containers/ContainerElementTypeCompatibility.h"
 #include "OloEngine/Containers/ReverseIterate.h"
 #include "OloEngine/Memory/MemoryOps.h"
 #include "OloEngine/Misc/IntrusiveUnsetOptionalState.h"
@@ -34,10 +35,10 @@
 namespace OloEngine
 {
     // Forward declarations
-    template <typename T, typename AllocatorType = FDefaultAllocator>
+    template<typename T, typename AllocatorType = FDefaultAllocator>
     class TArray;
 
-    template <typename InElementType, typename InSizeType>
+    template<typename InElementType, typename InSizeType>
     class TArrayView;
 
     // ============================================================================
@@ -48,20 +49,20 @@ namespace OloEngine
     {
         /**
          * @brief Type trait testing whether a type is compatible with the view type
-         * 
+         *
          * The extra stars here are *IMPORTANT*
          * They prevent TArrayView<Base>(TArray<Derived>&) from compiling!
          */
-        template <typename T, typename ElementType>
+        template<typename T, typename ElementType>
         constexpr bool TIsCompatibleElementType_V = std::is_convertible_v<T**, ElementType* const*>;
 
         /**
          * @brief Helper to forward to an unqualified GetData()
-         * 
+         *
          * Can be called from within TArrayView where GetData() is already a member
          * and so hides any others.
          */
-        template <typename T>
+        template<typename T>
         OLO_FINLINE constexpr auto GetDataHelper(T&& Arg) -> decltype(GetData(std::forward<T>(Arg)))
         {
             return GetData(std::forward<T>(Arg));
@@ -69,10 +70,10 @@ namespace OloEngine
 
         /**
          * @brief Gets the data from the passed argument and proceeds to reinterpret the resulting elements
-         * 
+         *
          * This is used for containers that need element type reinterpretation (e.g., object pointers).
          */
-        template <typename T>
+        template<typename T>
         inline decltype(auto) GetReinterpretedDataHelper(T&& Arg)
         {
             auto NaturalPtr = GetData(std::forward<T>(Arg));
@@ -80,28 +81,22 @@ namespace OloEngine
 
             auto Size = GetNum(Arg);
             auto EndPtr = NaturalPtr + Size;
-            // Note: TContainerElementTypeCompatibility is expected to be defined in the engine
-            // For now, this is a placeholder that will need proper implementation
-            // TContainerElementTypeCompatibility<NaturalElementType>::ReinterpretRangeContiguous(NaturalPtr, EndPtr, Size);
+            TContainerElementTypeCompatibility<NaturalElementType>::ReinterpretRangeContiguous(NaturalPtr, EndPtr, Size);
 
-            return reinterpret_cast<typename std::conditional_t<
-                std::is_same_v<NaturalElementType, NaturalElementType>,
-                std::type_identity<NaturalElementType>
-            >::type*>(NaturalPtr);
+            return reinterpret_cast<typename TContainerElementTypeCompatibility<NaturalElementType>::ReinterpretType*>(NaturalPtr);
         }
 
         /**
          * @brief Trait testing whether a type is compatible with the view type
          */
-        template <typename RangeType, typename ElementType>
+        template<typename RangeType, typename ElementType>
         struct TIsCompatibleRangeType
         {
             static constexpr bool Value = TIsCompatibleElementType_V<
                 std::remove_pointer_t<decltype(GetData(std::declval<RangeType&>()))>,
-                ElementType
-            >;
+                ElementType>;
 
-            template <typename T>
+            template<typename T>
             static constexpr decltype(auto) GetData(T&& Arg)
             {
                 return ArrayView::Private::GetDataHelper(std::forward<T>(Arg));
@@ -111,43 +106,46 @@ namespace OloEngine
         /**
          * @brief Trait testing whether a type is reinterpretable in a way that permits use with the view type
          */
-        template <typename RangeType, typename ElementType>
+        template<typename RangeType, typename ElementType>
         struct TIsReinterpretableRangeType
         {
-        private:
+          private:
             using NaturalElementType = std::remove_pointer_t<decltype(GetData(std::declval<RangeType&>()))>;
+            using TypeCompat = TContainerElementTypeCompatibility<NaturalElementType>;
 
-        public:
-            static constexpr bool Value = false;  // Simplified - full implementation requires TContainerElementTypeCompatibility
+          public:
+            static constexpr bool Value =
+                !std::is_same_v<typename TypeCompat::ReinterpretType, NaturalElementType> &&
+                TIsCompatibleElementType_V<typename TypeCompat::ReinterpretType, ElementType>;
 
-            template <typename T>
+            template<typename T>
             static decltype(auto) GetData(T&& Arg)
             {
                 return ArrayView::Private::GetReinterpretedDataHelper(std::forward<T>(Arg));
             }
         };
-    }
+    } // namespace ArrayView::Private
 
     /**
      * @brief Type trait to detect TArrayView types
      */
-    template <typename T>
+    template<typename T>
     inline constexpr bool TIsTArrayView_V = false;
 
-    template <typename InElementType, typename InSizeType>
-    inline constexpr bool TIsTArrayView_V<               TArrayView<InElementType, InSizeType>> = true;
-    template <typename InElementType, typename InSizeType>
-    inline constexpr bool TIsTArrayView_V<      volatile TArrayView<InElementType, InSizeType>> = true;
-    template <typename InElementType, typename InSizeType>
-    inline constexpr bool TIsTArrayView_V<const          TArrayView<InElementType, InSizeType>> = true;
-    template <typename InElementType, typename InSizeType>
+    template<typename InElementType, typename InSizeType>
+    inline constexpr bool TIsTArrayView_V<TArrayView<InElementType, InSizeType>> = true;
+    template<typename InElementType, typename InSizeType>
+    inline constexpr bool TIsTArrayView_V<volatile TArrayView<InElementType, InSizeType>> = true;
+    template<typename InElementType, typename InSizeType>
+    inline constexpr bool TIsTArrayView_V<const TArrayView<InElementType, InSizeType>> = true;
+    template<typename InElementType, typename InSizeType>
     inline constexpr bool TIsTArrayView_V<const volatile TArrayView<InElementType, InSizeType>> = true;
 
-    template <typename T>
+    template<typename T>
     struct TIsTArrayView
     {
         static constexpr bool Value = TIsTArrayView_V<T>;
-        static constexpr bool value = TIsTArrayView_V<T>;  // STL compatibility
+        static constexpr bool value = TIsTArrayView_V<T>; // STL compatibility
     };
 
     // ============================================================================
@@ -157,50 +155,48 @@ namespace OloEngine
     /**
      * @class TArrayView
      * @brief A non-owning view into a contiguous array of elements
-     * 
+     *
      * TArrayView is similar to std::span - it provides a lightweight view into
      * a contiguous sequence of elements without owning the underlying storage.
-     * 
+     *
      * Key characteristics:
      * - Does not own the memory it references
      * - Lightweight: just a pointer and size
      * - Supports const and non-const elements
      * - Constexpr friendly
      * - Compatible with ranged-for loops
-     * 
+     *
      * @tparam InElementType The element type (can be const for read-only view)
      * @tparam InSizeType    The size type (default: i32)
      */
-    template <typename InElementType, typename InSizeType = i32>
+    template<typename InElementType, typename InSizeType = i32>
     class TArrayView
     {
-    public:
+      public:
         using ElementType = InElementType;
         using SizeType = InSizeType;
 
         static_assert(std::is_signed_v<SizeType>, "TArrayView only supports signed index types");
 
-    private:
+      private:
         // Traits for checking compatible types
-        template <typename T>
+        template<typename T>
         using TIsCompatibleRangeType = ArrayView::Private::TIsCompatibleRangeType<T, ElementType>;
 
-        template <typename T>
+        template<typename T>
         using TIsReinterpretableRangeType = ArrayView::Private::TIsReinterpretableRangeType<T, ElementType>;
 
-        template <typename OtherRangeType>
+        template<typename OtherRangeType>
         using TIsCompatibleRange = std::bool_constant<
             TIsCompatibleRangeType<OtherRangeType>::Value &&
-            !TIsTArrayView_V<std::remove_cv_t<std::remove_reference_t<OtherRangeType>>>
-        >;
+            !TIsTArrayView_V<std::remove_cv_t<std::remove_reference_t<OtherRangeType>>>>;
 
-        template <typename OtherRangeType>
+        template<typename OtherRangeType>
         using TIsCompatibleArrayViewRange = std::bool_constant<
             TIsCompatibleRangeType<OtherRangeType>::Value &&
-            TIsTArrayView_V<std::remove_cv_t<std::remove_reference_t<OtherRangeType>>>
-        >;
+            TIsTArrayView_V<std::remove_cv_t<std::remove_reference_t<OtherRangeType>>>>;
 
-    public:
+      public:
         // ====================================================================
         // Constructors
         // ====================================================================
@@ -212,8 +208,7 @@ namespace OloEngine
 
         /** Default constructor - creates an empty view */
         [[nodiscard]] constexpr TArrayView()
-            : DataPtr(nullptr)
-            , ArrayNum(0)
+            : DataPtr(nullptr), ArrayNum(0)
         {
         }
 
@@ -222,11 +217,10 @@ namespace OloEngine
          * @param InData Pointer to the first element
          * @param InCount Number of elements
          */
-        template <typename OtherElementType>
-            requires (ArrayView::Private::TIsCompatibleElementType_V<OtherElementType, ElementType>)
+        template<typename OtherElementType>
+            requires(ArrayView::Private::TIsCompatibleElementType_V<OtherElementType, ElementType>)
         [[nodiscard]] constexpr TArrayView(OtherElementType* InData OLO_LIFETIMEBOUND, SizeType InCount)
-            : DataPtr(InData)
-            , ArrayNum(InCount)
+            : DataPtr(InData), ArrayNum(InCount)
         {
             OLO_CORE_ASSERT(ArrayNum >= 0, "TArrayView count must be non-negative");
         }
@@ -235,8 +229,8 @@ namespace OloEngine
          * @brief Construct from a compatible range (non-TArrayView)
          * @param Other The range to view
          */
-        template <typename OtherRangeType>
-            requires (TIsCompatibleRange<OtherRangeType>::value)
+        template<typename OtherRangeType>
+            requires(TIsCompatibleRange<OtherRangeType>::value)
         constexpr TArrayView(OtherRangeType&& Other OLO_LIFETIMEBOUND)
             : DataPtr(GetData(Other))
         {
@@ -257,8 +251,8 @@ namespace OloEngine
          * @brief Construct from another TArrayView with compatible element type
          * @param Other The array view to copy
          */
-        template <typename OtherElementType, typename OtherSizeType>
-            requires (ArrayView::Private::TIsCompatibleElementType_V<OtherElementType, ElementType>)
+        template<typename OtherElementType, typename OtherSizeType>
+            requires(ArrayView::Private::TIsCompatibleElementType_V<OtherElementType, ElementType>)
         constexpr TArrayView(const TArrayView<OtherElementType, OtherSizeType>& Other)
             : DataPtr(Other.GetData())
         {
@@ -278,8 +272,7 @@ namespace OloEngine
          * The caller is responsible for ensuring that the view does not outlive the initializer list.
          */
         [[nodiscard]] constexpr TArrayView(std::initializer_list<ElementType> List OLO_LIFETIMEBOUND)
-            : DataPtr(ArrayView::Private::GetDataHelper(List))
-            , ArrayNum(GetNum(List))
+            : DataPtr(ArrayView::Private::GetDataHelper(List)), ArrayNum(GetNum(List))
         {
             static_assert(std::is_const_v<ElementType>, "Only views of const elements can bind to initializer lists");
         }
@@ -291,8 +284,7 @@ namespace OloEngine
         using IntrusiveUnsetOptionalStateType = TArrayView;
 
         [[nodiscard]] explicit constexpr TArrayView(FIntrusiveUnsetOptionalState)
-            : DataPtr(nullptr)
-            , ArrayNum(-1)
+            : DataPtr(nullptr), ArrayNum(-1)
         {
         }
         [[nodiscard]] constexpr bool UEOpEquals(FIntrusiveUnsetOptionalState) const
@@ -311,8 +303,8 @@ namespace OloEngine
          * @brief Assign from a compatible range
          * @param Other The range to view
          */
-        template <typename OtherRangeType>
-            requires (TIsCompatibleRange<OtherRangeType>::value)
+        template<typename OtherRangeType>
+            requires(TIsCompatibleRange<OtherRangeType>::value)
         constexpr TArrayView& operator=(OtherRangeType&& Other)
         {
             DataPtr = GetData(Other);
@@ -367,13 +359,13 @@ namespace OloEngine
         {
             CheckInvariants();
             OLO_CORE_ASSERT((Index >= 0) & (Index < ArrayNum),
-                "Array index out of bounds: {} from an array of size {}", Index, ArrayNum);
+                            "Array index out of bounds: {} from an array of size {}", Index, ArrayNum);
         }
 
         /**
          * @brief Checks if a slice range [Index, Index+InNum) is in array range.
          * Length is 0 is allowed on empty arrays; Index must be 0 in that case.
-         * 
+         *
          * @param Index Starting index of the slice.
          * @param InNum Length of the slice.
          */
@@ -381,8 +373,8 @@ namespace OloEngine
         {
             OLO_CORE_ASSERT(Index >= 0, "Invalid index ({})", Index);
             OLO_CORE_ASSERT(InNum >= 0, "Invalid count ({})", InNum);
-            OLO_CORE_ASSERT(Index + InNum <= ArrayNum, 
-                "Range (index: {}, count: {}) lies outside the view of {} elements", Index, InNum, ArrayNum);
+            OLO_CORE_ASSERT(Index + InNum <= ArrayNum,
+                            "Range (index: {}, count: {}) lies outside the view of {} elements", Index, InNum, ArrayNum);
         }
 
         /**
@@ -462,10 +454,10 @@ namespace OloEngine
 
         /**
          * @brief Get a strict slice of the view
-         * 
+         *
          * Unlike Mid(), this function has a narrow contract - slicing outside
          * the bounds is illegal and will assert.
-         * 
+         *
          * @param Index Starting index
          * @param InNum Number of elements in the slice
          * @returns A new view containing the slice
@@ -520,9 +512,9 @@ namespace OloEngine
 
         /**
          * @brief Get a middle portion of the view (wide contract)
-         * 
+         *
          * This function has a wide contract - it will clamp indices to valid ranges.
-         * 
+         *
          * @param Index Starting index
          * @param Count Maximum number of elements
          * @returns A new view containing the middle portion
@@ -604,7 +596,7 @@ namespace OloEngine
         [[nodiscard]] constexpr SizeType Find(const ElementType& Item) const
         {
             const ElementType* OLO_RESTRICT Start = GetData();
-            for (const ElementType* OLO_RESTRICT Data = Start, *OLO_RESTRICT DataEnd = Data + ArrayNum; Data != DataEnd; ++Data)
+            for (const ElementType *OLO_RESTRICT Data = Start, *OLO_RESTRICT DataEnd = Data + ArrayNum; Data != DataEnd; ++Data)
             {
                 if (*Data == Item)
                 {
@@ -633,7 +625,7 @@ namespace OloEngine
          */
         [[nodiscard]] constexpr SizeType FindLast(const ElementType& Item) const
         {
-            for (const ElementType* OLO_RESTRICT Start = GetData(), *OLO_RESTRICT Data = Start + ArrayNum; Data != Start; )
+            for (const ElementType *OLO_RESTRICT Start = GetData(), *OLO_RESTRICT Data = Start + ArrayNum; Data != Start;)
             {
                 --Data;
                 if (*Data == Item)
@@ -650,11 +642,11 @@ namespace OloEngine
          * @param StartIndex Index to start searching from
          * @returns Index of the found element, or INDEX_NONE
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] constexpr SizeType FindLastByPredicate(Predicate Pred, SizeType StartIndex) const
         {
             OLO_CORE_ASSERT(StartIndex >= 0 && StartIndex <= this->Num(), "Invalid StartIndex for FindLastByPredicate");
-            for (const ElementType* OLO_RESTRICT Start = GetData(), *OLO_RESTRICT Data = Start + StartIndex; Data != Start; )
+            for (const ElementType *OLO_RESTRICT Start = GetData(), *OLO_RESTRICT Data = Start + StartIndex; Data != Start;)
             {
                 --Data;
                 if (std::invoke(Pred, *Data))
@@ -670,7 +662,7 @@ namespace OloEngine
          * @param Pred Predicate function
          * @returns Index of the found element, or INDEX_NONE
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] OLO_FINLINE constexpr SizeType FindLastByPredicate(Predicate Pred) const
         {
             return FindLastByPredicate(Pred, ArrayNum);
@@ -681,11 +673,11 @@ namespace OloEngine
          * @param Key Key to search for
          * @returns Index of the found element, or INDEX_NONE
          */
-        template <typename KeyType>
+        template<typename KeyType>
         [[nodiscard]] constexpr SizeType IndexOfByKey(const KeyType& Key) const
         {
             const ElementType* OLO_RESTRICT Start = GetData();
-            for (const ElementType* OLO_RESTRICT Data = Start, *OLO_RESTRICT DataEnd = Start + ArrayNum; Data != DataEnd; ++Data)
+            for (const ElementType *OLO_RESTRICT Data = Start, *OLO_RESTRICT DataEnd = Start + ArrayNum; Data != DataEnd; ++Data)
             {
                 if (*Data == Key)
                 {
@@ -700,11 +692,11 @@ namespace OloEngine
          * @param Pred Predicate function
          * @returns Index of the found element, or INDEX_NONE
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] constexpr SizeType IndexOfByPredicate(Predicate Pred) const
         {
             const ElementType* OLO_RESTRICT Start = GetData();
-            for (const ElementType* OLO_RESTRICT Data = Start, *OLO_RESTRICT DataEnd = Start + ArrayNum; Data != DataEnd; ++Data)
+            for (const ElementType *OLO_RESTRICT Data = Start, *OLO_RESTRICT DataEnd = Start + ArrayNum; Data != DataEnd; ++Data)
             {
                 if (std::invoke(Pred, *Data))
                 {
@@ -719,10 +711,10 @@ namespace OloEngine
          * @param Key Key to search for
          * @returns Pointer to the element, or nullptr
          */
-        template <typename KeyType>
+        template<typename KeyType>
         [[nodiscard]] constexpr ElementType* FindByKey(const KeyType& Key) const
         {
-            for (ElementType* OLO_RESTRICT Data = GetData(), *OLO_RESTRICT DataEnd = Data + ArrayNum; Data != DataEnd; ++Data)
+            for (ElementType *OLO_RESTRICT Data = GetData(), *OLO_RESTRICT DataEnd = Data + ArrayNum; Data != DataEnd; ++Data)
             {
                 if (*Data == Key)
                 {
@@ -737,10 +729,10 @@ namespace OloEngine
          * @param Pred Predicate function
          * @returns Pointer to the element, or nullptr
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] constexpr ElementType* FindByPredicate(Predicate Pred) const
         {
-            for (ElementType* OLO_RESTRICT Data = GetData(), *OLO_RESTRICT DataEnd = Data + ArrayNum; Data != DataEnd; ++Data)
+            for (ElementType *OLO_RESTRICT Data = GetData(), *OLO_RESTRICT DataEnd = Data + ArrayNum; Data != DataEnd; ++Data)
             {
                 if (std::invoke(Pred, *Data))
                 {
@@ -755,11 +747,11 @@ namespace OloEngine
          * @param Pred Predicate function
          * @returns New TArray containing matching elements
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] constexpr TArray<std::remove_const_t<ElementType>> FilterByPredicate(Predicate Pred) const
         {
             TArray<std::remove_const_t<ElementType>> FilterResults;
-            for (const ElementType* OLO_RESTRICT Data = GetData(), *OLO_RESTRICT DataEnd = Data + ArrayNum; Data != DataEnd; ++Data)
+            for (const ElementType *OLO_RESTRICT Data = GetData(), *OLO_RESTRICT DataEnd = Data + ArrayNum; Data != DataEnd; ++Data)
             {
                 if (std::invoke(Pred, *Data))
                 {
@@ -774,10 +766,10 @@ namespace OloEngine
          * @param Item Item to search for
          * @returns True if the item is in the view
          */
-        template <typename ComparisonType>
+        template<typename ComparisonType>
         [[nodiscard]] constexpr bool Contains(const ComparisonType& Item) const
         {
-            for (const ElementType* OLO_RESTRICT Data = GetData(), *OLO_RESTRICT DataEnd = Data + ArrayNum; Data != DataEnd; ++Data)
+            for (const ElementType *OLO_RESTRICT Data = GetData(), *OLO_RESTRICT DataEnd = Data + ArrayNum; Data != DataEnd; ++Data)
             {
                 if (*Data == Item)
                 {
@@ -792,7 +784,7 @@ namespace OloEngine
          * @param Pred Predicate function
          * @returns True if any element matches
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] OLO_FINLINE constexpr bool ContainsByPredicate(Predicate Pred) const
         {
             return FindByPredicate(Pred) != nullptr;
@@ -803,21 +795,27 @@ namespace OloEngine
         // ====================================================================
 
         /** Begin iterator for range-based for */
-        [[nodiscard]] OLO_FINLINE constexpr ElementType* begin() const { return GetData(); }
-        
+        [[nodiscard]] OLO_FINLINE constexpr ElementType* begin() const
+        {
+            return GetData();
+        }
+
         /** End iterator for range-based for */
-        [[nodiscard]] OLO_FINLINE constexpr ElementType* end() const { return GetData() + Num(); }
+        [[nodiscard]] OLO_FINLINE constexpr ElementType* end() const
+        {
+            return GetData() + Num();
+        }
 
         /** Reverse begin iterator */
-        [[nodiscard]] OLO_FINLINE constexpr TReversePointerIterator<ElementType> rbegin() const 
-        { 
-            return TReversePointerIterator<ElementType>(GetData() + Num()); 
+        [[nodiscard]] OLO_FINLINE constexpr TReversePointerIterator<ElementType> rbegin() const
+        {
+            return TReversePointerIterator<ElementType>(GetData() + Num());
         }
 
         /** Reverse end iterator */
-        [[nodiscard]] OLO_FINLINE constexpr TReversePointerIterator<ElementType> rend() const 
-        { 
-            return TReversePointerIterator<ElementType>(GetData()); 
+        [[nodiscard]] OLO_FINLINE constexpr TReversePointerIterator<ElementType> rend() const
+        {
+            return TReversePointerIterator<ElementType>(GetData());
         }
 
         // ====================================================================
@@ -846,7 +844,7 @@ namespace OloEngine
          *       If this is not desirable, please use Algo::Sort(*this, Predicate) directly instead.
          *       The auto-dereferencing behavior does not occur with smart pointers.
          */
-        template <typename PredicateClass>
+        template<typename PredicateClass>
         constexpr void Sort(const PredicateClass& Predicate)
         {
             TDereferenceWrapper<ElementType, PredicateClass> PredicateWrapper(Predicate);
@@ -878,7 +876,7 @@ namespace OloEngine
          *       If this is not desirable, please use Algo::StableSort(*this, Predicate) directly instead.
          *       The auto-dereferencing behavior does not occur with smart pointers.
          */
-        template <typename PredicateClass>
+        template<typename PredicateClass>
         constexpr void StableSort(const PredicateClass& Predicate)
         {
             TDereferenceWrapper<ElementType, PredicateClass> PredicateWrapper(Predicate);
@@ -891,12 +889,12 @@ namespace OloEngine
 
         /**
          * @brief Comparison with TArrayView is deleted to prevent ambiguity
-         * 
+         *
          * Comparison of array views to each other is not implemented because it
          * is not obvious whether the caller wants an exact match of the data
          * pointer and size, or to compare the objects being pointed to.
          */
-        template <typename OtherElementType, typename OtherSizeType>
+        template<typename OtherElementType, typename OtherSizeType>
         bool UEOpEquals(TArrayView<OtherElementType, OtherSizeType>) const = delete;
 
         /**
@@ -904,15 +902,15 @@ namespace OloEngine
          * @param Rhs Another ranged type to compare.
          * @returns True if this array view's contents and the other ranged type match. False otherwise.
          */
-        template <typename RangeType>
-            requires (std::is_convertible_v<decltype(ArrayView::Private::GetDataHelper(std::declval<RangeType&>())), const ElementType*>)
+        template<typename RangeType>
+            requires(std::is_convertible_v<decltype(ArrayView::Private::GetDataHelper(std::declval<RangeType&>())), const ElementType*>)
         [[nodiscard]] bool UEOpEquals(RangeType&& Rhs) const
         {
             auto Count = GetNum(Rhs);
             return Count == ArrayNum && CompareItems(DataPtr, ArrayView::Private::GetDataHelper(Rhs), Count);
         }
 
-    private:
+      private:
         ElementType* DataPtr;
         SizeType ArrayNum;
     };
@@ -921,20 +919,20 @@ namespace OloEngine
     // Deduction Guide
     // ============================================================================
 
-    template <typename T>
+    template<typename T>
     TArrayView(T*, i32) -> TArrayView<T>;
 
     // ============================================================================
     // Type Traits
     // ============================================================================
 
-    template <typename InElementType>
+    template<typename InElementType>
     struct TIsZeroConstructType<TArrayView<InElementType>>
     {
         static constexpr bool Value = true;
     };
 
-    template <typename T, typename SizeType>
+    template<typename T, typename SizeType>
     struct TIsContiguousContainer<TArrayView<T, SizeType>>
     {
         static constexpr bool Value = true;
@@ -945,11 +943,11 @@ namespace OloEngine
     // ============================================================================
 
     /** TArrayView using 64-bit size type */
-    template <typename InElementType>
+    template<typename InElementType>
     using TArrayView64 = TArrayView<InElementType, i64>;
 
     /** Const array view alias */
-    template <typename InElementType, typename InSizeType = i32>
+    template<typename InElementType, typename InSizeType = i32>
     using TConstArrayView = TArrayView<const InElementType, InSizeType>;
 
     // ============================================================================
@@ -961,11 +959,10 @@ namespace OloEngine
      * @param Other The source view
      * @returns A copy of the view
      */
-    template <
+    template<
         typename OtherRangeType,
-        typename CVUnqualifiedOtherRangeType = std::remove_cv_t<std::remove_reference_t<OtherRangeType>>
-    >
-        requires (TIsContiguousContainer<CVUnqualifiedOtherRangeType>::Value && TIsTArrayView_V<CVUnqualifiedOtherRangeType>)
+        typename CVUnqualifiedOtherRangeType = std::remove_cv_t<std::remove_reference_t<OtherRangeType>>>
+        requires(TIsContiguousContainer<CVUnqualifiedOtherRangeType>::Value && TIsTArrayView_V<CVUnqualifiedOtherRangeType>)
     [[nodiscard]] constexpr auto MakeArrayView(OtherRangeType&& Other)
     {
         return TArrayView<std::remove_pointer_t<decltype(GetData(std::declval<OtherRangeType&>()))>>(std::forward<OtherRangeType>(Other));
@@ -976,11 +973,10 @@ namespace OloEngine
      * @param Other The source container
      * @returns A view into the container
      */
-    template <
+    template<
         typename OtherRangeType,
-        typename CVUnqualifiedOtherRangeType = std::remove_cv_t<std::remove_reference_t<OtherRangeType>>
-    >
-        requires (TIsContiguousContainer<CVUnqualifiedOtherRangeType>::Value && !TIsTArrayView_V<CVUnqualifiedOtherRangeType>)
+        typename CVUnqualifiedOtherRangeType = std::remove_cv_t<std::remove_reference_t<OtherRangeType>>>
+        requires(TIsContiguousContainer<CVUnqualifiedOtherRangeType>::Value && !TIsTArrayView_V<CVUnqualifiedOtherRangeType>)
     [[nodiscard]] constexpr auto MakeArrayView(OtherRangeType&& Other)
     {
         return TArrayView<std::remove_pointer_t<decltype(GetData(std::declval<OtherRangeType&>()))>>(std::forward<OtherRangeType>(Other));
@@ -992,7 +988,7 @@ namespace OloEngine
      * @param Size Number of elements
      * @returns A view into the memory
      */
-    template <typename ElementType>
+    template<typename ElementType>
     [[nodiscard]] constexpr TArrayView<ElementType> MakeArrayView(ElementType* Pointer, i32 Size)
     {
         return TArrayView<ElementType>(Pointer, Size);
@@ -1003,7 +999,7 @@ namespace OloEngine
      * @param List The initializer list
      * @returns A const view into the list
      */
-    template <typename ElementType>
+    template<typename ElementType>
     [[nodiscard]] constexpr TArrayView<const ElementType> MakeArrayView(std::initializer_list<ElementType> List)
     {
         return TArrayView<const ElementType>(List.begin(), static_cast<i32>(List.size()));
@@ -1016,11 +1012,10 @@ namespace OloEngine
     /**
      * @brief Create a const TArrayView from an existing TArrayView
      */
-    template <
+    template<
         typename OtherRangeType,
-        typename CVUnqualifiedOtherRangeType = std::remove_cv_t<std::remove_reference_t<OtherRangeType>>
-    >
-        requires (TIsContiguousContainer<CVUnqualifiedOtherRangeType>::Value && TIsTArrayView_V<CVUnqualifiedOtherRangeType>)
+        typename CVUnqualifiedOtherRangeType = std::remove_cv_t<std::remove_reference_t<OtherRangeType>>>
+        requires(TIsContiguousContainer<CVUnqualifiedOtherRangeType>::Value && TIsTArrayView_V<CVUnqualifiedOtherRangeType>)
     [[nodiscard]] constexpr auto MakeConstArrayView(OtherRangeType&& Other)
     {
         return TArrayView<const std::remove_pointer_t<decltype(GetData(std::declval<OtherRangeType&>()))>>(std::forward<OtherRangeType>(Other));
@@ -1029,11 +1024,10 @@ namespace OloEngine
     /**
      * @brief Create a const TArrayView from a contiguous container
      */
-    template <
+    template<
         typename OtherRangeType,
-        typename CVUnqualifiedOtherRangeType = std::remove_cv_t<std::remove_reference_t<OtherRangeType>>
-    >
-        requires (TIsContiguousContainer<CVUnqualifiedOtherRangeType>::Value && !TIsTArrayView_V<CVUnqualifiedOtherRangeType>)
+        typename CVUnqualifiedOtherRangeType = std::remove_cv_t<std::remove_reference_t<OtherRangeType>>>
+        requires(TIsContiguousContainer<CVUnqualifiedOtherRangeType>::Value && !TIsTArrayView_V<CVUnqualifiedOtherRangeType>)
     [[nodiscard]] constexpr auto MakeConstArrayView(OtherRangeType&& Other)
     {
         return TArrayView<const std::remove_pointer_t<decltype(GetData(std::declval<OtherRangeType&>()))>>(std::forward<OtherRangeType>(Other));
@@ -1042,7 +1036,7 @@ namespace OloEngine
     /**
      * @brief Create a const TArrayView from a pointer and size
      */
-    template <typename ElementType>
+    template<typename ElementType>
     [[nodiscard]] constexpr TArrayView<const ElementType> MakeConstArrayView(const ElementType* Pointer, i32 Size)
     {
         return TArrayView<const ElementType>(Pointer, Size);
@@ -1051,7 +1045,7 @@ namespace OloEngine
     /**
      * @brief Create a const TArrayView from an initializer list
      */
-    template <typename ElementType>
+    template<typename ElementType>
     [[nodiscard]] constexpr TArrayView<const ElementType> MakeConstArrayView(std::initializer_list<ElementType> List)
     {
         return TArrayView<const ElementType>(List.begin(), static_cast<i32>(List.size()));

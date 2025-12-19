@@ -22,7 +22,11 @@
 #define DBG(...)
 #endif
 
-#define DECLARE_ID(name) static constexpr Identifier name{ #name }
+#define DECLARE_ID(name)             \
+    static constexpr Identifier name \
+    {                                \
+        #name                        \
+    }
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -33,15 +37,18 @@ namespace OloEngine::Audio::SoundGraph
         {
             DECLARE_ID(Play);
             DECLARE_ID(Stop);
-        private:
+
+          private:
             IDs() = delete;
         };
 
         explicit WavePlayer(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
             // Input events using Flag system like Hazel
-            AddInEvent(IDs::Play, [this](float v) { (void)v; m_PlayFlag.SetDirty(); });
-            AddInEvent(IDs::Stop, [this](float v) { (void)v; m_StopFlag.SetDirty(); });
+            AddInEvent(IDs::Play, [this](float v)
+                       { (void)v; m_PlayFlag.SetDirty(); });
+            AddInEvent(IDs::Stop, [this](float v)
+                       { (void)v; m_StopFlag.SetDirty(); });
 
             RegisterEndpoints();
         }
@@ -50,24 +57,30 @@ namespace OloEngine::Audio::SoundGraph
         {
             // Ensure any ongoing async load is moved to stale container
             CancelAsyncLoad();
-            
+
             // Wait for all stale loads to complete before destruction
             // This is safe to do in destructor since it's not on audio thread
             for (auto& future : m_StaleLoads)
             {
                 if (future.valid())
                 {
-                    try { future.get(); } catch (...) { /* Ignore exceptions during cleanup */ }
+                    try
+                    {
+                        future.get();
+                    }
+                    catch (...)
+                    { /* Ignore exceptions during cleanup */
+                    }
                 }
             }
             m_StaleLoads.clear();
         }
 
         // Input parameters
-        i64* m_InWaveAsset = nullptr;		// Asset handle for wave file
-        f32* m_InStartTime = nullptr;			// Start time offset in seconds
-        bool* m_InLoop = nullptr;				// Enable looping playback
-        i32* m_InNumberOfLoops = nullptr;		// Number of loops (-1 = infinite)
+        i64* m_InWaveAsset = nullptr;     // Asset handle for wave file
+        f32* m_InStartTime = nullptr;     // Start time offset in seconds
+        bool* m_InLoop = nullptr;         // Enable looping playback
+        i32* m_InNumberOfLoops = nullptr; // Number of loops (-1 = infinite)
 
         // Output audio channels
         f32 m_OutOutLeft{ 0.0f };
@@ -85,7 +98,7 @@ namespace OloEngine::Audio::SoundGraph
         void Init() final
         {
             InitializeInputs();
-            
+
             // Initialize state
             m_IsInitialized = false;
             m_IsPlaying = false;
@@ -125,7 +138,7 @@ namespace OloEngine::Audio::SoundGraph
                     {
                         ++m_LoopCount;
                         m_OutOnLooped(2.0f);
-                        
+
                         // Check if we've completed all loops
                         if (*m_InNumberOfLoops >= 0 && m_LoopCount > *m_InNumberOfLoops)
                         {
@@ -163,7 +176,7 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-    private:
+      private:
         void StartPlayback()
         {
             // Check for completed async loads first (non-blocking)
@@ -204,7 +217,7 @@ namespace OloEngine::Audio::SoundGraph
         void StopPlayback(bool notifyOnFinish)
         {
             m_IsPlaying = false;
-            m_PendingPlayback.store(false, std::memory_order_relaxed);  // Cancel any pending playback
+            m_PendingPlayback.store(false, std::memory_order_relaxed); // Cancel any pending playback
             m_LoopCount = 0;
             m_FrameNumber = m_StartSample;
             m_WaveSource.m_ReadPosition = m_FrameNumber;
@@ -213,9 +226,9 @@ namespace OloEngine::Audio::SoundGraph
             CheckAsyncLoadCompletion();
 
             if (notifyOnFinish)
-                m_OutOnFinished(2.0f);  // Natural completion
+                m_OutOnFinished(2.0f); // Natural completion
             else
-                m_OutOnStop(2.0f);     // Manual stop or error
+                m_OutOnStop(2.0f); // Manual stop or error
 
             DBG("WavePlayer: Stopped playing");
         }
@@ -254,42 +267,43 @@ namespace OloEngine::Audio::SoundGraph
         {
             // Mark as loading
             m_LoadState.store(LoadState::Loading, std::memory_order_relaxed);
-            
+
             // Start async load on background thread
-            m_AsyncLoadFuture = std::async(std::launch::async, [this, waveAsset]() -> std::optional<AudioData> {
-                // Integrate with OloEngine's AssetManager
-                AssetHandle assetHandle = static_cast<AssetHandle>(waveAsset);
-                AssetMetadata metadata = AssetManager::GetAssetMetadata(assetHandle);
-                
-                if (metadata.IsValid() && !metadata.FilePath.empty())
-                {
-                    // Load audio data using AudioLoader (on background thread)
-                    AudioData audioData;
-                    if (AudioLoader::LoadAudioFile(metadata.FilePath, audioData))
-                    {
-                        OLO_CORE_INFO("WavePlayer: Loaded audio asset - {} channels, {} Hz, {:.2f}s duration",
-                            audioData.m_NumChannels, audioData.m_SampleRate, audioData.m_Duration);
-                        return audioData;
-                    }
-                    else
-                    {
-                        OLO_CORE_ERROR("WavePlayer: Failed to load audio file: {}", metadata.FilePath.string());
-                    }
-                }
-                else
-                {
-                    OLO_CORE_ERROR("WavePlayer: Invalid asset metadata for handle {}", assetHandle);
-                }
-                
-                return std::nullopt; // Failed to load
-            });
+            m_AsyncLoadFuture = std::async(std::launch::async, [this, waveAsset]() -> std::optional<AudioData>
+                                           {
+                                               // Integrate with OloEngine's AssetManager
+                                               AssetHandle assetHandle = static_cast<AssetHandle>(waveAsset);
+                                               AssetMetadata metadata = AssetManager::GetAssetMetadata(assetHandle);
+
+                                               if (metadata.IsValid() && !metadata.FilePath.empty())
+                                               {
+                                                   // Load audio data using AudioLoader (on background thread)
+                                                   AudioData audioData;
+                                                   if (AudioLoader::LoadAudioFile(metadata.FilePath, audioData))
+                                                   {
+                                                       OLO_CORE_INFO("WavePlayer: Loaded audio asset - {} channels, {} Hz, {:.2f}s duration",
+                                                                     audioData.m_NumChannels, audioData.m_SampleRate, audioData.m_Duration);
+                                                       return audioData;
+                                                   }
+                                                   else
+                                                   {
+                                                       OLO_CORE_ERROR("WavePlayer: Failed to load audio file: {}", metadata.FilePath.string());
+                                                   }
+                                               }
+                                               else
+                                               {
+                                                   OLO_CORE_ERROR("WavePlayer: Invalid asset metadata for handle {}", assetHandle);
+                                               }
+
+                                               return std::nullopt; // Failed to load
+                                           });
         }
 
         void CheckAsyncLoadCompletion()
         {
             // Clean up any completed stale futures first (non-blocking)
             CleanupStaleLoads();
-            
+
             if (m_LoadState.load(std::memory_order_relaxed) == LoadState::Loading && m_AsyncLoadFuture.valid())
             {
                 // Check if async load completed (non-blocking)
@@ -303,12 +317,13 @@ namespace OloEngine::Audio::SoundGraph
                         // Success - swap in the loaded data on audio thread
                         m_AudioData = std::move(result.value());
                         m_WaveSource.m_TotalFrames = m_AudioData.m_NumFrames;
-                        
+
                         // Set up refill callback to read from loaded audio data
-                        m_WaveSource.m_OnRefill = [this](Audio::WaveSource& source) -> bool {
+                        m_WaveSource.m_OnRefill = [this](Audio::WaveSource& source) -> bool
+                        {
                             return FillBufferFromAudioData(source);
                         };
-                        
+
                         m_TotalFrames = m_WaveSource.m_TotalFrames;
                         m_IsInitialized = true;
                         m_LoadState.store(LoadState::Ready, std::memory_order_relaxed);
@@ -352,7 +367,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 // Mark as cancelled
                 m_LoadState.store(LoadState::Cancelled, std::memory_order_relaxed);
-                
+
                 // Move future to stale container to avoid blocking destructor
                 m_StaleLoads.push_back(std::move(m_AsyncLoadFuture));
                 // m_AsyncLoadFuture is now invalid and safe to reassign
@@ -363,29 +378,33 @@ namespace OloEngine::Audio::SoundGraph
         {
             // Use C++20 std::erase_if to remove completed or invalid futures
             // Avoids const_cast code smell by taking non-const reference
-            std::erase_if(m_StaleLoads, 
-                [](std::future<std::optional<AudioData>>& future) -> bool {
-                    if (!future.valid())
-                        return true; // Remove invalid futures
-                    
-                    // Check if completed (non-blocking)
-                    auto status = future.wait_for(std::chrono::seconds(0));
-                    if (status == std::future_status::ready)
-                    {
-                        // Future is complete, safe to remove
-                        try { 
-                            // Get result to properly clean up the future
-                            future.get();
-                        } catch (...) { 
-                            // Ignore exceptions during cleanup 
-                        }
-                        return true;
-                    }
-                    return false; // Keep pending futures
-                });
+            std::erase_if(m_StaleLoads,
+                          [](std::future<std::optional<AudioData>>& future) -> bool
+                          {
+                              if (!future.valid())
+                                  return true; // Remove invalid futures
+
+                              // Check if completed (non-blocking)
+                              auto status = future.wait_for(std::chrono::seconds(0));
+                              if (status == std::future_status::ready)
+                              {
+                                  // Future is complete, safe to remove
+                                  try
+                                  {
+                                      // Get result to properly clean up the future
+                                      future.get();
+                                  }
+                                  catch (...)
+                                  {
+                                      // Ignore exceptions during cleanup
+                                  }
+                                  return true;
+                              }
+                              return false; // Keep pending futures
+                          });
         }
 
-    public:
+      public:
         void ForceRefillBuffer()
         {
             if (m_WaveSource.m_WaveHandle && m_WaveSource.m_OnRefill)
@@ -395,16 +414,21 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        Audio::WaveSource& GetWaveSource() { return m_WaveSource; }
-        const Audio::WaveSource& GetWaveSource() const { return m_WaveSource; }
+        Audio::WaveSource& GetWaveSource()
+        {
+            return m_WaveSource;
+        }
+        const Audio::WaveSource& GetWaveSource() const
+        {
+            return m_WaveSource;
+        }
 
-    private:
-
+      private:
         void ReadNextFrame()
         {
             // Iterative approach to avoid stack overflow from recursive refill attempts
             constexpr i32 maxRefillRetries = 5; // Reasonable limit to prevent infinite loops
-            
+
             for (i32 retryCount = 0; retryCount <= maxRefillRetries; ++retryCount)
             {
                 if (m_WaveSource.m_Channels.Available() >= 2) // Stereo frame
@@ -448,14 +472,16 @@ namespace OloEngine::Audio::SoundGraph
 
         bool FillBufferFromAudioData(Audio::WaveSource& source)
         {
-            if (!m_AudioData.IsValid()) return false;
-            
+            if (!m_AudioData.IsValid())
+                return false;
+
             const u32 framesToRead = 1024; // Read chunk size
             u64 startFrame = source.m_ReadPosition;
             u64 endFrame = glm::min(startFrame + framesToRead, static_cast<u64>(m_AudioData.m_NumFrames));
-            
-            if (startFrame >= m_AudioData.m_NumFrames) return false;
-            
+
+            if (startFrame >= m_AudioData.m_NumFrames)
+                return false;
+
             // Fill the circular buffer with interleaved audio data
             for (u64 frame = startFrame; frame < endFrame; ++frame)
             {
@@ -466,7 +492,7 @@ namespace OloEngine::Audio::SoundGraph
                     source.m_Channels.Push(sample);
                 }
             }
-            
+
             return true;
         }
 
@@ -487,11 +513,11 @@ namespace OloEngine::Audio::SoundGraph
             Failed,
             Cancelled
         };
-        
+
         std::atomic<LoadState> m_LoadState{ LoadState::Idle };
         std::atomic<bool> m_PendingPlayback{ false }; // Start playback when async load completes
         std::future<std::optional<AudioData>> m_AsyncLoadFuture;
-        
+
         // Container for stale futures to avoid blocking destructor on audio thread
         std::vector<std::future<std::optional<AudioData>>> m_StaleLoads;
 
@@ -501,11 +527,11 @@ namespace OloEngine::Audio::SoundGraph
 
         // Wave source using OloEngine's system
         Audio::WaveSource m_WaveSource;
-        
+
         // Audio data storage for loaded files
         AudioData m_AudioData;
     };
-}
+} // namespace OloEngine::Audio::SoundGraph
 
 #undef DECLARE_ID
 #undef DBG

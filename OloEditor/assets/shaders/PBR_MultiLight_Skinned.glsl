@@ -50,16 +50,16 @@ void main()
             boneTransform += u_BoneTransforms[boneID] * a_BoneWeights[i];
         }
     }
-    
+
     // Transform position and normal by bones
     vec4 localPosition = boneTransform * vec4(a_Position, 1.0);
     vec3 localNormal = mat3(boneTransform) * a_Normal;
-    
+
     // Transform to world space
     v_WorldPos = vec3(u_Model * localPosition);
     v_Normal = mat3(u_Normal) * localNormal;
     v_TexCoord = a_TexCoord;
-    
+
     gl_Position = u_ViewProjection * vec4(v_WorldPos, 1.0);
 }
 
@@ -144,15 +144,15 @@ layout(location = 0) out vec4 o_Color;
 void main()
 {
     vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
-    vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord, 
-                                                     u_MetallicFactor, u_RoughnessFactor, 
+    vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord,
+                                                     u_MetallicFactor, u_RoughnessFactor,
                                                      bool(u_UseMetallicRoughnessMap));
     float metallic = metallicRoughness.x;
     float roughness = metallicRoughness.y;
-    
+
     float ao = sampleAO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
     vec3 emissive = sampleEmissive(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
-    
+
     // Calculate normal
     vec3 N = normalize(v_Normal);
     if (u_UseNormalMap == 1)
@@ -160,14 +160,14 @@ void main()
         N = getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
     }
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
-    
+
     // Calculate direct lighting from all lights
     vec3 Lo = vec3(0.0);
     for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
     {
         Lo += calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
     }
-    
+
     // Calculate ambient lighting
     vec3 ambient = vec3(0.0);
     if (u_EnableIBL == 1)
@@ -178,15 +178,15 @@ void main()
     {
         ambient = calculateSimpleAmbient(albedo, metallic, ao);
     }
-    
+
     // Combine lighting
     vec3 color = ambient + Lo + emissive;
-    
+
     // Apply ambient occlusion to ambient lighting only
     color = mix(color, color * ao, 0.5);
-    
+
     // Unified post-processing: tone mapping + gamma correction in one pass
     color = postProcessColor(color, TONEMAP_REINHARD, u_ApplyGammaCorrection == 1);
-    
+
     o_Color = vec4(color, u_BaseColorFactor.a);
 }

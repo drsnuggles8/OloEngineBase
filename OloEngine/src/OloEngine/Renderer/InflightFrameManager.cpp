@@ -16,13 +16,13 @@ namespace OloEngine
 
         // Move to next frame
         m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
-        
+
         // Reset current frame data
         auto& currentFrame = m_Frames[m_CurrentFrameIndex];
         currentFrame.IsComplete = false;
         currentFrame.StartTime = std::chrono::steady_clock::now();
         currentFrame.BufferAllocations.clear();
-        
+
         m_CompletedFrames++;
     }
 
@@ -36,7 +36,7 @@ namespace OloEngine
     Ref<UniformBuffer> InflightFrameManager::GetFrameUniformBuffer(const std::string& name, u32 size)
     {
         auto& currentFrame = m_Frames[m_CurrentFrameIndex];
-        
+
         // Check if we already have a buffer allocation for this name
         auto it = currentFrame.BufferAllocations.find(name);
         if (it != currentFrame.BufferAllocations.end())
@@ -51,16 +51,16 @@ namespace OloEngine
                 }
             }
         }
-        
+
         // Create new buffer for this frame
         auto buffer = UniformBuffer::Create(size, 0); // Use binding 0 as default
         u32 bufferIndex = static_cast<u32>(currentFrame.UniformBuffers.size());
         currentFrame.UniformBuffers.push_back(buffer);
         currentFrame.BufferAllocations[name] = bufferIndex;
-        
-        OLO_CORE_TRACE("InflightFrameManager: Created buffer '{0}' for frame {1}, size {2}", 
-                      name, m_CurrentFrameIndex, size);
-        
+
+        OLO_CORE_TRACE("InflightFrameManager: Created buffer '{0}' for frame {1}, size {2}",
+                       name, m_CurrentFrameIndex, size);
+
         return buffer;
     }
 
@@ -68,7 +68,7 @@ namespace OloEngine
     {
         if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
             return;
-            
+
         auto& frame = m_Frames[frameIndex];
         frame.UniformBuffers.clear();
         frame.BufferAllocations.clear();
@@ -79,7 +79,7 @@ namespace OloEngine
     {
         if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
             return;
-            
+
         // Simple implementation - in a real engine you'd use GPU fences
         auto& frame = m_Frames[frameIndex];
         while (!frame.IsComplete)
@@ -92,7 +92,7 @@ namespace OloEngine
     {
         if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
             return true;
-            
+
         return m_Frames[frameIndex].IsComplete;
     }
-}
+} // namespace OloEngine

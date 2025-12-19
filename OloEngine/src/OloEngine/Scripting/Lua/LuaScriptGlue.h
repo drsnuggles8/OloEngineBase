@@ -2,9 +2,9 @@
 
 namespace OloEngine
 {
-	class LuaScriptGlue
-	{
-	public:
-		static void RegisterAllTypes();
-	};
-}
+    class LuaScriptGlue
+    {
+      public:
+        static void RegisterAllTypes();
+    };
+} // namespace OloEngine

@@ -4,16 +4,16 @@
 
 namespace OloEngine
 {
-	enum class LightType
-	{
-		Directional,
-		Point,
-		Spot
-	};
-
-	class Light
+    enum class LightType
     {
-    public:
+        Directional,
+        Point,
+        Spot
+    };
+
+    class Light
+    {
+      public:
         LightType Type = LightType::Point;
         glm::vec3 Position = glm::vec3(0.0f);
         glm::vec3 Direction = glm::vec3(0.0f, 0.0f, -1.0f);
@@ -26,4 +26,4 @@ namespace OloEngine
         f32 CutOff = glm::cos(glm::radians(12.5f));
         f32 OuterCutOff = glm::cos(glm::radians(17.5f));
     };
-}
+} // namespace OloEngine

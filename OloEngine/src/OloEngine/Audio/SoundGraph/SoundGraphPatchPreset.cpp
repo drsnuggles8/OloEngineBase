@@ -12,14 +12,16 @@ namespace OloEngine::Audio::SoundGraph
 {
     //==============================================================================
     /// ParameterPatch Implementation
-    
+
     void ParameterPatch::SetParameter(u32 parameterID, const ParameterValue& value)
     {
         OLO_PROFILE_FUNCTION();
 
         Parameters[parameterID] = value;
         Timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count() / 1000.0;
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count() /
+                    1000.0;
     }
 
     void ParameterPatch::RemoveParameter(u32 parameterID)
@@ -42,12 +44,12 @@ namespace OloEngine::Audio::SoundGraph
 
         std::vector<u32> ids;
         ids.reserve(Parameters.size());
-        
+
         for (const auto& [id, value] : Parameters)
         {
             ids.push_back(id);
         }
-        
+
         std::sort(ids.begin(), ids.end());
         return ids;
     }
@@ -55,7 +57,7 @@ namespace OloEngine::Audio::SoundGraph
     void ParameterPatch::Clear()
     {
         OLO_PROFILE_FUNCTION();
-        
+
         Parameters.clear();
         Name.clear();
         Description.clear();
@@ -77,7 +79,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
 
         m_ParameterDescriptors.erase(parameterID);
-        
+
         // Remove from all patches
         for (auto& [name, patch] : m_Patches)
         {
@@ -106,18 +108,19 @@ namespace OloEngine::Audio::SoundGraph
 
         std::vector<ParameterDescriptor> descriptors;
         descriptors.reserve(m_ParameterDescriptors.size());
-        
+
         for (const auto& [id, descriptor] : m_ParameterDescriptors)
         {
             descriptors.push_back(descriptor);
         }
-        
+
         // Sort by ID for consistent ordering
-        std::sort(descriptors.begin(), descriptors.end(), 
-                  [](const ParameterDescriptor& a, const ParameterDescriptor& b) {
+        std::sort(descriptors.begin(), descriptors.end(),
+                  [](const ParameterDescriptor& a, const ParameterDescriptor& b)
+                  {
                       return a.ID < b.ID;
                   });
-        
+
         return descriptors;
     }
 
@@ -131,13 +134,15 @@ namespace OloEngine::Audio::SoundGraph
             OLO_CORE_WARN("SoundGraphPatchPreset::CreatePatch - patch '{}' already exists, not overwriting", name);
             return false;
         }
-        
+
         ParameterPatch patch;
         patch.Name = name;
         patch.Description = description;
         patch.Timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count() / 1000.0;
-        
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count() /
+                          1000.0;
+
         m_Patches[name] = patch;
         return true;
     }
@@ -178,12 +183,12 @@ namespace OloEngine::Audio::SoundGraph
 
         std::vector<std::string> names;
         names.reserve(m_Patches.size());
-        
+
         for (const auto& [name, patch] : m_Patches)
         {
             names.push_back(name);
         }
-        
+
         std::sort(names.begin(), names.end());
         return names;
     }
@@ -221,35 +226,35 @@ namespace OloEngine::Audio::SoundGraph
         // Helper lambdas to convert Variant to numeric types safely
         auto toFloat = [](const ParameterValue& pv, f32 fallback) -> f32
         {
-            return std::visit([&](const auto& v) -> f32 {
+            return std::visit([&](const auto& v) -> f32
+                              {
                 using VT = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<VT, f32>) return v;
                 else if constexpr (std::is_same_v<VT, i32>) return static_cast<f32>(v);
                 else if constexpr (std::is_same_v<VT, bool>) return v ? 1.0f : 0.0f;
-                else return fallback;
-            }, pv);
+                else return fallback; }, pv);
         };
 
         auto toInt = [](const ParameterValue& pv, i32 fallback) -> i32
         {
-            return std::visit([&](const auto& v) -> i32 {
+            return std::visit([&](const auto& v) -> i32
+                              {
                 using VT = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<VT, i32>) return v;
                 else if constexpr (std::is_same_v<VT, f32>) return static_cast<i32>(std::lround(v));
                 else if constexpr (std::is_same_v<VT, bool>) return v ? 1 : 0;
-                else return fallback;
-            }, pv);
+                else return fallback; }, pv);
         };
 
         auto toBool = [](const ParameterValue& pv, bool fallback) -> bool
         {
-            return std::visit([&](const auto& v) -> bool {
+            return std::visit([&](const auto& v) -> bool
+                              {
                 using VT = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<VT, bool>) return v;
                 else if constexpr (std::is_same_v<VT, i32>) return v != 0;
                 else if constexpr (std::is_same_v<VT, f32>) return v != 0.0f;
-                else return fallback;
-            }, pv);
+                else return fallback; }, pv);
         };
 
         for (const auto& [parameterID, value] : patch.Parameters)
@@ -264,7 +269,7 @@ namespace OloEngine::Audio::SoundGraph
 
             // Determine declared type by default value's alternative
             std::visit([&](const auto& defaultVal)
-            {
+                       {
                 using DT = std::decay_t<decltype(defaultVal)>;
 
                 if constexpr (std::is_same_v<DT, f32>)
@@ -306,8 +311,7 @@ namespace OloEngine::Audio::SoundGraph
                 else
                 {
                     // Unsupported type; skip safely
-                }
-            }, desc->DefaultValue);
+                } }, desc->DefaultValue);
         }
     }
 
@@ -327,7 +331,9 @@ namespace OloEngine::Audio::SoundGraph
         patch.Name = patchName;
         patch.Description = "Captured state from SoundGraphSound";
         patch.Timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count() / 1000.0;
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count() /
+                          1000.0;
 
         // Capture basic sound properties
         // These would be mapped to specific parameter IDs in a real implementation
@@ -335,7 +341,8 @@ namespace OloEngine::Audio::SoundGraph
         constexpr u32 PITCH_PARAM_ID = 2;
         constexpr u32 LOWPASS_PARAM_ID = 10;
         constexpr u32 HIGHPASS_PARAM_ID = 11;
-        (void)LOWPASS_PARAM_ID; (void)HIGHPASS_PARAM_ID;
+        (void)LOWPASS_PARAM_ID;
+        (void)HIGHPASS_PARAM_ID;
 
         patch.SetParameter(VOLUME_PARAM_ID, source->GetVolume());
         patch.SetParameter(PITCH_PARAM_ID, source->GetPitch());
@@ -347,7 +354,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
 
         std::string jsonData = SerializeToJSON();
-        
+
         std::ofstream file(filePath);
         if (!file.is_open())
         {
@@ -357,13 +364,13 @@ namespace OloEngine::Audio::SoundGraph
 
         file << jsonData;
         file.flush();
-        
+
         if (file.fail() || !file)
         {
             OLO_CORE_ERROR("Failed to write data to file: {}", filePath);
             return false;
         }
-        
+
         file.close();
         return true;
     }
@@ -391,13 +398,13 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
 
         using json = nlohmann::json;
-        
+
         json root;
         root["name"] = m_PresetName;
         root["description"] = m_PresetDescription;
         root["version"] = m_Version;
         root["author"] = m_Author;
-        
+
         // Serialize parameter descriptors
         json parameters = json::array();
         for (const auto& [id, descriptor] : m_ParameterDescriptors)
@@ -415,7 +422,7 @@ namespace OloEngine::Audio::SoundGraph
             parameters.push_back(param);
         }
         root["parameters"] = parameters;
-        
+
         // Serialize patches
         json patches = json::array();
         for (const auto& [name, patch] : m_Patches)
@@ -424,7 +431,7 @@ namespace OloEngine::Audio::SoundGraph
             patchJson["name"] = patch.Name;
             patchJson["description"] = patch.Description;
             patchJson["timestamp"] = patch.Timestamp;
-            
+
             json patchParams;
             for (const auto& [paramId, value] : patch.Parameters)
             {
@@ -434,7 +441,7 @@ namespace OloEngine::Audio::SoundGraph
             patches.push_back(patchJson);
         }
         root["patches"] = patches;
-        
+
         // Return pretty-printed JSON with 2-space indentation
         return root.dump(2);
     }
@@ -444,103 +451,112 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
 
         using json = nlohmann::json;
-        
+
         try
         {
             json root = json::parse(jsonData);
-            
+
             // Clear existing data
             Clear();
-            
+
             // Deserialize basic metadata
             if (root.contains("name") && root["name"].is_string())
                 m_PresetName = root["name"].get<std::string>();
-            
+
             if (root.contains("description") && root["description"].is_string())
                 m_PresetDescription = root["description"].get<std::string>();
-            
+
             if (root.contains("version") && root["version"].is_string())
                 m_Version = root["version"].get<std::string>();
-            
+
             if (root.contains("author") && root["author"].is_string())
                 m_Author = root["author"].get<std::string>();
-            
+
             // Deserialize parameter descriptors
             if (root.contains("parameters") && root["parameters"].is_array())
             {
                 for (const auto& paramJson : root["parameters"])
                 {
                     ParameterDescriptor descriptor;
-                    
+
                     if (paramJson.contains("id") && paramJson["id"].is_number())
                         descriptor.ID = paramJson["id"].get<u32>();
-                    
+
                     if (paramJson.contains("name") && paramJson["name"].is_string())
                         descriptor.Name = paramJson["name"].get<std::string>();
-                    
+
                     if (paramJson.contains("displayName") && paramJson["displayName"].is_string())
                         descriptor.DisplayName = paramJson["displayName"].get<std::string>();
-                    
+
                     if (paramJson.contains("description") && paramJson["description"].is_string())
                         descriptor.Description = paramJson["description"].get<std::string>();
-                    
+
                     if (paramJson.contains("units") && paramJson["units"].is_string())
                         descriptor.Units = paramJson["units"].get<std::string>();
-                    
+
                     if (paramJson.contains("automatable") && paramJson["automatable"].is_boolean())
                         descriptor.IsAutomatable = paramJson["automatable"].get<bool>();
-                    
+
                     // For default/min/max values, we'll use f32 as default type
                     if (paramJson.contains("defaultValue") && paramJson["defaultValue"].is_string())
                     {
                         std::string valueStr = paramJson["defaultValue"].get<std::string>();
-                        try {
+                        try
+                        {
                             descriptor.DefaultValue = std::stof(valueStr);
-                        } catch (...) {
+                        }
+                        catch (...)
+                        {
                             descriptor.DefaultValue = 0.0f;
                         }
                     }
-                    
+
                     if (paramJson.contains("minValue") && paramJson["minValue"].is_string())
                     {
                         std::string valueStr = paramJson["minValue"].get<std::string>();
-                        try {
+                        try
+                        {
                             descriptor.MinValue = std::stof(valueStr);
-                        } catch (...) {
+                        }
+                        catch (...)
+                        {
                             descriptor.MinValue = 0.0f;
                         }
                     }
-                    
+
                     if (paramJson.contains("maxValue") && paramJson["maxValue"].is_string())
                     {
                         std::string valueStr = paramJson["maxValue"].get<std::string>();
-                        try {
+                        try
+                        {
                             descriptor.MaxValue = std::stof(valueStr);
-                        } catch (...) {
+                        }
+                        catch (...)
+                        {
                             descriptor.MaxValue = 1.0f;
                         }
                     }
-                    
+
                     RegisterParameter(descriptor);
                 }
             }
-            
+
             // Deserialize patches
             if (root.contains("patches") && root["patches"].is_array())
             {
                 for (const auto& patchJson : root["patches"])
                 {
                     ParameterPatch patch;
-                    
+
                     if (patchJson.contains("name") && patchJson["name"].is_string())
                         patch.Name = patchJson["name"].get<std::string>();
-                    
+
                     if (patchJson.contains("description") && patchJson["description"].is_string())
                         patch.Description = patchJson["description"].get<std::string>();
-                    
+
                     if (patchJson.contains("timestamp") && patchJson["timestamp"].is_number())
                         patch.Timestamp = patchJson["timestamp"].get<f64>();
-                    
+
                     if (patchJson.contains("parameters") && patchJson["parameters"].is_object())
                     {
                         for (auto& [key, value] : patchJson["parameters"].items())
@@ -549,7 +565,7 @@ namespace OloEngine::Audio::SoundGraph
                             {
                                 u32 paramId = std::stoul(key);
                                 std::string valueStr = value.get<std::string>();
-                                
+
                                 // Find the descriptor to determine the type
                                 const ParameterDescriptor* desc = GetParameterDescriptor(paramId);
                                 if (desc)
@@ -560,9 +576,12 @@ namespace OloEngine::Audio::SoundGraph
                                 else
                                 {
                                     // Default to f32 if no descriptor found
-                                    try {
+                                    try
+                                    {
                                         patch.Parameters[paramId] = std::stof(valueStr);
-                                    } catch (...) {
+                                    }
+                                    catch (...)
+                                    {
                                         patch.Parameters[paramId] = 0.0f;
                                     }
                                 }
@@ -573,14 +592,14 @@ namespace OloEngine::Audio::SoundGraph
                             }
                         }
                     }
-                    
+
                     if (!patch.Name.empty())
                     {
                         m_Patches[patch.Name] = patch;
                     }
                 }
             }
-            
+
             return true;
         }
         catch (const json::exception& e)
@@ -644,7 +663,7 @@ namespace OloEngine::Audio::SoundGraph
 
         const ParameterPatch* a = GetPatch(patchA);
         const ParameterPatch* b = GetPatch(patchB);
-        
+
         ParameterPatch result;
         result.Name = resultPatchName;
         result.Description = "Interpolated between " + patchA + " and " + patchB;
@@ -664,9 +683,10 @@ namespace OloEngine::Audio::SoundGraph
             if (itB != b->Parameters.end())
             {
                 const ParameterValue& valueB = itB->second;
-                
+
                 // Interpolate based on type
-                std::visit([&result, paramId, t](const auto& vA, const auto& vB) {
+                std::visit([&result, paramId, t](const auto& vA, const auto& vB)
+                           {
                     using T = std::decay_t<decltype(vA)>;
                     if constexpr (std::is_same_v<T, std::decay_t<decltype(vB)>>)
                     {
@@ -685,8 +705,7 @@ namespace OloEngine::Audio::SoundGraph
                             bool interpolated = t < 0.5f ? vA : vB;
                             result.SetParameter(paramId, interpolated);
                         }
-                    }
-                }, valueA, valueB);
+                    } }, valueA, valueB);
             }
         }
 
@@ -697,7 +716,8 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        return std::visit([](const auto& v) -> std::string {
+        return std::visit([](const auto& v) -> std::string
+                          {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, f32>)
             {
@@ -711,8 +731,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 return v ? "true" : "false";
             }
-            return "";
-        }, value);
+            return ""; }, value);
     }
 
     ParameterValue SoundGraphPatchPreset::DeserializeParameterValue(const std::string& valueStr, const ParameterValue& defaultValue) const
@@ -720,7 +739,8 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
 
         // Simple deserialization based on the default value type
-        return std::visit([&valueStr](const auto& defaultVal) -> ParameterValue {
+        return std::visit([&valueStr](const auto& defaultVal) -> ParameterValue
+                          {
             using T = std::decay_t<decltype(defaultVal)>;
             if constexpr (std::is_same_v<T, f32>)
             {
@@ -736,8 +756,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 return valueStr == "true" || valueStr == "1";
             }
-            return defaultVal;
-        }, defaultValue);
+            return defaultVal; }, defaultValue);
     }
 
     //==============================================================================
@@ -780,7 +799,7 @@ namespace OloEngine::Audio::SoundGraph
     Ref<SoundGraphPatchPreset> CreateSpatialAudioPreset()
     {
         OLO_PROFILE_FUNCTION();
-        
+
         auto preset = CreateBasicSoundPreset();
         preset->SetName("Spatial Audio");
         preset->SetDescription("3D spatial audio parameters");

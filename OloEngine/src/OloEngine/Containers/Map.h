@@ -3,13 +3,13 @@
 /**
  * @file Map.h
  * @brief Hash-based map container with O(1) average operations
- * 
+ *
  * Provides a hash-based map implementation using TSet for key-value storage:
  * - O(1) average case for add, remove, and find operations
  * - Customizable key functions for different comparison and hashing strategies
  * - Support for heterogeneous lookup with ByHash() functions
  * - Iteration maintains insertion order (via underlying sparse array)
- * 
+ *
  * The ByHash() functions are somewhat dangerous but particularly useful in two scenarios:
  * -- Heterogeneous lookup to avoid creating expensive keys like FString when looking up by const TCHAR*.
  *    You must ensure the hash is calculated in the same way as ElementType is hashed.
@@ -17,7 +17,7 @@
  *    to avoid bugs when the ElementType hash function is changed.
  * -- Reducing contention around hash tables protected by a lock. It is often important to incur
  *    the cache misses of reading key data and doing the hashing *before* acquiring the lock.
- * 
+ *
  * Ported from Unreal Engine's Containers/Map.h
  */
 
@@ -33,28 +33,36 @@
 namespace OloEngine
 {
     // Forward declarations for constraints
-    template <typename KeyInitType, typename ValueInitType>
+    template<typename KeyInitType, typename ValueInitType>
     class TPairInitializer;
 
-    template <typename KeyInitType>
+    template<typename KeyInitType>
     class TKeyInitializer;
 
     // Helper to detect TPairInitializer
-    template <typename T>
-    struct TIsPairInitializer : std::false_type {};
+    template<typename T>
+    struct TIsPairInitializer : std::false_type
+    {
+    };
 
-    template <typename K, typename V>
-    struct TIsPairInitializer<TPairInitializer<K, V>> : std::true_type {};
+    template<typename K, typename V>
+    struct TIsPairInitializer<TPairInitializer<K, V>> : std::true_type
+    {
+    };
 
     // Helper to detect TKeyInitializer
-    template <typename T>
-    struct TIsKeyInitializer : std::false_type {};
+    template<typename T>
+    struct TIsKeyInitializer : std::false_type
+    {
+    };
 
-    template <typename K>
-    struct TIsKeyInitializer<TKeyInitializer<K>> : std::true_type {};
+    template<typename K>
+    struct TIsKeyInitializer<TKeyInitializer<K>> : std::true_type
+    {
+    };
 
     // Combined check for any initializer type
-    template <typename T>
+    template<typename T>
     inline constexpr bool TIsAnyInitializer = TIsPairInitializer<std::remove_cvref_t<T>>::value || TIsKeyInitializer<std::remove_cvref_t<T>>::value;
 
     // ============================================================================
@@ -65,7 +73,7 @@ namespace OloEngine
      * @struct TPair
      * @brief A key-value pair stored in TMap
      */
-    template <typename KeyType, typename ValueType>
+    template<typename KeyType, typename ValueType>
     struct TPair
     {
         KeyType Key;
@@ -75,35 +83,31 @@ namespace OloEngine
         [[nodiscard]] constexpr TPair() = default;
 
         /** Construct from key and value */
-        template <typename KeyInitType, typename ValueInitType>
+        template<typename KeyInitType, typename ValueInitType>
         [[nodiscard]] constexpr TPair(KeyInitType&& InKey, ValueInitType&& InValue)
-            : Key(Forward<KeyInitType>(InKey))
-            , Value(Forward<ValueInitType>(InValue))
+            : Key(Forward<KeyInitType>(InKey)), Value(Forward<ValueInitType>(InValue))
         {
         }
 
         /** Construct from key only (default-construct value) - exclude initializer types */
-        template <typename KeyInitType>
-            requires (!TIsAnyInitializer<KeyInitType>)
+        template<typename KeyInitType>
+            requires(!TIsAnyInitializer<KeyInitType>)
         [[nodiscard]] explicit constexpr TPair(KeyInitType&& InKey)
-            : Key(Forward<KeyInitType>(InKey))
-            , Value()
+            : Key(Forward<KeyInitType>(InKey)), Value()
         {
         }
 
         /** Construct from TPairInitializer */
-        template <typename KeyInitType, typename ValueInitType>
+        template<typename KeyInitType, typename ValueInitType>
         [[nodiscard]] constexpr TPair(TPairInitializer<KeyInitType, ValueInitType>&& Initializer)
-            : Key(Forward<KeyInitType>(Initializer.Key))
-            , Value(Forward<ValueInitType>(Initializer.Value))
+            : Key(Forward<KeyInitType>(Initializer.Key)), Value(Forward<ValueInitType>(Initializer.Value))
         {
         }
 
         /** Construct from TKeyInitializer (key only, default-construct value) */
-        template <typename KeyInitType>
+        template<typename KeyInitType>
         [[nodiscard]] constexpr TPair(TKeyInitializer<KeyInitType>&& Initializer)
-            : Key(Forward<KeyInitType>(Initializer.Key))
-            , Value()
+            : Key(Forward<KeyInitType>(Initializer.Key)), Value()
         {
         }
 
@@ -126,27 +130,25 @@ namespace OloEngine
      * @class TPairInitializer
      * @brief Initializer type for pairs during map Add operations
      */
-    template <typename KeyInitType, typename ValueInitType>
+    template<typename KeyInitType, typename ValueInitType>
     class TPairInitializer
     {
-    public:
+      public:
         std::conditional_t<std::is_rvalue_reference_v<KeyInitType>, KeyInitType&, KeyInitType> Key;
         std::conditional_t<std::is_rvalue_reference_v<ValueInitType>, ValueInitType&, ValueInitType> Value;
 
         [[nodiscard]] inline TPairInitializer(KeyInitType InKey, ValueInitType InValue)
-            : Key(InKey)
-            , Value(InValue)
+            : Key(InKey), Value(InValue)
         {
         }
 
-        template <typename KeyType, typename ValueType>
+        template<typename KeyType, typename ValueType>
         [[nodiscard]] inline TPairInitializer(const TPair<KeyType, ValueType>& Pair)
-            : Key(Pair.Key)
-            , Value(Pair.Value)
+            : Key(Pair.Key), Value(Pair.Value)
         {
         }
 
-        template <typename KeyType, typename ValueType>
+        template<typename KeyType, typename ValueType>
         [[nodiscard]] operator TPair<KeyType, ValueType>() const
         {
             return TPair<KeyType, ValueType>(static_cast<KeyInitType>(Key), static_cast<ValueInitType>(Value));
@@ -161,10 +163,10 @@ namespace OloEngine
      * @class TKeyInitializer
      * @brief Initializer type for pairs when only adding a key (value is default-constructed)
      */
-    template <typename KeyInitType>
+    template<typename KeyInitType>
     class TKeyInitializer
     {
-    public:
+      public:
         std::conditional_t<std::is_rvalue_reference_v<KeyInitType>, KeyInitType&, KeyInitType> Key;
 
         [[nodiscard]] OLO_FINLINE explicit TKeyInitializer(KeyInitType InKey)
@@ -172,7 +174,7 @@ namespace OloEngine
         {
         }
 
-        template <typename KeyType, typename ValueType>
+        template<typename KeyType, typename ValueType>
         [[nodiscard]] operator TPair<KeyType, ValueType>() const
         {
             return TPair<KeyType, ValueType>(static_cast<KeyInitType>(Key), ValueType());
@@ -186,10 +188,10 @@ namespace OloEngine
     /**
      * @struct TDefaultMapKeyFuncs
      * @brief Default key functions for TMap - extracts key from TPair
-     * 
+     *
      * Uses TTypeTraits from TypeTraits.h for ConstPointerType and ConstInitType.
      */
-    template <typename KeyType, typename ValueType, bool bInAllowDuplicateKeys>
+    template<typename KeyType, typename ValueType, bool bInAllowDuplicateKeys>
     struct TDefaultMapKeyFuncs : BaseKeyFuncs<TPair<KeyType, ValueType>, KeyType, bInAllowDuplicateKeys>
     {
         using KeyInitType = typename TTypeTraits<KeyType>::ConstPointerType;
@@ -205,7 +207,7 @@ namespace OloEngine
             return A == B;
         }
 
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] static OLO_FINLINE bool Matches(KeyInitType A, ComparableKey B)
         {
             return A == B;
@@ -216,7 +218,7 @@ namespace OloEngine
             return GetTypeHash(Key);
         }
 
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] static OLO_FINLINE u32 GetKeyHash(ComparableKey Key)
         {
             return GetTypeHash(Key);
@@ -226,10 +228,10 @@ namespace OloEngine
     /**
      * @struct TDefaultMapHashableKeyFuncs
      * @brief Default key functions with hashability check
-     * 
+     *
      * Ensures the key type has a GetTypeHash() overload at compile time.
      */
-    template <typename KeyType, typename ValueType, bool bInAllowDuplicateKeys>
+    template<typename KeyType, typename ValueType, bool bInAllowDuplicateKeys>
     struct TDefaultMapHashableKeyFuncs : TDefaultMapKeyFuncs<KeyType, ValueType, bInAllowDuplicateKeys>
     {
         // Check that the key type is actually hashable
@@ -241,7 +243,7 @@ namespace OloEngine
     // TIsTMap Trait
     // ============================================================================
 
-    template <typename T>
+    template<typename T>
     struct TIsTMap
     {
         static constexpr bool Value = false;
@@ -254,28 +256,28 @@ namespace OloEngine
     /**
      * @class TMapBase
      * @brief Base class for TMap providing core functionality
-     * 
+     *
      * Implemented using a TSet of key-value pairs with custom KeyFuncs,
      * providing O(1) addition, removal, and finding.
-     * 
+     *
      * @tparam KeyType     The key type
      * @tparam ValueType   The value type
      * @tparam SetAllocator  Allocator policy for the underlying set
      * @tparam KeyFuncs    Functions for getting keys and computing hashes
      */
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     class TMapBase
     {
-        template <typename OtherKeyType, typename OtherValueType, typename OtherSetAllocator, typename OtherKeyFuncs>
+        template<typename OtherKeyType, typename OtherValueType, typename OtherSetAllocator, typename OtherKeyFuncs>
         friend class TMapBase;
 
-    public:
+      public:
         using KeyConstPointerType = typename TTypeTraits<KeyType>::ConstPointerType;
         using KeyInitType = typename TTypeTraits<KeyType>::ConstInitType;
         using ValueInitType = typename TTypeTraits<ValueType>::ConstInitType;
         using ElementType = TPair<KeyType, ValueType>;
 
-    protected:
+      protected:
         [[nodiscard]] constexpr TMapBase() = default;
 
         [[nodiscard]] explicit consteval TMapBase(EConstEval)
@@ -289,14 +291,14 @@ namespace OloEngine
         TMapBase& operator=(const TMapBase&) = default;
 
         /** Constructor for moving elements from a TMap with a different SetAllocator */
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         [[nodiscard]] TMapBase(TMapBase<KeyType, ValueType, OtherSetAllocator, KeyFuncs>&& Other)
             : Pairs(MoveTemp(Other.Pairs))
         {
         }
 
         /** Constructor for copying elements from a TMap with a different SetAllocator */
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         [[nodiscard]] TMapBase(const TMapBase<KeyType, ValueType, OtherSetAllocator, KeyFuncs>& Other)
             : Pairs(Other.Pairs)
         {
@@ -306,7 +308,7 @@ namespace OloEngine
         {
             // Warn if used with non-trivially-relocatable types
             static_assert(TIsTriviallyRelocatable_V<KeyType> && TIsTriviallyRelocatable_V<ValueType>,
-                "TMapBase can only be used with trivially relocatable types");
+                          "TMapBase can only be used with trivially relocatable types");
         }
 
         // ========================================================================
@@ -326,7 +328,7 @@ namespace OloEngine
         }
 
         /** Assignment operator for moving elements from a TMap with a different SetAllocator */
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         TMapBase& operator=(TMapBase<KeyType, ValueType, OtherSetAllocator, KeyFuncs>&& Other)
         {
             Pairs = MoveTemp(Other.Pairs);
@@ -334,14 +336,14 @@ namespace OloEngine
         }
 
         /** Assignment operator for copying elements from a TMap with a different SetAllocator */
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         TMapBase& operator=(const TMapBase<KeyType, ValueType, OtherSetAllocator, KeyFuncs>& Other)
         {
             Pairs = Other.Pairs;
             return *this;
         }
 
-    public:
+      public:
         // ========================================================================
         // Size / Capacity
         // ========================================================================
@@ -425,7 +427,7 @@ namespace OloEngine
          * @param OutKeys  Upon return, contains the set of unique keys in this map.
          * @return The number of unique keys in the map.
          */
-        template <typename Allocator>
+        template<typename Allocator>
         i32 GetKeys(TArray<KeyType, Allocator>& OutKeys) const
         {
             OutKeys.Reset();
@@ -459,7 +461,7 @@ namespace OloEngine
          * @param OutKeys  Upon return, contains the set of unique keys in this map.
          * @return The number of unique keys in the map.
          */
-        template <typename InSetKeyFuncs, typename InSetAllocator>
+        template<typename InSetKeyFuncs, typename InSetAllocator>
         i32 GetKeys(TSet<KeyType, InSetKeyFuncs, InSetAllocator>& OutKeys) const
         {
             OutKeys.Reset();
@@ -629,7 +631,7 @@ namespace OloEngine
          * @param InValue  Value to associate with key
          * @return Reference to the value in the map
          */
-        template <typename InitKeyType = KeyType, typename InitValueType = ValueType>
+        template<typename InitKeyType = KeyType, typename InitValueType = ValueType>
         ValueType& Emplace(InitKeyType&& InKey, InitValueType&& InValue)
         {
             const FSetElementId PairId = Pairs.Emplace(TPairInitializer<InitKeyType&&, InitValueType&&>(Forward<InitKeyType>(InKey), Forward<InitValueType>(InValue)));
@@ -637,7 +639,7 @@ namespace OloEngine
         }
 
         /** Emplace with precomputed hash */
-        template <typename InitKeyType = KeyType, typename InitValueType = ValueType>
+        template<typename InitKeyType = KeyType, typename InitValueType = ValueType>
         ValueType& EmplaceByHash(u32 KeyHash, InitKeyType&& InKey, InitValueType&& InValue)
         {
             const FSetElementId PairId = Pairs.EmplaceByHash(KeyHash, TPairInitializer<InitKeyType&&, InitValueType&&>(Forward<InitKeyType>(InKey), Forward<InitValueType>(InValue)));
@@ -649,7 +651,7 @@ namespace OloEngine
          * @param InKey  Key value
          * @return Reference to the value in the map
          */
-        template <typename InitKeyType = KeyType>
+        template<typename InitKeyType = KeyType>
         ValueType& Emplace(InitKeyType&& InKey)
         {
             const FSetElementId PairId = Pairs.Emplace(TKeyInitializer<InitKeyType&&>(Forward<InitKeyType>(InKey)));
@@ -657,7 +659,7 @@ namespace OloEngine
         }
 
         /** Emplace key-only with precomputed hash */
-        template <typename InitKeyType = KeyType>
+        template<typename InitKeyType = KeyType>
         ValueType& EmplaceByHash(u32 KeyHash, InitKeyType&& InKey)
         {
             const FSetElementId PairId = Pairs.EmplaceByHash(KeyHash, TKeyInitializer<InitKeyType&&>(Forward<InitKeyType>(InKey)));
@@ -689,7 +691,7 @@ namespace OloEngine
         }
 
         /** Remove with precomputed hash */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         inline i32 RemoveByHash(u32 KeyHash, const ComparableKey& Key)
         {
             return Pairs.RemoveByHash(KeyHash, Key);
@@ -725,7 +727,7 @@ namespace OloEngine
         }
 
         /** Find with precomputed hash */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] inline ValueType* FindByHash(u32 KeyHash, const ComparableKey& Key)
         {
             if (auto* Pair = Pairs.FindByHash(KeyHash, Key))
@@ -735,7 +737,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] OLO_FINLINE const ValueType* FindByHash(u32 KeyHash, const ComparableKey& Key) const
         {
             return const_cast<TMapBase*>(this)->FindByHash(KeyHash, Key);
@@ -747,7 +749,7 @@ namespace OloEngine
          * @param Key      The key to search for
          * @return Reference to the value
          */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] inline ValueType& FindByHashChecked(u32 KeyHash, const ComparableKey& Key)
         {
             auto* Pair = Pairs.FindByHash(KeyHash, Key);
@@ -755,7 +757,7 @@ namespace OloEngine
             return Pair->Value;
         }
 
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] OLO_FINLINE const ValueType& FindByHashChecked(u32 KeyHash, const ComparableKey& Key) const
         {
             return const_cast<TMapBase*>(this)->FindByHashChecked(KeyHash, Key);
@@ -772,19 +774,19 @@ namespace OloEngine
         }
 
         /** Find id with precomputed hash */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         OLO_FINLINE FSetElementId FindIdByHash(u32 KeyHash, const ComparableKey& Key) const
         {
             return Pairs.FindIdByHash(KeyHash, Key);
         }
 
-    private:
+      private:
         [[nodiscard]] OLO_FINLINE static u32 HashKey(const KeyType& Key)
         {
             return KeyFuncs::GetKeyHash(Key);
         }
 
-        template <typename InitKeyType>
+        template<typename InitKeyType>
         [[nodiscard]] ValueType& FindOrAddImpl(u32 KeyHash, InitKeyType&& Key)
         {
             if (auto* Pair = Pairs.FindByHash(KeyHash, Key))
@@ -794,7 +796,7 @@ namespace OloEngine
             return AddByHash(KeyHash, Forward<InitKeyType>(Key));
         }
 
-        template <typename InitKeyType, typename InitValueType>
+        template<typename InitKeyType, typename InitValueType>
         [[nodiscard]] ValueType& FindOrAddImpl(u32 KeyHash, InitKeyType&& Key, InitValueType&& Value)
         {
             if (auto* Pair = Pairs.FindByHash(KeyHash, Key))
@@ -804,7 +806,7 @@ namespace OloEngine
             return AddByHash(KeyHash, Forward<InitKeyType>(Key), Forward<InitValueType>(Value));
         }
 
-    public:
+      public:
         /**
          * @brief Find the value associated with a key, or add a default value if not found
          * @param Key  The key to search for
@@ -968,7 +970,7 @@ namespace OloEngine
         }
 
         /** Contains with precomputed hash */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         [[nodiscard]] OLO_FINLINE bool ContainsByHash(u32 KeyHash, const ComparableKey& Key) const
         {
             return Pairs.FindIdByHash(KeyHash, Key).IsValidId();
@@ -987,7 +989,7 @@ namespace OloEngine
          * @returns TMap with the same type as this object which contains
          *          the subset of elements for which the functor returns true.
          */
-        template <typename Predicate, typename MapType = TMapBase>
+        template<typename Predicate, typename MapType = TMapBase>
         [[nodiscard]] auto FilterByPredicate(Predicate Pred) const
         {
             // This will be specialized in TMap to return the proper type
@@ -1008,7 +1010,7 @@ namespace OloEngine
          *
          * @param OutArray  Will contain the collection of keys.
          */
-        template <typename Allocator>
+        template<typename Allocator>
         void GenerateKeyArray(TArray<KeyType, Allocator>& OutArray) const
         {
             OutArray.Empty(Pairs.Num());
@@ -1023,7 +1025,7 @@ namespace OloEngine
          *
          * @param OutArray  Will contain the collection of values.
          */
-        template <typename Allocator>
+        template<typename Allocator>
         void GenerateValueArray(TArray<ValueType, Allocator>& OutArray) const
         {
             OutArray.Empty(Pairs.Num());
@@ -1037,26 +1039,25 @@ namespace OloEngine
         // Iterators
         // ========================================================================
 
-    protected:
+      protected:
         using ElementSetType = TSet<ElementType, KeyFuncs, SetAllocator>;
 
         /** Base iterator class */
-        template <bool bConst>
+        template<bool bConst>
         class TBaseIterator
         {
-        public:
+          public:
             using PairItType = std::conditional_t<
                 bConst,
                 typename ElementSetType::TConstIterator,
-                typename ElementSetType::TIterator
-            >;
+                typename ElementSetType::TIterator>;
 
-        private:
+          private:
             using ItKeyType = std::conditional_t<bConst, const KeyType, KeyType>;
             using ItValueType = std::conditional_t<bConst, const ValueType, ValueType>;
             using PairType = std::conditional_t<bConst, const typename ElementSetType::ElementType, typename ElementSetType::ElementType>;
 
-        public:
+          public:
             [[nodiscard]] OLO_FINLINE TBaseIterator(const PairItType& InElementIt)
                 : PairIt(InElementIt)
             {
@@ -1113,20 +1114,20 @@ namespace OloEngine
                 return &*PairIt;
             }
 
-        protected:
+          protected:
             PairItType PairIt;
         };
 
         /** The base type of iterators that iterate over the values associated with a specified key. */
-        template <bool bConst>
+        template<bool bConst>
         class TBaseKeyIterator
         {
-        private:
+          private:
             using SetItType = std::conditional_t<bConst, typename ElementSetType::TConstKeyIterator, typename ElementSetType::TKeyIterator>;
             using ItKeyType = std::conditional_t<bConst, const KeyType, KeyType>;
             using ItValueType = std::conditional_t<bConst, const ValueType, ValueType>;
 
-        public:
+          public:
             /** Initialization constructor. */
             [[nodiscard]] OLO_FINLINE TBaseKeyIterator(const SetItType& InSetIt)
                 : SetIt(InSetIt)
@@ -1176,23 +1177,20 @@ namespace OloEngine
                 return SetIt.operator->();
             }
 
-        protected:
+          protected:
             SetItType SetIt;
         };
 
         /** A set of the key-value pairs in the map */
         ElementSetType Pairs;
 
-    public:
+      public:
         /** Map iterator */
         class TIterator : public TBaseIterator<false>
         {
-        public:
+          public:
             [[nodiscard]] inline TIterator(TMapBase& InMap, bool bInRequiresRehashOnRemoval = false)
-                : TBaseIterator<false>(InMap.Pairs.CreateIterator())
-                , Map(InMap)
-                , bElementsHaveBeenRemoved(false)
-                , bRequiresRehashOnRemoval(bInRequiresRehashOnRemoval)
+                : TBaseIterator<false>(InMap.Pairs.CreateIterator()), Map(InMap), bElementsHaveBeenRemoved(false), bRequiresRehashOnRemoval(bInRequiresRehashOnRemoval)
             {
             }
 
@@ -1211,7 +1209,7 @@ namespace OloEngine
                 bElementsHaveBeenRemoved = true;
             }
 
-        private:
+          private:
             TMapBase& Map;
             bool bElementsHaveBeenRemoved;
             bool bRequiresRehashOnRemoval;
@@ -1220,7 +1218,7 @@ namespace OloEngine
         /** Const map iterator */
         class TConstIterator : public TBaseIterator<true>
         {
-        public:
+          public:
             [[nodiscard]] OLO_FINLINE TConstIterator(const TMapBase& InMap)
                 : TBaseIterator<true>(InMap.Pairs.CreateConstIterator())
             {
@@ -1233,11 +1231,11 @@ namespace OloEngine
         /** Iterates over values associated with a specified key in a const map. */
         class TConstKeyIterator : public TBaseKeyIterator<true>
         {
-        private:
+          private:
             using Super = TBaseKeyIterator<true>;
             using IteratorType = typename ElementSetType::TConstKeyIterator;
 
-        public:
+          public:
             using KeyArgumentType = typename IteratorType::KeyArgumentType;
 
             [[nodiscard]] OLO_FINLINE TConstKeyIterator(const TMapBase& InMap, KeyArgumentType InKey)
@@ -1249,11 +1247,11 @@ namespace OloEngine
         /** Iterates over values associated with a specified key in a map. */
         class TKeyIterator : public TBaseKeyIterator<false>
         {
-        private:
+          private:
             using Super = TBaseKeyIterator<false>;
             using IteratorType = typename ElementSetType::TKeyIterator;
 
-        public:
+          public:
             using KeyArgumentType = typename IteratorType::KeyArgumentType;
 
             [[nodiscard]] OLO_FINLINE TKeyIterator(TMapBase& InMap, KeyArgumentType InKey)
@@ -1350,10 +1348,10 @@ namespace OloEngine
      * @class TSortableMapBase
      * @brief Map base with sorting capabilities
      */
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     class TSortableMapBase : public TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>
     {
-    protected:
+      protected:
         using Super = TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>;
 
         [[nodiscard]] constexpr TSortableMapBase() = default;
@@ -1368,13 +1366,13 @@ namespace OloEngine
         TSortableMapBase& operator=(TSortableMapBase&&) = default;
         TSortableMapBase& operator=(const TSortableMapBase&) = default;
 
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         [[nodiscard]] TSortableMapBase(TSortableMapBase<KeyType, ValueType, OtherSetAllocator, KeyFuncs>&& Other)
             : Super(MoveTemp(Other))
         {
         }
 
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         [[nodiscard]] TSortableMapBase(const TSortableMapBase<KeyType, ValueType, OtherSetAllocator, KeyFuncs>& Other)
             : Super(Other)
         {
@@ -1396,26 +1394,26 @@ namespace OloEngine
             return Super::operator==(Tag);
         }
 
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         TSortableMapBase& operator=(TSortableMapBase<KeyType, ValueType, OtherSetAllocator, KeyFuncs>&& Other)
         {
             Super::operator=(MoveTemp(Other));
             return *this;
         }
 
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         TSortableMapBase& operator=(const TSortableMapBase<KeyType, ValueType, OtherSetAllocator, KeyFuncs>& Other)
         {
             Super::operator=(Other);
             return *this;
         }
 
-    public:
+      public:
         /**
          * Sorts the pairs array using each pair's Key as the sort criteria, then rebuilds the map's hash.
          * Invoked using "MyMapVar.KeySort( PREDICATE_CLASS() );"
          */
-        template <typename PREDICATE_CLASS>
+        template<typename PREDICATE_CLASS>
         OLO_FINLINE void KeySort(const PREDICATE_CLASS& Predicate)
         {
             Super::Pairs.Sort(FKeyComparisonClass<PREDICATE_CLASS>(Predicate));
@@ -1425,7 +1423,7 @@ namespace OloEngine
          * Stable sorts the pairs array using each pair's Key as the sort criteria, then rebuilds the map's hash.
          * Invoked using "MyMapVar.KeyStableSort( PREDICATE_CLASS() );"
          */
-        template <typename PREDICATE_CLASS>
+        template<typename PREDICATE_CLASS>
         OLO_FINLINE void KeyStableSort(const PREDICATE_CLASS& Predicate)
         {
             Super::Pairs.StableSort(FKeyComparisonClass<PREDICATE_CLASS>(Predicate));
@@ -1435,7 +1433,7 @@ namespace OloEngine
          * Sorts the pairs array using each pair's Value as the sort criteria, then rebuilds the map's hash.
          * Invoked using "MyMapVar.ValueSort( PREDICATE_CLASS() );"
          */
-        template <typename PREDICATE_CLASS>
+        template<typename PREDICATE_CLASS>
         OLO_FINLINE void ValueSort(const PREDICATE_CLASS& Predicate)
         {
             Super::Pairs.Sort(FValueComparisonClass<PREDICATE_CLASS>(Predicate));
@@ -1445,7 +1443,7 @@ namespace OloEngine
          * Stable sorts the pairs array using each pair's Value as the sort criteria, then rebuilds the map's hash.
          * Invoked using "MyMapVar.ValueStableSort( PREDICATE_CLASS() );"
          */
-        template <typename PREDICATE_CLASS>
+        template<typename PREDICATE_CLASS>
         OLO_FINLINE void ValueStableSort(const PREDICATE_CLASS& Predicate)
         {
             Super::Pairs.StableSort(FValueComparisonClass<PREDICATE_CLASS>(Predicate));
@@ -1460,14 +1458,14 @@ namespace OloEngine
             Super::Pairs.SortFreeList();
         }
 
-    private:
+      private:
         /** Extracts the pair's key from the map's pair structure and passes it to the user provided comparison class. */
-        template <typename PREDICATE_CLASS>
+        template<typename PREDICATE_CLASS>
         class FKeyComparisonClass
         {
             TDereferenceWrapper<KeyType, PREDICATE_CLASS> Predicate;
 
-        public:
+          public:
             [[nodiscard]] OLO_FINLINE FKeyComparisonClass(const PREDICATE_CLASS& InPredicate)
                 : Predicate(InPredicate)
             {
@@ -1480,12 +1478,12 @@ namespace OloEngine
         };
 
         /** Extracts the pair's value from the map's pair structure and passes it to the user provided comparison class. */
-        template <typename PREDICATE_CLASS>
+        template<typename PREDICATE_CLASS>
         class FValueComparisonClass
         {
             TDereferenceWrapper<ValueType, PREDICATE_CLASS> Predicate;
 
-        public:
+          public:
             [[nodiscard]] OLO_FINLINE FValueComparisonClass(const PREDICATE_CLASS& InPredicate)
                 : Predicate(InPredicate)
             {
@@ -1505,25 +1503,24 @@ namespace OloEngine
     /**
      * @class TMap
      * @brief A map from keys to values with only one value per key
-     * 
+     *
      * Uses a TSet of key-value pairs with custom KeyFuncs for O(1) operations.
-     * 
+     *
      * @tparam InKeyType    The key type
      * @tparam InValueType  The value type
      * @tparam SetAllocator Allocator policy for the underlying set
      * @tparam KeyFuncs     Functions for getting keys and computing hashes
      */
-    template <
+    template<
         typename InKeyType,
         typename InValueType,
         typename SetAllocator = FDefaultSetAllocator,
-        typename KeyFuncs = TDefaultMapKeyFuncs<InKeyType, InValueType, false>
-    >
+        typename KeyFuncs = TDefaultMapKeyFuncs<InKeyType, InValueType, false>>
     class TMap : public TSortableMapBase<InKeyType, InValueType, SetAllocator, KeyFuncs>
     {
         static_assert(!KeyFuncs::bAllowDuplicateKeys, "TMap cannot be instantiated with KeyFuncs that allows duplicate keys");
 
-    public:
+      public:
         using KeyType = InKeyType;
         using ValueType = InValueType;
         using SetAllocatorType = SetAllocator;
@@ -1563,14 +1560,14 @@ namespace OloEngine
         }
 
         /** Constructor for moving elements from a TMap with a different SetAllocator */
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         [[nodiscard]] TMap(TMap<KeyType, ValueType, OtherSetAllocator, KeyFuncs>&& Other)
             : Super(MoveTemp(Other))
         {
         }
 
         /** Constructor for copying elements from a TMap with a different SetAllocator */
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         [[nodiscard]] TMap(const TMap<KeyType, ValueType, OtherSetAllocator, KeyFuncs>& Other)
             : Super(Other)
         {
@@ -1587,7 +1584,7 @@ namespace OloEngine
         }
 
         /** Assignment operator for moving elements from a TMap with a different SetAllocator */
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         TMap& operator=(TMap<KeyType, ValueType, OtherSetAllocator, KeyFuncs>&& Other)
         {
             Super::operator=(MoveTemp(Other));
@@ -1595,7 +1592,7 @@ namespace OloEngine
         }
 
         /** Assignment operator for copying elements from a TMap with a different SetAllocator */
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         TMap& operator=(const TMap<KeyType, ValueType, OtherSetAllocator, KeyFuncs>& Other)
         {
             Super::operator=(Other);
@@ -1647,7 +1644,7 @@ namespace OloEngine
         }
 
         /** RemoveAndCopyValue with precomputed hash */
-        template <typename ComparableKey>
+        template<typename ComparableKey>
         inline bool RemoveAndCopyValueByHash(u32 KeyHash, const ComparableKey& Key, ValueType& OutRemovedValue)
         {
             const FSetElementId PairId = Super::Pairs.FindIdByHash(KeyHash, Key);
@@ -1679,7 +1676,7 @@ namespace OloEngine
          * @brief Move all items from another map into this one
          * @param OtherMap  The other map (will be emptied)
          */
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         void Append(TMap<KeyType, ValueType, OtherSetAllocator, KeyFuncs>&& OtherMap)
         {
             this->Reserve(this->Num() + OtherMap.Num());
@@ -1694,7 +1691,7 @@ namespace OloEngine
          * @brief Add all items from another map
          * @param OtherMap  The other map
          */
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         void Append(const TMap<KeyType, ValueType, OtherSetAllocator, KeyFuncs>& OtherMap)
         {
             this->Reserve(this->Num() + OtherMap.Num());
@@ -1722,7 +1719,7 @@ namespace OloEngine
          * @returns TMap with the same type as this object which contains
          *          the subset of elements for which the functor returns true.
          */
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] TMap<KeyType, ValueType, SetAllocator, KeyFuncs> FilterByPredicate(Predicate Pred) const
         {
             TMap<KeyType, ValueType, SetAllocator, KeyFuncs> FilterResults;
@@ -1771,19 +1768,18 @@ namespace OloEngine
      * @class TMultiMap
      * @brief A map from keys to values allowing multiple values per key
      */
-    template <
+    template<
         typename KeyType,
         typename ValueType,
         typename SetAllocator = FDefaultSetAllocator,
-        typename KeyFuncs = TDefaultMapKeyFuncs<KeyType, ValueType, true>
-    >
+        typename KeyFuncs = TDefaultMapKeyFuncs<KeyType, ValueType, true>>
     class TMultiMap : public TSortableMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>
     {
         static_assert(KeyFuncs::bAllowDuplicateKeys, "TMultiMap cannot be instantiated with KeyFuncs that disallows duplicate keys");
 
-    public:
+      public:
         using Super = TSortableMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>;
-        using Super::Num;  // Bring back the no-arg Num() from base class
+        using Super::Num; // Bring back the no-arg Num() from base class
         using KeyConstPointerType = typename Super::KeyConstPointerType;
         using KeyInitType = typename Super::KeyInitType;
         using ValueInitType = typename Super::ValueInitType;
@@ -1811,13 +1807,13 @@ namespace OloEngine
             return Super::operator==(Tag);
         }
 
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         [[nodiscard]] TMultiMap(TMultiMap<KeyType, ValueType, OtherSetAllocator, KeyFuncs>&& Other)
             : Super(MoveTemp(Other))
         {
         }
 
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         [[nodiscard]] TMultiMap(const TMultiMap<KeyType, ValueType, OtherSetAllocator, KeyFuncs>& Other)
             : Super(Other)
         {
@@ -1832,14 +1828,14 @@ namespace OloEngine
             }
         }
 
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         TMultiMap& operator=(TMultiMap<KeyType, ValueType, OtherSetAllocator, KeyFuncs>&& Other)
         {
             Super::operator=(MoveTemp(Other));
             return *this;
         }
 
-        template <typename OtherSetAllocator>
+        template<typename OtherSetAllocator>
         TMultiMap& operator=(const TMultiMap<KeyType, ValueType, OtherSetAllocator, KeyFuncs>& Other)
         {
             Super::operator=(Other);
@@ -1852,7 +1848,7 @@ namespace OloEngine
          * @param OutValues  Will contain all values for the key
          * @param bMaintainOrder  If true, maintain insertion order
          */
-        template <typename Allocator>
+        template<typename Allocator>
         void MultiFind(KeyInitType Key, TArray<ValueType, Allocator>& OutValues, bool bMaintainOrder = false) const
         {
             for (typename Super::ElementSetType::TConstKeyIterator It(Super::Pairs, Key); It; ++It)
@@ -1872,7 +1868,7 @@ namespace OloEngine
          * @param OutValues  Will contain pointers to all values for the key
          * @param bMaintainOrder  If true, maintain insertion order
          */
-        template <typename Allocator>
+        template<typename Allocator>
         void MultiFindPointer(KeyInitType Key, TArray<const ValueType*, Allocator>& OutValues, bool bMaintainOrder = false) const
         {
             for (typename Super::ElementSetType::TConstKeyIterator It(Super::Pairs, Key); It; ++It)
@@ -1886,7 +1882,7 @@ namespace OloEngine
             }
         }
 
-        template <typename Allocator>
+        template<typename Allocator>
         void MultiFindPointer(KeyInitType Key, TArray<ValueType*, Allocator>& OutValues, bool bMaintainOrder = false)
         {
             for (typename Super::ElementSetType::TKeyIterator It(Super::Pairs, Key); It; ++It)
@@ -1902,10 +1898,10 @@ namespace OloEngine
 
         /**
          * @brief Add a key-value pair only if it doesn't already exist
-         * 
+         *
          * If both the key and value match an existing association in the map,
          * no new association is made and the existing association's value is returned.
-         * 
+         *
          * @param InKey    The key
          * @param InValue  The value
          * @return Reference to the value (existing or newly added)
@@ -1932,15 +1928,15 @@ namespace OloEngine
 
         /**
          * @brief Emplace a key-value pair only if it doesn't already exist
-         * 
+         *
          * If both the key and value match an existing association in the map,
          * no new association is made and the existing association's value is returned.
-         * 
+         *
          * @param InKey    The key to associate
          * @param InValue  The value to associate
          * @return Reference to the value as stored in the map
          */
-        template <typename InitKeyType, typename InitValueType>
+        template<typename InitKeyType, typename InitValueType>
         ValueType& EmplaceUnique(InitKeyType&& InKey, InitValueType&& InValue)
         {
             if (ValueType* Found = FindPair(InKey, InValue))
@@ -2059,49 +2055,49 @@ namespace OloEngine
     // TIsTMap Specializations
     // ============================================================================
 
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     struct TIsTMap<TMap<KeyType, ValueType, SetAllocator, KeyFuncs>>
     {
         static constexpr bool Value = true;
     };
 
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     struct TIsTMap<const TMap<KeyType, ValueType, SetAllocator, KeyFuncs>>
     {
         static constexpr bool Value = true;
     };
 
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     struct TIsTMap<volatile TMap<KeyType, ValueType, SetAllocator, KeyFuncs>>
     {
         static constexpr bool Value = true;
     };
 
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     struct TIsTMap<const volatile TMap<KeyType, ValueType, SetAllocator, KeyFuncs>>
     {
         static constexpr bool Value = true;
     };
 
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     struct TIsTMap<TMultiMap<KeyType, ValueType, SetAllocator, KeyFuncs>>
     {
         static constexpr bool Value = true;
     };
 
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     struct TIsTMap<const TMultiMap<KeyType, ValueType, SetAllocator, KeyFuncs>>
     {
         static constexpr bool Value = true;
     };
 
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     struct TIsTMap<volatile TMultiMap<KeyType, ValueType, SetAllocator, KeyFuncs>>
     {
         static constexpr bool Value = true;
     };
 
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     struct TIsTMap<const volatile TMultiMap<KeyType, ValueType, SetAllocator, KeyFuncs>>
     {
         static constexpr bool Value = true;
@@ -2113,20 +2109,20 @@ namespace OloEngine
 
     struct TMapPrivateFriend
     {
-        template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+        template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
         inline static FArchive& Serialize(FArchive& Ar, TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& Map)
         {
             Ar << Map.Pairs;
             return Ar;
         }
 
-        template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+        template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
         OLO_FINLINE static void SerializeStructured(FStructuredArchive::FSlot Slot, TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& InMap)
         {
             Slot << InMap.Pairs;
         }
 
-        template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+        template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
         [[nodiscard]] static bool LegacyCompareEqual(const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& A, const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& B)
         {
             return TSetPrivateFriend::LegacyCompareEqual(A.Pairs, B.Pairs);
@@ -2138,14 +2134,14 @@ namespace OloEngine
     // ============================================================================
 
     /** Serializer. */
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     OLO_FINLINE FArchive& operator<<(FArchive& Ar, TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& Map)
     {
         return TMapPrivateFriend::Serialize(Ar, Map);
     }
 
     /** Structured archive serializer. */
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     OLO_FINLINE void operator<<(FStructuredArchive::FSlot Slot, TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& InMap)
     {
         TMapPrivateFriend::SerializeStructured(Slot, InMap);
@@ -2156,13 +2152,13 @@ namespace OloEngine
     // ============================================================================
 
     /** Legacy comparison operators. Note that these also test whether the map's key-value pairs were added in the same order! */
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     [[nodiscard]] bool LegacyCompareEqual(const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& A, const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& B)
     {
         return TMapPrivateFriend::LegacyCompareEqual(A, B);
     }
 
-    template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
     [[nodiscard]] bool LegacyCompareNotEqual(const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& A, const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& B)
     {
         return !TMapPrivateFriend::LegacyCompareEqual(A, B);
@@ -2174,40 +2170,40 @@ namespace OloEngine
 
     namespace Freeze
     {
-        template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+        template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
         void IntrinsicWriteMemoryImage(FMemoryImageWriter& Writer, const TMap<KeyType, ValueType, SetAllocator, KeyFuncs>& Object, const FTypeLayoutDesc&)
         {
             Object.WriteMemoryImage(Writer);
         }
 
-        template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+        template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
         u32 IntrinsicUnfrozenCopy(const FMemoryUnfreezeContent& Context, const TMap<KeyType, ValueType, SetAllocator, KeyFuncs>& Object, void* OutDst)
         {
             Object.CopyUnfrozen(Context, OutDst);
             return sizeof(Object);
         }
 
-        template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+        template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
         u32 IntrinsicAppendHash(const TMap<KeyType, ValueType, SetAllocator, KeyFuncs>* DummyObject, const FTypeLayoutDesc& TypeDesc, const FPlatformTypeLayoutParameters& LayoutParams, FSHA1& Hasher)
         {
             TMap<KeyType, ValueType, SetAllocator, KeyFuncs>::AppendHash(LayoutParams, Hasher);
             return DefaultAppendHash(TypeDesc, LayoutParams, Hasher);
         }
 
-        template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+        template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
         void IntrinsicWriteMemoryImage(FMemoryImageWriter& Writer, const TMultiMap<KeyType, ValueType, SetAllocator, KeyFuncs>& Object, const FTypeLayoutDesc&)
         {
             Object.WriteMemoryImage(Writer);
         }
 
-        template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+        template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
         u32 IntrinsicUnfrozenCopy(const FMemoryUnfreezeContent& Context, const TMultiMap<KeyType, ValueType, SetAllocator, KeyFuncs>& Object, void* OutDst)
         {
             Object.CopyUnfrozen(Context, OutDst);
             return sizeof(Object);
         }
 
-        template <typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
+        template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
         u32 IntrinsicAppendHash(const TMultiMap<KeyType, ValueType, SetAllocator, KeyFuncs>* DummyObject, const FTypeLayoutDesc& TypeDesc, const FPlatformTypeLayoutParameters& LayoutParams, FSHA1& Hasher)
         {
             TMultiMap<KeyType, ValueType, SetAllocator, KeyFuncs>::AppendHash(LayoutParams, Hasher);
@@ -2219,7 +2215,7 @@ namespace OloEngine
     // Hash Function for TPair
     // ============================================================================
 
-    template <typename KeyType, typename ValueType>
+    template<typename KeyType, typename ValueType>
     [[nodiscard]] u32 GetTypeHash(const TPair<KeyType, ValueType>& Pair)
     {
         return GetTypeHash(Pair.Key) ^ (GetTypeHash(Pair.Value) << 1);

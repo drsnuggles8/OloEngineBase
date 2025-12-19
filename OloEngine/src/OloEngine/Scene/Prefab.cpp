@@ -22,7 +22,7 @@ namespace OloEngine
             newEntity.AddOrReplaceComponent<TagComponent>(entity.GetComponent<TagComponent>());
         }
 
-        // TransformComponent  
+        // TransformComponent
         if (entity.HasComponent<TransformComponent>())
         {
             newEntity.AddOrReplaceComponent<TransformComponent>(entity.GetComponent<TransformComponent>());
@@ -145,8 +145,8 @@ namespace OloEngine
         (void)serialize;
     }
 
-    std::pair<std::unordered_set<AssetHandle>, std::unordered_set<AssetHandle>> 
-        Prefab::GetAssetList(bool recursive)
+    std::pair<std::unordered_set<AssetHandle>, std::unordered_set<AssetHandle>>
+    Prefab::GetAssetList(bool recursive)
     {
         std::unordered_set<AssetHandle> assets;
         std::unordered_set<AssetHandle> missingAssets;
@@ -158,7 +158,7 @@ namespace OloEngine
 
         // TODO: Implement asset dependency scanning
         (void)recursive;
-        
+
         return { assets, missingAssets };
     }
 
@@ -288,4 +288,4 @@ namespace OloEngine
             targetEntity.AddOrReplaceComponent<RelationshipComponent>(sourceEntity.GetComponent<RelationshipComponent>());
         }
     }
-}
+} // namespace OloEngine

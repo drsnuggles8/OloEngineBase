@@ -13,8 +13,8 @@ namespace OloEngine
     // Represents a plane in 3D space using the equation: Ax + By + Cz + D = 0
     struct Plane
     {
-        glm::vec3 Normal;  // (A, B, C) components - normalized
-        f32 Distance;    // D component
+        glm::vec3 Normal; // (A, B, C) components - normalized
+        f32 Distance;     // D component
 
         Plane() = default;
         Plane(const glm::vec3& normal, f32 distance)
@@ -44,7 +44,7 @@ namespace OloEngine
     // Represents a view frustum with 6 planes
     class Frustum
     {
-    public:
+      public:
         enum class Planes
         {
             Near = 0,
@@ -66,10 +66,13 @@ namespace OloEngine
         [[nodiscard]] bool IsBoundingSphereVisible(const BoundingSphere& sphere) const;
         [[nodiscard]] bool IsBoxVisible(const glm::vec3& min, const glm::vec3& max) const;
         [[nodiscard]] bool IsBoundingBoxVisible(const BoundingBox& box) const;
-		
-        [[nodiscard]] const Plane& GetPlane(Planes plane) const { return m_Planes[static_cast<sizet>(plane)]; }
 
-    private:
+        [[nodiscard]] const Plane& GetPlane(Planes plane) const
+        {
+            return m_Planes[static_cast<sizet>(plane)];
+        }
+
+      private:
         std::array<Plane, static_cast<sizet>(Planes::Count)> m_Planes;
     };
-}
+} // namespace OloEngine

@@ -22,64 +22,76 @@ namespace OloEngine
             for (const auto& resource : resources.uniform_buffers)
             {
                 const auto& type = compiler.get_type(resource.type_id);
-                
+
                 // Try to get the name from multiple sources
                 std::string name = resource.name;
                 if (name.empty() || name.find("_") == 0)
                 {
                     name = compiler.get_name(resource.id);
                 }
-                
+
                 // Get binding point
                 u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
-                
+
                 // If still no good name, generate one based on binding
                 if (name.empty() || name.find("_") == 0)
                 {
                     switch (binding)
                     {
-                        case 0: name = "CameraMatrices"; break;
-                        case 1: name = "LightProperties"; break;
-                        case 2: name = "MaterialProperties"; break;
-                        case 3: name = "ModelMatrices"; break;
-                        case 4: name = "AnimationMatrices"; break;
-                        default: name = "UniformBuffer_" + std::to_string(binding); break;
+                        case 0:
+                            name = "CameraMatrices";
+                            break;
+                        case 1:
+                            name = "LightProperties";
+                            break;
+                        case 2:
+                            name = "MaterialProperties";
+                            break;
+                        case 3:
+                            name = "ModelMatrices";
+                            break;
+                        case 4:
+                            name = "AnimationMatrices";
+                            break;
+                        default:
+                            name = "UniformBuffer_" + std::to_string(binding);
+                            break;
                     }
                 }
-                
+
                 // Get buffer size
                 u32 bufferSize = static_cast<u32>(compiler.get_declared_struct_size(type));
-                
+
                 UniformBlockInfo blockInfo;
                 blockInfo.Name = name;
                 blockInfo.BindingPoint = binding;
                 blockInfo.Size = bufferSize;
-                
+
                 // Extract member variables
                 for (u32 i = 0; i < type.member_types.size(); ++i)
                 {
                     const auto& memberType = compiler.get_type(type.member_types[i]);
                     const std::string& memberName = compiler.get_member_name(resource.type_id, i);
-                    
+
                     ShaderUniformDeclaration variable;
                     variable.Name = memberName;
                     variable.Offset = compiler.get_member_decoration(resource.type_id, i, spv::DecorationOffset);
-                    
+
                     // Convert SPIR-V type to ShaderDataType
                     variable.Type = ConvertSPIRVType(memberType);
                     variable.Size = ShaderUniformDeclaration::ShaderDataTypeSize(variable.Type);
                     variable.ArraySize = memberType.array.empty() ? 1 : memberType.array[0];
-                    
+
                     blockInfo.Variables.push_back(variable);
                 }
-                
+
                 // Add to collections
                 u32 index = static_cast<u32>(m_UniformBlocks.size());
                 m_UniformBlocks.push_back(blockInfo);
                 m_BlockNameToIndex[name] = index;
-                
-                OLO_CORE_TRACE("ShaderReflection: Found uniform block '{0}' at binding {1}, size {2} bytes", 
-                              name, binding, bufferSize);
+
+                OLO_CORE_TRACE("ShaderReflection: Found uniform block '{0}' at binding {1}, size {2} bytes",
+                               name, binding, bufferSize);
             }
 
             // Process textures/samplers
@@ -87,14 +99,14 @@ namespace OloEngine
             {
                 const auto& type = compiler.get_type(resource.type_id);
                 const std::string& name = resource.name;
-                
+
                 // Get binding point
                 u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
-                
+
                 TextureInfo textureInfo;
                 textureInfo.Name = name;
                 textureInfo.BindingPoint = binding;
-                
+
                 // Determine texture type from SPIR-V image dimensions
                 if (type.image.dim == spv::Dim2D)
                     textureInfo.Type = ShaderResourceType::Texture2D;
@@ -102,9 +114,9 @@ namespace OloEngine
                     textureInfo.Type = ShaderResourceType::TextureCube;
                 else
                     textureInfo.Type = ShaderResourceType::None;
-                
+
                 m_Textures.push_back(textureInfo);
-                
+
                 // Also add to generic resources
                 ResourceInfo resourceInfo;
                 resourceInfo.Name = name;
@@ -112,11 +124,11 @@ namespace OloEngine
                 resourceInfo.Type = textureInfo.Type;
                 resourceInfo.Size = 0; // Textures don't have a meaningful size in this context
                 m_Resources.push_back(resourceInfo);
-                
-                OLO_CORE_TRACE("ShaderReflection: Found texture '{0}' at binding {1}, type {2}", 
-                              name, binding, static_cast<int>(textureInfo.Type));
+
+                OLO_CORE_TRACE("ShaderReflection: Found texture '{0}' at binding {1}, type {2}",
+                               name, binding, static_cast<int>(textureInfo.Type));
             }
-            
+
             return true;
         }
         catch (const std::exception& e)
@@ -159,10 +171,14 @@ namespace OloEngine
                 {
                     switch (type.vecsize)
                     {
-                        case 1: return ShaderDataType::Float;
-                        case 2: return ShaderDataType::Float2;
-                        case 3: return ShaderDataType::Float3;
-                        case 4: return ShaderDataType::Float4;
+                        case 1:
+                            return ShaderDataType::Float;
+                        case 2:
+                            return ShaderDataType::Float2;
+                        case 3:
+                            return ShaderDataType::Float3;
+                        case 4:
+                            return ShaderDataType::Float4;
                     }
                 }
                 else
@@ -173,20 +189,24 @@ namespace OloEngine
                         return ShaderDataType::Mat4;
                 }
                 break;
-                
+
             case spirv_cross::SPIRType::Int:
                 switch (type.vecsize)
                 {
-                    case 1: return ShaderDataType::Int;
-                    case 2: return ShaderDataType::Int2;
-                    case 3: return ShaderDataType::Int3;
-                    case 4: return ShaderDataType::Int4;
+                    case 1:
+                        return ShaderDataType::Int;
+                    case 2:
+                        return ShaderDataType::Int2;
+                    case 3:
+                        return ShaderDataType::Int3;
+                    case 4:
+                        return ShaderDataType::Int4;
                 }
                 break;
-                
+
             case spirv_cross::SPIRType::Boolean:
                 return ShaderDataType::Bool;
-                
+
             case spirv_cross::SPIRType::SampledImage:
                 // Determine sampler type based on image dimensions
                 if (type.image.dim == spv::Dim2D)
@@ -195,7 +215,7 @@ namespace OloEngine
                     return ShaderDataType::SamplerCube;
                 break;
         }
-        
+
         return ShaderDataType::None;
     }
-}
+} // namespace OloEngine

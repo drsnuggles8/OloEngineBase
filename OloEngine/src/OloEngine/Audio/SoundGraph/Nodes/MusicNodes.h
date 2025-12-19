@@ -14,7 +14,7 @@ namespace
     constexpr f32 DEFAULT_BPM = 120.0f;
     constexpr f32 MIN_BPM = 1.0f;
     constexpr f32 MAX_BPM = 1000.0f;
-}
+} // namespace
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -47,7 +47,7 @@ namespace OloEngine::Audio::SoundGraph
         f32* m_InBPM = nullptr;
         f32 m_OutSeconds = 1.0f;
 
-    private:
+      private:
         void RegisterEndpoints()
         {
             OLO_PROFILE_FUNCTION();
@@ -66,10 +66,10 @@ namespace OloEngine::Audio::SoundGraph
             // Preserve existing output when BPM input is null
             if (!m_InBPM)
                 return;
-            
+
             // Get BPM value and handle invalid/out-of-range values
             f32 bpm = *m_InBPM;
-            
+
             // Replace non-positive or out-of-range BPM with default
             if (bpm <= 0.0f || !std::isfinite(bpm))
             {
@@ -80,7 +80,7 @@ namespace OloEngine::Audio::SoundGraph
                 // Clamp BPM to sane range
                 bpm = std::clamp(bpm, MIN_BPM, MAX_BPM);
             }
-            
+
             // Convert BPM to seconds per beat: 60 seconds per minute / beats per minute
             m_OutSeconds = 60.0f / bpm;
         }
@@ -117,7 +117,7 @@ namespace OloEngine::Audio::SoundGraph
         T* m_InMIDINote = nullptr;
         f32 m_OutFrequency = 440.0f;
 
-    private:
+      private:
         void RegisterEndpoints()
         {
             OLO_PROFILE_FUNCTION();
@@ -179,7 +179,7 @@ namespace OloEngine::Audio::SoundGraph
         f32* m_InFrequency = nullptr;
         f32 m_OutMIDINote = 69.0f;
 
-    private:
+      private:
         void RegisterEndpoints()
         {
             OLO_PROFILE_FUNCTION();
@@ -215,7 +215,7 @@ namespace OloEngine::Audio::SoundGraph
             // Convert frequency to MIDI note using A4 (440 Hz) as reference (MIDI note 69)
             // Formula: note = 69 + 12 * log2(frequency / 440)
             f32 midiNote = 69.0f + 12.0f * std::log2((*m_InFrequency) / 440.0f);
-            
+
             // Clamp to valid MIDI range [0.0f, 127.0f]
             m_OutMIDINote = std::clamp(midiNote, 0.0f, 127.0f);
         }

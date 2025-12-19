@@ -8,7 +8,7 @@ namespace OloEngine
 {
     class RefCounted
     {
-    public:
+      public:
         RefCounted() = default;
         virtual ~RefCounted() = default;
 
@@ -16,16 +16,16 @@ namespace OloEngine
         void DecRefCount() const;
         u32 GetRefCount() const;
 
-    private:
+      private:
         mutable std::atomic<u32> m_RefCount = 0;
     };
 
     namespace RefUtils
-	{
+    {
         void AddToLiveReferences(void* instance);
         void RemoveFromLiveReferences(void* instance);
         bool IsLive(void* instance);
-    }
+    } // namespace RefUtils
 
     /// Thread-safe smart pointer for RefCounted objects.
     /// The underlying RefCounted object uses atomic reference counting,
@@ -35,12 +35,12 @@ namespace OloEngine
     template<typename T>
     class Ref
     {
-    public:
+      public:
         using element_type = T;
 
         // Constructors
         Ref() : m_Instance(nullptr) {}
-        
+
         Ref(std::nullptr_t) : m_Instance(nullptr) {}
 
         explicit Ref(T* instance) : m_Instance(instance)
@@ -132,20 +132,47 @@ namespace OloEngine
         }
 
         // Observers
-        operator bool() const { return m_Instance != nullptr; }
+        operator bool() const
+        {
+            return m_Instance != nullptr;
+        }
 
-        T* operator->() { return m_Instance; }
-        const T* operator->() const { return m_Instance; }
+        T* operator->()
+        {
+            return m_Instance;
+        }
+        const T* operator->() const
+        {
+            return m_Instance;
+        }
 
-        T& operator*() { return *m_Instance; }
-        const T& operator*() const { return *m_Instance; }
+        T& operator*()
+        {
+            return *m_Instance;
+        }
+        const T& operator*() const
+        {
+            return *m_Instance;
+        }
 
-        T* Raw() { return m_Instance; }
-        const T* Raw() const { return m_Instance; }
-        
+        T* Raw()
+        {
+            return m_Instance;
+        }
+        const T* Raw() const
+        {
+            return m_Instance;
+        }
+
         // Standard smart pointer interface compatibility
-        T* get() { return m_Instance; }
-        const T* get() const { return m_Instance; }
+        T* get()
+        {
+            return m_Instance;
+        }
+        const T* get() const
+        {
+            return m_Instance;
+        }
 
         // Modifiers
         void Reset(T* instance = nullptr)
@@ -176,7 +203,7 @@ namespace OloEngine
         static Ref<T> Create(Args&&... args)
         {
 #if OLO_TRACK_MEMORY && defined(OLO_PLATFORM_WINDOWS)
-            return Ref<T>(new(typeid(T).name()) T(std::forward<Args>(args)...));
+            return Ref<T>(new (typeid(T).name()) T(std::forward<Args>(args)...));
 #else
             return Ref<T>(new T(std::forward<Args>(args)...));
 #endif
@@ -200,16 +227,16 @@ namespace OloEngine
         /// @return true if both references are valid and their objects are equal, false otherwise
         bool EqualsObject(const Ref<T>& other) const
         {
-            static_assert(std::is_same_v<decltype(std::declval<T>() == std::declval<T>()), bool>, 
-                         "Type T must support operator== that returns bool");
-            
+            static_assert(std::is_same_v<decltype(std::declval<T>() == std::declval<T>()), bool>,
+                          "Type T must support operator== that returns bool");
+
             if (!m_Instance || !other.m_Instance)
                 return false;
-            
+
             return *m_Instance == *other.m_Instance;
         }
 
-    private:
+      private:
         void IncRef() const
         {
             if (m_Instance)
@@ -224,13 +251,13 @@ namespace OloEngine
             if (m_Instance)
             {
                 m_Instance->DecRefCount();
-                
+
                 if (m_Instance->GetRefCount() == 0)
                 {
                     RefUtils::RemoveFromLiveReferences(m_Instance);
                     delete m_Instance;
                     // Note: m_Instance is not set to nullptr here to avoid race conditions.
-                    // Each Ref instance manages its own pointer lifetime through 
+                    // Each Ref instance manages its own pointer lifetime through
                     // constructors, destructors, and assignment operators.
                 }
             }
@@ -252,58 +279,64 @@ namespace OloEngine
 
         template<class T2>
         friend class Ref;
-        
+
         mutable T* m_Instance;
     };
-    
+
     template<typename T>
     class WeakRef
     {
-    public:
+      public:
         WeakRef() = default;
 
         WeakRef(const Ref<T>& ref) : m_Instance(const_cast<T*>(ref.get())) {}
 
         explicit WeakRef(T* instance) : m_Instance(instance) {}
 
-        /// Access the object via pointer. 
-        /// WARNING: This does not check if the object is still alive! 
+        /// Access the object via pointer.
+        /// WARNING: This does not check if the object is still alive!
         /// Call IsValid() first or use Lock() for safe access.
-        T* operator->() 
-        { 
+        T* operator->()
+        {
             OLO_CORE_ASSERT(IsValid(), "WeakRef: Accessing invalid/deleted object! Call IsValid() first.");
-            return m_Instance; 
+            return m_Instance;
         }
-        
+
         /// Access the object via pointer (const version).
-        /// WARNING: This does not check if the object is still alive! 
+        /// WARNING: This does not check if the object is still alive!
         /// Call IsValid() first or use Lock() for safe access.
-        const T* operator->() const 
-        { 
+        const T* operator->() const
+        {
             OLO_CORE_ASSERT(IsValid(), "WeakRef: Accessing invalid/deleted object! Call IsValid() first.");
-            return m_Instance; 
+            return m_Instance;
         }
 
         /// Dereference the object.
-        /// WARNING: This does not check if the object is still alive! 
+        /// WARNING: This does not check if the object is still alive!
         /// Call IsValid() first or use Lock() for safe access.
-        T& operator*() 
-        { 
+        T& operator*()
+        {
             OLO_CORE_ASSERT(IsValid(), "WeakRef: Dereferencing invalid/deleted object! Call IsValid() first.");
-            return *m_Instance; 
-        }
-        
-        /// Dereference the object (const version).
-        /// WARNING: This does not check if the object is still alive! 
-        /// Call IsValid() first or use Lock() for safe access.
-        const T& operator*() const 
-        { 
-            OLO_CORE_ASSERT(IsValid(), "WeakRef: Dereferencing invalid/deleted object! Call IsValid() first.");
-            return *m_Instance; 
+            return *m_Instance;
         }
 
-        bool IsValid() const { return m_Instance ? RefUtils::IsLive(m_Instance) : false; }
-        operator bool() const { return IsValid(); }
+        /// Dereference the object (const version).
+        /// WARNING: This does not check if the object is still alive!
+        /// Call IsValid() first or use Lock() for safe access.
+        const T& operator*() const
+        {
+            OLO_CORE_ASSERT(IsValid(), "WeakRef: Dereferencing invalid/deleted object! Call IsValid() first.");
+            return *m_Instance;
+        }
+
+        bool IsValid() const
+        {
+            return m_Instance ? RefUtils::IsLive(m_Instance) : false;
+        }
+        operator bool() const
+        {
+            return IsValid();
+        }
 
         Ref<T> Lock() const
         {
@@ -318,22 +351,22 @@ namespace OloEngine
             return WeakRef<T2>(dynamic_cast<T2*>(m_Instance));
         }
 
-    private:
+      private:
         T* m_Instance = nullptr;
     };
 
     // Convenience aliases for backward compatibility
     template<typename T>
     using AssetRef = Ref<T>;
-    
+
     template<typename T>
     using WeakAssetRef = WeakRef<T>;
 
     // Additional aliases
     template<typename T>
     using AssetPtr = Ref<T>;
-    
+
     template<typename T>
     using WeakAssetPtr = WeakRef<T>;
 
-}
+} // namespace OloEngine

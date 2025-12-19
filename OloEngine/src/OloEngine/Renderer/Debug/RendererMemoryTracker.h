@@ -13,15 +13,13 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Real-time memory usage tracker for renderer resources
-     * 
-     * Tracks GPU and CPU memory allocations, provides leak detection,
-     * and offers detailed memory usage visualization.
-     */
+    // @brief Real-time memory usage tracker for renderer resources
+    //
+    // Tracks GPU and CPU memory allocations, provides leak detection,
+    // and offers detailed memory usage visualization.
     class RendererMemoryTracker
     {
-    public:
+      public:
         // Resource types for categorization
         enum class ResourceType : u8
         {
@@ -38,7 +36,7 @@ namespace OloEngine
             Other,
             COUNT
         };
-        
+
         // Memory allocation info
         struct AllocationInfo
         {
@@ -51,7 +49,7 @@ namespace OloEngine
             f64 m_Timestamp = 0.0;
             bool m_IsGPU = false;
         };
-        
+
         // Memory pool statistics
         struct PoolStats
         {
@@ -61,7 +59,7 @@ namespace OloEngine
             u32 m_AllocationCount = 0;
             f32 m_FragmentationPercentage = 0.0f;
         };
-        
+
         // Memory leak detection
         struct LeakInfo
         {
@@ -69,98 +67,74 @@ namespace OloEngine
             f64 m_AgeSeconds = 0.0;
             bool m_IsSuspicious = false;
         };
-        
-    public:
+
+      public:
         static RendererMemoryTracker& GetInstance();
-        
+
         // Debug function to track when memory gets corrupted
         void DebugDumpTypeUsage(const std::string& context);
-        
-        /**
-         * @brief Initialize the memory tracker
-         */
+
+        // @brief Initialize the memory tracker
         void Initialize();
-        
-        /**
-         * @brief Shutdown the memory tracker
-         */
+
+        // @brief Shutdown the memory tracker
         void Shutdown();
-        
-        /**
-         * @brief Reset all tracking data and statistics
-         */
+
+        // @brief Reset all tracking data and statistics
         void Reset();
-        
-        /**
-         * @brief Track a memory allocation
-         */
-        void TrackAllocation(void* address, sizet size, ResourceType type, 
-                           const std::string& name, bool isGPU = false,
-                           const char* file = __FILE__, u32 line = __LINE__);
-        
-        /**
-         * @brief Track a memory deallocation
-         */
+
+        // @brief Track a memory allocation
+        void TrackAllocation(void* address, sizet size, ResourceType type,
+                             const std::string& name, bool isGPU = false,
+                             const char* file = __FILE__, u32 line = __LINE__);
+
+        // @brief Track a memory deallocation
         void TrackDeallocation(void* address);
-        
-        /**
-         * @brief Update memory statistics (call once per frame)
-         */
+
+        // @brief Update memory statistics (call once per frame)
         void UpdateStats();
-        
-        /**
-         * @brief Render the memory tracker UI
-         */
+
+        // @brief Render the memory tracker UI
         void RenderUI(bool* open = nullptr);
-        
-        /**
-         * @brief Get current memory usage by type
-         */
+
+        // @brief Get current memory usage by type
         sizet GetMemoryUsage(ResourceType type) const;
-        
-        /**
-         * @brief Get total memory usage
-         */
+
+        // @brief Get total memory usage
         sizet GetTotalMemoryUsage() const;
-        
-        /**
-         * @brief Get allocation count by type
-         */
+
+        // @brief Get allocation count by type
         u32 GetAllocationCount(ResourceType type) const;
-        
-        /**
-         * @brief Detect potential memory leaks
-         */
+
+        // @brief Detect potential memory leaks
         std::vector<LeakInfo> DetectLeaks() const;
-        
-        /**
-         * @brief Export memory report to file
-         */
+
+        // @brief Export memory report to file
         bool ExportReport(const std::string& filePath) const;
-        
-    private:
+
+      private:
         RendererMemoryTracker() = default;
         ~RendererMemoryTracker() = default;
-          // Helper methods
+        // Helper methods
         void RenderOverviewTab();
         void RenderDetailedTab();
         void RenderLeakDetectionTab();
         void RenderPoolStatsTab();
         void RenderHistoryGraphs();
-        
+
         std::string GetResourceTypeName(ResourceType type) const;
         ImVec4 GetResourceTypeColor(ResourceType type) const;
-        
+
         // Internal helper (assumes lock is already held)
         sizet GetTotalMemoryUsageUnlocked() const;
-        
+
         // Thread safety
         mutable std::mutex m_Mutex;
-          // Allocation tracking
+        // Allocation tracking
         std::unordered_map<void*, AllocationInfo> m_Allocations;
         std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> m_TypeUsage{};
         std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_TypeCounts{};
-        
+
         // History for graphs
         static constexpr u32 OLO_HISTORY_SIZE = 300; // 5 minutes at 60fps
         std::vector<f32> m_MemoryHistory;
@@ -168,20 +142,20 @@ namespace OloEngine
         std::vector<f32> m_GPUMemoryHistory;
         std::vector<f32> m_CPUMemoryHistory;
         u32 m_HistoryIndex = 0;
-        
+
         // Pool statistics (placeholder for future implementation)
         std::unordered_map<std::string, PoolStats> m_PoolStats;
-          // Leak detection parameters
+        // Leak detection parameters
         f64 m_LeakDetectionThreshold = 30.0; // seconds
         f64 m_LastLeakCheck = 0.0;
-        
+
         // UI state
         i32 m_SelectedTabIndex = 0;
         bool m_ShowSystemMemory = true;
         bool m_ShowDetailedView = false;
         bool m_EnableLeakDetection = true;
         f32 m_RefreshInterval = 1.0f / 60.0f; // 60 FPS
-        
+
         // Statistics
         sizet m_PeakMemoryUsage = 0;
         sizet m_TotalAllocatedMemory = 0;
@@ -195,24 +169,27 @@ namespace OloEngine
         sizet m_PeakGPUMemory = 0;
         sizet m_PeakCPUMemory = 0;
         f64 m_LastUpdateTime = 0.0;
-          // Shutdown tracking
-        std::atomic<bool> m_IsShutdown{false};
-        std::atomic<bool> m_IsInitialized{false};
+        // Shutdown tracking
+        std::atomic<bool> m_IsShutdown{ false };
+        std::atomic<bool> m_IsInitialized{ false };
     };
-}
+} // namespace OloEngine
 
 // Convenience macros for tracking allocations (defined outside namespace for global use)
-#define OLO_TRACK_GPU_ALLOC(ptr, size, type, name) \
-    do { \
+#define OLO_TRACK_GPU_ALLOC(ptr, size, type, name)                                                                        \
+    do                                                                                                                    \
+    {                                                                                                                     \
         OloEngine::RendererMemoryTracker::GetInstance().TrackAllocation(ptr, size, type, name, true, __FILE__, __LINE__); \
     } while (0)
 
-#define OLO_TRACK_CPU_ALLOC(ptr, size, type, name) \
-    do { \
+#define OLO_TRACK_CPU_ALLOC(ptr, size, type, name)                                                                         \
+    do                                                                                                                     \
+    {                                                                                                                      \
         OloEngine::RendererMemoryTracker::GetInstance().TrackAllocation(ptr, size, type, name, false, __FILE__, __LINE__); \
     } while (0)
 
-#define OLO_TRACK_DEALLOC(ptr) \
-    do { \
+#define OLO_TRACK_DEALLOC(ptr)                                                  \
+    do                                                                          \
+    {                                                                           \
         OloEngine::RendererMemoryTracker::GetInstance().TrackDeallocation(ptr); \
     } while (0)

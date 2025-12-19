@@ -8,7 +8,8 @@
 
 // Centralized YAML converter utility functions
 // Use these functions instead of template specializations to avoid ODR violations
-namespace OloEngine::YAMLUtils {
+namespace OloEngine::YAMLUtils
+{
 
     // UUID conversion functions
     inline YAML::Node EncodeUUID(const UUID& uuid)
@@ -22,7 +23,7 @@ namespace OloEngine::YAMLUtils {
     {
         if (!node.IsScalar())
             return false;
-            
+
         uuid = node.as<u64>();
         return true;
     }
@@ -155,11 +156,12 @@ namespace OloEngine::YAMLUtils {
         return true;
     }
 
-}
+} // namespace OloEngine::YAMLUtils
 
-// Template specializations for YAML-cpp 
+// Template specializations for YAML-cpp
 // Each specialization is conditionally defined to avoid ODR violations
-namespace YAML {
+namespace YAML
+{
 
 #ifndef OLOENGINE_YAML_UUID_DEFINED
 #define OLOENGINE_YAML_UUID_DEFINED
@@ -184,7 +186,7 @@ namespace YAML {
 // These provide streaming support for writing YAML files
 #ifndef OLOENGINE_YAML_EMITTER_GLM_DEFINED
 #define OLOENGINE_YAML_EMITTER_GLM_DEFINED
-    
+
     inline Emitter& operator<<(Emitter& out, const glm::vec2& v)
     {
         out << Flow;
@@ -293,4 +295,4 @@ namespace YAML {
     };
 #endif
 
-}
+} // namespace YAML

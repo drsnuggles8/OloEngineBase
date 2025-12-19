@@ -48,7 +48,7 @@ namespace OloEngine
     {
         m_LightCount = 0;
         m_BufferData.LightCount = 0;
-        
+
         // Clear all light data
         memset(m_BufferData.Lights, 0, sizeof(m_BufferData.Lights));
     }
@@ -220,4 +220,4 @@ namespace OloEngine
         // Upload any pending changes
         m_LightBuffer.UploadToGPU();
     }
-}
+} // namespace OloEngine

@@ -4,62 +4,65 @@
 #include <thread>
 #include <utility>
 
-namespace OloEngine {
+namespace OloEngine
+{
 
-	class Thread
-	{
-	public:
-		Thread(const std::string& name);
-		~Thread();
+    class Thread
+    {
+      public:
+        Thread(const std::string& name);
+        ~Thread();
 
-		// Disable copy semantics to prevent thread ownership issues
-		Thread(const Thread&) = delete;
-		Thread& operator=(const Thread&) = delete;
+        // Disable copy semantics to prevent thread ownership issues
+        Thread(const Thread&) = delete;
+        Thread& operator=(const Thread&) = delete;
 
-		// Enable move semantics for transferring thread ownership
-		Thread(Thread&& other) noexcept;
-		Thread& operator=(Thread&& other) noexcept;
+        // Enable move semantics for transferring thread ownership
+        Thread(Thread&& other) noexcept;
+        Thread& operator=(Thread&& other) noexcept;
 
-		template<typename Fn, typename... Args>
-		void Dispatch(Fn&& func, Args&&... args)
-		{
-			// Ensure any existing thread is properly handled before creating a new one
-			if (m_Thread.joinable())
-				m_Thread.join();
-			
-			m_Thread = std::thread(std::forward<Fn>(func), std::forward<Args>(args)...);
-			SetName(m_Name);
-		}
+        template<typename Fn, typename... Args>
+        void Dispatch(Fn&& func, Args&&... args)
+        {
+            // Ensure any existing thread is properly handled before creating a new one
+            if (m_Thread.joinable())
+                m_Thread.join();
 
-		void SetName(const std::string& name);
+            m_Thread = std::thread(std::forward<Fn>(func), std::forward<Args>(args)...);
+            SetName(m_Name);
+        }
 
-		void Join();
+        void SetName(const std::string& name);
 
-		std::thread::id GetID() const;
-	private:
-		std::string m_Name;
-		std::thread m_Thread;
-	};
+        void Join();
 
-	class ThreadSignal
-	{
-	public:
-		ThreadSignal(const std::string& name, bool manualReset = false);
-		~ThreadSignal() noexcept;
+        std::thread::id GetID() const;
 
-		// Disable copy semantics to prevent double-closing handles
-		ThreadSignal(const ThreadSignal&) = delete;
-		ThreadSignal& operator=(const ThreadSignal&) = delete;
+      private:
+        std::string m_Name;
+        std::thread m_Thread;
+    };
 
-		// Enable move semantics for transferring handle ownership
-		ThreadSignal(ThreadSignal&& other) noexcept;
-		ThreadSignal& operator=(ThreadSignal&& other) noexcept;
+    class ThreadSignal
+    {
+      public:
+        ThreadSignal(const std::string& name, bool manualReset = false);
+        ~ThreadSignal() noexcept;
 
-		void Wait();
-		void Signal();
-		void Reset();
-	private:
-		void* m_SignalHandle = nullptr;
-	};
+        // Disable copy semantics to prevent double-closing handles
+        ThreadSignal(const ThreadSignal&) = delete;
+        ThreadSignal& operator=(const ThreadSignal&) = delete;
 
-}
+        // Enable move semantics for transferring handle ownership
+        ThreadSignal(ThreadSignal&& other) noexcept;
+        ThreadSignal& operator=(ThreadSignal&& other) noexcept;
+
+        void Wait();
+        void Signal();
+        void Reset();
+
+      private:
+        void* m_SignalHandle = nullptr;
+    };
+
+} // namespace OloEngine

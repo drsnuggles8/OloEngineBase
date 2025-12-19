@@ -5,11 +5,11 @@
 
 TEST(LoggerTest, InitTest)
 {
-	ASSERT_EQ(OloEngine::Log::GetCoreLogger(), nullptr);
-	ASSERT_EQ(OloEngine::Log::GetClientLogger(), nullptr);
+    ASSERT_EQ(OloEngine::Log::GetCoreLogger(), nullptr);
+    ASSERT_EQ(OloEngine::Log::GetClientLogger(), nullptr);
 
-	OloEngine::Log::Init();
+    OloEngine::Log::Init();
 
-	EXPECT_NE(OloEngine::Log::GetCoreLogger(), nullptr);
-	EXPECT_NE(OloEngine::Log::GetClientLogger(), nullptr);
+    EXPECT_NE(OloEngine::Log::GetCoreLogger(), nullptr);
+    EXPECT_NE(OloEngine::Log::GetClientLogger(), nullptr);
 }

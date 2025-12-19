@@ -3,18 +3,18 @@
 /**
  * @file CompactHashTable.h
  * @brief Compact hash table implementation for TCompactSet
- * 
+ *
  * Compact hash table has two distinct features to keep it small:
  * 1. The Index type adapts to the number of elements, so a smaller table will use a smaller type
  * 2. Holes in the table are patched up so all slots up to count are guaranteed to be valid
- * 
+ *
  * For performance reasons we only reset the HashTable part of the lookup table since the indexes will be unused until added.
  * It's the users responsibility to maintain correct item count
  * !!Important!! It's also the users responsibility to move items from the end of the list into their new spots when removing items.
- * 
+ *
  * You will be able to maintain different views (hashes) of the same data since hole patching is deterministic between two tables.
  * This can be used to allow searching against the same data using different fields as names
- * 
+ *
  * Ported from Unreal Engine's Containers/CompactHashTable.h
  */
 
@@ -23,7 +23,7 @@
 namespace OloEngine::CompactHashTable::Private
 {
     // Remove an element from the list and patch up any next index references, after this the spot is empty and needs to be filled
-    template <typename IndexType>
+    template<typename IndexType>
     inline void RemoveInternal(u32 Index, u32 Key, IndexType* HashData, u32 HashCount, IndexType* NextIndexData, u32 NextIndexCount)
     {
         const u32 HashIndex = Key & (HashCount - 1);
@@ -38,19 +38,34 @@ namespace OloEngine::CompactHashTable::Private
             }
         }
     }
-}
+} // namespace OloEngine::CompactHashTable::Private
 
 /* Helper to write code against specific types resolves by number of elements. Usage:
     #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) // Code
     OLO_COMPACTHASHTABLE_CALLBYTYPE(NumElements)
     #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
 */
-#define OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount) \
-    switch (OloEngine::CompactHashTable::GetTypeSize(NextIndexCount)) { \
-    case 1: { OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(u8); } break; \
-    case 2: { OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(u16); } break; \
-    case 4: { OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(u32); } break; \
-    default: OLO_CORE_ASSERT(false, "Invalid type size"); }
+#define OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount)               \
+    switch (OloEngine::CompactHashTable::GetTypeSize(NextIndexCount)) \
+    {                                                                 \
+        case 1:                                                       \
+        {                                                             \
+            OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(u8);                   \
+        }                                                             \
+        break;                                                        \
+        case 2:                                                       \
+        {                                                             \
+            OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(u16);                  \
+        }                                                             \
+        break;                                                        \
+        case 4:                                                       \
+        {                                                             \
+            OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(u32);                  \
+        }                                                             \
+        break;                                                        \
+        default:                                                      \
+            OLO_CORE_ASSERT(false, "Invalid type size");              \
+    }
 
 /* Helpers for interacting with compact hash table memory layouts */
 namespace OloEngine::CompactHashTable
@@ -101,7 +116,7 @@ namespace OloEngine::CompactHashTable
     }
 
     /* Return the first index of a key from the hash table portion */
-    template <typename IndexType>
+    template<typename IndexType>
     [[nodiscard]] inline u32 GetFirst(u32 Key, const IndexType* HashData, u32 HashCount)
     {
         const u32 HashIndex = Key & (HashCount - 1);
@@ -113,7 +128,7 @@ namespace OloEngine::CompactHashTable
     }
 
     /* Return the first index of a key from the hash table portion */
-    template <typename IndexType>
+    template<typename IndexType>
     [[nodiscard]] inline u32 GetFirstByIndex(u32 HashIndex, const IndexType* HashData, u32 HashCount)
     {
         OLO_CORE_ASSERT(HashIndex <= HashCount, "HashIndex out of bounds");
@@ -125,19 +140,19 @@ namespace OloEngine::CompactHashTable
     }
 
     /* Given an existing index, return the next index in case there was a collision in the hash table */
-    template <typename IndexType>
+    template<typename IndexType>
     [[nodiscard]] inline u32 GetNext(u32 Index, const IndexType* NextIndexData, u32 NextIndexCount)
     {
         OLO_CORE_ASSERT(Index < NextIndexCount, "Index out of bounds");
         const IndexType NextIndex = NextIndexData[Index];
-        
+
         // Convert smaller type INDEX_NONE to uint32 INDEX_NONE if data is invalid
         constexpr IndexType InvalidIndex = static_cast<IndexType>(INDEX_NONE);
         return NextIndex == InvalidIndex ? static_cast<u32>(INDEX_NONE) : static_cast<u32>(NextIndex);
     }
 
     /* Do a full search for an existing element in the table given a function to compare if a found element is what you're looking for */
-    template <typename IndexType, typename PredicateType>
+    template<typename IndexType, typename PredicateType>
     [[nodiscard]] inline u32 Find(u32 Key, const IndexType* HashData, u32 HashCount, const IndexType* NextIndexData, u32 NextIndexCount, const PredicateType& Predicate)
     {
         for (IndexType ElementIndex = HashData[Key & (HashCount - 1)]; ElementIndex != static_cast<IndexType>(INDEX_NONE); ElementIndex = NextIndexData[ElementIndex])
@@ -151,9 +166,9 @@ namespace OloEngine::CompactHashTable
         }
         return INDEX_NONE;
     }
-    
+
     /* Insert new element into the hash table */
-    template <typename IndexType>
+    template<typename IndexType>
     inline void Add(u32 Index, u32 Key, IndexType* HashData, u32 HashCount, IndexType* NextIndexData, u32 NextIndexCount)
     {
         OLO_CORE_ASSERT(Index < NextIndexCount, "Index out of bounds");
@@ -166,7 +181,7 @@ namespace OloEngine::CompactHashTable
     /* Remove an element from the list, move the last element into the now empty slot
        If the item to remove is the last element then the last element's key will be ignored (you can skip calculating it if it's expensive)
     */
-    template <typename IndexType>
+    template<typename IndexType>
     inline void Remove(u32 Index, u32 Key, u32 LastIndex, u32 OptLastKey, IndexType* HashData, u32 HashCount, IndexType* NextIndexData, u32 NextIndexCount)
     {
         OLO_CORE_ASSERT(LastIndex < NextIndexCount && Index <= LastIndex, "Invalid indices");
@@ -187,7 +202,7 @@ namespace OloEngine::CompactHashTable
     /* Remove an element from the list, shift all indexes down to preserve the order of elements in a list
        This is a very expensive operation so it should only be used if absolutely necessary (i.e. generally only for user facing data)
     */
-    template <typename IndexType>
+    template<typename IndexType>
     inline void RemoveStable(u32 Index, u32 Key, IndexType* HashData, u32 HashCount, IndexType* NextIndexData, u32 NextIndexCount)
     {
         OLO_CORE_ASSERT(Index < NextIndexCount, "Index out of bounds");
@@ -225,196 +240,193 @@ namespace OloEngine::CompactHashTable
             }
         }
     }
-}
+} // namespace OloEngine::CompactHashTable
 
 namespace OloEngine
 {
 
-/* Helper to lookup a type from a type size, todo: Add support for 3 byte lookup */
-template <u32 TypeSize>
-struct TCompactHashTypeLookupBySize;
+    /* Helper to lookup a type from a type size, todo: Add support for 3 byte lookup */
+    template<u32 TypeSize>
+    struct TCompactHashTypeLookupBySize;
 
-template <>
-struct TCompactHashTypeLookupBySize<1>
-{
-    using Type = u8;
-};
-
-template <>
-struct TCompactHashTypeLookupBySize<2>
-{
-    using Type = u16;
-};
-
-template <>
-struct TCompactHashTypeLookupBySize<4>
-{
-    using Type = u32;
-};
-
-/* Helper for making a fixed size hash table that manages its own memory */
-template <u32 ElementCount, u32 HashCount = CompactHashTable::GetHashCount(ElementCount)>
-class TStaticCompactHashTable
-{
-public:
-    using IndexType = typename TCompactHashTypeLookupBySize<CompactHashTable::GetTypeSize(ElementCount)>::Type;
-
-    TStaticCompactHashTable()
+    template<>
+    struct TCompactHashTypeLookupBySize<1>
     {
-        static_assert(FMath::IsPowerOfTwo(HashCount));
-        Reset();
-    }
-    TStaticCompactHashTable(ENoInit) {}
-    
-    OLO_FINLINE void Reset()
+        using Type = u8;
+    };
+
+    template<>
+    struct TCompactHashTypeLookupBySize<2>
     {
-        FMemory::Memset(HashData, 0xff, sizeof(HashData));
-    }
+        using Type = u16;
+    };
 
-    [[nodiscard]] OLO_FINLINE u32 GetFirst(u32 Key) const
+    template<>
+    struct TCompactHashTypeLookupBySize<4>
     {
-        return CompactHashTable::GetFirst(Key, HashData, HashCount);
-    }
+        using Type = u32;
+    };
 
-    [[nodiscard]] OLO_FINLINE u32 GetFirstByIndex(u32 HashIndex) const
+    /* Helper for making a fixed size hash table that manages its own memory */
+    template<u32 ElementCount, u32 HashCount = CompactHashTable::GetHashCount(ElementCount)>
+    class TStaticCompactHashTable
     {
-        return CompactHashTable::GetFirstByIndex(HashIndex, HashData, HashCount);
-    }
+      public:
+        using IndexType = typename TCompactHashTypeLookupBySize<CompactHashTable::GetTypeSize(ElementCount)>::Type;
 
-    [[nodiscard]] inline u32 GetNext(u32 Index, u32 CurrentCount) const
+        TStaticCompactHashTable()
+        {
+            static_assert(FMath::IsPowerOfTwo(HashCount));
+            Reset();
+        }
+        TStaticCompactHashTable(ENoInit) {}
+
+        OLO_FINLINE void Reset()
+        {
+            FMemory::Memset(HashData, 0xff, sizeof(HashData));
+        }
+
+        [[nodiscard]] OLO_FINLINE u32 GetFirst(u32 Key) const
+        {
+            return CompactHashTable::GetFirst(Key, HashData, HashCount);
+        }
+
+        [[nodiscard]] OLO_FINLINE u32 GetFirstByIndex(u32 HashIndex) const
+        {
+            return CompactHashTable::GetFirstByIndex(HashIndex, HashData, HashCount);
+        }
+
+        [[nodiscard]] inline u32 GetNext(u32 Index, u32 CurrentCount) const
+        {
+            OLO_CORE_ASSERT(CurrentCount <= ElementCount, "CurrentCount exceeds ElementCount");
+            return CompactHashTable::GetNext(Index, NextIndexData, CurrentCount);
+        }
+
+        template<typename PredicateType>
+        [[nodiscard]] inline u32 Find(u32 Key, u32 CurrentCount, const PredicateType& Predicate) const
+        {
+            OLO_CORE_ASSERT(CurrentCount <= ElementCount, "CurrentCount exceeds ElementCount");
+            return CompactHashTable::Find(Key, HashData, HashCount, NextIndexData, CurrentCount, Predicate);
+        }
+
+        inline void Add(u32 CurrentCount, u32 Key)
+        {
+            OLO_CORE_ASSERT(CurrentCount < ElementCount, "Cannot add: ElementCount exceeded");
+            CompactHashTable::Add(CurrentCount, Key, HashData, HashCount, NextIndexData, CurrentCount + 1);
+        }
+
+        OLO_FINLINE void Remove(u32 Index, u32 Key, u32 LastIndex, u32 OptLastKey)
+        {
+            CompactHashTable::Remove(Index, Key, LastIndex, OptLastKey, HashData, HashCount, NextIndexData, ElementCount);
+        }
+
+      protected:
+        IndexType NextIndexData[ElementCount]; // Collision redirector to next index for keys that hash to the same initial index
+        IndexType HashData[HashCount];         // First index lookup from key
+    };
+
+    /* Helper for interacting with existing hash table memory */
+    class FConstCompactHashTableView
     {
-        OLO_CORE_ASSERT(CurrentCount <= ElementCount, "CurrentCount exceeds ElementCount");
-        return CompactHashTable::GetNext(Index, NextIndexData, CurrentCount);
-    }
+      public:
+        explicit FConstCompactHashTableView() = default;
 
-    template <typename PredicateType>
-    [[nodiscard]] inline u32 Find(u32 Key, u32 CurrentCount, const PredicateType& Predicate) const
+        inline explicit FConstCompactHashTableView(const u8* Memory, u32 InNextIndexCount, u32 InHashCount, sizet MemorySize)
+            : NextIndexData(Memory), HashData(Memory + (static_cast<sizet>(InNextIndexCount) << CompactHashTable::GetTypeShift(InNextIndexCount))), NextIndexCount(InNextIndexCount), HashCount(InHashCount)
+        {
+            OLO_CORE_ASSERT(Memory != nullptr && InNextIndexCount > 0 && InHashCount > 0 && MemorySize > 0, "Invalid hash table view parameters");
+            OLO_CORE_ASSERT(MemorySize == CompactHashTable::GetMemoryRequiredInBytes(NextIndexCount, HashCount), "Memory size mismatch");
+            OLO_CORE_ASSERT(FMath::IsPowerOfTwo(HashCount), "HashCount must be power of two");
+        }
+
+        [[nodiscard]] u32 GetHashCount() const
+        {
+            return HashCount;
+        }
+
+        // Functions used to search
+        [[nodiscard]] inline u32 GetFirst(u32 Key) const
+        {
+#define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::GetFirst(Key, reinterpret_cast<const Type*>(HashData), HashCount)
+            OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
+#undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
+            return INDEX_NONE;
+        }
+
+        // Advanced used for manual inspection of the hash data
+        [[nodiscard]] inline u32 GetFirstByIndex(u32 HashIndex) const
+        {
+#define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::GetFirstByIndex(HashIndex, reinterpret_cast<const Type*>(HashData), HashCount)
+            OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
+#undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
+            return INDEX_NONE;
+        }
+
+        [[nodiscard]] inline u32 GetNext(u32 Index, u32 CurrentCount) const
+        {
+            OLO_CORE_ASSERT(CurrentCount <= NextIndexCount, "CurrentCount exceeds NextIndexCount");
+
+#define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::GetNext(Index, reinterpret_cast<const Type*>(NextIndexData), CurrentCount)
+            OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
+#undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
+            return INDEX_NONE;
+        }
+
+        template<typename PredicateType>
+        [[nodiscard]] inline u32 Find(u32 Key, u32 CurrentCount, const PredicateType& Predicate) const
+        {
+            OLO_CORE_ASSERT(CurrentCount <= NextIndexCount, "CurrentCount exceeds NextIndexCount");
+#define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::Find(Key, reinterpret_cast<const Type*>(HashData), HashCount, reinterpret_cast<const Type*>(NextIndexData), CurrentCount, Predicate)
+            OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
+#undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
+            return INDEX_NONE;
+        }
+
+      protected:
+        const u8* NextIndexData = nullptr;
+        const u8* HashData = nullptr;
+        u32 NextIndexCount = 0;
+        u32 HashCount = 0;
+    };
+
+    /* Helper for interacting with existing hash table memory */
+    class FCompactHashTableView : public FConstCompactHashTableView
     {
-        OLO_CORE_ASSERT(CurrentCount <= ElementCount, "CurrentCount exceeds ElementCount");
-        return CompactHashTable::Find(Key, HashData, HashCount, NextIndexData, CurrentCount, Predicate);
-    }
-    
-    inline void Add(u32 CurrentCount, u32 Key)
-    {
-        OLO_CORE_ASSERT(CurrentCount < ElementCount, "Cannot add: ElementCount exceeded");
-        CompactHashTable::Add(CurrentCount, Key, HashData, HashCount, NextIndexData, CurrentCount + 1);
-    }
+      public:
+        OLO_FINLINE explicit FCompactHashTableView(u8* Memory, u32 InNextIndexCount, u32 InHashCount, sizet MemorySize)
+            : FConstCompactHashTableView(Memory, InNextIndexCount, InHashCount, MemorySize)
+        {
+        }
 
-    OLO_FINLINE void Remove(u32 Index, u32 Key, u32 LastIndex, u32 OptLastKey)
-    {
-        CompactHashTable::Remove(Index, Key, LastIndex, OptLastKey, HashData, HashCount, NextIndexData, ElementCount);
-    }
+        inline void Reset() const
+        {
+            const u32 TypeShift = CompactHashTable::GetTypeShift(NextIndexCount);
 
-protected:
-    IndexType NextIndexData[ElementCount]; // Collision redirector to next index for keys that hash to the same initial index
-    IndexType HashData[HashCount]; // First index lookup from key
-};
+            // The const_casts are a little gross but I don't want to maintain duplicate copies of the const functions
+            FMemory::Memset(const_cast<u8*>(HashData), 0xff, static_cast<sizet>(HashCount) << TypeShift);
+        }
 
-/* Helper for interacting with existing hash table memory */
-class FConstCompactHashTableView
-{
-public:
-    explicit FConstCompactHashTableView() = default;
+        inline void Add(u32 Index, u32 Key) const
+        {
+            OLO_CORE_ASSERT(Index < NextIndexCount, "Index out of bounds");
+#define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) CompactHashTable::Add(Index, Key, reinterpret_cast<Type*>(const_cast<u8*>(HashData)), HashCount, reinterpret_cast<Type*>(const_cast<u8*>(NextIndexData)), NextIndexCount)
+            OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
+#undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
+        }
 
-    inline explicit FConstCompactHashTableView(const u8* Memory, u32 InNextIndexCount, u32 InHashCount, sizet MemorySize)
-        : NextIndexData(Memory)
-        , HashData(Memory + (static_cast<sizet>(InNextIndexCount) << CompactHashTable::GetTypeShift(InNextIndexCount)))
-        , NextIndexCount(InNextIndexCount)
-        , HashCount(InHashCount)
-    {
-        OLO_CORE_ASSERT(Memory != nullptr && InNextIndexCount > 0 && InHashCount > 0 && MemorySize > 0, "Invalid hash table view parameters");
-        OLO_CORE_ASSERT(MemorySize == CompactHashTable::GetMemoryRequiredInBytes(NextIndexCount, HashCount), "Memory size mismatch");
-        OLO_CORE_ASSERT(FMath::IsPowerOfTwo(HashCount), "HashCount must be power of two");
-    }
+        OLO_FINLINE void Remove(u32 Index, u32 Key, u32 LastIndex, u32 OptLastKey) const
+        {
+#define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::Remove(Index, Key, LastIndex, OptLastKey, reinterpret_cast<Type*>(const_cast<u8*>(HashData)), HashCount, reinterpret_cast<Type*>(const_cast<u8*>(NextIndexData)), NextIndexCount)
+            OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
+#undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
+        }
 
-    [[nodiscard]] u32 GetHashCount() const
-    {
-        return HashCount;
-    }
-
-    // Functions used to search
-    [[nodiscard]] inline u32 GetFirst(u32 Key) const
-    {
-        #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::GetFirst(Key, reinterpret_cast<const Type*>(HashData), HashCount)
-        OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
-        #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
-        return INDEX_NONE;
-    }
-
-    // Advanced used for manual inspection of the hash data
-    [[nodiscard]] inline u32 GetFirstByIndex(u32 HashIndex) const
-    {
-        #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::GetFirstByIndex(HashIndex, reinterpret_cast<const Type*>(HashData), HashCount)
-        OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
-        #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
-        return INDEX_NONE;
-    }
-
-    [[nodiscard]] inline u32 GetNext(u32 Index, u32 CurrentCount) const
-    {
-        OLO_CORE_ASSERT(CurrentCount <= NextIndexCount, "CurrentCount exceeds NextIndexCount");
-    
-        #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::GetNext(Index, reinterpret_cast<const Type*>(NextIndexData), CurrentCount)
-        OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
-        #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
-        return INDEX_NONE;
-    }
-
-    template <typename PredicateType>
-    [[nodiscard]] inline u32 Find(u32 Key, u32 CurrentCount, const PredicateType& Predicate) const
-    {
-        OLO_CORE_ASSERT(CurrentCount <= NextIndexCount, "CurrentCount exceeds NextIndexCount");
-        #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::Find(Key, reinterpret_cast<const Type*>(HashData), HashCount, reinterpret_cast<const Type*>(NextIndexData), CurrentCount, Predicate)
-        OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
-        #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
-        return INDEX_NONE;
-    }
-
-protected:
-    const u8* NextIndexData = nullptr;
-    const u8* HashData = nullptr;
-    u32 NextIndexCount = 0;
-    u32 HashCount = 0;
-};
-
-/* Helper for interacting with existing hash table memory */
-class FCompactHashTableView : public FConstCompactHashTableView
-{
-public:
-    OLO_FINLINE explicit FCompactHashTableView(u8* Memory, u32 InNextIndexCount, u32 InHashCount, sizet MemorySize)
-        : FConstCompactHashTableView(Memory, InNextIndexCount, InHashCount, MemorySize)
-    {
-    }
-
-    inline void Reset() const
-    {
-        const u32 TypeShift = CompactHashTable::GetTypeShift(NextIndexCount);
-
-        // The const_casts are a little gross but I don't want to maintain duplicate copies of the const functions
-        FMemory::Memset(const_cast<u8*>(HashData), 0xff, static_cast<sizet>(HashCount) << TypeShift);
-    }
-    
-    inline void Add(u32 Index, u32 Key) const
-    {
-        OLO_CORE_ASSERT(Index < NextIndexCount, "Index out of bounds");
-        #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) CompactHashTable::Add(Index, Key, reinterpret_cast<Type*>(const_cast<u8*>(HashData)), HashCount, reinterpret_cast<Type*>(const_cast<u8*>(NextIndexData)), NextIndexCount)
-        OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
-        #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
-    }
-
-    OLO_FINLINE void Remove(u32 Index, u32 Key, u32 LastIndex, u32 OptLastKey) const
-    {
-        #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::Remove(Index, Key, LastIndex, OptLastKey, reinterpret_cast<Type*>(const_cast<u8*>(HashData)), HashCount, reinterpret_cast<Type*>(const_cast<u8*>(NextIndexData)), NextIndexCount)
-        OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
-        #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
-    }
-
-    OLO_FINLINE void RemoveStable(u32 Index, u32 Key) const
-    {
-        #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::RemoveStable(Index, Key, reinterpret_cast<Type*>(const_cast<u8*>(HashData)), HashCount, reinterpret_cast<Type*>(const_cast<u8*>(NextIndexData)), NextIndexCount)
-        OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
-        #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
-    }
-};
+        OLO_FINLINE void RemoveStable(u32 Index, u32 Key) const
+        {
+#define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::RemoveStable(Index, Key, reinterpret_cast<Type*>(const_cast<u8*>(HashData)), HashCount, reinterpret_cast<Type*>(const_cast<u8*>(NextIndexData)), NextIndexCount)
+            OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
+#undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
+        }
+    };
 
 } // namespace OloEngine

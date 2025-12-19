@@ -6,85 +6,103 @@
 
 namespace OloEngine
 {
-	class OpenGLShader : public Shader
-	{
-	using GLenum = unsigned int;
-	public:
-		OpenGLShader(const std::string& filepath);
-		OpenGLShader(std::string  name, std::string_view vertexSrc, std::string_view fragmentSrc);
-		~OpenGLShader() override;
+    class OpenGLShader : public Shader
+    {
+        using GLenum = unsigned int;
 
-		void Bind() const override;
-		void Unbind() const override;
+      public:
+        OpenGLShader(const std::string& filepath);
+        OpenGLShader(std::string name, std::string_view vertexSrc, std::string_view fragmentSrc);
+        ~OpenGLShader() override;
 
-		void SetInt(const std::string& name, int value) const override;
-		void SetIntArray(const std::string& name, int* values, u32 count) const override;
-		void SetFloat(const std::string& name, f32 value) const override;
-		void SetFloat2(const std::string& name, const glm::vec2& value) const override;
-		void SetFloat3(const std::string& name, const glm::vec3& value) const override;
-		void SetFloat4(const std::string& name, const glm::vec4& value) const override;
-		void SetMat4(const std::string& name, const glm::mat4& value) const override;
+        void Bind() const override;
+        void Unbind() const override;
 
-		[[nodiscard]] u32 GetRendererID() const override { return m_RendererID; }
-		[[nodiscard ("Store this!")]] const std::string& GetName() const override { return m_Name; }
-		[[nodiscard ("Store this!")]] const std::string& GetFilePath() const override { return m_FilePath; }
+        void SetInt(const std::string& name, int value) const override;
+        void SetIntArray(const std::string& name, int* values, u32 count) const override;
+        void SetFloat(const std::string& name, f32 value) const override;
+        void SetFloat2(const std::string& name, const glm::vec2& value) const override;
+        void SetFloat3(const std::string& name, const glm::vec3& value) const override;
+        void SetFloat4(const std::string& name, const glm::vec4& value) const override;
+        void SetMat4(const std::string& name, const glm::mat4& value) const override;
 
-		void Reload() override;
+        [[nodiscard]] u32 GetRendererID() const override
+        {
+            return m_RendererID;
+        }
+        [[nodiscard("Store this!")]] const std::string& GetName() const override
+        {
+            return m_Name;
+        }
+        [[nodiscard("Store this!")]] const std::string& GetFilePath() const override
+        {
+            return m_FilePath;
+        }
 
-		// Resource registry access (override base class virtual methods)
-		ShaderResourceRegistry* GetResourceRegistry() override { return &m_ResourceRegistry; }
-		const ShaderResourceRegistry* GetResourceRegistry() const override { return &m_ResourceRegistry; }
+        void Reload() override;
 
-		void UploadUniformInt(const std::string& name, int value) const;
-		void UploadUniformIntArray(const std::string& name, int const* values, u32 count) const;
-		void UploadUniformFloat(const std::string& name, f32 value) const;
-		void UploadUniformFloat2(const std::string& name, const glm::vec2& value) const;
-		void UploadUniformFloat3(const std::string& name, const glm::vec3& value) const;
-		void UploadUniformFloat4(const std::string& name, const glm::vec4& value) const;
+        // Resource registry access (override base class virtual methods)
+        ShaderResourceRegistry* GetResourceRegistry() override
+        {
+            return &m_ResourceRegistry;
+        }
+        const ShaderResourceRegistry* GetResourceRegistry() const override
+        {
+            return &m_ResourceRegistry;
+        }
 
-		void UploadUniformMat3(const std::string& name, const glm::mat3& matrix) const;
-		void UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const;
+        void UploadUniformInt(const std::string& name, int value) const;
+        void UploadUniformIntArray(const std::string& name, int const* values, u32 count) const;
+        void UploadUniformFloat(const std::string& name, f32 value) const;
+        void UploadUniformFloat2(const std::string& name, const glm::vec2& value) const;
+        void UploadUniformFloat3(const std::string& name, const glm::vec3& value) const;
+        void UploadUniformFloat4(const std::string& name, const glm::vec4& value) const;
 
-		// Initialize resource registry (called after shader is fully constructed)
-		void InitializeResourceRegistry(const Ref<Shader>& shaderRef);
+        void UploadUniformMat3(const std::string& name, const glm::mat3& matrix) const;
+        void UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const;
 
-		// Convenience methods for setting shader resources
-		template<typename T>
-		bool SetShaderResource(const std::string& name, const Ref<T>& resource)
-		{
-			return m_ResourceRegistry.SetResource(name, resource);
-		}
+        // Initialize resource registry (called after shader is fully constructed)
+        void InitializeResourceRegistry(const Ref<Shader>& shaderRef);
 
-		bool SetShaderResource(const std::string& name, const ShaderResourceInput& input)
-		{
-			return m_ResourceRegistry.SetResource(name, input);
-		}
-	private:
-		static std::string ReadFile(const std::string& filepath);
-		static std::string ProcessIncludes(const std::string& source, const std::string& directory = "");
-		static std::string ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles);
-		static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
+        // Convenience methods for setting shader resources
+        template<typename T>
+        bool SetShaderResource(const std::string& name, const Ref<T>& resource)
+        {
+            return m_ResourceRegistry.SetResource(name, resource);
+        }
 
-		void CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources);
-		void CompileOrGetOpenGLBinaries();
-		void CreateProgram();
+        bool SetShaderResource(const std::string& name, const ShaderResourceInput& input)
+        {
+            return m_ResourceRegistry.SetResource(name, input);
+        }
 
-		void CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const;
-		void CreateProgramForAmd();
+      private:
+        static std::string ReadFile(const std::string& filepath);
+        static std::string ProcessIncludes(const std::string& source, const std::string& directory = "");
+        static std::string ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles);
+        static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
 
-		void Reflect(GLenum stage, const std::vector<u32>& shaderData);
-	private:
-		u32 m_RendererID{};
-		std::string m_FilePath;
-		std::string m_Name;
-		std::unordered_map<GLenum, std::vector<u32>> m_VulkanSPIRV;
-		std::unordered_map<GLenum, std::vector<u32>> m_OpenGLSPIRV;
+        void CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources);
+        void CompileOrGetOpenGLBinaries();
+        void CreateProgram();
 
-		std::unordered_map<GLenum, std::string> m_OpenGLSourceCode;
-		std::unordered_map<GLenum, std::string> m_OriginalSourceCode; // Store original preprocessed source
+        void CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const;
+        void CreateProgramForAmd();
 
-		// Resource registry for automatic resource management
-		ShaderResourceRegistry m_ResourceRegistry;
-	};
+        void Reflect(GLenum stage, const std::vector<u32>& shaderData);
 
-}
+      private:
+        u32 m_RendererID{};
+        std::string m_FilePath;
+        std::string m_Name;
+        std::unordered_map<GLenum, std::vector<u32>> m_VulkanSPIRV;
+        std::unordered_map<GLenum, std::vector<u32>> m_OpenGLSPIRV;
+
+        std::unordered_map<GLenum, std::string> m_OpenGLSourceCode;
+        std::unordered_map<GLenum, std::string> m_OriginalSourceCode; // Store original preprocessed source
+
+        // Resource registry for automatic resource management
+        ShaderResourceRegistry m_ResourceRegistry;
+    };
+
+} // namespace OloEngine

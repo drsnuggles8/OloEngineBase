@@ -33,7 +33,7 @@ namespace OloEngine::Audio::SoundGraph
         std::string m_CompilerVersion;
         bool m_IsValid = false;
         std::string m_ErrorMessage;
-        
+
         // Compilation statistics
         f32 m_CompilationTimeMs = 0.0f;
         sizet m_SourceSizeBytes = 0;
@@ -43,7 +43,7 @@ namespace OloEngine::Audio::SoundGraph
     /// High-performance cache for compiled sound graph bytecode
     class CompilerCache : public RefCounted
     {
-    public:
+      public:
         CompilerCache(const std::string& cacheDirectory = "cache/compiler/");
         ~CompilerCache();
 
@@ -53,7 +53,7 @@ namespace OloEngine::Audio::SoundGraph
         void StoreCompiled(const std::string& sourcePath, const CompilationResult& result);
         void InvalidateCompiled(const std::string& sourcePath);
         void InvalidateCompiled(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION);
-        
+
         /// Clears all in-memory cached compilation results and optionally deletes the disk cache.
         /// WARNING: This is a DESTRUCTIVE operation when force=true - all cached files will be permanently deleted!
         /// @param force If true, physically deletes the cache directory from disk and recreates it.
@@ -66,131 +66,131 @@ namespace OloEngine::Audio::SoundGraph
         /// File System Integration
         bool IsSourceNewer(const std::string& sourcePath, const CompilationResult& result) const;
         std::string GetCacheFilePath(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION) const;
-        
+
         /// Persistent Storage
         bool LoadFromDisk();
         bool SaveToDisk() const;
-        void SetAutoSave(bool enabled) 
-        { 
+        void SetAutoSave(bool enabled)
+        {
             std::lock_guard<std::mutex> lock(m_Mutex);
-            m_AutoSave = enabled; 
+            m_AutoSave = enabled;
         }
-        
-        bool GetAutoSave() const 
-        { 
+
+        bool GetAutoSave() const
+        {
             std::lock_guard<std::mutex> lock(m_Mutex);
-            return m_AutoSave; 
+            return m_AutoSave;
         }
-        
+
         /// Cache Management
         void ValidateAllEntries();
         void CleanupOldEntries(std::chrono::hours maxAge = std::chrono::hours(24 * 7)); // 1 week default
         void CompactCache();
-        
+
         /// Statistics
-        sizet GetCacheSize() const 
-        { 
+        sizet GetCacheSize() const
+        {
             std::lock_guard<std::mutex> lock(m_Mutex);
-            return m_CompiledResults.size(); 
+            return m_CompiledResults.size();
         }
         sizet GetTotalDiskUsage() const;
         f32 GetCacheHitRatio() const;
         void LogStatistics() const;
-        
+
         /// Configuration
         void SetCacheDirectory(const std::string& directory);
-        std::string GetCacheDirectory() const 
-        { 
+        std::string GetCacheDirectory() const
+        {
             std::lock_guard<std::mutex> lock(m_Mutex);
-            return m_CacheDirectory; 
+            return m_CacheDirectory;
         }
 
-        void SetMaxCacheSize(sizet maxSize) 
-        { 
+        void SetMaxCacheSize(sizet maxSize)
+        {
             std::lock_guard<std::mutex> lock(m_Mutex);
-            m_MaxCacheSize = maxSize; 
+            m_MaxCacheSize = maxSize;
         }
-        
-        sizet GetMaxCacheSize() const 
-        { 
+
+        sizet GetMaxCacheSize() const
+        {
             std::lock_guard<std::mutex> lock(m_Mutex);
-            return m_MaxCacheSize; 
+            return m_MaxCacheSize;
         }
-        
+
         /// Initialization Status
-        bool IsFullyInitialized() const 
-        { 
+        bool IsFullyInitialized() const
+        {
             std::lock_guard<std::mutex> lock(m_Mutex);
-            return m_DirectoryInitialized && m_DiskCacheLoaded; 
+            return m_DirectoryInitialized && m_DiskCacheLoaded;
         }
 
-        bool IsDirectoryInitialized() const 
-        { 
+        bool IsDirectoryInitialized() const
+        {
             std::lock_guard<std::mutex> lock(m_Mutex);
-            return m_DirectoryInitialized; 
+            return m_DirectoryInitialized;
         }
 
-        bool IsDiskCacheLoaded() const 
-        { 
+        bool IsDiskCacheLoaded() const
+        {
             std::lock_guard<std::mutex> lock(m_Mutex);
-            return m_DiskCacheLoaded; 
+            return m_DiskCacheLoaded;
         }
 
-        std::string GetInitializationErrors() const 
-        { 
+        std::string GetInitializationErrors() const
+        {
             std::lock_guard<std::mutex> lock(m_Mutex);
-            return m_InitializationErrors; 
+            return m_InitializationErrors;
         }
-        
+
         sizet GetFileSize(const std::string& filePath) const;
-        
-    private:
+
+      private:
         std::chrono::time_point<std::chrono::system_clock> GetFileModificationTime(const std::string& filePath) const;
         bool CreateCacheDirectory() const;
-        
+
         // Serialization
         bool SerializeResult(const CompilationResult& result, const std::string& filePath) const;
         bool DeserializeResult(CompilationResult& result, const std::string& filePath) const;
-        
+
         // Async save support
         struct SaveTask
         {
             CompilationResult m_Result;
             std::string m_FilePath;
         };
-        
+
         void AsyncSaveWorker();
         void EnqueueSave(const CompilationResult& result, const std::string& filePath);
         void ShutdownAsyncSaver();
-        
-    private:
+
+      private:
         mutable std::mutex m_Mutex;
         std::unordered_map<std::string, std::shared_ptr<CompilationResult>> m_CompiledResults;
-        
+
         // LRU tracking: front = oldest (LRU), back = newest (MRU)
         mutable std::list<std::string> m_AccessOrder;
         mutable std::unordered_map<std::string, std::list<std::string>::iterator> m_AccessOrderMap;
-        
+
         std::string m_CacheDirectory;
         sizet m_MaxCacheSize = 1000; // Maximum number of cached compilations
         bool m_AutoSave = true;
-        
+
         // Statistics
         mutable u64 m_HitCount = 0;
         mutable u64 m_MissCount = 0;
-        
+
         // Initialization state tracking
         bool m_DirectoryInitialized = false;
         bool m_DiskCacheLoaded = false;
         std::string m_InitializationErrors;
-        
+
         // Async save worker
         std::queue<SaveTask> m_SaveQueue;
         std::mutex m_SaveQueueMutex;
         std::condition_variable m_SaveQueueCV;
         std::thread m_SaveWorkerThread;
-        std::atomic<bool> m_SaveWorkerRunning{false};
-        
+        std::atomic<bool> m_SaveWorkerRunning{ false };
+
         // Helper methods
         std::string GenerateCacheKey(const std::string& sourcePath, const std::string& compilerVersion) const;
     };
@@ -200,33 +200,33 @@ namespace OloEngine::Audio::SoundGraph
     {
         /// Get or create global compiler cache instance
         Ref<CompilerCache> GetGlobalCompilerCache();
-        
+
         /// Set custom compiler cache instance
         void SetGlobalCompilerCache(Ref<CompilerCache> cache);
-        
+
         /// Initialize compiler cache system
         void InitializeCompilerCache();
-        
+
         /// Shutdown compiler cache system
         void ShutdownCompilerCache();
-        
+
         /// Compile with caching
         CompilationResult CompileWithCache(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION);
-        
+
         /// Batch compilation utilities
         std::vector<CompilationResult> BatchCompileWithCache(
-            const std::vector<std::string>& sourcePaths, 
+            const std::vector<std::string>& sourcePaths,
             const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION);
-        
+
         /// Cache maintenance
         void PerformMaintenanceTasks();
         void CleanupExpiredEntries();
         void ValidateAllCaches();
-    }
+    } // namespace CompilerUtilities
 
     //==============================================================================
     /// Configuration structure for compiler cache
-    
+
     struct CompilerCacheConfig
     {
         std::string m_CacheDirectory = "cache/compiler/";
@@ -234,7 +234,7 @@ namespace OloEngine::Audio::SoundGraph
         bool m_AutoSave = true;
         bool m_EnableDiskCache = true;
         std::chrono::hours m_MaxEntryAge = std::chrono::hours(24 * 7); // 1 week
-        sizet m_MaxDiskUsageBytes = 512 * 1024 * 1024; // 512MB
+        sizet m_MaxDiskUsageBytes = 512 * 1024 * 1024;                 // 512MB
     };
 
 } // namespace OloEngine::Audio::SoundGraph

@@ -1,0 +1,43 @@
+Language: Cpp
+BasedOnStyle: LLVM
+
+# Indentation and Tabs
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+IndentCaseLabels: true
+NamespaceIndentation: All
+IndentPPDirectives: None 
+
+# Braces (Allman Style)
+BreakBeforeBraces: Allman
+AllowShortBlocksOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+
+# Spacing around Parentheses and Keywords
+SpaceBeforeParens: ControlStatements 
+SpaceInEmptyParentheses: false
+SpacesInParentheses: false
+
+# Pointer/Reference Alignment
+PointerAlignment: Left
+
+# Braced Lists / Initializers
+Cpp11BracedListStyle: false
+SpaceBeforeCpp11BracedList: false
+
+# Construction and Inheritance
+SpaceBeforeInheritanceColon: true
+SpaceBeforeCtorInitializerColon: true
+
+# Binary Operators and Commas
+SpaceBeforeAssignmentOperators: true
+
+# Engine Specific / Overrides
+ColumnLimit: 0
+SortIncludes: false
+SpaceAfterTemplateKeyword: false
+
+# Line Endings (Note: Clang-format doesn't enforce CRLF as well as EditorConfig,
+# but we can set the line ending style)
+LineEnding: CRLF

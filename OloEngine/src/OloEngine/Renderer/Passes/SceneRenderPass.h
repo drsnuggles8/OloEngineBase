@@ -12,15 +12,13 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Render pass for the main 3D scene.
-     * 
-     * This pass handles the rendering of 3D scene objects to an offscreen framebuffer
-     * using the command bucket system for efficient batching and sorting.
-     */
+    // @brief Render pass for the main 3D scene.
+    //
+    // This pass handles the rendering of 3D scene objects to an offscreen framebuffer
+    // using the command bucket system for efficient batching and sorting.
     class SceneRenderPass : public RenderPass
     {
-    public:
+      public:
         SceneRenderPass();
         ~SceneRenderPass() override = default;
 
@@ -31,4 +29,4 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
     };
-}
+} // namespace OloEngine

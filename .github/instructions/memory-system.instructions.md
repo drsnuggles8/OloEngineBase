@@ -53,11 +53,7 @@ Method translations:
 ## Features NOT Being Ported
 
 Skip or stub out these UE5 features:
-- AutoRTFM (transactional memory) - not needed
-- LLM (Low Level Memory tracker) - use OloEngine's profiling instead
 - FCoreDelegates - would require full delegate system
-- Memory tracing with GMallocProfiler - defer to OloEngine profiling
-- `IsInGameThread()` checks - stub or implement later
 
 ## Code Style
 

@@ -12,6 +12,6 @@
 namespace OloEngine
 {
 
-// FPlatformMemory is already aliased in GenericPlatformMemory.h
+    // FPlatformMemory is already aliased in GenericPlatformMemory.h
 
 } // namespace OloEngine

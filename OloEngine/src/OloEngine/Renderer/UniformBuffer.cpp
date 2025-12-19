@@ -5,22 +5,22 @@
 
 namespace OloEngine
 {
-	Ref<UniformBuffer> UniformBuffer::Create(u32 size, u32 binding)
-	{
-		switch (Renderer::GetAPI())
-		{
-			case RendererAPI::API::None:
-			{
-				OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
-				return nullptr;
-			}
-			case RendererAPI::API::OpenGL:
-			{
-				return Ref<UniformBuffer>(new OpenGLUniformBuffer(size, binding));
-			}
-		}
+    Ref<UniformBuffer> UniformBuffer::Create(u32 size, u32 binding)
+    {
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::None:
+            {
+                OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+                return nullptr;
+            }
+            case RendererAPI::API::OpenGL:
+            {
+                return Ref<UniformBuffer>(new OpenGLUniformBuffer(size, binding));
+            }
+        }
 
-		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
-		return nullptr;
-	}
-}
+        OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return nullptr;
+    }
+} // namespace OloEngine

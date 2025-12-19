@@ -14,7 +14,7 @@ namespace OloEngine
 {
     namespace AlgoImpl
     {
-        template <typename T>
+        template<typename T>
         void Reverse(T* Array, i32 ArraySize)
         {
             for (i32 i = 0, i2 = ArraySize - 1; i < ArraySize / 2 /*rounding down*/; ++i, --i2)
@@ -22,7 +22,7 @@ namespace OloEngine
                 Swap(Array[i], Array[i2]);
             }
         }
-    }
+    } // namespace AlgoImpl
 
     namespace Algo
     {
@@ -31,7 +31,7 @@ namespace OloEngine
          *
          * @param  Array  The array to reverse.
          */
-        template <typename T, i32 ArraySize>
+        template<typename T, i32 ArraySize>
         void Reverse(T (&Array)[ArraySize])
         {
             return AlgoImpl::Reverse((T*)Array, ArraySize);
@@ -43,7 +43,7 @@ namespace OloEngine
          * @param  Array      A pointer to the array to reverse
          * @param  ArraySize  The number of elements in the array.
          */
-        template <typename T>
+        template<typename T>
         void Reverse(T* Array, i32 ArraySize)
         {
             return AlgoImpl::Reverse(Array, ArraySize);
@@ -54,12 +54,11 @@ namespace OloEngine
          *
          * @param  Container  The container to reverse
          */
-        template <typename ContainerType>
+        template<typename ContainerType>
         void Reverse(ContainerType&& Container)
         {
             return AlgoImpl::Reverse(GetData(Container), GetNum(Container));
         }
-    }
+    } // namespace Algo
 
 } // namespace OloEngine
-

@@ -5,12 +5,12 @@
 
 namespace OloEngine
 {
-	namespace Scripting
-	{
-		extern sol::state* GetState();
-	}
+    namespace Scripting
+    {
+        extern sol::state* GetState();
+    }
 
-	void LuaScriptGlue::RegisterAllTypes()
-	{
-	}
-}
+    void LuaScriptGlue::RegisterAllTypes()
+    {
+    }
+} // namespace OloEngine

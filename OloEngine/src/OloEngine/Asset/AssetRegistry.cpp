@@ -13,7 +13,7 @@ namespace OloEngine
     void AssetRegistry::AddAsset(const AssetMetadata& metadata)
     {
         std::unique_lock lock(m_Mutex);
-        
+
         if (metadata.Handle == 0)
         {
             OLO_CORE_WARN("AssetRegistry::AddAsset - Invalid asset handle");
@@ -28,7 +28,7 @@ namespace OloEngine
             if (handleIt->second.FilePath != metadata.FilePath || handleIt->second.Type != metadata.Type)
             {
                 OLO_CORE_WARN("AssetRegistry::AddAsset - Handle {} already exists for different asset (existing: {}, new: {}). Overwriting existing asset.",
-                    metadata.Handle, handleIt->second.FilePath.string(), metadata.FilePath.string());
+                              metadata.Handle, handleIt->second.FilePath.string(), metadata.FilePath.string());
             }
             else
             {
@@ -43,13 +43,13 @@ namespace OloEngine
             if (pathIt != m_PathToHandle.end() && pathIt->second != metadata.Handle)
             {
                 OLO_CORE_WARN("AssetRegistry::AddAsset - Path {} already mapped to different handle {} (new handle: {}). Overwriting existing path mapping.",
-                    metadata.FilePath.string(), pathIt->second, metadata.Handle);
+                              metadata.FilePath.string(), pathIt->second, metadata.Handle);
             }
         }
 
         // Update main storage
         m_AssetMetadata[metadata.Handle] = metadata;
-        
+
         // Update path lookup if path is valid
         if (!metadata.FilePath.empty())
         {
@@ -67,7 +67,7 @@ namespace OloEngine
     bool AssetRegistry::RemoveAsset(AssetHandle handle)
     {
         std::unique_lock lock(m_Mutex);
-        
+
         auto it = m_AssetMetadata.find(handle);
         if (it == m_AssetMetadata.end())
             return false;
@@ -86,9 +86,9 @@ namespace OloEngine
     AssetMetadata AssetRegistry::GetMetadata(AssetHandle handle) const
     {
         OLO_PROFILE_FUNCTION();
-        
+
         std::shared_lock lock(m_Mutex);
-        
+
         auto it = m_AssetMetadata.find(handle);
         return (it != m_AssetMetadata.end()) ? it->second : s_EmptyMetadata;
     }
@@ -96,7 +96,7 @@ namespace OloEngine
     AssetMetadata AssetRegistry::GetMetadata(const std::filesystem::path& path) const
     {
         std::shared_lock lock(m_Mutex);
-        
+
         auto it = m_PathToHandle.find(path);
         if (it != m_PathToHandle.end())
         {
@@ -104,7 +104,7 @@ namespace OloEngine
             if (metaIt != m_AssetMetadata.end())
                 return metaIt->second;
         }
-        
+
         return s_EmptyMetadata;
     }
 
@@ -123,7 +123,7 @@ namespace OloEngine
     AssetHandle AssetRegistry::GetHandleFromPath(const std::filesystem::path& path) const
     {
         std::shared_lock lock(m_Mutex);
-        
+
         auto it = m_PathToHandle.find(path);
         return (it != m_PathToHandle.end()) ? it->second : AssetHandle(0);
     }
@@ -131,43 +131,43 @@ namespace OloEngine
     std::vector<AssetMetadata> AssetRegistry::GetAssetsOfType(AssetType type) const
     {
         std::shared_lock lock(m_Mutex);
-        
+
         std::vector<AssetMetadata> result;
         for (const auto& [handle, metadata] : m_AssetMetadata)
         {
             if (metadata.Type == type)
                 result.push_back(metadata);
         }
-        
+
         return result;
     }
 
     std::unordered_set<AssetHandle> AssetRegistry::GetAssetHandlesOfType(AssetType type) const
     {
         std::shared_lock lock(m_Mutex);
-        
+
         std::unordered_set<AssetHandle> result;
         for (const auto& [handle, metadata] : m_AssetMetadata)
         {
             if (metadata.Type == type)
                 result.insert(handle);
         }
-        
+
         return result;
     }
 
     std::vector<AssetMetadata> AssetRegistry::GetAllAssets() const
     {
         std::shared_lock lock(m_Mutex);
-        
+
         std::vector<AssetMetadata> result;
         result.reserve(m_AssetMetadata.size());
-        
+
         for (const auto& [handle, metadata] : m_AssetMetadata)
         {
             result.push_back(metadata);
         }
-        
+
         return result;
     }
 
@@ -188,7 +188,7 @@ namespace OloEngine
     void AssetRegistry::UpdateMetadata(AssetHandle handle, const AssetMetadata& metadata)
     {
         std::unique_lock lock(m_Mutex);
-        
+
         auto it = m_AssetMetadata.find(handle);
         if (it == m_AssetMetadata.end())
         {
@@ -215,9 +215,9 @@ namespace OloEngine
             if (pathIt != m_PathToHandle.end() && pathIt->second != handle)
             {
                 OLO_CORE_WARN("AssetRegistry::UpdateMetadata - Path {} already mapped to different handle {} (current handle: {}). Overwriting existing path mapping.",
-                    updatedMetadata.FilePath.string(), pathIt->second, handle);
+                              updatedMetadata.FilePath.string(), pathIt->second, handle);
             }
-            
+
             m_PathToHandle[updatedMetadata.FilePath] = handle;
         }
     }
@@ -233,7 +233,7 @@ namespace OloEngine
         try
         {
             std::shared_lock lock(m_Mutex);
-            
+
             std::ofstream file(filepath, std::ios::binary);
             if (!file.is_open())
             {
@@ -247,7 +247,7 @@ namespace OloEngine
             // Write header
             const u32 version = 2;
             file.write(reinterpret_cast<const char*>(&version), sizeof(version));
-            
+
             // Write asset count
             const u32 assetCount = static_cast<u32>(m_AssetMetadata.size());
             file.write(reinterpret_cast<const char*>(&assetCount), sizeof(assetCount));
@@ -259,12 +259,12 @@ namespace OloEngine
                 const uint64_t handleValue = static_cast<uint64_t>(metadata.Handle);
                 const uint32_t typeValue = static_cast<uint32_t>(metadata.Type);
                 const uint32_t statusValue = static_cast<uint32_t>(metadata.Status);
-                
+
                 file.write(reinterpret_cast<const char*>(&handleValue), sizeof(handleValue));
                 file.write(reinterpret_cast<const char*>(&typeValue), sizeof(typeValue));
                 file.write(reinterpret_cast<const char*>(&statusValue), sizeof(statusValue));
                 // Note: LastWriteTime serialization temporarily skipped - std::filesystem::file_time_type is complex to serialize
-                
+
                 // Write path string
                 const std::string pathStr = metadata.FilePath.string();
                 const u32 pathLength = static_cast<u32>(pathStr.length());
@@ -296,7 +296,7 @@ namespace OloEngine
             file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
 
             std::unique_lock lock(m_Mutex);
-            
+
             // Clear existing data
             m_AssetMetadata.clear();
             m_PathToHandle.clear();
@@ -305,7 +305,7 @@ namespace OloEngine
             // Read header
             u32 version;
             file.read(reinterpret_cast<char*>(&version), sizeof(version));
-            
+
             if (version != 1 && version != 2)
             {
                 OLO_CORE_ERROR("AssetRegistry::Deserialize - Unsupported version: {}", version);
@@ -315,7 +315,7 @@ namespace OloEngine
             // Read asset count
             u32 assetCount;
             file.read(reinterpret_cast<char*>(&assetCount), sizeof(assetCount));
-            
+
             // Validate assetCount to prevent excessive memory usage or infinite loops
             const u32 MAX_ASSET_COUNT = 1000000; // 1 million assets maximum
             if (assetCount > MAX_ASSET_COUNT)
@@ -328,7 +328,7 @@ namespace OloEngine
             for (u32 i = 0; i < assetCount; ++i)
             {
                 AssetMetadata metadata;
-                
+
                 if (version == 1)
                 {
                     // Legacy format - read raw types directly (may have endianness issues)
@@ -342,21 +342,21 @@ namespace OloEngine
                     uint64_t handleValue;
                     uint32_t typeValue;
                     uint32_t statusValue;
-                    
+
                     file.read(reinterpret_cast<char*>(&handleValue), sizeof(handleValue));
                     file.read(reinterpret_cast<char*>(&typeValue), sizeof(typeValue));
                     file.read(reinterpret_cast<char*>(&statusValue), sizeof(statusValue));
-                    
+
                     metadata.Handle = static_cast<AssetHandle>(handleValue);
                     metadata.Type = static_cast<AssetType>(typeValue);
                     metadata.Status = static_cast<AssetStatus>(statusValue);
                 }
                 // Note: LastWriteTime deserialization temporarily skipped - will be refreshed from filesystem
-                
+
                 // Read path string
                 u32 pathLength;
                 file.read(reinterpret_cast<char*>(&pathLength), sizeof(pathLength));
-                
+
                 // Validate pathLength to prevent excessive memory allocation
                 const u32 MAX_PATH_LENGTH = 32768; // 32KB limit for path strings
                 if (pathLength > MAX_PATH_LENGTH)
@@ -364,7 +364,7 @@ namespace OloEngine
                     OLO_CORE_ERROR("AssetRegistry::Deserialize - Invalid path length: {} exceeds maximum {}", pathLength, MAX_PATH_LENGTH);
                     return false;
                 }
-                
+
                 std::string pathStr(pathLength, '\0');
                 file.read(pathStr.data(), pathLength);
                 metadata.FilePath = pathStr;
@@ -412,4 +412,4 @@ namespace OloEngine
         return m_HandleCounter.fetch_add(1, std::memory_order_relaxed);
     }
 
-}
+} // namespace OloEngine

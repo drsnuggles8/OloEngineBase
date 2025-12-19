@@ -45,15 +45,15 @@ void main()
     {
         boneTransform = mat4(1.0);
     }
-    
+
     vec4 skinnedPos = boneTransform * vec4(a_Position, 1.0);
     vec3 skinnedNormal = mat3(boneTransform) * a_Normal;
-    
+
     vec4 worldPos = u_Model * skinnedPos;
     v_FragPos = worldPos.xyz;
     v_Normal = normalize(mat3(u_Model) * skinnedNormal);
     v_TexCoord = a_TexCoord;
-    
+
     gl_Position = u_ViewProjection * worldPos;
 }
 
@@ -98,10 +98,10 @@ vec3 CalculatePointLight();
 vec3 CalculateSpotLight();
 
 void main()
-{   
+{
     vec3 result;
     int lightType = int(u_ViewPosAndLightType.w);
-    
+
     if (lightType == DIRECTIONAL_LIGHT)
     {
         result = CalculateDirectionalLight();
@@ -129,13 +129,13 @@ vec3 CalculateDirectionalLight()
     vec3 norm = normalize(v_Normal);
     vec3 viewDir = normalize(u_ViewPosAndLightType.xyz - v_FragPos);
     vec3 reflectDir = reflect(-lightDir, norm);
-    
+
     // Get material properties
     vec3 ambient = u_MaterialAmbient.xyz;
     vec3 diffuse = u_MaterialDiffuse.xyz;
     vec3 specular = u_MaterialSpecular.xyz;
     float shininess = u_MaterialSpecular.w;
-    
+
     // Apply textures if enabled
     if (u_UseTextureMaps == 1)
     {
@@ -144,18 +144,18 @@ vec3 CalculateDirectionalLight()
         diffuse *= diffuseTexColor;
         specular *= specularTexColor;
     }
-    
+
     // Ambient
     vec3 ambientResult = u_LightAmbient.xyz * ambient;
-    
+
     // Diffuse
     float diff = max(dot(norm, lightDir), 0.0);
     vec3 diffuseResult = u_LightDiffuse.xyz * diff * diffuse;
-    
+
     // Specular
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
     vec3 specularResult = u_LightSpecular.xyz * spec * specular;
-    
+
     return ambientResult + diffuseResult + specularResult;
 }
 
@@ -166,17 +166,17 @@ vec3 CalculatePointLight()
     vec3 lightDir = normalize(lightPos - v_FragPos);
     vec3 viewDir = normalize(u_ViewPosAndLightType.xyz - v_FragPos);
     vec3 reflectDir = reflect(-lightDir, norm);
-    
+
     // Calculate distance and attenuation
     float distance = length(lightPos - v_FragPos);
     float attenuation = 1.0 / (u_LightAttParams.x + u_LightAttParams.y * distance + u_LightAttParams.z * (distance * distance));
-    
+
     // Get material properties
     vec3 ambient = u_MaterialAmbient.xyz;
     vec3 diffuse = u_MaterialDiffuse.xyz;
     vec3 specular = u_MaterialSpecular.xyz;
     float shininess = u_MaterialSpecular.w;
-    
+
     // Apply textures if enabled
     if (u_UseTextureMaps == 1)
     {
@@ -185,23 +185,23 @@ vec3 CalculatePointLight()
         diffuse *= diffuseTexColor;
         specular *= specularTexColor;
     }
-    
+
     // Ambient
     vec3 ambientResult = u_LightAmbient.xyz * ambient;
-    
+
     // Diffuse
     float diff = max(dot(norm, lightDir), 0.0);
     vec3 diffuseResult = u_LightDiffuse.xyz * diff * diffuse;
-    
+
     // Specular
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
     vec3 specularResult = u_LightSpecular.xyz * spec * specular;
-    
+
     // Apply attenuation
     ambientResult *= attenuation;
     diffuseResult *= attenuation;
     specularResult *= attenuation;
-    
+
     return ambientResult + diffuseResult + specularResult;
 }
 
@@ -212,23 +212,23 @@ vec3 CalculateSpotLight()
     vec3 norm = normalize(v_Normal);
     vec3 viewDir = normalize(u_ViewPosAndLightType.xyz - v_FragPos);
     vec3 reflectDir = reflect(-lightDir, norm);
-    
+
     // Calculate distance and attenuation
     float distance = length(lightPos - v_FragPos);
     float attenuation = 1.0 / (u_LightAttParams.x + u_LightAttParams.y * distance + u_LightAttParams.z * (distance * distance));
-    
+
     // Spotlight effect
     vec3 spotDir = normalize(-u_LightDirection.xyz);
     float theta = dot(lightDir, spotDir);
     float epsilon = u_LightSpotParams.x - u_LightSpotParams.y; // cutOff - outerCutOff
     float intensity = clamp((theta - u_LightSpotParams.y) / epsilon, 0.0, 1.0);
-    
+
     // Get material properties
     vec3 ambient = u_MaterialAmbient.xyz;
     vec3 diffuse = u_MaterialDiffuse.xyz;
     vec3 specular = u_MaterialSpecular.xyz;
     float shininess = u_MaterialSpecular.w;
-    
+
     // Apply textures if enabled
     if (u_UseTextureMaps == 1)
     {
@@ -237,22 +237,22 @@ vec3 CalculateSpotLight()
         diffuse *= diffuseTexColor;
         specular *= specularTexColor;
     }
-    
+
     // Ambient
     vec3 ambientResult = u_LightAmbient.xyz * ambient;
-    
+
     // Diffuse
     float diff = max(dot(norm, lightDir), 0.0);
     vec3 diffuseResult = u_LightDiffuse.xyz * diff * diffuse;
-    
+
     // Specular
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
     vec3 specularResult = u_LightSpecular.xyz * spec * specular;
-    
+
     // Apply attenuation and spotlight intensity
     ambientResult *= attenuation;
     diffuseResult *= attenuation * intensity;
     specularResult *= attenuation * intensity;
-    
+
     return ambientResult + diffuseResult + specularResult;
 }

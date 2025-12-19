@@ -15,228 +15,228 @@
 
 namespace OloEngine
 {
-	Application* Application::s_Instance = nullptr;
-	Application::Application(ApplicationSpecification specification)
-		: m_Specification(std::move(specification))
-	{
-		OLO_PROFILE_FUNCTION();
+    Application* Application::s_Instance = nullptr;
+    Application::Application(ApplicationSpecification specification)
+        : m_Specification(std::move(specification))
+    {
+        OLO_PROFILE_FUNCTION();
 
-		OLO_CORE_ASSERT(!s_Instance, "Application already exists!");
-		s_Instance = this;
-		// Set working directory here
-		if (!m_Specification.WorkingDirectory.empty())
-		{
-			std::filesystem::current_path(m_Specification.WorkingDirectory);
-		}
+        OLO_CORE_ASSERT(!s_Instance, "Application already exists!");
+        s_Instance = this;
+        // Set working directory here
+        if (!m_Specification.WorkingDirectory.empty())
+        {
+            std::filesystem::current_path(m_Specification.WorkingDirectory);
+        }
 
-		try
-		{
-			m_Window = Window::Create(WindowProps(m_Specification.Name));
-			m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
-			// Initialize debug tools before Renderer to catch all resource creation
-			#ifdef OLO_DEBUG
-				GPUResourceInspector::GetInstance().Initialize();
-				ShaderDebugger::GetInstance().Initialize();
-				OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
-			#endif
+        try
+        {
+            m_Window = Window::Create(WindowProps(m_Specification.Name));
+            m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
+// Initialize debug tools before Renderer to catch all resource creation
+#ifdef OLO_DEBUG
+            GPUResourceInspector::GetInstance().Initialize();
+            ShaderDebugger::GetInstance().Initialize();
+            OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
+#endif
 
-			Renderer::Init(m_Specification.PreferredRenderer);
-			
-			if (!AudioEngine::Init())
-			{
-				OLO_CORE_CRITICAL("Failed to initialize AudioEngine! Application cannot continue.");
-				
-				// Cleanup resources in reverse order of initialization
-				Renderer::Shutdown();
-				
-				#ifdef OLO_DEBUG
-					ShaderDebugger::GetInstance().Shutdown();
-					GPUResourceInspector::GetInstance().Shutdown();
-					OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown after AudioEngine failure");
-				#endif
-				
-				m_Window.reset();
-				s_Instance = nullptr;
-				
-				throw std::runtime_error("AudioEngine initialization failed");
-			}
-			
-			ScriptEngine::Init();
-			LuaScriptEngine::Init();
+            Renderer::Init(m_Specification.PreferredRenderer);
 
-			m_ImGuiLayer = new ImGuiLayer();
-			PushOverlay(m_ImGuiLayer);
-		}
-		catch (...)
-		{
-			// If any exception occurs during initialization, clean up and reset instance
-			s_Instance = nullptr;
-			throw;
-		}
-	}
-	Application::~Application()
-	{
-		OLO_PROFILE_FUNCTION();
+            if (!AudioEngine::Init())
+            {
+                OLO_CORE_CRITICAL("Failed to initialize AudioEngine! Application cannot continue.");
 
-		for (Layer* const layer : m_LayerStack)
-		{
-			layer->OnDetach();
-			delete layer;
-		}
+                // Cleanup resources in reverse order of initialization
+                Renderer::Shutdown();
 
-		LuaScriptEngine::Shutdown();
-		ScriptEngine::Shutdown();
-		AudioEngine::Shutdown();
-				// Shutdown debug tools before Renderer
-		#ifdef OLO_DEBUG
-			ShaderDebugger::GetInstance().Shutdown();
-			GPUResourceInspector::GetInstance().Shutdown();
-			OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown");
-		#endif
-		
-		Renderer::Shutdown();
-	}
+#ifdef OLO_DEBUG
+                ShaderDebugger::GetInstance().Shutdown();
+                GPUResourceInspector::GetInstance().Shutdown();
+                OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown after AudioEngine failure");
+#endif
 
-	void Application::PushLayer(Layer* const layer)
-	{
-		OLO_PROFILE_FUNCTION();
+                m_Window.reset();
+                s_Instance = nullptr;
 
-		m_LayerStack.PushLayer(layer);
-		layer->OnAttach();
-	}
+                throw std::runtime_error("AudioEngine initialization failed");
+            }
 
-	void Application::PushOverlay(Layer* const layer)
-	{
-		OLO_PROFILE_FUNCTION();
+            ScriptEngine::Init();
+            LuaScriptEngine::Init();
 
-		m_LayerStack.PushOverlay(layer);
-		layer->OnAttach();
-	}
+            m_ImGuiLayer = new ImGuiLayer();
+            PushOverlay(m_ImGuiLayer);
+        }
+        catch (...)
+        {
+            // If any exception occurs during initialization, clean up and reset instance
+            s_Instance = nullptr;
+            throw;
+        }
+    }
+    Application::~Application()
+    {
+        OLO_PROFILE_FUNCTION();
 
-	void Application::PopLayer(Layer* const layer)
-	{
-		m_LayerStack.PopLayer(layer);
-		layer->OnDetach();
-	}
+        for (Layer* const layer : m_LayerStack)
+        {
+            layer->OnDetach();
+            delete layer;
+        }
 
-	void Application::PopOverlay(Layer* const layer)
-	{
-		m_LayerStack.PopOverlay(layer);
-		layer->OnDetach();
-	}
+        LuaScriptEngine::Shutdown();
+        ScriptEngine::Shutdown();
+        AudioEngine::Shutdown();
+        // Shutdown debug tools before Renderer
+#ifdef OLO_DEBUG
+        ShaderDebugger::GetInstance().Shutdown();
+        GPUResourceInspector::GetInstance().Shutdown();
+        OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown");
+#endif
 
-	void Application::Close()
-	{
-		m_Running = false;
-	}
+        Renderer::Shutdown();
+    }
 
-	void Application::SubmitToMainThread(const std::function<void()>& function)
-	{
-		std::scoped_lock<std::mutex> lock(m_MainThreadQueueMutex);
+    void Application::PushLayer(Layer* const layer)
+    {
+        OLO_PROFILE_FUNCTION();
 
-		m_MainThreadQueue.emplace_back(function);
-	}
+        m_LayerStack.PushLayer(layer);
+        layer->OnAttach();
+    }
 
-	void Application::OnEvent(Event& e)
-	{
-		OLO_PROFILE_FUNCTION();
+    void Application::PushOverlay(Layer* const layer)
+    {
+        OLO_PROFILE_FUNCTION();
 
-		EventDispatcher dispatcher(e);
-		dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(Application::OnWindowClose));
-		dispatcher.Dispatch<WindowResizeEvent>(OLO_BIND_EVENT_FN(Application::OnWindowResize));
+        m_LayerStack.PushOverlay(layer);
+        layer->OnAttach();
+    }
 
-		for (auto& it : std::ranges::reverse_view(m_LayerStack))
-		{
-			if (e.Handled)
-			{
-				break;
-			}
-			it->OnEvent(e);
-		}
-	}
+    void Application::PopLayer(Layer* const layer)
+    {
+        m_LayerStack.PopLayer(layer);
+        layer->OnDetach();
+    }
 
-	void Application::Run()
-	{
-		OLO_PROFILE_FUNCTION();
+    void Application::PopOverlay(Layer* const layer)
+    {
+        m_LayerStack.PopOverlay(layer);
+        layer->OnDetach();
+    }
 
-		while (m_Running)
-		{
+    void Application::Close()
+    {
+        m_Running = false;
+    }
 
-			const auto timeNow = Time::GetTime();
-			const Timestep timestep = timeNow - m_LastFrameTime;
-			m_LastFrameTime = timeNow;
+    void Application::SubmitToMainThread(const std::function<void()>& function)
+    {
+        std::scoped_lock<std::mutex> lock(m_MainThreadQueueMutex);
 
-			ExecuteMainThreadQueue();
+        m_MainThreadQueue.emplace_back(function);
+    }
 
-			if (!m_Minimized)
-			{
-				{
-					OLO_PROFILE_FRAMEMARK_START("LayerStack OnUpdate");
-					for (Layer* const layer : m_LayerStack)
-					{
-						layer->OnUpdate(timestep);
-					}
-					OLO_PROFILE_FRAMEMARK_END("LayerStack OnUpdate");
-				}
+    void Application::OnEvent(Event& e)
+    {
+        OLO_PROFILE_FUNCTION();
 
-				OloEngine::ImGuiLayer::Begin();
-				{
-					OLO_PROFILE_FRAMEMARK_START("LayerStack OnImGuiRender");
-					for (Layer* const layer : m_LayerStack)
-					{
-						layer->OnImGuiRender();
-					}
-					OLO_PROFILE_FRAMEMARK_END("LayerStack OnImGuiRender");
-				}
-				OloEngine::ImGuiLayer::End();
-			}
+        EventDispatcher dispatcher(e);
+        dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(Application::OnWindowClose));
+        dispatcher.Dispatch<WindowResizeEvent>(OLO_BIND_EVENT_FN(Application::OnWindowResize));
 
-			OLO_PROFILE_FRAMEMARK_START("Window OnUpdate");
-			m_Window->OnUpdate();
-			OLO_PROFILE_FRAMEMARK_END("Window OnUpdate");
-		}
-	}
+        for (auto& it : std::ranges::reverse_view(m_LayerStack))
+        {
+            if (e.Handled)
+            {
+                break;
+            }
+            it->OnEvent(e);
+        }
+    }
 
-	bool Application::OnWindowClose([[maybe_unused]] WindowCloseEvent const& e)
-	{
-		m_Running = false;
-		return true;
-	}
+    void Application::Run()
+    {
+        OLO_PROFILE_FUNCTION();
 
-	bool Application::OnWindowResize(WindowResizeEvent const& e)
-	{
-		OLO_PROFILE_FUNCTION();
+        while (m_Running)
+        {
 
-		if ((0 == e.GetWidth()) || (0 == e.GetHeight()))
-		{
-			m_Minimized = true;
-			return false;
-		}
+            const auto timeNow = Time::GetTime();
+            const Timestep timestep = timeNow - m_LastFrameTime;
+            m_LastFrameTime = timeNow;
 
-		m_Minimized = false;
-		
-		// Get the framebuffer size which might be different on high DPI displays
-		u32 fbWidth = m_Window->GetFramebufferWidth();
-		u32 fbHeight = m_Window->GetFramebufferHeight();
-		
-		OLO_CORE_INFO("Application::OnWindowResize - Window: {}x{}, Framebuffer: {}x{}", 
-		               e.GetWidth(), e.GetHeight(), fbWidth, fbHeight);
-		
-		// Use framebuffer size for renderer
-		Renderer::OnWindowResize(fbWidth, fbHeight);
+            ExecuteMainThreadQueue();
 
-		return false;
-	}
+            if (!m_Minimized)
+            {
+                {
+                    OLO_PROFILE_FRAMEMARK_START("LayerStack OnUpdate");
+                    for (Layer* const layer : m_LayerStack)
+                    {
+                        layer->OnUpdate(timestep);
+                    }
+                    OLO_PROFILE_FRAMEMARK_END("LayerStack OnUpdate");
+                }
 
-	void Application::ExecuteMainThreadQueue()
-	{
-		std::scoped_lock<std::mutex> lock(m_MainThreadQueueMutex);
+                OloEngine::ImGuiLayer::Begin();
+                {
+                    OLO_PROFILE_FRAMEMARK_START("LayerStack OnImGuiRender");
+                    for (Layer* const layer : m_LayerStack)
+                    {
+                        layer->OnImGuiRender();
+                    }
+                    OLO_PROFILE_FRAMEMARK_END("LayerStack OnImGuiRender");
+                }
+                OloEngine::ImGuiLayer::End();
+            }
 
-		for (auto const& func : m_MainThreadQueue)
-		{
-			func();
-		}
-		m_MainThreadQueue.clear();
-	}
+            OLO_PROFILE_FRAMEMARK_START("Window OnUpdate");
+            m_Window->OnUpdate();
+            OLO_PROFILE_FRAMEMARK_END("Window OnUpdate");
+        }
+    }
 
-}
+    bool Application::OnWindowClose([[maybe_unused]] WindowCloseEvent const& e)
+    {
+        m_Running = false;
+        return true;
+    }
+
+    bool Application::OnWindowResize(WindowResizeEvent const& e)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if ((0 == e.GetWidth()) || (0 == e.GetHeight()))
+        {
+            m_Minimized = true;
+            return false;
+        }
+
+        m_Minimized = false;
+
+        // Get the framebuffer size which might be different on high DPI displays
+        u32 fbWidth = m_Window->GetFramebufferWidth();
+        u32 fbHeight = m_Window->GetFramebufferHeight();
+
+        OLO_CORE_INFO("Application::OnWindowResize - Window: {}x{}, Framebuffer: {}x{}",
+                      e.GetWidth(), e.GetHeight(), fbWidth, fbHeight);
+
+        // Use framebuffer size for renderer
+        Renderer::OnWindowResize(fbWidth, fbHeight);
+
+        return false;
+    }
+
+    void Application::ExecuteMainThreadQueue()
+    {
+        std::scoped_lock<std::mutex> lock(m_MainThreadQueueMutex);
+
+        for (auto const& func : m_MainThreadQueue)
+        {
+            func();
+        }
+        m_MainThreadQueue.clear();
+    }
+
+} // namespace OloEngine

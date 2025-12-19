@@ -3,11 +3,11 @@
 /**
  * @file SparseSetElement.h
  * @brief Element wrapper for TSparseSet containers
- * 
+ *
  * Provides:
  * - TSparseSetElement: Wrapper that adds hash chain linking to elements
  * - Helper functions for hash table operations
- * 
+ *
  * Ported from Unreal Engine's Containers/SparseSetElement.h
  */
 
@@ -21,26 +21,24 @@ namespace OloEngine
     /**
      * @class TSparseSetElement
      * @brief An element in the set that stores value and hash chain linking
-     * 
+     *
      * Stores the element value plus hash bucket linking information.
      */
-    template <typename InElementType>
+    template<typename InElementType>
     class TSparseSetElement
     {
-    public:
+      public:
         using ElementType = InElementType;
 
         /** Default constructor */
-       TSparseSetElement() = default;
+        TSparseSetElement() = default;
 
         /** Initialization constructor */
-        template <
+        template<
             typename... InitType,
             typename = std::enable_if_t<
-                (sizeof...(InitType) != 1) || 
-                (!std::is_same_v<TSparseSetElement, std::decay_t<InitType>> && ...)
-            >
-        >
+                (sizeof...(InitType) != 1) ||
+                (!std::is_same_v<TSparseSetElement, std::decay_t<InitType>> && ...)>>
         [[nodiscard]] explicit OLO_FINLINE TSparseSetElement(InitType&&... InValue)
             : Value(Forward<InitType>(InValue)...)
         {
@@ -86,7 +84,7 @@ namespace OloEngine
         }
 
         /** Copy hash buckets from one allocator to another */
-        template <typename HashType>
+        template<typename HashType>
         void CopyHash(HashType& Hash, i32& HashSize, const HashType& Copy, i32 HashSizeCopy)
         {
             DestructItems(reinterpret_cast<FSetElementId*>(Hash.GetAllocation()), HashSize);
@@ -96,21 +94,21 @@ namespace OloEngine
         }
 
         /** Get hash bucket at index */
-        template <typename HashType>
+        template<typename HashType>
         [[nodiscard]] OLO_FINLINE FSetElementId& GetTypedHash(HashType& Hash, i32 HashIndex, i32 HashSize)
         {
             return reinterpret_cast<FSetElementId*>(Hash.GetAllocation())[HashIndex & (HashSize - 1)];
         }
 
         /** Get hash bucket at index (const) */
-        template <typename HashType>
+        template<typename HashType>
         [[nodiscard]] OLO_FINLINE const FSetElementId& GetTypedHash(const HashType& Hash, i32 HashIndex, i32 HashSize)
         {
             return reinterpret_cast<const FSetElementId*>(Hash.GetAllocation())[HashIndex & (HashSize - 1)];
         }
 
         /** Reallocate and reinitialize hash table */
-        template <typename HashType>
+        template<typename HashType>
         void Rehash(HashType& Hash, i32 HashSize)
         {
             // Free the old hash
@@ -130,7 +128,7 @@ namespace OloEngine
     } // namespace SparseSetPrivate
 
     /** Serializer */
-    template <typename ElementType>
+    template<typename ElementType>
     OLO_FINLINE FArchive& operator<<(FArchive& Ar, TSparseSetElement<ElementType>& Element)
     {
         return Ar << Element.Value;

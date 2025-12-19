@@ -33,31 +33,31 @@ namespace OloEngine
 
         BuildVertexBuffer();
         BuildIndexBuffer();
-        
+
         // Build bone influence buffer if we have rigged data
         if (HasSkeleton() && !m_BoneInfluences.empty())
         {
             BuildBoneInfluenceBuffer();
         }
-        
+
         m_VertexArray = VertexArray::Create();
         m_VertexArray->Bind();
-        
+
         m_VertexBuffer->Bind();
         m_VertexArray->AddVertexBuffer(m_VertexBuffer);
-        
+
         // Add bone influence buffer as second vertex buffer if available
         if (m_BoneInfluenceBuffer)
         {
             m_BoneInfluenceBuffer->Bind();
             m_VertexArray->AddVertexBuffer(m_BoneInfluenceBuffer);
         }
-        
+
         m_IndexBuffer->Bind();
         m_VertexArray->SetIndexBuffer(m_IndexBuffer);
-        
+
         m_VertexArray->Unbind();
-        
+
         m_Built = true;
     }
 
@@ -66,8 +66,8 @@ namespace OloEngine
         if (m_Vertices.empty())
             return;
 
-    m_VertexBuffer = VertexBuffer::Create(static_cast<const void*>(m_Vertices.data()),
-                          static_cast<u32>(m_Vertices.size() * sizeof(Vertex)));
+        m_VertexBuffer = VertexBuffer::Create(static_cast<const void*>(m_Vertices.data()),
+                                              static_cast<u32>(m_Vertices.size() * sizeof(Vertex)));
         m_VertexBuffer->SetLayout(Vertex::GetLayout());
     }
 
@@ -76,8 +76,8 @@ namespace OloEngine
         if (m_Indices.empty())
             return;
 
-        m_IndexBuffer = IndexBuffer::Create(m_Indices.data(), 
-                                           static_cast<u32>(m_Indices.size()));
+        m_IndexBuffer = IndexBuffer::Create(m_Indices.data(),
+                                            static_cast<u32>(m_Indices.size()));
     }
 
     void MeshSource::BuildBoneInfluenceBuffer()
@@ -87,12 +87,12 @@ namespace OloEngine
 
         // Create buffer layout for bone influences
         BufferLayout boneInfluenceLayout = {
-            { ShaderDataType::Int4,   "a_BoneIDs" },     // 4 bone IDs
-            { ShaderDataType::Float4, "a_BoneWeights" }  // 4 bone weights
+            { ShaderDataType::Int4, "a_BoneIDs" },      // 4 bone IDs
+            { ShaderDataType::Float4, "a_BoneWeights" } // 4 bone weights
         };
 
         m_BoneInfluenceBuffer = VertexBuffer::Create(static_cast<const void*>(m_BoneInfluences.data()),
-                                                    static_cast<u32>(m_BoneInfluences.size() * sizeof(BoneInfluence)));
+                                                     static_cast<u32>(m_BoneInfluences.size() * sizeof(BoneInfluence)));
         m_BoneInfluenceBuffer->SetLayout(boneInfluenceLayout);
     }
 
@@ -120,34 +120,34 @@ namespace OloEngine
             // Calculate the size of the bounding box
             glm::vec3 size = max - min;
             f32 maxDimension = glm::max(glm::max(size.x, size.y), size.z);
-            
+
             // Expand by a large percentage for skeletal animation (200% to handle extended limbs)
             f32 expansionFactor = maxDimension * 2.0f;
-            
+
             // Also ensure a substantial minimum expansion for small models
             expansionFactor = glm::max(expansionFactor, 0.5f);
-            
+
             min -= glm::vec3(expansionFactor);
             max += glm::vec3(expansionFactor);
         }
 
         m_BoundingBox = BoundingBox(min, max);
-        
+
         glm::vec3 center = (min + max) * 0.5f;
         f32 radius = 0.0f;
-        
+
         for (const auto& vertex : m_Vertices)
         {
             f32 distance = glm::length(vertex.Position - center);
             radius = glm::max(radius, distance);
         }
-        
+
         // For animated meshes, also expand the bounding sphere radius
         if (HasBoneInfluences())
         {
             radius *= 1.5f; // 50% expansion for animated models
         }
-        
+
         m_BoundingSphere = BoundingSphere(center, radius);
     }
 
@@ -186,13 +186,13 @@ namespace OloEngine
                 // Calculate the size of the submesh bounding box
                 glm::vec3 size = max - min;
                 f32 maxDimension = glm::max(glm::max(size.x, size.y), size.z);
-                
+
                 // Expand by a large percentage for skeletal animation (200% to handle extended limbs)
                 f32 expansionFactor = maxDimension * 2.0f;
-                
+
                 // Also ensure a substantial minimum expansion for small submeshes
                 expansionFactor = glm::max(expansionFactor, 0.5f);
-                
+
                 min -= glm::vec3(expansionFactor);
                 max += glm::vec3(expansionFactor);
             }
@@ -200,4 +200,4 @@ namespace OloEngine
             submesh.m_BoundingBox = BoundingBox(min, max);
         }
     }
-}
+} // namespace OloEngine

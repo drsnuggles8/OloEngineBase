@@ -11,19 +11,22 @@ namespace OloEngine
 {
     class StreamWriter
     {
-    public:
+      public:
         virtual ~StreamWriter() = default;
 
         virtual bool IsStreamGood() const = 0;
         virtual u64 GetStreamPosition() = 0;
         virtual void SetStreamPosition(u64 position) = 0;
         virtual bool WriteData(const char* data, sizet size) = 0;
-        
-        operator bool() const { return IsStreamGood(); }
+
+        operator bool() const
+        {
+            return IsStreamGood();
+        }
 
         void WriteBuffer(Buffer buffer, bool writeSize = true);
         void WriteZero(u64 size);
-        
+
         /// @brief Writes a string with u64 length prefix in little-endian format
         /// @note Compatible with StreamReader::ReadString which expects u64 length
         void WriteString(const std::string& string);

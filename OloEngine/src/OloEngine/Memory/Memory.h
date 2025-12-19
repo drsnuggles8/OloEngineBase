@@ -15,7 +15,7 @@ namespace OloEngine
 #endif
 
 #if !defined(FMEMORY_INLINE_GMalloc)
-    #define FMEMORY_INLINE_GMalloc Private::GMalloc
+#define FMEMORY_INLINE_GMalloc Private::GMalloc
 #endif
 
 } // namespace OloEngine

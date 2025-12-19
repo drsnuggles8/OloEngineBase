@@ -42,8 +42,8 @@ namespace OloEngine
         }
 
         // Increment allocation count
-		m_AllocationCount.fetch_add(1, std::memory_order_relaxed);
-        
+        m_AllocationCount.fetch_add(1, std::memory_order_relaxed);
+
         // Get thread-local cache and allocate memory
         ThreadLocalCache& cache = GetThreadLocalCache();
         return cache.Allocate(size, COMMAND_ALIGNMENT);
@@ -68,40 +68,40 @@ namespace OloEngine
 
     sizet CommandAllocator::GetTotalAllocated() const
     {
-		std::scoped_lock<std::mutex> lock(m_CachesLock);
+        std::scoped_lock<std::mutex> lock(m_CachesLock);
 
         sizet total = 0;
-		for (const auto& [threadId, cache] : m_ThreadCaches)
-		{
-			total += cache.GetTotalAllocated();
-		}
-        
+        for (const auto& [threadId, cache] : m_ThreadCaches)
+        {
+            total += cache.GetTotalAllocated();
+        }
+
         return total;
     }
 
-	ThreadLocalCache& CommandAllocator::GetThreadLocalCache()
-	{
-		OLO_PROFILE_FUNCTION();
+    ThreadLocalCache& CommandAllocator::GetThreadLocalCache()
+    {
+        OLO_PROFILE_FUNCTION();
 
-		// Get current thread ID
-		std::thread::id threadId = std::this_thread::get_id();
+        // Get current thread ID
+        std::thread::id threadId = std::this_thread::get_id();
 
-		// Acquire lock once for the entire operation
-		std::scoped_lock<std::mutex> lock(m_CachesLock);
+        // Acquire lock once for the entire operation
+        std::scoped_lock<std::mutex> lock(m_CachesLock);
 
-		// try_emplace will only insert if the key doesn't exist
-		// - If threadId already exists in m_ThreadCaches, no insertion occurs
-		// - If threadId doesn't exist, a new ThreadLocalCache is created and inserted
-		auto [iter, inserted] = m_ThreadCaches.try_emplace(threadId, m_BlockSize);
+        // try_emplace will only insert if the key doesn't exist
+        // - If threadId already exists in m_ThreadCaches, no insertion occurs
+        // - If threadId doesn't exist, a new ThreadLocalCache is created and inserted
+        auto [iter, inserted] = m_ThreadCaches.try_emplace(threadId, m_BlockSize);
 
-		if (inserted)
-		{
-			OLO_CORE_TRACE("CommandAllocator: Created new thread cache for thread ID {0}",
-			static_cast<void*>(&threadId));
-		}
+        if (inserted)
+        {
+            OLO_CORE_TRACE("CommandAllocator: Created new thread cache for thread ID {0}",
+                           static_cast<void*>(&threadId));
+        }
 
-		// Return reference to the cache (either existing or newly created)
-		return iter->second;
-	}
+        // Return reference to the cache (either existing or newly created)
+        return iter->second;
+    }
 
-}
+} // namespace OloEngine

@@ -3,7 +3,7 @@
 /**
  * @file IntroSort.h
  * @brief Introspective sort algorithm (quicksort with heapsort fallback)
- * 
+ *
  * Ported from Unreal Engine's Algo/IntroSort.h
  */
 
@@ -29,7 +29,7 @@ namespace OloEngine
      * @param Proj			The projection to sort by when applied to the element.
      * @param Predicate		predicate class
      */
-    template <typename T, typename IndexType, typename ProjectionType, typename PredicateType> 
+    template<typename T, typename IndexType, typename ProjectionType, typename PredicateType>
     void IntroSortInternal(T* First, IndexType Num, ProjectionType Proj, PredicateType Predicate)
     {
         struct FStack
@@ -39,86 +39,90 @@ namespace OloEngine
             u32 MaxDepth;
         };
 
-        if( Num < 2 )
+        if (Num < 2)
         {
             return;
         }
 
-        FStack RecursionStack[32]={{First, First+Num-1, (u32)(std::log((f32)Num) * 2.f)}}, Current, Inner;
-        for( FStack* StackTop=RecursionStack; StackTop>=RecursionStack; --StackTop ) //-V625
+        FStack RecursionStack[32] = { { First, First + Num - 1, (u32)(std::log((f32)Num) * 2.f) } }, Current, Inner;
+        for (FStack* StackTop = RecursionStack; StackTop >= RecursionStack; --StackTop) //-V625
         {
             Current = *StackTop;
 
         Loop:
             IndexType Count = (IndexType)(Current.Max - Current.Min + 1);
 
-            if ( Current.MaxDepth == 0 )
+            if (Current.MaxDepth == 0)
             {
                 // We're too deep into quick sort, switch to heap sort
-                HeapSortInternal( Current.Min, Count, Proj, Predicate );
+                HeapSortInternal(Current.Min, Count, Proj, Predicate);
                 continue;
             }
 
-            if( Count <= 8 )
+            if (Count <= 8)
             {
                 // Use simple bubble-sort.
-                while( Current.Max > Current.Min )
+                while (Current.Max > Current.Min)
                 {
                     T *Max, *Item;
-                    for( Max=Current.Min, Item=Current.Min+1; Item<=Current.Max; Item++ )
+                    for (Max = Current.Min, Item = Current.Min + 1; Item <= Current.Max; Item++)
                     {
 // Workaround for a codegen bug that was discovered related to member function pointer projections that are virtual
 #if defined(_MSC_FULL_VER) && _MSC_FULL_VER < 194134123
-                        if( Invoke( Predicate, Invoke( Proj, *Max ), Invoke( Proj, *Item ) ) )
+                        if (Invoke(Predicate, Invoke(Proj, *Max), Invoke(Proj, *Item)))
 #else
-                        if( Predicate( Proj( *Max ), Proj( *Item ) ) )
+                        if (Predicate(Proj(*Max), Proj(*Item)))
 #endif
                         {
                             Max = Item;
                         }
                     }
-                    Swap( *Max, *Current.Max-- );
+                    Swap(*Max, *Current.Max--);
                 }
             }
             else
             {
                 // Grab middle element so sort doesn't exhibit worst-case behavior with presorted lists.
-                Swap( Current.Min[Count/2], Current.Min[0] );
+                Swap(Current.Min[Count / 2], Current.Min[0]);
 
                 // Divide list into two halves, one with items <=Current.Min, the other with items >Current.Max.
                 Inner.Min = Current.Min;
-                Inner.Max = Current.Max+1;
-                for( ; ; )
+                Inner.Max = Current.Max + 1;
+                for (;;)
                 {
 // Workaround for a codegen bug that was discovered related to member function pointer projections that are virtual
 #if defined(_MSC_FULL_VER) && _MSC_FULL_VER < 194134123
-                    while( ++Inner.Min<=Current.Max && !Invoke( Predicate, Invoke( Proj, *Current.Min ), Invoke( Proj, *Inner.Min ) ) );
-                    while( --Inner.Max> Current.Min && !Invoke( Predicate, Invoke( Proj, *Inner.Max ), Invoke( Proj, *Current.Min ) ) );
+                    while (++Inner.Min <= Current.Max && !Invoke(Predicate, Invoke(Proj, *Current.Min), Invoke(Proj, *Inner.Min)))
+                        ;
+                    while (--Inner.Max > Current.Min && !Invoke(Predicate, Invoke(Proj, *Inner.Max), Invoke(Proj, *Current.Min)))
+                        ;
 #else
-                    while( ++Inner.Min<=Current.Max && !Predicate( Proj( *Current.Min ), Proj( *Inner.Min ) ) );
-                    while( --Inner.Max> Current.Min && !Predicate( Proj( *Inner.Max ), Proj( *Current.Min ) ) );
+                    while (++Inner.Min <= Current.Max && !Predicate(Proj(*Current.Min), Proj(*Inner.Min)))
+                        ;
+                    while (--Inner.Max > Current.Min && !Predicate(Proj(*Inner.Max), Proj(*Current.Min)))
+                        ;
 #endif
-                    if( Inner.Min>Inner.Max )
+                    if (Inner.Min > Inner.Max)
                     {
                         break;
                     }
-                    Swap( *Inner.Min, *Inner.Max );
+                    Swap(*Inner.Min, *Inner.Max);
                 }
-                Swap( *Current.Min, *Inner.Max );
+                Swap(*Current.Min, *Inner.Max);
 
                 --Current.MaxDepth;
 
                 // Save big half and recurse with small half.
-                if( Inner.Max-1-Current.Min >= Current.Max-Inner.Min )
+                if (Inner.Max - 1 - Current.Min >= Current.Max - Inner.Min)
                 {
-                    if( Current.Min+1 < Inner.Max )
+                    if (Current.Min + 1 < Inner.Max)
                     {
                         StackTop->Min = Current.Min;
                         StackTop->Max = Inner.Max - 1;
                         StackTop->MaxDepth = Current.MaxDepth;
                         StackTop++;
                     }
-                    if( Current.Max>Inner.Min )
+                    if (Current.Max > Inner.Min)
                     {
                         Current.Min = Inner.Min;
                         goto Loop;
@@ -126,14 +130,14 @@ namespace OloEngine
                 }
                 else
                 {
-                    if( Current.Max>Inner.Min )
+                    if (Current.Max > Inner.Min)
                     {
                         StackTop->Min = Inner.Min;
                         StackTop->Max = Current.Max;
                         StackTop->MaxDepth = Current.MaxDepth;
                         StackTop++;
                     }
-                    if( Current.Min+1<Inner.Max )
+                    if (Current.Min + 1 < Inner.Max)
                     {
                         Current.Max = Inner.Max - 1;
                         goto Loop;
@@ -150,7 +154,7 @@ namespace OloEngine
          *
          * @param Range	The range to sort.
          */
-        template <typename RangeType>
+        template<typename RangeType>
         OLO_FINLINE void IntroSort(RangeType&& Range)
         {
             IntroSortInternal(GetData(Range), GetNum(Range), FIdentityFunctor(), TLess<>());
@@ -162,7 +166,7 @@ namespace OloEngine
          * @param Range		The range to sort.
          * @param Predicate	A binary predicate object used to specify if one element should precede another.
          */
-        template <typename RangeType, typename PredicateType>
+        template<typename RangeType, typename PredicateType>
         OLO_FINLINE void IntroSort(RangeType&& Range, PredicateType Predicate)
         {
             IntroSortInternal(GetData(Range), GetNum(Range), FIdentityFunctor(), MoveTemp(Predicate));
@@ -174,7 +178,7 @@ namespace OloEngine
          * @param Range			The range to sort.
          * @param Proj			The projection to sort by when applied to the element.
          */
-        template <typename RangeType, typename ProjectionType>
+        template<typename RangeType, typename ProjectionType>
         OLO_FINLINE void IntroSortBy(RangeType&& Range, ProjectionType Proj)
         {
 // Workaround for a codegen bug that was discovered related to member function pointer projections that are virtual
@@ -192,7 +196,7 @@ namespace OloEngine
          * @param Proj			The projection to sort by when applied to the element.
          * @param Predicate		A binary predicate object, applied to the projection, used to specify if one element should precede another.
          */
-        template <typename RangeType, typename ProjectionType, typename PredicateType>
+        template<typename RangeType, typename ProjectionType, typename PredicateType>
         OLO_FINLINE void IntroSortBy(RangeType&& Range, ProjectionType Proj, PredicateType Predicate)
         {
 // Workaround for a codegen bug that was discovered related to member function pointer projections that are virtual

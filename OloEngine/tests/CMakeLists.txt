@@ -8,8 +8,40 @@ add_executable(OloEngine-Tests
 		#SoundGraphBasicTest.cpp
 		#AudioEventQueueTest.cpp
 		FastRandomTest.cpp
-		TypeTraitsTest.cpp
 		ContainerTest.cpp
+
+		# ============================================================================
+		# Async - Threading primitives (ported from UE5.7 Tests/Async/)
+		# ============================================================================
+		Async/ParkingLotTest.cpp            # ParkingLot wait queue tests
+		Async/MutexTest.cpp                 # FMutex and TUniqueLock
+		Async/MutexLockRateTest.cpp         # Mutex lock rate benchmarks
+		Async/SemaphoreTest.cpp             # FSemaphore counting semaphore
+		Async/ManualResetEventTest.cpp      # FManualResetEvent sync primitive
+		Async/SharedMutexTest.cpp           # FSharedMutex reader-writer lock
+		Async/SharedRecursiveMutexTest.cpp  # FSharedRecursiveMutex recursive reader-writer lock
+		Async/ExternalMutexTest.cpp         # TExternalMutex external state mutex
+
+		# ============================================================================
+		# Tasks - Task system tests (ported from UE5.7 Tests/Tasks/)
+		# ============================================================================
+		Tasks/TaskSystemTest.cpp            # Launch, Wait, FTaskEvent, FPipe, FTaskConcurrencyLimiter, etc.
+
+		# ============================================================================
+		# Containers - Container tests (ported from UE5.7 Tests/Containers/)
+		# ============================================================================
+		Containers/ConcurrentQueuesTest.cpp # TMpscQueue, TMpmcQueue, TSpscQueue, TSpmcQueue
+
+		# ============================================================================
+		# Memory - Memory utilities (ported from UE5.7 Tests/Memory/)
+		# ============================================================================
+		Memory/MemoryViewTest.cpp           # FMemoryView, FMutableMemoryView
+
+		# ============================================================================
+		# Templates - Template utilities (ported from UE5.7 Tests/Templates/)
+		# ============================================================================
+		Templates/FunctionWithContextTest.cpp # TFunctionWithContext callable adapter
+		Templates/TypeTraitsTest.cpp          # Type traits and concepts
 		)
 		
 target_link_libraries(OloEngine-Tests
@@ -23,13 +55,6 @@ endif()
 
 target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEngine/src
-	${CMAKE_SOURCE_DIR}/OloEngine/vendor/entt-src/single_include/entt
-	${CMAKE_SOURCE_DIR}/OloEngine/vendor/googletest-src/googletest/include
-	${CMAKE_SOURCE_DIR}/OloEngine/vendor/glm-src
+	${CMAKE_SOURCE_DIR}/OloEngine/vendor/atomic_queue-src/include
 	${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
-	${CMAKE_SOURCE_DIR}/OloEngine/vendor/miniaudio-src
-	${CMAKE_SOURCE_DIR}/OloEngine/vendor/choc-src)
-
-include(GoogleTest)
-gtest_discover_tests(OloEngine-Tests
-			XML_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/test_results/)
+)

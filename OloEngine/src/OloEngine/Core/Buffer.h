@@ -9,112 +9,120 @@
 
 namespace OloEngine
 {
-	/// Non-owning raw buffer class for managing memory blocks
-	/// @note Buffer operations may throw exceptions on critical failures like memory overflow
-	struct Buffer
-	{
-		u8* Data = nullptr;
-		u64 Size = 0;
+    /// Non-owning raw buffer class for managing memory blocks
+    /// @note Buffer operations may throw exceptions on critical failures like memory overflow
+    struct Buffer
+    {
+        u8* Data = nullptr;
+        u64 Size = 0;
 
-		Buffer() = default;
+        Buffer() = default;
 
-		Buffer(u64 size)
-		{
-			Allocate(size);
-		}
+        Buffer(u64 size)
+        {
+            Allocate(size);
+        }
 
-		Buffer(const Buffer&) = default;
+        Buffer(const Buffer&) = default;
 
-		static Buffer Copy(Buffer other)
-		{
-			Buffer result(other.Size);
-			::memcpy(result.Data, other.Data, other.Size);
-			return result;
-		}
+        static Buffer Copy(Buffer other)
+        {
+            Buffer result(other.Size);
+            ::memcpy(result.Data, other.Data, other.Size);
+            return result;
+        }
 
-		/// Creates a buffer by copying data from a span
-		/// @param data The span of bytes to copy
-		/// @return A new Buffer containing a copy of the span data
-		/// @throws std::length_error if span size exceeds u64 limits (only on platforms where size_t > u64)
-		/// @note Empty spans result in an empty buffer (not an error condition)
-		[[nodiscard]] static Buffer Copy(std::span<const u8> data)
-		{
-			// Early return for empty spans to avoid calling memcpy with zero length
-			if (data.size() == 0)
-				return Buffer{};
-				
-			// Validate that span size fits in u64 to avoid truncation (only when size_t > u64)
-			if constexpr (sizeof(sizet) > sizeof(u64))
-			{
-				if (data.size() > std::numeric_limits<u64>::max())
-				{
-					throw std::length_error("Buffer::Copy: span size exceeds u64 maximum - cannot copy data of this size");
-				}
-			}
-				
-			Buffer result(static_cast<u64>(data.size()));
-			::memcpy(result.Data, data.data(), data.size());
-			return result;
-		}
+        /// Creates a buffer by copying data from a span
+        /// @param data The span of bytes to copy
+        /// @return A new Buffer containing a copy of the span data
+        /// @throws std::length_error if span size exceeds u64 limits (only on platforms where size_t > u64)
+        /// @note Empty spans result in an empty buffer (not an error condition)
+        [[nodiscard]] static Buffer Copy(std::span<const u8> data)
+        {
+            // Early return for empty spans to avoid calling memcpy with zero length
+            if (data.size() == 0)
+                return Buffer{};
 
-		void Allocate(u64 size)
-		{
-			Release();
+            // Validate that span size fits in u64 to avoid truncation (only when size_t > u64)
+            if constexpr (sizeof(sizet) > sizeof(u64))
+            {
+                if (data.size() > std::numeric_limits<u64>::max())
+                {
+                    throw std::length_error("Buffer::Copy: span size exceeds u64 maximum - cannot copy data of this size");
+                }
+            }
 
-			Data = new u8[size];
-			Size = size;
-		}
+            Buffer result(static_cast<u64>(data.size()));
+            ::memcpy(result.Data, data.data(), data.size());
+            return result;
+        }
 
-		void Release()
-		{
-			delete[] Data;
-			Data = nullptr;
-			Size = 0;
-		}
+        void Allocate(u64 size)
+        {
+            Release();
 
-		template<typename T>
-		T* As()
-		{
-			return (T*)Data;
-		}
+            Data = new u8[size];
+            Size = size;
+        }
 
-		operator bool() const
-		{
-			return (bool)Data;
-		}
+        void Release()
+        {
+            delete[] Data;
+            Data = nullptr;
+            Size = 0;
+        }
 
-	};
+        template<typename T>
+        T* As()
+        {
+            return (T*)Data;
+        }
 
-	struct ScopedBuffer
-	{
-		ScopedBuffer(Buffer buffer)
-			: m_Buffer(buffer)
-		{
-		}
+        operator bool() const
+        {
+            return (bool)Data;
+        }
+    };
 
-		ScopedBuffer(u64 size)
-			: m_Buffer(size)
-		{
-		}
+    struct ScopedBuffer
+    {
+        ScopedBuffer(Buffer buffer)
+            : m_Buffer(buffer)
+        {
+        }
 
-		~ScopedBuffer()
-		{
-			m_Buffer.Release();
-		}
+        ScopedBuffer(u64 size)
+            : m_Buffer(size)
+        {
+        }
 
-		[[nodiscard("Store this!")]] u8 * Data() const { return m_Buffer.Data; }
-		[[nodiscard("Store this!")]] u64 Size() const { return m_Buffer.Size; }
+        ~ScopedBuffer()
+        {
+            m_Buffer.Release();
+        }
 
-		template<typename T>
-		T* As()
-		{
-			return m_Buffer.As<T>();
-		}
+        [[nodiscard("Store this!")]] u8* Data() const
+        {
+            return m_Buffer.Data;
+        }
+        [[nodiscard("Store this!")]] u64 Size() const
+        {
+            return m_Buffer.Size;
+        }
 
-		operator bool() const { return m_Buffer; }
-	private:
-		Buffer m_Buffer;
-	};
+        template<typename T>
+        T* As()
+        {
+            return m_Buffer.As<T>();
+        }
 
+        operator bool() const
+        {
+            return m_Buffer;
+        }
 
-}
+      private:
+        Buffer m_Buffer;
+    };
+
+} // namespace OloEngine

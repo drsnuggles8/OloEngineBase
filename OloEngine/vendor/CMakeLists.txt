@@ -16,6 +16,12 @@ FetchContent_Declare(
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
+	atomic_queue
+	GIT_REPOSITORY	https://github.com/max0x7ba/atomic_queue.git
+	GIT_TAG			master
+	GIT_SHALLOW		TRUE
+)
+FetchContent_Declare(
 	box2d
 	GIT_REPOSITORY	https://github.com/erincatto/box2d.git
 	GIT_TAG			v3.0.0
@@ -220,7 +226,12 @@ set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest joltphysics miniaudio msdfgen msdf-atlas-gen spdlog tracy yaml-cpp)
+FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw glm googletest joltphysics miniaudio msdfgen msdf-atlas-gen spdlog tracy yaml-cpp)
+
+# atomic_queue is header-only - create an interface target for easy include
+add_library(atomic_queue_interface INTERFACE)
+target_include_directories(atomic_queue_interface INTERFACE ${atomic_queue_SOURCE_DIR}/include)
+set(ATOMIC_QUEUE_INCLUDE_DIR "${atomic_queue_SOURCE_DIR}/include" CACHE INTERNAL "")
 
 target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>)
 

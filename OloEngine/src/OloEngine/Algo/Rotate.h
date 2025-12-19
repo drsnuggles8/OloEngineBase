@@ -3,7 +3,7 @@
 /**
  * @file Rotate.h
  * @brief Array rotation algorithm
- * 
+ *
  * Ported from Unreal Engine's Algo/Rotate.h
  */
 
@@ -12,7 +12,7 @@
 
 namespace OloEngine
 {
-    template <typename T>
+    template<typename T>
     i32 RotateInternal(T* First, i32 Num, i32 Count)
     {
         if (Count == 0)
@@ -26,8 +26,8 @@ namespace OloEngine
         }
 
         T* Iter = First;
-        T* Mid  = First + Count;
-        T* End  = First + Num;
+        T* Mid = First + Count;
+        T* End = First + Num;
 
         T* OldMid = Mid;
         for (;;)
@@ -59,7 +59,7 @@ namespace OloEngine
          *
          * @return The new index of the element that was previously at the start of the range.
          */
-        template <typename RangeType>
+        template<typename RangeType>
         OLO_FINLINE i32 Rotate(RangeType&& Range, i32 Count)
         {
             return RotateInternal(GetData(Range), GetNum(Range), Count);

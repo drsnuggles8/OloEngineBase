@@ -5,7 +5,8 @@
 #include <string_view>
 #include <array>
 
-namespace OloEngine::Core::Reflection::StringUtils {
+namespace OloEngine::Core::Reflection::StringUtils
+{
 
     //==============================================================================
     /// Constexpr string operations
@@ -28,11 +29,11 @@ namespace OloEngine::Core::Reflection::StringUtils {
         {
             return 0;
         }
-        
+
         // Guard against empty delimiter to avoid infinite loops
         if (delimiter.empty())
             return 1;
-            
+
         sizet count = 1;
         sizet pos = 0;
         while ((pos = source.find(delimiter, pos)) != std::string_view::npos)
@@ -86,7 +87,7 @@ namespace OloEngine::Core::Reflection::StringUtils {
         const auto pos = name.rfind("::");
         if (pos == std::string_view::npos)
             return name;
-        
+
         return name.substr(pos + 2);
     }
 
@@ -103,15 +104,15 @@ namespace OloEngine::Core::Reflection::StringUtils {
     {
         // Remove common prefixes
         if (StartsWith(name, "in_"))
-            name.remove_prefix(3);  // length of "in_"
+            name.remove_prefix(3); // length of "in_"
         else if (StartsWith(name, "out_"))
-            name.remove_prefix(4);  // length of "out_"
+            name.remove_prefix(4); // length of "out_"
         else if (StartsWith(name, "m_"))
-            name.remove_prefix(2);  // length of "m_"
+            name.remove_prefix(2); // length of "m_"
 
         // Remove common suffixes
         if (EndsWith(name, "_Raw"))
-            name.remove_suffix(4);  // length of "_Raw"
+            name.remove_suffix(4); // length of "_Raw"
 
         return name;
     }
@@ -130,26 +131,26 @@ namespace OloEngine::Core::Reflection::StringUtils {
         const auto pos = fullName.find_last_of(':');
         if (pos == std::string_view::npos)
             return {};
-        
-        return fullName.substr(0, pos == 0 ? 0 : pos - 1);  // Exclude the "::" itself
+
+        return fullName.substr(0, pos == 0 ? 0 : pos - 1); // Exclude the "::" itself
     }
 
     constexpr std::string_view ExtractClassName(std::string_view fullName)
     {
         const auto namespaceView = ExtractNamespace(fullName);
         const auto namespaceSize = namespaceView.size();
-        
+
         if (namespaceSize == 0)
         {
             // Check for global-scope qualified name (starts with "::")
             if (fullName.size() >= 2 && fullName.rfind("::", 0) == 0)
             {
-                return fullName.substr(2);  // Strip leading "::"
+                return fullName.substr(2); // Strip leading "::"
             }
             return fullName;
         }
-        
-        return fullName.substr(namespaceSize + 2);  // +2 for "::"
+
+        return fullName.substr(namespaceSize + 2); // +2 for "::"
     }
 
 } // namespace OloEngine::Core::Reflection::StringUtils

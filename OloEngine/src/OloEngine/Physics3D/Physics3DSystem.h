@@ -8,13 +8,14 @@
 #include <cassert>
 
 // Forward declarations
-namespace OloEngine {
+namespace OloEngine
+{
     // Forward declarations to reduce compile dependencies
     class OloBPLayerInterfaceImpl;
     class OloObjectVsBroadPhaseLayerFilterImpl;
     class PhysicsBodyActivationListener;
     class JoltPhysicsSystemContactListener;
-}
+} // namespace OloEngine
 
 // Jolt includes
 #include <Jolt/Jolt.h>
@@ -37,7 +38,8 @@ namespace OloEngine {
 // Disable common warnings triggered by Jolt
 JPH_SUPPRESS_WARNINGS
 
-namespace OloEngine {
+namespace OloEngine
+{
 
     /// Each broadphase layer results in a separate bounding volume tree in the broad phase. You at least want to have
     /// BroadPhaseLayerInterface implementation
@@ -45,7 +47,7 @@ namespace OloEngine {
     /// Now integrated with PhysicsLayerManager for dynamic layer configuration
     class OloBPLayerInterfaceImpl final : public JPH::BroadPhaseLayerInterface
     {
-    public:
+      public:
         OloBPLayerInterfaceImpl();
         void UpdateLayers(); // Update layer mappings when PhysicsLayerManager changes
 
@@ -56,7 +58,7 @@ namespace OloEngine {
         virtual const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const override;
 #endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
 
-    private:
+      private:
         static constexpr JPH::uint sMaxLayers = 32; // Maximum supported physics layers
         JPH::BroadPhaseLayer m_ObjectToBroadPhase[sMaxLayers] = {};
         JPH::uint m_NumLayers = 2; // Start with default layers
@@ -66,7 +68,7 @@ namespace OloEngine {
     /// Now integrated with PhysicsLayerManager for dynamic layer configuration
     class OloObjectVsBroadPhaseLayerFilterImpl : public JPH::ObjectVsBroadPhaseLayerFilter
     {
-    public:
+      public:
         virtual bool ShouldCollide(JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2) const override;
     };
 
@@ -75,10 +77,14 @@ namespace OloEngine {
     /// Registering one is entirely optional.
     class PhysicsBodyActivationListener : public JPH::BodyActivationListener
     {
-    public:
+      public:
         struct ActivationEvent
         {
-            enum Type { Activated, Deactivated };
+            enum Type
+            {
+                Activated,
+                Deactivated
+            };
             Type EventType;
             JPH::BodyID BodyID;
             JPH::uint64 UserData;
@@ -93,7 +99,7 @@ namespace OloEngine {
         // Get the number of pending events
         sizet GetPendingEventCount() const noexcept;
 
-    private:
+      private:
         void EnqueueEvent(const ActivationEvent& event)
         {
             std::scoped_lock lock(m_QueueMutex);
@@ -123,7 +129,7 @@ namespace OloEngine {
     /// Registering one is entirely optional.
     class JoltPhysicsSystemContactListener : public JPH::ContactListener
     {
-    public:
+      public:
         // See: ContactListener
         virtual JPH::ValidateResult OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult) override;
 
@@ -136,7 +142,7 @@ namespace OloEngine {
 
     class Physics3DSystem
     {
-    public:
+      public:
         // Singleton creation and destruction methods
         static void CreateInstance()
         {
@@ -171,7 +177,7 @@ namespace OloEngine {
 
         // Initialize the physics system
         bool Initialize();
-        
+
         // Shutdown the physics system
         void Shutdown();
 
@@ -182,7 +188,10 @@ namespace OloEngine {
         void ProcessActivationEvents();
 
         // Settings management
-        static PhysicsSettings& GetSettings() { return s_PhysicsSettings; }
+        static PhysicsSettings& GetSettings()
+        {
+            return s_PhysicsSettings;
+        }
         static void SetSettings(const PhysicsSettings& settings);
         static void ApplySettings(); // Apply current settings to the physics system
 
@@ -191,7 +200,7 @@ namespace OloEngine {
 
         // Create a box body
         [[nodiscard]] JPH::BodyID CreateBox(const JPH::RVec3& position, const JPH::Quat& rotation, const JPH::Vec3& halfExtent, bool isStatic = false);
-        
+
         // Create a sphere body
         [[nodiscard]] JPH::BodyID CreateSphere(const JPH::RVec3& position, f32 radius, bool isStatic = false);
 
@@ -199,23 +208,26 @@ namespace OloEngine {
         void RemoveBody(JPH::BodyID bodyID);
 
         // Get body interface for direct manipulation
-        [[nodiscard]] JPH::BodyInterface* GetBodyInterface() 
-        { 
-            return m_PhysicsSystem ? &m_PhysicsSystem->GetBodyInterface() : nullptr; 
+        [[nodiscard]] JPH::BodyInterface* GetBodyInterface()
+        {
+            return m_PhysicsSystem ? &m_PhysicsSystem->GetBodyInterface() : nullptr;
         }
-        [[nodiscard]] const JPH::BodyInterface* GetBodyInterface() const 
-        { 
-            return m_PhysicsSystem ? &m_PhysicsSystem->GetBodyInterface() : nullptr; 
+        [[nodiscard]] const JPH::BodyInterface* GetBodyInterface() const
+        {
+            return m_PhysicsSystem ? &m_PhysicsSystem->GetBodyInterface() : nullptr;
         }
 
         // Get the physics system for direct access
-        [[nodiscard]] JPH::PhysicsSystem* GetPhysicsSystem() noexcept { return m_PhysicsSystem.get(); }
+        [[nodiscard]] JPH::PhysicsSystem* GetPhysicsSystem() noexcept
+        {
+            return m_PhysicsSystem.get();
+        }
 
-    private:
+      private:
         // ====================================================================
         // Static Configuration & State
         // ====================================================================
-        
+
         // Physics settings - now configurable instead of hard-coded
         inline static PhysicsSettings s_PhysicsSettings;
 
@@ -231,7 +243,7 @@ namespace OloEngine {
         // ====================================================================
         // Interfaces & Mappers
         // ====================================================================
-        
+
         // Create mapping table from object layer to broadphase layer
         OloBPLayerInterfaceImpl m_BroadPhaseLayerInterface;
         OloObjectVsBroadPhaseLayerFilterImpl m_ObjectVsBroadPhaseLayerFilter;
@@ -239,7 +251,7 @@ namespace OloEngine {
         // ====================================================================
         // Core Systems & Allocators
         // ====================================================================
-        
+
         // The physics system
         std::unique_ptr<JPH::PhysicsSystem> m_PhysicsSystem;
 
@@ -252,7 +264,7 @@ namespace OloEngine {
         // ====================================================================
         // Listeners & Flags
         // ====================================================================
-        
+
         // Listeners
         PhysicsBodyActivationListener m_BodyActivationListener;
         JoltPhysicsSystemContactListener m_ContactListener;
@@ -262,35 +274,35 @@ namespace OloEngine {
         // ====================================================================
         // Helper Methods
         // ====================================================================
-        
+
         // Helper methods
         void UpdatePhysicsSystemSettings();
 
         // ====================================================================
         // Singleton Implementation
         // ====================================================================
-        
+
         // Private constructor and destructor to prevent direct instantiation
         Physics3DSystem();
         ~Physics3DSystem();
-        
+
         // Singleton pattern enforcement - prevent copying and moving
         Physics3DSystem(const Physics3DSystem&) = delete;
         Physics3DSystem& operator=(const Physics3DSystem&) = delete;
         Physics3DSystem(Physics3DSystem&&) = delete;
         Physics3DSystem& operator=(Physics3DSystem&&) = delete;
 
-        // ====================================================================
-        // Compile-time Constants
-        // ====================================================================
-        
-        // Number of mutexes to allocate to protect rigid bodies from concurrent access
-        // Can be overridden at compile time via -DOLO_PHYSICS_BODY_MUTEXES=N
-        #ifndef OLO_PHYSICS_BODY_MUTEXES
+// ====================================================================
+// Compile-time Constants
+// ====================================================================
+
+// Number of mutexes to allocate to protect rigid bodies from concurrent access
+// Can be overridden at compile time via -DOLO_PHYSICS_BODY_MUTEXES=N
+#ifndef OLO_PHYSICS_BODY_MUTEXES
         static constexpr u32 s_NumBodyMutexes = 8; // Default: 8 mutexes for reasonable concurrency protection
-        #else
+#else
         static constexpr u32 s_NumBodyMutexes = OLO_PHYSICS_BODY_MUTEXES;
-        #endif
+#endif
     };
 
 } // namespace OloEngine

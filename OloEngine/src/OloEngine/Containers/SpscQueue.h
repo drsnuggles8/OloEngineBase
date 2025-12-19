@@ -3,16 +3,16 @@
 /**
  * @file SpscQueue.h
  * @brief Fast single-producer/single-consumer unbounded concurrent queue
- * 
+ *
  * Based on http://www.1024cores.net/home/lock-free-algorithms/queues/unbounded-spsc-queue
- * 
+ *
  * Features:
  * - Lock-free
  * - Single producer, single consumer
  * - Unbounded (dynamically allocates nodes)
  * - Doesn't free memory until destruction but recycles consumed items
  * - FIFO ordering
- * 
+ *
  * Ported from Unreal Engine's Containers/SpscQueue.h
  */
 
@@ -30,14 +30,14 @@ namespace OloEngine
     /**
      * @class TSpscQueue
      * @brief Fast single-producer/single-consumer unbounded concurrent queue
-     * 
+     *
      * @tparam T Element type
      * @tparam AllocatorType Memory allocator (defaults to FMemory)
      */
     template<typename T, typename AllocatorType = FMemory>
     class TSpscQueue final
     {
-    public:
+      public:
         using ElementType = T;
 
         // Non-copyable
@@ -49,7 +49,7 @@ namespace OloEngine
          */
         [[nodiscard]] TSpscQueue()
         {
-            FNode* Node = ::new(AllocatorType::Malloc(sizeof(FNode), alignof(FNode))) FNode;
+            FNode* Node = ::new (AllocatorType::Malloc(sizeof(FNode), alignof(FNode))) FNode;
             m_Tail.store(Node, std::memory_order_relaxed);
             m_Head = m_First = m_TailCopy = Node;
             m_NumElems = 0;
@@ -88,11 +88,11 @@ namespace OloEngine
          * @tparam ArgTypes Constructor argument types
          * @param Args Arguments forwarded to element constructor
          */
-        template <typename... ArgTypes>
+        template<typename... ArgTypes>
         void Enqueue(ArgTypes&&... Args)
         {
             FNode* Node = AllocNode();
-            ::new(static_cast<void*>(&Node->Value)) ElementType(Forward<ArgTypes>(Args)...);
+            ::new (static_cast<void*>(&Node->Value)) ElementType(Forward<ArgTypes>(Args)...);
 
             m_Head->Next.store(Node, std::memory_order_release);
             m_Head = Node;
@@ -139,7 +139,7 @@ namespace OloEngine
                 OutElem = MoveTempIfPossible(LocalElement.value());
                 return true;
             }
-            
+
             return false;
         }
 
@@ -164,7 +164,7 @@ namespace OloEngine
         /**
          * @brief Peek at the front element without removing it (single consumer only)
          * @return Pointer to the front element, or nullptr if queue is empty
-         * 
+         *
          * @note There's no overload with std::optional as it doesn't support references
          */
         [[nodiscard]] ElementType* Peek() const
@@ -180,18 +180,18 @@ namespace OloEngine
             return reinterpret_cast<ElementType*>(&LocalTailNext->Value);
         }
 
-    private:
+      private:
         struct FNode
         {
             std::atomic<FNode*> Next{ nullptr };
             TTypeCompatibleBytes<ElementType> Value;
         };
 
-    public:
+      public:
         /**
          * @class FIterator
          * @brief Allows the single consumer to iterate the contents of the queue without popping
-         * 
+         *
          * The single producer may continue to insert items in the queue while the consumer is iterating.
          * These new items may or may not be seen by the consumer, since the consumer might have finished
          * iterating before reaching those new elements.
@@ -206,18 +206,18 @@ namespace OloEngine
                 ++(*this);
             }
 
-            FIterator& operator++ ()
+            FIterator& operator++()
             {
                 Current = Current->Next.load(std::memory_order_acquire);
                 return *this;
             }
 
-            bool operator== (std::nullptr_t) const
+            bool operator==(std::nullptr_t) const
             {
                 return Current == nullptr;
             }
 
-            const ElementType& operator* () const
+            const ElementType& operator*() const
             {
                 return *reinterpret_cast<const ElementType*>(&Current->Value);
             }
@@ -233,7 +233,7 @@ namespace OloEngine
             return nullptr;
         }
 
-    private:
+      private:
         FNode* AllocNode()
         {
             // First tries to allocate node from internal node cache,
@@ -258,10 +258,10 @@ namespace OloEngine
                 return AllocFromCache();
             }
 
-            return ::new(AllocatorType::Malloc(sizeof(FNode), alignof(FNode))) FNode();
+            return ::new (AllocatorType::Malloc(sizeof(FNode), alignof(FNode))) FNode();
         }
 
-    private:
+      private:
         // Consumer part
         // Accessed mainly by consumer, infrequently by producer
         std::atomic<FNode*> m_Tail; // tail of the queue
@@ -270,7 +270,7 @@ namespace OloEngine
         // Accessed only by producer
         FNode* m_Head; // head of the queue
 
-        FNode* m_First; // last unused node (tail of node cache)
+        FNode* m_First;    // last unused node (tail of node cache)
         FNode* m_TailCopy; // helper (points somewhere between First and Tail)
 
         std::atomic<i32> m_NumElems;

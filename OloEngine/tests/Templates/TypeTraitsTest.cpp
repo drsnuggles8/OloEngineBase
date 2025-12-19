@@ -15,7 +15,7 @@ TEST(TypeTraitsTest, TFormatSpecifier_ReturnsCorrectFormatForIntegers)
     EXPECT_STREQ(TFormatSpecifier<u16>::GetFormatSpecifier(), "%u");
     EXPECT_STREQ(TFormatSpecifier<u32>::GetFormatSpecifier(), "%u");
     EXPECT_STREQ(TFormatSpecifier<u64>::GetFormatSpecifier(), "%llu");
-    
+
     EXPECT_STREQ(TFormatSpecifier<i8>::GetFormatSpecifier(), "%d");
     EXPECT_STREQ(TFormatSpecifier<i16>::GetFormatSpecifier(), "%d");
     EXPECT_STREQ(TFormatSpecifier<i32>::GetFormatSpecifier(), "%d");
@@ -44,7 +44,7 @@ TEST(TypeTraitsTest, TNameOf_ReturnsCorrectNameForIntegers)
     EXPECT_STREQ(TNameOf<u16>::GetName(), "u16");
     EXPECT_STREQ(TNameOf<u32>::GetName(), "u32");
     EXPECT_STREQ(TNameOf<u64>::GetName(), "u64");
-    
+
     EXPECT_STREQ(TNameOf<i8>::GetName(), "i8");
     EXPECT_STREQ(TNameOf<i16>::GetName(), "i16");
     EXPECT_STREQ(TNameOf<i32>::GetName(), "i32");
@@ -66,7 +66,7 @@ TEST(TypeTraitsTest, TNthTypeFromParameterPack_ReturnsCorrectType)
     static_assert(std::is_same_v<TNthTypeFromParameterPack_T<0, int, float, double>, int>);
     static_assert(std::is_same_v<TNthTypeFromParameterPack_T<1, int, float, double>, float>);
     static_assert(std::is_same_v<TNthTypeFromParameterPack_T<2, int, float, double>, double>);
-    
+
     // Just verify it compiles - static_asserts above do the real check
     SUCCEED();
 }
@@ -91,7 +91,9 @@ TEST(TypeTraitsTest, TIsFundamentalType_TrueForVoid)
 
 TEST(TypeTraitsTest, TIsFundamentalType_FalseForClassTypes)
 {
-    struct TestStruct {};
+    struct TestStruct
+    {
+    };
     EXPECT_FALSE(TIsFundamentalType<TestStruct>::Value);
     EXPECT_FALSE(TIsFundamentalType<std::string>::Value);
 }
@@ -111,7 +113,7 @@ TEST(TypeTraitsTest, TIsFunction_FalseForNonFunctions)
 {
     EXPECT_FALSE(TIsFunction<int>::Value);
     EXPECT_FALSE(TIsFunction<int*>::Value);
-    EXPECT_FALSE((TIsFunction<int(*)(float)>::Value)); // Function pointer, not function
+    EXPECT_FALSE((TIsFunction<int (*)(float)>::Value)); // Function pointer, not function
 }
 
 // ============================================================================
@@ -128,7 +130,10 @@ TEST(TypeTraitsTest, TCallTraits_SmallPODPassedByValue)
 
 TEST(TypeTraitsTest, TCallTraits_LargeTypesPassedByReference)
 {
-    struct LargeStruct { char data[1024]; };
+    struct LargeStruct
+    {
+        char data[1024];
+    };
     // Large types should be passed by const reference
     static_assert(std::is_same_v<TCallTraits<LargeStruct>::ParamType, const LargeStruct&>);
     SUCCEED();
@@ -177,7 +182,11 @@ TEST(TypeTraitsTest, TIsZeroConstructType_TrueForFundamentals)
 
 TEST(TypeTraitsTest, TIsPODType_TrueForPODs)
 {
-    struct PODStruct { int x; float y; };
+    struct PODStruct
+    {
+        int x;
+        float y;
+    };
     EXPECT_TRUE(TIsPODType<int>::Value);
     EXPECT_TRUE(TIsPODType<PODStruct>::Value);
 }
@@ -193,11 +202,11 @@ TEST(TypeTraitsTest, LogicalCombinators_WorkCorrectly)
     // TAnd
     EXPECT_TRUE((TAnd<TIsArithmetic<int>, TIsArithmetic<float>>::Value));
     EXPECT_FALSE((TAnd<TIsArithmetic<int>, TIsPointer<int>>::Value));
-    
+
     // TOr
     EXPECT_TRUE((TOr<TIsArithmetic<int>, TIsPointer<int>>::Value));
     EXPECT_FALSE((TOr<TIsPointer<int>, TIsPointer<float>>::Value));
-    
+
     // TNot
     EXPECT_TRUE(TNot<TIsPointer<int>>::Value);
     EXPECT_FALSE(TNot<TIsArithmetic<int>>::Value);

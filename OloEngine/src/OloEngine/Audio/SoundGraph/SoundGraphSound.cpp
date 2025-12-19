@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
 #include "SoundGraphSound.h"
-#include "SoundGraphSource.h" 
+#include "SoundGraphSource.h"
 #include "SoundGraph.h"
 #include "OloEngine/Audio/AudioEngine.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -80,7 +80,7 @@ namespace OloEngine::Audio::SoundGraph
         }
     }
 
-    bool SoundGraphSound::InitializeDataSource(const std::vector<AssetHandle>& dataSources, const Ref<Audio::SoundGraph::SoundGraph>& soundGraph)  
+    bool SoundGraphSound::InitializeDataSource(const std::vector<AssetHandle>& dataSources, const Ref<Audio::SoundGraph::SoundGraph>& soundGraph)
     {
         // Validate input parameters
         if (dataSources.empty())
@@ -165,7 +165,7 @@ namespace OloEngine::Audio::SoundGraph
     bool SoundGraphSound::Play()
     {
         if (!m_IsReadyToPlay)
-                return false;
+            return false;
 
         m_PlayState = SoundPlayState::Playing;
         m_IsFinished = false;
@@ -180,11 +180,11 @@ namespace OloEngine::Audio::SoundGraph
         m_FadeDuration = 0.0f;
         m_FadeStartVolume = m_Volume;
         m_FadeTargetVolume = m_Volume;
-        
+
         // Set play state and finished flag
         m_PlayState = SoundPlayState::Stopped;
         m_IsFinished = true;
-        
+
         return true;
     }
 
@@ -266,7 +266,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphSound::SetParameter(u32 parameterID, f32 value)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         if (m_Source)
         {
             // Only call if we can verify the method exists via the source's SetParameter method
@@ -370,7 +370,7 @@ namespace OloEngine::Audio::SoundGraph
         (void)up;
         m_Orientation = forward;
     }
-    
+
     //==============================================================================
     /// Status and Update
 
@@ -381,13 +381,13 @@ namespace OloEngine::Audio::SoundGraph
         if (m_IsFading)
         {
             m_FadeCurrentTime += deltaTime;
-            
+
             if (m_FadeCurrentTime >= m_FadeDuration)
             {
                 // Fade completed
                 m_IsFading = false;
                 SetVolume(m_FadeTargetVolume);
-                
+
                 // If faded to zero, stop playback
                 if (m_FadeTargetVolume <= 0.0f)
                 {
@@ -410,8 +410,8 @@ namespace OloEngine::Audio::SoundGraph
             try
             {
                 m_Source->Update(static_cast<f64>(deltaTime));
-                
-                // Try to check if finished - our SoundGraphSource does have this method  
+
+                // Try to check if finished - our SoundGraphSource does have this method
                 if (m_Source->IsFinished() && !m_IsFinished)
                 {
                     m_IsFinished = true;
@@ -436,16 +436,16 @@ namespace OloEngine::Audio::SoundGraph
     f32 SoundGraphSound::GetCurrentPriority() const
     {
         OLO_PROFILE_FUNCTION();
-        
+
         f32 basePriority = static_cast<f32>(m_Priority) / 255.0f;
         f32 volumeMultiplier = m_Volume;
-        
+
         if (m_IsFading && m_FadeDuration > 0.0f)
         {
             f32 t = std::clamp(m_FadeCurrentTime / m_FadeDuration, 0.0f, 1.0f);
             volumeMultiplier = m_FadeStartVolume + (m_FadeTargetVolume - m_FadeStartVolume) * t;
         }
-        
+
         return basePriority * volumeMultiplier;
     }
 
@@ -473,10 +473,10 @@ namespace OloEngine::Audio::SoundGraph
         u32 sampleRate = m_Source ? m_Source->GetSampleRate() : 48000;
         if (sampleRate == 0)
             sampleRate = 48000; // Safety fallback if source hasn't been initialized
-        
+
         // Compute milliseconds using f64 to avoid overflow
         f64 milliseconds = static_cast<f64>(numSamples) * 1000.0 / static_cast<f64>(sampleRate);
-        
+
         // Clamp to valid i32 range before calling the overload
         constexpr f64 maxInt32 = static_cast<f64>(INT32_MAX);
         if (milliseconds > maxInt32)
@@ -487,7 +487,7 @@ namespace OloEngine::Audio::SoundGraph
         {
             milliseconds = 0.0;
         }
-        
+
         return StopFade(static_cast<i32>(milliseconds));
     }
 
@@ -507,7 +507,7 @@ namespace OloEngine::Audio::SoundGraph
         m_PlayState = SoundPlayState::Stopped;
         m_IsFading = false;
         m_IsFinished = true;
-        
+
         if ((options & StopOptions::ResetPlaybackPosition) != StopOptions::None)
         {
             // Reset logic would go here
@@ -538,4 +538,4 @@ namespace OloEngine::Audio::SoundGraph
         return std::clamp((frequency - minFreq) / (maxFreq - minFreq), 0.0f, 1.0f);
     }
 
-} // namespace OloEngine
+} // namespace OloEngine::Audio::SoundGraph

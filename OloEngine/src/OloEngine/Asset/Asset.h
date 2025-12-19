@@ -13,13 +13,13 @@ namespace OloEngine
 
     /**
      * @brief Base class for all assets in the OloEngine asset management system.
-     * 
+     *
      * All assets are identified by a unique UUID handle and provide type information
      * for the asset management system. Assets are reference counted and thread-safe.
      */
     class Asset : public RefCounted
     {
-    public:
+      public:
         Asset() = default;
         virtual ~Asset() = default;
 
@@ -29,42 +29,62 @@ namespace OloEngine
         Asset(Asset&&) = delete;
         Asset& operator=(Asset&&) = delete;
 
-        static AssetType GetStaticType() { return AssetType::None; }
-        virtual AssetType GetAssetType() const { return AssetType::None; }
+        static AssetType GetStaticType()
+        {
+            return AssetType::None;
+        }
+        virtual AssetType GetAssetType() const
+        {
+            return AssetType::None;
+        }
 
         /**
          * @brief Called when a dependency of this asset is updated
          * @param handle Handle of the updated dependency
          */
-        virtual void OnDependencyUpdated(AssetHandle handle) { (void)handle; }
+        virtual void OnDependencyUpdated(AssetHandle handle)
+        {
+            (void)handle;
+        }
 
         /**
          * @brief Get the asset handle
          * @return The unique UUID handle for this asset
          */
-        AssetHandle GetHandle() const { return m_Handle; }
+        AssetHandle GetHandle() const
+        {
+            return m_Handle;
+        }
 
         /**
          * @brief Get the asset flags
          * @return The current asset flags
          */
-        u16 GetFlags() const { return m_Flags; }
+        u16 GetFlags() const
+        {
+            return m_Flags;
+        }
 
-    protected:
+      protected:
         /**
          * @brief Set the asset flags
          * @param flags The new asset flags
          */
-        void SetFlags(u16 flags) { m_Flags = flags; }
+        void SetFlags(u16 flags)
+        {
+            m_Flags = flags;
+        }
 
         /**
          * @brief Set the asset handle
          * @param handle The unique UUID handle for this asset
          */
-        void SetHandle(AssetHandle handle) { m_Handle = handle; }
+        void SetHandle(AssetHandle handle)
+        {
+            m_Handle = handle;
+        }
 
-    public:
-
+      public:
         bool operator==(const Asset& other) const
         {
             return m_Handle == other.m_Handle;
@@ -85,7 +105,7 @@ namespace OloEngine
             return m_Handle != handle;
         }
 
-    private:
+      private:
         AssetHandle m_Handle = 0;
         u16 m_Flags = (u16)AssetFlag::None;
 
@@ -117,9 +137,15 @@ namespace OloEngine
         friend class AnimationGraphAssetSerializer;
         friend class SoundGraphSerializer;
 
-        bool IsValid() const { return ((m_Flags & (u16)AssetFlag::Missing) | (m_Flags & (u16)AssetFlag::Invalid)) == 0; }
+        bool IsValid() const
+        {
+            return ((m_Flags & (u16)AssetFlag::Missing) | (m_Flags & (u16)AssetFlag::Invalid)) == 0;
+        }
 
-        bool IsFlagSet(AssetFlag flag) const { return (u16)flag & m_Flags; }
+        bool IsFlagSet(AssetFlag flag) const
+        {
+            return (u16)flag & m_Flags;
+        }
         void SetFlag(AssetFlag flag, bool value = true)
         {
             if (value)
@@ -131,53 +157,80 @@ namespace OloEngine
 
     /**
      * @brief Audio file asset containing metadata about audio files
-     * 
+     *
      * Stores audio file properties such as duration, sampling rate, bit depth,
      * number of channels, and file size for audio asset management.
      */
     class AudioFile : public Asset
     {
-    private:
+      private:
         double m_Duration;
-        u32    m_SamplingRate;
-        u16    m_BitDepth;
-        u16    m_NumChannels;
-        u64    m_FileSize;
+        u32 m_SamplingRate;
+        u16 m_BitDepth;
+        u16 m_NumChannels;
+        u64 m_FileSize;
 
-    public:
+      public:
         AudioFile() : m_Duration(0.0), m_SamplingRate(0), m_BitDepth(0), m_NumChannels(0), m_FileSize(0) {}
         AudioFile(double duration, u32 samplingRate, u16 bitDepth, u16 numChannels, u64 fileSize)
             : m_Duration(duration), m_SamplingRate(samplingRate), m_BitDepth(bitDepth), m_NumChannels(numChannels), m_FileSize(fileSize)
         {
         }
 
-        double GetDuration()      const { return m_Duration; }
-        u32    GetSamplingRate()  const { return m_SamplingRate; }
-        u16    GetBitDepth()      const { return m_BitDepth; }
-        u16    GetNumChannels()   const { return m_NumChannels; }
-        u64    GetFileSize()      const { return m_FileSize; }
+        double GetDuration() const
+        {
+            return m_Duration;
+        }
+        u32 GetSamplingRate() const
+        {
+            return m_SamplingRate;
+        }
+        u16 GetBitDepth() const
+        {
+            return m_BitDepth;
+        }
+        u16 GetNumChannels() const
+        {
+            return m_NumChannels;
+        }
+        u64 GetFileSize() const
+        {
+            return m_FileSize;
+        }
 
-        static AssetType GetStaticType() { return AssetType::Audio; }
-        virtual AssetType GetAssetType() const override { return GetStaticType(); }
+        static AssetType GetStaticType()
+        {
+            return AssetType::Audio;
+        }
+        virtual AssetType GetAssetType() const override
+        {
+            return GetStaticType();
+        }
     };
 
     /**
      * @brief Script file asset containing metadata about script files
-     * 
+     *
      * Stores script class namespace and name information for C# script assets
      * to enable proper script component instantiation and management.
      */
     class ScriptFileAsset : public Asset
     {
-    public:
+      public:
         ScriptFileAsset() = default;
         ScriptFileAsset(std::string classNamespace, std::string className)
             : m_ClassNamespace(std::move(classNamespace)), m_ClassName(std::move(className))
         {
         }
 
-        const std::string& GetClassNamespace() const noexcept { return m_ClassNamespace; }
-        const std::string& GetClassName() const noexcept { return m_ClassName; }
+        const std::string& GetClassNamespace() const noexcept
+        {
+            return m_ClassNamespace;
+        }
+        const std::string& GetClassName() const noexcept
+        {
+            return m_ClassName;
+        }
 
         std::string GetFullyQualifiedClassName() const
         {
@@ -186,23 +239,35 @@ namespace OloEngine
             return m_ClassNamespace + "." + m_ClassName;
         }
 
-        void SetClassNamespace(std::string classNamespace) noexcept { m_ClassNamespace = std::move(classNamespace); }
-        void SetClassName(std::string className) noexcept { m_ClassName = std::move(className); }
+        void SetClassNamespace(std::string classNamespace) noexcept
+        {
+            m_ClassNamespace = std::move(classNamespace);
+        }
+        void SetClassName(std::string className) noexcept
+        {
+            m_ClassName = std::move(className);
+        }
 
-        static AssetType GetStaticType() { return AssetType::ScriptFile; }
-        virtual AssetType GetAssetType() const override { return GetStaticType(); }
+        static AssetType GetStaticType()
+        {
+            return AssetType::ScriptFile;
+        }
+        virtual AssetType GetAssetType() const override
+        {
+            return GetStaticType();
+        }
 
-    private:
+      private:
         std::string m_ClassNamespace;
         std::string m_ClassName;
     };
 
     /**
      * @brief Asynchronous asset loading result container
-     * 
+     *
      * Used for async asset loading operations, contains the loaded asset
      * and a flag indicating whether the loading operation is complete.
-     * 
+     *
      * @tparam T Asset type being loaded
      */
     template<typename T>
@@ -218,15 +283,20 @@ namespace OloEngine
             : Ptr(asset), IsReady(isReady) {}
 
         template<typename T2, typename = std::enable_if_t<
-            std::is_base_of_v<::OloEngine::Asset, T2> && 
-            std::is_base_of_v<::OloEngine::Asset, T> &&
-            (std::is_base_of_v<T, T2> || std::is_base_of_v<T2, T>)
-        >>
+                                  std::is_base_of_v<::OloEngine::Asset, T2> &&
+                                  std::is_base_of_v<::OloEngine::Asset, T> &&
+                                  (std::is_base_of_v<T, T2> || std::is_base_of_v<T2, T>)>>
         AsyncAssetResult(const AsyncAssetResult<T2>& other)
             : Ptr(other.Ptr.template As<T>()), IsReady(other.IsReady) {}
 
-        explicit operator Ref<T>() const { return Ptr; }
-        explicit operator bool() const { return IsReady; }
+        explicit operator Ref<T>() const
+        {
+            return Ptr;
+        }
+        explicit operator bool() const
+        {
+            return IsReady;
+        }
     };
 
-}
+} // namespace OloEngine

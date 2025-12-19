@@ -5,18 +5,18 @@
 
 namespace OloEngine
 {
-	class FileDialogs
-	{
-	public:
-		// These return empty strings if cancelled
-		static std::string OpenFile(const char* filter);
-		static std::string SaveFile(const char* filter);
-	};
+    class FileDialogs
+    {
+      public:
+        // These return empty strings if cancelled
+        static std::string OpenFile(const char* filter);
+        static std::string SaveFile(const char* filter);
+    };
 
-	class Time
-	{
-	public:
-		static f32 GetTime();
-	};
+    class Time
+    {
+      public:
+        static f32 GetTime();
+    };
 
-}
+} // namespace OloEngine

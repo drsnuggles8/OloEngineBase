@@ -3,7 +3,7 @@
 /**
  * @file StableSort.h
  * @brief Stable sorting algorithm wrappers
- * 
+ *
  * Ported from Unreal Engine's Algo/StableSort.h
  */
 
@@ -16,7 +16,7 @@
 
 namespace OloEngine
 {
-    template <typename T, typename ProjectionType, typename PredicateType>
+    template<typename T, typename ProjectionType, typename PredicateType>
     void Merge(T* First, i32 Mid, i32 Num, ProjectionType Projection, PredicateType Predicate)
     {
         i32 AStart = 0;
@@ -50,7 +50,7 @@ namespace OloEngine
      * @param  Projection  A projection to apply to each element to get the value to sort by.
      * @param  Predicate   A predicate class which compares two projected elements and returns whether one occurs before the other.
      */
-    template <typename T, typename ProjectionType, typename PredicateType>
+    template<typename T, typename ProjectionType, typename PredicateType>
     void StableSortInternal(T* First, i32 Num, ProjectionType Projection, PredicateType Predicate)
     {
         i32 SubgroupStart = 0;
@@ -77,12 +77,10 @@ namespace OloEngine
                             }
                         }
                         GroupEnd--;
-                    }
-                    while (GroupEnd - SubgroupStart > 1);
+                    } while (GroupEnd - SubgroupStart > 1);
 
                     SubgroupStart += MinMergeSubgroupSize;
-                }
-                while (SubgroupStart < Num);
+                } while (SubgroupStart < Num);
             }
             else
             {
@@ -110,8 +108,7 @@ namespace OloEngine
 
                 Merge(First + SubgroupStart, SubgroupSize, MergeNum, Projection, Predicate);
                 SubgroupStart += SubgroupSize << 1;
-            }
-            while (SubgroupStart < Num);
+            } while (SubgroupStart < Num);
 
             SubgroupSize <<= 1;
         }
@@ -124,7 +121,7 @@ namespace OloEngine
          *
          * @param  Range  The range to sort.
          */
-        template <typename RangeType>
+        template<typename RangeType>
         OLO_FINLINE void StableSort(RangeType&& Range)
         {
             StableSortInternal(GetData(Range), GetNum(Range), FIdentityFunctor(), TLess<>());
@@ -136,7 +133,7 @@ namespace OloEngine
          * @param  Range      The range to sort.
          * @param  Predicate  A binary predicate object used to specify if one element should precede another.
          */
-        template <typename RangeType, typename PredicateType>
+        template<typename RangeType, typename PredicateType>
         OLO_FINLINE void StableSort(RangeType&& Range, PredicateType Pred)
         {
             StableSortInternal(GetData(Range), GetNum(Range), FIdentityFunctor(), MoveTemp(Pred));
@@ -148,7 +145,7 @@ namespace OloEngine
          * @param  Range  The range to sort.
          * @param  Proj   The projection to sort by when applied to the element.
          */
-        template <typename RangeType, typename ProjectionType>
+        template<typename RangeType, typename ProjectionType>
         OLO_FINLINE void StableSortBy(RangeType&& Range, ProjectionType Proj)
         {
             StableSortInternal(GetData(Range), GetNum(Range), MoveTemp(Proj), TLess<>());
@@ -161,7 +158,7 @@ namespace OloEngine
          * @param  Proj       The projection to sort by when applied to the element.
          * @param  Predicate  A binary predicate object, applied to the projection, used to specify if one element should precede another.
          */
-        template <typename RangeType, typename ProjectionType, typename PredicateType>
+        template<typename RangeType, typename ProjectionType, typename PredicateType>
         OLO_FINLINE void StableSortBy(RangeType&& Range, ProjectionType Proj, PredicateType Pred)
         {
             StableSortInternal(GetData(Range), GetNum(Range), MoveTemp(Proj), MoveTemp(Pred));

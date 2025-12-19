@@ -15,17 +15,17 @@
 namespace OloEngine
 {
     // Global flag to track if we're in static destruction
-    static std::atomic<bool> g_IsInStaticDestruction{false};
-    
+    static std::atomic<bool> g_IsInStaticDestruction{ false };
+
     // This object will be destroyed during static destruction and set the flag
     struct StaticDestructionSentinel
     {
-        ~StaticDestructionSentinel() 
-        { 
+        ~StaticDestructionSentinel()
+        {
             g_IsInStaticDestruction.store(true, std::memory_order_release);
         }
     };
-    
+
     // This static object will be destroyed early in the static destruction chain
     static StaticDestructionSentinel g_StaticSentinel;
 
@@ -44,12 +44,12 @@ namespace OloEngine
     }
 
     static std::once_flag s_InitFlag;
-    static std::atomic<bool> s_IsShuttingDown{false};
-	
-	void AssetImporter::Init()
+    static std::atomic<bool> s_IsShuttingDown{ false };
+
+    void AssetImporter::Init()
     {
         std::call_once(s_InitFlag, []()
-        {
+                       {
             auto& serializers = GetSerializers();
             serializers.clear();
             serializers.reserve(17); // Reserve capacity for 17 serializers to avoid rehashing
@@ -69,8 +69,7 @@ namespace OloEngine
             serializers[AssetType::SoundGraphSound] = CreateScope<SoundGraphSerializer>();
             serializers[AssetType::AnimationClip] = CreateScope<AnimationAssetSerializer>();
             serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphAssetSerializer>();
-            serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();
-        });
+            serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>(); });
     }
 
     void AssetImporter::Shutdown()
@@ -97,23 +96,23 @@ namespace OloEngine
             // If accessing these throws or behaves oddly, we're likely in static destruction
             auto& mutex = GetSerializersMutex();
             auto& serializers = GetSerializers();
-            
+
             // Try to lock with a very short timeout - if this fails, we might be in trouble
             if (!mutex.try_lock())
             {
                 // Can't acquire lock quickly, might be in static destruction
                 return;
             }
-            
+
             // Use RAII to ensure unlock
             std::unique_lock<std::mutex> lock(mutex, std::adopt_lock);
-            
+
             // Final check: if we're in static destruction by now, just return
             if (g_IsInStaticDestruction.load(std::memory_order_acquire))
             {
                 return;
             }
-            
+
             // Only clear if we're absolutely sure we're not in static destruction
             serializers.clear();
         }
@@ -135,7 +134,7 @@ namespace OloEngine
         AssetType actualType = asset->GetAssetType();
         if (metadata.Type != actualType)
         {
-            OLO_CORE_WARN("AssetImporter::Serialize - Asset type mismatch: metadata type {} does not match actual asset type {}", 
+            OLO_CORE_WARN("AssetImporter::Serialize - Asset type mismatch: metadata type {} does not match actual asset type {}",
                           AssetUtils::AssetTypeToString(metadata.Type), AssetUtils::AssetTypeToString(actualType));
             return;
         }
@@ -169,7 +168,7 @@ namespace OloEngine
             OLO_CORE_WARN("Asset manager not available");
             return;
         }
-        
+
         AssetMetadata metadata = assetManagerBase->GetAssetMetadata(asset->m_Handle);
         Serialize(metadata, asset);
     }

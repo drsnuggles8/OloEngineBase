@@ -38,10 +38,10 @@ layout(location = 0) out vec4 color;
 void main()
 {
     vec4 texColor = texture(u_Texture, v_TexCoord);
-    
+
     // Discard fragment if alpha is very low (completely transparent)
     if(texColor.a < 0.01)
         discard;
-        
+
     color = texColor;
 }

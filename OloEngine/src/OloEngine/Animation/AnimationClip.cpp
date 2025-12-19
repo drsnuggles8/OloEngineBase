@@ -9,11 +9,11 @@ namespace OloEngine
         {
             InitializeBoneCache();
         }
-        
+
         auto it = m_BoneCache.find(boneName);
         return (it != m_BoneCache.end()) ? it->second : nullptr;
     }
-    
+
     void AnimationClip::InitializeBoneCache() const
     {
         m_BoneCache.clear();
@@ -23,10 +23,10 @@ namespace OloEngine
         }
         m_CacheInitialized = true;
     }
-    
+
     void AnimationClip::InvalidateBoneCache()
     {
         m_BoneCache.clear();
         m_CacheInitialized = false;
     }
-}
+} // namespace OloEngine

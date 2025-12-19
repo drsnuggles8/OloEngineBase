@@ -13,15 +13,15 @@ namespace OloEngine
 {
     /**
      * @brief UI Panel for building asset packs from project assets
-     * 
+     *
      * Provides a user interface for the AssetPackBuilder functionality,
      * allowing users to configure build settings and monitor progress.
      */
     class AssetPackBuilderPanel
     {
-    public:
+      public:
         AssetPackBuilderPanel();
-        
+
         ~AssetPackBuilderPanel();
 
         // Delete copy and move operations due to std::atomic and std::future members
@@ -36,7 +36,7 @@ namespace OloEngine
          */
         void OnImGuiRender(bool& isOpen);
 
-    private:
+      private:
         /**
          * @brief Render build settings section
          */
@@ -67,7 +67,7 @@ namespace OloEngine
          */
         void CancelBuild();
 
-    private:
+      private:
         /**
          * @brief Synchronize UI buffer from build settings
          */
@@ -81,23 +81,23 @@ namespace OloEngine
          */
         bool ValidateOutputPath(const std::string& path, std::string& errorMessage) const;
 
-    private:
+      private:
         // Build settings
         AssetPackBuilder::BuildSettings m_BuildSettings;
-        
+
         // Progress tracking
-        std::atomic<i32> m_BuildProgressPermille{0};  // Progress in permille (0-1000, where 1000 = 100%)
-        std::atomic<bool> m_IsBuildInProgress{false};
+        std::atomic<i32> m_BuildProgressPermille{ 0 }; // Progress in permille (0-1000, where 1000 = 100%)
+        std::atomic<bool> m_IsBuildInProgress{ false };
         std::jthread m_BuildThread;
-        
+
         // Results
-        mutable std::mutex m_ResultMutex;  // Protects m_LastBuildResult and m_HasBuildResult
+        mutable std::mutex m_ResultMutex; // Protects m_LastBuildResult and m_HasBuildResult
         AssetPackBuilder::BuildResult m_LastBuildResult;
-        std::atomic<bool> m_HasBuildResult{false};
-        
+        std::atomic<bool> m_HasBuildResult{ false };
+
         // UI state
         std::array<char, 512> m_OutputPathBuffer{};
         bool m_ShowAdvancedSettings = false;
-        std::string m_OutputPathError{};  // Error message for invalid output path
+        std::string m_OutputPathError{}; // Error message for invalid output path
     };
-}
+} // namespace OloEngine

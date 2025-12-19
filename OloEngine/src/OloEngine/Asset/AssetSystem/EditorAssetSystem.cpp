@@ -11,7 +11,8 @@ namespace OloEngine
     EditorAssetSystem::EditorAssetSystem()
         : m_Thread("Asset Thread")
     {
-        m_Thread.Dispatch([this]() { AssetThreadFunc(); });
+        m_Thread.Dispatch([this]()
+                          { AssetThreadFunc(); });
     }
 
     EditorAssetSystem::~EditorAssetSystem()
@@ -89,27 +90,27 @@ namespace OloEngine
 
                     std::scoped_lock<std::mutex> lock(m_ReadyAssetsMutex);
                     m_ReadyAssets.push(response);
-                    
+
                     // Update telemetry
                     m_LoadedAssetsCount.fetch_add(1, std::memory_order_relaxed);
-                    
+
                     // Capture atomic values for consistent logging
                     u64 loadedCount = m_LoadedAssetsCount.load(std::memory_order_relaxed);
                     u64 failedCount = m_FailedAssetsCount.load(std::memory_order_relaxed);
-                    
-                    OLO_CORE_TRACE("EditorAssetSystem: Asset loaded | handle={} | stats={{loaded={}, failed={}}}", 
+
+                    OLO_CORE_TRACE("EditorAssetSystem: Asset loaded | handle={} | stats={{loaded={}, failed={}}}",
                                    (u64)metadata.Handle, loadedCount, failedCount);
                 }
                 else
                 {
                     // Update telemetry for failed loads
                     m_FailedAssetsCount.fetch_add(1, std::memory_order_relaxed);
-                    
+
                     // Capture atomic values for consistent logging
                     u64 loadedCount = m_LoadedAssetsCount.load(std::memory_order_relaxed);
                     u64 failedCount = m_FailedAssetsCount.load(std::memory_order_relaxed);
-                    
-                    OLO_CORE_ERROR("EditorAssetSystem: Failed to load asset {} (loaded: {}, failed: {})", 
+
+                    OLO_CORE_ERROR("EditorAssetSystem: Failed to load asset {} (loaded: {}, failed: {})",
                                    (u64)metadata.Handle, loadedCount, failedCount);
                 }
             }
@@ -119,7 +120,8 @@ namespace OloEngine
                 // Wait for new assets to load or stop signal
                 std::unique_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
                 m_AssetLoadingQueueCV.wait_for(lock, std::chrono::milliseconds(100),
-                    [this] { return !m_AssetLoadingQueue.empty() || !m_Running; });
+                                               [this]
+                                               { return !m_AssetLoadingQueue.empty() || !m_Running; });
             }
         }
     }
@@ -150,11 +152,11 @@ namespace OloEngine
             queueSize = m_AssetLoadingQueue.size();
         }
         m_AssetLoadingQueueCV.notify_one();
-        
+
         // Update telemetry
         m_QueuedAssetsCount.fetch_add(1, std::memory_order_relaxed);
-        
-        OLO_CORE_TRACE("EditorAssetSystem: Queued asset {} for loading (queue size: {})", 
+
+        OLO_CORE_TRACE("EditorAssetSystem: Queued asset {} for loading (queue size: {})",
                        (u64)metadata.Handle, queueSize);
     }
 
@@ -176,7 +178,7 @@ namespace OloEngine
             {
                 asset->m_Handle = metadata.Handle;
                 OLO_CORE_TRACE("EditorAssetSystem: Successfully loaded asset: {} ({})",
-                              metadata.FilePath.string(), static_cast<u32>(metadata.Type));
+                               metadata.FilePath.string(), static_cast<u32>(metadata.Type));
             }
             else
             {
@@ -196,7 +198,7 @@ namespace OloEngine
     bool EditorAssetSystem::RetrieveReadyAssets(std::vector<EditorAssetLoadResponse>& outAssetList)
     {
         std::scoped_lock<std::mutex> lock(m_ReadyAssetsMutex);
-        
+
         if (m_ReadyAssets.empty())
             return false;
 
@@ -220,7 +222,7 @@ namespace OloEngine
         OLO_PROFILER_SCOPE("EditorAssetSystem::EnsureAllLoadedCurrent");
 
         std::scoped_lock<std::mutex> lock(m_LoadedAssetsMutex);
-        
+
         for (auto& [handle, asset] : m_LoadedAssets)
         {
             if (!asset)
@@ -229,7 +231,7 @@ namespace OloEngine
             // Check if asset file has been modified
             // This is a simplified check - in a full implementation,
             // this would check file modification times and trigger reloads
-            
+
             // TODO: Implement file watching and modification detection
             // For now, we'll just verify the asset is still valid
         }
@@ -240,10 +242,9 @@ namespace OloEngine
         std::scoped_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
         return std::make_tuple(
             m_QueuedAssetsCount.load(std::memory_order_acquire),
-            m_LoadedAssetsCount.load(std::memory_order_acquire), 
+            m_LoadedAssetsCount.load(std::memory_order_acquire),
             m_FailedAssetsCount.load(std::memory_order_acquire),
-            m_AssetLoadingQueue.size()
-        );
+            m_AssetLoadingQueue.size());
     }
 
     sizet EditorAssetSystem::GetQueueLength() const

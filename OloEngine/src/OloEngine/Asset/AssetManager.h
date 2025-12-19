@@ -25,54 +25,54 @@ namespace OloEngine
 {
     /**
      * @brief Static facade for asset management operations
-     * 
+     *
      * Provides a unified static API that abstracts the dual-manager system
      * (EditorAssetManager vs RuntimeAssetManager). All operations are forwarded
      * to the appropriate manager based on the current project configuration.
-     * 
+     *
      * This class serves as the primary interface for all asset operations
      * throughout the engine, providing type-safe template methods and
      * convenient static access patterns.
      */
     class AssetManager
     {
-    public:
+      public:
         /**
          * @brief Check if an asset handle could potentially be valid
          * @param assetHandle Handle to validate
          * @return True if the handle could be valid (says nothing about the asset itself)
          */
-        static bool IsAssetHandleValid(AssetHandle assetHandle) 
-        { 
-            return GetActiveManager()->IsAssetHandleValid(assetHandle); 
+        static bool IsAssetHandleValid(AssetHandle assetHandle)
+        {
+            return GetActiveManager()->IsAssetHandleValid(assetHandle);
         }
 
         /**
          * @brief Check if an asset is valid and can be used
          * @param assetHandle Handle of the asset to check
          * @return True if the asset is valid (will attempt to load if not already loaded)
-         * 
+         *
          * An asset is invalid if any of the following are true:
          * - The asset handle is invalid
          * - The file referred to by asset metadata is missing
          * - The asset could not be loaded from file
          */
-        static bool IsAssetValid(AssetHandle assetHandle) 
-        { 
-            return GetActiveManager()->IsAssetValid(assetHandle); 
+        static bool IsAssetValid(AssetHandle assetHandle)
+        {
+            return GetActiveManager()->IsAssetValid(assetHandle);
         }
 
         /**
          * @brief Check if an asset file is missing
          * @param assetHandle Handle of the asset to check
          * @return True if the asset file is missing
-         * 
+         *
          * Note: This checks for file existence but doesn't attempt to load the asset.
          * Memory-only assets cannot be missing.
          */
-        static bool IsAssetMissing(AssetHandle assetHandle) 
-        { 
-            return GetActiveManager()->IsAssetMissing(assetHandle); 
+        static bool IsAssetMissing(AssetHandle assetHandle)
+        {
+            return GetActiveManager()->IsAssetMissing(assetHandle);
         }
 
         /**
@@ -80,9 +80,9 @@ namespace OloEngine
          * @param handle Handle of the asset
          * @return True if asset has no backing file
          */
-        static bool IsMemoryAsset(AssetHandle handle) 
-        { 
-            return GetActiveManager()->IsMemoryAsset(handle); 
+        static bool IsMemoryAsset(AssetHandle handle)
+        {
+            return GetActiveManager()->IsMemoryAsset(handle);
         }
 
         /**
@@ -90,9 +90,9 @@ namespace OloEngine
          * @param handle Handle of the asset
          * @return True if asset has a physical file
          */
-        static bool IsPhysicalAsset(AssetHandle handle) 
-        { 
-            return GetActiveManager()->IsPhysicalAsset(handle); 
+        static bool IsPhysicalAsset(AssetHandle handle)
+        {
+            return GetActiveManager()->IsPhysicalAsset(handle);
         }
 
         /**
@@ -100,9 +100,9 @@ namespace OloEngine
          * @param assetHandle Handle of the asset to reload
          * @return True if reload was successful
          */
-        static bool ReloadData(AssetHandle assetHandle) 
-        { 
-            return GetActiveManager()->ReloadData(assetHandle); 
+        static bool ReloadData(AssetHandle assetHandle)
+        {
+            return GetActiveManager()->ReloadData(assetHandle);
         }
 
         /**
@@ -110,18 +110,18 @@ namespace OloEngine
          * @param assetHandle Handle of the asset to check
          * @return True if asset is current or was successfully updated
          */
-        static bool EnsureCurrent(AssetHandle assetHandle) 
-        { 
-            return GetActiveManager()->EnsureCurrent(assetHandle); 
+        static bool EnsureCurrent(AssetHandle assetHandle)
+        {
+            return GetActiveManager()->EnsureCurrent(assetHandle);
         }
 
         /**
          * @brief Ensure all loaded assets are current
          * @return True if all assets are current or were successfully updated
          */
-        static bool EnsureAllLoadedCurrent() 
-        { 
-            return GetActiveManager()->EnsureAllLoadedCurrent(); 
+        static bool EnsureAllLoadedCurrent()
+        {
+            return GetActiveManager()->EnsureAllLoadedCurrent();
         }
 
         /**
@@ -129,16 +129,16 @@ namespace OloEngine
          * @param assetHandle Handle of the asset
          * @return AssetType of the asset
          */
-        static AssetType GetAssetType(AssetHandle assetHandle) 
-        { 
-            return GetActiveManager()->GetAssetType(assetHandle); 
+        static AssetType GetAssetType(AssetHandle assetHandle)
+        {
+            return GetActiveManager()->GetAssetType(assetHandle);
         }
 
         /**
          * @brief Get asset metadata by handle
          * @param assetHandle Handle of the asset
          * @return Copy of AssetMetadata for the asset, or empty metadata if not found
-         * 
+         *
          * Returns by value for thread-safety since underlying managers may return copies.
          */
         static AssetMetadata GetAssetMetadata(AssetHandle assetHandle)
@@ -148,13 +148,13 @@ namespace OloEngine
 
         /**
          * @brief Synchronize with the asset loading thread
-         * 
+         *
          * Ensures any pending async operations are completed or processed
          */
-        static void SyncWithAssetThread() 
-        { 
+        static void SyncWithAssetThread()
+        {
 #if OLO_ASYNC_ASSETS
-            GetActiveManager()->SyncWithAssetThread(); 
+            GetActiveManager()->SyncWithAssetThread();
 #endif
         }
 
@@ -174,18 +174,18 @@ namespace OloEngine
         template<typename T>
         static Ref<T> GetAsset(AssetHandle assetHandle)
         {
-            static_assert(std::is_base_of<Asset, T>::value, 
-                         "GetAsset only works for types derived from Asset");
-            
+            static_assert(std::is_base_of<Asset, T>::value,
+                          "GetAsset only works for types derived from Asset");
+
             Ref<Asset> asset = GetActiveManager()->GetAsset(assetHandle);
             if (!asset)
                 return nullptr;
-                
+
             Ref<T> castedAsset = asset.As<T>();
             if (!castedAsset)
             {
-                OLO_CORE_WARN("AssetManager::GetAsset - Failed to cast asset {} from type {} to requested type {}", 
-                             assetHandle, AssetUtils::AssetTypeToString(asset->GetAssetType()), typeid(T).name());
+                OLO_CORE_WARN("AssetManager::GetAsset - Failed to cast asset {} from type {} to requested type {}",
+                              assetHandle, AssetUtils::AssetTypeToString(asset->GetAssetType()), typeid(T).name());
             }
             return castedAsset;
         }
@@ -215,9 +215,9 @@ namespace OloEngine
         template<typename T>
         static std::unordered_set<AssetHandle> GetAllAssetsWithType()
         {
-            static_assert(std::is_base_of<Asset, T>::value, 
-                         "GetAllAssetsWithType only works for types derived from Asset");
-            
+            static_assert(std::is_base_of<Asset, T>::value,
+                          "GetAllAssetsWithType only works for types derived from Asset");
+
             return GetActiveManager()->GetAllAssetsWithType(T::GetStaticType());
         }
 
@@ -225,9 +225,9 @@ namespace OloEngine
          * @brief Get all currently loaded assets
          * @return Map of asset handles to asset references
          */
-        static const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets() 
-        { 
-            return GetActiveManager()->GetLoadedAssets(); 
+        static const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets()
+        {
+            return GetActiveManager()->GetLoadedAssets();
         }
 
         /**
@@ -235,7 +235,7 @@ namespace OloEngine
          * @tparam TAsset Asset type (must derive from Asset)
          * @param asset Asset to add
          * @return Handle of the added asset
-         * 
+         *
          * Note: The memory-only asset must be fully initialized before calling this function.
          * Assets are not thread-safe themselves but can be accessed from multiple threads.
          * Thread safety depends on assets being immutable once added to the asset manager.
@@ -243,20 +243,20 @@ namespace OloEngine
         template<typename TAsset>
         static AssetHandle AddMemoryOnlyAsset(Ref<TAsset> asset)
         {
-            static_assert(std::is_base_of<Asset, TAsset>::value, 
-                         "AddMemoryOnlyAsset only works for types derived from Asset");
-            
+            static_assert(std::is_base_of<Asset, TAsset>::value,
+                          "AddMemoryOnlyAsset only works for types derived from Asset");
+
             if (!asset)
             {
                 OLO_CORE_ERROR("AssetManager::AddMemoryOnlyAsset - Attempted to add null asset");
                 return AssetHandle{};
             }
-            
+
             if (!asset->m_Handle)
             {
                 asset->SetHandle(AssetHandle()); // Generate new handle using protected setter
             }
-            
+
             GetActiveManager()->AddMemoryOnlyAsset(asset);
             return asset->m_Handle;
         }
@@ -266,21 +266,21 @@ namespace OloEngine
          * @param handle Handle of the memory asset
          * @return Asset reference if exists in memory only, nullptr otherwise
          */
-        static Ref<Asset> GetMemoryAsset(AssetHandle handle) 
-        { 
-            return GetActiveManager()->GetMemoryAsset(handle); 
+        static Ref<Asset> GetMemoryAsset(AssetHandle handle)
+        {
+            return GetActiveManager()->GetMemoryAsset(handle);
         }
 
         /**
          * @brief Register that an asset depends on another asset
          * @param handle Handle of the dependent asset
          * @param dependency Handle of the dependency asset
-         * 
+         *
          * Example: A material (handle) depends on a texture (dependency)
          */
-        static void RegisterDependency(AssetHandle handle, AssetHandle dependency) 
-        { 
-            GetActiveManager()->RegisterDependency(handle, dependency); 
+        static void RegisterDependency(AssetHandle handle, AssetHandle dependency)
+        {
+            GetActiveManager()->RegisterDependency(handle, dependency);
         }
 
         /**
@@ -288,18 +288,18 @@ namespace OloEngine
          * @param handle Handle of the dependent asset
          * @param dependency Handle of the dependency asset
          */
-        static void DeregisterDependency(AssetHandle handle, AssetHandle dependency) 
-        { 
-            GetActiveManager()->DeregisterDependency(handle, dependency); 
+        static void DeregisterDependency(AssetHandle handle, AssetHandle dependency)
+        {
+            GetActiveManager()->DeregisterDependency(handle, dependency);
         }
 
         /**
          * @brief Remove all dependencies of an asset
          * @param handle Handle of the asset to clear dependencies for
          */
-        static void DeregisterDependencies(AssetHandle handle) 
-        { 
-            GetActiveManager()->DeregisterDependencies(handle); 
+        static void DeregisterDependencies(AssetHandle handle)
+        {
+            GetActiveManager()->DeregisterDependencies(handle);
         }
 
         /**
@@ -311,7 +311,7 @@ namespace OloEngine
             GetActiveManager()->RemoveAsset(handle);
         }
 
-    private:
+      private:
         static Ref<AssetManagerBase> GetActiveManager()
         {
             auto manager = Project::GetAssetManager();
@@ -320,4 +320,4 @@ namespace OloEngine
         }
     };
 
-}
+} // namespace OloEngine
