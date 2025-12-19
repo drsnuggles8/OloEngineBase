@@ -157,11 +157,11 @@ TEST_F(ManualResetEventTest, ResetWhileWaiting)
         ThreadWaiting = true;
         Event.Wait();
         ThreadWoken = true;
-        
+
         // Signal we're ready for second wait and wait for main thread to reset
         ReadyForSecondWait = true;
         SyncEvent.Wait();  // Wait for main thread to reset Event
-        
+
         // Try to wait again after reset
         Event.Wait();
         SecondWaitComplete = true; });

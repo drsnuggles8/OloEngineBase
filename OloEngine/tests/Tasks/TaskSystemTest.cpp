@@ -323,7 +323,7 @@ TEST_F(PipeTest, SequentialExecution)
                               });
 
     Pipe.Launch("Task2", [&bTask1Done, &Order]
-                { 
+                {
         EXPECT_TRUE(bTask1Done);
         EXPECT_EQ(Order.load(), 1);
         Order = 2; })
@@ -875,13 +875,13 @@ TEST_F(InlineTaskTest, InlineExecution)
 
     // Launch tasks with inline priority - they execute when their prereqs complete
     FTask Task1 = Launch("Task1", [&bFirstDone, &bSecondDone]
-                         { 
-            EXPECT_FALSE(bSecondDone); 
+                         {
+            EXPECT_FALSE(bSecondDone);
             bFirstDone = true; }, Block, ETaskPriority::Normal, EExtendedTaskPriority::Inline);
 
     FTask Task2 = Launch("Task2", [&bFirstDone, &bSecondDone]
-                         { 
-            EXPECT_TRUE(bFirstDone); 
+                         {
+            EXPECT_TRUE(bFirstDone);
             bSecondDone = true; }, Prerequisites(Block, Task1), ETaskPriority::Normal, EExtendedTaskPriority::Inline);
 
     Block.Trigger();

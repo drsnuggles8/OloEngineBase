@@ -5,7 +5,7 @@ namespace OloEngine
 {
 	public class Entity
 	{
-		protected Entity() { ID = 0; } 
+		protected Entity() { ID = 0; }
 
 		internal Entity(ulong id)
 		{

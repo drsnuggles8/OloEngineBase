@@ -149,14 +149,14 @@ TEST_F(ExternalMutexTest, MutualExclusion)
             {
                 TExternalMutex<FExternalMutexTestParams> Mutex(ExternalState);
                 Mutex.Lock();
-                
+
                 // Verify the third bit is preserved
                 EXPECT_TRUE((ExternalState.load() & ThirdBit) != 0);
-                
+
                 i32 Val = Counter;
                 std::this_thread::yield(); // Give chance for race conditions
                 Counter = Val + 1;
-                
+
                 Mutex.Unlock();
             } });
     }

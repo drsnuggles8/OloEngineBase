@@ -139,21 +139,21 @@ TEST_F(SharedMutexTest, ConcurrentReaders)
         Threads.emplace_back([&]
                              {
             Mutex.LockShared();
-            
+
             i32 Current = CurrentReaderCount.fetch_add(1) + 1;
-            
+
             // Update max concurrent readers
             i32 Max = MaxConcurrentReaders.load();
             while (Current > Max && !MaxConcurrentReaders.compare_exchange_weak(Max, Current))
             {
                 // Retry
             }
-            
+
             // Hold the lock for a bit
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            
+
             CurrentReaderCount.fetch_sub(1);
-            
+
             Mutex.UnlockShared(); });
     }
 

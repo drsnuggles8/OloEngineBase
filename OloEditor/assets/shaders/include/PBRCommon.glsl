@@ -140,12 +140,12 @@ float distributionGGXAnisotropic(vec3 N, vec3 H, vec3 T, vec3 B, float roughness
     float TdotH = dot(T, H);
     float BdotH = dot(B, H);
     float NdotH = dot(N, H);
-    
+
     float a2 = roughnessX * roughnessY;
     vec3 v = vec3(roughnessY * TdotH, roughnessX * BdotH, a2 * NdotH);
     float v2 = dot(v, v);
     float w2 = a2 / v2;
-    
+
     return a2 * w2 * w2 * INV_PI;
 }
 
@@ -181,11 +181,11 @@ float geometrySmithHeightCorrelated(vec3 N, vec3 V, vec3 L, float roughness)
 {
     float NdotV = max(dot(N, V), 0.0);
     float NdotL = max(dot(N, L), 0.0);
-    
+
     float a2 = roughness * roughness;
     float GGXV = NdotL * sqrt(NdotV * NdotV * (1.0 - a2) + a2);
     float GGXL = NdotV * sqrt(NdotL * NdotL * (1.0 - a2) + a2);
-    
+
     return 0.5 / max(GGXV + GGXL, EPSILON);
 }
 
@@ -197,26 +197,26 @@ float geometrySmithHeightCorrelated(vec3 N, vec3 V, vec3 L, float roughness)
 vec3 cookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
 {
     vec3 H = normalize(V + L);
-    
+
     // Calculate F0 based on metallic workflow
     vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
     F0 = mix(F0, albedo, metallic);
-    
+
     // Calculate the three components of the BRDF
     float NDF = distributionGGX(N, H, roughness);
     float G = geometrySmith(N, V, L, roughness);
     vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-    
+
     // Calculate specular BRDF
     vec3 numerator = NDF * G * F;
     float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + EPSILON;
     vec3 specular = numerator / denominator;
-    
+
     // Calculate diffuse contribution
     vec3 kS = F; // Energy of light that gets reflected
     vec3 kD = vec3(1.0) - kS; // Remaining energy for refraction
     kD *= 1.0 - metallic; // Metallic materials don't refract light
-    
+
     return kD * albedo * INV_PI + specular;
 }
 
@@ -224,22 +224,22 @@ vec3 cookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float
 vec3 cookTorranceBRDFEnhanced(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
 {
     vec3 H = normalize(V + L);
-    
+
     vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
     F0 = mix(F0, albedo, metallic);
-    
+
     float NDF = distributionGGX(N, H, roughness);
     float G = geometrySmithHeightCorrelated(N, V, L, roughness);
     vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-    
+
     vec3 numerator = NDF * G * F;
     float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + EPSILON;
     vec3 specular = numerator / denominator;
-    
+
     vec3 kS = F;
     vec3 kD = vec3(1.0) - kS;
     kD *= 1.0 - metallic;
-    
+
     return kD * albedo * INV_PI + specular;
 }
 
@@ -252,17 +252,17 @@ vec3 getNormalFromMap(sampler2D normalMap, vec2 texCoords, vec3 worldPos, vec3 n
 {
     vec3 tangentNormal = texture(normalMap, texCoords).xyz * 2.0 - 1.0;
     tangentNormal.xy *= normalScale;
-    
+
     vec3 Q1 = dFdx(worldPos);
     vec3 Q2 = dFdy(worldPos);
     vec2 st1 = dFdx(texCoords);
     vec2 st2 = dFdy(texCoords);
-    
+
     vec3 N = normalize(normal);
     vec3 T = normalize(Q1 * st2.t - Q2 * st1.t);
     vec3 B = -normalize(cross(N, T));
     mat3 TBN = mat3(T, B, N);
-    
+
     return normalize(TBN * tangentNormal);
 }
 
@@ -290,7 +290,7 @@ vec3 acesToneMapping(vec3 color)
     const float c = 2.43;
     const float d = 0.59;
     const float e = 0.14;
-    
+
     return SATURATE((color * (a * color + b)) / (color * (c * color + d) + e));
 }
 
@@ -309,7 +309,7 @@ vec3 uncharted2ToneMapping(vec3 color)
     const float D = 0.20;
     const float E = 0.02;
     const float F = 0.30;
-    
+
     return ((color * (A * color + C * B) + D * E) / (color * (A * color + B) + D * F)) - E / F;
 }
 
@@ -318,7 +318,7 @@ vec3 uncharted2ToneMapping(vec3 color)
 vec3 postProcessColor(vec3 hdrColor, int tonemapOperator, bool applyGamma)
 {
     vec3 toneMappedColor;
-    
+
     // Apply tone mapping
     switch (tonemapOperator)
     {
@@ -335,12 +335,12 @@ vec3 postProcessColor(vec3 hdrColor, int tonemapOperator, bool applyGamma)
             toneMappedColor = SATURATE(hdrColor);
             break;
     }
-    
+
     // Apply gamma correction only if requested (prevents double application)
     if (applyGamma) {
         return linearToSRGB(toneMappedColor);
     }
-    
+
     return toneMappedColor;
 }
 
@@ -369,22 +369,22 @@ vec2 hammersleySequence(uint i, uint N)
 vec3 importanceSampleGGX(vec2 Xi, vec3 N, float roughness)
 {
     float a = roughness * roughness;
-    
+
     float phi = TWO_PI * Xi.x;
     float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
     float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-    
+
     // From spherical coordinates to cartesian coordinates
     vec3 H;
     H.x = cos(phi) * sinTheta;
     H.y = sin(phi) * sinTheta;
     H.z = cosTheta;
-    
+
     // From tangent-space vector to world-space sample vector
     vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
     vec3 tangent = normalize(cross(up, N));
     vec3 bitangent = cross(N, tangent);
-    
+
     vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
     return normalize(sampleVec);
 }
@@ -410,17 +410,17 @@ float calculateAttenuation(vec3 lightPos, vec3 fragPos, vec4 attenuationParams)
 {
     float distance = length(lightPos - fragPos);
     float range = attenuationParams.w;
-    
+
     // Early exit if beyond range
     if (distance > range) return 0.0;
-    
+
     float constant = attenuationParams.x;
     float linear = attenuationParams.y;
     float quadratic = attenuationParams.z;
-    
+
     // Standard attenuation formula
     float attenuation = 1.0 / (constant + linear * distance + quadratic * (distance * distance));
-    
+
     // Smooth cutoff at range boundary
     float falloff = SATURATE(1.0 - pow(distance / range, 4.0));
     return attenuation * falloff * falloff;
@@ -443,11 +443,11 @@ float calculateSpotIntensity(vec3 lightDir, vec3 spotDir, vec4 spotParams)
 {
     float innerCutoff = spotParams.x;
     float outerCutoff = spotParams.y;
-    
+
     float theta = dot(lightDir, normalize(-spotDir));
     float epsilon = innerCutoff - outerCutoff;
     float intensity = SATURATE((theta - outerCutoff) / epsilon);
-    
+
     // Smooth falloff function
     return intensity * intensity;
 }
@@ -458,9 +458,9 @@ float calculateSpotIntensityAdvanced(vec3 lightDir, vec3 spotDir, vec4 spotParam
     float innerCutoff = spotParams.x;
     float outerCutoff = spotParams.y;
     float falloffExponent = spotParams.z;
-    
+
     float theta = dot(lightDir, normalize(-spotDir));
-    
+
     if (theta > innerCutoff)
         return 1.0;
     else if (theta > outerCutoff)
@@ -468,7 +468,7 @@ float calculateSpotIntensityAdvanced(vec3 lightDir, vec3 spotDir, vec4 spotParam
         float t = (theta - outerCutoff) / (innerCutoff - outerCutoff);
         return pow(t, falloffExponent);
     }
-    
+
     return 0.0;
 }
 
@@ -477,21 +477,21 @@ float calculateSpotIntensityAdvanced(vec3 lightDir, vec3 spotDir, vec4 spotParam
 // =============================================================================
 
 // Representative point technique for area lights
-vec3 calculateAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, vec3 lightSize, 
+vec3 calculateAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, vec3 lightSize,
                                    vec3 albedo, float metallic, float roughness, vec3 worldPos)
 {
     vec3 centerToRay = dot(lightPos - worldPos, N) * N - (lightPos - worldPos);
     vec3 closestPoint = lightPos + centerToRay * SATURATE(length(centerToRay) / lightSize.x);
-    
+
     vec3 L = normalize(closestPoint - worldPos);
     float distance = length(closestPoint - worldPos);
-    
+
     // Use standard BRDF calculation
     vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-    
+
     // Area light attenuation
     float attenuation = 1.0 / (distance * distance + 1.0);
-    
+
     return brdf * attenuation;
 }
 
@@ -500,16 +500,16 @@ vec3 calculateAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, vec3 lightSiz
 // =============================================================================
 
 // Calculate contribution from a single light
-vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo, 
+vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
                                float metallic, float roughness, vec3 worldPos)
 {
     int lightType = int(light.position.w);
     vec3 lightColor = light.color.rgb;
     float lightIntensity = light.color.w;
-    
+
     vec3 L;
     float attenuation = 1.0;
-    
+
     // Calculate light direction and attenuation based on type
     if (lightType == DIRECTIONAL_LIGHT)
     {
@@ -532,31 +532,31 @@ vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
     {
         return vec3(0.0); // Unknown light type
     }
-    
+
     // Early exit if light has no contribution
     if (attenuation <= EPSILON) return vec3(0.0);
-    
+
     float NdotL = max(dot(N, L), 0.0);
     if (NdotL <= EPSILON) return vec3(0.0);
-    
+
     // Calculate BRDF
     vec3 radiance = lightColor * lightIntensity * attenuation;
     vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-    
+
     return brdf * radiance * NdotL;
 }
 
 // Enhanced light contribution with better energy conservation
-vec3 calculateLightContributionEnhanced(LightData light, vec3 N, vec3 V, vec3 albedo, 
+vec3 calculateLightContributionEnhanced(LightData light, vec3 N, vec3 V, vec3 albedo,
                                        float metallic, float roughness, vec3 worldPos)
 {
     int lightType = int(light.position.w);
     vec3 lightColor = light.color.rgb;
     float lightIntensity = light.color.w;
-    
+
     vec3 L;
     float attenuation = 1.0;
-    
+
     if (lightType == DIRECTIONAL_LIGHT)
     {
         L = normalize(-light.direction.xyz);
@@ -577,16 +577,16 @@ vec3 calculateLightContributionEnhanced(LightData light, vec3 N, vec3 V, vec3 al
     {
         return vec3(0.0);
     }
-    
+
     if (attenuation <= EPSILON) return vec3(0.0);
-    
+
     float NdotL = max(dot(N, L), 0.0);
     if (NdotL <= EPSILON) return vec3(0.0);
-    
+
     // Use enhanced BRDF with height-correlated Smith G function
     vec3 radiance = lightColor * lightIntensity * attenuation;
     vec3 brdf = cookTorranceBRDFEnhanced(N, V, L, albedo, metallic, roughness);
-    
+
     return brdf * radiance * NdotL;
 }
 
@@ -613,28 +613,28 @@ float calculateCascadedShadowFactor(vec3 worldPos, vec3 viewPos)
 // =============================================================================
 
 // Calculate ambient lighting using IBL
-vec3 calculateIBL(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness, 
+vec3 calculateIBL(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
                   samplerCube irradianceMap, samplerCube prefilterMap, sampler2D brdfLUT)
 {
     vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
     F0 = mix(F0, albedo, metallic);
-    
+
     vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
-    
+
     vec3 kS = F;
     vec3 kD = 1.0 - kS;
     kD *= 1.0 - metallic;
-    
+
     // Diffuse IBL
     vec3 irradiance = texture(irradianceMap, N).rgb;
     vec3 diffuse = irradiance * albedo;
-    
+
     // Specular IBL
     vec3 R = reflect(-V, N);
     vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
     vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
     vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
-    
+
     return kD * diffuse + specular;
 }
 
@@ -651,38 +651,38 @@ vec3 calculateIBLImportanceSampled(vec3 N, vec3 V, vec3 albedo, float metallic, 
 {
     vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
     F0 = mix(F0, albedo, metallic);
-    
+
     vec3 color = vec3(0.0);
     float totalWeight = 0.0;
-    
+
     // Sample environment using importance sampling
     for (int i = 0; i < sampleCount; ++i)
     {
         vec2 Xi = hammersleySequence(uint(i), uint(sampleCount));
         vec3 H = importanceSampleGGX(Xi, N, roughness);
         vec3 L = normalize(2.0 * dot(V, H) * H - V);
-        
+
         float NdotL = max(dot(N, L), 0.0);
         if (NdotL > 0.0)
         {
             vec3 sampleColor = texture(environmentMap, L).rgb;
-            
+
             float NdotH = max(dot(N, H), 0.0);
             float VdotH = max(dot(V, H), 0.0);
-            
+
             float D = distributionGGX(N, H, roughness);
             float G = geometrySmith(N, V, L, roughness);
             vec3 F = fresnelSchlick(VdotH, F0);
-            
+
             vec3 numerator = D * G * F;
             float denominator = 4.0 * max(dot(N, V), 0.0) * NdotL + EPSILON;
             vec3 specular = numerator / denominator;
-            
+
             color += sampleColor * specular * NdotL;
             totalWeight += NdotL;
         }
     }
-    
+
     return color / max(totalWeight, EPSILON);
 }
 
@@ -691,15 +691,15 @@ vec3 calculateIBLImportanceSampled(vec3 N, vec3 V, vec3 albedo, float metallic, 
 // =============================================================================
 
 // Calculate directional light contribution using shader uniform
-vec3 calculateDirectionalLightUniform(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness, 
+vec3 calculateDirectionalLightUniform(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
                                      vec3 lightDirection, vec3 lightDiffuse)
 {
     vec3 L = normalize(-lightDirection);
     vec3 radiance = lightDiffuse;
-    
+
     float NdotL = max(dot(N, L), 0.0);
     vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-    
+
     return brdf * radiance * NdotL;
 }
 
@@ -711,43 +711,43 @@ vec3 calculatePointLightUniform(vec3 N, vec3 V, vec3 albedo, float metallic, flo
     float distance = length(lightPosition - worldPos);
     float attenuation = 1.0 / (attParams.x + attParams.y * distance + attParams.z * distance * distance);
     vec3 radiance = lightDiffuse * attenuation;
-    
+
     float NdotL = max(dot(N, L), 0.0);
     vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-    
+
     return brdf * radiance * NdotL;
 }
 
 // Calculate spot light contribution using shader uniform
 vec3 calculateSpotLightUniform(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
-                              vec3 worldPos, vec3 lightPosition, vec3 lightDirection, 
+                              vec3 worldPos, vec3 lightPosition, vec3 lightDirection,
                               vec3 lightDiffuse, vec4 attParams, vec4 spotParams)
 {
     vec3 L = normalize(lightPosition - worldPos);
     float distance = length(lightPosition - worldPos);
     float attenuation = 1.0 / (attParams.x + attParams.y * distance + attParams.z * distance * distance);
-    
+
     float theta = dot(L, normalize(-lightDirection));
     float epsilon = spotParams.x - spotParams.y;
     float intensity = clamp((theta - spotParams.y) / epsilon, 0.0, 1.0);
-    
+
     vec3 radiance = lightDiffuse * attenuation * intensity;
-    
+
     float NdotL = max(dot(N, L), 0.0);
     vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-    
+
     return brdf * radiance * NdotL;
 }
 
 // =============================================================================
 // MATERIAL SAMPLING FUNCTIONS
-// 
+//
 // OPTIMIZATION NOTE: These functions now avoid unnecessary texture lookups
 // by checking use flags before sampling. This reduces memory bandwidth usage
 // and improves performance when textures are not used.
 //
 // GAMMA CORRECTION NOTE: Albedo textures should be in sRGB format and will be
-// automatically converted to linear space by the GPU. Metallic, roughness, 
+// automatically converted to linear space by the GPU. Metallic, roughness,
 // normal, and AO maps should already be in linear space.
 // =============================================================================
 
@@ -762,7 +762,7 @@ vec3 sampleAlbedo(sampler2D albedoMap, vec2 texCoord, vec3 baseColorFactor, bool
 }
 
 // Sample metallic and roughness (linear textures)
-vec2 sampleMetallicRoughness(sampler2D metallicRoughnessMap, vec2 texCoord, 
+vec2 sampleMetallicRoughness(sampler2D metallicRoughnessMap, vec2 texCoord,
                              float metallicFactor, float roughnessFactor, bool useMap)
 {
     if (useMap) {

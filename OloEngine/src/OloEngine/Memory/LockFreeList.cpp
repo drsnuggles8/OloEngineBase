@@ -58,7 +58,7 @@ namespace OloEngine
         // We keep this for reference but disabled by default.
 #if 0
         std::atomic<i64> s_LockFreeListMem{0};
-        
+
         void ChangeMem(i64 Delta)
         {
             s_LockFreeListMem.fetch_add(Delta, std::memory_order_relaxed);

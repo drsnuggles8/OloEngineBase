@@ -220,7 +220,7 @@ TEST(AudioEventQueue, MultithreadedProducerConsumer)
             AudioThreadEvent event;
             event.m_FrameIndex = eventId;
             event.m_EndpointID = eventId % 10;
-            
+
             choc::value::Value value = choc::value::createFloat32(eventId * 0.1f);
             if (event.m_ValueData.CopyFrom(value))
             {
@@ -230,7 +230,7 @@ TEST(AudioEventQueue, MultithreadedProducerConsumer)
                     eventId++;
                 }
             }
-            
+
             // Small delay to simulate audio processing
             std::this_thread::sleep_for(std::chrono::microseconds(10));
         }
@@ -246,7 +246,7 @@ TEST(AudioEventQueue, MultithreadedProducerConsumer)
             {
                 consumedCount.fetch_add(1, std::memory_order_relaxed);
             }
-            
+
             std::this_thread::sleep_for(std::chrono::microseconds(20));
         } });
 
@@ -273,13 +273,13 @@ TEST(AudioEventQueue, MultithreadedStressTest)
         int eventId = 0;
         auto startTime = std::chrono::steady_clock::now();
         auto duration = std::chrono::milliseconds(500);
-        
+
         while (std::chrono::steady_clock::now() - startTime < duration)
         {
             AudioThreadEvent event;
             event.m_FrameIndex = eventId;
             event.m_EndpointID = eventId % 100;
-            
+
             choc::value::Value value = choc::value::createInt32(eventId);
             if (event.m_ValueData.CopyFrom(value))
             {

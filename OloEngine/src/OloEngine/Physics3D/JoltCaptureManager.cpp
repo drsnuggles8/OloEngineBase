@@ -593,7 +593,7 @@ namespace OloEngine
             std::sort(m_Captures.begin(), m_Captures.end(), [](const std::filesystem::path& a, const std::filesystem::path& b)
                       {
 				std::filesystem::file_time_type timeA, timeB;
-				
+
 				try
 				{
 					timeA = std::filesystem::last_write_time(a);
@@ -603,7 +603,7 @@ namespace OloEngine
 					// File became inaccessible - treat as oldest possible time
 					timeA = std::filesystem::file_time_type::min();
 				}
-				
+
 				try
 				{
 					timeB = std::filesystem::last_write_time(b);
@@ -613,7 +613,7 @@ namespace OloEngine
 					// File became inaccessible - treat as oldest possible time
 					timeB = std::filesystem::file_time_type::min();
 				}
-				
+
 				return timeA > timeB; });
 
             if (!m_Captures.empty())

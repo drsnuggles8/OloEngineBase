@@ -106,11 +106,11 @@ namespace OloEngine::Audio::SoundGraph
             // Early return for null or empty messages (realtime-safe)
             if (!message || message[0] == '\0')
                 return;
-            
+
             RealtimeMessage msg;
             msg.m_Frame = frameIndex;
             msg.m_IsEvent = false;
-            
+
             // Determine log level based on first character (safe now that we've checked for null/empty)
             if (message[0] == '!')
             {
@@ -124,7 +124,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 msg.m_Level = RealtimeMessage::Trace;
             }
-            
+
             // Copy message text (realtime-safe bounded length computation)
             // Compute bounded length without strlen (avoid unbounded scan)
             constexpr sizet maxLen = sizeof(msg.m_Text) - 1;
@@ -133,10 +133,10 @@ namespace OloEngine::Audio::SoundGraph
             {
                 ++len;
             }
-            
+
             memcpy(msg.m_Text, message, len);
             msg.m_Text[len] = '\0';
-            
+
             // Try to push to queue (drop if full to maintain real-time safety)
             m_LogQueue.push(std::move(msg)); });
 
@@ -148,7 +148,7 @@ namespace OloEngine::Audio::SoundGraph
             msg.m_Level = RealtimeMessage::Trace;
             msg.m_EndpointID = endpointID;
             msg.m_IsEvent = true;
-            
+
             // Format event message (real-time safe - use bounded length computation)
             const char* eventMsg = "Event";
             // Compute bounded length without strlen (avoid unbounded memory scan)
@@ -160,7 +160,7 @@ namespace OloEngine::Audio::SoundGraph
             }
             memcpy(msg.m_Text, eventMsg, len);
             msg.m_Text[len] = '\0';
-            
+
             // Try to push to queue (drop if full to maintain real-time safety)
             m_LogQueue.push(std::move(msg)); });
 

@@ -16,11 +16,11 @@ layout(location = 0) out vec3 v_TexCoords;
 void main()
 {
     v_TexCoords = a_Position;
-    
+
     // Remove translation from view matrix to center skybox around camera
     mat4 rotView = mat4(mat3(u_View)); // Extract only rotation part
     vec4 pos = u_Projection * rotView * vec4(a_Position, 1.0);
-    
+
     // Set z to w to ensure skybox is always at far plane
     gl_Position = pos.xyww;
 }

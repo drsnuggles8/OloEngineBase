@@ -322,10 +322,10 @@ namespace OloEngine
                                      {
             // Create a cancellation flag bridge for the AssetPackBuilder API
             std::atomic<bool> cancelRequested{false};
-            
+
             // Create a float progress tracker for the AssetPackBuilder API
             std::atomic<f32> floatProgress{0.0f};
-            
+
             // Launch a progress monitoring thread that checks for cancellation
             std::jthread progressMonitor([this, &floatProgress, stopToken](std::stop_token) {
                 while (!stopToken.stop_requested()) {
@@ -335,7 +335,7 @@ namespace OloEngine
                     std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 }
             });
-            
+
             // Monitor stop token and update cancellation flag
             std::jthread cancellationMonitor([&cancelRequested, stopToken](std::stop_token) {
                 while (!stopToken.stop_requested()) {
@@ -343,15 +343,15 @@ namespace OloEngine
                 }
                 cancelRequested.store(true);
             });
-            
+
             // Perform the actual build
             auto result = AssetPackBuilder::BuildFromActiveProject(m_BuildSettings, floatProgress, &cancelRequested);
-            
+
             // Final progress update
             if (result.m_Success && !cancelRequested.load()) {
                 m_BuildProgressPermille.store(1000); // 100%
             }
-            
+
             // Store result and mark build complete
             m_LastBuildResult = result;
             m_IsBuildInProgress.store(false); });

@@ -57,12 +57,12 @@ namespace OloEngine
             {
                 // Deregister existing dependencies before reload
                 AssetManager::DeregisterDependencies(selfHandle);
-                
+
                 // Trigger synchronous reload of this animation asset
                 // Note: ReloadDataAsync is not available in the OloEngine AssetManager static interface
                 // So we use the synchronous version which is thread-safe when called from main thread
                 bool reloadSuccess = AssetManager::ReloadData(selfHandle);
-                
+
                 // Always re-register dependencies regardless of reload success to preserve dependency graph
                 if (animationSource != 0)
                 {
@@ -72,15 +72,15 @@ namespace OloEngine
                 {
                     AssetManager::RegisterDependency(selfHandle, mesh);
                 }
-                
+
                 if (reloadSuccess)
                 {
-                    OLO_CORE_INFO("AnimationAsset {} reload successful due to dependency {} update", 
+                    OLO_CORE_INFO("AnimationAsset {} reload successful due to dependency {} update",
                                  static_cast<u64>(selfHandle), static_cast<u64>(dependencyHandle));
                 }
                 else
                 {
-                    OLO_CORE_ERROR("AnimationAsset {} reload failed due to dependency {} update", 
+                    OLO_CORE_ERROR("AnimationAsset {} reload failed due to dependency {} update",
                                   static_cast<u64>(selfHandle), static_cast<u64>(dependencyHandle));
                 }
             }

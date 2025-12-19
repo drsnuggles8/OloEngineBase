@@ -68,17 +68,17 @@ namespace OloEngine::Audio::SoundGraph
                         {
                             using TMember = std::remove_reference_t<decltype(memberPtr)>;
                             constexpr bool isInputEvent = std::is_member_function_pointer_v<TMember>;
-                            
+
                             const std::string_view memberName = InputsDescription::s_MemberNames[memberIndex++];
-                            const std::string cleanName = std::string(Core::Reflection::StringUtils::RemovePrefixAndSuffix(memberName));                        
+                            const std::string cleanName = std::string(Core::Reflection::StringUtils::RemovePrefixAndSuffix(memberName));
                             if constexpr (isInputEvent)
                             {
                                 // Handle input events (member functions)
                                 // Create an InputEvent and bind it to the member function
                                 using FunctionType = TMember;
-                                    
+
                                 // Create InputEvent bound to the member function
-                                auto inputEvent = std::make_shared<NodeProcessor::InputEvent>(*node, 
+                                auto inputEvent = std::make_shared<NodeProcessor::InputEvent>(*node,
                                     [node, memberPtr](float value) {
                                         // Call the member function with the event value using std::invoke
                                         if constexpr (std::is_invocable_v<FunctionType, decltype(*node)>)
@@ -93,18 +93,18 @@ namespace OloEngine::Audio::SoundGraph
                                         }
                                         // TODO: Add support for other event parameter types as needed
                                         });
-                                    
+
                                     // Register the input event with the node
                                     // InEvents stores shared_ptr<InputEvent> for shared ownership semantics
                                     node->InEvents[OloEngine::Identifier(cleanName.c_str())] = inputEvent;
-                                    
+
                                     return true;
                             }
                             else
                             {
                                 // Handle input parameters (member variables)
                                 using ValueType = typename Core::Reflection::MemberPointer::ReturnType<TMember>::Type;
-                                
+
                                 if constexpr (std::is_pointer_v<ValueType>)
                                 {
                                     // Pointer members - these will be connected to input streams
@@ -120,7 +120,7 @@ namespace OloEngine::Audio::SoundGraph
                                 }
                             }
                             };
-                            
+
                             return (registerInput(members) && ...); });
                 }
                 else
@@ -147,22 +147,22 @@ namespace OloEngine::Audio::SoundGraph
                         {
                             using TMember = typename Core::Reflection::MemberPointer::ReturnType<decltype(memberPtr)>::Type;
                             constexpr bool isOutputEvent = std::is_same_v<TMember, NodeProcessor::OutputEvent>;
-                            
+
                             const std::string_view memberName = OutputsDescription::s_MemberNames[memberIndex++];
                             const std::string cleanName = std::string(Core::Reflection::StringUtils::RemovePrefixAndSuffix(memberName));
-                            
+
                             if constexpr (isOutputEvent)
                             {
                                 // Handle output events
                                 // Output events are OutputEvent members that can trigger other events
-                                
+
                                 // Get reference to the OutputEvent member
                                 NodeProcessor::OutputEvent& outputEvent = node->*memberPtr;
-                                
+
                                 // Register the output event with the node
                                 // OutEvents stores reference_wrapper<OutputEvent> to avoid copying
                                 node->OutEvents[OloEngine::Identifier(cleanName.c_str())] = std::ref(outputEvent);
-                                
+
                                 return true;
                             }
                             else
@@ -174,7 +174,7 @@ namespace OloEngine::Audio::SoundGraph
                                 return true;
                             }
                     };
-                        
+
                     return (registerOutput(members) && ...); });
                 }
                 else
@@ -200,14 +200,14 @@ namespace OloEngine::Audio::SoundGraph
                         {
                             using TMember = std::remove_reference_t<decltype(memberPtr)>;
                             constexpr bool isInputEvent = std::is_member_function_pointer_v<TMember>;
-                            
+
                             const std::string_view memberName = InputsDescription::s_MemberNames[memberIndex++];
                             const std::string cleanName = std::string(Core::Reflection::StringUtils::RemovePrefixAndSuffix(memberName));
-                            
+
                             if constexpr (!isInputEvent)
                             {
                                 using ValueType = typename Core::Reflection::MemberPointer::ReturnType<TMember>::Type;
-                                
+
                                 if constexpr (std::is_pointer_v<ValueType>)
                                 {
                                     // Connect pointer members to parameter system
@@ -224,10 +224,10 @@ namespace OloEngine::Audio::SoundGraph
                                     }
                                 }
                             }
-                            
+
                             return true;
                         };
-                        
+
                         return (initializeInput(members) && ...); });
                 }
                 else

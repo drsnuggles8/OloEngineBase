@@ -179,12 +179,12 @@ namespace OloEngine
             auto task = std::async(std::launch::async, [this, req = std::move(request)]() mutable
                                    {
 				ECookingResult result = m_CookingFactory->CookMeshType(req.m_ColliderAsset, req.m_Type, req.m_InvalidateOld);
-				
+
 				// If cooking succeeded, update the cache entry with the new data
 				if (result == ECookingResult::Success && req.m_ColliderAsset)
 				{
 					AssetHandle handle = req.m_ColliderAsset->GetHandle();
-					
+
 					// Load the updated data from disk
 					CachedColliderData updatedData = LoadFromCache(req.m_ColliderAsset);
 					if (updatedData.m_IsValid)
@@ -197,10 +197,10 @@ namespace OloEngine
 							// Update existing entry with new data
 							sizet oldDataSize = CalculateDataSize(it->second);
 							sizet newDataSize = CalculateDataSize(updatedData);
-							
+
 							// Update cache size tracking
 							m_CurrentCacheSize = m_CurrentCacheSize - oldDataSize + newDataSize;
-							
+
 							// Replace with updated data
 							it->second = updatedData;
 						}
@@ -208,18 +208,18 @@ namespace OloEngine
 						{
 							// Add new entry if it doesn't exist (shouldn't normally happen)
 							sizet dataSize = CalculateDataSize(updatedData);
-							
+
 							if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
 							{
 								EvictOldestEntries();
 							}
-							
+
 							m_CachedData[handle] = updatedData;
 							m_CurrentCacheSize += dataSize;
 						}
 					}
 				}
-				
+
 				req.m_Promise.set_value(result); });
 
             m_CookingTasks.push_back(std::move(task));

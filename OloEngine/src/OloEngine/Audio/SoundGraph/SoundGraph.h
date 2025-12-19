@@ -91,7 +91,7 @@ namespace OloEngine::Audio::SoundGraph
             Audio::AudioThreadEvent event;
             event.m_FrameIndex = m_CurrentFrame;
             event.m_EndpointID = static_cast<u32>(IDs::OnFinished);
-            
+
             choc::value::Value value = choc::value::createFloat32(1.0f);
             event.m_ValueData.CopyFrom(value);
             m_OutgoingEvents.Push(event); }); // Connect using shared_ptr from InEvents - use the same identifier as registration

@@ -1121,10 +1121,10 @@ namespace OloEngine
 			try
 			{
 				auto result = AssetPackBuilder::BuildFromActiveProject(settings, m_BuildProgress, &m_BuildCancelRequested);
-				
+
 				// Mark build as complete
 				m_BuildInProgress.store(false);
-				
+
 				if (result.m_Success && !m_BuildCancelRequested.load())
 				{
 					OLO_CORE_INFO("Asset Pack built successfully!");
@@ -1140,7 +1140,7 @@ namespace OloEngine
 				{
 					OLO_CORE_ERROR("Asset Pack build failed: {}", result.m_ErrorMessage);
 				}
-				
+
 				return result;
 			}
 			catch (const std::exception& ex)

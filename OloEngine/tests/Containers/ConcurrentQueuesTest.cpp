@@ -412,7 +412,7 @@ TEST_F(ConsumeAllMpmcQueueTest, MultipleProducersMultipleConsumers)
                 });
                 std::this_thread::yield();
             }
-            
+
             // Final drain
             Queue.ConsumeAllFifo([&TotalConsumed](i32&& Item)
             {
