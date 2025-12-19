@@ -75,8 +75,6 @@ namespace OloEngine
         bool OnWindowClose(WindowCloseEvent const& e);
         bool OnWindowResize(WindowResizeEvent const& e);
 
-        void ExecuteMainThreadQueue();
-
       private:
         ApplicationSpecification m_Specification;
         Scope<Window> m_Window;
@@ -85,9 +83,6 @@ namespace OloEngine
         bool m_Minimized = false;
         LayerStack m_LayerStack;
         f32 m_LastFrameTime = 0.0f;
-
-        std::vector<std::function<void()>> m_MainThreadQueue;
-        std::mutex m_MainThreadQueueMutex;
 
       private:
         static Application* s_Instance;
