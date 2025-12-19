@@ -1,21 +1,26 @@
-# Skip vendor and common IDE/build metadata
+# Skip vendor, mono, and common IDE/build metadata
 # pre-commit paths are matched against repository-relative file paths; the regex below
 # excludes common third-party / generated directories we don't want to modify.
-exclude: '^(vendor/|\.vs/|\.vscode/|build/|bin/|\.github/workflows/|\.vs/|\.idea/)'
+# Match either start-of-string or a path separator before the directory name so
+# that subdirectories (e.g. `OloEngine/mono/`) are excluded as well.
+exclude: '(^|/)(vendor|mono|\.vs|\.vscode|build|bin|\.github/workflows|\.idea)/'
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v4.6.0
+  rev: v6.0.0
   hooks:
     - id: trailing-whitespace
+      # Limit to common source file extensions (C/C++, C#, Lua, shaders, headers)
+      files: '\.(c|cc|cpp|cxx|h|hh|hpp|ipp|inl|cs|lua|glsl|vert|frag|shader)$'
     - id: end-of-file-fixer
+      files: '\.(c|cc|cpp|cxx|h|hh|hpp|ipp|inl|cs|lua|glsl|vert|frag|shader)$'
     - id: check-yaml
 
 - repo: https://github.com/pre-commit/mirrors-clang-format
-  rev: v16.0.0
+  rev: v21.1.8
   hooks:
     - id: clang-format
       name: clang-format
-      files: "\\.(c|cc|cpp|cxx|h|hh|hpp|ipp|inl)$"
+      files: '\.(c|cc|cpp|cxx|h|hh|hpp|ipp|inl)$'
+      exclude: '^OloEngine/(vendor|mono)/'
       args: ["--style=file"]
-
