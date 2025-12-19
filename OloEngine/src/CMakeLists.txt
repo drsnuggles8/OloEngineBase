@@ -470,6 +470,8 @@
 		"OloEngine/Templates/IntegerSequence.h"
 		"OloEngine/Templates/Invoke.h"
 		"OloEngine/Templates/Projection.h"
+		"OloEngine/Templates/RefCounting.cpp"
+		"OloEngine/Templates/RefCounting.h"
 		"OloEngine/Templates/RetainedRef.h"
 		"OloEngine/Templates/ReversePredicate.h"
 		"OloEngine/Templates/Sorting.h"

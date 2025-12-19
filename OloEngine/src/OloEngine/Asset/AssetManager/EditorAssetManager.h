@@ -19,8 +19,8 @@
 #include <utility>
 
 #if OLO_ASYNC_ASSETS
-#include <thread>
 #include <atomic>
+#include "OloEngine/Task/Task.h"
 #include "FileWatch.hpp"
 #endif
 
@@ -367,9 +367,13 @@ namespace OloEngine
         mutable std::shared_mutex m_DependenciesMutex;
 
 #if OLO_ASYNC_ASSETS
-        // File watching thread and control
-        std::thread m_FileWatcherThread;
+        // File watching control (using Task System instead of dedicated thread)
         std::atomic<bool> m_ShouldTerminate{ false };
+        std::atomic<bool> m_FileWatcherTaskActive{ false };
+        std::atomic<u32> m_FileWatcherGeneration{ 0 };
+
+        // Async reload tracking
+        std::atomic<u32> m_ActiveReloadTasks{ 0 };
 
         // Real-time file watching using filewatch library
         std::unique_ptr<filewatch::FileWatch<std::string>> m_ProjectFileWatcher;

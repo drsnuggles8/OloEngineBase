@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Task/ParallelFor.h"
 
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -435,63 +436,120 @@ namespace OloEngine
         // Store original preprocessed source code for debugging
         m_OriginalSourceCode = shaderSources;
 
-        const shaderc::Compiler compiler;
-        shaderc::CompileOptions options;
-        options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
-        options.SetPreserveBindings(true);  // Preserve binding information
-        options.SetAutoBindUniforms(false); // Don't auto-assign bindings
-        options.SetGenerateDebugInfo();     // Generate debug information
-        if (const bool optimize = true)
-        {
-            options.SetOptimizationLevel(shaderc_optimization_level_performance);
-        }
-
         const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
         bool disableCache = Utils::IsShaderCacheDisabled();
 
         auto& shaderData = m_VulkanSPIRV;
         shaderData.clear();
-        for (auto&& [stage, source] : shaderSources)
+
+        // Convert map to vector for parallel processing
+        std::vector<std::pair<GLenum, std::string>> stageSourcePairs;
+        stageSourcePairs.reserve(shaderSources.size());
+        for (const auto& [stage, source] : shaderSources)
         {
-            const std::filesystem::path shaderFilePath = m_FilePath;
-            const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedVulkanFileExtension(stage));
+            stageSourcePairs.emplace_back(stage, source);
+        }
 
-            std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
-            if (in.is_open() && !disableCache)
+        // Thread-safe storage for compilation results
+        struct CompilationResult
+        {
+            GLenum Stage;
+            std::vector<u32> SpirvData;
+            bool Success = false;
+            std::string ErrorMessage;
+            bool NeedsCache = false;
+            std::filesystem::path CachePath;
+        };
+
+        std::vector<CompilationResult> results(stageSourcePairs.size());
+        std::atomic<bool> hasError{ false };
+
+        // Parallel compile all shader stages using Task System
+        // shaderc::Compiler is thread-safe and can be used from multiple threads
+        ParallelFor(
+            "ShaderCompileVulkan",
+            static_cast<i32>(stageSourcePairs.size()),
+            [&](i32 index)
             {
-                in.seekg(0, std::ios::end);
-                const auto size = in.tellg();
-                in.seekg(0, std::ios::beg);
+                if (hasError.load(std::memory_order_relaxed))
+                    return; // Early exit if another stage failed
 
-                std::filesystem::file_time_type cacheLastWriteTime = std::filesystem::last_write_time(cachedPath);
-                std::filesystem::file_time_type shaderLastWriteTime = std::filesystem::last_write_time(shaderFilePath);
+                const auto& [stage, source] = stageSourcePairs[index];
+                CompilationResult& result = results[index];
+                result.Stage = stage;
 
-                if (shaderLastWriteTime <= cacheLastWriteTime)
+                const std::filesystem::path shaderFilePath = m_FilePath;
+                const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedVulkanFileExtension(stage));
+                result.CachePath = cachedPath;
+
+                // Try to load from cache first
+                std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
+                if (in.is_open() && !disableCache)
                 {
-                    auto& data = shaderData[stage];
-                    data.resize(size / sizeof(u32));
-                    in.read(reinterpret_cast<char*>(data.data()), size);
-                    continue;
+                    in.seekg(0, std::ios::end);
+                    const auto size = in.tellg();
+                    in.seekg(0, std::ios::beg);
+
+                    std::error_code ec;
+                    std::filesystem::file_time_type cacheLastWriteTime = std::filesystem::last_write_time(cachedPath, ec);
+                    std::filesystem::file_time_type shaderLastWriteTime = std::filesystem::last_write_time(shaderFilePath, ec);
+
+                    if (!ec && shaderLastWriteTime <= cacheLastWriteTime)
+                    {
+                        result.SpirvData.resize(size / sizeof(u32));
+                        in.read(reinterpret_cast<char*>(result.SpirvData.data()), size);
+                        result.Success = true;
+                        result.NeedsCache = false;
+                        return;
+                    }
                 }
-            }
 
-            shaderc::SpvCompilationResult const spirvModule = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
-            if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
+                // Compile the shader - each thread creates its own compiler and options
+                // (shaderc is thread-safe but options are not shared)
+                shaderc::Compiler compiler;
+                shaderc::CompileOptions options;
+                options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+                options.SetPreserveBindings(true);
+                options.SetAutoBindUniforms(false);
+                options.SetGenerateDebugInfo();
+                options.SetOptimizationLevel(shaderc_optimization_level_performance);
+
+                shaderc::SpvCompilationResult spirvModule = compiler.CompileGlslToSpv(
+                    source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
+
+                if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = spirvModule.GetErrorMessage();
+                    hasError.store(true, std::memory_order_relaxed);
+                    return;
+                }
+
+                result.SpirvData = std::vector<u32>(spirvModule.cbegin(), spirvModule.cend());
+                result.Success = true;
+                result.NeedsCache = !disableCache;
+            });
+
+        // Collect results and write cache (sequential to avoid map race conditions)
+        for (const auto& result : results)
+        {
+            if (!result.Success)
             {
-                OLO_CORE_ERROR(spirvModule.GetErrorMessage());
+                OLO_CORE_ERROR(result.ErrorMessage);
                 OLO_CORE_ASSERT(false);
+                continue;
             }
 
-            shaderData[stage] = std::vector<u32>(spirvModule.cbegin(), spirvModule.cend());
+            shaderData[result.Stage] = result.SpirvData;
 
-            // Only write to cache if caching is enabled
-            if (!disableCache)
+            // Write to cache if needed
+            if (result.NeedsCache)
             {
-                std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
+                std::ofstream out(result.CachePath, std::ios::out | std::ios::binary);
                 if (out.is_open())
                 {
-                    auto& data = shaderData[stage];
-                    out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(u32));
+                    out.write(reinterpret_cast<const char*>(result.SpirvData.data()),
+                              result.SpirvData.size() * sizeof(u32));
                     out.flush();
                     out.close();
                 }
@@ -508,98 +566,153 @@ namespace OloEngine
     {
         auto& shaderData = m_OpenGLSPIRV;
 
-        const shaderc::Compiler compiler;
-        shaderc::CompileOptions options;
-        options.SetTargetEnvironment(shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
-
         const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
         bool disableCache = Utils::IsShaderCacheDisabled();
 
         shaderData.clear();
         m_OpenGLSourceCode.clear();
-        for (auto&& [stage, spirv] : m_VulkanSPIRV)
+
+        // Convert map to vector for parallel processing
+        std::vector<std::pair<GLenum, std::vector<u32>>> stageSpirvPairs;
+        stageSpirvPairs.reserve(m_VulkanSPIRV.size());
+        for (const auto& [stage, spirv] : m_VulkanSPIRV)
         {
-            const std::filesystem::path shaderFilePath = m_FilePath;
-            const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedOpenGLFileExtension(stage));
+            stageSpirvPairs.emplace_back(stage, spirv);
+        }
 
-            std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
-            if (in.is_open() && !disableCache)
+        // Thread-safe storage for compilation results
+        struct OpenGLCompilationResult
+        {
+            GLenum Stage;
+            std::vector<u32> SpirvData;
+            std::string GlslSource;
+            bool Success = false;
+            std::string ErrorMessage;
+            bool NeedsCache = false;
+            std::filesystem::path CachePath;
+        };
+
+        std::vector<OpenGLCompilationResult> results(stageSpirvPairs.size());
+        std::atomic<bool> hasError{ false };
+
+        // Parallel compile/cross-compile all shader stages using Task System
+        ParallelFor(
+            "ShaderCompileOpenGL",
+            static_cast<i32>(stageSpirvPairs.size()),
+            [&](i32 index)
             {
-                // Check if shader source is newer than cache
-                std::filesystem::file_time_type cacheLastWriteTime = std::filesystem::last_write_time(cachedPath);
-                std::filesystem::file_time_type shaderLastWriteTime = std::filesystem::last_write_time(shaderFilePath);
+                if (hasError.load(std::memory_order_relaxed))
+                    return;
 
-                if (shaderLastWriteTime <= cacheLastWriteTime)
+                const auto& [stage, vulkanSpirv] = stageSpirvPairs[index];
+                OpenGLCompilationResult& result = results[index];
+                result.Stage = stage;
+
+                const std::filesystem::path shaderFilePath = m_FilePath;
+                const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedOpenGLFileExtension(stage));
+                result.CachePath = cachedPath;
+
+                // Try to load from cache first
+                std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
+                if (in.is_open() && !disableCache)
                 {
-                    in.seekg(0, std::ios::end);
-                    const auto size = in.tellg();
-                    in.seekg(0, std::ios::beg);
+                    std::error_code ec;
+                    std::filesystem::file_time_type cacheLastWriteTime = std::filesystem::last_write_time(cachedPath, ec);
+                    std::filesystem::file_time_type shaderLastWriteTime = std::filesystem::last_write_time(shaderFilePath, ec);
 
-                    auto& data = shaderData[stage];
-                    data.resize(size / sizeof(u32));
-                    in.read(reinterpret_cast<char*>(data.data()), size);
-                    continue;
-                }
-                else
-                {
-                    OLO_CORE_INFO("Shader source newer than cache, recompiling: {0}", shaderFilePath.string());
-                }
-            }
-
-            // If we get here, either cache doesn't exist, is disabled, or shader is newer
-            spirv_cross::CompilerGLSL glslCompiler(spirv);
-
-            // Configure compiler options to preserve names and bindings
-            spirv_cross::CompilerGLSL::Options glslOptions;
-            glslOptions.version = 450;
-            glslOptions.es = false;
-            glslOptions.vulkan_semantics = false;
-            glslOptions.separate_shader_objects = false;
-            glslOptions.enable_420pack_extension = true;
-            glslOptions.emit_uniform_buffer_as_plain_uniforms = false;
-            glslCompiler.set_common_options(glslOptions);
-
-            // Enable interface variable location preservation
-            glslCompiler.require_extension("GL_ARB_separate_shader_objects");
-
-            // Preserve original names for better reflection
-            auto resources = glslCompiler.get_shader_resources();
-            auto preserveResourceNames = [&glslCompiler](const auto& resources)
-            {
-                for (const auto& resource : resources)
-                {
-                    std::string originalName = resource.name;
-                    if (!originalName.empty() && originalName.find("_") != 0)
+                    if (!ec && shaderLastWriteTime <= cacheLastWriteTime)
                     {
-                        glslCompiler.set_name(resource.id, originalName);
+                        in.seekg(0, std::ios::end);
+                        const auto size = in.tellg();
+                        in.seekg(0, std::ios::beg);
+
+                        result.SpirvData.resize(size / sizeof(u32));
+                        in.read(reinterpret_cast<char*>(result.SpirvData.data()), size);
+                        result.Success = true;
+                        result.NeedsCache = false;
+                        return;
                     }
                 }
-            };
 
-            preserveResourceNames(resources.uniform_buffers);
-            preserveResourceNames(resources.stage_inputs);
-            preserveResourceNames(resources.stage_outputs);
+                // Cross-compile Vulkan SPIR-V to GLSL using spirv-cross
+                spirv_cross::CompilerGLSL glslCompiler(vulkanSpirv);
 
-            m_OpenGLSourceCode[stage] = glslCompiler.compile();
-            auto const& source = m_OpenGLSourceCode[stage];
+                spirv_cross::CompilerGLSL::Options glslOptions;
+                glslOptions.version = 450;
+                glslOptions.es = false;
+                glslOptions.vulkan_semantics = false;
+                glslOptions.separate_shader_objects = false;
+                glslOptions.enable_420pack_extension = true;
+                glslOptions.emit_uniform_buffer_as_plain_uniforms = false;
+                glslCompiler.set_common_options(glslOptions);
 
-            shaderc::SpvCompilationResult const spirvModule = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str());
-            if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
+                glslCompiler.require_extension("GL_ARB_separate_shader_objects");
+
+                // Preserve resource names
+                auto resources = glslCompiler.get_shader_resources();
+                auto preserveResourceNames = [&glslCompiler](const auto& resourceList)
+                {
+                    for (const auto& resource : resourceList)
+                    {
+                        std::string originalName = resource.name;
+                        if (!originalName.empty() && originalName.find("_") != 0)
+                        {
+                            glslCompiler.set_name(resource.id, originalName);
+                        }
+                    }
+                };
+
+                preserveResourceNames(resources.uniform_buffers);
+                preserveResourceNames(resources.stage_inputs);
+                preserveResourceNames(resources.stage_outputs);
+
+                result.GlslSource = glslCompiler.compile();
+
+                // Compile GLSL to OpenGL SPIR-V
+                shaderc::Compiler compiler;
+                shaderc::CompileOptions options;
+                options.SetTargetEnvironment(shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
+
+                shaderc::SpvCompilationResult spirvModule = compiler.CompileGlslToSpv(
+                    result.GlslSource, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str());
+
+                if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = spirvModule.GetErrorMessage();
+                    hasError.store(true, std::memory_order_relaxed);
+                    return;
+                }
+
+                result.SpirvData = std::vector<u32>(spirvModule.cbegin(), spirvModule.cend());
+                result.Success = true;
+                result.NeedsCache = !disableCache;
+            });
+
+        // Collect results and write cache (sequential)
+        for (const auto& result : results)
+        {
+            if (!result.Success)
             {
-                OLO_CORE_ERROR(spirvModule.GetErrorMessage());
+                OLO_CORE_ERROR(result.ErrorMessage);
                 OLO_CORE_ASSERT(false);
+                continue;
             }
 
-            shaderData[stage] = std::vector<u32>(spirvModule.cbegin(), spirvModule.cend());
-
-            // Only write cache if not disabled
-            if (!disableCache)
+            shaderData[result.Stage] = result.SpirvData;
+            if (!result.GlslSource.empty())
             {
-                std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
+                m_OpenGLSourceCode[result.Stage] = result.GlslSource;
+            }
+
+            // Write to cache if needed
+            if (result.NeedsCache)
+            {
+                std::ofstream out(result.CachePath, std::ios::out | std::ios::binary);
                 if (out.is_open())
                 {
-                    auto& data = shaderData[stage];
-                    out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(u32));
+                    out.write(reinterpret_cast<const char*>(result.SpirvData.data()),
+                              result.SpirvData.size() * sizeof(u32));
                     out.flush();
                     out.close();
                 }

@@ -5,6 +5,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Audio/AudioLoader.h"
+#include "OloEngine/Task/Task.h"
 
 #include <chrono>
 #include <array>
@@ -12,7 +13,6 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
-#include <future>
 
 #define LOG_DBG_MESSAGES 0
 
@@ -55,25 +55,14 @@ namespace OloEngine::Audio::SoundGraph
 
         ~WavePlayer()
         {
-            // Ensure any ongoing async load is moved to stale container
+            // Mark as shutting down to prevent new loads from completing
+            m_ShuttingDown.store(true, std::memory_order_release);
+
+            // Cancel any pending load
             CancelAsyncLoad();
 
-            // Wait for all stale loads to complete before destruction
-            // This is safe to do in destructor since it's not on audio thread
-            for (auto& future : m_StaleLoads)
-            {
-                if (future.valid())
-                {
-                    try
-                    {
-                        future.get();
-                    }
-                    catch (...)
-                    { /* Ignore exceptions during cleanup */
-                    }
-                }
-            }
-            m_StaleLoads.clear();
+            // Note: Task System manages task lifecycle - no explicit wait needed
+            // Tasks will complete naturally but results will be ignored due to m_ShuttingDown flag
         }
 
         // Input parameters
@@ -266,143 +255,145 @@ namespace OloEngine::Audio::SoundGraph
         void StartAsyncLoad(u64 waveAsset)
         {
             // Mark as loading
-            m_LoadState.store(LoadState::Loading, std::memory_order_relaxed);
+            m_LoadState.store(LoadState::Loading, std::memory_order_release);
+            m_LoadGeneration.fetch_add(1, std::memory_order_relaxed);
+            u32 currentGeneration = m_LoadGeneration.load(std::memory_order_relaxed);
 
-            // Start async load on background thread
-            m_AsyncLoadFuture = std::async(std::launch::async, [this, waveAsset]() -> std::optional<AudioData>
-                                           {
-                                               // Integrate with OloEngine's AssetManager
-                                               AssetHandle assetHandle = static_cast<AssetHandle>(waveAsset);
-                                               AssetMetadata metadata = AssetManager::GetAssetMetadata(assetHandle);
+            // Start async load using Task System
+            Tasks::Launch("WavePlayerAudioLoad", [this, waveAsset, currentGeneration]()
+            {
+                // Check if this load is still relevant
+                if (m_ShuttingDown.load(std::memory_order_acquire) ||
+                    currentGeneration != m_LoadGeneration.load(std::memory_order_relaxed))
+                {
+                    return; // Load was cancelled or superseded
+                }
 
-                                               if (metadata.IsValid() && !metadata.FilePath.empty())
-                                               {
-                                                   // Load audio data using AudioLoader (on background thread)
-                                                   AudioData audioData;
-                                                   if (AudioLoader::LoadAudioFile(metadata.FilePath, audioData))
-                                                   {
-                                                       OLO_CORE_INFO("WavePlayer: Loaded audio asset - {} channels, {} Hz, {:.2f}s duration",
-                                                                     audioData.m_NumChannels, audioData.m_SampleRate, audioData.m_Duration);
-                                                       return audioData;
-                                                   }
-                                                   else
-                                                   {
-                                                       OLO_CORE_ERROR("WavePlayer: Failed to load audio file: {}", metadata.FilePath.string());
-                                                   }
-                                               }
-                                               else
-                                               {
-                                                   OLO_CORE_ERROR("WavePlayer: Invalid asset metadata for handle {}", assetHandle);
-                                               }
+                // Integrate with OloEngine's AssetManager
+                AssetHandle assetHandle = static_cast<AssetHandle>(waveAsset);
+                AssetMetadata metadata = AssetManager::GetAssetMetadata(assetHandle);
 
-                                               return std::nullopt; // Failed to load
-                                           });
+                std::optional<AudioData> result;
+                if (metadata.IsValid() && !metadata.FilePath.empty())
+                {
+                    // Load audio data using AudioLoader (on background thread)
+                    AudioData audioData;
+                    if (AudioLoader::LoadAudioFile(metadata.FilePath, audioData))
+                    {
+                        OLO_CORE_INFO("WavePlayer: Loaded audio asset - {} channels, {} Hz, {:.2f}s duration",
+                                     audioData.m_NumChannels, audioData.m_SampleRate, audioData.m_Duration);
+                        result = std::move(audioData);
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("WavePlayer: Failed to load audio file: {}", metadata.FilePath.string());
+                    }
+                }
+                else
+                {
+                    OLO_CORE_ERROR("WavePlayer: Invalid asset metadata for handle {}", assetHandle);
+                }
+
+                // Check again if still relevant before storing result
+                if (m_ShuttingDown.load(std::memory_order_acquire) ||
+                    currentGeneration != m_LoadGeneration.load(std::memory_order_relaxed))
+                {
+                    return; // Load was cancelled or superseded
+                }
+
+                // Store result for pickup by audio thread
+                {
+                    std::lock_guard<std::mutex> lock(m_LoadResultMutex);
+                    m_LoadResult = std::move(result);
+                    m_LoadResultReady.store(true, std::memory_order_release);
+                }
+            }, Tasks::ETaskPriority::BackgroundNormal);
         }
 
         void CheckAsyncLoadCompletion()
         {
-            // Clean up any completed stale futures first (non-blocking)
-            CleanupStaleLoads();
-
-            if (m_LoadState.load(std::memory_order_relaxed) == LoadState::Loading && m_AsyncLoadFuture.valid())
+            // Check if a load result is ready (non-blocking, audio thread safe)
+            if (!m_LoadResultReady.load(std::memory_order_acquire))
             {
-                // Check if async load completed (non-blocking)
-                auto status = m_AsyncLoadFuture.wait_for(std::chrono::seconds(0));
-                if (status == std::future_status::ready)
+                return; // No result ready
+            }
+
+            // Retrieve the result
+            std::optional<AudioData> result;
+            {
+                std::lock_guard<std::mutex> lock(m_LoadResultMutex);
+                result = std::move(m_LoadResult);
+                m_LoadResult.reset();
+                m_LoadResultReady.store(false, std::memory_order_release);
+            }
+
+            if (result.has_value())
+            {
+                // Success - swap in the loaded data on audio thread
+                m_AudioData = std::move(result.value());
+                m_WaveSource.m_TotalFrames = m_AudioData.m_NumFrames;
+
+                // Set up refill callback to read from loaded audio data
+                m_WaveSource.m_OnRefill = [this](Audio::WaveSource& source) -> bool
                 {
-                    // Load completed - get result
-                    auto result = m_AsyncLoadFuture.get();
-                    if (result.has_value())
-                    {
-                        // Success - swap in the loaded data on audio thread
-                        m_AudioData = std::move(result.value());
-                        m_WaveSource.m_TotalFrames = m_AudioData.m_NumFrames;
+                    return FillBufferFromAudioData(source);
+                };
 
-                        // Set up refill callback to read from loaded audio data
-                        m_WaveSource.m_OnRefill = [this](Audio::WaveSource& source) -> bool
-                        {
-                            return FillBufferFromAudioData(source);
-                        };
+                m_TotalFrames = m_WaveSource.m_TotalFrames;
+                m_IsInitialized = true;
+                m_LoadState.store(LoadState::Ready, std::memory_order_relaxed);
 
-                        m_TotalFrames = m_WaveSource.m_TotalFrames;
-                        m_IsInitialized = true;
-                        m_LoadState.store(LoadState::Ready, std::memory_order_relaxed);
-
-                        // Apply start time offset now that we have the data
-                        if (m_InStartTime && *m_InStartTime > 0.0f)
-                        {
-                            f64 sampleRate = m_AudioData.m_SampleRate;
-                            m_StartSample = static_cast<i64>(*m_InStartTime * sampleRate);
-                            i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
-                            m_StartSample = glm::min(m_StartSample, maxSample);
-                        }
-                        else
-                        {
-                            m_StartSample = 0;
-                        }
-
-                        m_FrameNumber = m_StartSample;
-
-                        // If playback was pending, start it now
-                        if (m_PendingPlayback.load(std::memory_order_relaxed))
-                        {
-                            StartPlayback();
-                        }
-                    }
-                    else
-                    {
-                        // Failed to load
-                        m_TotalFrames = 0;
-                        m_IsInitialized = false;
-                        m_LoadState.store(LoadState::Failed, std::memory_order_relaxed);
-                        m_PendingPlayback.store(false, std::memory_order_relaxed);
-                    }
+                // Apply start time offset now that we have the data
+                if (m_InStartTime && *m_InStartTime > 0.0f)
+                {
+                    f64 sampleRate = m_AudioData.m_SampleRate;
+                    m_StartSample = static_cast<i64>(*m_InStartTime * sampleRate);
+                    i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
+                    m_StartSample = glm::min(m_StartSample, maxSample);
                 }
+                else
+                {
+                    m_StartSample = 0;
+                }
+
+                m_FrameNumber = m_StartSample;
+
+                // If playback was pending, start it now
+                if (m_PendingPlayback.load(std::memory_order_relaxed))
+                {
+                    StartPlayback();
+                }
+            }
+            else
+            {
+                // Failed to load
+                m_TotalFrames = 0;
+                m_IsInitialized = false;
+                m_LoadState.store(LoadState::Failed, std::memory_order_relaxed);
+                m_PendingPlayback.store(false, std::memory_order_relaxed);
             }
         }
 
         void CancelAsyncLoad()
         {
-            if (m_AsyncLoadFuture.valid())
-            {
-                // Mark as cancelled
-                m_LoadState.store(LoadState::Cancelled, std::memory_order_relaxed);
+            // Increment generation to invalidate any in-flight load
+            m_LoadGeneration.fetch_add(1, std::memory_order_relaxed);
 
-                // Move future to stale container to avoid blocking destructor
-                m_StaleLoads.push_back(std::move(m_AsyncLoadFuture));
-                // m_AsyncLoadFuture is now invalid and safe to reassign
+            // Mark as cancelled
+            if (m_LoadState.load(std::memory_order_relaxed) == LoadState::Loading)
+            {
+                m_LoadState.store(LoadState::Cancelled, std::memory_order_relaxed);
+            }
+
+            // Clear any pending result
+            {
+                std::lock_guard<std::mutex> lock(m_LoadResultMutex);
+                m_LoadResult.reset();
+                m_LoadResultReady.store(false, std::memory_order_release);
             }
         }
 
-        void CleanupStaleLoads()
-        {
-            // Use C++20 std::erase_if to remove completed or invalid futures
-            // Avoids const_cast code smell by taking non-const reference
-            std::erase_if(m_StaleLoads,
-                          [](std::future<std::optional<AudioData>>& future) -> bool
-                          {
-                              if (!future.valid())
-                                  return true; // Remove invalid futures
-
-                              // Check if completed (non-blocking)
-                              auto status = future.wait_for(std::chrono::seconds(0));
-                              if (status == std::future_status::ready)
-                              {
-                                  // Future is complete, safe to remove
-                                  try
-                                  {
-                                      // Get result to properly clean up the future
-                                      future.get();
-                                  }
-                                  catch (...)
-                                  {
-                                      // Ignore exceptions during cleanup
-                                  }
-                                  return true;
-                              }
-                              return false; // Keep pending futures
-                          });
-        }
+        // Note: CleanupStaleLoads removed - Task System manages task lifecycle
 
       public:
         void ForceRefillBuffer()
@@ -516,10 +507,13 @@ namespace OloEngine::Audio::SoundGraph
 
         std::atomic<LoadState> m_LoadState{ LoadState::Idle };
         std::atomic<bool> m_PendingPlayback{ false }; // Start playback when async load completes
-        std::future<std::optional<AudioData>> m_AsyncLoadFuture;
+        std::atomic<bool> m_ShuttingDown{ false };    // Prevents new loads during destruction
+        std::atomic<u32> m_LoadGeneration{ 0 };       // Incremented to invalidate in-flight loads
 
-        // Container for stale futures to avoid blocking destructor on audio thread
-        std::vector<std::future<std::optional<AudioData>>> m_StaleLoads;
+        // Thread-safe result delivery from Task to audio thread
+        std::mutex m_LoadResultMutex;
+        std::optional<AudioData> m_LoadResult;
+        std::atomic<bool> m_LoadResultReady{ false };
 
         // Flag system for events (like Hazel)
         Flag m_PlayFlag;

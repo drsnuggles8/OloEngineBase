@@ -8,8 +8,8 @@
 #include "OloEngine/Asset/AssetPackBuilder.h"
 
 #include <atomic>
-#include <future>
 #include <mutex>
+#include <thread> // For std::this_thread::yield()
 
 namespace OloEngine
 {
@@ -127,7 +127,7 @@ namespace OloEngine
         bool m_ShowAssetPackBuilder = false;
 
         // Asset Pack Build Management
-        std::future<AssetPackBuilder::BuildResult> m_BuildFuture;
+        AssetPackBuilder::BuildResult m_LastBuildResult{}; // Result from last build (accessed after m_BuildInProgress is false)
         std::atomic<bool> m_BuildInProgress{ false };
         std::atomic<bool> m_BuildCancelRequested{ false };
         std::atomic<f32> m_BuildProgress{ 0.0f };

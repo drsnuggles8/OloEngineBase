@@ -14,6 +14,7 @@
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Physics3D/Physics3DSystem.h"
+#include "OloEngine/Task/Task.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -37,26 +38,12 @@ namespace OloEngine
         // Cancel any ongoing build
         m_BuildCancelRequested.store(true);
 
-        // Wait for build to complete if running
-        if (m_BuildFuture.valid())
+        // Wait for build to complete if running (spin-wait with yield)
+        while (m_BuildInProgress.load())
         {
-            // Wait for completion with timeout to avoid indefinite blocking
-            using namespace std::chrono_literals;
-            while (m_BuildFuture.wait_for(100ms) != std::future_status::ready)
-            {
-                // Keep requesting cancellation during wait
-                m_BuildCancelRequested.store(true);
-            }
-
-            // Get the result to properly clean up the future
-            try
-            {
-                (void)m_BuildFuture.get();
-            }
-            catch (...)
-            {
-                // Ignore exceptions during destruction
-            }
+            // Keep requesting cancellation during wait
+            m_BuildCancelRequested.store(true);
+            std::this_thread::yield();
         }
     }
 
@@ -1115,45 +1102,48 @@ namespace OloEngine
         m_BuildCancelRequested.store(false);
         m_BuildInProgress.store(true);
 
-        // Start async build task using std::async
-        m_BuildFuture = std::async(std::launch::async, [this, settings]() -> AssetPackBuilder::BuildResult
-                                   {
-			try
-			{
-				auto result = AssetPackBuilder::BuildFromActiveProject(settings, m_BuildProgress, &m_BuildCancelRequested);
+        // Start async build task using Task System
+        Tasks::Launch("BuildAssetPack", [this, settings]()
+        {
+            try
+            {
+                auto result = AssetPackBuilder::BuildFromActiveProject(settings, m_BuildProgress, &m_BuildCancelRequested);
 
-				// Mark build as complete
-				m_BuildInProgress.store(false);
+                // Mark build as complete
+                m_BuildInProgress.store(false);
 
-				if (result.m_Success && !m_BuildCancelRequested.load())
-				{
-					OLO_CORE_INFO("Asset Pack built successfully!");
-					OLO_CORE_INFO("  Output: {}", result.m_OutputPath.string());
-					OLO_CORE_INFO("  Assets: {}", result.m_AssetCount);
-					OLO_CORE_INFO("  Scenes: {}", result.m_SceneCount);
-				}
-				else if (m_BuildCancelRequested.load())
-				{
-					OLO_CORE_INFO("Asset Pack build was cancelled");
-				}
-				else
-				{
-					OLO_CORE_ERROR("Asset Pack build failed: {}", result.m_ErrorMessage);
-				}
+                if (result.m_Success && !m_BuildCancelRequested.load())
+                {
+                    OLO_CORE_INFO("Asset Pack built successfully!");
+                    OLO_CORE_INFO("  Output: {}", result.m_OutputPath.string());
+                    OLO_CORE_INFO("  Assets: {}", result.m_AssetCount);
+                    OLO_CORE_INFO("  Scenes: {}", result.m_SceneCount);
+                }
+                else if (m_BuildCancelRequested.load())
+                {
+                    OLO_CORE_INFO("Asset Pack build was cancelled");
+                }
+                else
+                {
+                    OLO_CORE_ERROR("Asset Pack build failed: {}", result.m_ErrorMessage);
+                }
 
-				return result;
-			}
-			catch (const std::exception& ex)
-			{
-				m_BuildInProgress.store(false);
-				OLO_CORE_ERROR("Asset Pack build exception: {}", ex.what());
-				AssetPackBuilder::BuildResult errorResult{};
-				errorResult.m_Success = false;
-				errorResult.m_ErrorMessage = ex.what();
-				errorResult.m_OutputPath.clear();
-				errorResult.m_AssetCount = 0;
-				errorResult.m_SceneCount = 0;
-				return errorResult;			} });
+                // Store result for potential later access
+                m_LastBuildResult = result;
+            }
+            catch (const std::exception& ex)
+            {
+                m_BuildInProgress.store(false);
+                OLO_CORE_ERROR("Asset Pack build exception: {}", ex.what());
+                AssetPackBuilder::BuildResult errorResult{};
+                errorResult.m_Success = false;
+                errorResult.m_ErrorMessage = ex.what();
+                errorResult.m_OutputPath.clear();
+                errorResult.m_AssetCount = 0;
+                errorResult.m_SceneCount = 0;
+                m_LastBuildResult = errorResult;
+            }
+        }, Tasks::ETaskPriority::BackgroundNormal);
 
         OLO_CORE_INFO("Asset Pack build started asynchronously...");
     }

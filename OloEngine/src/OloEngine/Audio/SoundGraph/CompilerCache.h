@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Task/Task.h"
 
 #include <chrono>
 #include <memory>
@@ -11,7 +12,6 @@
 #include <unordered_map>
 #include <list>
 #include <queue>
-#include <thread>
 #include <condition_variable>
 #include <atomic>
 
@@ -184,12 +184,11 @@ namespace OloEngine::Audio::SoundGraph
         bool m_DiskCacheLoaded = false;
         std::string m_InitializationErrors;
 
-        // Async save worker
+        // Async save worker (using Task System)
         std::queue<SaveTask> m_SaveQueue;
         std::mutex m_SaveQueueMutex;
-        std::condition_variable m_SaveQueueCV;
-        std::thread m_SaveWorkerThread;
-        std::atomic<bool> m_SaveWorkerRunning{ false };
+        std::atomic<bool> m_ShuttingDown{ false };
+        std::atomic<u32> m_ActiveSaveTasks{ 0 };
 
         // Helper methods
         std::string GenerateCacheKey(const std::string& sourcePath, const std::string& compilerVersion) const;

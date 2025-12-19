@@ -93,24 +93,10 @@ namespace OloEngine::Audio::SoundGraph
                           m_InitializationErrors.empty() ? "None" : m_InitializationErrors);
         }
 
-        // Start async save worker thread
-        m_SaveWorkerRunning = true;
-        try
-        {
-            m_SaveWorkerThread = std::thread(&CompilerCache::AsyncSaveWorker, this);
-            OLO_CORE_TRACE("CompilerCache: Async save worker thread started");
-        }
-        catch (const std::system_error& e)
-        {
-            m_SaveWorkerRunning = false;
-            OLO_CORE_ERROR("CompilerCache: Failed to create async save worker thread: {} (error code: {})",
-                           e.what(), e.code().value());
-        }
-        catch (const std::exception& e)
-        {
-            m_SaveWorkerRunning = false;
-            OLO_CORE_ERROR("CompilerCache: Failed to create async save worker thread: {}", e.what());
-        }
+        // Initialize async save tracking (using Task System - no worker thread needed)
+        m_ShuttingDown.store(false, std::memory_order_relaxed);
+        m_ActiveSaveTasks.store(0, std::memory_order_relaxed);
+        OLO_CORE_TRACE("CompilerCache: Async save system initialized (using Task System)");
     }
 
     CompilerCache::~CompilerCache()
@@ -1201,116 +1187,116 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        SaveTask task;
-        task.m_Result = result;
-        task.m_FilePath = filePath;
-
+        // Check if we're shutting down
+        if (m_ShuttingDown.load(std::memory_order_acquire))
         {
-            std::lock_guard<std::mutex> lock(m_SaveQueueMutex);
-            m_SaveQueue.push(std::move(task));
+            OLO_CORE_WARN("CompilerCache: Ignoring save request during shutdown for '{}'", result.m_SourcePath);
+            return;
         }
 
-        m_SaveQueueCV.notify_one();
-        OLO_CORE_TRACE("CompilerCache: Enqueued async save for '{}' (queue size: {})",
-                       result.m_SourcePath, m_SaveQueue.size());
+        // Track active save tasks
+        m_ActiveSaveTasks.fetch_add(1, std::memory_order_relaxed);
+
+        // Capture data for the task
+        CompilationResult taskResult = result;
+        std::string taskFilePath = filePath;
+
+        // Use Task System for async save
+        Tasks::Launch(
+            "CompilerCache_AsyncSave",
+            [this, taskResult = std::move(taskResult), taskFilePath = std::move(taskFilePath)]() mutable
+            {
+                // Check if shutting down before performing save
+                if (m_ShuttingDown.load(std::memory_order_acquire))
+                {
+                    OLO_CORE_TRACE("CompilerCache: Skipping save during shutdown for '{}'", taskResult.m_SourcePath);
+                    m_ActiveSaveTasks.fetch_sub(1, std::memory_order_relaxed);
+                    return;
+                }
+
+                // Perform the save
+                try
+                {
+                    if (!SerializeResult(taskResult, taskFilePath))
+                    {
+                        OLO_CORE_ERROR("CompilerCache: Async save failed for '{}' to '{}'",
+                                       taskResult.m_SourcePath, taskFilePath);
+                    }
+                    else
+                    {
+                        OLO_CORE_TRACE("CompilerCache: Async save completed for '{}' to '{}'",
+                                       taskResult.m_SourcePath, taskFilePath);
+                    }
+                }
+                catch (const std::exception& ex)
+                {
+                    OLO_CORE_ERROR("CompilerCache: Exception during async save for '{}': {}",
+                                   taskResult.m_SourcePath, ex.what());
+                }
+                catch (...)
+                {
+                    OLO_CORE_ERROR("CompilerCache: Unknown exception during async save for '{}'",
+                                   taskResult.m_SourcePath);
+                }
+
+                // Decrement active task count
+                m_ActiveSaveTasks.fetch_sub(1, std::memory_order_relaxed);
+            },
+            Tasks::ETaskPriority::BackgroundNormal);
+
+        OLO_CORE_TRACE("CompilerCache: Launched async save task for '{}' (active tasks: {})",
+                       result.m_SourcePath, m_ActiveSaveTasks.load(std::memory_order_relaxed));
     }
 
     void CompilerCache::AsyncSaveWorker()
     {
-        OLO_PROFILE_FUNCTION();
-
-        OLO_CORE_INFO("CompilerCache: Async save worker thread running");
-
-        while (m_SaveWorkerRunning)
-        {
-            SaveTask task;
-
-            {
-                std::unique_lock<std::mutex> lock(m_SaveQueueMutex);
-
-                // Wait for work or shutdown signal
-                m_SaveQueueCV.wait(lock, [this]
-                                   { return !m_SaveQueue.empty() || !m_SaveWorkerRunning; });
-
-                // Exit if shutting down and queue is empty
-                if (!m_SaveWorkerRunning && m_SaveQueue.empty())
-                {
-                    break;
-                }
-
-                // Get next task
-                if (!m_SaveQueue.empty())
-                {
-                    task = std::move(m_SaveQueue.front());
-                    m_SaveQueue.pop();
-                }
-                else
-                {
-                    continue;
-                }
-            }
-
-            // Perform the save outside the lock to avoid blocking enqueuers
-            try
-            {
-                if (!SerializeResult(task.m_Result, task.m_FilePath))
-                {
-                    OLO_CORE_ERROR("CompilerCache: Async save failed for '{}' to '{}'",
-                                   task.m_Result.m_SourcePath, task.m_FilePath);
-                }
-                else
-                {
-                    OLO_CORE_TRACE("CompilerCache: Async save completed for '{}' to '{}'",
-                                   task.m_Result.m_SourcePath, task.m_FilePath);
-                }
-            }
-            catch (const std::exception& ex)
-            {
-                OLO_CORE_ERROR("CompilerCache: Exception during async save for '{}': {}",
-                               task.m_Result.m_SourcePath, ex.what());
-            }
-            catch (...)
-            {
-                OLO_CORE_ERROR("CompilerCache: Unknown exception during async save for '{}'",
-                               task.m_Result.m_SourcePath);
-            }
-        }
-
-        OLO_CORE_INFO("CompilerCache: Async save worker thread shutting down");
+        // NOTE: This method is no longer used. Async saves are now handled via Tasks::Launch() in EnqueueSave().
+        // Kept for API compatibility but should never be called.
+        OLO_CORE_ASSERT(false, "CompilerCache::AsyncSaveWorker should not be called - using Task System instead");
     }
 
     void CompilerCache::ShutdownAsyncSaver()
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_SaveWorkerRunning)
+        // Signal shutdown
+        bool alreadyShuttingDown = m_ShuttingDown.exchange(true, std::memory_order_acq_rel);
+        if (alreadyShuttingDown)
         {
             return; // Already shut down
         }
 
-        OLO_CORE_INFO("CompilerCache: Shutting down async save worker...");
+        OLO_CORE_INFO("CompilerCache: Shutting down async save system...");
 
-        // Signal worker to stop
-        m_SaveWorkerRunning = false;
-        m_SaveQueueCV.notify_all();
-
-        // Wait for worker to finish processing remaining tasks
-        if (m_SaveWorkerThread.joinable())
+        // Wait for all active save tasks to complete
+        u32 remainingTasks = m_ActiveSaveTasks.load(std::memory_order_acquire);
+        if (remainingTasks > 0)
         {
-            m_SaveWorkerThread.join();
+            OLO_CORE_INFO("CompilerCache: Waiting for {} active save tasks to complete...", remainingTasks);
+
+            // Spin-wait for tasks to finish (they should complete quickly)
+            while (m_ActiveSaveTasks.load(std::memory_order_acquire) > 0)
+            {
+                std::this_thread::yield();
+            }
         }
 
-        // Check if any tasks were left unprocessed
+        // Check if any tasks were left in the queue (shouldn't happen with Task System)
         {
             std::lock_guard<std::mutex> lock(m_SaveQueueMutex);
             if (!m_SaveQueue.empty())
             {
                 OLO_CORE_WARN("CompilerCache: {} save tasks were not processed during shutdown",
                               m_SaveQueue.size());
+                // Clear the queue since we're using Task System now (tasks are already launched)
+                while (!m_SaveQueue.empty())
+                {
+                    m_SaveQueue.pop();
+                }
             }
         }
 
-        OLO_CORE_INFO("CompilerCache: Async save worker shutdown complete");
+        OLO_CORE_INFO("CompilerCache: Async save system shutdown complete");
     }
 
 } // namespace OloEngine::Audio::SoundGraph

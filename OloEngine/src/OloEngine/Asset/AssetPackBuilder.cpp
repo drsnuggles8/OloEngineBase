@@ -11,11 +11,11 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
+#include "OloEngine/Task/Task.h"
 
 #include <unordered_set>
 #include <fstream>
 #include <filesystem>
-#include <thread>
 #include <chrono>
 
 namespace OloEngine
@@ -139,25 +139,26 @@ namespace OloEngine
             std::atomic<f32> internalProgress = 0.0f;
             std::atomic<bool> progressUpdateActive = true;
 
-            // Start a simple progress forwarding
-            auto updateProgress = [&]()
-            {
-                while (progressUpdateActive.load())
+            // Launch progress forwarding task using Task System
+            Tasks::Launch(
+                "AssetPackBuilder_ProgressForward",
+                [&progressUpdateActive, &progress, &internalProgress]()
                 {
-                    float internal = internalProgress.load();
-                    progress = 0.3f + (internal * 0.7f);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                }
-            };
-            std::thread progressThread(updateProgress);
+                    while (progressUpdateActive.load(std::memory_order_acquire))
+                    {
+                        float internal = internalProgress.load(std::memory_order_relaxed);
+                        progress.store(0.3f + (internal * 0.7f), std::memory_order_relaxed);
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    }
+                },
+                Tasks::ETaskPriority::BackgroundNormal);
 
             // Call the existing implementation with the populated temporary manager
             result = BuildImpl(tempAssetManager, settings, internalProgress, cancelToken);
 
-            // Stop progress thread and finalize
-            progressUpdateActive = false;
-            if (progressThread.joinable())
-                progressThread.join();
+            // Stop progress forwarding and wait briefly for task to notice
+            progressUpdateActive.store(false, std::memory_order_release);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20)); // Give task time to exit
 
             // Clean up the temporary asset manager
             tempAssetManager->Shutdown();
