@@ -61,7 +61,7 @@ target_compile_definitions(OloEngine PRIVATE
 )
 olo_set_common_definitions(OloEngine)
 
-target_include_directories(OloEngine PRIVATE
+target_include_directories(OloEngine PUBLIC
 	src
 	vendor/assimp-src/include
 	vendor/atomic_queue-src/include
