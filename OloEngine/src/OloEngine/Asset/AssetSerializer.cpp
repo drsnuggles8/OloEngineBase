@@ -1760,9 +1760,6 @@ namespace OloEngine
         // For now, just serialize basic mesh info
         out << YAML::Key << "VertexCount" << YAML::Value << mesh->GetVertices().Num();
         out << YAML::Key << "IndexCount" << YAML::Value << mesh->GetIndices().Num();
-        // For now, just serialize basic mesh info
-        out << YAML::Key << "VertexCount" << YAML::Value << mesh->GetVertices().Num();
-        out << YAML::Key << "IndexCount" << YAML::Value << mesh->GetIndices().Num();
 
         // TODO: Implement submesh and material serialization when those features are added
         //
