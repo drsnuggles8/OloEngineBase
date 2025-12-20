@@ -56,12 +56,19 @@ namespace OloEngine
         CommandPacket& operator=(CommandPacket&& other) noexcept;
 
         // Initialize a command packet with a specific command
+        // WARNING: This uses memcpy which is only safe for trivially copyable types.
+        // For non-trivial types (containing std::vector, smart pointers, etc.),
+        // use CommandAllocator::AllocatePacketWithCommand() instead.
         template<typename T>
         void Initialize(const T& commandData, const PacketMetadata& metadata = {})
         {
             static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
+            static_assert(std::is_trivially_copyable_v<T>,
+                "Initialize() uses memcpy and requires trivially copyable types. "
+                "For non-trivial types like DrawMeshInstancedCommand, use "
+                "CommandAllocator::AllocatePacketWithCommand() instead.");
 
-            // Copy the command data
+            // Copy the command data (safe for trivially copyable types)
             std::memcpy(m_CommandData, &commandData, sizeof(T));
             m_CommandSize = sizeof(T);
             m_CommandType = commandData.header.type;
