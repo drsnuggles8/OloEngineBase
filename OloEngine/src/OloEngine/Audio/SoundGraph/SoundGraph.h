@@ -687,7 +687,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         const bool isFloat = externalObjectOrDefaultValue.isFloat32();
 
-        auto [it, inserted] = m_EndpointInputStreams.try_emplace(id, CreateScope<StreamWriter>(AddInStream(id), std::forward<choc::value::Value>(externalObjectOrDefaultValue), id));
+        auto [it, inserted] = m_EndpointInputStreams.try_emplace(id, CreateScope<StreamWriter>(AddInStream(id), std::move(externalObjectOrDefaultValue), id));
 
         if (isFloat)
         {

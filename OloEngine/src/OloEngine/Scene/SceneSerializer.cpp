@@ -385,7 +385,7 @@ namespace OloEngine
         {
             data = YAML::LoadFile(filepath.string());
         }
-        catch (YAML::ParserException const e)
+        catch (const YAML::ParserException& e)
         {
             OLO_CORE_ERROR("Failed to load .olo file '{0}'\n     {1}", filepath, e.what());
             return false;
