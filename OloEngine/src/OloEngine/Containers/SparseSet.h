@@ -20,15 +20,13 @@
 #include "OloEngine/Containers/ContainerAllocationPolicies.h"
 #include "OloEngine/Containers/Array.h" // For EAllowShrinking
 #include "OloEngine/Serialization/Archive.h"
+#include "OloEngine/Templates/Tuple.h" // For TPair (= TTuple<K,V>)
 #include <initializer_list>
 #include <type_traits>
 #include <utility>
 
 namespace OloEngine
 {
-    // Forward declarations
-    template<typename KeyType, typename ValueType>
-    struct TPair;
 
     /**
      * @class TSparseSet

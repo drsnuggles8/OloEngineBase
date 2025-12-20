@@ -60,14 +60,14 @@ namespace OloEngine
     }
 
     template<typename... Component>
-    static void CopyComponent(entt::registry& dstRegistry, entt::registry& srcRegistry, const std::unordered_map<UUID, entt::entity>& enttMap)
+    static void CopyComponent(entt::registry& dstRegistry, entt::registry& srcRegistry, const TMap<UUID, entt::entity>& enttMap)
     {
         ([&]()
          {
 			auto view = srcRegistry.view<Component>();
 			for (auto entity : view)
 			{
-				entt::entity dstEntity = enttMap.at(srcRegistry.get<IDComponent>(entity).ID);
+				entt::entity dstEntity = enttMap.FindChecked(srcRegistry.get<IDComponent>(entity).ID);
 
 				const auto& srcComponent = srcRegistry.get<Component>(entity);
 				dstRegistry.emplace_or_replace<Component>(dstEntity, srcComponent);
@@ -75,7 +75,7 @@ namespace OloEngine
     }
 
     template<typename... Component>
-    static void CopyComponent(ComponentGroup<Component...>, entt::registry& dst, entt::registry& src, const std::unordered_map<UUID, entt::entity>& enttMap)
+    static void CopyComponent(ComponentGroup<Component...>, entt::registry& dst, entt::registry& src, const TMap<UUID, entt::entity>& enttMap)
     {
         CopyComponent<Component...>(dst, src, enttMap);
     }
@@ -106,7 +106,7 @@ namespace OloEngine
 
         auto& srcSceneRegistry = other->m_Registry;
         auto& dstSceneRegistry = newScene->m_Registry;
-        std::unordered_map<UUID, entt::entity> enttMap;
+        TMap<UUID, entt::entity> enttMap;
 
         // Create entities in new scene
         for (const auto idView = srcSceneRegistry.view<IDComponent>(); auto e : std::ranges::reverse_view(idView))
@@ -114,7 +114,7 @@ namespace OloEngine
             const UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
             const auto& name = srcSceneRegistry.get<TagComponent>(e).Tag;
             const Entity newEntity = newScene->CreateEntityWithUUID(uuid, name);
-            enttMap[uuid] = static_cast<entt::entity>(newEntity);
+            enttMap.Add(uuid, static_cast<entt::entity>(newEntity));
         }
 
         // Copy components (except IDComponent and TagComponent)
@@ -141,7 +141,7 @@ namespace OloEngine
         auto& tag = entity.AddComponent<TagComponent>();
         tag.Tag = name.empty() ? "Entity" : name;
 
-        m_EntityMap.emplace(uuid, entity);
+        m_EntityMap.Add(uuid, entity);
 
         return entity;
     }
@@ -165,7 +165,7 @@ namespace OloEngine
             uuid = UUID();
 
         // Check for UUID collision and resolve if necessary
-        if (m_EntityMap.contains(uuid))
+        if (m_EntityMap.Contains(uuid))
         {
             UUID originalUuid = uuid;
 #ifdef OLO_DEBUG
@@ -177,7 +177,7 @@ namespace OloEngine
             do
             {
                 uuid = UUID();
-            } while (m_EntityMap.contains(uuid));
+            } while (m_EntityMap.Contains(uuid));
 
             OLO_CORE_WARN("Scene::InstantiateWithUUID - Resolved collision: original UUID {} replaced with new UUID {}", static_cast<u64>(originalUuid), static_cast<u64>(uuid));
 #endif
@@ -204,7 +204,7 @@ namespace OloEngine
 
         UUID entityUUID = entity.GetUUID();
         m_Registry.destroy(entity);
-        m_EntityMap.erase(entityUUID);
+        m_EntityMap.Remove(entityUUID);
     }
 
     void Scene::OnRuntimeStart()
@@ -575,8 +575,8 @@ namespace OloEngine
 
     [[nodiscard]] Entity Scene::GetEntityByUUID(UUID uuid)
     {
-        OLO_CORE_ASSERT(m_EntityMap.contains(uuid));
-        return { m_EntityMap.at(uuid), this };
+        OLO_CORE_ASSERT(m_EntityMap.Contains(uuid));
+        return { m_EntityMap.FindChecked(uuid), this };
     }
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name) const
@@ -596,10 +596,10 @@ namespace OloEngine
 
     [[nodiscard]] Entity Scene::GetEntityByUUID(UUID uuid) const
     {
-        OLO_CORE_ASSERT(m_EntityMap.contains(uuid));
+        OLO_CORE_ASSERT(m_EntityMap.Contains(uuid));
         // SAFETY: this is const Scene*, but Entity requires non-const Scene*
         // This is safe because Entity lookup only reads entity data
-        return { m_EntityMap.at(uuid), const_cast<Scene*>(this) };
+        return { m_EntityMap.FindChecked(uuid), const_cast<Scene*>(this) };
     }
 
     [[nodiscard]] Entity Scene::GetPrimaryCameraEntity() const
@@ -651,13 +651,12 @@ namespace OloEngine
 
     [[nodiscard]] std::optional<Entity> Scene::TryGetEntityWithUUID(UUID id) const
     {
-        auto it = m_EntityMap.find(id);
-        if (it != m_EntityMap.end())
+        if (auto* entityPtr = m_EntityMap.Find(id))
         {
             // FIXME: const_cast usage should be minimized. Consider updating Entity class
             // to accept const Scene* for read-only operations or create a const-Entity view.
             // This cast is currently necessary as Entity requires non-const Scene* for API consistency.
-            return Entity{ it->second, const_cast<Scene*>(this) };
+            return Entity{ *entityPtr, const_cast<Scene*>(this) };
         }
         return std::nullopt;
     }

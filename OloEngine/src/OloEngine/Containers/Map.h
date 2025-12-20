@@ -26,6 +26,7 @@
 #include "OloEngine/Containers/Set.h"
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Templates/Sorting.h"
+#include "OloEngine/Templates/Tuple.h"
 #include <initializer_list>
 #include <type_traits>
 #include <utility>
@@ -64,63 +65,6 @@ namespace OloEngine
     // Combined check for any initializer type
     template<typename T>
     inline constexpr bool TIsAnyInitializer = TIsPairInitializer<std::remove_cvref_t<T>>::value || TIsKeyInitializer<std::remove_cvref_t<T>>::value;
-
-    // ============================================================================
-    // TPair - Key/Value Pair
-    // ============================================================================
-
-    /**
-     * @struct TPair
-     * @brief A key-value pair stored in TMap
-     */
-    template<typename KeyType, typename ValueType>
-    struct TPair
-    {
-        KeyType Key;
-        ValueType Value;
-
-        /** Default constructor */
-        [[nodiscard]] constexpr TPair() = default;
-
-        /** Construct from key and value */
-        template<typename KeyInitType, typename ValueInitType>
-        [[nodiscard]] constexpr TPair(KeyInitType&& InKey, ValueInitType&& InValue)
-            : Key(Forward<KeyInitType>(InKey)), Value(Forward<ValueInitType>(InValue))
-        {
-        }
-
-        /** Construct from key only (default-construct value) - exclude initializer types */
-        template<typename KeyInitType>
-            requires(!TIsAnyInitializer<KeyInitType>)
-        [[nodiscard]] explicit constexpr TPair(KeyInitType&& InKey)
-            : Key(Forward<KeyInitType>(InKey)), Value()
-        {
-        }
-
-        /** Construct from TPairInitializer */
-        template<typename KeyInitType, typename ValueInitType>
-        [[nodiscard]] constexpr TPair(TPairInitializer<KeyInitType, ValueInitType>&& Initializer)
-            : Key(Forward<KeyInitType>(Initializer.Key)), Value(Forward<ValueInitType>(Initializer.Value))
-        {
-        }
-
-        /** Construct from TKeyInitializer (key only, default-construct value) */
-        template<typename KeyInitType>
-        [[nodiscard]] constexpr TPair(TKeyInitializer<KeyInitType>&& Initializer)
-            : Key(Forward<KeyInitType>(Initializer.Key)), Value()
-        {
-        }
-
-        [[nodiscard]] bool operator==(const TPair& Other) const
-        {
-            return Key == Other.Key && Value == Other.Value;
-        }
-
-        [[nodiscard]] bool operator!=(const TPair& Other) const
-        {
-            return !(*this == Other);
-        }
-    };
 
     // ============================================================================
     // TPairInitializer - For initializing pairs during Add operations
@@ -2211,14 +2155,6 @@ namespace OloEngine
         }
     } // namespace Freeze
 
-    // ============================================================================
-    // Hash Function for TPair
-    // ============================================================================
-
-    template<typename KeyType, typename ValueType>
-    [[nodiscard]] u32 GetTypeHash(const TPair<KeyType, ValueType>& Pair)
-    {
-        return GetTypeHash(Pair.Key) ^ (GetTypeHash(Pair.Value) << 1);
-    }
+    // Note: GetTypeHash for TPair is provided by Tuple.h via TTuple's hash function
 
 } // namespace OloEngine

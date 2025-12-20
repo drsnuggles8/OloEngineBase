@@ -27,6 +27,7 @@
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Templates/TypeHash.h"
 #include "OloEngine/Templates/RetainedRef.h"
+#include "OloEngine/Templates/Tuple.h" // For TPair (= TTuple<K,V>)
 #include "OloEngine/Memory/MemoryOps.h"
 #include <algorithm>
 #include <initializer_list>
@@ -34,9 +35,6 @@
 
 namespace OloEngine
 {
-    // Forward declarations
-    template<typename KeyType, typename ValueType>
-    struct TPair;
 
     /**
      * @class TCompactSet

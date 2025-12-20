@@ -158,127 +158,118 @@ namespace OloEngine
 
     void Material::Set(const std::string& name, float value)
     {
-        m_FloatUniforms[name] = value;
+        m_FloatUniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, int value)
     {
-        m_IntUniforms[name] = value;
+        m_IntUniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, u32 value)
     {
-        m_UIntUniforms[name] = value;
+        m_UIntUniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, bool value)
     {
-        m_BoolUniforms[name] = value;
+        m_BoolUniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, const glm::vec2& value)
     {
-        m_Vec2Uniforms[name] = value;
+        m_Vec2Uniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, const glm::vec3& value)
     {
-        m_Vec3Uniforms[name] = value;
+        m_Vec3Uniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, const glm::vec4& value)
     {
-        m_Vec4Uniforms[name] = value;
+        m_Vec4Uniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, const glm::ivec2& value)
     {
-        m_IVec2Uniforms[name] = value;
+        m_IVec2Uniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, const glm::ivec3& value)
     {
-        m_IVec3Uniforms[name] = value;
+        m_IVec3Uniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, const glm::ivec4& value)
     {
-        m_IVec4Uniforms[name] = value;
+        m_IVec4Uniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, const glm::mat3& value)
     {
-        m_Mat3Uniforms[name] = value;
+        m_Mat3Uniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, const glm::mat4& value)
     {
-        m_Mat4Uniforms[name] = value;
+        m_Mat4Uniforms.FindOrAdd(name) = value;
     }
 
     void Material::Set(const std::string& name, const Ref<Texture2D>& texture)
     {
-        m_Texture2DUniforms[name] = texture;
+        m_Texture2DUniforms.FindOrAdd(name) = texture;
     }
 
     void Material::Set(const std::string& name, const Ref<Texture2D>& texture, u32 arrayIndex)
     {
         // Use composite key to support array indexing
         std::string key = GenerateArrayKey(name, arrayIndex);
-        m_Texture2DUniforms[key] = texture;
+        m_Texture2DUniforms.FindOrAdd(key) = texture;
     }
 
     void Material::Set(const std::string& name, const Ref<TextureCubemap>& texture)
     {
-        m_TextureCubeUniforms[name] = texture;
+        m_TextureCubeUniforms.FindOrAdd(name) = texture;
     }
 
     float Material::GetFloat(const std::string& name) const
     {
-        auto it = m_FloatUniforms.find(name);
-        if (it != m_FloatUniforms.end())
-            return it->second;
+        if (auto* value = m_FloatUniforms.Find(name))
+            return *value;
 
         // Return default value if not found
-        static const float defaultValue = 0.0f;
-        return defaultValue;
+        return 0.0f;
     }
 
     i32 Material::GetInt(const std::string& name) const
     {
-        auto it = m_IntUniforms.find(name);
-        if (it != m_IntUniforms.end())
-            return it->second;
+        if (auto* value = m_IntUniforms.Find(name))
+            return *value;
 
-        static const i32 defaultValue = 0;
-        return defaultValue;
+        return 0;
     }
 
     u32 Material::GetUInt(const std::string& name) const
     {
-        auto it = m_UIntUniforms.find(name);
-        if (it != m_UIntUniforms.end())
-            return it->second;
+        if (auto* value = m_UIntUniforms.Find(name))
+            return *value;
 
-        static const u32 defaultValue = 0u;
-        return defaultValue;
+        return 0u;
     }
 
     bool Material::GetBool(const std::string& name) const
     {
-        auto it = m_BoolUniforms.find(name);
-        if (it != m_BoolUniforms.end())
-            return it->second;
+        if (auto* value = m_BoolUniforms.Find(name))
+            return *value;
 
-        static const bool defaultValue = false;
-        return defaultValue;
+        return false;
     }
 
     const glm::vec2& Material::GetVector2(const std::string& name) const
     {
-        auto it = m_Vec2Uniforms.find(name);
-        if (it != m_Vec2Uniforms.end())
-            return it->second;
+        if (auto* value = m_Vec2Uniforms.Find(name))
+            return *value;
 
         static const glm::vec2 defaultValue = glm::vec2(0.0f);
         return defaultValue;
@@ -286,9 +277,8 @@ namespace OloEngine
 
     const glm::vec3& Material::GetVector3(const std::string& name) const
     {
-        auto it = m_Vec3Uniforms.find(name);
-        if (it != m_Vec3Uniforms.end())
-            return it->second;
+        if (auto* value = m_Vec3Uniforms.Find(name))
+            return *value;
 
         static const glm::vec3 defaultValue = glm::vec3(0.0f);
         return defaultValue;
@@ -296,9 +286,8 @@ namespace OloEngine
 
     const glm::vec4& Material::GetVector4(const std::string& name) const
     {
-        auto it = m_Vec4Uniforms.find(name);
-        if (it != m_Vec4Uniforms.end())
-            return it->second;
+        if (auto* value = m_Vec4Uniforms.Find(name))
+            return *value;
 
         static const glm::vec4 defaultValue = glm::vec4(0.0f);
         return defaultValue;
@@ -306,9 +295,8 @@ namespace OloEngine
 
     const glm::ivec2& Material::GetIntVector2(const std::string& name) const
     {
-        auto it = m_IVec2Uniforms.find(name);
-        if (it != m_IVec2Uniforms.end())
-            return it->second;
+        if (auto* value = m_IVec2Uniforms.Find(name))
+            return *value;
 
         static const glm::ivec2 defaultValue = glm::ivec2(0);
         return defaultValue;
@@ -316,9 +304,8 @@ namespace OloEngine
 
     const glm::ivec3& Material::GetIntVector3(const std::string& name) const
     {
-        auto it = m_IVec3Uniforms.find(name);
-        if (it != m_IVec3Uniforms.end())
-            return it->second;
+        if (auto* value = m_IVec3Uniforms.Find(name))
+            return *value;
 
         static const glm::ivec3 defaultValue = glm::ivec3(0);
         return defaultValue;
@@ -326,9 +313,8 @@ namespace OloEngine
 
     const glm::ivec4& Material::GetIntVector4(const std::string& name) const
     {
-        auto it = m_IVec4Uniforms.find(name);
-        if (it != m_IVec4Uniforms.end())
-            return it->second;
+        if (auto* value = m_IVec4Uniforms.Find(name))
+            return *value;
 
         static const glm::ivec4 defaultValue = glm::ivec4(0);
         return defaultValue;
@@ -336,9 +322,8 @@ namespace OloEngine
 
     const glm::mat3& Material::GetMatrix3(const std::string& name) const
     {
-        auto it = m_Mat3Uniforms.find(name);
-        if (it != m_Mat3Uniforms.end())
-            return it->second;
+        if (auto* value = m_Mat3Uniforms.Find(name))
+            return *value;
 
         static const glm::mat3 defaultValue = glm::mat3(1.0f);
         return defaultValue;
@@ -346,9 +331,8 @@ namespace OloEngine
 
     const glm::mat4& Material::GetMatrix4(const std::string& name) const
     {
-        auto it = m_Mat4Uniforms.find(name);
-        if (it != m_Mat4Uniforms.end())
-            return it->second;
+        if (auto* value = m_Mat4Uniforms.Find(name))
+            return *value;
 
         static const glm::mat4 defaultValue = glm::mat4(1.0f);
         return defaultValue;
@@ -356,9 +340,8 @@ namespace OloEngine
 
     Ref<Texture2D> Material::GetTexture2D(const std::string& name)
     {
-        auto it = m_Texture2DUniforms.find(name);
-        if (it != m_Texture2DUniforms.end())
-            return it->second;
+        if (auto* value = m_Texture2DUniforms.Find(name))
+            return *value;
 
         return nullptr;
     }
@@ -366,9 +349,8 @@ namespace OloEngine
     Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex)
     {
         std::string key = GenerateArrayKey(name, arrayIndex);
-        auto it = m_Texture2DUniforms.find(key);
-        if (it != m_Texture2DUniforms.end())
-            return it->second;
+        if (auto* value = m_Texture2DUniforms.Find(key))
+            return *value;
 
         return nullptr;
     }
@@ -386,9 +368,8 @@ namespace OloEngine
 
     Ref<TextureCubemap> Material::GetTextureCube(const std::string& name)
     {
-        auto it = m_TextureCubeUniforms.find(name);
-        if (it != m_TextureCubeUniforms.end())
-            return it->second;
+        if (auto* value = m_TextureCubeUniforms.Find(name))
+            return *value;
 
         return nullptr;
     }

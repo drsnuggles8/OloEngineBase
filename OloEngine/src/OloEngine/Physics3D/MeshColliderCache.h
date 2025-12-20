@@ -13,7 +13,7 @@
 #include <unordered_map>
 #include <mutex>
 #include <vector>
-#include <future>
+#include <future> // Still needed for CookMeshAsync return type and CookingRequest::m_Promise
 
 namespace OloEngine
 {
@@ -137,7 +137,7 @@ namespace OloEngine
         // Cooking system
         Ref<MeshCookingFactory> m_CookingFactory;
         std::deque<CookingRequest> m_CookingQueue;
-        std::vector<std::future<void>> m_CookingTasks;
+        std::atomic<u32> m_ActiveCookingTasks{ 0 }; // Tracks number of active cooking tasks
         std::atomic<u32> m_MaxConcurrentCooks = 4;
 
         // Statistics

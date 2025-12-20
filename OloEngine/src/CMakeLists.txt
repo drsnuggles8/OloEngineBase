@@ -70,8 +70,6 @@
 		"OloEngine/Audio/AudioSource.h"
 		"OloEngine/Audio/AudioLoader.cpp"
 		"OloEngine/Audio/AudioLoader.h"
-		"OloEngine/Audio/AudioThread.h"
-		"OloEngine/Audio/AudioThread.cpp"
 		
 		# SoundGraph Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/ArrayNodes.h"
@@ -472,6 +470,8 @@
 		"OloEngine/Templates/IntegerSequence.h"
 		"OloEngine/Templates/Invoke.h"
 		"OloEngine/Templates/Projection.h"
+		"OloEngine/Templates/RefCounting.cpp"
+		"OloEngine/Templates/RefCounting.h"
 		"OloEngine/Templates/RetainedRef.h"
 		"OloEngine/Templates/ReversePredicate.h"
 		"OloEngine/Templates/Sorting.h"

@@ -365,4 +365,7 @@ namespace OloEngine
         Type& RefValue;
     };
 
+    // Note: DeclVal and ForwardAsBase are defined in UnrealTypeTraits.h
+    // to avoid circular dependency issues with TCopyQualifiersAndRefsFromTo_T
+
 } // namespace OloEngine

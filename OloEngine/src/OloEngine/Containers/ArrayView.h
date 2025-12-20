@@ -232,7 +232,7 @@ namespace OloEngine
         template<typename OtherRangeType>
             requires(TIsCompatibleRange<OtherRangeType>::value)
         constexpr TArrayView(OtherRangeType&& Other OLO_LIFETIMEBOUND)
-            : DataPtr(GetData(Other))
+            : DataPtr(ArrayView::Private::GetDataHelper(Other))
         {
             const auto InCount = GetNum(std::forward<OtherRangeType>(Other));
             using InCountType = decltype(InCount);

@@ -3,22 +3,62 @@
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Task/ParallelFor.h"
 
 namespace OloEngine
 {
-    MeshSource::MeshSource(const std::vector<Vertex>& vertices, const std::vector<u32>& indices)
+    // Context structs for ParallelForWithTaskContext - must be in OloEngine namespace for ADL
+    struct FBoundsContext
+    {
+        glm::vec3 Min{ std::numeric_limits<f32>::max() };
+        glm::vec3 Max{ std::numeric_limits<f32>::lowest() };
+    };
+
+    struct FRadiusContext
+    {
+        f32 MaxRadius = 0.0f;
+    };
+
+    MeshSource::MeshSource(const TArray<Vertex>& vertices, const TArray<u32>& indices)
         : m_Vertices(vertices), m_Indices(indices)
     {
         // Initialize bone influences with same size as vertices (all zeroed)
-        m_BoneInfluences.resize(vertices.size());
+        m_BoneInfluences.SetNum(vertices.Num());
+        CalculateBounds();
+    }
+
+    MeshSource::MeshSource(TArray<Vertex>&& vertices, TArray<u32>&& indices)
+        : m_Vertices(MoveTemp(vertices)), m_Indices(MoveTemp(indices))
+    {
+        // Initialize bone influences with same size as vertices (all zeroed)
+        m_BoneInfluences.SetNum(m_Vertices.Num());
+        CalculateBounds();
+    }
+
+    MeshSource::MeshSource(const std::vector<Vertex>& vertices, const std::vector<u32>& indices)
+    {
+        // Convert std::vector to TArray
+        m_Vertices.Reserve(static_cast<i32>(vertices.size()));
+        m_Vertices.Append(vertices.data(), static_cast<i32>(vertices.size()));
+        m_Indices.Reserve(static_cast<i32>(indices.size()));
+        m_Indices.Append(indices.data(), static_cast<i32>(indices.size()));
+        // Initialize bone influences with same size as vertices (all zeroed)
+        m_BoneInfluences.SetNum(m_Vertices.Num());
         CalculateBounds();
     }
 
     MeshSource::MeshSource(std::vector<Vertex>&& vertices, std::vector<u32>&& indices)
-        : m_Vertices(std::move(vertices)), m_Indices(std::move(indices))
     {
+        // Convert std::vector to TArray (move data)
+        m_Vertices.Reserve(static_cast<i32>(vertices.size()));
+        for (auto& v : vertices)
+        {
+            m_Vertices.Add(std::move(v));
+        }
+        m_Indices.Reserve(static_cast<i32>(indices.size()));
+        m_Indices.Append(indices.data(), static_cast<i32>(indices.size()));
         // Initialize bone influences with same size as vertices (all zeroed)
-        m_BoneInfluences.resize(m_Vertices.size());
+        m_BoneInfluences.SetNum(m_Vertices.Num());
         CalculateBounds();
     }
 
@@ -35,7 +75,7 @@ namespace OloEngine
         BuildIndexBuffer();
 
         // Build bone influence buffer if we have rigged data
-        if (HasSkeleton() && !m_BoneInfluences.empty())
+        if (HasSkeleton() && !m_BoneInfluences.IsEmpty())
         {
             BuildBoneInfluenceBuffer();
         }
@@ -63,26 +103,26 @@ namespace OloEngine
 
     void MeshSource::BuildVertexBuffer()
     {
-        if (m_Vertices.empty())
+        if (m_Vertices.IsEmpty())
             return;
 
-        m_VertexBuffer = VertexBuffer::Create(static_cast<const void*>(m_Vertices.data()),
-                                              static_cast<u32>(m_Vertices.size() * sizeof(Vertex)));
+        m_VertexBuffer = VertexBuffer::Create(static_cast<const void*>(m_Vertices.GetData()),
+                                              static_cast<u32>(m_Vertices.Num() * sizeof(Vertex)));
         m_VertexBuffer->SetLayout(Vertex::GetLayout());
     }
 
     void MeshSource::BuildIndexBuffer()
     {
-        if (m_Indices.empty())
+        if (m_Indices.IsEmpty())
             return;
 
-        m_IndexBuffer = IndexBuffer::Create(m_Indices.data(),
-                                            static_cast<u32>(m_Indices.size()));
+        m_IndexBuffer = IndexBuffer::Create(m_Indices.GetData(),
+                                            static_cast<u32>(m_Indices.Num()));
     }
 
     void MeshSource::BuildBoneInfluenceBuffer()
     {
-        if (m_BoneInfluences.empty())
+        if (m_BoneInfluences.IsEmpty())
             return;
 
         // Create buffer layout for bone influences
@@ -91,27 +131,62 @@ namespace OloEngine
             { ShaderDataType::Float4, "a_BoneWeights" } // 4 bone weights
         };
 
-        m_BoneInfluenceBuffer = VertexBuffer::Create(static_cast<const void*>(m_BoneInfluences.data()),
-                                                     static_cast<u32>(m_BoneInfluences.size() * sizeof(BoneInfluence)));
+        m_BoneInfluenceBuffer = VertexBuffer::Create(static_cast<const void*>(m_BoneInfluences.GetData()),
+                                                     static_cast<u32>(m_BoneInfluences.Num() * sizeof(BoneInfluence)));
         m_BoneInfluenceBuffer->SetLayout(boneInfluenceLayout);
     }
 
     void MeshSource::CalculateBounds()
     {
-        if (m_Vertices.empty())
+        if (m_Vertices.IsEmpty())
         {
             m_BoundingBox = BoundingBox();
             m_BoundingSphere = BoundingSphere();
             return;
         }
 
-        glm::vec3 min = m_Vertices[0].Position;
-        glm::vec3 max = m_Vertices[0].Position;
+        const i32 vertexCount = m_Vertices.Num();
 
-        for (const auto& vertex : m_Vertices)
+        // Threshold for parallel processing - small meshes aren't worth the overhead
+        constexpr i32 PARALLEL_THRESHOLD = 1024;
+
+        glm::vec3 min, max;
+
+        if (vertexCount >= PARALLEL_THRESHOLD)
         {
-            min = glm::min(min, vertex.Position);
-            max = glm::max(max, vertex.Position);
+            // Use parallel reduction for large meshes
+            TArray<FBoundsContext> contexts;
+            ParallelForWithTaskContext(
+                "MeshSource::CalculateBounds",
+                contexts,
+                vertexCount,
+                256, // MinBatchSize
+                [this](FBoundsContext& ctx, i32 index)
+                {
+                    const glm::vec3& pos = m_Vertices[index].Position;
+                    ctx.Min = glm::min(ctx.Min, pos);
+                    ctx.Max = glm::max(ctx.Max, pos);
+                });
+
+            // Reduce contexts to get final min/max
+            min = glm::vec3(std::numeric_limits<f32>::max());
+            max = glm::vec3(std::numeric_limits<f32>::lowest());
+            for (const auto& ctx : contexts)
+            {
+                min = glm::min(min, ctx.Min);
+                max = glm::max(max, ctx.Max);
+            }
+        }
+        else
+        {
+            // Sequential for small meshes
+            min = m_Vertices[0].Position;
+            max = m_Vertices[0].Position;
+            for (const auto& vertex : m_Vertices)
+            {
+                min = glm::min(min, vertex.Position);
+                max = glm::max(max, vertex.Position);
+            }
         }
 
         // For animated meshes, expand bounds to account for bone transformations
@@ -136,10 +211,35 @@ namespace OloEngine
         glm::vec3 center = (min + max) * 0.5f;
         f32 radius = 0.0f;
 
-        for (const auto& vertex : m_Vertices)
+        if (vertexCount >= PARALLEL_THRESHOLD)
         {
-            f32 distance = glm::length(vertex.Position - center);
-            radius = glm::max(radius, distance);
+            // Parallel radius calculation
+            TArray<FRadiusContext> radiusContexts;
+            ParallelForWithTaskContext(
+                "MeshSource::CalculateSphereRadius",
+                radiusContexts,
+                vertexCount,
+                256, // MinBatchSize
+                [this, center](FRadiusContext& ctx, i32 index)
+                {
+                    f32 distance = glm::length(m_Vertices[index].Position - center);
+                    ctx.MaxRadius = glm::max(ctx.MaxRadius, distance);
+                });
+
+            // Reduce to find max radius
+            for (const auto& ctx : radiusContexts)
+            {
+                radius = glm::max(radius, ctx.MaxRadius);
+            }
+        }
+        else
+        {
+            // Sequential for small meshes
+            for (const auto& vertex : m_Vertices)
+            {
+                f32 distance = glm::length(vertex.Position - center);
+                radius = glm::max(radius, distance);
+            }
         }
 
         // For animated meshes, also expand the bounding sphere radius
@@ -155,7 +255,7 @@ namespace OloEngine
     {
         for (auto& submesh : m_Submeshes)
         {
-            if (submesh.m_VertexCount == 0 || submesh.m_BaseVertex >= m_Vertices.size())
+            if (submesh.m_VertexCount == 0 || submesh.m_BaseVertex >= static_cast<u32>(m_Vertices.Num()))
             {
                 submesh.m_BoundingBox = BoundingBox();
                 continue;
@@ -163,7 +263,7 @@ namespace OloEngine
 
             // Calculate bounds for this specific submesh
             u32 startVertex = submesh.m_BaseVertex;
-            u32 endVertex = std::min(startVertex + submesh.m_VertexCount, static_cast<u32>(m_Vertices.size()));
+            u32 endVertex = std::min(startVertex + submesh.m_VertexCount, static_cast<u32>(m_Vertices.Num()));
 
             if (startVertex >= endVertex)
             {

@@ -8,6 +8,8 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Utils/PlatformUtils.h"
+#include "OloEngine/Task/Scheduler.h"
+#include "OloEngine/Task/NamedThreads.h"
 
 #include <stdexcept>
 #include <ranges>
@@ -21,6 +23,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Initialize Game Thread identity for the task system
+        LowLevelTasks::InitGameThreadId();
+        Tasks::FNamedThreadManager::Get().AttachToThread(Tasks::ENamedThread::GameThread);
+
         OLO_CORE_ASSERT(!s_Instance, "Application already exists!");
         s_Instance = this;
         // Set working directory here
@@ -28,6 +34,9 @@ namespace OloEngine
         {
             std::filesystem::current_path(m_Specification.WorkingDirectory);
         }
+
+        // Start the task scheduler workers
+        LowLevelTasks::FScheduler::Get().StartWorkers();
 
         try
         {
@@ -95,6 +104,10 @@ namespace OloEngine
 #endif
 
         Renderer::Shutdown();
+
+        // Shutdown task scheduler
+        LowLevelTasks::FScheduler::Get().StopWorkers();
+        Tasks::FNamedThreadManager::Get().DetachFromThread(Tasks::ENamedThread::GameThread);
     }
 
     void Application::PushLayer(Layer* const layer)
@@ -132,9 +145,7 @@ namespace OloEngine
 
     void Application::SubmitToMainThread(const std::function<void()>& function)
     {
-        std::scoped_lock<std::mutex> lock(m_MainThreadQueueMutex);
-
-        m_MainThreadQueue.emplace_back(function);
+        Tasks::EnqueueGameThreadTask(function);
     }
 
     void Application::OnEvent(Event& e)
@@ -166,7 +177,8 @@ namespace OloEngine
             const Timestep timestep = timeNow - m_LastFrameTime;
             m_LastFrameTime = timeNow;
 
-            ExecuteMainThreadQueue();
+            // Process tasks targeted at the Game Thread
+            Tasks::FNamedThreadManager::Get().ProcessTasks(true);
 
             if (!m_Minimized)
             {
@@ -226,17 +238,6 @@ namespace OloEngine
         Renderer::OnWindowResize(fbWidth, fbHeight);
 
         return false;
-    }
-
-    void Application::ExecuteMainThreadQueue()
-    {
-        std::scoped_lock<std::mutex> lock(m_MainThreadQueueMutex);
-
-        for (auto const& func : m_MainThreadQueue)
-        {
-            func();
-        }
-        m_MainThreadQueue.clear();
     }
 
 } // namespace OloEngine

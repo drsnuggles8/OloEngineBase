@@ -110,9 +110,21 @@ namespace OloEngine
             catch (const std::exception& e)
             {
                 OLO_CORE_ERROR("Failed to start file watcher: {}", e.what());
-                OLO_CORE_INFO("Falling back to polling-based file watching");
-                m_FileWatcherThread = std::thread([this]()
-                                                  { FileWatcherThreadFunction(); });
+                OLO_CORE_INFO("Falling back to polling-based file watching using Task System");
+
+                // Use Task System for polling-based file watching instead of dedicated thread
+                m_ShouldTerminate.store(false, std::memory_order_relaxed);
+                m_FileWatcherTaskActive.store(true, std::memory_order_release);
+                u32 currentGeneration = m_FileWatcherGeneration.load(std::memory_order_relaxed);
+
+                Tasks::Launch(
+                    "EditorAssetManager_FileWatcher",
+                    [this, currentGeneration]()
+                    {
+                        FileWatcherThreadFunction();
+                        m_FileWatcherTaskActive.store(false, std::memory_order_release);
+                    },
+                    Tasks::ETaskPriority::BackgroundNormal);
             }
         }
 #endif
@@ -133,11 +145,29 @@ namespace OloEngine
             m_ProjectFileWatcher.reset();
         }
 
-        // Stop polling file watcher (fallback)
-        m_ShouldTerminate = true;
-        if (m_FileWatcherThread.joinable())
+        // Stop polling file watcher (Task System fallback)
+        m_ShouldTerminate.store(true, std::memory_order_release);
+        m_FileWatcherGeneration.fetch_add(1, std::memory_order_relaxed); // Invalidate any active task
+
+        // Wait for file watcher task to complete
+        if (m_FileWatcherTaskActive.load(std::memory_order_acquire))
         {
-            m_FileWatcherThread.join();
+            OLO_CORE_INFO("EditorAssetManager: Waiting for file watcher task to complete...");
+            while (m_FileWatcherTaskActive.load(std::memory_order_acquire))
+            {
+                std::this_thread::yield();
+            }
+        }
+
+        // Wait for any pending async reload tasks
+        u32 remainingReloads = m_ActiveReloadTasks.load(std::memory_order_acquire);
+        if (remainingReloads > 0)
+        {
+            OLO_CORE_INFO("EditorAssetManager: Waiting for {} async reload tasks to complete...", remainingReloads);
+            while (m_ActiveReloadTasks.load(std::memory_order_acquire) > 0)
+            {
+                std::this_thread::yield();
+            }
         }
 #endif
 
@@ -319,9 +349,23 @@ namespace OloEngine
 
     void EditorAssetManager::ReloadDataAsync(AssetHandle assetHandle)
     {
-        // For now, just do sync reload
-        // TODO: Implement proper async reloading
+#if OLO_ASYNC_ASSETS
+        // Use Task System for proper async reloading
+        // Note: ReloadData contains OpenGL operations via asset loading, so we must
+        // submit the actual reload to the main thread. The "async" part is that we
+        // don't block the caller - the reload happens later on the main thread.
+        m_ActiveReloadTasks.fetch_add(1, std::memory_order_relaxed);
+
+        Application::Get().SubmitToMainThread(
+            [this, assetHandle]()
+            {
+                ReloadData(assetHandle);
+                m_ActiveReloadTasks.fetch_sub(1, std::memory_order_relaxed);
+            });
+#else
+        // Synchronous fallback when async assets are disabled
         ReloadData(assetHandle);
+#endif
     }
 
     bool EditorAssetManager::EnsureCurrent(AssetHandle assetHandle)

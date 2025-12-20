@@ -3,9 +3,9 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Containers/Array.h"
 #include "MeshSource.h"
 #include "MaterialAsset.h"
-#include <vector>
 #include <glm/mat4x4.hpp>
 
 namespace OloEngine
@@ -38,12 +38,12 @@ namespace OloEngine
         // Validation
         bool IsValid() const
         {
-            return m_MeshSource && m_SubmeshIndex < m_MeshSource->GetSubmeshes().size();
+            return m_MeshSource && m_SubmeshIndex < static_cast<u32>(m_MeshSource->GetSubmeshes().Num());
         }
 
         // Convenience accessors that delegate to MeshSource
-        const std::vector<Vertex>& GetVertices() const;
-        const std::vector<u32>& GetIndices() const;
+        const TArray<Vertex>& GetVertices() const;
+        const TArray<u32>& GetIndices() const;
         Ref<VertexArray> GetVertexArray() const;
 
         // Submesh-specific data
@@ -86,17 +86,17 @@ namespace OloEngine
     {
       public:
         explicit StaticMesh(AssetHandle meshSource, bool generateColliders = false);
-        StaticMesh(AssetHandle meshSource, const std::vector<u32>& submeshes, bool generateColliders = false);
+        StaticMesh(AssetHandle meshSource, const TArray<u32>& submeshes, bool generateColliders = false);
         virtual ~StaticMesh() = default;
 
         virtual void OnDependencyUpdated(AssetHandle handle) override;
 
         // Submesh management
-        const std::vector<u32>& GetSubmeshes() const
+        const TArray<u32>& GetSubmeshes() const
         {
             return m_Submeshes;
         }
-        void SetSubmeshes(const std::vector<u32>& submeshes);
+        void SetSubmeshes(const TArray<u32>& submeshes);
 
         // MeshSource access
         AssetHandle GetMeshSource() const
@@ -134,7 +134,7 @@ namespace OloEngine
         void SetupStaticMesh();
 
         AssetHandle m_MeshSource;
-        std::vector<u32> m_Submeshes; // Submesh indices to render
+        TArray<u32> m_Submeshes; // Submesh indices to render
 
         // Materials
         Ref<MaterialTable> m_Materials;

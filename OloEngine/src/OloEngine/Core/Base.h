@@ -388,6 +388,19 @@ namespace OloEngine
         {
             return (A >= B) ? A : B;
         }
+
+        /**
+         * @brief Divides two values and rounds up to the nearest integer
+         * @tparam T Integer type
+         * @param Dividend The value to be divided
+         * @param Divisor The value to divide by
+         * @return Ceiling of Dividend / Divisor
+         */
+        template<typename T>
+        [[nodiscard]] static constexpr OLO_FINLINE T DivideAndRoundUp(T Dividend, T Divisor)
+        {
+            return (Dividend + Divisor - 1) / Divisor;
+        }
     };
 } // namespace OloEngine
 

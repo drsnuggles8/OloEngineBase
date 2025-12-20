@@ -3,12 +3,12 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
+#include "OloEngine/Task/Task.h"
 
 #include <atomic>
 #include <chrono>
 #include <algorithm>
-#include <thread>
-#include <future>
+#include <thread> // For std::this_thread::yield() in Shutdown
 #include <cmath>
 #include <filesystem>
 
@@ -49,7 +49,7 @@ namespace OloEngine
             m_CookingFactory = Ref<MeshCookingFactory>(new MeshCookingFactory()); // Recreate factory in clean state
             m_CachedData.clear();
             m_CookingQueue.clear();
-            m_CookingTasks.clear();
+            m_ActiveCookingTasks.store(0, std::memory_order_relaxed);
             m_CurrentCacheSize = 0;
             // Keep m_IsInitialized as false and return early
             return;
@@ -72,14 +72,11 @@ namespace OloEngine
         // Wait for all cooking tasks to complete
         {
             std::lock_guard<std::mutex> lock(m_CookingMutex);
-            for (auto& task : m_CookingTasks)
+            // Wait for active tasks to complete (spin-wait with yield)
+            while (m_ActiveCookingTasks.load(std::memory_order_acquire) > 0)
             {
-                if (task.valid())
-                {
-                    task.wait();
-                }
+                std::this_thread::yield();
             }
-            m_CookingTasks.clear();
             m_CookingQueue.clear();
         }
 
@@ -160,69 +157,64 @@ namespace OloEngine
     {
         std::lock_guard<std::mutex> lock(m_CookingMutex);
 
-        // Clean up completed tasks
-        m_CookingTasks.erase(
-            std::remove_if(m_CookingTasks.begin(), m_CookingTasks.end(),
-                           [](const std::future<void>& task)
-                           {
-                               return task.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
-                           }),
-            m_CookingTasks.end());
-
         // Process new requests if we have capacity
-        while (!m_CookingQueue.empty() && m_CookingTasks.size() < m_MaxConcurrentCooks.load())
+        while (!m_CookingQueue.empty() && m_ActiveCookingTasks.load(std::memory_order_relaxed) < m_MaxConcurrentCooks.load())
         {
             CookingRequest request = std::move(m_CookingQueue.front());
             m_CookingQueue.pop_front();
 
-            // Create async task that updates cache on completion
-            auto task = std::async(std::launch::async, [this, req = std::move(request)]() mutable
-                                   {
-				ECookingResult result = m_CookingFactory->CookMeshType(req.m_ColliderAsset, req.m_Type, req.m_InvalidateOld);
+            // Increment active task counter
+            m_ActiveCookingTasks.fetch_add(1, std::memory_order_relaxed);
 
-				// If cooking succeeded, update the cache entry with the new data
-				if (result == ECookingResult::Success && req.m_ColliderAsset)
-				{
-					AssetHandle handle = req.m_ColliderAsset->GetHandle();
+            // Create task using the Task System
+            Tasks::Launch("MeshColliderCooking", [this, req = std::move(request)]() mutable
+                          {
+                ECookingResult result = m_CookingFactory->CookMeshType(req.m_ColliderAsset, req.m_Type, req.m_InvalidateOld);
 
-					// Load the updated data from disk
-					CachedColliderData updatedData = LoadFromCache(req.m_ColliderAsset);
-					if (updatedData.m_IsValid)
-					{
-						// Update the in-memory cache
-						std::lock_guard<std::mutex> lock(m_CacheMutex);
-						auto it = m_CachedData.find(handle);
-						if (it != m_CachedData.end())
-						{
-							// Update existing entry with new data
-							sizet oldDataSize = CalculateDataSize(it->second);
-							sizet newDataSize = CalculateDataSize(updatedData);
+                // If cooking succeeded, update the cache entry with the new data
+                if (result == ECookingResult::Success && req.m_ColliderAsset)
+                {
+                    AssetHandle handle = req.m_ColliderAsset->GetHandle();
 
-							// Update cache size tracking
-							m_CurrentCacheSize = m_CurrentCacheSize - oldDataSize + newDataSize;
+                    // Load the updated data from disk
+                    CachedColliderData updatedData = LoadFromCache(req.m_ColliderAsset);
+                    if (updatedData.m_IsValid)
+                    {
+                        // Update the in-memory cache
+                        std::lock_guard<std::mutex> cacheLock(m_CacheMutex);
+                        auto it = m_CachedData.find(handle);
+                        if (it != m_CachedData.end())
+                        {
+                            // Update existing entry with new data
+                            sizet oldDataSize = CalculateDataSize(it->second);
+                            sizet newDataSize = CalculateDataSize(updatedData);
 
-							// Replace with updated data
-							it->second = updatedData;
-						}
-						else
-						{
-							// Add new entry if it doesn't exist (shouldn't normally happen)
-							sizet dataSize = CalculateDataSize(updatedData);
+                            // Update cache size tracking
+                            m_CurrentCacheSize = m_CurrentCacheSize - oldDataSize + newDataSize;
 
-							if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
-							{
-								EvictOldestEntries();
-							}
+                            // Replace with updated data
+                            it->second = updatedData;
+                        }
+                        else
+                        {
+                            // Add new entry if it doesn't exist (shouldn't normally happen)
+                            sizet dataSize = CalculateDataSize(updatedData);
 
-							m_CachedData[handle] = updatedData;
-							m_CurrentCacheSize += dataSize;
-						}
-					}
-				}
+                            if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
+                            {
+                                EvictOldestEntries();
+                            }
 
-				req.m_Promise.set_value(result); });
+                            m_CachedData[handle] = updatedData;
+                            m_CurrentCacheSize += dataSize;
+                        }
+                    }
+                }
 
-            m_CookingTasks.push_back(std::move(task));
+                req.m_Promise.set_value(result);
+
+                // Decrement active task counter when done
+                m_ActiveCookingTasks.fetch_sub(1, std::memory_order_relaxed); }, Tasks::ETaskPriority::BackgroundNormal);
         }
     }
 

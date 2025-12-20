@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Task/ParallelFor.h"
 
 namespace OloEngine
 {
@@ -91,45 +92,93 @@ namespace OloEngine
         std::vector<u32> indices;
 
         // Reserve space to reduce allocations during mesh processing
-        vertices.reserve(mesh->mNumVertices);
+        vertices.resize(mesh->mNumVertices);  // Use resize so we can write in parallel
         indices.reserve(mesh->mNumFaces * 3); // Assuming triangulated mesh
 
-        // Process vertices
-        for (u32 i = 0; i < mesh->mNumVertices; i++)
+        // Threshold for parallel vertex processing
+        constexpr u32 PARALLEL_VERTEX_THRESHOLD = 1024;
+        const bool flipUV = m_FlipUV;
+        const bool hasNormals = mesh->HasNormals();
+        const bool hasTexCoords = mesh->mTextureCoords[0] != nullptr;
+
+        if (mesh->mNumVertices >= PARALLEL_VERTEX_THRESHOLD)
         {
-            Vertex vertex;
-
-            // Process vertex positions, normals and texture coordinates
-            vertex.Position = glm::vec3(
-                mesh->mVertices[i].x,
-                mesh->mVertices[i].y,
-                mesh->mVertices[i].z);
-
-            if (mesh->HasNormals())
-            {
-                vertex.Normal = glm::vec3(
-                    mesh->mNormals[i].x,
-                    mesh->mNormals[i].y,
-                    mesh->mNormals[i].z);
-            }
-
-            if (mesh->mTextureCoords[0])
-            {
-                vertex.TexCoord = glm::vec2(
-                    mesh->mTextureCoords[0][i].x,
-                    mesh->mTextureCoords[0][i].y);
-
-                if (m_FlipUV)
+            // Process vertices in parallel
+            ParallelFor(
+                "Model::ProcessMesh::Vertices",
+                static_cast<i32>(mesh->mNumVertices),
+                256, // MinBatchSize
+                [&vertices, mesh, flipUV, hasNormals, hasTexCoords](i32 i)
                 {
-                    vertex.TexCoord.y = 1.0f - vertex.TexCoord.y;
+                    Vertex& vertex = vertices[i];
+
+                    // Process vertex positions, normals and texture coordinates
+                    vertex.Position = glm::vec3(
+                        mesh->mVertices[i].x,
+                        mesh->mVertices[i].y,
+                        mesh->mVertices[i].z);
+
+                    if (hasNormals)
+                    {
+                        vertex.Normal = glm::vec3(
+                            mesh->mNormals[i].x,
+                            mesh->mNormals[i].y,
+                            mesh->mNormals[i].z);
+                    }
+
+                    if (hasTexCoords)
+                    {
+                        vertex.TexCoord = glm::vec2(
+                            mesh->mTextureCoords[0][i].x,
+                            mesh->mTextureCoords[0][i].y);
+
+                        if (flipUV)
+                        {
+                            vertex.TexCoord.y = 1.0f - vertex.TexCoord.y;
+                        }
+                    }
+                    else
+                    {
+                        vertex.TexCoord = glm::vec2(0.0f, 0.0f);
+                    }
+                });
+        }
+        else
+        {
+            // Process vertices sequentially for small meshes
+            for (u32 i = 0; i < mesh->mNumVertices; i++)
+            {
+                Vertex& vertex = vertices[i];
+
+                vertex.Position = glm::vec3(
+                    mesh->mVertices[i].x,
+                    mesh->mVertices[i].y,
+                    mesh->mVertices[i].z);
+
+                if (hasNormals)
+                {
+                    vertex.Normal = glm::vec3(
+                        mesh->mNormals[i].x,
+                        mesh->mNormals[i].y,
+                        mesh->mNormals[i].z);
+                }
+
+                if (hasTexCoords)
+                {
+                    vertex.TexCoord = glm::vec2(
+                        mesh->mTextureCoords[0][i].x,
+                        mesh->mTextureCoords[0][i].y);
+
+                    if (flipUV)
+                    {
+                        vertex.TexCoord.y = 1.0f - vertex.TexCoord.y;
+                    }
+                }
+                else
+                {
+                    vertex.TexCoord = glm::vec2(0.0f, 0.0f);
                 }
             }
-            else
-            {
-                vertex.TexCoord = glm::vec2(0.0f, 0.0f);
-            }
-
-            vertices.push_back(vertex);
         }
 
         for (u32 i = 0; i < mesh->mNumFaces; i++)
@@ -219,9 +268,9 @@ namespace OloEngine
         // For now, we'll just return the primary mesh since the current Assimp processing
         // creates one submesh per Assimp mesh. Future enhancement: modify calling code
         // to handle multiple meshes per MeshSource
-        if (submeshes.size() > 1)
+        if (submeshes.Num() > 1)
         {
-            OLO_CORE_WARN("Model: MeshSource has {} submeshes but only returning first. Consider updating Model loading to handle multiple submeshes per MeshSource.", submeshes.size());
+            OLO_CORE_WARN("Model: MeshSource has {} submeshes but only returning first. Consider updating Model loading to handle multiple submeshes per MeshSource.", submeshes.Num());
         }
 
         return primaryMesh;

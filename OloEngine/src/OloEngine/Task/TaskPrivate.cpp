@@ -3,6 +3,7 @@
 
 #include "OloEngine/Task/TaskPrivate.h"
 #include "OloEngine/Task/NamedThreads.h"
+#include "OloEngine/Task/Pipe.h"
 #include "OloEngine/Core/Log.h"
 
 #include <limits>
@@ -90,6 +91,30 @@ namespace OloEngine::Tasks::Private
         // Check if current thread is the render thread
         ENamedThread CurrentThread = FNamedThreadManager::Get().GetCurrentThreadIfKnown();
         return CurrentThread == ENamedThread::RenderThread;
+    }
+
+    // ============================================================================
+    // FTaskBase pipe-related method implementations
+    // ============================================================================
+
+    FTaskBase* FTaskBase::TryPushIntoPipe()
+    {
+        return m_Pipe->PushIntoPipe(*this);
+    }
+
+    void FTaskBase::ClearPipe()
+    {
+        m_Pipe->ClearTask(*this);
+    }
+
+    void FTaskBase::StartPipeExecution()
+    {
+        m_Pipe->ExecutionStarted();
+    }
+
+    void FTaskBase::FinishPipeExecution()
+    {
+        m_Pipe->ExecutionFinished();
     }
 
 } // namespace OloEngine::Tasks::Private

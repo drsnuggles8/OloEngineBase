@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Containers/Map.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 
@@ -152,7 +153,9 @@ namespace OloEngine
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;
 
-        std::unordered_map<UUID, entt::entity> m_EntityMap;
+        // Entity UUID -> entt::entity lookup map
+        // Using TMap for O(1) lookup with better cache locality
+        TMap<UUID, entt::entity> m_EntityMap;
 
         std::string m_Name = "Untitled";
 

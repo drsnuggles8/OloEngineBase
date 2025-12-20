@@ -2,22 +2,22 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Asset/AssetMetadata.h"
-#include "OloEngine/Core/Thread.h"
 
 #include <queue>
 #include <mutex>
-#include <condition_variable>
 #include <atomic>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
+#include <tuple>
 
 namespace OloEngine
 {
     /**
      * @brief Editor asset system for handling async asset loading
      *
-     * The EditorAssetSystem provides dedicated asset loading thread for editor builds.
-     * It manages asset loading queues, file monitoring for hot-reload detection,
+     * The EditorAssetSystem provides dedicated asset loading for editor builds.
+     * It manages asset loading tasks, file monitoring for hot-reload detection,
      * and async communication with the main thread.
      *
      * This system enables non-blocking asset loading in the editor while maintaining
@@ -30,12 +30,12 @@ namespace OloEngine
         ~EditorAssetSystem();
 
         /**
-         * @brief Stop the asset thread
+         * @brief Stop the asset system (cancels pending tasks if possible)
          */
         void Stop();
 
         /**
-         * @brief Stop the asset thread and wait for completion
+         * @brief Stop the asset system and wait for completion
          */
         void StopAndWait();
 
@@ -46,7 +46,7 @@ namespace OloEngine
         void QueueAssetLoad(const AssetMetadata& metadata);
 
         /**
-         * @brief Get an asset synchronously from the asset thread
+         * @brief Get an asset synchronously (blocking)
          * @param metadata The asset metadata to load
          * @return Loaded asset or nullptr on failure
          */
@@ -66,8 +66,8 @@ namespace OloEngine
         void UpdateLoadedAssetList(const std::unordered_map<AssetHandle, Ref<Asset>>& loadedAssets);
 
         /**
-         * @brief Check if the asset thread is running
-         * @return True if the thread is active
+         * @brief Check if the asset system is running
+         * @return True if active
          */
         bool IsRunning() const
         {
@@ -97,28 +97,12 @@ namespace OloEngine
 
       private:
         /**
-         * @brief Asset monitor update (checks for file changes)
-         */
-        void AssetMonitorUpdate();
-
-        /**
-         * @brief Main asset thread function
-         */
-        void AssetThreadFunc();
-
-        /**
          * @brief Ensure all loaded assets are current
          */
         void EnsureAllLoadedCurrent();
 
       private:
-        Thread m_Thread;
         std::atomic<bool> m_Running = true;
-
-        // Asset loading queue
-        std::queue<AssetMetadata> m_AssetLoadingQueue;
-        mutable std::mutex m_AssetLoadingQueueMutex;
-        std::condition_variable m_AssetLoadingQueueCV;
 
         // Ready assets queue (assets loaded and ready for main thread)
         std::queue<EditorAssetLoadResponse> m_ReadyAssets;
@@ -139,6 +123,7 @@ namespace OloEngine
         mutable std::atomic<u32> m_QueuedAssetsCount{ 0 };
         mutable std::atomic<u32> m_LoadedAssetsCount{ 0 };
         mutable std::atomic<u32> m_FailedAssetsCount{ 0 };
+        mutable std::atomic<sizet> m_ActiveTaskCount{ 0 };
     };
 
 } // namespace OloEngine

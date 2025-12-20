@@ -22,6 +22,11 @@
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 
+#include "OloEngine/Project/Project.h"
+#include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+// Note: Task.h not currently used - see comments in OnAttach() about async asset loading
+
 Sandbox3D::Sandbox3D()
     : Layer("Sandbox3D"),
       m_CameraController(45.0f, 1280.0f / 720.0f, 0.1f, 1000.0f)
@@ -87,16 +92,46 @@ void Sandbox3D::OnAttach()
     OloEngine::RendererProfiler::GetInstance().Initialize();
     // Note: GPUResourceInspector is initialized in Application constructor
 
+    // Set up Project and AssetManager for Sandbox3D
+    // This enables proper asset management infrastructure
+    {
+        OLO_CORE_INFO("Sandbox3D: Initializing Project and AssetManager...");
+        auto project = OloEngine::Project::New();
+        project->GetConfig().Name = "Sandbox3D";
+        project->GetConfig().AssetDirectory = "assets";
+
+        auto editorAssetManager = OloEngine::Ref<OloEngine::EditorAssetManager>::Create();
+        editorAssetManager->Initialize();
+        OloEngine::Project::SetAssetManager(editorAssetManager);
+        OLO_CORE_INFO("Sandbox3D: AssetManager initialized");
+    }
+
     // Create 3D meshes using MeshPrimitives for consistency
     m_CubeMesh = OloEngine::MeshPrimitives::CreateCube();
     m_SphereMesh = OloEngine::MeshPrimitives::CreateSphere();
     m_PlaneMesh = OloEngine::MeshPrimitives::CreatePlane(25.0f, 25.0f);
 
+    // ============================================================================
+    // NOTE ON ASYNC ASSET LOADING:
+    // OpenGL resource creation (textures, buffers, VAOs) MUST happen on the main
+    // thread that owns the OpenGL context. The Task System can be used for:
+    //   1. Loading raw file data (stb_image, assimp) on background threads
+    //   2. Processing/decompressing data on background threads
+    //   3. Then submitting GPU resource creation back to main thread
+    //
+    // TODO: Implement deferred asset loading:
+    //   - AssetLoader::LoadAsync() returns a future/handle
+    //   - Background thread loads file data into CPU memory
+    //   - Main thread poll/callback creates GPU resources when data ready
+    //   - See RuntimeAssetSystem for the pattern (uses Tasks::Launch internally)
+    // ============================================================================
+
+    OLO_CORE_INFO("Sandbox3D: Loading assets synchronously (OpenGL requires main thread)...");
+
     // Load backpack model
     m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create("assets/backpack/backpack.obj");
 
     // Load textures
-    OLO_CORE_INFO("Sandbox3D: Loading textures...");
     m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
     m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
     m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
@@ -104,10 +139,9 @@ void Sandbox3D::OnAttach()
     // Assign textures to the materials
     m_TexturedMaterial.SetDiffuseMap(m_DiffuseMap);
     m_TexturedMaterial.SetSpecularMap(m_SpecularMap);
-
-    // Also assign textures to gold material for the sphere
     m_GoldMaterial.SetDiffuseMap(m_DiffuseMap);
     m_GoldMaterial.SetSpecularMap(m_SpecularMap);
+
     // Initialize PBR materials using the new MaterialPresets utility
     m_PBRGoldMaterial = OloEngine::MaterialPresets::CreateGold("Gold Material");
     m_PBRSilverMaterial = OloEngine::MaterialPresets::CreateSilver("Silver Material");
@@ -116,58 +150,62 @@ void Sandbox3D::OnAttach()
     m_PBRRoughMaterial = *OloEngine::Material::CreatePBR("Rough Red", glm::vec3(0.8f, 0.2f, 0.2f), 0.0f, 0.9f);
     m_PBRSmoothMaterial = *OloEngine::Material::CreatePBR("Smooth Green", glm::vec3(0.2f, 0.8f, 0.2f), 0.0f, 0.1f);
 
-    // Load environment map for IBL - using cubemap faces from OloEditor assets
-    std::vector<std::string> skyboxFaces = {
-        "assets/textures/Skybox/right.jpg",
-        "assets/textures/Skybox/left.jpg",
-        "assets/textures/Skybox/top.jpg",
-        "assets/textures/Skybox/bottom.jpg",
-        "assets/textures/Skybox/front.jpg",
-        "assets/textures/Skybox/back.jpg"
-    };
-
-    auto skyboxCubemap = OloEngine::TextureCubemap::Create(skyboxFaces);
-    m_EnvironmentMap = OloEngine::EnvironmentMap::CreateFromCubemap(skyboxCubemap);
-
-    // Configure IBL for all PBR materials
-    if (m_EnvironmentMap && m_EnvironmentMap->HasIBL())
+    // Load environment map for IBL
     {
-        m_PBRGoldMaterial.ConfigureIBL(
-            m_EnvironmentMap->GetEnvironmentMap(),
-            m_EnvironmentMap->GetIrradianceMap(),
-            m_EnvironmentMap->GetPrefilterMap(),
-            m_EnvironmentMap->GetBRDFLutMap());
+        std::vector<std::string> skyboxFaces = {
+            "assets/textures/Skybox/right.jpg",
+            "assets/textures/Skybox/left.jpg",
+            "assets/textures/Skybox/top.jpg",
+            "assets/textures/Skybox/bottom.jpg",
+            "assets/textures/Skybox/front.jpg",
+            "assets/textures/Skybox/back.jpg"
+        };
 
-        m_PBRSilverMaterial.ConfigureIBL(
-            m_EnvironmentMap->GetEnvironmentMap(),
-            m_EnvironmentMap->GetIrradianceMap(),
-            m_EnvironmentMap->GetPrefilterMap(),
-            m_EnvironmentMap->GetBRDFLutMap());
+        auto skyboxCubemap = OloEngine::TextureCubemap::Create(skyboxFaces);
+        m_EnvironmentMap = OloEngine::EnvironmentMap::CreateFromCubemap(skyboxCubemap);
 
-        m_PBRCopperMaterial.ConfigureIBL(
-            m_EnvironmentMap->GetEnvironmentMap(),
-            m_EnvironmentMap->GetIrradianceMap(),
-            m_EnvironmentMap->GetPrefilterMap(),
-            m_EnvironmentMap->GetBRDFLutMap());
+        // Configure IBL for all PBR materials
+        if (m_EnvironmentMap && m_EnvironmentMap->HasIBL())
+        {
+            m_PBRGoldMaterial.ConfigureIBL(
+                m_EnvironmentMap->GetEnvironmentMap(),
+                m_EnvironmentMap->GetIrradianceMap(),
+                m_EnvironmentMap->GetPrefilterMap(),
+                m_EnvironmentMap->GetBRDFLutMap());
 
-        m_PBRPlasticMaterial.ConfigureIBL(
-            m_EnvironmentMap->GetEnvironmentMap(),
-            m_EnvironmentMap->GetIrradianceMap(),
-            m_EnvironmentMap->GetPrefilterMap(),
-            m_EnvironmentMap->GetBRDFLutMap());
+            m_PBRSilverMaterial.ConfigureIBL(
+                m_EnvironmentMap->GetEnvironmentMap(),
+                m_EnvironmentMap->GetIrradianceMap(),
+                m_EnvironmentMap->GetPrefilterMap(),
+                m_EnvironmentMap->GetBRDFLutMap());
 
-        m_PBRRoughMaterial.ConfigureIBL(
-            m_EnvironmentMap->GetEnvironmentMap(),
-            m_EnvironmentMap->GetIrradianceMap(),
-            m_EnvironmentMap->GetPrefilterMap(),
-            m_EnvironmentMap->GetBRDFLutMap());
+            m_PBRCopperMaterial.ConfigureIBL(
+                m_EnvironmentMap->GetEnvironmentMap(),
+                m_EnvironmentMap->GetIrradianceMap(),
+                m_EnvironmentMap->GetPrefilterMap(),
+                m_EnvironmentMap->GetBRDFLutMap());
 
-        m_PBRSmoothMaterial.ConfigureIBL(
-            m_EnvironmentMap->GetEnvironmentMap(),
-            m_EnvironmentMap->GetIrradianceMap(),
-            m_EnvironmentMap->GetPrefilterMap(),
-            m_EnvironmentMap->GetBRDFLutMap());
+            m_PBRPlasticMaterial.ConfigureIBL(
+                m_EnvironmentMap->GetEnvironmentMap(),
+                m_EnvironmentMap->GetIrradianceMap(),
+                m_EnvironmentMap->GetPrefilterMap(),
+                m_EnvironmentMap->GetBRDFLutMap());
+
+            m_PBRRoughMaterial.ConfigureIBL(
+                m_EnvironmentMap->GetEnvironmentMap(),
+                m_EnvironmentMap->GetIrradianceMap(),
+                m_EnvironmentMap->GetPrefilterMap(),
+                m_EnvironmentMap->GetBRDFLutMap());
+
+            m_PBRSmoothMaterial.ConfigureIBL(
+                m_EnvironmentMap->GetEnvironmentMap(),
+                m_EnvironmentMap->GetIrradianceMap(),
+                m_EnvironmentMap->GetPrefilterMap(),
+                m_EnvironmentMap->GetBRDFLutMap());
+        }
     }
+
+    OLO_CORE_INFO("Sandbox3D: Asset loading complete");
 
     OloEngine::Renderer3D::SetLight(m_Light);
 
@@ -507,6 +545,10 @@ void Sandbox3D::RenderGroundPlane()
 
 void Sandbox3D::RenderGrassQuad()
 {
+    // Guard: skip rendering if texture hasn't loaded yet (async loading)
+    if (!m_GrassTexture)
+        return;
+
     // Draw a grass quad (only in certain scenes)
     auto grassMatrix = glm::mat4(1.0f);
     grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
@@ -810,6 +852,10 @@ void Sandbox3D::RenderStateTestingScene()
 
 void Sandbox3D::RenderModelLoadingScene()
 {
+    // Guard: skip rendering if model hasn't loaded yet (async loading)
+    if (!m_BackpackModel)
+        return;
+
     // Draw backpack model
     auto modelMatrix = glm::mat4(1.0f);
     modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 1.0f, -2.0f));
@@ -1461,7 +1507,7 @@ void Sandbox3D::LoadTestAnimatedModel()
             // Get the first MeshSource with separated bone influences (Hazel approach)
             meshComp.m_MeshSource = m_CesiumManModel->GetMeshes()[0];
             OLO_INFO("MeshComponent created with MeshSource containing {} submeshes and separated bone influences",
-                     meshComp.m_MeshSource->GetSubmeshes().size());
+                     meshComp.m_MeshSource->GetSubmeshes().Num());
 
             // Create a child entity with SubmeshComponent for rendering
             auto submeshEntity = m_TestScene->CreateEntity(modelName + "_Submesh_0");
@@ -1928,9 +1974,13 @@ void Sandbox3D::UpdateCurrentSceneLighting()
 
 void Sandbox3D::RenderPBRModelTestingScene()
 {
-    // Render the selected PBR model
-    if (m_SelectedPBRModelIndex == 0 && m_BackpackModel)
+    // Render the selected PBR model (guards for async loading already in conditionals)
+    if (m_SelectedPBRModelIndex == 0)
     {
+        // Guard: skip if model not loaded yet (async loading)
+        if (!m_BackpackModel)
+            return;
+
         // Render Backpack model using its own materials
         auto modelMatrix = glm::mat4(1.0f);
 
@@ -1948,8 +1998,12 @@ void Sandbox3D::RenderPBRModelTestingScene()
                 OloEngine::Renderer3D::SubmitPacket(cmd);
         }
     }
-    else if (m_SelectedPBRModelIndex == 1 && m_CerberusModel)
+    else if (m_SelectedPBRModelIndex == 1)
     {
+        // Guard: skip if model not loaded yet (async loading)
+        if (!m_CerberusModel)
+            return;
+
         // Render Cerberus model using its own materials
         auto modelMatrix = glm::mat4(1.0f);
 
@@ -2090,7 +2144,7 @@ void Sandbox3D::RenderPhysics3DTestingScene()
         }
 
         // Render the mesh
-        if (meshComp.m_MeshSource && !meshComp.m_MeshSource->GetSubmeshes().empty())
+        if (meshComp.m_MeshSource && !meshComp.m_MeshSource->GetSubmeshes().IsEmpty())
         {
             auto mesh = OloEngine::Ref<OloEngine::Mesh>::Create(meshComp.m_MeshSource, 0);
             auto* packet = OloEngine::Renderer3D::DrawMesh(mesh, transformComp.GetTransform(), material);
@@ -2541,15 +2595,17 @@ void Sandbox3D::LoadTestPBRModel()
 
     if (m_SelectedPBRModelIndex == 0)
     {
-        // Load Backpack
-        OLO_INFO("Loading Backpack model from: {}", assetPath);
-        m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create(assetPath);
+        // Load Backpack synchronously (OpenGL requires main thread)
+        OLO_INFO("Sandbox3D: Loading Backpack model...");
         m_CerberusModel.Reset(); // Clear other model
+        m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create(assetPath);
+        OLO_INFO("Sandbox3D: Backpack model loaded!");
     }
     else if (m_SelectedPBRModelIndex == 1)
     {
-        // Load Cerberus with texture overrides
-        OLO_INFO("Loading Cerberus model from: {}", assetPath);
+        // Load Cerberus with texture overrides synchronously
+        OLO_INFO("Sandbox3D: Loading Cerberus model...");
+        m_BackpackModel.Reset();
 
         // Create texture override configuration for Cerberus
         OloEngine::TextureOverride cerberusTextures;
@@ -2559,33 +2615,7 @@ void Sandbox3D::LoadTestPBRModel()
         cerberusTextures.RoughnessPath = "assets/models/Cerberus/cerberus_R.png";
         cerberusTextures.AOPath = "assets/models/Cerberus/cerberus_R.png";
 
-        // Validate texture loading before proceeding with model loading
-        bool texturesValid = true;
-        std::vector<std::pair<std::string, std::string>> textureChecks = {
-            { "Albedo", cerberusTextures.AlbedoPath },
-            { "Metallic", cerberusTextures.MetallicPath },
-            { "Normal", cerberusTextures.NormalPath },
-            { "Roughness", cerberusTextures.RoughnessPath },
-            { "AO", cerberusTextures.AOPath }
-        };
-
-        for (const auto& [textureName, texturePath] : textureChecks)
-        {
-            auto testTexture = OloEngine::Texture2D::Create(texturePath);
-            if (!testTexture || !testTexture->IsLoaded())
-            {
-                OLO_ERROR("Failed to load {} texture: {}", textureName, texturePath);
-                texturesValid = false;
-            }
-        }
-
-        if (!texturesValid)
-        {
-            OLO_ERROR("Some Cerberus textures failed to load. Model loading aborted.");
-            return;
-        }
-
         m_CerberusModel = OloEngine::Ref<OloEngine::Model>::Create(assetPath, cerberusTextures, true);
-        m_BackpackModel.Reset();
+        OLO_INFO("Sandbox3D: Cerberus model loaded!");
     }
 }

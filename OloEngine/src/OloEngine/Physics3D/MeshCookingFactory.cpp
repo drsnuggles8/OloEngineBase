@@ -142,7 +142,7 @@ namespace OloEngine
         }
 
         const auto& submeshes = meshSource->GetSubmeshes();
-        for (sizet i = 0; i < submeshes.size(); ++i)
+        for (sizet i = 0; i < submeshes.Num(); ++i)
         {
             const auto& submesh = submeshes[i];
 
@@ -193,34 +193,34 @@ namespace OloEngine
         const auto& allIndices = meshSource->GetIndices();
 
         // Validate submesh vertex range bounds
-        if (submesh.m_BaseVertex >= allVertices.size())
+        if (submesh.m_BaseVertex >= allVertices.Num())
         {
             LogCookingError("ProcessSubmesh", "Submesh BaseVertex (" + std::to_string(submesh.m_BaseVertex) +
-                                                  ") is beyond vertices size (" + std::to_string(allVertices.size()) + ")");
+                                                  ") is beyond vertices size (" + std::to_string(allVertices.Num()) + ")");
             return ECookingResult::SourceDataInvalid;
         }
 
-        if (submesh.m_BaseVertex + submesh.m_VertexCount > allVertices.size())
+        if (submesh.m_BaseVertex + submesh.m_VertexCount > allVertices.Num())
         {
             LogCookingError("ProcessSubmesh", "Submesh vertex range [" + std::to_string(submesh.m_BaseVertex) +
                                                   ", " + std::to_string(submesh.m_BaseVertex + submesh.m_VertexCount) +
-                                                  ") exceeds vertices size (" + std::to_string(allVertices.size()) + ")");
+                                                  ") exceeds vertices size (" + std::to_string(allVertices.Num()) + ")");
             return ECookingResult::SourceDataInvalid;
         }
 
         // Validate submesh index range bounds
-        if (submesh.m_BaseIndex >= allIndices.size())
+        if (submesh.m_BaseIndex >= allIndices.Num())
         {
             LogCookingError("ProcessSubmesh", "Submesh BaseIndex (" + std::to_string(submesh.m_BaseIndex) +
-                                                  ") is beyond indices size (" + std::to_string(allIndices.size()) + ")");
+                                                  ") is beyond indices size (" + std::to_string(allIndices.Num()) + ")");
             return ECookingResult::SourceDataInvalid;
         }
 
-        if (submesh.m_BaseIndex + submesh.m_IndexCount > allIndices.size())
+        if (submesh.m_BaseIndex + submesh.m_IndexCount > allIndices.Num())
         {
             LogCookingError("ProcessSubmesh", "Submesh index range [" + std::to_string(submesh.m_BaseIndex) +
                                                   ", " + std::to_string(submesh.m_BaseIndex + submesh.m_IndexCount) +
-                                                  ") exceeds indices size (" + std::to_string(allIndices.size()) + ")");
+                                                  ") exceeds indices size (" + std::to_string(allIndices.Num()) + ")");
             return ECookingResult::SourceDataInvalid;
         }
 
