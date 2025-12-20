@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Map.h"
 #include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -9,7 +10,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <string>
-#include <unordered_map>
 
 namespace OloEngine
 {
@@ -374,59 +374,59 @@ namespace OloEngine
         }
 
         // Accessors for serialization
-        const std::unordered_map<std::string, float>& GetFloatUniforms() const
+        const TMap<std::string, float>& GetFloatUniforms() const
         {
             return m_FloatUniforms;
         }
-        const std::unordered_map<std::string, int>& GetIntUniforms() const
+        const TMap<std::string, int>& GetIntUniforms() const
         {
             return m_IntUniforms;
         }
-        const std::unordered_map<std::string, u32>& GetUIntUniforms() const
+        const TMap<std::string, u32>& GetUIntUniforms() const
         {
             return m_UIntUniforms;
         }
-        const std::unordered_map<std::string, bool>& GetBoolUniforms() const
+        const TMap<std::string, bool>& GetBoolUniforms() const
         {
             return m_BoolUniforms;
         }
-        const std::unordered_map<std::string, glm::vec2>& GetVec2Uniforms() const
+        const TMap<std::string, glm::vec2>& GetVec2Uniforms() const
         {
             return m_Vec2Uniforms;
         }
-        const std::unordered_map<std::string, glm::vec3>& GetVec3Uniforms() const
+        const TMap<std::string, glm::vec3>& GetVec3Uniforms() const
         {
             return m_Vec3Uniforms;
         }
-        const std::unordered_map<std::string, glm::vec4>& GetVec4Uniforms() const
+        const TMap<std::string, glm::vec4>& GetVec4Uniforms() const
         {
             return m_Vec4Uniforms;
         }
-        const std::unordered_map<std::string, glm::ivec2>& GetIVec2Uniforms() const
+        const TMap<std::string, glm::ivec2>& GetIVec2Uniforms() const
         {
             return m_IVec2Uniforms;
         }
-        const std::unordered_map<std::string, glm::ivec3>& GetIVec3Uniforms() const
+        const TMap<std::string, glm::ivec3>& GetIVec3Uniforms() const
         {
             return m_IVec3Uniforms;
         }
-        const std::unordered_map<std::string, glm::ivec4>& GetIVec4Uniforms() const
+        const TMap<std::string, glm::ivec4>& GetIVec4Uniforms() const
         {
             return m_IVec4Uniforms;
         }
-        const std::unordered_map<std::string, glm::mat3>& GetMat3Uniforms() const
+        const TMap<std::string, glm::mat3>& GetMat3Uniforms() const
         {
             return m_Mat3Uniforms;
         }
-        const std::unordered_map<std::string, glm::mat4>& GetMat4Uniforms() const
+        const TMap<std::string, glm::mat4>& GetMat4Uniforms() const
         {
             return m_Mat4Uniforms;
         }
-        const std::unordered_map<std::string, Ref<Texture2D>>& GetTexture2DUniforms() const
+        const TMap<std::string, Ref<Texture2D>>& GetTexture2DUniforms() const
         {
             return m_Texture2DUniforms;
         }
-        const std::unordered_map<std::string, Ref<TextureCubemap>>& GetTextureCubeUniforms() const
+        const TMap<std::string, Ref<TextureCubemap>>& GetTextureCubeUniforms() const
         {
             return m_TextureCubeUniforms;
         }
@@ -443,20 +443,21 @@ namespace OloEngine
         u32 m_MaterialFlags = static_cast<u32>(MaterialFlag::DepthTest);
 
         // Material properties storage (uniform system)
-        std::unordered_map<std::string, float> m_FloatUniforms;
-        std::unordered_map<std::string, int> m_IntUniforms;
-        std::unordered_map<std::string, u32> m_UIntUniforms;
-        std::unordered_map<std::string, bool> m_BoolUniforms;
-        std::unordered_map<std::string, glm::vec2> m_Vec2Uniforms;
-        std::unordered_map<std::string, glm::vec3> m_Vec3Uniforms;
-        std::unordered_map<std::string, glm::vec4> m_Vec4Uniforms;
-        std::unordered_map<std::string, glm::ivec2> m_IVec2Uniforms;
-        std::unordered_map<std::string, glm::ivec3> m_IVec3Uniforms;
-        std::unordered_map<std::string, glm::ivec4> m_IVec4Uniforms;
-        std::unordered_map<std::string, glm::mat3> m_Mat3Uniforms;
-        std::unordered_map<std::string, glm::mat4> m_Mat4Uniforms;
-        std::unordered_map<std::string, Ref<Texture2D>> m_Texture2DUniforms;
-        std::unordered_map<std::string, Ref<TextureCubemap>> m_TextureCubeUniforms;
+        // Using TMap for better cache performance on hot path (every draw call)
+        TMap<std::string, float> m_FloatUniforms;
+        TMap<std::string, int> m_IntUniforms;
+        TMap<std::string, u32> m_UIntUniforms;
+        TMap<std::string, bool> m_BoolUniforms;
+        TMap<std::string, glm::vec2> m_Vec2Uniforms;
+        TMap<std::string, glm::vec3> m_Vec3Uniforms;
+        TMap<std::string, glm::vec4> m_Vec4Uniforms;
+        TMap<std::string, glm::ivec2> m_IVec2Uniforms;
+        TMap<std::string, glm::ivec3> m_IVec3Uniforms;
+        TMap<std::string, glm::ivec4> m_IVec4Uniforms;
+        TMap<std::string, glm::mat3> m_Mat3Uniforms;
+        TMap<std::string, glm::mat4> m_Mat4Uniforms;
+        TMap<std::string, Ref<Texture2D>> m_Texture2DUniforms;
+        TMap<std::string, Ref<TextureCubemap>> m_TextureCubeUniforms;
 
         // =====================================================================
         // PRIVATE MATERIAL PROPERTIES (Encapsulated)

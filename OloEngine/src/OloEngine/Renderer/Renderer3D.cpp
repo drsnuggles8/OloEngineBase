@@ -743,14 +743,14 @@ namespace OloEngine
         static bool s_FirstRun = true;
         if (s_FirstRun)
         {
-            OLO_CORE_INFO("Renderer3D::DrawAnimatedMesh: First animated mesh with {} bone influences", meshSource->GetBoneInfluences().size());
+            OLO_CORE_INFO("Renderer3D::DrawAnimatedMesh: First animated mesh with {} bone influences", meshSource->GetBoneInfluences().Num());
             s_FirstRun = false;
         }
 
         if (!meshSource->HasBoneInfluences())
         {
             OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Mesh has no bone influences (size: {}), falling back to regular mesh rendering",
-                          meshSource->GetBoneInfluences().size());
+                          meshSource->GetBoneInfluences().Num());
             return DrawMesh(mesh, modelMatrix, material, isStatic);
         }
 
@@ -1026,7 +1026,7 @@ namespace OloEngine
         // Fallback: if no submesh entities found, create a mesh from the first submesh
         if (!renderedAnySubmesh)
         {
-            if (meshComp.m_MeshSource->GetSubmeshes().size() > 0)
+            if (meshComp.m_MeshSource->GetSubmeshes().Num() > 0)
             {
                 auto mesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
 

@@ -60,7 +60,7 @@ namespace OloEngine
         m_ActiveTaskCount.fetch_add(1, std::memory_order_relaxed);
 
         Tasks::Launch("RuntimeAssetLoad", [this, request]()
-        {
+                      {
             if (!m_Running.load(std::memory_order_acquire))
             {
                 m_ActiveTaskCount.fetch_sub(1, std::memory_order_relaxed);
@@ -105,8 +105,7 @@ namespace OloEngine
                 m_PendingAssets.erase(request.Handle);
             }
 
-            m_ActiveTaskCount.fetch_sub(1, std::memory_order_relaxed);
-        }, Tasks::ETaskPriority::BackgroundNormal);
+            m_ActiveTaskCount.fetch_sub(1, std::memory_order_relaxed); }, Tasks::ETaskPriority::BackgroundNormal);
     }
 
     void RuntimeAssetSystem::SyncWithAssetThread()

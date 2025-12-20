@@ -1507,7 +1507,7 @@ void Sandbox3D::LoadTestAnimatedModel()
             // Get the first MeshSource with separated bone influences (Hazel approach)
             meshComp.m_MeshSource = m_CesiumManModel->GetMeshes()[0];
             OLO_INFO("MeshComponent created with MeshSource containing {} submeshes and separated bone influences",
-                     meshComp.m_MeshSource->GetSubmeshes().size());
+                     meshComp.m_MeshSource->GetSubmeshes().Num());
 
             // Create a child entity with SubmeshComponent for rendering
             auto submeshEntity = m_TestScene->CreateEntity(modelName + "_Submesh_0");
@@ -2144,7 +2144,7 @@ void Sandbox3D::RenderPhysics3DTestingScene()
         }
 
         // Render the mesh
-        if (meshComp.m_MeshSource && !meshComp.m_MeshSource->GetSubmeshes().empty())
+        if (meshComp.m_MeshSource && !meshComp.m_MeshSource->GetSubmeshes().IsEmpty())
         {
             auto mesh = OloEngine::Ref<OloEngine::Mesh>::Create(meshComp.m_MeshSource, 0);
             auto* packet = OloEngine::Renderer3D::DrawMesh(mesh, transformComp.GetTransform(), material);

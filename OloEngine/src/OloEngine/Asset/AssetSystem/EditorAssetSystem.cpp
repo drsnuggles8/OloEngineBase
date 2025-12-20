@@ -63,7 +63,7 @@ namespace OloEngine
 
         // Launch async task
         Tasks::Launch("LoadAsset", [this, metadata]()
-        {
+                      {
             if (!m_Running)
             {
                 m_ActiveTaskCount.fetch_sub(1, std::memory_order_relaxed);
@@ -79,7 +79,7 @@ namespace OloEngine
             }
 
             Ref<Asset> asset = GetAsset(metadata);
-            
+
             if (asset)
             {
                 EditorAssetLoadResponse response;
@@ -112,8 +112,7 @@ namespace OloEngine
                                (u64)metadata.Handle, loadedCount, failedCount);
             }
 
-            m_ActiveTaskCount.fetch_sub(1, std::memory_order_relaxed);
-        }, Tasks::ETaskPriority::BackgroundNormal);
+            m_ActiveTaskCount.fetch_sub(1, std::memory_order_relaxed); }, Tasks::ETaskPriority::BackgroundNormal);
     }
 
     Ref<Asset> EditorAssetSystem::GetAsset(const AssetMetadata& metadata)

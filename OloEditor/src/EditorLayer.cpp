@@ -1104,7 +1104,7 @@ namespace OloEngine
 
         // Start async build task using Task System
         Tasks::Launch("BuildAssetPack", [this, settings]()
-        {
+                      {
             try
             {
                 auto result = AssetPackBuilder::BuildFromActiveProject(settings, m_BuildProgress, &m_BuildCancelRequested);
@@ -1142,8 +1142,7 @@ namespace OloEngine
                 errorResult.m_AssetCount = 0;
                 errorResult.m_SceneCount = 0;
                 m_LastBuildResult = errorResult;
-            }
-        }, Tasks::ETaskPriority::BackgroundNormal);
+            } }, Tasks::ETaskPriority::BackgroundNormal);
 
         OLO_CORE_INFO("Asset Pack build started asynchronously...");
     }

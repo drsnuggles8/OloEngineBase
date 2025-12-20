@@ -261,7 +261,7 @@ namespace OloEngine::Audio::SoundGraph
 
             // Start async load using Task System
             Tasks::Launch("WavePlayerAudioLoad", [this, waveAsset, currentGeneration]()
-            {
+                          {
                 // Check if this load is still relevant
                 if (m_ShuttingDown.load(std::memory_order_acquire) ||
                     currentGeneration != m_LoadGeneration.load(std::memory_order_relaxed))
@@ -306,8 +306,7 @@ namespace OloEngine::Audio::SoundGraph
                     std::lock_guard<std::mutex> lock(m_LoadResultMutex);
                     m_LoadResult = std::move(result);
                     m_LoadResultReady.store(true, std::memory_order_release);
-                }
-            }, Tasks::ETaskPriority::BackgroundNormal);
+                } }, Tasks::ETaskPriority::BackgroundNormal);
         }
 
         void CheckAsyncLoadCompletion()

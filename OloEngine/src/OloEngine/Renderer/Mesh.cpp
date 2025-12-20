@@ -11,7 +11,7 @@ namespace OloEngine
         : m_MeshSource(meshSource), m_SubmeshIndex(submeshIndex)
     {
         OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
-        OLO_CORE_ASSERT(m_SubmeshIndex < m_MeshSource->GetSubmeshes().size(), "Submesh index out of range!");
+        OLO_CORE_ASSERT(m_SubmeshIndex < static_cast<u32>(m_MeshSource->GetSubmeshes().Num()), "Submesh index out of range!");
     }
 
     void Mesh::SetMeshSource(Ref<MeshSource> meshSource)
@@ -22,10 +22,10 @@ namespace OloEngine
         if (meshSource != m_MeshSource)
         {
             // Adjust submesh index if it exceeds new meshSource's submesh count
-            if (m_SubmeshIndex >= meshSource->GetSubmeshes().size())
+            if (m_SubmeshIndex >= static_cast<u32>(meshSource->GetSubmeshes().Num()))
             {
                 OLO_CORE_WARN("Mesh::SetMeshSource: Submesh index {} exceeds new MeshSource submesh count ({}), resetting to 0",
-                              m_SubmeshIndex, meshSource->GetSubmeshes().size());
+                              m_SubmeshIndex, meshSource->GetSubmeshes().Num());
                 m_SubmeshIndex = 0;
             }
         }
@@ -36,22 +36,22 @@ namespace OloEngine
     void Mesh::SetSubmeshIndex(u32 submeshIndex)
     {
         OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null! Cannot set submesh index on invalid Mesh.");
-        if (submeshIndex >= m_MeshSource->GetSubmeshes().size())
+        if (submeshIndex >= static_cast<u32>(m_MeshSource->GetSubmeshes().Num()))
         {
             OLO_CORE_ERROR("Submesh index {} out of range! MeshSource has {} submeshes.",
-                           submeshIndex, m_MeshSource->GetSubmeshes().size());
+                           submeshIndex, m_MeshSource->GetSubmeshes().Num());
             OLO_CORE_ASSERT(false);
         }
         m_SubmeshIndex = submeshIndex;
     }
 
-    const std::vector<Vertex>& Mesh::GetVertices() const
+    const TArray<Vertex>& Mesh::GetVertices() const
     {
         OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
         return m_MeshSource->GetVertices();
     }
 
-    const std::vector<u32>& Mesh::GetIndices() const
+    const TArray<u32>& Mesh::GetIndices() const
     {
         OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
         return m_MeshSource->GetIndices();
@@ -66,7 +66,7 @@ namespace OloEngine
     const Submesh& Mesh::GetSubmesh() const
     {
         OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
-        OLO_CORE_ASSERT(m_SubmeshIndex < m_MeshSource->GetSubmeshes().size(), "Submesh index out of range!");
+        OLO_CORE_ASSERT(m_SubmeshIndex < static_cast<u32>(m_MeshSource->GetSubmeshes().Num()), "Submesh index out of range!");
         return m_MeshSource->GetSubmeshes()[m_SubmeshIndex];
     }
 
@@ -76,7 +76,7 @@ namespace OloEngine
             return false;
 
         const auto& submeshes = m_MeshSource->GetSubmeshes();
-        if (m_SubmeshIndex >= submeshes.size())
+        if (m_SubmeshIndex >= static_cast<u32>(submeshes.Num()))
             return false;
 
         return m_MeshSource->IsSubmeshRigged(m_SubmeshIndex);
@@ -93,7 +93,7 @@ namespace OloEngine
 #else
         // Production mode: use submesh-specific bounding box
         const auto& submeshes = m_MeshSource->GetSubmeshes();
-        if (m_SubmeshIndex < submeshes.size())
+        if (m_SubmeshIndex < static_cast<u32>(submeshes.Num()))
         {
             return submeshes[m_SubmeshIndex].m_BoundingBox;
         }
@@ -138,7 +138,7 @@ namespace OloEngine
             return 0;
 
         const auto& submeshes = m_MeshSource->GetSubmeshes();
-        if (m_SubmeshIndex < submeshes.size())
+        if (m_SubmeshIndex < static_cast<u32>(submeshes.Num()))
         {
             return submeshes[m_SubmeshIndex].m_IndexCount;
         }
@@ -157,7 +157,7 @@ namespace OloEngine
         SetupStaticMesh();
     }
 
-    StaticMesh::StaticMesh(AssetHandle meshSource, const std::vector<u32>& submeshes, bool generateColliders)
+    StaticMesh::StaticMesh(AssetHandle meshSource, const TArray<u32>& submeshes, bool generateColliders)
         : m_MeshSource(meshSource), m_Submeshes(submeshes), m_GenerateColliders(generateColliders)
     {
         SetupStaticMesh();
@@ -172,7 +172,7 @@ namespace OloEngine
         }
     }
 
-    void StaticMesh::SetSubmeshes(const std::vector<u32>& submeshes)
+    void StaticMesh::SetSubmeshes(const TArray<u32>& submeshes)
     {
         m_Submeshes = submeshes;
 
@@ -216,25 +216,24 @@ namespace OloEngine
         }
 
         // If no specific submeshes were requested, use all submeshes
-        if (m_Submeshes.empty())
+        if (m_Submeshes.IsEmpty())
         {
             const auto& submeshes = meshSourceAsset->GetSubmeshes();
-            m_Submeshes.resize(submeshes.size());
-            std::iota(m_Submeshes.begin(), m_Submeshes.end(), 0u);
+            m_Submeshes.SetNum(submeshes.Num());
+            for (i32 i = 0; i < m_Submeshes.Num(); ++i)
+            {
+                m_Submeshes[i] = static_cast<u32>(i);
+            }
         }
 
         // Validate submesh indices
         const auto& submeshes = meshSourceAsset->GetSubmeshes();
-        for (auto it = m_Submeshes.begin(); it != m_Submeshes.end();)
+        for (i32 i = m_Submeshes.Num() - 1; i >= 0; --i)
         {
-            if (*it >= submeshes.size())
+            if (m_Submeshes[i] >= static_cast<u32>(submeshes.Num()))
             {
-                OLO_CORE_WARN("StaticMesh::SetupStaticMesh - Invalid submesh index {} (max: {}), removing", *it, submeshes.size() - 1);
-                it = m_Submeshes.erase(it);
-            }
-            else
-            {
-                ++it;
+                OLO_CORE_WARN("StaticMesh::SetupStaticMesh - Invalid submesh index {} (max: {}), removing", m_Submeshes[i], submeshes.Num() - 1);
+                m_Submeshes.RemoveAt(i);
             }
         }
 

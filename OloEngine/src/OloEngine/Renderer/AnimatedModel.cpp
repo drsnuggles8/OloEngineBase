@@ -197,12 +197,13 @@ namespace OloEngine
         }
 
         // Copy bone influences
-        meshSource->GetBoneInfluences() = std::move(boneInfluences);
+        meshSource->GetBoneInfluences().Empty();
+        meshSource->GetBoneInfluences().Append(boneInfluences);
 
-        OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Set {} bone influences on MeshSource", meshSource->GetBoneInfluences().size());
+        OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Set {} bone influences on MeshSource", meshSource->GetBoneInfluences().Num());
 
         // Copy bone info in correct skeleton order
-        meshSource->GetBoneInfo().resize(m_Skeleton->m_BoneNames.size());
+        meshSource->GetBoneInfo().SetNum(m_Skeleton->m_BoneNames.size());
 
         // Initialize all entries with identity transforms and sequential IDs to ensure no uninitialized data
         for (u32 i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
@@ -213,7 +214,7 @@ namespace OloEngine
         // Overwrite entries with actual bone data from m_BoneInfoMap
         for (const auto& [boneName, boneInfo] : m_BoneInfoMap)
         {
-            if (boneInfo.Id < meshSource->GetBoneInfo().size())
+            if (boneInfo.Id < meshSource->GetBoneInfo().Num())
             {
                 meshSource->GetBoneInfo()[boneInfo.Id] = { boneInfo.Offset, boneInfo.Id };
             }

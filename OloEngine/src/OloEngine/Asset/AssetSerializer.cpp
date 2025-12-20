@@ -1755,14 +1755,14 @@ namespace OloEngine
 
         // TODO: Current Mesh class doesn't have GetSubmeshes/GetMaterials methods
         // Serialize mesh properties
-        // out << YAML::Key << "SubmeshCount" << YAML::Value << mesh->GetSubmeshes().size();
+        // out << YAML::Key << "SubmeshCount" << YAML::Value << mesh->GetSubmeshes().Num();
 
         // For now, just serialize basic mesh info
-        out << YAML::Key << "VertexCount" << YAML::Value << mesh->GetVertices().size();
-        out << YAML::Key << "IndexCount" << YAML::Value << mesh->GetIndices().size();
+        out << YAML::Key << "VertexCount" << YAML::Value << mesh->GetVertices().Num();
+        out << YAML::Key << "IndexCount" << YAML::Value << mesh->GetIndices().Num();
         // For now, just serialize basic mesh info
-        out << YAML::Key << "VertexCount" << YAML::Value << mesh->GetVertices().size();
-        out << YAML::Key << "IndexCount" << YAML::Value << mesh->GetIndices().size();
+        out << YAML::Key << "VertexCount" << YAML::Value << mesh->GetVertices().Num();
+        out << YAML::Key << "IndexCount" << YAML::Value << mesh->GetIndices().Num();
 
         // TODO: Implement submesh and material serialization when those features are added
         //
@@ -2045,7 +2045,7 @@ namespace OloEngine
 
             // Serialize submesh indices if not using all submeshes
             const auto& submeshIndices = staticMesh->GetSubmeshes();
-            if (!submeshIndices.empty())
+            if (!submeshIndices.IsEmpty())
             {
                 out << YAML::Key << "Submeshes" << YAML::Value;
                 out << YAML::BeginSeq;
@@ -2106,18 +2106,18 @@ namespace OloEngine
             bool generateColliders = meshNode["GenerateColliders"].as<bool>(false);
 
             // Get submesh indices (optional)
-            std::vector<u32> submeshIndices;
+            TArray<u32> submeshIndices;
             if (meshNode["Submeshes"])
             {
                 for (const auto& submeshNode : meshNode["Submeshes"])
                 {
-                    submeshIndices.push_back(submeshNode.as<u32>());
+                    submeshIndices.Add(submeshNode.as<u32>());
                 }
             }
 
             // Create the static mesh
             Ref<StaticMesh> staticMesh;
-            if (submeshIndices.empty())
+            if (submeshIndices.IsEmpty())
             {
                 staticMesh = Ref<StaticMesh>::Create(meshSourceHandle, generateColliders);
             }
@@ -2229,7 +2229,7 @@ namespace OloEngine
 
             // Write submesh indices
             const auto& submeshIndices = staticMesh->GetSubmeshes();
-            stream.WriteRaw<u32>(static_cast<u32>(submeshIndices.size()));
+            stream.WriteRaw<u32>(static_cast<u32>(submeshIndices.Num()));
             for (u32 index : submeshIndices)
             {
                 stream.WriteRaw<u32>(index);
@@ -2260,19 +2260,19 @@ namespace OloEngine
             // Read submesh indices
             u32 submeshCount;
             stream.ReadRaw(submeshCount);
-            std::vector<u32> submeshIndices;
-            submeshIndices.reserve(submeshCount);
+            TArray<u32> submeshIndices;
+            submeshIndices.Reserve(static_cast<i32>(submeshCount));
 
             for (u32 i = 0; i < submeshCount; ++i)
             {
                 u32 submeshIndex;
                 stream.ReadRaw(submeshIndex);
-                submeshIndices.push_back(submeshIndex);
+                submeshIndices.Add(submeshIndex);
             }
 
             // Create static mesh
             Ref<StaticMesh> staticMesh;
-            if (submeshIndices.empty())
+            if (submeshIndices.IsEmpty())
             {
                 staticMesh = Ref<StaticMesh>::Create(meshSourceHandle, generateColliders);
             }

@@ -1697,6 +1697,103 @@ namespace OloEngine
     template<typename From, typename To>
     inline constexpr bool TLosesQualifiersFromTo_V = TLosesQualifiersFromTo<From, To>::Value;
 
+    // ========================================================================
+    // TCopyQualifiersAndRefsFromTo
+    // ========================================================================
+
+    /**
+     * @struct TCopyQualifiersAndRefsFromTo
+     * @brief Copies the cv-qualifiers AND references from one type to another
+     *
+     * Examples:
+     * - TCopyQualifiersAndRefsFromTo_T<const T1, T2> == const T2
+     * - TCopyQualifiersAndRefsFromTo_T<T1&, const T2> == const T2&
+     * - TCopyQualifiersAndRefsFromTo_T<T1&&, T2> == T2&&
+     */
+    template<typename From, typename To>
+    struct TCopyQualifiersAndRefsFromTo
+    {
+        using Type = TCopyQualifiersFromTo_T<From, To>;
+    };
+    template<typename From, typename To>
+    struct TCopyQualifiersAndRefsFromTo<From, To&>
+    {
+        using Type = TCopyQualifiersFromTo_T<From, To>&;
+    };
+    template<typename From, typename To>
+    struct TCopyQualifiersAndRefsFromTo<From, To&&>
+    {
+        using Type = TCopyQualifiersFromTo_T<From, To>&&;
+    };
+    template<typename From, typename To>
+    struct TCopyQualifiersAndRefsFromTo<From&, To>
+    {
+        using Type = TCopyQualifiersFromTo_T<From, To>&;
+    };
+    template<typename From, typename To>
+    struct TCopyQualifiersAndRefsFromTo<From&, To&>
+    {
+        using Type = TCopyQualifiersFromTo_T<From, To>&;
+    };
+    template<typename From, typename To>
+    struct TCopyQualifiersAndRefsFromTo<From&, To&&>
+    {
+        using Type = TCopyQualifiersFromTo_T<From, To>&;
+    };
+    template<typename From, typename To>
+    struct TCopyQualifiersAndRefsFromTo<From&&, To>
+    {
+        using Type = TCopyQualifiersFromTo_T<From, To>&&;
+    };
+    template<typename From, typename To>
+    struct TCopyQualifiersAndRefsFromTo<From&&, To&>
+    {
+        using Type = TCopyQualifiersFromTo_T<From, To>&;
+    };
+    template<typename From, typename To>
+    struct TCopyQualifiersAndRefsFromTo<From&&, To&&>
+    {
+        using Type = TCopyQualifiersFromTo_T<From, To>&&;
+    };
+
+    template<typename From, typename To>
+    using TCopyQualifiersAndRefsFromTo_T = typename TCopyQualifiersAndRefsFromTo<From, To>::Type;
+
+    // ========================================================================
+    // DeclVal
+    // ========================================================================
+
+    /**
+     * @brief Returns a reference to a type without constructing it.
+     *
+     * Equivalent to std::declval<T>(), used for unevaluated contexts like
+     * decltype and sizeof.
+     */
+    template<typename T>
+    T&& DeclVal();
+
+    // ========================================================================
+    // ForwardAsBase
+    // ========================================================================
+
+    /**
+     * @brief Casts a reference type to an rvalue reference of a base type.
+     *
+     * Useful for calling a specific base class version of an overloaded function.
+     * This correctly handles const/volatile qualifiers and reference types.
+     */
+    template<typename T, typename Base>
+    OLO_FINLINE TCopyQualifiersAndRefsFromTo_T<T&&, Base> ForwardAsBase(std::remove_reference_t<T>& Obj)
+    {
+        return static_cast<TCopyQualifiersAndRefsFromTo_T<T&&, Base>>(Obj);
+    }
+
+    template<typename T, typename Base>
+    OLO_FINLINE TCopyQualifiersAndRefsFromTo_T<T&&, Base> ForwardAsBase(std::remove_reference_t<T>&& Obj)
+    {
+        return static_cast<TCopyQualifiersAndRefsFromTo_T<T&&, Base>>(Obj);
+    }
+
 } // namespace OloEngine
 
 // ============================================================================

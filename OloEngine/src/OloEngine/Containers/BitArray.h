@@ -20,6 +20,7 @@
 #include "OloEngine/Containers/ContainerAllocationPolicies.h"
 #include "OloEngine/Memory/MemoryOps.h"
 #include "OloEngine/Memory/UnrealMemory.h"
+#include "OloEngine/Misc/EnumClassFlags.h"
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Serialization/MemoryLayout.h"
 #include <cstring>
@@ -399,20 +400,7 @@ namespace OloEngine
     };
 
     /** Enable bitwise operators for EBitwiseOperatorFlags */
-    [[nodiscard]] OLO_FINLINE constexpr EBitwiseOperatorFlags operator|(EBitwiseOperatorFlags A, EBitwiseOperatorFlags B)
-    {
-        return static_cast<EBitwiseOperatorFlags>(static_cast<u8>(A) | static_cast<u8>(B));
-    }
-
-    [[nodiscard]] OLO_FINLINE constexpr EBitwiseOperatorFlags operator&(EBitwiseOperatorFlags A, EBitwiseOperatorFlags B)
-    {
-        return static_cast<EBitwiseOperatorFlags>(static_cast<u8>(A) & static_cast<u8>(B));
-    }
-
-    [[nodiscard]] OLO_FINLINE constexpr bool EnumHasAnyFlags(EBitwiseOperatorFlags Test, EBitwiseOperatorFlags Flags)
-    {
-        return (static_cast<u8>(Test) & static_cast<u8>(Flags)) != 0;
-    }
+    ENUM_CLASS_FLAGS(EBitwiseOperatorFlags)
 
     // ============================================================================
     // FBitArrayMemory

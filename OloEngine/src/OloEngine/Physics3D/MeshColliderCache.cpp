@@ -168,7 +168,7 @@ namespace OloEngine
 
             // Create task using the Task System
             Tasks::Launch("MeshColliderCooking", [this, req = std::move(request)]() mutable
-            {
+                          {
                 ECookingResult result = m_CookingFactory->CookMeshType(req.m_ColliderAsset, req.m_Type, req.m_InvalidateOld);
 
                 // If cooking succeeded, update the cache entry with the new data
@@ -214,8 +214,7 @@ namespace OloEngine
                 req.m_Promise.set_value(result);
 
                 // Decrement active task counter when done
-                m_ActiveCookingTasks.fetch_sub(1, std::memory_order_relaxed);
-            }, Tasks::ETaskPriority::BackgroundNormal);
+                m_ActiveCookingTasks.fetch_sub(1, std::memory_order_relaxed); }, Tasks::ETaskPriority::BackgroundNormal);
         }
     }
 

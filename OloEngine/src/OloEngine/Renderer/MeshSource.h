@@ -8,14 +8,15 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/Map.h"
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <vector>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <limits>
-#include <map>
 #include <optional>
 
 namespace OloEngine
@@ -117,33 +118,36 @@ namespace OloEngine
     {
       public:
         MeshSource() = default;
+        MeshSource(const TArray<Vertex>& vertices, const TArray<u32>& indices);
+        MeshSource(TArray<Vertex>&& vertices, TArray<u32>&& indices);
+        // Overloads for std::vector compatibility
         MeshSource(const std::vector<Vertex>& vertices, const std::vector<u32>& indices);
         MeshSource(std::vector<Vertex>&& vertices, std::vector<u32>&& indices);
         virtual ~MeshSource() = default;
 
         // Core mesh data accessors
-        const std::vector<Vertex>& GetVertices() const
+        const TArray<Vertex>& GetVertices() const
         {
             return m_Vertices;
         }
-        const std::vector<u32>& GetIndices() const
+        const TArray<u32>& GetIndices() const
         {
             return m_Indices;
         }
-        const std::vector<Submesh>& GetSubmeshes() const
+        const TArray<Submesh>& GetSubmeshes() const
         {
             return m_Submeshes;
         }
 
-        std::vector<Vertex>& GetVertices()
+        TArray<Vertex>& GetVertices()
         {
             return m_Vertices;
         }
-        std::vector<u32>& GetIndices()
+        TArray<u32>& GetIndices()
         {
             return m_Indices;
         }
-        std::vector<Submesh>& GetSubmeshes()
+        TArray<Submesh>& GetSubmeshes()
         {
             return m_Submeshes;
         }
@@ -151,24 +155,24 @@ namespace OloEngine
         // Submesh management
         void AddSubmesh(const Submesh& submesh)
         {
-            m_Submeshes.push_back(submesh);
+            m_Submeshes.Add(submesh);
             m_Built = false;
             CalculateSubmeshBounds();
             CalculateBounds();
         }
-        void SetSubmeshes(const std::vector<Submesh>& submeshes)
+        void SetSubmeshes(const TArray<Submesh>& submeshes)
         {
             m_Submeshes = submeshes;
 
             // Prune material entries whose keys reference submesh indices that are now out of range
-            auto it = m_Materials.begin();
-            while (it != m_Materials.end())
+            TArray<u32> keysToRemove;
+            for (const auto& [key, value] : m_Materials)
             {
-                if (it->first >= submeshes.size())
-                    it = m_Materials.erase(it);
-                else
-                    ++it;
+                if (key >= static_cast<u32>(submeshes.Num()))
+                    keysToRemove.Add(key);
             }
+            for (u32 key : keysToRemove)
+                m_Materials.Remove(key);
 
             m_Built = false;
             CalculateSubmeshBounds();
@@ -176,12 +180,12 @@ namespace OloEngine
         }
 
         // Material management
-        const std::map<u32, AssetHandle>& GetMaterials() const
+        const TMap<u32, AssetHandle>& GetMaterials() const
         {
             return m_Materials;
         }
         [[deprecated("Direct mutable access to materials bypasses validation. Use SetMaterial() instead.")]]
-        std::map<u32, AssetHandle>& GetMaterials()
+        TMap<u32, AssetHandle>& GetMaterials()
         {
             return m_Materials;
         }
@@ -202,37 +206,36 @@ namespace OloEngine
                 return;
             }
 
-            m_Materials[index] = material;
+            m_Materials.Add(index, material);
             m_Built = false;
         }
         bool HasMaterial(u32 index) const
         {
-            return m_Materials.find(index) != m_Materials.end();
+            return m_Materials.Contains(index);
         }
 
         // Additional material management with proper state invalidation
         void RemoveMaterial(u32 index)
         {
-            auto it = m_Materials.find(index);
-            if (it != m_Materials.end())
+            if (m_Materials.Contains(index))
             {
-                m_Materials.erase(it);
+                m_Materials.Remove(index);
                 m_Built = false; // Invalidate GPU state
             }
         }
 
         void ClearMaterials()
         {
-            if (!m_Materials.empty())
+            if (!m_Materials.IsEmpty())
             {
-                m_Materials.clear();
+                m_Materials.Empty();
                 m_Built = false; // Invalidate GPU state
             }
         }
         std::optional<AssetHandle> GetMaterial(u32 index) const
         {
-            auto it = m_Materials.find(index);
-            return (it != m_Materials.end()) ? std::optional<AssetHandle>(it->second) : std::nullopt;
+            const AssetHandle* found = m_Materials.Find(index);
+            return found ? std::optional<AssetHandle>(*found) : std::nullopt;
         }
 
         // Skeleton and rigging
@@ -251,40 +254,40 @@ namespace OloEngine
 
         bool IsSubmeshRigged(u32 submeshIndex) const
         {
-            if (submeshIndex >= m_Submeshes.size())
+            if (submeshIndex >= static_cast<u32>(m_Submeshes.Num()))
             {
-                OLO_CORE_ERROR("IsSubmeshRigged: submesh index {} out of range (size: {})", submeshIndex, m_Submeshes.size());
+                OLO_CORE_ERROR("IsSubmeshRigged: submesh index {} out of range (size: {})", submeshIndex, m_Submeshes.Num());
                 throw std::out_of_range("Submesh index out of range");
             }
             return m_Submeshes[submeshIndex].m_IsRigged;
         }
 
         // Bone information for skinning
-        const std::vector<BoneInfo>& GetBoneInfo() const
+        const TArray<BoneInfo>& GetBoneInfo() const
         {
             return m_BoneInfo;
         }
-        std::vector<BoneInfo>& GetBoneInfo()
+        TArray<BoneInfo>& GetBoneInfo()
         {
             return m_BoneInfo;
         }
 
         const BoneInfo& GetBoneInfo(u32 index) const
         {
-            if (index >= m_BoneInfo.size())
+            if (index >= static_cast<u32>(m_BoneInfo.Num()))
             {
-                OLO_CORE_ERROR("Bone info index {} out of range (size: {})", index, m_BoneInfo.size());
+                OLO_CORE_ERROR("Bone info index {} out of range (size: {})", index, m_BoneInfo.Num());
                 throw std::out_of_range("Bone info index out of range");
             }
             return m_BoneInfo[index];
         }
 
         // Bone influences for vertices (Hazel-style: one per vertex, separate from vertex data)
-        const std::vector<BoneInfluence>& GetBoneInfluences() const
+        const TArray<BoneInfluence>& GetBoneInfluences() const
         {
             return m_BoneInfluences;
         }
-        std::vector<BoneInfluence>& GetBoneInfluences()
+        TArray<BoneInfluence>& GetBoneInfluences()
         {
             return m_BoneInfluences;
         }
@@ -292,9 +295,9 @@ namespace OloEngine
         // Add bone influence for a specific vertex
         void SetVertexBoneData(u32 vertexIndex, const BoneInfluence& influence)
         {
-            if (vertexIndex >= m_BoneInfluences.size())
+            if (vertexIndex >= static_cast<u32>(m_BoneInfluences.Num()))
             {
-                OLO_CORE_ERROR("SetVertexBoneData: vertex index out of bounds (index: {}, size: {})", vertexIndex, m_BoneInfluences.size());
+                OLO_CORE_ERROR("SetVertexBoneData: vertex index out of bounds (index: {}, size: {})", vertexIndex, m_BoneInfluences.Num());
                 throw std::out_of_range("Vertex index out of range");
             }
             m_BoneInfluences[vertexIndex] = influence;
@@ -303,9 +306,9 @@ namespace OloEngine
         // Get bone influence for a specific vertex
         const BoneInfluence& GetVertexBoneData(u32 vertexIndex) const
         {
-            if (vertexIndex >= m_BoneInfluences.size())
+            if (vertexIndex >= static_cast<u32>(m_BoneInfluences.Num()))
             {
-                OLO_CORE_ERROR("GetVertexBoneData: vertex index out of bounds (index: {}, size: {})", vertexIndex, m_BoneInfluences.size());
+                OLO_CORE_ERROR("GetVertexBoneData: vertex index out of bounds (index: {}, size: {})", vertexIndex, m_BoneInfluences.Num());
                 throw std::out_of_range("Vertex index out of range");
             }
             return m_BoneInfluences[vertexIndex];
@@ -314,7 +317,7 @@ namespace OloEngine
         // Check if this mesh has bone influences for animation
         bool HasBoneInfluences() const
         {
-            return !m_BoneInfluences.empty();
+            return !m_BoneInfluences.IsEmpty();
         }
 
         // Utility methods
@@ -383,15 +386,15 @@ namespace OloEngine
 
       private:
         // Core mesh data
-        std::vector<Vertex> m_Vertices;
-        std::vector<u32> m_Indices;
-        std::vector<Submesh> m_Submeshes;
-        std::map<u32, AssetHandle> m_Materials; // Material mapping for submeshes
+        TArray<Vertex> m_Vertices;
+        TArray<u32> m_Indices;
+        TArray<Submesh> m_Submeshes;
+        TMap<u32, AssetHandle> m_Materials; // Material mapping for submeshes
 
         // Rigging data (Hazel-style: separated from vertex data)
         Ref<Skeleton> m_Skeleton;
-        std::vector<BoneInfo> m_BoneInfo;
-        std::vector<BoneInfluence> m_BoneInfluences; // One per vertex, separate from vertex data
+        TArray<BoneInfo> m_BoneInfo;
+        TArray<BoneInfluence> m_BoneInfluences; // One per vertex, separate from vertex data
 
         // GPU resources (similar to current Mesh class)
         Ref<VertexArray> m_VertexArray;
