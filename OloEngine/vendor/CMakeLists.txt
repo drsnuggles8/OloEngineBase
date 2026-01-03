@@ -226,7 +226,7 @@ set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-# Jolt Physics configuration - disable Vulkan validation layer to avoid CMake path issues
+# Jolt Physics configuration - enable static linking and cross-platform determinism
 set(JPH_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
 set(JPH_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
 set(JPH_CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "" FORCE)

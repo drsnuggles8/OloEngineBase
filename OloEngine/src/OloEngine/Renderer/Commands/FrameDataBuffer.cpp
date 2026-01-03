@@ -16,8 +16,15 @@ namespace OloEngine
     void FrameDataBuffer::Reset()
     {
         // Just reset offsets - no need to clear data
-        m_BoneMatrixOffset = 0;
-        m_TransformOffset = 0;
+        // Thread-safe: acquire both locks to prevent races with allocations
+        {
+            std::lock_guard<std::mutex> boneLock(m_BoneMutex);
+            m_BoneMatrixOffset = 0;
+        }
+        {
+            std::lock_guard<std::mutex> transformLock(m_TransformMutex);
+            m_TransformOffset = 0;
+        }
     }
 
     u32 FrameDataBuffer::AllocateBoneMatrices(u32 count)
@@ -28,16 +35,16 @@ namespace OloEngine
         std::lock_guard<std::mutex> lock(m_BoneMutex);
 
         u32 offset = m_BoneMatrixOffset;
-        u32 newOffset = offset + count;
 
-        if (newOffset > static_cast<u32>(m_BoneMatrices.size()))
+        // Check for overflow before addition
+        if (count > static_cast<u32>(m_BoneMatrices.size()) - offset)
         {
             OLO_CORE_ERROR("FrameDataBuffer: Bone matrix buffer overflow! Requested {} matrices at offset {}, capacity {}",
                            count, offset, m_BoneMatrices.size());
             return UINT32_MAX;
         }
 
-        m_BoneMatrixOffset = newOffset;
+        m_BoneMatrixOffset = offset + count;
         return offset;
     }
 
@@ -49,21 +56,22 @@ namespace OloEngine
         std::lock_guard<std::mutex> lock(m_TransformMutex);
 
         u32 offset = m_TransformOffset;
-        u32 newOffset = offset + count;
 
-        if (newOffset > static_cast<u32>(m_Transforms.size()))
+        // Check for overflow before addition
+        if (count > static_cast<u32>(m_Transforms.size()) - offset)
         {
             OLO_CORE_ERROR("FrameDataBuffer: Transform buffer overflow! Requested {} transforms at offset {}, capacity {}",
                            count, offset, m_Transforms.size());
             return UINT32_MAX;
         }
 
-        m_TransformOffset = newOffset;
+        m_TransformOffset = offset + count;
         return offset;
     }
 
     glm::mat4* FrameDataBuffer::GetBoneMatrixPtr(u32 offset)
     {
+        std::lock_guard<std::mutex> lock(m_BoneMutex);
         if (offset >= m_BoneMatrices.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid bone matrix offset {}", offset);
@@ -74,6 +82,7 @@ namespace OloEngine
 
     const glm::mat4* FrameDataBuffer::GetBoneMatrixPtr(u32 offset) const
     {
+        std::lock_guard<std::mutex> lock(m_BoneMutex);
         if (offset >= m_BoneMatrices.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid bone matrix offset {}", offset);
@@ -84,6 +93,7 @@ namespace OloEngine
 
     glm::mat4* FrameDataBuffer::GetTransformPtr(u32 offset)
     {
+        std::lock_guard<std::mutex> lock(m_TransformMutex);
         if (offset >= m_Transforms.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid transform offset {}", offset);
@@ -94,6 +104,7 @@ namespace OloEngine
 
     const glm::mat4* FrameDataBuffer::GetTransformPtr(u32 offset) const
     {
+        std::lock_guard<std::mutex> lock(m_TransformMutex);
         if (offset >= m_Transforms.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid transform offset {}", offset);
@@ -104,6 +115,7 @@ namespace OloEngine
 
     void FrameDataBuffer::WriteBoneMatrices(u32 offset, const glm::mat4* data, u32 count)
     {
+        std::lock_guard<std::mutex> lock(m_BoneMutex);
         if (offset + count > m_BoneMatrices.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteBoneMatrices out of bounds: offset={}, count={}, capacity={}",
@@ -115,6 +127,7 @@ namespace OloEngine
 
     void FrameDataBuffer::WriteTransforms(u32 offset, const glm::mat4* data, u32 count)
     {
+        std::lock_guard<std::mutex> lock(m_TransformMutex);
         if (offset + count > m_Transforms.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteTransforms out of bounds: offset={}, count={}, capacity={}",

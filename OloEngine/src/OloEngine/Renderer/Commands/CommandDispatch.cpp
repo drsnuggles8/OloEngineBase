@@ -856,16 +856,17 @@ namespace OloEngine
         }
 
         // Set instance transforms from FrameDataBuffer
+        // Use single glUniformMatrix4fv call with count > 1 to upload all matrices at once
+        // This avoids per-element glGetUniformLocation calls which are expensive
         const glm::mat4* transforms = FrameDataBufferManager::Get().GetTransformPtr(cmd->transformBufferOffset);
         if (transforms)
         {
-            for (sizet i = 0; i < instanceCount; i++)
+            // Get base location once for u_ModelMatrices[0] - array elements are sequential
+            GLint baseLocation = glGetUniformLocation(cmd->shaderRendererID, "u_ModelMatrices[0]");
+            if (baseLocation != -1)
             {
-                GLint location = glGetUniformLocation(cmd->shaderRendererID, ("u_ModelMatrices[" + std::to_string(i) + "]").c_str());
-                if (location != -1)
-                {
-                    glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(transforms[i]));
-                }
+                // Upload all instance matrices in a single GL call
+                glUniformMatrix4fv(baseLocation, static_cast<GLsizei>(instanceCount), GL_FALSE, glm::value_ptr(transforms[0]));
             }
             GLint instanceCountLoc = glGetUniformLocation(cmd->shaderRendererID, "u_InstanceCount");
             if (instanceCountLoc != -1)

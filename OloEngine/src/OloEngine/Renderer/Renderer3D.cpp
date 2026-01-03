@@ -41,11 +41,21 @@ namespace OloEngine
 
     // Helper function to compute depth from camera space for sort key
     // Returns a quantized depth value in range [0, 0xFFFFFF] for 24-bit depth
-    static u32 ComputeDepthForSortKey(const glm::mat4& modelMatrix)
+    // @param modelMatrix The model transformation matrix
+    // @param boundingSphereCenter Optional world-space bounding sphere center. If provided,
+    //        uses this for more accurate depth sorting for off-center meshes. If nullptr,
+    //        falls back to using modelMatrix[3] (the origin of the transformed object).
+    static u32 ComputeDepthForSortKey(const glm::mat4& modelMatrix, const glm::vec3* boundingSphereCenter = nullptr)
     {
-        // Transform model center to view space using CommandDispatch's cached view matrix
+        // Transform object center to view space using CommandDispatch's cached view matrix
         const glm::mat4& viewMatrix = CommandDispatch::GetViewMatrix();
-        glm::vec4 viewPos = viewMatrix * modelMatrix[3];
+
+        // Use bounding sphere center if provided, otherwise use model origin
+        glm::vec4 worldPos = boundingSphereCenter
+            ? glm::vec4(*boundingSphereCenter, 1.0f)
+            : modelMatrix[3];
+        glm::vec4 viewPos = viewMatrix * worldPos;
+
         // Use negative Z since camera looks down -Z axis
         f32 depth = -viewPos.z;
 
@@ -95,15 +105,44 @@ namespace OloEngine
         return state;
     }
 
-    // Helper to populate POD render state from material and optional overrides
-    static PODRenderState CreatePODRenderStateForMaterial(const Material& /*material*/)
+    // Helper to populate POD render state from material properties
+    // Maps MaterialFlag to PODRenderState for proper render state setup
+    static PODRenderState CreatePODRenderStateForMaterial(const Material& material)
     {
         PODRenderState state{};
-        // Default opaque state - could be extended based on material blend mode
-        state.depthTestEnabled = true;
-        state.depthWriteMask = true;
-        state.cullingEnabled = true;
-        state.cullFace = GL_BACK;
+
+        // Depth test - most materials want this enabled
+        state.depthTestEnabled = material.GetFlag(MaterialFlag::DepthTest);
+        state.depthWriteMask = true; // Write to depth buffer for opaque materials
+        state.depthFunction = GL_LESS;
+
+        // Blend state - for transparent materials
+        if (material.GetFlag(MaterialFlag::Blend))
+        {
+            state.blendEnabled = true;
+            state.blendSrcFactor = GL_SRC_ALPHA;
+            state.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+            state.blendEquation = GL_FUNC_ADD;
+            // Transparent objects typically don't write to depth buffer
+            state.depthWriteMask = false;
+        }
+        else
+        {
+            state.blendEnabled = false;
+        }
+
+        // Culling - controlled by TwoSided flag
+        if (material.GetFlag(MaterialFlag::TwoSided))
+        {
+            // Double-sided materials don't cull any faces
+            state.cullingEnabled = false;
+        }
+        else
+        {
+            state.cullingEnabled = true;
+            state.cullFace = GL_BACK;
+        }
+
         return state;
     }
 
@@ -677,6 +716,7 @@ namespace OloEngine
         cmd->indexCount = s_Data.CubeMesh->GetIndexCount();
         cmd->transform = modelMatrix;
         cmd->shaderHandle = s_Data.LightCubeShader->GetHandle();
+        cmd->shaderRendererID = s_Data.LightCubeShader->GetRendererID();
 
         // Legacy material properties
         cmd->ambient = glm::vec3(1.0f);

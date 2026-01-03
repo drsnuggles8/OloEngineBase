@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "CommandBucket.h"
+#include "FrameDataBuffer.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include <algorithm>
 #include <array>
@@ -258,8 +259,7 @@ namespace OloEngine
             return nullptr;
 
         // Create a new packet for the instanced command
-        // Use AllocatePacketWithCommand because DrawMeshInstancedCommand is not trivially copyable
-        // (it contains std::vector<glm::mat4>)
+        // DrawMeshInstancedCommand is now POD/trivially copyable (uses transformBufferOffset instead of std::vector)
         PacketMetadata metadata = meshPacket->GetMetadata();
         CommandPacket* instancedPacket = allocator.AllocatePacketWithCommand<DrawMeshInstancedCommand>(metadata);
         if (!instancedPacket)
@@ -279,10 +279,16 @@ namespace OloEngine
         // Initial instance count is 1
         instancedCmd->instanceCount = 1;
 
-        // For POD commands, allocate transforms in FrameDataBuffer
-        // For now, we'll just set the offset and count; the actual data will be managed by the caller
-        // Note: This batching logic may need to be updated for FrameDataBuffer usage
-        instancedCmd->transformBufferOffset = 0;
+        // Allocate space in FrameDataBuffer for the first transform and copy it
+        FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+        u32 transformOffset = frameBuffer.AllocateTransforms(1);
+        if (transformOffset == UINT32_MAX)
+        {
+            OLO_CORE_ERROR("CommandBucket::ConvertToInstanced: Failed to allocate transform in FrameDataBuffer");
+            return nullptr;
+        }
+        frameBuffer.WriteTransforms(transformOffset, &meshCmd->transform, 1);
+        instancedCmd->transformBufferOffset = transformOffset;
         instancedCmd->transformCount = 1;
 
         // Copy material properties
@@ -356,19 +362,94 @@ namespace OloEngine
             if (m_Tail == target)
                 m_Tail = instancedPacket;
 
-            // Note: With POD commands, transforms are stored in FrameDataBuffer
-            // Dynamic instance batching would require allocating new FrameDataBuffer space
-            // For now, return false to skip dynamic batching (it's handled at command creation time)
-            // TODO: Implement proper FrameDataBuffer-based instance batching
-            OLO_CORE_WARN("CommandBucket: Dynamic instancing with POD commands not yet fully implemented");
-            return false;
+            // Dynamic instance batching: merge transforms from source into the new instanced command
+            // 1. Get the source mesh command's transform
+            auto const* sourceMeshCmd = source->GetCommandData<DrawMeshCommand>();
+            if (!sourceMeshCmd)
+                return false;
+
+            // 2. Get the current instanced command (which has 1 transform from ConvertToInstanced)
+            auto* instancedCmd = instancedPacket->GetCommandData<DrawMeshInstancedCommand>();
+            if (!instancedCmd)
+                return false;
+
+            // 3. Allocate new contiguous space for both transforms
+            FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+            u32 totalTransforms = instancedCmd->transformCount + 1;
+
+            // Check against max instances limit
+            if (totalTransforms > m_Config.MaxMeshInstances)
+            {
+                OLO_CORE_WARN("CommandBucket::TryMergeCommands: Max instances ({}) reached", m_Config.MaxMeshInstances);
+                return false;
+            }
+
+            u32 newOffset = frameBuffer.AllocateTransforms(totalTransforms);
+            if (newOffset == UINT32_MAX)
+            {
+                OLO_CORE_ERROR("CommandBucket::TryMergeCommands: Failed to allocate {} transforms in FrameDataBuffer", totalTransforms);
+                return false;
+            }
+
+            // 4. Copy existing transforms from the instanced command
+            const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset);
+            if (existingTransforms)
+            {
+                frameBuffer.WriteTransforms(newOffset, existingTransforms, instancedCmd->transformCount);
+            }
+
+            // 5. Copy the source command's transform
+            frameBuffer.WriteTransforms(newOffset + instancedCmd->transformCount, &sourceMeshCmd->transform, 1);
+
+            // 6. Update the instanced command to use the new buffer
+            instancedCmd->transformBufferOffset = newOffset;
+            instancedCmd->transformCount = totalTransforms;
+            instancedCmd->instanceCount = totalTransforms;
+
+            return true;
         }
         else if (targetType == CommandType::DrawMeshInstanced && sourceType == CommandType::DrawMesh)
         {
-            // Note: With POD commands, adding instances requires updating FrameDataBuffer
-            // This is not straightforward at batch time since allocations happen during command creation
-            // TODO: Implement proper FrameDataBuffer-based instance batching
-            return false;
+            // Add source mesh's transform to existing instanced command
+            auto* instancedCmd = target->GetCommandData<DrawMeshInstancedCommand>();
+            auto const* sourceMeshCmd = source->GetCommandData<DrawMeshCommand>();
+
+            if (!instancedCmd || !sourceMeshCmd)
+                return false;
+
+            // Check against max instances limit
+            u32 totalTransforms = instancedCmd->transformCount + 1;
+            if (totalTransforms > m_Config.MaxMeshInstances)
+            {
+                OLO_CORE_WARN("CommandBucket::TryMergeCommands: Max instances ({}) reached", m_Config.MaxMeshInstances);
+                return false;
+            }
+
+            // Allocate new contiguous space for all transforms
+            FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+            u32 newOffset = frameBuffer.AllocateTransforms(totalTransforms);
+            if (newOffset == UINT32_MAX)
+            {
+                OLO_CORE_ERROR("CommandBucket::TryMergeCommands: Failed to allocate {} transforms in FrameDataBuffer", totalTransforms);
+                return false;
+            }
+
+            // Copy existing transforms
+            const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset);
+            if (existingTransforms)
+            {
+                frameBuffer.WriteTransforms(newOffset, existingTransforms, instancedCmd->transformCount);
+            }
+
+            // Copy the source command's transform
+            frameBuffer.WriteTransforms(newOffset + instancedCmd->transformCount, &sourceMeshCmd->transform, 1);
+
+            // Update the instanced command
+            instancedCmd->transformBufferOffset = newOffset;
+            instancedCmd->transformCount = totalTransforms;
+            instancedCmd->instanceCount = totalTransforms;
+
+            return true;
         }
 
         // Other command types can't be merged directly
