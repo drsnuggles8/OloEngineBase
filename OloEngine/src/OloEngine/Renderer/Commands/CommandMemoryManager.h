@@ -1,15 +1,34 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Memory/Platform.h"
 #include "CommandAllocator.h"
 #include "CommandPacket.h"
 #include <memory>
 #include <vector>
 #include <mutex>
+#include <atomic>
+#include <array>
+#include <thread>
 
 namespace OloEngine
 {
     class RendererAPI;
+
+    // Maximum number of worker threads (must match CommandBucket's MAX_RENDER_WORKERS)
+    static constexpr u32 MAX_ALLOCATOR_WORKERS = 16;
+
+    // Cache-line padded allocator slot for per-worker allocators
+    // Prevents false sharing between worker threads
+    struct alignas(OLO_PLATFORM_CACHE_LINE_SIZE) WorkerAllocatorSlot
+    {
+        CommandAllocator* allocator = nullptr;
+        std::atomic<bool> inUse{ false };
+        // Padding to fill cache line
+        u8 _padding[OLO_PLATFORM_CACHE_LINE_SIZE - sizeof(CommandAllocator*) - sizeof(std::atomic<bool>)];
+    };
+    static_assert(sizeof(WorkerAllocatorSlot) == OLO_PLATFORM_CACHE_LINE_SIZE,
+                  "WorkerAllocatorSlot must be exactly one cache line");
 
     class CommandMemoryManager
     {
@@ -28,6 +47,34 @@ namespace OloEngine
 
         static CommandAllocator* GetFrameAllocator();
         static void ReturnAllocator(CommandAllocator* allocator);
+
+        // ====================================================================
+        // Per-Worker Allocator API for Parallel Command Generation
+        // ====================================================================
+
+        // Get a dedicated allocator for a specific worker thread
+        // This allocator is reserved for the worker until released
+        // No synchronization needed when using worker allocators
+        // @param workerIndex The worker thread index (0 to MAX_ALLOCATOR_WORKERS-1)
+        // @return Dedicated allocator for the worker
+        static CommandAllocator* GetWorkerAllocator(u32 workerIndex);
+
+        // Prepare all worker allocators for a new frame
+        // Resets allocators without returning them to the pool
+        // Call at the start of each frame (in BeginScene)
+        static void PrepareWorkerAllocatorsForFrame();
+
+        // Release all worker allocators back to the pool
+        // Call at the end of each frame (in EndScene)
+        static void ReleaseWorkerAllocators();
+
+        // Register current thread as a worker and get a dedicated allocator
+        // Combines RegisterWorkerThread() + GetWorkerAllocator()
+        // @return Pair of (workerIndex, allocator)
+        static std::pair<u32, CommandAllocator*> RegisterAndGetWorkerAllocator();
+
+        // Get worker index for the current thread (-1 if not registered)
+        static i32 GetCurrentWorkerIndex();
 
         // Create a command packet using the current allocator
         template<typename T>
@@ -69,5 +116,17 @@ namespace OloEngine
         static std::mutex s_StatsMutex;
         static Statistics s_Stats;
         static bool s_Initialized;
+
+        // ====================================================================
+        // Per-Worker Allocator Storage
+        // ====================================================================
+
+        // Cache-line-aligned per-worker allocator slots
+        static std::array<WorkerAllocatorSlot, MAX_ALLOCATOR_WORKERS> s_WorkerAllocators;
+
+        // Thread ID to worker index mapping for parallel submission
+        static std::unordered_map<std::thread::id, u32> s_ThreadToWorkerIndex;
+        static std::mutex s_WorkerMapMutex;
+        static std::atomic<u32> s_NextWorkerIndex;
     };
 } // namespace OloEngine

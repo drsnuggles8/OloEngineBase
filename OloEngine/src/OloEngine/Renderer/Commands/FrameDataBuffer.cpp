@@ -2,6 +2,7 @@
 #include "FrameDataBuffer.h"
 
 #include <cstring>
+#include <thread>
 
 namespace OloEngine
 {
@@ -24,6 +25,22 @@ namespace OloEngine
         {
             std::lock_guard<std::mutex> transformLock(m_TransformMutex);
             m_TransformOffset = 0;
+        }
+
+        // Reset parallel submission state
+        m_ParallelSubmissionActive = false;
+        m_NextWorkerIndex.store(0, std::memory_order_relaxed);
+
+        // Reset worker scratch buffers
+        for (auto& scratch : m_WorkerScratchBuffers)
+        {
+            scratch.Reset();
+        }
+
+        // Clear worker thread mapping
+        {
+            std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
+            m_ThreadToWorkerIndex.clear();
         }
     }
 
@@ -158,6 +175,239 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(s_Buffer, "FrameDataBufferManager not initialized!");
         return *s_Buffer;
+    }
+
+    // ========================================================================
+    // Thread-Local Scratch Buffer Implementation
+    // ========================================================================
+
+    void FrameDataBuffer::PrepareForParallelSubmission()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Reset all scratch buffers
+        for (auto& scratch : m_WorkerScratchBuffers)
+        {
+            scratch.Reset();
+        }
+
+        // Reset worker index counter
+        m_NextWorkerIndex.store(0, std::memory_order_relaxed);
+
+        // Clear worker thread mapping
+        {
+            std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
+            m_ThreadToWorkerIndex.clear();
+        }
+
+        m_ParallelSubmissionActive = true;
+    }
+
+    std::pair<u32, WorkerScratchBuffer*> FrameDataBuffer::RegisterAndGetScratchBuffer()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::thread::id threadId = std::this_thread::get_id();
+
+        // Check if thread is already registered
+        {
+            std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
+            auto it = m_ThreadToWorkerIndex.find(threadId);
+            if (it != m_ThreadToWorkerIndex.end())
+            {
+                u32 workerIndex = it->second;
+                return { workerIndex, &m_WorkerScratchBuffers[workerIndex] };
+            }
+        }
+
+        // Register new worker
+        u32 workerIndex = m_NextWorkerIndex.fetch_add(1, std::memory_order_relaxed);
+        if (workerIndex >= MAX_FRAME_DATA_WORKERS)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer: Too many worker threads! Max is {}",
+                           MAX_FRAME_DATA_WORKERS);
+            return { 0, nullptr };
+        }
+
+        // Map thread to worker index
+        {
+            std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
+            m_ThreadToWorkerIndex[threadId] = workerIndex;
+        }
+
+        return { workerIndex, &m_WorkerScratchBuffers[workerIndex] };
+    }
+
+    u32 FrameDataBuffer::AllocateBoneMatricesParallel(u32 workerIndex, u32 count)
+    {
+        OLO_CORE_ASSERT(workerIndex < MAX_FRAME_DATA_WORKERS,
+                        "FrameDataBuffer: Invalid worker index!");
+        OLO_CORE_ASSERT(m_ParallelSubmissionActive,
+                        "FrameDataBuffer: Not in parallel submission mode!");
+
+        WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
+
+        // Ensure capacity
+        if (scratch.boneCount + count > scratch.bones.size())
+        {
+            sizet newCapacity = std::max(
+                scratch.bones.size() * 2,
+                static_cast<sizet>(scratch.boneCount + count));
+            scratch.bones.resize(newCapacity);
+        }
+
+        u32 localOffset = scratch.boneCount;
+        scratch.boneCount += count;
+
+        return localOffset;
+    }
+
+    u32 FrameDataBuffer::AllocateTransformsParallel(u32 workerIndex, u32 count)
+    {
+        OLO_CORE_ASSERT(workerIndex < MAX_FRAME_DATA_WORKERS,
+                        "FrameDataBuffer: Invalid worker index!");
+        OLO_CORE_ASSERT(m_ParallelSubmissionActive,
+                        "FrameDataBuffer: Not in parallel submission mode!");
+
+        WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
+
+        // Ensure capacity
+        if (scratch.transformCount + count > scratch.transforms.size())
+        {
+            sizet newCapacity = std::max(
+                scratch.transforms.size() * 2,
+                static_cast<sizet>(scratch.transformCount + count));
+            scratch.transforms.resize(newCapacity);
+        }
+
+        u32 localOffset = scratch.transformCount;
+        scratch.transformCount += count;
+
+        return localOffset;
+    }
+
+    void FrameDataBuffer::WriteBoneMatricesParallel(u32 workerIndex, u32 localOffset,
+                                                     const glm::mat4* data, u32 count)
+    {
+        OLO_CORE_ASSERT(workerIndex < MAX_FRAME_DATA_WORKERS,
+                        "FrameDataBuffer: Invalid worker index!");
+
+        WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
+
+        OLO_CORE_ASSERT(localOffset + count <= scratch.bones.size(),
+                        "FrameDataBuffer: Write out of bounds!");
+
+        std::memcpy(&scratch.bones[localOffset], data, count * sizeof(glm::mat4));
+    }
+
+    void FrameDataBuffer::WriteTransformsParallel(u32 workerIndex, u32 localOffset,
+                                                   const glm::mat4* data, u32 count)
+    {
+        OLO_CORE_ASSERT(workerIndex < MAX_FRAME_DATA_WORKERS,
+                        "FrameDataBuffer: Invalid worker index!");
+
+        WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
+
+        OLO_CORE_ASSERT(localOffset + count <= scratch.transforms.size(),
+                        "FrameDataBuffer: Write out of bounds!");
+
+        std::memcpy(&scratch.transforms[localOffset], data, count * sizeof(glm::mat4));
+    }
+
+    void FrameDataBuffer::MergeScratchBuffers()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_ParallelSubmissionActive)
+        {
+            OLO_CORE_WARN("FrameDataBuffer::MergeScratchBuffers: Not in parallel submission mode!");
+            return;
+        }
+
+        // Calculate total sizes needed
+        u32 totalBones = 0;
+        u32 totalTransforms = 0;
+
+        for (const auto& scratch : m_WorkerScratchBuffers)
+        {
+            totalBones += scratch.boneCount;
+            totalTransforms += scratch.transformCount;
+        }
+
+        // Ensure main buffer has capacity
+        if (m_BoneMatrixOffset + totalBones > m_BoneMatrices.size())
+        {
+            m_BoneMatrices.resize(m_BoneMatrixOffset + totalBones);
+        }
+        if (m_TransformOffset + totalTransforms > m_Transforms.size())
+        {
+            m_Transforms.resize(m_TransformOffset + totalTransforms);
+        }
+
+        // Copy scratch buffers into main buffer and record global offsets
+        u32 currentBoneOffset = m_BoneMatrixOffset;
+        u32 currentTransformOffset = m_TransformOffset;
+
+        for (auto& scratch : m_WorkerScratchBuffers)
+        {
+            if (scratch.boneCount > 0)
+            {
+                scratch.globalBoneOffset = currentBoneOffset;
+                std::memcpy(&m_BoneMatrices[currentBoneOffset],
+                            scratch.bones.data(),
+                            scratch.boneCount * sizeof(glm::mat4));
+                currentBoneOffset += scratch.boneCount;
+            }
+
+            if (scratch.transformCount > 0)
+            {
+                scratch.globalTransformOffset = currentTransformOffset;
+                std::memcpy(&m_Transforms[currentTransformOffset],
+                            scratch.transforms.data(),
+                            scratch.transformCount * sizeof(glm::mat4));
+                currentTransformOffset += scratch.transformCount;
+            }
+        }
+
+        // Update main buffer offsets
+        m_BoneMatrixOffset = currentBoneOffset;
+        m_TransformOffset = currentTransformOffset;
+
+        m_ParallelSubmissionActive = false;
+
+        OLO_CORE_TRACE("FrameDataBuffer: Merged {} bones and {} transforms from scratch buffers",
+                       totalBones, totalTransforms);
+    }
+
+    u32 FrameDataBuffer::GetGlobalBoneOffset(u32 workerIndex, u32 localOffset) const
+    {
+        OLO_CORE_ASSERT(workerIndex < MAX_FRAME_DATA_WORKERS,
+                        "FrameDataBuffer: Invalid worker index!");
+
+        const WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
+        return scratch.globalBoneOffset + localOffset;
+    }
+
+    u32 FrameDataBuffer::GetGlobalTransformOffset(u32 workerIndex, u32 localOffset) const
+    {
+        OLO_CORE_ASSERT(workerIndex < MAX_FRAME_DATA_WORKERS,
+                        "FrameDataBuffer: Invalid worker index!");
+
+        const WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
+        return scratch.globalTransformOffset + localOffset;
+    }
+
+    i32 FrameDataBuffer::GetCurrentWorkerIndex() const
+    {
+        std::thread::id threadId = std::this_thread::get_id();
+
+        std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
+        auto it = m_ThreadToWorkerIndex.find(threadId);
+        if (it != m_ThreadToWorkerIndex.end())
+        {
+            return static_cast<i32>(it->second);
+        }
+        return -1;
     }
 
 } // namespace OloEngine

@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/RendererAPI.h"
 #include <algorithm>
 #include <array>
+#include <cstring>
 
 namespace OloEngine
 {
@@ -79,6 +80,12 @@ namespace OloEngine
     {
         // Initialize statistics
         m_Stats = Statistics();
+
+        // Initialize thread-local slots
+        std::memset(m_TLSSlots, 0, sizeof(m_TLSSlots));
+
+        // Pre-allocate parallel command array
+        m_ParallelCommands.reserve(config.InitialCapacity);
     }
 
     CommandBucket::~CommandBucket()
@@ -563,8 +570,197 @@ namespace OloEngine
         m_TransformBuffers.clear();
         m_PacketToBufferIndex.clear();
 
+        // Reset parallel submission state
+        m_ParallelCommands.clear();
+        m_NextBatchStart.store(0, std::memory_order_relaxed);
+        m_ParallelCommandCount.store(0, std::memory_order_relaxed);
+        m_ParallelSubmissionActive = false;
+
+        // Reset TLS slots
+        std::memset(m_TLSSlots, 0, sizeof(m_TLSSlots));
+
         m_IsSorted = false;
         m_IsBatched = false;
+    }
+
+    // ========================================================================
+    // Thread-Local Storage for Parallel Command Generation
+    // ========================================================================
+
+    void CommandBucket::PrepareForParallelSubmission()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::lock_guard<std::mutex> lock(m_Mutex);
+
+        // Reset parallel command array with sufficient capacity
+        m_ParallelCommands.clear();
+        m_ParallelCommands.resize(m_Config.InitialCapacity, nullptr);
+
+        // Reset atomic counters
+        m_NextBatchStart.store(0, std::memory_order_relaxed);
+        m_ParallelCommandCount.store(0, std::memory_order_relaxed);
+
+        // Reset all TLS slots
+        for (u32 i = 0; i < MAX_RENDER_WORKERS; ++i)
+        {
+            m_TLSSlots[i].offset = 0;
+            m_TLSSlots[i].remaining = 0;
+            m_TLSSlots[i].batchStart = 0;
+        }
+
+        m_ParallelSubmissionActive = true;
+        m_IsSorted = false;
+        m_IsBatched = false;
+    }
+
+    u32 CommandBucket::RegisterWorkerThread()
+    {
+        std::thread::id threadId = std::this_thread::get_id();
+
+        std::lock_guard<std::mutex> lock(m_ThreadMapMutex);
+
+        auto it = m_ThreadToWorkerIndex.find(threadId);
+        if (it != m_ThreadToWorkerIndex.end())
+        {
+            return it->second;
+        }
+
+        u32 workerIndex = m_NextWorkerIndex.fetch_add(1, std::memory_order_relaxed);
+        OLO_CORE_ASSERT(workerIndex < MAX_RENDER_WORKERS,
+                        "CommandBucket: Too many worker threads! Max is {}", MAX_RENDER_WORKERS);
+
+        m_ThreadToWorkerIndex[threadId] = workerIndex;
+        return workerIndex;
+    }
+
+    i32 CommandBucket::GetCurrentWorkerIndex() const
+    {
+        std::thread::id threadId = std::this_thread::get_id();
+
+        std::lock_guard<std::mutex> lock(m_ThreadMapMutex);
+
+        auto it = m_ThreadToWorkerIndex.find(threadId);
+        if (it != m_ThreadToWorkerIndex.end())
+        {
+            return static_cast<i32>(it->second);
+        }
+        return -1;
+    }
+
+    u32 CommandBucket::ClaimBatch()
+    {
+        // Atomically claim a batch of TLS_BATCH_SIZE slots
+        u32 batchStart = m_NextBatchStart.fetch_add(TLS_BATCH_SIZE, std::memory_order_relaxed);
+
+        // Grow the parallel commands array if needed
+        u32 requiredCapacity = batchStart + TLS_BATCH_SIZE;
+        if (requiredCapacity > m_ParallelCommands.size())
+        {
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            if (requiredCapacity > m_ParallelCommands.size())
+            {
+                // Double the capacity or grow to required size
+                sizet newCapacity = std::max(
+                    m_ParallelCommands.size() * 2,
+                    static_cast<sizet>(requiredCapacity));
+                m_ParallelCommands.resize(newCapacity, nullptr);
+            }
+        }
+
+        return batchStart;
+    }
+
+    void CommandBucket::SubmitPacketParallel(CommandPacket* packet, u32 workerIndex)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        OLO_CORE_ASSERT(packet, "CommandBucket::SubmitPacketParallel: Null packet!");
+        OLO_CORE_ASSERT(workerIndex < MAX_RENDER_WORKERS,
+                        "CommandBucket::SubmitPacketParallel: Invalid worker index {}!", workerIndex);
+        OLO_CORE_ASSERT(m_ParallelSubmissionActive,
+                        "CommandBucket::SubmitPacketParallel: Not in parallel submission mode!");
+
+        TLSBucketSlot& slot = m_TLSSlots[workerIndex];
+
+        // If no remaining slots in current batch, claim a new batch
+        if (slot.remaining == 0)
+        {
+            slot.batchStart = ClaimBatch();
+            slot.offset = 0;
+            slot.remaining = TLS_BATCH_SIZE;
+        }
+
+        // Write packet to thread-local slot (no synchronization needed)
+        u32 globalIndex = slot.batchStart + slot.offset;
+        m_ParallelCommands[globalIndex] = packet;
+
+        // Update slot state
+        slot.offset++;
+        slot.remaining--;
+
+        // Increment global command count (atomic)
+        m_ParallelCommandCount.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void CommandBucket::MergeThreadLocalCommands()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::lock_guard<std::mutex> lock(m_Mutex);
+
+        if (!m_ParallelSubmissionActive)
+        {
+            OLO_CORE_WARN("CommandBucket::MergeThreadLocalCommands: Not in parallel submission mode!");
+            return;
+        }
+
+        u32 totalCommands = m_ParallelCommandCount.load(std::memory_order_acquire);
+        if (totalCommands == 0)
+        {
+            m_ParallelSubmissionActive = false;
+            return;
+        }
+
+        // Compact the parallel commands array into the linked list
+        // Option A: Copy to linked list (simple, maintains existing code paths)
+        m_Head = nullptr;
+        m_Tail = nullptr;
+        m_CommandCount = 0;
+
+        sizet maxIndex = m_NextBatchStart.load(std::memory_order_relaxed);
+        for (sizet i = 0; i < maxIndex && i < m_ParallelCommands.size(); ++i)
+        {
+            CommandPacket* packet = m_ParallelCommands[i];
+            if (packet != nullptr)
+            {
+                packet->SetNext(nullptr);
+
+                if (!m_Head)
+                {
+                    m_Head = packet;
+                    m_Tail = packet;
+                }
+                else
+                {
+                    m_Tail->SetNext(packet);
+                    m_Tail = packet;
+                }
+
+                m_CommandCount++;
+                m_Stats.TotalCommands++;
+            }
+        }
+
+        // Reset parallel submission state
+        m_ParallelSubmissionActive = false;
+
+        // Invalidate sorting and batching since we have new commands
+        m_IsSorted = false;
+        m_IsBatched = false;
+
+        OLO_CORE_TRACE("CommandBucket: Merged {} commands from parallel submission",
+                       m_CommandCount);
     }
 
     void CommandBucket::Reset(CommandAllocator& allocator)

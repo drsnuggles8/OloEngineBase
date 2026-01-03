@@ -1,16 +1,27 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Memory/Platform.h"
 #include "CommandPacket.h"
 #include "CommandAllocator.h"
 #include <vector>
 #include <mutex>
 #include <unordered_map>
+#include <atomic>
+#include <thread>
 
 namespace OloEngine
 {
     // Forward declarations
     class RendererAPI;
+
+    // Maximum number of worker threads for parallel command generation
+    // This should match the maximum expected worker thread count
+    static constexpr u32 MAX_RENDER_WORKERS = 16;
+
+    // Batch size for thread-local slot claiming (reduces atomic operations)
+    // Following Molecular Matters Version 7: claim 32 entries at a time
+    static constexpr u32 TLS_BATCH_SIZE = 32;
 
     // Configuration for command bucket processing
     struct CommandBucketConfig
@@ -18,9 +29,24 @@ namespace OloEngine
         bool EnableSorting = true;  // Sort commands to minimize state changes
         bool EnableBatching = true; // Attempt to batch similar commands
         u32 MaxMeshInstances = 100; // Maximum instances for instanced mesh rendering
+        u32 InitialCapacity = 1024; // Initial capacity for command arrays
     };
 
+    // Cache-line padded slot for thread-local storage
+    // Prevents false sharing between worker threads
+    struct alignas(OLO_PLATFORM_CACHE_LINE_SIZE) TLSBucketSlot
+    {
+        u32 offset = 0;         // Current write offset in thread-local range
+        u32 remaining = 0;      // Remaining slots in current batch
+        u32 batchStart = 0;     // Start offset of current batch in global array
+        // Padding to fill cache line
+        u8 _padding[OLO_PLATFORM_CACHE_LINE_SIZE - 3 * sizeof(u32)];
+    };
+    static_assert(sizeof(TLSBucketSlot) == OLO_PLATFORM_CACHE_LINE_SIZE,
+                  "TLSBucketSlot must be exactly one cache line");
+
     // A bucket of command packets that can be sorted and executed together
+    // Thread-safe for parallel command generation following Molecular Matters pattern
     class CommandBucket
     {
       public:
@@ -151,6 +177,30 @@ namespace OloEngine
             AddCommand(packet);
         }
 
+        // Thread-safe packet submission for parallel command generation
+        // Uses thread-local batching to minimize atomic operations
+        // @param packet The command packet to submit
+        // @param workerIndex The worker thread index (0 to MAX_RENDER_WORKERS-1)
+        void SubmitPacketParallel(CommandPacket* packet, u32 workerIndex);
+
+        // Register the current thread as a worker and get its index
+        // Call this once per worker thread before submitting commands
+        // @return Worker index for use with SubmitPacketParallel
+        u32 RegisterWorkerThread();
+
+        // Get the worker index for the current thread (returns -1 if not registered)
+        i32 GetCurrentWorkerIndex() const;
+
+        // Merge all thread-local command ranges into a contiguous array
+        // Must be called on the main thread after all workers complete
+        // Should be called before SortCommands()
+        void MergeThreadLocalCommands();
+
+        // Prepare the bucket for parallel submission
+        // Resets thread-local state and prepares arrays
+        // Call at the start of each frame (in BeginScene)
+        void PrepareForParallelSubmission();
+
         void SetAllocator(CommandAllocator* allocator)
         {
             m_Allocator = allocator;
@@ -259,5 +309,35 @@ namespace OloEngine
         CommandAllocator* m_Allocator = nullptr;
 
         mutable std::mutex m_Mutex;
+
+        // ====================================================================
+        // Thread-Local Storage for Parallel Command Generation
+        // Following Molecular Matters Version 7 pattern
+        // ====================================================================
+
+        // Cache-line-aligned per-thread slots to prevent false sharing
+        TLSBucketSlot m_TLSSlots[MAX_RENDER_WORKERS];
+
+        // Global command packet array for parallel submission
+        // Workers claim batches of TLS_BATCH_SIZE slots atomically
+        std::vector<CommandPacket*> m_ParallelCommands;
+
+        // Atomic counter for claiming batches of slots
+        std::atomic<u32> m_NextBatchStart{ 0 };
+
+        // Total commands submitted across all workers (for statistics)
+        std::atomic<u32> m_ParallelCommandCount{ 0 };
+
+        // Thread ID to worker index mapping
+        mutable std::mutex m_ThreadMapMutex;
+        std::unordered_map<std::thread::id, u32> m_ThreadToWorkerIndex;
+        std::atomic<u32> m_NextWorkerIndex{ 0 };
+
+        // Whether we're currently in parallel submission mode
+        bool m_ParallelSubmissionActive = false;
+
+        // Claim a batch of slots for a worker thread
+        // Returns the start index of the claimed batch
+        u32 ClaimBatch();
     };
 } // namespace OloEngine
