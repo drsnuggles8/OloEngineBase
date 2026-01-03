@@ -52,7 +52,7 @@ jobs:
       run: ctest -V
 
     - name: Upload test results
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: googletest_results_xml
         path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
