@@ -52,8 +52,8 @@ namespace OloEngine
 
         // Use bounding sphere center if provided, otherwise use model origin
         glm::vec4 worldPos = boundingSphereCenter
-            ? glm::vec4(*boundingSphereCenter, 1.0f)
-            : modelMatrix[3];
+                                 ? glm::vec4(*boundingSphereCenter, 1.0f)
+                                 : modelMatrix[3];
         glm::vec4 viewPos = viewMatrix * worldPos;
 
         // Use negative Z since camera looks down -Z axis
