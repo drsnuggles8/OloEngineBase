@@ -13,7 +13,7 @@ namespace OloEngine
     namespace
     {
         constexpr sizet RADIX_BITS = 8;
-        constexpr sizet RADIX_SIZE = 1 << RADIX_BITS; // 256 buckets
+        constexpr sizet RADIX_SIZE = 1 << RADIX_BITS;          // 256 buckets
         constexpr sizet NUM_PASSES = sizeof(u64) / sizeof(u8); // 8 passes for 64-bit
 
         void RadixSort64(std::vector<CommandPacket*>& packets)

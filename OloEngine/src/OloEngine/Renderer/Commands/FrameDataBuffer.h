@@ -26,8 +26,8 @@ namespace OloEngine
     class FrameDataBuffer
     {
       public:
-        static constexpr sizet DEFAULT_BONE_CAPACITY = 4096;       // ~256KB for bones
-        static constexpr sizet DEFAULT_TRANSFORM_CAPACITY = 8192;  // ~512KB for transforms
+        static constexpr sizet DEFAULT_BONE_CAPACITY = 4096;      // ~256KB for bones
+        static constexpr sizet DEFAULT_TRANSFORM_CAPACITY = 8192; // ~512KB for transforms
 
         FrameDataBuffer(sizet boneCapacity = DEFAULT_BONE_CAPACITY,
                         sizet transformCapacity = DEFAULT_TRANSFORM_CAPACITY);
@@ -95,17 +95,29 @@ namespace OloEngine
         void WriteTransforms(u32 offset, const glm::mat4* data, u32 count);
 
         // Statistics
-        sizet GetBoneMatrixCount() const { return m_BoneMatrixOffset; }
-        sizet GetTransformCount() const { return m_TransformOffset; }
-        sizet GetBoneMatrixCapacity() const { return m_BoneMatrices.size(); }
-        sizet GetTransformCapacity() const { return m_Transforms.size(); }
+        sizet GetBoneMatrixCount() const
+        {
+            return m_BoneMatrixOffset;
+        }
+        sizet GetTransformCount() const
+        {
+            return m_TransformOffset;
+        }
+        sizet GetBoneMatrixCapacity() const
+        {
+            return m_BoneMatrices.size();
+        }
+        sizet GetTransformCapacity() const
+        {
+            return m_Transforms.size();
+        }
 
       private:
         std::vector<glm::mat4> m_BoneMatrices;
         std::vector<glm::mat4> m_Transforms;
 
-        u32 m_BoneMatrixOffset = 0;    // Current allocation offset
-        u32 m_TransformOffset = 0;     // Current allocation offset
+        u32 m_BoneMatrixOffset = 0; // Current allocation offset
+        u32 m_TransformOffset = 0;  // Current allocation offset
 
         mutable std::mutex m_BoneMutex;
         mutable std::mutex m_TransformMutex;

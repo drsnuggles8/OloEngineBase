@@ -30,8 +30,8 @@ namespace OloEngine
     class RendererAPI;
 
     // Type aliases for POD command fields
-    using AssetHandle = UUID;  // u64 asset identifier
-    using RendererID = u32;    // OpenGL resource ID
+    using AssetHandle = UUID; // u64 asset identifier
+    using RendererID = u32;   // OpenGL resource ID
 
     // Inlined POD render state for commands (replaces Ref<RenderState>)
     struct PODRenderState
@@ -327,7 +327,7 @@ namespace OloEngine
     struct DrawIndexedCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID;  // VAO renderer ID
+        RendererID vertexArrayID; // VAO renderer ID
         u32 indexCount;
         GLenum indexType;
     };
@@ -335,7 +335,7 @@ namespace OloEngine
     struct DrawIndexedInstancedCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID;  // VAO renderer ID
+        RendererID vertexArrayID; // VAO renderer ID
         u32 indexCount;
         u32 instanceCount;
         GLenum indexType;
@@ -344,7 +344,7 @@ namespace OloEngine
     struct DrawArraysCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID;  // VAO renderer ID
+        RendererID vertexArrayID; // VAO renderer ID
         u32 vertexCount;
         GLenum primitiveType;
     };
@@ -352,7 +352,7 @@ namespace OloEngine
     struct DrawLinesCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID;  // VAO renderer ID
+        RendererID vertexArrayID; // VAO renderer ID
         u32 vertexCount;
     };
 
@@ -363,14 +363,14 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (POD identifiers)
-        AssetHandle meshHandle;           // Mesh asset handle for resolution
-        RendererID vertexArrayID;         // VAO renderer ID
+        AssetHandle meshHandle;   // Mesh asset handle for resolution
+        RendererID vertexArrayID; // VAO renderer ID
         u32 indexCount;
         glm::mat4 transform;
 
         // Shader (store both handle and renderer ID for POD dispatch)
-        AssetHandle shaderHandle;         // Shader asset handle (for asset tracking)
-        RendererID shaderRendererID;      // Shader program ID for glUseProgram
+        AssetHandle shaderHandle;    // Shader asset handle (for asset tracking)
+        RendererID shaderRendererID; // Shader program ID for glUseProgram
 
         // Legacy material properties (POD)
         glm::vec3 ambient;
@@ -378,8 +378,8 @@ namespace OloEngine
         glm::vec3 specular;
         f32 shininess;
         bool useTextureMaps;
-        RendererID diffuseMapID;          // Texture renderer ID (0 = none)
-        RendererID specularMapID;         // Texture renderer ID (0 = none)
+        RendererID diffuseMapID;  // Texture renderer ID (0 = none)
+        RendererID specularMapID; // Texture renderer ID (0 = none)
 
         // PBR material properties (POD)
         bool enablePBR = false;
@@ -407,8 +407,8 @@ namespace OloEngine
 
         // Animation support
         bool isAnimatedMesh = false;
-        u32 boneBufferOffset = 0;         // Offset into FrameDataBuffer for bone matrices
-        u32 boneCount = 0;                // Number of bone matrices
+        u32 boneBufferOffset = 0; // Offset into FrameDataBuffer for bone matrices
+        u32 boneCount = 0;        // Number of bone matrices
     };
 
     // Static assertion to verify DrawMeshCommand is trivially copyable (POD)
@@ -419,16 +419,16 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (POD identifiers)
-        AssetHandle meshHandle;           // Mesh asset handle
-        RendererID vertexArrayID;         // VAO renderer ID
+        AssetHandle meshHandle;   // Mesh asset handle
+        RendererID vertexArrayID; // VAO renderer ID
         u32 indexCount;
         u32 instanceCount;
-        u32 transformBufferOffset = 0;    // Offset into FrameDataBuffer for instance transforms
-        u32 transformCount = 0;           // Number of instance transforms
+        u32 transformBufferOffset = 0; // Offset into FrameDataBuffer for instance transforms
+        u32 transformCount = 0;        // Number of instance transforms
 
         // Shader (store both handle and renderer ID for POD dispatch)
-        AssetHandle shaderHandle;         // Shader asset handle (for asset tracking)
-        RendererID shaderRendererID;      // Shader program ID for glUseProgram
+        AssetHandle shaderHandle;    // Shader asset handle (for asset tracking)
+        RendererID shaderRendererID; // Shader program ID for glUseProgram
 
         // Legacy material properties (POD)
         glm::vec3 ambient;
@@ -465,8 +465,8 @@ namespace OloEngine
 
         // Animation support for instanced animated meshes
         bool isAnimatedMesh = false;
-        u32 boneBufferOffset = 0;         // Offset into FrameDataBuffer for all instance bone matrices
-        u32 boneCountPerInstance = 0;     // Number of bones per instance
+        u32 boneBufferOffset = 0;     // Offset into FrameDataBuffer for all instance bone matrices
+        u32 boneCountPerInstance = 0; // Number of bones per instance
     };
 
     // Static assertion to verify DrawMeshInstancedCommand is trivially copyable
@@ -475,14 +475,14 @@ namespace OloEngine
     struct DrawSkyboxCommand
     {
         CommandHeader header;
-        AssetHandle meshHandle;           // Skybox mesh handle
-        RendererID vertexArrayID;         // VAO renderer ID
+        AssetHandle meshHandle;   // Skybox mesh handle
+        RendererID vertexArrayID; // VAO renderer ID
         u32 indexCount;
-        glm::mat4 transform;              // Usually identity matrix
-        AssetHandle shaderHandle;         // Skybox shader handle (for asset tracking)
-        RendererID shaderRendererID;      // Shader program ID for glUseProgram
-        RendererID skyboxTextureID;       // Cubemap texture renderer ID
-        PODRenderState renderState;       // Inlined render state
+        glm::mat4 transform;         // Usually identity matrix
+        AssetHandle shaderHandle;    // Skybox shader handle (for asset tracking)
+        RendererID shaderRendererID; // Shader program ID for glUseProgram
+        RendererID skyboxTextureID;  // Cubemap texture renderer ID
+        PODRenderState renderState;  // Inlined render state
     };
 
     // Static assertion for DrawSkyboxCommand
@@ -492,11 +492,11 @@ namespace OloEngine
     {
         CommandHeader header;
         glm::mat4 transform;
-        RendererID textureID;             // Texture renderer ID
-        AssetHandle shaderHandle;         // Shader asset handle (for asset tracking)
-        RendererID shaderRendererID;      // Shader program ID for glUseProgram
-        RendererID quadVAID;              // Quad vertex array renderer ID
-        PODRenderState renderState;       // Inlined render state
+        RendererID textureID;        // Texture renderer ID
+        AssetHandle shaderHandle;    // Shader asset handle (for asset tracking)
+        RendererID shaderRendererID; // Shader program ID for glUseProgram
+        RendererID quadVAID;         // Quad vertex array renderer ID
+        PODRenderState renderState;  // Inlined render state
     };
 
     // Static assertion for DrawQuadCommand

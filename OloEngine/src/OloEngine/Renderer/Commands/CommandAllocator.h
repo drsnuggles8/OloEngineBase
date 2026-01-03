@@ -41,8 +41,8 @@ namespace OloEngine
         {
             static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
             static_assert(std::is_trivially_copyable_v<T>,
-                "CreateCommandPacket() uses memcpy and requires trivially copyable types. "
-                "For non-trivial types, use AllocatePacketWithCommand() instead.");
+                          "CreateCommandPacket() uses memcpy and requires trivially copyable types. "
+                          "For non-trivial types, use AllocatePacketWithCommand() instead.");
 
             // Allocate memory for the CommandPacket
             void* packetMemory = AllocateCommandMemory(sizeof(CommandPacket));

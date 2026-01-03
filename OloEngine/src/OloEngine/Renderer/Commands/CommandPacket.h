@@ -64,9 +64,9 @@ namespace OloEngine
         {
             static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
             static_assert(std::is_trivially_copyable_v<T>,
-                "Initialize() uses memcpy and requires trivially copyable types. "
-                "For non-trivial types like DrawMeshInstancedCommand, use "
-                "CommandAllocator::AllocatePacketWithCommand() instead.");
+                          "Initialize() uses memcpy and requires trivially copyable types. "
+                          "For non-trivial types like DrawMeshInstancedCommand, use "
+                          "CommandAllocator::AllocatePacketWithCommand() instead.");
 
             // Copy the command data (safe for trivially copyable types)
             std::memcpy(m_CommandData, &commandData, sizeof(T));
