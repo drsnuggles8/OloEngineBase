@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderReflection.h"
 #include "OloEngine/Renderer/InflightFrameManager.h"
+#include "OloEngine/Renderer/Shader.h"
 
 #include <string>
 #include <unordered_map>
@@ -16,8 +17,6 @@
 
 namespace OloEngine
 {
-    // Forward declarations
-    class Shader;
 
     // @brief Shader resource variant - supports all bindable resource types
     using ShaderResource = std::variant<

@@ -1,10 +1,79 @@
 #include "OloEnginePCH.h"
 #include "CommandBucket.h"
+#include "FrameDataBuffer.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include <algorithm>
+#include <array>
 
 namespace OloEngine
 {
+    // LSB Radix Sort for 64-bit keys using 8-bit digits (8 passes)
+    // This is a stable sort, preserving relative order of equal keys.
+    // Input: array of command packets and their sort keys
+    // Uses counting sort for each digit pass.
+    namespace
+    {
+        constexpr sizet RADIX_BITS = 8;
+        constexpr sizet RADIX_SIZE = 1 << RADIX_BITS;          // 256 buckets
+        constexpr sizet NUM_PASSES = sizeof(u64) / sizeof(u8); // 8 passes for 64-bit
+
+        void RadixSort64(std::vector<CommandPacket*>& packets)
+        {
+            OLO_PROFILE_FUNCTION();
+
+            if (packets.size() <= 1)
+                return;
+
+            sizet count = packets.size();
+
+            // Temporary buffer for swapping
+            std::vector<CommandPacket*> temp(count);
+
+            // Pre-extract keys for cache efficiency
+            std::vector<u64> keys(count);
+            for (sizet i = 0; i < count; ++i)
+            {
+                keys[i] = packets[i]->GetMetadata().m_SortKey.GetKey();
+            }
+            std::vector<u64> tempKeys(count);
+
+            // Process each byte from LSB to MSB
+            for (sizet pass = 0; pass < NUM_PASSES; ++pass)
+            {
+                sizet shift = pass * RADIX_BITS;
+
+                // Count occurrences of each digit
+                std::array<sizet, RADIX_SIZE> histogram{};
+                for (sizet i = 0; i < count; ++i)
+                {
+                    u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
+                    histogram[digit]++;
+                }
+
+                // Convert counts to starting positions (prefix sum)
+                std::array<sizet, RADIX_SIZE> offsets{};
+                sizet total = 0;
+                for (sizet i = 0; i < RADIX_SIZE; ++i)
+                {
+                    offsets[i] = total;
+                    total += histogram[i];
+                }
+
+                // Place elements in sorted order
+                for (sizet i = 0; i < count; ++i)
+                {
+                    u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
+                    sizet destIdx = offsets[digit]++;
+                    temp[destIdx] = packets[i];
+                    tempKeys[destIdx] = keys[i];
+                }
+
+                // Swap buffers
+                std::swap(packets, temp);
+                std::swap(keys, tempKeys);
+            }
+        }
+    } // anonymous namespace
     CommandBucket::CommandBucket(const CommandBucketConfig& config)
         : m_Config(config)
     {
@@ -129,17 +198,14 @@ namespace OloEngine
         if (!currentGroup.empty())
             dependencyGroups.push_back(std::move(currentGroup));
 
-        // Now sort each group internally by key
+        // Sort each group internally using RadixSort64 for optimal performance
         for (auto& group : dependencyGroups)
         {
             // Only sort if there's more than one command in a group
             if (group.size() > 1)
             {
-                std::stable_sort(group.begin(), group.end(),
-                                 [](const CommandPacket* a, const CommandPacket* b)
-                                 {
-                                     return *a < *b;
-                                 });
+                // Use RadixSort64 for O(n) sorting on 64-bit keys
+                RadixSort64(group);
             }
         }
 
@@ -192,42 +258,60 @@ namespace OloEngine
         if (!meshCmd)
             return nullptr;
 
-        // Create a new instanced command
-        DrawMeshInstancedCommand instancedCmd;
+        // Create a new packet for the instanced command
+        // DrawMeshInstancedCommand is now POD/trivially copyable (uses transformBufferOffset instead of std::vector)
+        PacketMetadata metadata = meshPacket->GetMetadata();
+        CommandPacket* instancedPacket = allocator.AllocatePacketWithCommand<DrawMeshInstancedCommand>(metadata);
+        if (!instancedPacket)
+            return nullptr;
+
+        auto* instancedCmd = instancedPacket->GetCommandData<DrawMeshInstancedCommand>();
 
         // Copy header
-        instancedCmd.header.type = CommandType::DrawMeshInstanced;
-        instancedCmd.header.dispatchFn = nullptr; // Will be set during initialization
+        instancedCmd->header.type = CommandType::DrawMeshInstanced;
+        instancedCmd->header.dispatchFn = nullptr; // Will be set during initialization
 
-        // Copy mesh data using full objects
-        instancedCmd.mesh = meshCmd->mesh;
-        instancedCmd.vertexArray = meshCmd->vertexArray;
-        instancedCmd.indexCount = meshCmd->indexCount;
+        // Copy mesh data using POD identifiers
+        instancedCmd->meshHandle = meshCmd->meshHandle;
+        instancedCmd->vertexArrayID = meshCmd->vertexArrayID;
+        instancedCmd->indexCount = meshCmd->indexCount;
 
         // Initial instance count is 1
-        instancedCmd.instanceCount = 1;
+        instancedCmd->instanceCount = 1;
 
-        // Allocate transforms array
-        instancedCmd.transforms.resize(m_Config.MaxMeshInstances);
-        instancedCmd.transforms[0] = meshCmd->transform;
+        // Allocate space in FrameDataBuffer for the first transform and copy it
+        FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+        u32 transformOffset = frameBuffer.AllocateTransforms(1);
+        if (transformOffset == UINT32_MAX)
+        {
+            OLO_CORE_ERROR("CommandBucket::ConvertToInstanced: Failed to allocate transform in FrameDataBuffer");
+            return nullptr;
+        }
+        frameBuffer.WriteTransforms(transformOffset, &meshCmd->transform, 1);
+        instancedCmd->transformBufferOffset = transformOffset;
+        instancedCmd->transformCount = 1;
 
         // Copy material properties
-        instancedCmd.ambient = meshCmd->ambient;
-        instancedCmd.diffuse = meshCmd->diffuse;
-        instancedCmd.specular = meshCmd->specular;
-        instancedCmd.shininess = meshCmd->shininess;
-        instancedCmd.useTextureMaps = meshCmd->useTextureMaps;
+        instancedCmd->ambient = meshCmd->ambient;
+        instancedCmd->diffuse = meshCmd->diffuse;
+        instancedCmd->specular = meshCmd->specular;
+        instancedCmd->shininess = meshCmd->shininess;
+        instancedCmd->useTextureMaps = meshCmd->useTextureMaps;
 
-        // Copy textures using actual references
-        instancedCmd.diffuseMap = meshCmd->diffuseMap;
-        instancedCmd.specularMap = meshCmd->specularMap;
+        // Copy texture renderer IDs (POD)
+        instancedCmd->diffuseMapID = meshCmd->diffuseMapID;
+        instancedCmd->specularMapID = meshCmd->specularMapID;
 
-        // Copy shader reference
-        instancedCmd.shader = meshCmd->shader;
+        // Copy shader renderer ID (POD)
+        instancedCmd->shaderHandle = meshCmd->shaderHandle;
+        instancedCmd->shaderRendererID = meshCmd->shaderRendererID;
 
-        // Create a new packet for the instanced command
-        PacketMetadata metadata = meshPacket->GetMetadata();
-        CommandPacket* instancedPacket = allocator.CreateCommandPacket(instancedCmd, metadata);
+        // Copy POD render state
+        instancedCmd->renderState = meshCmd->renderState;
+
+        // Set command type and dispatch function
+        instancedPacket->SetCommandType(instancedCmd->header.type);
+        instancedPacket->SetDispatchFunction(CommandDispatch::GetDispatchFunction(instancedCmd->header.type));
 
         return instancedPacket;
     }
@@ -278,29 +362,94 @@ namespace OloEngine
             if (m_Tail == target)
                 m_Tail = instancedPacket;
 
-            // Now add source transform to the new instanced command
-            auto const* sourceCmd = source->GetCommandData<DrawMeshCommand>();
+            // Dynamic instance batching: merge transforms from source into the new instanced command
+            // 1. Get the source mesh command's transform
+            auto const* sourceMeshCmd = source->GetCommandData<DrawMeshCommand>();
+            if (!sourceMeshCmd)
+                return false;
 
-            if (auto* instancedCmd = instancedPacket->GetCommandData<DrawMeshInstancedCommand>();
-                instancedCmd && sourceCmd && instancedCmd->instanceCount < instancedCmd->transforms.size())
+            // 2. Get the current instanced command (which has 1 transform from ConvertToInstanced)
+            auto* instancedCmd = instancedPacket->GetCommandData<DrawMeshInstancedCommand>();
+            if (!instancedCmd)
+                return false;
+
+            // 3. Allocate new contiguous space for both transforms
+            FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+            u32 totalTransforms = instancedCmd->transformCount + 1;
+
+            // Check against max instances limit
+            if (totalTransforms > m_Config.MaxMeshInstances)
             {
-                instancedCmd->transforms[instancedCmd->instanceCount++] = sourceCmd->transform;
-                return true;
+                OLO_CORE_WARN("CommandBucket::TryMergeCommands: Max instances ({}) reached", m_Config.MaxMeshInstances);
+                return false;
             }
 
-            return false;
+            u32 newOffset = frameBuffer.AllocateTransforms(totalTransforms);
+            if (newOffset == UINT32_MAX)
+            {
+                OLO_CORE_ERROR("CommandBucket::TryMergeCommands: Failed to allocate {} transforms in FrameDataBuffer", totalTransforms);
+                return false;
+            }
+
+            // 4. Copy existing transforms from the instanced command
+            const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset);
+            if (existingTransforms)
+            {
+                frameBuffer.WriteTransforms(newOffset, existingTransforms, instancedCmd->transformCount);
+            }
+
+            // 5. Copy the source command's transform
+            frameBuffer.WriteTransforms(newOffset + instancedCmd->transformCount, &sourceMeshCmd->transform, 1);
+
+            // 6. Update the instanced command to use the new buffer
+            instancedCmd->transformBufferOffset = newOffset;
+            instancedCmd->transformCount = totalTransforms;
+            instancedCmd->instanceCount = totalTransforms;
+
+            return true;
         }
         else if (targetType == CommandType::DrawMeshInstanced && sourceType == CommandType::DrawMesh)
         {
-            // Add source transform to existing instanced command
+            // Add source mesh's transform to existing instanced command
             auto* instancedCmd = target->GetCommandData<DrawMeshInstancedCommand>();
-            auto const* sourceCmd = source->GetCommandData<DrawMeshCommand>();
+            auto const* sourceMeshCmd = source->GetCommandData<DrawMeshCommand>();
 
-            if (instancedCmd && sourceCmd && instancedCmd->instanceCount < instancedCmd->transforms.size())
+            if (!instancedCmd || !sourceMeshCmd)
+                return false;
+
+            // Check against max instances limit
+            u32 totalTransforms = instancedCmd->transformCount + 1;
+            if (totalTransforms > m_Config.MaxMeshInstances)
             {
-                instancedCmd->transforms[instancedCmd->instanceCount++] = sourceCmd->transform;
-                return true;
+                OLO_CORE_WARN("CommandBucket::TryMergeCommands: Max instances ({}) reached", m_Config.MaxMeshInstances);
+                return false;
             }
+
+            // Allocate new contiguous space for all transforms
+            FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+            u32 newOffset = frameBuffer.AllocateTransforms(totalTransforms);
+            if (newOffset == UINT32_MAX)
+            {
+                OLO_CORE_ERROR("CommandBucket::TryMergeCommands: Failed to allocate {} transforms in FrameDataBuffer", totalTransforms);
+                return false;
+            }
+
+            // Copy existing transforms
+            const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset);
+            if (existingTransforms)
+            {
+                frameBuffer.WriteTransforms(newOffset, existingTransforms, instancedCmd->transformCount);
+            }
+
+            // Copy the source command's transform
+            frameBuffer.WriteTransforms(newOffset + instancedCmd->transformCount, &sourceMeshCmd->transform, 1);
+
+            // Update the instanced command
+            instancedCmd->transformBufferOffset = newOffset;
+            instancedCmd->transformCount = totalTransforms;
+            instancedCmd->instanceCount = totalTransforms;
+
+            return true;
         }
 
         // Other command types can't be merged directly

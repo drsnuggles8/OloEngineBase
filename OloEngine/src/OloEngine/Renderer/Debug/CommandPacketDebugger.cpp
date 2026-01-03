@@ -695,29 +695,26 @@ namespace OloEngine
                     if (currentCmd && prevCmd)
                     {
                         // Compare render states - each different state is a state change
-                        if (currentCmd->renderState && prevCmd->renderState)
-                        {
-                            const auto& current = *currentCmd->renderState;
-                            const auto& previous = *prevCmd->renderState;
+                        const auto& current = currentCmd->renderState;
+                        const auto& previous = prevCmd->renderState;
 
-                            // Check various state categories
-                            if (current.PolygonMode.Mode != previous.PolygonMode.Mode)
-                                stateChanges++;
-                            if (current.LineWidth.Width != previous.LineWidth.Width)
-                                stateChanges++;
-                            if (current.Blend.Enabled != previous.Blend.Enabled)
-                                stateChanges++;
-                            if (current.Blend.SrcFactor != previous.Blend.SrcFactor)
-                                stateChanges++;
-                            if (current.Blend.DstFactor != previous.Blend.DstFactor)
-                                stateChanges++;
-                            if (current.PolygonOffset.Enabled != previous.PolygonOffset.Enabled)
-                                stateChanges++;
-                            if (current.PolygonOffset.Factor != previous.PolygonOffset.Factor)
-                                stateChanges++;
-                            if (current.PolygonOffset.Units != previous.PolygonOffset.Units)
-                                stateChanges++;
-                        }
+                        // Check various state categories
+                        if (current.polygonMode != previous.polygonMode)
+                            stateChanges++;
+                        if (current.lineWidth != previous.lineWidth)
+                            stateChanges++;
+                        if (current.blendEnabled != previous.blendEnabled)
+                            stateChanges++;
+                        if (current.blendSrcFactor != previous.blendSrcFactor)
+                            stateChanges++;
+                        if (current.blendDstFactor != previous.blendDstFactor)
+                            stateChanges++;
+                        if (current.polygonOffsetEnabled != previous.polygonOffsetEnabled)
+                            stateChanges++;
+                        if (current.polygonOffsetFactor != previous.polygonOffsetFactor)
+                            stateChanges++;
+                        if (current.polygonOffsetUnits != previous.polygonOffsetUnits)
+                            stateChanges++;
                     }
                 }
 

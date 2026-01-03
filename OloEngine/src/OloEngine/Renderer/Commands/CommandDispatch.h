@@ -39,6 +39,9 @@ namespace OloEngine
         static void SetSceneLight(const Light& light);
         static void SetViewPosition(const glm::vec3& viewPos);
 
+        // Getters for current frame state (used for sort key generation)
+        static const glm::mat4& GetViewMatrix();
+
         // UBO access - Renderer3D provides these, CommandDispatch uses them
         static void SetUBOReferences(
             const Ref<UniformBuffer>& cameraUBO,

@@ -226,7 +226,23 @@ set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
+# Jolt Physics configuration - enable static linking and cross-platform determinism
+set(JPH_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
+set(JPH_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
+set(JPH_CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "" FORCE)
+
+
 FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw glm googletest joltphysics miniaudio msdfgen msdf-atlas-gen spdlog tracy yaml-cpp)
+
+# Fix Jolt's INTERFACE_INCLUDE_DIRECTORIES to remove absolute Vulkan SDK paths
+# This is a workaround for CMake's strict policy against source-dir absolute paths in interface directories
+if(TARGET Jolt)
+    get_target_property(jolt_interface_dirs Jolt INTERFACE_INCLUDE_DIRECTORIES)
+    if(jolt_interface_dirs)
+        list(FILTER jolt_interface_dirs EXCLUDE REGEX "VULKAN_SDK|Vulkan")
+        set_target_properties(Jolt PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${jolt_interface_dirs}")
+    endif()
+endif()
 
 # atomic_queue is header-only - create an interface target for easy include
 add_library(atomic_queue_interface INTERFACE)
