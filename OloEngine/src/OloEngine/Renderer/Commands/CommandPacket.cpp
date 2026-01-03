@@ -95,22 +95,23 @@ namespace OloEngine
                 auto* cmd1 = reinterpret_cast<const DrawMeshCommand*>(m_CommandData);
                 auto* cmd2 = reinterpret_cast<const DrawMeshCommand*>(other.m_CommandData);
 
-                // Check if mesh pointers are the same
-                if (cmd1->mesh != cmd2->mesh)
+                // Check if mesh handles are the same (POD)
+                if (cmd1->meshHandle != cmd2->meshHandle)
                     return false;
 
-                // Check if shaders are the same
-                if (cmd1->shader != cmd2->shader)
+                // Check if shaders are the same (using renderer ID)
+                if (cmd1->shaderRendererID != cmd2->shaderRendererID)
                     return false;
 
                 // Check material properties
                 if (cmd1->useTextureMaps != cmd2->useTextureMaps)
                     return false;
 
-                if (cmd1->diffuseMap != cmd2->diffuseMap)
+                // Check texture renderer IDs (POD)
+                if (cmd1->diffuseMapID != cmd2->diffuseMapID)
                     return false;
 
-                if (cmd1->specularMap != cmd2->specularMap)
+                if (cmd1->specularMapID != cmd2->specularMapID)
                     return false;
 
                 // Check material properties
@@ -135,9 +136,9 @@ namespace OloEngine
                 auto* cmd1 = reinterpret_cast<const DrawQuadCommand*>(m_CommandData);
                 auto* cmd2 = reinterpret_cast<const DrawQuadCommand*>(other.m_CommandData);
 
-                // Quads can be batched if they use the same texture and shader
-                return cmd1->texture == cmd2->texture &&
-                       cmd1->shader == cmd2->shader;
+                // Quads can be batched if they use the same texture and shader (POD renderer IDs)
+                return cmd1->textureID == cmd2->textureID &&
+                       cmd1->shaderRendererID == cmd2->shaderRendererID;
             }
 
             // State change commands generally can't be batched

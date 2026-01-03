@@ -58,7 +58,7 @@ namespace OloEngine
         rendererAPI.SetCullFace(GL_BACK);
         rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-        // m_CommandBucket.SortCommands();
+        m_CommandBucket.SortCommands();
         m_CommandBucket.Execute(rendererAPI);
 
         m_Target->Unbind();

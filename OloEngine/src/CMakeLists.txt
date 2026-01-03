@@ -389,6 +389,8 @@
 		"OloEngine/Renderer/Commands/CommandPacket.cpp"
 		"OloEngine/Renderer/Commands/CommandPacket.h"
 		"OloEngine/Renderer/Commands/DrawKey.h"
+		"OloEngine/Renderer/Commands/FrameDataBuffer.cpp"
+		"OloEngine/Renderer/Commands/FrameDataBuffer.h"
 		"OloEngine/Renderer/Commands/RenderCommand.h"
 		"OloEngine/Renderer/Commands/ThreadLocalCache.cpp"
 		"OloEngine/Renderer/Commands/ThreadLocalCache.h"

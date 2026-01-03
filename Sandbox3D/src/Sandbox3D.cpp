@@ -597,11 +597,11 @@ void Sandbox3D::RenderMaterialTestingScene()
         if (wirePacket)
         {
             auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
-            drawCmd->renderState->PolygonMode.Mode = GL_LINE;
-            drawCmd->renderState->LineWidth.Width = 2.5f;
-            drawCmd->renderState->PolygonOffset.Enabled = true;
-            drawCmd->renderState->PolygonOffset.Factor = -1.0f;
-            drawCmd->renderState->PolygonOffset.Units = -1.0f;
+            drawCmd->renderState.polygonMode = GL_LINE;
+            drawCmd->renderState.lineWidth = 2.5f;
+            drawCmd->renderState.polygonOffsetEnabled = true;
+            drawCmd->renderState.polygonOffsetFactor = -1.0f;
+            drawCmd->renderState.polygonOffsetUnits = -1.0f;
             OloEngine::Renderer3D::SubmitPacket(wirePacket);
         }
     }
@@ -1316,8 +1316,8 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 if (packet)
                 {
                     auto* drawCmd = packet->GetCommandData<OloEngine::DrawMeshCommand>();
-                    drawCmd->renderState->PolygonMode.Mode = GL_LINE;
-                    drawCmd->renderState->LineWidth.Width = 2.0f + i;
+                    drawCmd->renderState.polygonMode = GL_LINE;
+                    drawCmd->renderState.lineWidth = 2.0f + i;
                     OloEngine::Renderer3D::SubmitPacket(packet);
                 }
             }
@@ -1350,9 +1350,9 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 if (packet)
                 {
                     auto* drawCmd = packet->GetCommandData<OloEngine::DrawMeshCommand>();
-                    drawCmd->renderState->Blend.Enabled = true;
-                    drawCmd->renderState->Blend.SrcFactor = GL_SRC_ALPHA;
-                    drawCmd->renderState->Blend.DstFactor = GL_ONE_MINUS_SRC_ALPHA;
+                    drawCmd->renderState.blendEnabled = true;
+                    drawCmd->renderState.blendSrcFactor = GL_SRC_ALPHA;
+                    drawCmd->renderState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
                     OloEngine::Renderer3D::SubmitPacket(packet);
                 }
             }
@@ -1383,11 +1383,11 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             if (wirePacket)
             {
                 auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
-                drawCmd->renderState->PolygonMode.Mode = GL_LINE;
-                drawCmd->renderState->LineWidth.Width = 1.5f;
-                drawCmd->renderState->PolygonOffset.Enabled = true;
-                drawCmd->renderState->PolygonOffset.Factor = -1.0f;
-                drawCmd->renderState->PolygonOffset.Units = -1.0f;
+                drawCmd->renderState.polygonMode = GL_LINE;
+                drawCmd->renderState.lineWidth = 1.5f;
+                drawCmd->renderState.polygonOffsetEnabled = true;
+                drawCmd->renderState.polygonOffsetFactor = -1.0f;
+                drawCmd->renderState.polygonOffsetUnits = -1.0f;
                 OloEngine::Renderer3D::SubmitPacket(wirePacket);
             }
             break;
@@ -1407,8 +1407,8 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             if (wirePacket)
             {
                 auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
-                drawCmd->renderState->PolygonMode.Mode = GL_LINE;
-                drawCmd->renderState->LineWidth.Width = 2.0f;
+                drawCmd->renderState.polygonMode = GL_LINE;
+                drawCmd->renderState.lineWidth = 2.0f;
                 OloEngine::Renderer3D::SubmitPacket(wirePacket);
             }
             // Transparent cubes around sphere
@@ -1440,9 +1440,9 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 if (glassPacket)
                 {
                     auto* drawCmd = glassPacket->GetCommandData<OloEngine::DrawMeshCommand>();
-                    drawCmd->renderState->Blend.Enabled = true;
-                    drawCmd->renderState->Blend.SrcFactor = GL_SRC_ALPHA;
-                    drawCmd->renderState->Blend.DstFactor = GL_ONE_MINUS_SRC_ALPHA;
+                    drawCmd->renderState.blendEnabled = true;
+                    drawCmd->renderState.blendSrcFactor = GL_SRC_ALPHA;
+                    drawCmd->renderState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
                     OloEngine::Renderer3D::SubmitPacket(glassPacket);
                 }
             }

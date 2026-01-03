@@ -12,6 +12,8 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/Commands/DrawKey.h"
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -37,12 +39,81 @@ namespace OloEngine
     Renderer3D::Renderer3DData Renderer3D::s_Data;
     ShaderLibrary Renderer3D::m_ShaderLibrary;
 
+    // Helper function to compute depth from camera space for sort key
+    // Returns a quantized depth value in range [0, 0xFFFFFF] for 24-bit depth
+    static u32 ComputeDepthForSortKey(const glm::mat4& modelMatrix)
+    {
+        // Transform model center to view space using CommandDispatch's cached view matrix
+        const glm::mat4& viewMatrix = CommandDispatch::GetViewMatrix();
+        glm::vec4 viewPos = viewMatrix * modelMatrix[3];
+        // Use negative Z since camera looks down -Z axis
+        f32 depth = -viewPos.z;
+
+        // Clamp depth to reasonable range [0, 1000] and quantize to 24 bits
+        constexpr f32 MIN_DEPTH = 0.1f;
+        constexpr f32 MAX_DEPTH = 1000.0f;
+        depth = glm::clamp(depth, MIN_DEPTH, MAX_DEPTH);
+        f32 normalizedDepth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH);
+        return static_cast<u32>(normalizedDepth * 0xFFFFFF);
+    }
+
+    // Helper to generate material ID hash for sort key
+    static u32 ComputeMaterialID(const Material& material)
+    {
+        u64 hash = 0;
+
+        if (material.GetType() == MaterialType::PBR)
+        {
+            // Use PBR textures for hashing
+            u64 albedoID = material.GetAlbedoMap() ? static_cast<u64>(material.GetAlbedoMap()->GetRendererID()) : 0ULL;
+            u64 metallicID = material.GetMetallicRoughnessMap() ? static_cast<u64>(material.GetMetallicRoughnessMap()->GetRendererID()) : 0ULL;
+            u64 normalID = material.GetNormalMap() ? static_cast<u64>(material.GetNormalMap()->GetRendererID()) : 0ULL;
+
+            hash = albedoID;
+            hash ^= metallicID + 0x9e3779b9ULL + (hash << 6) + (hash >> 2);
+            hash ^= normalID + 0x9e3779b9ULL + (hash << 6) + (hash >> 2);
+        }
+        else
+        {
+            // Use legacy textures
+            u64 diffuseID = material.GetDiffuseMap() ? static_cast<u64>(material.GetDiffuseMap()->GetRendererID()) : 0ULL;
+            u64 specularID = material.GetSpecularMap() ? static_cast<u64>(material.GetSpecularMap()->GetRendererID()) : 0ULL;
+
+            hash = diffuseID;
+            hash ^= specularID + 0x9e3779b9ULL + (hash << 6) + (hash >> 2);
+        }
+
+        // Fold 64-bit hash to 16-bit material ID (as defined in DrawKey)
+        return static_cast<u32>((hash ^ (hash >> 32)) & 0xFFFF);
+    }
+
+    // Helper to create default POD render state
+    static PODRenderState CreateDefaultPODRenderState()
+    {
+        PODRenderState state{};
+        // All fields are initialized to sensible defaults by the struct itself
+        return state;
+    }
+
+    // Helper to populate POD render state from material and optional overrides
+    static PODRenderState CreatePODRenderStateForMaterial(const Material& /*material*/)
+    {
+        PODRenderState state{};
+        // Default opaque state - could be extended based on material blend mode
+        state.depthTestEnabled = true;
+        state.depthWriteMask = true;
+        state.cullingEnabled = true;
+        state.cullFace = GL_BACK;
+        return state;
+    }
+
     void Renderer3D::Init()
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Initializing Renderer3D.");
 
         CommandMemoryManager::Init();
+        FrameDataBufferManager::Init();
 
         CommandDispatch::Initialize();
         OLO_CORE_INFO("CommandDispatch system initialized.");
@@ -148,6 +219,8 @@ namespace OloEngine
         if (s_Data.RGraph)
             s_Data.RGraph->Shutdown();
 
+        FrameDataBufferManager::Shutdown();
+
         OLO_CORE_INFO("Renderer3D shutdown complete.");
     }
 
@@ -162,6 +235,9 @@ namespace OloEngine
             OLO_CORE_ERROR("Renderer3D::BeginScene: ScenePass is null!");
             return;
         }
+
+        // Reset frame data buffer for new frame
+        FrameDataBufferManager::Get().Reset();
 
         CommandAllocator* frameAllocator = CommandMemoryManager::GetFrameAllocator();
         s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
@@ -360,31 +436,29 @@ namespace OloEngine
             return nullptr;
         }
 
-        // TODO: Asset Management Integration
-        // This entire command creation section needs to be updated once we have
-        // a proper asset management system. All Ref<T> assignments should be
-        // converted to asset ID assignments using asset handles.
-        // Example: cmd->shaderID = shaderToUse->GetAssetHandle();
-        // instead of: cmd->shader = shaderToUse;
-
+        // Create POD command using asset handles and renderer IDs
         CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
-        cmd->mesh = mesh;
-        cmd->vertexArray = mesh->GetVertexArray();
+
+        // Store asset handles and renderer IDs (POD)
+        cmd->meshHandle = mesh->GetHandle();
+        cmd->vertexArrayID = mesh->GetVertexArray()->GetRendererID();
         cmd->indexCount = mesh->GetIndexCount();
         cmd->transform = glm::mat4(modelMatrix);
+        cmd->shaderHandle = shaderToUse->GetHandle();
+        cmd->shaderRendererID = shaderToUse->GetRendererID();
 
-        // Legacy material properties (for backward compatibility)
+        // Legacy material properties (POD)
         cmd->ambient = material.GetAmbient();
         cmd->diffuse = material.GetDiffuse();
         cmd->specular = material.GetSpecular();
         cmd->shininess = material.GetShininess();
         cmd->useTextureMaps = material.IsUsingTextureMaps();
-        cmd->diffuseMap = material.GetDiffuseMap();
-        cmd->specularMap = material.GetSpecularMap();
+        cmd->diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
+        cmd->specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
 
-        // PBR material properties
+        // PBR material properties (POD)
         cmd->enablePBR = (material.GetType() == MaterialType::PBR);
         cmd->baseColorFactor = material.GetBaseColorFactor();
         cmd->emissiveFactor = material.GetEmissiveFactor();
@@ -394,21 +468,37 @@ namespace OloEngine
         cmd->occlusionStrength = material.GetOcclusionStrength();
         cmd->enableIBL = material.IsIBLEnabled();
 
-        // PBR texture references
-        cmd->albedoMap = material.GetAlbedoMap();
-        cmd->metallicRoughnessMap = material.GetMetallicRoughnessMap();
-        cmd->normalMap = material.GetNormalMap();
-        cmd->aoMap = material.GetAOMap();
-        cmd->emissiveMap = material.GetEmissiveMap();
-        cmd->environmentMap = material.GetEnvironmentMap();
-        cmd->irradianceMap = material.GetIrradianceMap();
-        cmd->prefilterMap = material.GetPrefilterMap();
-        cmd->brdfLutMap = material.GetBRDFLutMap();
+        // PBR texture renderer IDs (POD)
+        cmd->albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
+        cmd->metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
+        cmd->normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
+        cmd->aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
+        cmd->emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
+        cmd->environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
+        cmd->irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
+        cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
+        cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
 
-        cmd->shader = shaderToUse;
-        cmd->renderState = Ref<RenderState>::Create();
+        // Inlined POD render state
+        cmd->renderState = CreatePODRenderStateForMaterial(material);
+
+        // No bone matrices for non-animated mesh
+        cmd->isAnimatedMesh = false;
+        cmd->boneBufferOffset = 0;
+        cmd->boneCount = 0;
+
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Set sort key for optimal command sorting
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF; // 16-bit shader ID
+        u32 materialID = ComputeMaterialID(material);
+        u32 depth = ComputeDepthForSortKey(modelMatrix);
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
+        metadata.m_IsStatic = isStatic;
+        packet->SetMetadata(metadata);
+
         return packet;
     }
 
@@ -437,16 +527,29 @@ namespace OloEngine
             if (!s_Data.QuadMesh || !s_Data.QuadMesh->GetVertexArray())
                 return nullptr;
         }
+
+        // Create POD command
         CommandPacket* packet = CreateDrawCall<DrawQuadCommand>();
         auto* cmd = packet->GetCommandData<DrawQuadCommand>();
         cmd->header.type = CommandType::DrawQuad;
         cmd->transform = glm::mat4(modelMatrix);
-        cmd->texture = texture;
-        cmd->shader = s_Data.QuadShader;
-        cmd->quadVA = s_Data.QuadMesh->GetVertexArray();
-        cmd->renderState = Ref<RenderState>::Create();
+        cmd->textureID = texture->GetRendererID();
+        cmd->shaderHandle = s_Data.QuadShader->GetHandle();
+        cmd->shaderRendererID = s_Data.QuadShader->GetRendererID();
+        cmd->quadVAID = s_Data.QuadMesh->GetVertexArray()->GetRendererID();
+        cmd->renderState = CreateDefaultPODRenderState();
+
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Set sort key for quad commands
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = s_Data.QuadShader->GetRendererID() & 0xFFFF;
+        u32 materialID = texture ? (texture->GetRendererID() & 0xFFFF) : 0;
+        u32 depth = ComputeDepthForSortKey(modelMatrix);
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::TwoD, shaderID, materialID, depth);
+        packet->SetMetadata(metadata);
+
         return packet;
     }
 
@@ -474,25 +577,44 @@ namespace OloEngine
             }
         }
 
+        // Allocate space in FrameDataBuffer for instance transforms
+        FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+        u32 transformCount = static_cast<u32>(transforms.size());
+        u32 transformOffset = frameBuffer.AllocateTransforms(transformCount);
+        if (transformOffset == UINT32_MAX)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawMeshInstanced: Failed to allocate transform buffer space");
+            return nullptr;
+        }
+        frameBuffer.WriteTransforms(transformOffset, transforms.data(), transformCount);
+
+        Ref<Shader> shaderToUse = material.GetShader() ? material.GetShader() : s_Data.LightingShader;
+
+        // Create POD command
         CommandPacket* packet = CreateDrawCall<DrawMeshInstancedCommand>();
         auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
         cmd->header.type = CommandType::DrawMeshInstanced;
-        cmd->mesh = mesh;
-        cmd->vertexArray = mesh->GetVertexArray();
-        cmd->indexCount = mesh->GetIndexCount();
-        cmd->instanceCount = static_cast<u32>(transforms.size());
-        cmd->transforms = transforms;
 
-        // Legacy material properties (for backward compatibility)
+        // Store asset handles and renderer IDs (POD)
+        cmd->meshHandle = mesh->GetHandle();
+        cmd->vertexArrayID = mesh->GetVertexArray()->GetRendererID();
+        cmd->indexCount = mesh->GetIndexCount();
+        cmd->instanceCount = transformCount;
+        cmd->transformBufferOffset = transformOffset;
+        cmd->transformCount = transformCount;
+        cmd->shaderHandle = shaderToUse->GetHandle();
+        cmd->shaderRendererID = shaderToUse->GetRendererID();
+
+        // Legacy material properties (POD)
         cmd->ambient = material.GetAmbient();
         cmd->diffuse = material.GetDiffuse();
         cmd->specular = material.GetSpecular();
         cmd->shininess = material.GetShininess();
         cmd->useTextureMaps = material.IsUsingTextureMaps();
-        cmd->diffuseMap = material.GetDiffuseMap();
-        cmd->specularMap = material.GetSpecularMap();
+        cmd->diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
+        cmd->specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
 
-        // PBR material properties
+        // PBR material properties (POD)
         cmd->enablePBR = (material.GetType() == MaterialType::PBR);
         cmd->baseColorFactor = material.GetBaseColorFactor();
         cmd->emissiveFactor = material.GetEmissiveFactor();
@@ -502,21 +624,36 @@ namespace OloEngine
         cmd->occlusionStrength = material.GetOcclusionStrength();
         cmd->enableIBL = material.IsIBLEnabled();
 
-        // PBR texture references
-        cmd->albedoMap = material.GetAlbedoMap();
-        cmd->metallicRoughnessMap = material.GetMetallicRoughnessMap();
-        cmd->normalMap = material.GetNormalMap();
-        cmd->aoMap = material.GetAOMap();
-        cmd->emissiveMap = material.GetEmissiveMap();
-        cmd->environmentMap = material.GetEnvironmentMap();
-        cmd->irradianceMap = material.GetIrradianceMap();
-        cmd->prefilterMap = material.GetPrefilterMap();
-        cmd->brdfLutMap = material.GetBRDFLutMap();
+        // PBR texture renderer IDs (POD)
+        cmd->albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
+        cmd->metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
+        cmd->normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
+        cmd->aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
+        cmd->emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
+        cmd->environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
+        cmd->irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
+        cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
+        cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
 
-        cmd->shader = material.GetShader() ? material.GetShader() : s_Data.LightingShader;
-        cmd->renderState = Ref<RenderState>::Create();
+        // Inlined POD render state
+        cmd->renderState = CreatePODRenderStateForMaterial(material);
+
+        cmd->isAnimatedMesh = false;
+        cmd->boneBufferOffset = 0;
+        cmd->boneCountPerInstance = 0;
+
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Set sort key for instanced mesh commands (use first transform for depth)
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
+        u32 materialID = ComputeMaterialID(material);
+        u32 depth = transforms.empty() ? 0 : ComputeDepthForSortKey(transforms[0]);
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
+        metadata.m_IsStatic = isStatic;
+        packet->SetMetadata(metadata);
+
         return packet;
     }
 
@@ -528,14 +665,18 @@ namespace OloEngine
             OLO_CORE_ERROR("Renderer3D::DrawLightCube: ScenePass is null!");
             return nullptr;
         }
+
+        // Create POD command
         CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
-        cmd->mesh = s_Data.CubeMesh;
-        cmd->vertexArray = s_Data.CubeMesh->GetVertexArray();
+
+        // Store asset handles and renderer IDs (POD)
+        cmd->meshHandle = s_Data.CubeMesh->GetHandle();
+        cmd->vertexArrayID = s_Data.CubeMesh->GetVertexArray()->GetRendererID();
         cmd->indexCount = s_Data.CubeMesh->GetIndexCount();
         cmd->transform = modelMatrix;
-        cmd->shader = s_Data.LightCubeShader;
+        cmd->shaderHandle = s_Data.LightCubeShader->GetHandle();
 
         // Legacy material properties
         cmd->ambient = glm::vec3(1.0f);
@@ -543,8 +684,8 @@ namespace OloEngine
         cmd->specular = glm::vec3(1.0f);
         cmd->shininess = 32.0f;
         cmd->useTextureMaps = false;
-        cmd->diffuseMap = nullptr;
-        cmd->specularMap = nullptr;
+        cmd->diffuseMapID = 0;
+        cmd->specularMapID = 0;
 
         // PBR material properties (default values for light cube)
         cmd->enablePBR = false;
@@ -555,19 +696,33 @@ namespace OloEngine
         cmd->normalScale = 1.0f;
         cmd->occlusionStrength = 1.0f;
         cmd->enableIBL = false;
-        cmd->albedoMap = nullptr;
-        cmd->metallicRoughnessMap = nullptr;
-        cmd->normalMap = nullptr;
-        cmd->aoMap = nullptr;
-        cmd->emissiveMap = nullptr;
-        cmd->environmentMap = nullptr;
-        cmd->irradianceMap = nullptr;
-        cmd->prefilterMap = nullptr;
-        cmd->brdfLutMap = nullptr;
+        cmd->albedoMapID = 0;
+        cmd->metallicRoughnessMapID = 0;
+        cmd->normalMapID = 0;
+        cmd->aoMapID = 0;
+        cmd->emissiveMapID = 0;
+        cmd->environmentMapID = 0;
+        cmd->irradianceMapID = 0;
+        cmd->prefilterMapID = 0;
+        cmd->brdfLutMapID = 0;
 
-        cmd->renderState = Ref<RenderState>::Create();
+        // Inlined POD render state
+        cmd->renderState = CreateDefaultPODRenderState();
+
+        cmd->isAnimatedMesh = false;
+        cmd->boneBufferOffset = 0;
+        cmd->boneCount = 0;
+
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Set sort key for light cube
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = s_Data.LightCubeShader->GetRendererID() & 0xFFFF;
+        u32 depth = ComputeDepthForSortKey(modelMatrix);
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
+        packet->SetMetadata(metadata);
+
         return packet;
     }
 
@@ -784,15 +939,6 @@ namespace OloEngine
             OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: No bone matrices provided, using identity matrices");
         }
 
-        // Use unified DrawMeshCommand for bone matrix handling
-        CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
-        auto* cmd = packet->GetCommandData<DrawMeshCommand>();
-
-        cmd->header.type = CommandType::DrawMesh;
-        cmd->isAnimatedMesh = true;
-
-        cmd->mesh = mesh;
-
         // Check if VAO is valid before proceeding
         auto vertexArray = mesh->GetVertexArray();
         if (!vertexArray)
@@ -800,21 +946,41 @@ namespace OloEngine
             OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: Mesh has null VAO (Vertex Array Object)!");
             return nullptr;
         }
-        cmd->vertexArray = vertexArray;
 
+        // Allocate space in FrameDataBuffer for bone matrices
+        FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+        u32 boneCount = static_cast<u32>(boneMatrices.size());
+        u32 boneBufferOffset = frameBuffer.AllocateBoneMatrices(boneCount);
+        if (boneBufferOffset == UINT32_MAX)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: Failed to allocate bone buffer space");
+            return nullptr;
+        }
+        frameBuffer.WriteBoneMatrices(boneBufferOffset, boneMatrices.data(), boneCount);
+
+        // Create POD command
+        CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
+        auto* cmd = packet->GetCommandData<DrawMeshCommand>();
+        cmd->header.type = CommandType::DrawMesh;
+
+        // Store asset handles and renderer IDs (POD)
+        cmd->meshHandle = mesh->GetHandle();
+        cmd->vertexArrayID = vertexArray->GetRendererID();
         cmd->indexCount = mesh->GetIndexCount();
         cmd->transform = modelMatrix;
+        cmd->shaderHandle = shaderToUse->GetHandle();
+        cmd->shaderRendererID = shaderToUse->GetRendererID();
 
-        // Legacy material properties (for backward compatibility)
+        // Legacy material properties (POD)
         cmd->ambient = material.GetAmbient();
         cmd->diffuse = material.GetDiffuse();
         cmd->specular = material.GetSpecular();
         cmd->shininess = material.GetShininess();
         cmd->useTextureMaps = material.IsUsingTextureMaps();
-        cmd->diffuseMap = material.GetDiffuseMap();
-        cmd->specularMap = material.GetSpecularMap();
+        cmd->diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
+        cmd->specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
 
-        // PBR material properties
+        // PBR material properties (POD)
         cmd->enablePBR = (material.GetType() == MaterialType::PBR);
         cmd->baseColorFactor = material.GetBaseColorFactor();
         cmd->emissiveFactor = material.GetEmissiveFactor();
@@ -824,41 +990,43 @@ namespace OloEngine
         cmd->occlusionStrength = material.GetOcclusionStrength();
         cmd->enableIBL = material.IsIBLEnabled();
 
-        // PBR texture references
-        cmd->albedoMap = material.GetAlbedoMap();
-        cmd->metallicRoughnessMap = material.GetMetallicRoughnessMap();
-        cmd->normalMap = material.GetNormalMap();
-        cmd->aoMap = material.GetAOMap();
-        cmd->emissiveMap = material.GetEmissiveMap();
-        cmd->environmentMap = material.GetEnvironmentMap();
-        cmd->irradianceMap = material.GetIrradianceMap();
-        cmd->prefilterMap = material.GetPrefilterMap();
-        cmd->brdfLutMap = material.GetBRDFLutMap();
+        // PBR texture renderer IDs (POD)
+        cmd->albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
+        cmd->metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
+        cmd->normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
+        cmd->aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
+        cmd->emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
+        cmd->environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
+        cmd->irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
+        cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
+        cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
 
-        cmd->shader = shaderToUse;
-        cmd->renderState = Ref<RenderState>::Create();
+        // Inlined POD render state
+        cmd->renderState = CreatePODRenderStateForMaterial(material);
 
-        // Set bone matrices reference for GPU skinning (avoid copying large data)
-        // WARNING: The caller MUST ensure the boneMatrices vector remains valid
-        // until after rendering completes. The std::span only holds a pointer and size.
-        if (!boneMatrices.empty())
-        {
-            cmd->boneMatrices = std::span<const glm::mat4>(boneMatrices.data(), boneMatrices.size());
-        }
-        else
-        {
-            cmd->boneMatrices = std::span<const glm::mat4>();
-        }
+        // Animation support - store offset/count into FrameDataBuffer
+        cmd->isAnimatedMesh = true;
+        cmd->boneBufferOffset = boneBufferOffset;
+        cmd->boneCount = boneCount;
 
         static bool s_LoggedBoneMatrices = false;
         if (!s_LoggedBoneMatrices && !boneMatrices.empty())
         {
-            OLO_CORE_INFO("DrawAnimatedMesh: Setting {} bone matrices for GPU skinning", boneMatrices.size());
+            OLO_CORE_INFO("DrawAnimatedMesh: Storing {} bone matrices at offset {} in FrameDataBuffer", boneCount, boneBufferOffset);
             s_LoggedBoneMatrices = true;
         }
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Set sort key for animated mesh commands
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
+        u32 materialID = ComputeMaterialID(material);
+        u32 depth = ComputeDepthForSortKey(modelMatrix);
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
+        metadata.m_IsStatic = isStatic;
+        packet->SetMetadata(metadata);
 
         return packet;
     }
@@ -1115,24 +1283,36 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Create POD command
         CommandPacket* packet = CreateDrawCall<DrawSkyboxCommand>();
         auto* cmd = packet->GetCommandData<DrawSkyboxCommand>();
         cmd->header.type = CommandType::DrawSkybox;
-        cmd->mesh = s_Data.SkyboxMesh;
-        cmd->vertexArray = s_Data.SkyboxMesh->GetVertexArray();
+
+        // Store asset handles and renderer IDs (POD)
+        cmd->meshHandle = s_Data.SkyboxMesh->GetHandle();
+        cmd->vertexArrayID = s_Data.SkyboxMesh->GetVertexArray()->GetRendererID();
         cmd->indexCount = s_Data.SkyboxMesh->GetIndexCount();
         cmd->transform = glm::mat4(1.0f); // Identity matrix for skybox
-        cmd->shader = s_Data.SkyboxShader;
-        cmd->skyboxTexture = skyboxTexture;
+        cmd->shaderHandle = s_Data.SkyboxShader->GetHandle();
+        cmd->shaderRendererID = s_Data.SkyboxShader->GetRendererID();
+        cmd->skyboxTextureID = skyboxTexture->GetRendererID();
 
-        cmd->renderState = Ref<RenderState>::Create();
-        cmd->renderState->Depth.TestEnabled = true;
-        cmd->renderState->Depth.Function = GL_LEQUAL; // Important for skybox
-        cmd->renderState->Depth.WriteMask = false;    // Don't write to depth buffer
-        cmd->renderState->Culling.Enabled = false;    // Don't cull faces for skybox
+        // Skybox-specific POD render state
+        cmd->renderState = CreateDefaultPODRenderState();
+        cmd->renderState.depthTestEnabled = true;
+        cmd->renderState.depthFunction = GL_LEQUAL; // Important for skybox
+        cmd->renderState.depthWriteMask = false;    // Don't write to depth buffer
+        cmd->renderState.cullingEnabled = false;    // Don't cull faces for skybox
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Set sort key for skybox (rendered last in skybox layer with max depth)
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = s_Data.SkyboxShader->GetRendererID() & 0xFFFF;
+        // Skybox always renders at maximum depth (far plane)
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::Skybox, shaderID, 0, 0xFFFFFF);
+        packet->SetMetadata(metadata);
 
         return packet;
     }
@@ -1197,14 +1377,14 @@ namespace OloEngine
         if (packet)
         {
             auto* drawCmd = packet->GetCommandData<DrawMeshCommand>();
-            if (drawCmd && drawCmd->renderState)
+            if (drawCmd)
             {
                 // Disable depth test so skeleton always shows on top
-                drawCmd->renderState->Depth.TestEnabled = false;
+                drawCmd->renderState.depthTestEnabled = false;
                 // Add some polygon offset to push skeleton forward
-                drawCmd->renderState->PolygonOffset.Enabled = true;
-                drawCmd->renderState->PolygonOffset.Factor = -2.0f;
-                drawCmd->renderState->PolygonOffset.Units = -2.0f;
+                drawCmd->renderState.polygonOffsetEnabled = true;
+                drawCmd->renderState.polygonOffsetFactor = -2.0f;
+                drawCmd->renderState.polygonOffsetUnits = -2.0f;
             }
         }
 
@@ -1248,14 +1428,14 @@ namespace OloEngine
         if (packet)
         {
             auto* drawCmd = packet->GetCommandData<DrawMeshCommand>();
-            if (drawCmd && drawCmd->renderState)
+            if (drawCmd)
             {
                 // Disable depth test so skeleton joints always show on top
-                drawCmd->renderState->Depth.TestEnabled = false;
+                drawCmd->renderState.depthTestEnabled = false;
                 // Add polygon offset to push joints forward
-                drawCmd->renderState->PolygonOffset.Enabled = true;
-                drawCmd->renderState->PolygonOffset.Factor = -2.0f;
-                drawCmd->renderState->PolygonOffset.Units = -2.0f;
+                drawCmd->renderState.polygonOffsetEnabled = true;
+                drawCmd->renderState.polygonOffsetFactor = -2.0f;
+                drawCmd->renderState.polygonOffsetUnits = -2.0f;
             }
         }
 
