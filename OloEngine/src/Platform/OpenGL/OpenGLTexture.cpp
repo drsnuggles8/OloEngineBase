@@ -165,9 +165,46 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const u32 bpp = GL_RGBA == m_DataFormat ? 4 : 3;
-        OLO_CORE_ASSERT(size == m_Width * m_Height * bpp, "Data must be entire texture!");
-        glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, GL_UNSIGNED_BYTE, data);
+        // Calculate bytes per pixel based on the texture's image format
+        u32 bpp = 4; // Default to RGBA8
+        GLenum dataType = GL_UNSIGNED_BYTE;
+
+        switch (m_Specification.Format)
+        {
+            case ImageFormat::R8:
+                bpp = 1;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case ImageFormat::RGB8:
+                bpp = 3;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case ImageFormat::RGBA8:
+                bpp = 4;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case ImageFormat::R32F:
+                bpp = 4;
+                dataType = GL_FLOAT;
+                break;
+            case ImageFormat::RG32F:
+                bpp = 8;
+                dataType = GL_FLOAT;
+                break;
+            case ImageFormat::RGB32F:
+                bpp = 12;
+                dataType = GL_FLOAT;
+                break;
+            case ImageFormat::RGBA32F:
+                bpp = 16;
+                dataType = GL_FLOAT;
+                break;
+            default:
+                break;
+        }
+
+        OLO_CORE_ASSERT(size == m_Width * m_Height * bpp, "Data must be entire texture! Expected: {}, Got: {}", m_Width * m_Height * bpp, size);
+        glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, data);
     }
 
     void OpenGLTexture2D::Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels)
@@ -254,5 +291,75 @@ namespace OloEngine
 
         // Update profiler counters
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TextureBinds, 1);
+    }
+
+    bool OpenGLTexture2D::GetData(std::vector<u8>& outData, u32 mipLevel) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_IsLoaded || m_RendererID == 0)
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D::GetData: Texture not loaded");
+            return false;
+        }
+
+        // Calculate mip dimensions
+        u32 mipWidth = std::max(1u, m_Width >> mipLevel);
+        u32 mipHeight = std::max(1u, m_Height >> mipLevel);
+
+        // Determine bytes per pixel based on format
+        u32 bytesPerPixel = 4;
+        GLenum dataType = GL_UNSIGNED_BYTE;
+
+        switch (m_Specification.Format)
+        {
+            case ImageFormat::R8:
+                bytesPerPixel = 1;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case ImageFormat::RGB8:
+                bytesPerPixel = 3;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case ImageFormat::RGBA8:
+                bytesPerPixel = 4;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case ImageFormat::R32F:
+                bytesPerPixel = 4;
+                dataType = GL_FLOAT;
+                break;
+            case ImageFormat::RG32F:
+                bytesPerPixel = 8;
+                dataType = GL_FLOAT;
+                break;
+            case ImageFormat::RGB32F:
+                bytesPerPixel = 12;
+                dataType = GL_FLOAT;
+                break;
+            case ImageFormat::RGBA32F:
+                bytesPerPixel = 16;
+                dataType = GL_FLOAT;
+                break;
+            default:
+                OLO_CORE_ERROR("OpenGLTexture2D::GetData: Unsupported format for readback");
+                return false;
+        }
+
+        sizet dataSize = static_cast<sizet>(mipWidth) * mipHeight * bytesPerPixel;
+        outData.resize(dataSize);
+
+        // Use DSA glGetTextureImage for readback
+        glGetTextureImage(m_RendererID, static_cast<GLint>(mipLevel), m_DataFormat, dataType,
+                          static_cast<GLsizei>(dataSize), outData.data());
+
+        GLenum error = glGetError();
+        if (error != GL_NO_ERROR)
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D::GetData: GL error {}", error);
+            return false;
+        }
+
+        return true;
     }
 } // namespace OloEngine

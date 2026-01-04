@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "Platform/OpenGL/OpenGLFramebuffer.h"
 
 namespace OloEngine
 {
@@ -37,6 +38,9 @@ namespace OloEngine
                 Renderer3D::Shutdown();
                 break;
         }
+
+        // Shutdown shared framebuffer resources (post-process shader)
+        OpenGLFramebuffer::ShutdownSharedResources();
 
         // Shutdown memory tracker after all renderers are shut down
         RendererMemoryTracker::GetInstance().Shutdown();

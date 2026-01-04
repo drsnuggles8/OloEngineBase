@@ -81,7 +81,7 @@ namespace OloEngine
             {
                 OLO_CORE_INFO("Scanning asset directory for new assets: {}", assetDirectory.string());
                 ScanDirectoryForAssets(assetDirectory);
-                OLO_CORE_INFO("Asset directory scan completed");
+                OLO_CORE_INFO("Asset directory scan completed.");
 
                 // Serialize the updated registry to save any newly discovered assets
                 SerializeAssetRegistry();
@@ -230,10 +230,47 @@ namespace OloEngine
 
     AsyncAssetResult<Asset> EditorAssetManager::GetAssetAsync(AssetHandle assetHandle)
     {
-        // For editor, we typically load synchronously unless specifically requested
-        // This can be enhanced later for true async loading
-        auto asset = GetAsset(assetHandle);
-        return AsyncAssetResult<Asset>{ asset, true }; // Always ready
+        OLO_PROFILER_SCOPE("EditorAssetManager::GetAssetAsync");
+
+        // Check if already loaded first
+        {
+            std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
+
+            // Check memory assets
+            auto memoryIt = m_MemoryAssets.find(assetHandle);
+            if (memoryIt != m_MemoryAssets.end())
+                return AsyncAssetResult<Asset>{ memoryIt->second, true };
+
+            // Check loaded assets
+            auto loadedIt = m_LoadedAssets.find(assetHandle);
+            if (loadedIt != m_LoadedAssets.end())
+                return AsyncAssetResult<Asset>{ loadedIt->second, true };
+        }
+
+        // Get metadata to queue for async loading
+        auto metadata = m_AssetRegistry.GetMetadata(assetHandle);
+        if (!metadata.IsValid())
+            return AsyncAssetResult<Asset>{ nullptr, false };
+
+#if OLO_ASYNC_ASSETS
+        // Check if this asset type supports async loading
+        if (AssetImporter::SupportsAsyncLoading(metadata.Type))
+        {
+            // Queue for async loading - will be loaded on background thread
+            // and finalized on main thread via SyncWithAssetThread()
+            if (m_AssetThread)
+            {
+                m_AssetThread->QueueAssetLoad(metadata);
+            }
+
+            // Return not-ready result; caller should call SyncWithAssetThread() and retry
+            return AsyncAssetResult<Asset>{ nullptr, false };
+        }
+#endif
+
+        // Fallback: load synchronously for assets that don't support async
+        auto asset = LoadAssetFromFile(metadata);
+        return AsyncAssetResult<Asset>{ asset, asset != nullptr };
     }
 
     void EditorAssetManager::AddMemoryOnlyAsset(Ref<Asset> asset)

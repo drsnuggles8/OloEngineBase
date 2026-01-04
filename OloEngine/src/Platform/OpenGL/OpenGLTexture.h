@@ -50,6 +50,8 @@ namespace OloEngine
             return m_DataFormat == GL_RGBA || m_Specification.Format == ImageFormat::RGBA8 || m_Specification.Format == ImageFormat::RGBA32F;
         }
 
+        bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
+
       private:
         void InvalidateImpl(std::string_view path, u32 width, u32 height, const void* data, u32 channels);
 

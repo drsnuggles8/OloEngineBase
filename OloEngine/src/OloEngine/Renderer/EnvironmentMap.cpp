@@ -2,6 +2,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
+#include "OloEngine/Renderer/IBLCache.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -18,6 +19,10 @@ namespace OloEngine
     void EnvironmentMap::InitializeIBLSystem(ShaderLibrary& shaderLibrary)
     {
         s_ShaderLibrary = &shaderLibrary;
+
+        // Initialize IBL cache for disk caching
+        IBLCache::Initialize();
+
         OLO_CORE_INFO("EnvironmentMap: IBL system initialized with shader library");
     }
 
@@ -114,12 +119,32 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Try to load from cache first
+        std::string cacheKey = m_Specification.FilePath.empty() ? "cubemap_source" : m_Specification.FilePath;
+        IBLCache::CachedIBL cached;
+
+        if (IBLCache::TryLoad(cacheKey, config, cached))
+        {
+            // Use cached IBL textures
+            m_IrradianceMap = cached.Irradiance;
+            m_PrefilterMap = cached.Prefilter;
+            m_BRDFLutMap = cached.BRDFLut;
+            OLO_CORE_INFO("IBL textures loaded from cache");
+            return;
+        }
+
         OLO_CORE_INFO("Generating IBL textures with quality: {}, importance sampling: {}",
                       static_cast<int>(config.Quality), config.UseImportanceSampling);
 
         GenerateIrradianceMapWithConfig(config);
         GeneratePrefilterMapWithConfig(config);
         GenerateBRDFLutWithConfig(config);
+
+        // Save to cache for next time
+        if (m_IrradianceMap && m_PrefilterMap && m_BRDFLutMap)
+        {
+            IBLCache::Save(cacheKey, config, m_IrradianceMap, m_PrefilterMap, m_BRDFLutMap);
+        }
     }
 
     void EnvironmentMap::GenerateIrradianceMapWithConfig(const IBLConfiguration& config)
