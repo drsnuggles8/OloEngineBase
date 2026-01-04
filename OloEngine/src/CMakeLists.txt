@@ -328,6 +328,8 @@
 		"OloEngine/Renderer/EnvironmentMap.cpp"
 		"OloEngine/Renderer/EnvironmentMap.h"
 		"OloEngine/Renderer/IBLPrecompute.cpp"
+		"OloEngine/Renderer/GPUResourceQueue.cpp"
+		"OloEngine/Renderer/GPUResourceQueue.h"
 		"OloEngine/Renderer/IBLPrecompute.h"
 		"OloEngine/Renderer/UniformBuffer.cpp"
 		"OloEngine/Renderer/UniformBuffer.h"
@@ -394,6 +396,8 @@
 		"OloEngine/Renderer/Commands/RenderCommand.h"
 		"OloEngine/Renderer/Commands/ThreadLocalCache.cpp"
 		"OloEngine/Renderer/Commands/ThreadLocalCache.h"
+		"OloEngine/Renderer/Commands/FrameResourceManager.cpp"
+		"OloEngine/Renderer/Commands/FrameResourceManager.h"
 
 		"OloEngine/Physics3D/Physics3DTypes.h"
 		"OloEngine/Physics3D/SceneQueries.h"

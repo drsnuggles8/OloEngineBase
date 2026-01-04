@@ -85,11 +85,16 @@ namespace OloEngine
 
     /**
      * @brief Editor load response structure for asset loading operations
+     *
+     * For assets that support async loading (SupportsAsyncLoading() == true),
+     * the response may contain RawData instead of AssetRef. The caller must
+     * then call FinalizeFromRawData on the main thread to create the GPU asset.
      */
     struct [[nodiscard]] EditorAssetLoadResponse
     {
         AssetMetadata Metadata;
-        Ref<Asset> AssetRef;
+        Ref<Asset> AssetRef;               ///< Finalized asset (null if NeedsGPUFinalization)
+        bool NeedsGPUFinalization = false; ///< True if raw data needs GPU finalization
 
         EditorAssetLoadResponse() = default;
         explicit EditorAssetLoadResponse(const AssetMetadata& metadata, Ref<Asset> asset = nullptr)

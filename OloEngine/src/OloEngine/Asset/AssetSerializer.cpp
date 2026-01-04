@@ -16,6 +16,7 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/GPUResourceQueue.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Asset/SoundGraphAsset.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
@@ -29,6 +30,7 @@
 #include "OloEngine/Asset/MeshColliderAsset.h"
 #include "OloEngine/Core/YAMLConverters.h"
 #include <yaml-cpp/yaml.h>
+#include <stb_image/stb_image.h>
 #include <fstream>
 #include <algorithm>
 
@@ -57,6 +59,122 @@ namespace OloEngine
 
         asset = texture; // Direct assignment - Ref<Texture2D> should convert to Ref<Asset>
         return result;
+    }
+
+    bool TextureSerializer::TryLoadRawData(const AssetMetadata& metadata, RawAssetData& outRawData) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // This method is safe to call from any thread - no GPU/GL calls here
+
+        std::string path = metadata.FilePath.string();
+
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+
+        // Load image data using stb_image (thread-safe with thread-local flip)
+        ::stbi_set_flip_vertically_on_load_thread(1);
+        stbi_uc* data = nullptr;
+        {
+            OLO_PROFILE_SCOPE("stbi_load - TextureSerializer::TryLoadRawData");
+            data = ::stbi_load(path.c_str(), &width, &height, &channels, 0);
+        }
+
+        if (!data)
+        {
+            OLO_CORE_ERROR("TextureSerializer::TryLoadRawData - Failed to load image: {}", path);
+            return false;
+        }
+
+        // Copy pixel data to RawTextureData
+        RawTextureData rawData;
+        rawData.Width = static_cast<u32>(width);
+        rawData.Height = static_cast<u32>(height);
+        rawData.Channels = static_cast<u32>(channels);
+        rawData.Handle = metadata.Handle;
+        rawData.DebugName = metadata.FilePath.filename().string();
+        rawData.GenerateMipmaps = true;
+        rawData.SRGB = false; // TODO: Could be determined from asset metadata
+
+        // Copy the pixel data
+        sizet dataSize = static_cast<sizet>(width) * height * channels;
+        rawData.PixelData.resize(dataSize);
+        std::memcpy(rawData.PixelData.data(), data, dataSize);
+
+        // Free stb_image data
+        ::stbi_image_free(data);
+
+        OLO_CORE_TRACE("TextureSerializer::TryLoadRawData - Loaded raw texture data: {} ({}x{}, {} channels)",
+                       rawData.DebugName, width, height, channels);
+
+        outRawData = std::move(rawData);
+        return true;
+    }
+
+    bool TextureSerializer::FinalizeFromRawData(const RawAssetData& rawData, Ref<Asset>& asset) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // This method MUST be called from the main thread - creates GPU resources
+
+        if (!std::holds_alternative<RawTextureData>(rawData))
+        {
+            OLO_CORE_ERROR("TextureSerializer::FinalizeFromRawData - Invalid raw data type");
+            return false;
+        }
+
+        const auto& texData = std::get<RawTextureData>(rawData);
+
+        if (!texData.IsValid())
+        {
+            OLO_CORE_ERROR("TextureSerializer::FinalizeFromRawData - Invalid texture data");
+            return false;
+        }
+
+        // Create texture specification
+        TextureSpecification spec;
+        spec.Width = texData.Width;
+        spec.Height = texData.Height;
+        spec.GenerateMips = texData.GenerateMipmaps;
+
+        // Determine format based on channel count
+        // Note: The engine currently only supports R8, RGB8, RGBA8 and a few other formats
+        switch (texData.Channels)
+        {
+            case 1:
+                spec.Format = ImageFormat::R8;
+                break;
+            case 3:
+                spec.Format = ImageFormat::RGB8;
+                break;
+            case 4:
+            default:
+                spec.Format = ImageFormat::RGBA8;
+                break;
+        }
+
+        // Create the texture on the main thread (GL calls happen here)
+        Ref<Texture2D> texture = Texture2D::Create(spec);
+
+        if (!texture)
+        {
+            OLO_CORE_ERROR("TextureSerializer::FinalizeFromRawData - Failed to create texture: {}", texData.DebugName);
+            return false;
+        }
+
+        // Set the pixel data on the texture
+        // Note: SetData expects size in bytes
+        u32 dataSize = static_cast<u32>(texData.PixelData.size());
+        texture->SetData(const_cast<u8*>(texData.PixelData.data()), dataSize);
+
+        texture->m_Handle = texData.Handle;
+
+        OLO_CORE_TRACE("TextureSerializer::FinalizeFromRawData - Created texture: {} ({}x{}, {} channels)",
+                       texData.DebugName, texData.Width, texData.Height, texData.Channels);
+
+        asset = texture;
+        return true;
     }
 
     bool TextureSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const

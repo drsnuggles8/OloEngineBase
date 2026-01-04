@@ -242,6 +242,9 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 {
     OLO_PROFILE_FUNCTION();
 
+    // Sync with asset thread to process any async-loaded assets
+    OloEngine::AssetManager::SyncWithAssetThread();
+
     m_FrameTime = ts.GetMilliseconds();
     m_FPS = 1.0f / ts.GetSeconds();
     OloEngine::RendererMemoryTracker::GetInstance().UpdateStats();
@@ -656,12 +659,18 @@ void Sandbox3D::RenderMaterialTestingScene()
             if (m_UsePBRMaterials)
             {
                 // Create a grid of spheres with varying metallic and roughness values
+                // Use SubmitMeshesParallel for parallel command generation
                 i32 rows = 7; // Different roughness values
                 i32 cols = 7; // Different metallic values
                 f32 spacing = 2.5f;
                 f32 startX = -(cols - 1) * spacing * 0.5f;
                 f32 startZ = -(rows - 1) * spacing * 0.5f;
 
+                // Collect all mesh descriptors for parallel submission
+                std::vector<OloEngine::Renderer3D::MeshSubmitDesc> meshDescriptors;
+                meshDescriptors.reserve(rows * cols + 4); // 49 grid spheres + 4 preset spheres
+
+                // Build the 7x7 grid of PBR spheres
                 for (i32 row = 0; row < rows; ++row)
                 {
                     for (i32 col = 0; col < cols; ++col)
@@ -697,13 +706,18 @@ void Sandbox3D::RenderMaterialTestingScene()
                         sphereMatrix = glm::translate(sphereMatrix, position);
                         sphereMatrix = glm::scale(sphereMatrix, glm::vec3(0.8f));
 
-                        auto* packet = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, dynamicMaterial);
-                        if (packet)
-                            OloEngine::Renderer3D::SubmitPacket(packet);
+                        meshDescriptors.push_back({
+                            m_SphereMesh,
+                            sphereMatrix,
+                            dynamicMaterial,
+                            true,   // IsStatic
+                            false,  // IsAnimated
+                            nullptr // BoneMatrices
+                        });
                     }
                 }
 
-                // Add some preset material spheres around the edges for comparison
+                // Add preset material spheres around the edges for comparison
                 std::vector<std::pair<OloEngine::Material, glm::vec3>> presetMaterials = {
                     { m_PBRGoldMaterial, glm::vec3(-12.0f, 2.0f, 0.0f) },
                     { m_PBRSilverMaterial, glm::vec3(12.0f, 2.0f, 0.0f) },
@@ -717,10 +731,18 @@ void Sandbox3D::RenderMaterialTestingScene()
                     sphereMatrix = glm::translate(sphereMatrix, preset.second);
                     sphereMatrix = glm::scale(sphereMatrix, glm::vec3(1.2f)); // Slightly larger
 
-                    auto* packet = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, preset.first);
-                    if (packet)
-                        OloEngine::Renderer3D::SubmitPacket(packet);
+                    meshDescriptors.push_back({
+                        m_SphereMesh,
+                        sphereMatrix,
+                        preset.first,
+                        true,   // IsStatic
+                        false,  // IsAnimated
+                        nullptr // BoneMatrices
+                    });
                 }
+
+                // Submit all meshes in parallel (uses ParallelFor for command generation)
+                OloEngine::Renderer3D::SubmitMeshesParallel(meshDescriptors);
             }
             else
             {
@@ -811,26 +833,46 @@ void Sandbox3D::RenderAnimationTestingScene()
 
 void Sandbox3D::RenderLightingTestingScene()
 {
-    // Simple objects to demonstrate lighting
+    // Collect meshes for parallel submission
+    std::vector<OloEngine::Renderer3D::MeshSubmitDesc> meshDescriptors;
+    meshDescriptors.reserve(4);
+
+    // Rotating cube
     auto cubeMatrix = glm::mat4(1.0f);
     cubeMatrix = glm::rotate(cubeMatrix, glm::radians(m_RotationAngleY * 0.5f), glm::vec3(0.0f, 1.0f, 0.0f));
-    auto* cubePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, m_GoldMaterial);
-    if (cubePacket)
-        OloEngine::Renderer3D::SubmitPacket(cubePacket);
+    meshDescriptors.push_back({
+        m_CubeMesh,
+        cubeMatrix,
+        m_GoldMaterial,
+        true,   // IsStatic
+        false,  // IsAnimated
+        nullptr // BoneMatrices
+    });
 
+    // Sphere on the right
     auto sphereMatrix = glm::mat4(1.0f);
     sphereMatrix = glm::translate(sphereMatrix, glm::vec3(3.0f, 0.0f, 0.0f));
-    auto* spherePacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, m_SilverMaterial);
-    if (spherePacket)
-        OloEngine::Renderer3D::SubmitPacket(spherePacket);
+    meshDescriptors.push_back({ m_SphereMesh,
+                                sphereMatrix,
+                                m_SilverMaterial,
+                                true,
+                                false,
+                                nullptr });
 
+    // Textured sphere on the left
     auto texturedSphereMatrix = glm::mat4(1.0f);
     texturedSphereMatrix = glm::translate(texturedSphereMatrix, glm::vec3(-3.0f, 0.0f, 0.0f));
-    auto* texturedSpherePacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, texturedSphereMatrix, m_TexturedMaterial);
-    if (texturedSpherePacket)
-        OloEngine::Renderer3D::SubmitPacket(texturedSpherePacket);
+    meshDescriptors.push_back({ m_SphereMesh,
+                                texturedSphereMatrix,
+                                m_TexturedMaterial,
+                                true,
+                                false,
+                                nullptr });
 
-    // Light cube (only for point and spot lights)
+    // Submit all meshes in parallel
+    OloEngine::Renderer3D::SubmitMeshesParallel(meshDescriptors);
+
+    // Light cube (only for point and spot lights) - special render state, done separately
     if (m_Light.Type != OloEngine::LightType::Directional)
     {
         auto lightCubeModelMatrix = glm::mat4(1.0f);
@@ -856,17 +898,14 @@ void Sandbox3D::RenderModelLoadingScene()
     if (!m_BackpackModel)
         return;
 
-    // Draw backpack model
+    // Draw backpack model using parallel submission
     auto modelMatrix = glm::mat4(1.0f);
     modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 1.0f, -2.0f));
     modelMatrix = glm::scale(modelMatrix, glm::vec3(0.5f));
     modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-    std::vector<OloEngine::CommandPacket*> backpackDrawCommands;
-    m_BackpackModel->GetDrawCommands(modelMatrix, m_TexturedMaterial, backpackDrawCommands);
-    for (auto* drawCmd : backpackDrawCommands)
-    {
-        OloEngine::Renderer3D::SubmitPacket(drawCmd);
-    }
+
+    // Use DrawParallel for efficient multi-threaded command generation
+    m_BackpackModel->DrawParallel(modelMatrix, m_TexturedMaterial);
 }
 
 // === SCENE UI METHODS ===

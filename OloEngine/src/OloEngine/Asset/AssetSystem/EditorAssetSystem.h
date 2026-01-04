@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Asset/AssetMetadata.h"
+#include "OloEngine/Asset/AssetSerializer.h"
 
 #include <queue>
 #include <mutex>
@@ -14,11 +15,29 @@
 namespace OloEngine
 {
     /**
+     * @brief Raw asset data pending GPU finalization
+     *
+     * This holds intermediate asset data loaded from disk on a worker thread,
+     * waiting to be finalized on the main thread (where GPU resources are created).
+     */
+    struct PendingRawAsset
+    {
+        AssetMetadata Metadata;
+        RawAssetData RawData;
+        AssetType SerializerType = AssetType::None; ///< Type of serializer to use for finalization
+    };
+
+    /**
      * @brief Editor asset system for handling async asset loading
      *
      * The EditorAssetSystem provides dedicated asset loading for editor builds.
      * It manages asset loading tasks, file monitoring for hot-reload detection,
      * and async communication with the main thread.
+     *
+     * For assets that support async loading (textures, shaders), the system uses
+     * a two-phase approach:
+     * 1. Worker threads load raw data from disk (no GPU calls)
+     * 2. Main thread finalizes GPU resources when retrieving ready assets
      *
      * This system enables non-blocking asset loading in the editor while maintaining
      * thread safety and providing efficient asset update mechanisms.
@@ -49,6 +68,10 @@ namespace OloEngine
          * @brief Get an asset synchronously (blocking)
          * @param metadata The asset metadata to load
          * @return Loaded asset or nullptr on failure
+         *
+         * Note: For assets that support async loading, this still works but
+         * creates GPU resources on the calling thread. Use QueueAssetLoad
+         * for proper async loading.
          */
         Ref<Asset> GetAsset(const AssetMetadata& metadata);
 
@@ -56,8 +79,20 @@ namespace OloEngine
          * @brief Retrieve assets that have finished loading
          * @param outAssetList Output vector to fill with loaded assets
          * @return True if any assets were retrieved
+         *
+         * For assets with NeedsGPUFinalization=true, the caller (EditorAssetManager)
+         * must call FinalizeFromRawData on the main thread.
          */
         bool RetrieveReadyAssets(std::vector<EditorAssetLoadResponse>& outAssetList);
+
+        /**
+         * @brief Retrieve raw assets pending GPU finalization
+         * @param outRawAssets Output vector to fill with pending raw assets
+         * @return True if any raw assets were retrieved
+         *
+         * Call this from the main thread, then finalize GPU resources.
+         */
+        bool RetrievePendingRawAssets(std::vector<PendingRawAsset>& outRawAssets);
 
         /**
          * @brief Update the loaded asset list (called from main thread)
@@ -104,9 +139,13 @@ namespace OloEngine
       private:
         std::atomic<bool> m_Running = true;
 
-        // Ready assets queue (assets loaded and ready for main thread)
+        // Ready assets queue (fully loaded assets ready for main thread)
         std::queue<EditorAssetLoadResponse> m_ReadyAssets;
         mutable std::mutex m_ReadyAssetsMutex;
+
+        // Pending raw assets (need GPU finalization on main thread)
+        std::queue<PendingRawAsset> m_PendingRawAssets;
+        mutable std::mutex m_PendingRawAssetsMutex;
 
         // Loaded assets tracking (for file change detection)
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;

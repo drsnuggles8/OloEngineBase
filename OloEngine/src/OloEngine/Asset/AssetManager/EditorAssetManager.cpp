@@ -692,42 +692,83 @@ namespace OloEngine
 
         OLO_PROFILER_SCOPE("EditorAssetManager::SyncWithAssetThread");
 
-        // Retrieve ready assets from the asset thread
-        std::vector<EditorAssetLoadResponse> freshAssets;
-        if (!m_AssetThread->RetrieveReadyAssets(freshAssets))
-            return; // No new assets
-
-        // Integrate ready assets into the main asset manager
+        // First, process raw assets that need GPU finalization (main thread work)
+        std::vector<PendingRawAsset> rawAssets;
+        if (m_AssetThread->RetrievePendingRawAssets(rawAssets))
         {
-            std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
-            for (const auto& response : freshAssets)
+            for (auto& pending : rawAssets)
             {
-                if (response.AssetRef)
+                Ref<Asset> asset;
+                if (AssetImporter::FinalizeFromRawData(pending.Metadata, pending.RawData, asset))
                 {
-                    m_LoadedAssets[response.Metadata.Handle] = response.AssetRef;
-                    OLO_CORE_TRACE("SyncWithAssetThread: Integrated asset {} from async load",
-                                   (u64)response.Metadata.Handle);
+                    // Successfully finalized - cache the asset
+                    {
+                        std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
+                        m_LoadedAssets[pending.Metadata.Handle] = asset;
+                    }
 
                     // Update asset status to Loaded in registry
                     {
                         std::unique_lock<std::shared_mutex> registryLock(m_RegistryMutex);
-                        auto metadata = m_AssetRegistry.GetMetadata(response.Metadata.Handle);
+                        auto metadata = m_AssetRegistry.GetMetadata(pending.Metadata.Handle);
                         if (metadata.IsValid())
                         {
                             metadata.Status = AssetStatus::Loaded;
-                            m_AssetRegistry.UpdateMetadata(response.Metadata.Handle, metadata);
+                            m_AssetRegistry.UpdateMetadata(pending.Metadata.Handle, metadata);
                         }
                     }
 
-                    // TODO: Fire AssetLoadedEvent for listeners
+                    OLO_CORE_TRACE("SyncWithAssetThread: Finalized GPU resources for asset {}",
+                                   (u64)pending.Metadata.Handle);
+                }
+                else
+                {
+                    OLO_CORE_ERROR("SyncWithAssetThread: Failed to finalize GPU resources for asset {}",
+                                   (u64)pending.Metadata.Handle);
+                    SetAssetStatus(pending.Metadata.Handle, AssetStatus::Failed);
                 }
             }
+
+            OLO_CORE_TRACE("SyncWithAssetThread: Finalized {} raw assets on main thread", rawAssets.size());
         }
 
-        OLO_CORE_TRACE("SyncWithAssetThread: Integrated {} assets from async loading", freshAssets.size());
+        // Then, retrieve assets that were fully loaded (without async path)
+        std::vector<EditorAssetLoadResponse> freshAssets;
+        if (m_AssetThread->RetrieveReadyAssets(freshAssets))
+        {
+            // Integrate ready assets into the main asset manager
+            {
+                std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
+                for (const auto& response : freshAssets)
+                {
+                    if (response.AssetRef)
+                    {
+                        m_LoadedAssets[response.Metadata.Handle] = response.AssetRef;
+                        OLO_CORE_TRACE("SyncWithAssetThread: Integrated asset {} from async load",
+                                       (u64)response.Metadata.Handle);
+
+                        // Update asset status to Loaded in registry
+                        {
+                            std::unique_lock<std::shared_mutex> registryLock(m_RegistryMutex);
+                            auto metadata = m_AssetRegistry.GetMetadata(response.Metadata.Handle);
+                            if (metadata.IsValid())
+                            {
+                                metadata.Status = AssetStatus::Loaded;
+                                m_AssetRegistry.UpdateMetadata(response.Metadata.Handle, metadata);
+                            }
+                        }
+
+                        // TODO: Fire AssetLoadedEvent for listeners
+                    }
+                }
+            }
+
+            OLO_CORE_TRACE("SyncWithAssetThread: Integrated {} assets from async loading", freshAssets.size());
+        }
 
         // Log telemetry information
-        if (freshAssets.size() > 0)
+        sizet totalProcessed = rawAssets.size() + freshAssets.size();
+        if (totalProcessed > 0)
         {
             auto [queued, loaded, failed, queueLength] = m_AssetThread->GetTelemetry();
             OLO_CORE_TRACE("Asset Thread Telemetry - Queued: {}, Loaded: {}, Failed: {}, Queue Length: {}",

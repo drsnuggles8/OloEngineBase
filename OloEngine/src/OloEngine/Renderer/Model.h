@@ -48,6 +48,10 @@ namespace OloEngine
         void Draw(const glm::mat4& transform, const Material& material) const;
         void Draw(const glm::mat4& transform, const Ref<const Material>& material) const;
 
+        // Parallel draw methods - uses SubmitMeshesParallel for efficient multi-threaded command generation
+        void DrawParallel(const glm::mat4& transform, const Material& fallbackMaterial) const;
+        void DrawParallel(const glm::mat4& transform) const;
+
         void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
         void GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, std::vector<CommandPacket*>& outCommands) const;
         void GetDrawCommands(const glm::mat4& transform, std::vector<CommandPacket*>& outCommands) const;

@@ -14,6 +14,9 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Renderer/Commands/CommandMemoryManager.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
+#include "OloEngine/Renderer/GPUResourceQueue.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -27,6 +30,8 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Task/ParallelFor.h"
+#include "OloEngine/Containers/Array.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -153,6 +158,7 @@ namespace OloEngine
 
         CommandMemoryManager::Init();
         FrameDataBufferManager::Init();
+        FrameResourceManager::Get().Init();
 
         CommandDispatch::Initialize();
         OLO_CORE_INFO("CommandDispatch system initialized.");
@@ -252,12 +258,16 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Shutting down Renderer3D.");
 
+        // Clear any pending GPU resource commands
+        GPUResourceQueue::Clear();
+
         // Clear shader registries
         s_Data.ShaderRegistries.clear();
 
         if (s_Data.RGraph)
             s_Data.RGraph->Shutdown();
 
+        FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
 
         OLO_CORE_INFO("Renderer3D shutdown complete.");
@@ -266,6 +276,12 @@ namespace OloEngine
     void Renderer3D::BeginScene(const PerspectiveCamera& camera)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Process any pending GPU resource creation commands from async loaders
+        GPUResourceQueue::ProcessAll();
+
+        // Begin new frame for double-buffered resources
+        FrameResourceManager::Get().BeginFrame();
 
         RendererProfiler::GetInstance().BeginFrame();
 
@@ -278,7 +294,13 @@ namespace OloEngine
         // Reset frame data buffer for new frame
         FrameDataBufferManager::Get().Reset();
 
-        CommandAllocator* frameAllocator = CommandMemoryManager::GetFrameAllocator();
+        // Use frame resource manager's allocator for double-buffering
+        CommandAllocator* frameAllocator = FrameResourceManager::Get().GetFrameAllocator();
+        if (!frameAllocator)
+        {
+            // Fallback to legacy allocator if double-buffering is disabled
+            frameAllocator = CommandMemoryManager::GetFrameAllocator();
+        }
         s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
         s_Data.ViewMatrix = camera.GetView();
         s_Data.ProjectionMatrix = camera.GetProjection();
@@ -302,6 +324,26 @@ namespace OloEngine
         s_Data.ScenePass->ResetCommandBucket();
 
         CommandDispatch::ResetState();
+
+        // Initialize parallel scene context with immutable frame data
+        s_Data.ParallelContext.ViewMatrix = s_Data.ViewMatrix;
+        s_Data.ParallelContext.ProjectionMatrix = s_Data.ProjectionMatrix;
+        s_Data.ParallelContext.ViewProjectionMatrix = s_Data.ViewProjectionMatrix;
+        s_Data.ParallelContext.ViewPosition = s_Data.ViewPos;
+        s_Data.ParallelContext.ViewFrustum = s_Data.ViewFrustum;
+        s_Data.ParallelContext.FrustumCullingEnabled = s_Data.FrustumCullingEnabled;
+        s_Data.ParallelContext.DynamicCullingEnabled = s_Data.DynamicCullingEnabled;
+
+        // Cache shader references for parallel access
+        s_Data.ParallelContext.LightingShader = s_Data.LightingShader;
+        s_Data.ParallelContext.SkinnedLightingShader = s_Data.SkinnedLightingShader;
+        s_Data.ParallelContext.PBRShader = s_Data.PBRShader;
+        s_Data.ParallelContext.PBRSkinnedShader = s_Data.PBRSkinnedShader;
+        s_Data.ParallelContext.LightCubeShader = s_Data.LightCubeShader;
+        s_Data.ParallelContext.SkyboxShader = s_Data.SkyboxShader;
+        s_Data.ParallelContext.QuadShader = s_Data.QuadShader;
+
+        s_Data.ParallelSubmissionActive = false;
     }
 
     void Renderer3D::EndScene()
@@ -329,11 +371,540 @@ namespace OloEngine
 
         s_Data.RGraph->Execute();
 
-        CommandAllocator* allocator = s_Data.ScenePass->GetCommandBucket().GetAllocator();
-        CommandMemoryManager::ReturnAllocator(allocator);
+        // Don't return the allocator to the pool - it's managed by FrameResourceManager
+        // The allocator will be reset at the start of the next frame when this buffer is reused
         s_Data.ScenePass->GetCommandBucket().SetAllocator(nullptr);
 
         profiler.EndFrame();
+
+        // End frame for double-buffered resources (inserts GPU fence)
+        FrameResourceManager::Get().EndFrame();
+    }
+
+    // ========================================================================
+    // Parallel Command Generation Implementation
+    // ========================================================================
+
+    void Renderer3D::BeginParallelSubmission()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            OLO_CORE_ERROR("Renderer3D::BeginParallelSubmission: ScenePass is null!");
+            return;
+        }
+
+        // Prepare command bucket for parallel submission
+        s_Data.ScenePass->GetCommandBucket().PrepareForParallelSubmission();
+
+        // Prepare worker allocators
+        CommandMemoryManager::PrepareWorkerAllocatorsForFrame();
+
+        // Prepare frame data buffer for parallel submission
+        FrameDataBufferManager::Get().PrepareForParallelSubmission();
+
+        s_Data.ParallelSubmissionActive = true;
+
+        OLO_CORE_TRACE("Renderer3D: Parallel submission mode enabled");
+    }
+
+    void Renderer3D::EndParallelSubmission()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ParallelSubmissionActive)
+        {
+            OLO_CORE_WARN("Renderer3D::EndParallelSubmission: Not in parallel submission mode!");
+            return;
+        }
+
+        // Merge frame data scratch buffers
+        FrameDataBufferManager::Get().MergeScratchBuffers();
+
+        // Merge command bucket thread-local commands
+        s_Data.ScenePass->GetCommandBucket().MergeThreadLocalCommands();
+
+        // Remap bone offsets from worker-local to global
+        // Must be done after both MergeScratchBuffers() and MergeThreadLocalCommands()
+        s_Data.ScenePass->GetCommandBucket().RemapBoneOffsets(FrameDataBufferManager::Get());
+
+        // Release worker allocators
+        CommandMemoryManager::ReleaseWorkerAllocators();
+
+        s_Data.ParallelSubmissionActive = false;
+
+        OLO_CORE_TRACE("Renderer3D: Parallel submission mode disabled");
+    }
+
+    WorkerSubmitContext Renderer3D::GetWorkerContext()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        WorkerSubmitContext ctx;
+
+        // Get worker allocator
+        auto [workerIndex, allocator] = CommandMemoryManager::RegisterAndGetWorkerAllocator();
+        ctx.WorkerIndex = workerIndex;
+        ctx.Allocator = allocator;
+
+        // Get command bucket
+        if (s_Data.ScenePass)
+        {
+            ctx.Bucket = &s_Data.ScenePass->GetCommandBucket();
+            // Register this thread with the bucket
+            ctx.Bucket->RegisterWorkerThread();
+        }
+
+        // Set scene context
+        ctx.SceneContext = &s_Data.ParallelContext;
+
+        ctx.CommandsSubmitted = 0;
+        ctx.MeshesCulled = 0;
+
+        return ctx;
+    }
+
+    const ParallelSceneContext* Renderer3D::GetParallelSceneContext()
+    {
+        return &s_Data.ParallelContext;
+    }
+
+    bool Renderer3D::IsParallelSubmissionActive()
+    {
+        return s_Data.ParallelSubmissionActive;
+    }
+
+    void Renderer3D::SubmitPacketParallel(WorkerSubmitContext& ctx, CommandPacket* packet)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!packet)
+        {
+            OLO_CORE_WARN("Renderer3D::SubmitPacketParallel: Null packet!");
+            return;
+        }
+
+        if (!ctx.Bucket)
+        {
+            OLO_CORE_ERROR("Renderer3D::SubmitPacketParallel: No bucket in context!");
+            return;
+        }
+
+        ctx.Bucket->SubmitPacketParallel(packet, ctx.WorkerIndex);
+        ctx.CommandsSubmitted++;
+    }
+
+    CommandPacket* Renderer3D::DrawMeshParallel(WorkerSubmitContext& ctx,
+                                                const Ref<Mesh>& mesh,
+                                                const glm::mat4& modelMatrix,
+                                                const Material& material,
+                                                bool isStatic)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!ctx.Allocator || !ctx.SceneContext)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawMeshParallel: Invalid worker context!");
+            return nullptr;
+        }
+
+        // Frustum culling using parallel scene context
+        if (ctx.SceneContext->FrustumCullingEnabled &&
+            (isStatic || ctx.SceneContext->DynamicCullingEnabled))
+        {
+            if (mesh)
+            {
+                BoundingSphere sphere = mesh->GetTransformedBoundingSphere(modelMatrix);
+                sphere.Radius *= 1.3f;
+
+                if (!ctx.SceneContext->ViewFrustum.IsBoundingSphereVisible(sphere))
+                {
+                    ctx.MeshesCulled++;
+                    return nullptr;
+                }
+            }
+        }
+
+        if (!mesh || !mesh->GetVertexArray())
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawMeshParallel: Invalid mesh or vertex array!");
+            return nullptr;
+        }
+
+        // Select shader from parallel context
+        Ref<Shader> shaderToUse;
+        if (material.GetShader())
+        {
+            shaderToUse = material.GetShader();
+        }
+        else if (material.GetType() == MaterialType::PBR)
+        {
+            shaderToUse = ctx.SceneContext->PBRShader;
+        }
+        else
+        {
+            shaderToUse = ctx.SceneContext->LightingShader;
+        }
+
+        if (!shaderToUse)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawMeshParallel: No shader available!");
+            return nullptr;
+        }
+
+        // Create POD command using worker's allocator
+        PacketMetadata initialMetadata;
+        CommandPacket* packet = ctx.Allocator->AllocatePacketWithCommand<DrawMeshCommand>(initialMetadata);
+        if (!packet)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawMeshParallel: Failed to allocate command packet!");
+            return nullptr;
+        }
+
+        auto* cmd = packet->GetCommandData<DrawMeshCommand>();
+        cmd->header.type = CommandType::DrawMesh;
+
+        // Store asset handles and renderer IDs (POD)
+        cmd->meshHandle = mesh->GetHandle();
+        cmd->vertexArrayID = mesh->GetVertexArray()->GetRendererID();
+        cmd->indexCount = mesh->GetIndexCount();
+        cmd->transform = glm::mat4(modelMatrix);
+        cmd->shaderHandle = shaderToUse->GetHandle();
+        cmd->shaderRendererID = shaderToUse->GetRendererID();
+
+        // Legacy material properties (POD)
+        cmd->ambient = material.GetAmbient();
+        cmd->diffuse = material.GetDiffuse();
+        cmd->specular = material.GetSpecular();
+        cmd->shininess = material.GetShininess();
+        cmd->useTextureMaps = material.IsUsingTextureMaps();
+        cmd->diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
+        cmd->specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
+
+        // PBR material properties (POD)
+        cmd->enablePBR = (material.GetType() == MaterialType::PBR);
+        cmd->baseColorFactor = material.GetBaseColorFactor();
+        cmd->emissiveFactor = material.GetEmissiveFactor();
+        cmd->metallicFactor = material.GetMetallicFactor();
+        cmd->roughnessFactor = material.GetRoughnessFactor();
+        cmd->normalScale = material.GetNormalScale();
+        cmd->occlusionStrength = material.GetOcclusionStrength();
+        cmd->enableIBL = material.IsIBLEnabled();
+
+        // PBR texture renderer IDs (POD)
+        cmd->albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
+        cmd->metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
+        cmd->normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
+        cmd->aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
+        cmd->emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
+        cmd->environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
+        cmd->irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
+        cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
+        cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
+
+        // Inlined POD render state
+        cmd->renderState = CreatePODRenderStateForMaterial(material);
+
+        // No bone matrices for non-animated mesh
+        cmd->isAnimatedMesh = false;
+        cmd->boneBufferOffset = 0;
+        cmd->boneCount = 0;
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Set sort key using parallel context view matrix for depth
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
+        u32 materialID = ComputeMaterialID(material);
+
+        // Compute depth using parallel context's view matrix
+        glm::vec4 viewPos = ctx.SceneContext->ViewMatrix * modelMatrix[3];
+        f32 depth = -viewPos.z;
+        constexpr f32 MIN_DEPTH = 0.1f;
+        constexpr f32 MAX_DEPTH = 1000.0f;
+        depth = glm::clamp(depth, MIN_DEPTH, MAX_DEPTH);
+        f32 normalizedDepth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH);
+        u32 depthKey = static_cast<u32>(normalizedDepth * 0xFFFFFF);
+
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
+        metadata.m_IsStatic = isStatic;
+        packet->SetMetadata(metadata);
+
+        return packet;
+    }
+
+    CommandPacket* Renderer3D::DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
+                                                        const Ref<Mesh>& mesh,
+                                                        const glm::mat4& modelMatrix,
+                                                        const Material& material,
+                                                        const std::vector<glm::mat4>& boneMatrices,
+                                                        bool isStatic)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!ctx.Allocator || !ctx.SceneContext)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawAnimatedMeshParallel: Invalid worker context!");
+            return nullptr;
+        }
+
+        // For animated meshes, be more conservative with frustum culling
+        if (ctx.SceneContext->FrustumCullingEnabled &&
+            (isStatic || ctx.SceneContext->DynamicCullingEnabled))
+        {
+            if (mesh && mesh->GetMeshSource())
+            {
+                BoundingSphere animatedSphere = mesh->GetTransformedBoundingSphere(modelMatrix);
+                animatedSphere.Radius *= 2.0f;
+
+                if (!ctx.SceneContext->ViewFrustum.IsBoundingSphereVisible(animatedSphere))
+                {
+                    ctx.MeshesCulled++;
+                    return nullptr;
+                }
+            }
+        }
+
+        if (!mesh || !mesh->GetMeshSource())
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawAnimatedMeshParallel: Invalid mesh or mesh source!");
+            return nullptr;
+        }
+
+        // Select skinned shader from parallel context
+        Ref<Shader> shaderToUse;
+        if (material.GetShader())
+        {
+            shaderToUse = material.GetShader();
+        }
+        else if (material.GetType() == MaterialType::PBR)
+        {
+            shaderToUse = ctx.SceneContext->PBRSkinnedShader;
+        }
+        else
+        {
+            shaderToUse = ctx.SceneContext->SkinnedLightingShader;
+        }
+
+        if (!shaderToUse)
+        {
+            shaderToUse = ctx.SceneContext->LightingShader;
+        }
+
+        if (!shaderToUse)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawAnimatedMeshParallel: No shader available!");
+            return nullptr;
+        }
+
+        // Allocate bone matrices in worker's scratch buffer
+        FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+        u32 boneCount = static_cast<u32>(boneMatrices.size());
+
+        // Use parallel allocation API
+        u32 localBoneOffset = frameBuffer.AllocateBoneMatricesParallel(ctx.WorkerIndex, boneCount);
+        if (localBoneOffset == UINT32_MAX)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawAnimatedMeshParallel: Failed to allocate bone buffer space");
+            return nullptr;
+        }
+        frameBuffer.WriteBoneMatricesParallel(ctx.WorkerIndex, localBoneOffset, boneMatrices.data(), boneCount);
+
+        // Create POD command using worker's allocator
+        PacketMetadata initialMetadata;
+        CommandPacket* packet = ctx.Allocator->AllocatePacketWithCommand<DrawMeshCommand>(initialMetadata);
+        if (!packet)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawAnimatedMeshParallel: Failed to allocate command packet!");
+            return nullptr;
+        }
+
+        auto* cmd = packet->GetCommandData<DrawMeshCommand>();
+        cmd->header.type = CommandType::DrawMesh;
+
+        cmd->meshHandle = mesh->GetHandle();
+        cmd->vertexArrayID = mesh->GetVertexArray()->GetRendererID();
+        cmd->indexCount = mesh->GetIndexCount();
+        cmd->transform = modelMatrix;
+        cmd->shaderHandle = shaderToUse->GetHandle();
+        cmd->shaderRendererID = shaderToUse->GetRendererID();
+
+        // Material properties
+        cmd->ambient = material.GetAmbient();
+        cmd->diffuse = material.GetDiffuse();
+        cmd->specular = material.GetSpecular();
+        cmd->shininess = material.GetShininess();
+        cmd->useTextureMaps = material.IsUsingTextureMaps();
+        cmd->diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
+        cmd->specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
+
+        cmd->enablePBR = (material.GetType() == MaterialType::PBR);
+        cmd->baseColorFactor = material.GetBaseColorFactor();
+        cmd->emissiveFactor = material.GetEmissiveFactor();
+        cmd->metallicFactor = material.GetMetallicFactor();
+        cmd->roughnessFactor = material.GetRoughnessFactor();
+        cmd->normalScale = material.GetNormalScale();
+        cmd->occlusionStrength = material.GetOcclusionStrength();
+        cmd->enableIBL = material.IsIBLEnabled();
+
+        cmd->albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
+        cmd->metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
+        cmd->normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
+        cmd->aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
+        cmd->emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
+        cmd->environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
+        cmd->irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
+        cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
+        cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
+
+        cmd->renderState = CreatePODRenderStateForMaterial(material);
+
+        // Animation support - store worker-local offset with remapping info
+        // The offset will be remapped to global in EndParallelSubmission()
+        cmd->isAnimatedMesh = true;
+        cmd->boneBufferOffset = localBoneOffset;
+        cmd->boneCount = boneCount;
+        cmd->workerIndex = static_cast<u8>(ctx.WorkerIndex);
+        cmd->needsBoneOffsetRemap = true;
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Set sort key
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
+        u32 materialID = ComputeMaterialID(material);
+
+        glm::vec4 viewPos = ctx.SceneContext->ViewMatrix * modelMatrix[3];
+        f32 depth = -viewPos.z;
+        constexpr f32 MIN_DEPTH = 0.1f;
+        constexpr f32 MAX_DEPTH = 1000.0f;
+        depth = glm::clamp(depth, MIN_DEPTH, MAX_DEPTH);
+        f32 normalizedDepth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH);
+        u32 depthKey = static_cast<u32>(normalizedDepth * 0xFFFFFF);
+
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
+        metadata.m_IsStatic = isStatic;
+        packet->SetMetadata(metadata);
+
+        return packet;
+    }
+
+    // ========================================================================
+    // High-Level Parallel Submission Helper
+    // ========================================================================
+
+    u32 Renderer3D::SubmitMeshesParallel(const std::vector<MeshSubmitDesc>& meshes,
+                                         i32 minBatchSize)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (meshes.empty())
+        {
+            return 0;
+        }
+
+        const i32 numMeshes = static_cast<i32>(meshes.size());
+
+        // For small batches, use single-threaded path
+        if (numMeshes < minBatchSize * 2)
+        {
+            u32 totalSubmitted = 0;
+            for (const auto& desc : meshes)
+            {
+                CommandPacket* packet = nullptr;
+                if (desc.IsAnimated && desc.BoneMatrices)
+                {
+                    packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData, *desc.BoneMatrices, desc.IsStatic);
+                }
+                else
+                {
+                    packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic);
+                }
+                if (packet)
+                {
+                    SubmitPacket(packet);
+                    totalSubmitted++;
+                }
+            }
+            return totalSubmitted;
+        }
+
+        // Parallel path using ParallelForWithTaskContext
+        BeginParallelSubmission();
+
+        // Per-worker accumulator to track statistics
+        struct WorkerStats
+        {
+            WorkerSubmitContext Context;
+            u32 Submitted = 0;
+            u32 Culled = 0;
+        };
+
+        TArray<WorkerStats> workerStats;
+
+        ParallelForWithTaskContext(
+            "SubmitMeshesParallel",
+            workerStats,
+            numMeshes,
+            minBatchSize,
+            // Context constructor - initialize worker context for each task slot
+            [](i32 /*contextIndex*/, i32 /*numContexts*/) -> WorkerStats
+            {
+                WorkerStats stats;
+                stats.Context = Renderer3D::GetWorkerContext();
+                return stats;
+            },
+            // Body - process one mesh descriptor
+            [&meshes](WorkerStats& stats, i32 index)
+            {
+                const MeshSubmitDesc& desc = meshes[index];
+
+                CommandPacket* packet = nullptr;
+                if (desc.IsAnimated && desc.BoneMatrices)
+                {
+                    packet = Renderer3D::DrawAnimatedMeshParallel(
+                        stats.Context,
+                        desc.Mesh,
+                        desc.Transform,
+                        desc.MaterialData,
+                        *desc.BoneMatrices,
+                        desc.IsStatic);
+                }
+                else
+                {
+                    packet = Renderer3D::DrawMeshParallel(
+                        stats.Context,
+                        desc.Mesh,
+                        desc.Transform,
+                        desc.MaterialData,
+                        desc.IsStatic);
+                }
+
+                if (packet)
+                {
+                    Renderer3D::SubmitPacketParallel(stats.Context, packet);
+                    stats.Submitted++;
+                }
+                else
+                {
+                    stats.Culled++;
+                }
+            },
+            EParallelForFlags::None);
+
+        EndParallelSubmission();
+
+        // Aggregate statistics
+        u32 totalSubmitted = 0;
+        for (i32 i = 0; i < workerStats.Num(); ++i)
+        {
+            totalSubmitted += workerStats[i].Submitted;
+        }
+
+        return totalSubmitted;
     }
 
     void Renderer3D::SetLight(const Light& light)
@@ -1127,28 +1698,109 @@ namespace OloEngine
             return;
         }
 
-        // Get view and optimize with single loop to avoid unnecessary iteration
+        // Get all entities with required components
         auto view = scene->GetAllEntitiesWith<MeshComponent, SkeletonComponent, TransformComponent>();
-        static sizet s_EntityCount = 0;
-        sizet currentEntityCount = 0;
 
-        // Single loop optimization: count and process entities together
+        // Collect mesh descriptors for parallel submission
+        std::vector<MeshSubmitDesc> meshDescriptors;
+        meshDescriptors.reserve(32); // Pre-allocate for typical case
+
+        sizet entityCount = 0;
         for (auto entityID : view)
         {
             Entity entity = { entityID, scene.get() };
             s_Data.Stats.TotalAnimatedMeshes++;
-            currentEntityCount++;
+            entityCount++;
 
-            RenderAnimatedMesh(scene, entity, defaultMaterial);
+            // Validate components
+            if (!entity.HasComponent<MeshComponent>() ||
+                !entity.HasComponent<SkeletonComponent>() ||
+                !entity.HasComponent<TransformComponent>())
+            {
+                s_Data.Stats.SkippedAnimatedMeshes++;
+                continue;
+            }
+
+            auto& meshComp = entity.GetComponent<MeshComponent>();
+            auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
+            auto& transformComp = entity.GetComponent<TransformComponent>();
+
+            if (!meshComp.m_MeshSource || !skeletonComp.m_Skeleton)
+            {
+                s_Data.Stats.SkippedAnimatedMeshes++;
+                continue;
+            }
+
+            glm::mat4 worldTransform = transformComp.GetTransform();
+            const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
+
+            // Get material from entity or use default
+            Material material = defaultMaterial;
+            if (entity.HasComponent<MaterialComponent>())
+            {
+                material = entity.GetComponent<MaterialComponent>().m_Material;
+            }
+
+            // Check for RelationshipComponent to find child submeshes
+            bool foundSubmeshes = false;
+            if (entity.HasComponent<RelationshipComponent>())
+            {
+                const auto& relationshipComponent = entity.GetComponent<RelationshipComponent>();
+                for (const UUID& childUUID : relationshipComponent.m_Children)
+                {
+                    auto submeshEntityOpt = scene->TryGetEntityWithUUID(childUUID);
+                    if (submeshEntityOpt && submeshEntityOpt->HasComponent<SubmeshComponent>())
+                    {
+                        auto& submeshComponent = submeshEntityOpt->GetComponent<SubmeshComponent>();
+                        if (submeshComponent.m_Mesh && submeshComponent.m_Visible)
+                        {
+                            // Get submesh material if available
+                            Material submeshMaterial = material;
+                            if (submeshEntityOpt->HasComponent<MaterialComponent>())
+                            {
+                                submeshMaterial = submeshEntityOpt->GetComponent<MaterialComponent>().m_Material;
+                            }
+
+                            meshDescriptors.push_back({ submeshComponent.m_Mesh,
+                                                        worldTransform,
+                                                        submeshMaterial,
+                                                        false, // IsStatic
+                                                        true,  // IsAnimated
+                                                        &boneMatrices });
+                            foundSubmeshes = true;
+                        }
+                    }
+                }
+            }
+
+            // Fallback: if no submesh entities found, use first submesh from MeshSource
+            if (!foundSubmeshes && meshComp.m_MeshSource->GetSubmeshes().Num() > 0)
+            {
+                auto mesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
+                meshDescriptors.push_back({ mesh,
+                                            worldTransform,
+                                            material,
+                                            false, // IsStatic
+                                            true,  // IsAnimated
+                                            &boneMatrices });
+            }
+
+            s_Data.Stats.RenderedAnimatedMeshes++;
         }
 
-        // Log stats only when count changes to reduce logging overhead
-        static bool loggedStats = false;
-        if (!loggedStats || currentEntityCount != s_EntityCount)
+        // Submit all animated meshes in parallel
+        if (!meshDescriptors.empty())
         {
-            OLO_CORE_INFO("RenderAnimatedMeshes: Found {} animated entities", currentEntityCount);
-            loggedStats = true;
-            s_EntityCount = currentEntityCount;
+            SubmitMeshesParallel(meshDescriptors);
+        }
+
+        // Log stats when count changes
+        static sizet s_LastEntityCount = 0;
+        if (entityCount != s_LastEntityCount)
+        {
+            OLO_CORE_INFO("RenderAnimatedMeshes: Found {} animated entities, {} submeshes",
+                          entityCount, meshDescriptors.size());
+            s_LastEntityCount = entityCount;
         }
     }
 

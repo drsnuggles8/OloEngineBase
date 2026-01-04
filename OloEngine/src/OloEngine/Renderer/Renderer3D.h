@@ -20,16 +20,66 @@ namespace OloEngine
     class CommandBucket;
     class Scene;
     class Entity;
+    class CommandAllocator;
 } // namespace OloEngine
 
 namespace OloEngine
 {
+    // ========================================================================
+    // Parallel Rendering Context
+    // ========================================================================
+
+    /**
+     * @brief Thread-safe scene context for parallel command generation
+     *
+     * This struct contains all the immutable data needed by worker threads
+     * to generate draw commands. It's created by BeginScene() and remains
+     * valid until EndScene().
+     */
+    struct ParallelSceneContext
+    {
+        glm::mat4 ViewMatrix = glm::mat4(1.0f);
+        glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
+        glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+        glm::vec3 ViewPosition = glm::vec3(0.0f);
+        Frustum ViewFrustum;
+        bool FrustumCullingEnabled = true;
+        bool DynamicCullingEnabled = true;
+
+        // Shader references (immutable during frame)
+        Ref<Shader> LightingShader;
+        Ref<Shader> SkinnedLightingShader;
+        Ref<Shader> PBRShader;
+        Ref<Shader> PBRSkinnedShader;
+        Ref<Shader> LightCubeShader;
+        Ref<Shader> SkyboxShader;
+        Ref<Shader> QuadShader;
+    };
+
+    /**
+     * @brief Per-worker submission context
+     *
+     * Contains worker-specific resources for parallel command generation.
+     */
+    struct WorkerSubmitContext
+    {
+        u32 WorkerIndex = 0;
+        CommandAllocator* Allocator = nullptr;
+        CommandBucket* Bucket = nullptr;
+        const ParallelSceneContext* SceneContext = nullptr;
+
+        // Statistics
+        u32 CommandsSubmitted = 0;
+        u32 MeshesCulled = 0;
+    };
+
     // @brief High-level 3D rendering API with scene and material management
     //
-    // @warning Thread Safety: This class is NOT thread-safe. All methods should be called
-    // from the main rendering thread only. The static data members (s_Data, m_ShaderLibrary)
-    // are accessed without synchronization and concurrent access will lead to undefined behavior.
-    // If multi-threaded rendering is required, external synchronization must be provided.
+    // Thread Safety:
+    // - BeginScene() / EndScene() must be called from the main thread only
+    // - BeginParallelSubmission() / EndParallelSubmission() bracket parallel regions
+    // - DrawMeshParallel() and related methods can be called from worker threads
+    // - All other Draw* methods are NOT thread-safe unless noted
     class ShaderLibrary;
 
     class Renderer3D
@@ -86,6 +136,113 @@ namespace OloEngine
         // ECS Animated Mesh Rendering
         static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);
         static void RenderAnimatedMesh(const Ref<Scene>& scene, Entity entity, const Material& defaultMaterial);
+
+        // ====================================================================
+        // Parallel Command Generation API
+        // ====================================================================
+
+        /**
+         * @brief Begin parallel command submission mode
+         *
+         * Prepares internal state for parallel command generation.
+         * Must be called after BeginScene() and before any parallel submission.
+         */
+        static void BeginParallelSubmission();
+
+        /**
+         * @brief End parallel command submission mode
+         *
+         * Merges all worker commands and prepares for sorting/dispatch.
+         * Must be called before EndScene() and after all workers complete.
+         */
+        static void EndParallelSubmission();
+
+        /**
+         * @brief Get worker context for the current thread
+         *
+         * Registers the calling thread as a worker and returns its context.
+         * Should be called once per thread at the start of parallel work.
+         *
+         * @return Worker submission context with allocator and bucket access
+         */
+        static WorkerSubmitContext GetWorkerContext();
+
+        /**
+         * @brief Get the current parallel scene context
+         *
+         * Returns the immutable scene data for the current frame.
+         * Valid only between BeginScene() and EndScene().
+         *
+         * @return Pointer to the parallel scene context (nullptr if not in scene)
+         */
+        static const ParallelSceneContext* GetParallelSceneContext();
+
+        /**
+         * @brief Thread-safe mesh drawing for parallel submission
+         *
+         * Can be called from worker threads during parallel submission.
+         * Uses worker-local allocator and bucket for lock-free operation.
+         *
+         * @param ctx Worker context from GetWorkerContext()
+         * @param mesh The mesh to draw
+         * @param modelMatrix Transform matrix
+         * @param material Material properties
+         * @param isStatic Whether the object is static (for culling optimization)
+         * @return Command packet pointer (caller should submit via ctx)
+         */
+        static CommandPacket* DrawMeshParallel(WorkerSubmitContext& ctx,
+                                               const Ref<Mesh>& mesh,
+                                               const glm::mat4& modelMatrix,
+                                               const Material& material,
+                                               bool isStatic = true);
+
+        /**
+         * @brief Thread-safe animated mesh drawing for parallel submission
+         */
+        static CommandPacket* DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
+                                                       const Ref<Mesh>& mesh,
+                                                       const glm::mat4& modelMatrix,
+                                                       const Material& material,
+                                                       const std::vector<glm::mat4>& boneMatrices,
+                                                       bool isStatic = false);
+
+        /**
+         * @brief Submit a packet to the worker's bucket (thread-safe)
+         */
+        static void SubmitPacketParallel(WorkerSubmitContext& ctx, CommandPacket* packet);
+
+        /**
+         * @brief Check if currently in parallel submission mode
+         */
+        static bool IsParallelSubmissionActive();
+
+        /**
+         * @brief Descriptor for a single mesh to be submitted in parallel
+         */
+        struct MeshSubmitDesc
+        {
+            Ref<Mesh> Mesh;
+            glm::mat4 Transform = glm::mat4(1.0f);
+            Material MaterialData;
+            bool IsStatic = true;
+            // For animated meshes
+            bool IsAnimated = false;
+            const std::vector<glm::mat4>* BoneMatrices = nullptr;
+        };
+
+        /**
+         * @brief Submit multiple meshes in parallel using the task system
+         *
+         * This function uses ParallelFor internally to distribute mesh submission
+         * across available worker threads. It handles BeginParallelSubmission/
+         * EndParallelSubmission automatically.
+         *
+         * @param meshes Array of mesh descriptors to submit
+         * @param minBatchSize Minimum number of meshes per batch (default: 16)
+         * @return Total number of commands submitted
+         */
+        static u32 SubmitMeshesParallel(const std::vector<MeshSubmitDesc>& meshes,
+                                        i32 minBatchSize = 16);
 
         static void SetLight(const Light& light);
         static void SetViewPosition(const glm::vec3& position);
@@ -224,6 +381,10 @@ namespace OloEngine
             Ref<RenderGraph> RGraph;
             Ref<SceneRenderPass> ScenePass;
             Ref<FinalRenderPass> FinalPass;
+
+            // Parallel submission state
+            ParallelSceneContext ParallelContext;
+            bool ParallelSubmissionActive = false;
         };
 
         static Renderer3DData s_Data;

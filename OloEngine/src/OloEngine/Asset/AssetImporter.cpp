@@ -187,6 +187,64 @@ namespace OloEngine
         return it->second->TryLoadData(metadata, asset);
     }
 
+    bool AssetImporter::SupportsAsyncLoading(AssetType type)
+    {
+        std::scoped_lock lock(GetSerializersMutex());
+        auto& serializers = GetSerializers();
+        auto it = serializers.find(type);
+        if (it == serializers.end())
+        {
+            return false;
+        }
+
+        return it->second->SupportsAsyncLoading();
+    }
+
+    bool AssetImporter::TryLoadRawData(const AssetMetadata& metadata, RawAssetData& outRawData)
+    {
+        std::scoped_lock lock(GetSerializersMutex());
+        auto& serializers = GetSerializers();
+        auto it = serializers.find(metadata.Type);
+        if (it == serializers.end())
+        {
+            OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
+            return false;
+        }
+
+        if (!it->second->SupportsAsyncLoading())
+        {
+            OLO_CORE_WARN("Asset type {} does not support async loading", AssetUtils::AssetTypeToString(metadata.Type));
+            return false;
+        }
+
+        return it->second->TryLoadRawData(metadata, outRawData);
+    }
+
+    bool AssetImporter::FinalizeFromRawData(const AssetMetadata& metadata, RawAssetData& rawData, Ref<Asset>& outAsset)
+    {
+        std::scoped_lock lock(GetSerializersMutex());
+        auto& serializers = GetSerializers();
+        auto it = serializers.find(metadata.Type);
+        if (it == serializers.end())
+        {
+            OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
+            return false;
+        }
+
+        if (!it->second->FinalizeFromRawData(rawData, outAsset))
+        {
+            OLO_CORE_ERROR("Failed to finalize asset from raw data: {}", metadata.FilePath.string());
+            return false;
+        }
+
+        if (outAsset)
+        {
+            outAsset->m_Handle = metadata.Handle;
+        }
+
+        return true;
+    }
+
     void AssetImporter::RegisterDependencies(const AssetMetadata& metadata)
     {
         std::scoped_lock lock(GetSerializersMutex());
