@@ -149,6 +149,13 @@ namespace OloEngine
         // Atomically get the next allocator index
         u32 index = m_CurrentAllocatorIndex.fetch_add(1, std::memory_order_relaxed);
 
+        // Diagnostic logging for allocator index wrapping
+        if (index >= ALLOCATORS_PER_FRAME)
+        {
+            OLO_CORE_WARN("FrameResourceManager: Allocator index wrapped ({} -> {})",
+                          index, index % ALLOCATORS_PER_FRAME);
+        }
+
         // Wrap around if we exceed the number of allocators
         index = index % ALLOCATORS_PER_FRAME;
 
@@ -205,12 +212,11 @@ namespace OloEngine
     // OpenGL Fence Implementation
     // ========================================================================
 
-    u32 FrameResourceManager::CreateFence()
+    u64 FrameResourceManager::CreateFence()
     {
         OLO_PROFILE_FUNCTION();
 
-        // glFenceSync returns a GLsync which we can cast to a u32 handle
-        // In practice, we use it as an opaque handle
+        // glFenceSync returns a GLsync which we cast to u64 to preserve the full pointer value
         GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
         if (!sync)
         {
@@ -219,11 +225,11 @@ namespace OloEngine
         }
 
         // Store the sync object as a pointer cast to u64 for the fence ID
-        // This is safe because we only use it internally
-        return static_cast<u32>(reinterpret_cast<uptr>(sync));
+        // u64 preserves the full pointer value on both 32-bit and 64-bit platforms
+        return static_cast<u64>(reinterpret_cast<uptr>(sync));
     }
 
-    void FrameResourceManager::WaitForFence(u32 fenceId)
+    void FrameResourceManager::WaitForFence(u64 fenceId)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -247,7 +253,7 @@ namespace OloEngine
         // GL_ALREADY_SIGNALED or GL_CONDITION_SATISFIED means success
     }
 
-    bool FrameResourceManager::IsFenceSignaled(u32 fenceId) const
+    bool FrameResourceManager::IsFenceSignaled(u64 fenceId) const
     {
         if (fenceId == 0)
             return true;
@@ -261,7 +267,7 @@ namespace OloEngine
         return signaled == GL_SIGNALED;
     }
 
-    void FrameResourceManager::DeleteFence(u32 fenceId)
+    void FrameResourceManager::DeleteFence(u64 fenceId)
     {
         if (fenceId == 0)
             return;

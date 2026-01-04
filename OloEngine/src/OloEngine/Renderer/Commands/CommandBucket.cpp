@@ -748,10 +748,15 @@ namespace OloEngine
             return it->second;
         }
 
-        u32 workerIndex = m_NextWorkerIndex.fetch_add(1, std::memory_order_relaxed);
-        OLO_CORE_ASSERT(workerIndex < MAX_RENDER_WORKERS,
-                        "CommandBucket: Too many worker threads! Max is {}", MAX_RENDER_WORKERS);
+        // Check bounds before allocating
+        u32 currentIndex = m_NextWorkerIndex.load(std::memory_order_relaxed);
+        if (currentIndex >= MAX_RENDER_WORKERS)
+        {
+            OLO_CORE_ERROR("CommandBucket: Too many worker threads! Max is {}", MAX_RENDER_WORKERS);
+            return MAX_RENDER_WORKERS - 1; // Return last valid index as fallback
+        }
 
+        u32 workerIndex = m_NextWorkerIndex.fetch_add(1, std::memory_order_relaxed);
         m_ThreadToWorkerIndex[threadId] = workerIndex;
         return workerIndex;
     }

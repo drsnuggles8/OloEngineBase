@@ -39,7 +39,7 @@ namespace OloEngine
             u32 AllocatorIndex = 0; // Next allocator to assign
 
             // GPU fence for synchronization
-            u32 FenceId = 0;
+            u64 FenceId = 0; // Changed from u32 to u64 to avoid pointer truncation on 64-bit systems
             bool FenceSignaled = true;
 
             void Reset()
@@ -110,21 +110,23 @@ namespace OloEngine
         FrameResourceManager() = default;
         ~FrameResourceManager() = default;
 
-        // Non-copyable
+        // Non-copyable and non-moveable
         FrameResourceManager(const FrameResourceManager&) = delete;
         FrameResourceManager& operator=(const FrameResourceManager&) = delete;
+        FrameResourceManager(FrameResourceManager&&) = delete;
+        FrameResourceManager& operator=(FrameResourceManager&&) = delete;
 
         // Create GPU sync fence
-        u32 CreateFence();
+        u64 CreateFence();
 
         // Wait for GPU fence to be signaled
-        void WaitForFence(u32 fenceId);
+        void WaitForFence(u64 fenceId);
 
         // Check if fence is signaled
-        bool IsFenceSignaled(u32 fenceId) const;
+        bool IsFenceSignaled(u64 fenceId) const;
 
         // Delete a fence
-        void DeleteFence(u32 fenceId);
+        void DeleteFence(u64 fenceId);
 
         std::array<FrameResources, NUM_BUFFERED_FRAMES> m_FrameResources;
         u32 m_CurrentFrameIndex = 0;

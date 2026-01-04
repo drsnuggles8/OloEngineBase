@@ -209,31 +209,29 @@ namespace OloEngine
 
         std::thread::id threadId = std::this_thread::get_id();
 
+        // Hold lock for entire registration path to fix TOCTOU race condition
+        std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
+
         // Check if thread is already registered
+        auto it = m_ThreadToWorkerIndex.find(threadId);
+        if (it != m_ThreadToWorkerIndex.end())
         {
-            std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
-            auto it = m_ThreadToWorkerIndex.find(threadId);
-            if (it != m_ThreadToWorkerIndex.end())
-            {
-                u32 workerIndex = it->second;
-                return { workerIndex, &m_WorkerScratchBuffers[workerIndex] };
-            }
+            u32 workerIndex = it->second;
+            return { workerIndex, &m_WorkerScratchBuffers[workerIndex] };
         }
 
-        // Register new worker
-        u32 workerIndex = m_NextWorkerIndex.fetch_add(1, std::memory_order_relaxed);
-        if (workerIndex >= MAX_FRAME_DATA_WORKERS)
+        // Register new worker - check bounds before atomic increment
+        u32 currentIndex = m_NextWorkerIndex.load(std::memory_order_relaxed);
+        if (currentIndex >= MAX_FRAME_DATA_WORKERS)
         {
             OLO_CORE_ERROR("FrameDataBuffer: Too many worker threads! Max is {}",
                            MAX_FRAME_DATA_WORKERS);
             return { 0, nullptr };
         }
 
-        // Map thread to worker index
-        {
-            std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
-            m_ThreadToWorkerIndex[threadId] = workerIndex;
-        }
+        // Now safe to increment since we're within bounds
+        u32 workerIndex = m_NextWorkerIndex.fetch_add(1, std::memory_order_relaxed);
+        m_ThreadToWorkerIndex[threadId] = workerIndex;
 
         return { workerIndex, &m_WorkerScratchBuffers[workerIndex] };
     }
@@ -294,8 +292,13 @@ namespace OloEngine
 
         WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
 
-        OLO_CORE_ASSERT(localOffset + count <= scratch.bones.size(),
-                        "FrameDataBuffer: Write out of bounds!");
+        // Runtime bounds check (works in release builds unlike assertions)
+        if (localOffset + count > scratch.bones.size())
+        {
+            OLO_CORE_ERROR("FrameDataBuffer::WriteBoneMatricesParallel: Write out of bounds! offset={}, count={}, capacity={}",
+                           localOffset, count, scratch.bones.size());
+            return;
+        }
 
         std::memcpy(&scratch.bones[localOffset], data, count * sizeof(glm::mat4));
     }
@@ -308,8 +311,13 @@ namespace OloEngine
 
         WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
 
-        OLO_CORE_ASSERT(localOffset + count <= scratch.transforms.size(),
-                        "FrameDataBuffer: Write out of bounds!");
+        // Runtime bounds check (works in release builds unlike assertions)
+        if (localOffset + count > scratch.transforms.size())
+        {
+            OLO_CORE_ERROR("FrameDataBuffer::WriteTransformsParallel: Write out of bounds! offset={}, count={}, capacity={}",
+                           localOffset, count, scratch.transforms.size());
+            return;
+        }
 
         std::memcpy(&scratch.transforms[localOffset], data, count * sizeof(glm::mat4));
     }

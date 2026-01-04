@@ -260,7 +260,7 @@ namespace OloEngine
 
             std::scoped_lock<std::mutex> lock(s_QueueMutex);
             s_CommandQueue.push(std::move(cmd));
-            s_QueuedCount++;
+            s_QueuedCount.fetch_add(1, std::memory_order_relaxed);
         }
 
         /**
@@ -321,9 +321,9 @@ namespace OloEngine
         {
             std::scoped_lock<std::mutex> lock(s_QueueMutex);
             Statistics stats;
-            stats.TotalQueued = s_QueuedCount;
-            stats.TotalProcessed = s_ProcessedCount;
-            stats.TotalFailed = s_FailedCount;
+            stats.TotalQueued = s_QueuedCount.load(std::memory_order_relaxed);
+            stats.TotalProcessed = s_ProcessedCount.load(std::memory_order_relaxed);
+            stats.TotalFailed = s_FailedCount.load(std::memory_order_relaxed);
             stats.CurrentPending = static_cast<u32>(s_CommandQueue.size());
             return stats;
         }
@@ -341,9 +341,9 @@ namespace OloEngine
       private:
         static std::queue<std::unique_ptr<GPUResourceCommand>> s_CommandQueue;
         static std::mutex s_QueueMutex;
-        static u64 s_QueuedCount;
-        static u64 s_ProcessedCount;
-        static u64 s_FailedCount;
+        static std::atomic<u64> s_QueuedCount;
+        static std::atomic<u64> s_ProcessedCount;
+        static std::atomic<u64> s_FailedCount;
     };
 
 } // namespace OloEngine

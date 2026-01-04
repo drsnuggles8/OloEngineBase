@@ -73,8 +73,8 @@ namespace OloEngine
         int height = 0;
         int channels = 0;
 
-        // Load image data using stb_image (thread-safe)
-        ::stbi_set_flip_vertically_on_load(1);
+        // Load image data using stb_image (thread-safe with thread-local flip)
+        ::stbi_set_flip_vertically_on_load_thread(1);
         stbi_uc* data = nullptr;
         {
             OLO_PROFILE_SCOPE("stbi_load - TextureSerializer::TryLoadRawData");

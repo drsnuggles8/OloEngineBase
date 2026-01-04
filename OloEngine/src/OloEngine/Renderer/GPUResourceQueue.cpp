@@ -8,9 +8,9 @@ namespace OloEngine
     // Static member definitions
     std::queue<std::unique_ptr<GPUResourceCommand>> GPUResourceQueue::s_CommandQueue;
     std::mutex GPUResourceQueue::s_QueueMutex;
-    u64 GPUResourceQueue::s_QueuedCount = 0;
-    u64 GPUResourceQueue::s_ProcessedCount = 0;
-    u64 GPUResourceQueue::s_FailedCount = 0;
+    std::atomic<u64> GPUResourceQueue::s_QueuedCount{ 0 };
+    std::atomic<u64> GPUResourceQueue::s_ProcessedCount{ 0 };
+    std::atomic<u64> GPUResourceQueue::s_FailedCount{ 0 };
 
     u32 GPUResourceQueue::ProcessAll()
     {
@@ -32,18 +32,18 @@ namespace OloEngine
             {
                 OLO_PROFILE_SCOPE("GPUResourceCommand::Execute");
                 cmd->Execute();
-                s_ProcessedCount++;
+                s_ProcessedCount.fetch_add(1, std::memory_order_relaxed);
                 processed++;
             }
             catch (const std::exception& e)
             {
                 OLO_CORE_ERROR("GPUResourceQueue: Command execution failed: {}", e.what());
-                s_FailedCount++;
+                s_FailedCount.fetch_add(1, std::memory_order_relaxed);
             }
             catch (...)
             {
                 OLO_CORE_ERROR("GPUResourceQueue: Command execution failed with unknown error");
-                s_FailedCount++;
+                s_FailedCount.fetch_add(1, std::memory_order_relaxed);
             }
             localQueue.pop();
         }
@@ -83,18 +83,18 @@ namespace OloEngine
             {
                 OLO_PROFILE_SCOPE("GPUResourceCommand::Execute");
                 cmd->Execute();
-                s_ProcessedCount++;
+                s_ProcessedCount.fetch_add(1, std::memory_order_relaxed);
                 processed++;
             }
             catch (const std::exception& e)
             {
                 OLO_CORE_ERROR("GPUResourceQueue: Command execution failed: {}", e.what());
-                s_FailedCount++;
+                s_FailedCount.fetch_add(1, std::memory_order_relaxed);
             }
             catch (...)
             {
                 OLO_CORE_ERROR("GPUResourceQueue: Command execution failed with unknown error");
-                s_FailedCount++;
+                s_FailedCount.fetch_add(1, std::memory_order_relaxed);
             }
         }
 
