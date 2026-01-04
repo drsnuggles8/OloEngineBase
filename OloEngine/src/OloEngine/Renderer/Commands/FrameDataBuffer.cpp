@@ -287,7 +287,7 @@ namespace OloEngine
     }
 
     void FrameDataBuffer::WriteBoneMatricesParallel(u32 workerIndex, u32 localOffset,
-                                                     const glm::mat4* data, u32 count)
+                                                    const glm::mat4* data, u32 count)
     {
         OLO_CORE_ASSERT(workerIndex < MAX_FRAME_DATA_WORKERS,
                         "FrameDataBuffer: Invalid worker index!");
@@ -301,7 +301,7 @@ namespace OloEngine
     }
 
     void FrameDataBuffer::WriteTransformsParallel(u32 workerIndex, u32 localOffset,
-                                                   const glm::mat4* data, u32 count)
+                                                  const glm::mat4* data, u32 count)
     {
         OLO_CORE_ASSERT(workerIndex < MAX_FRAME_DATA_WORKERS,
                         "FrameDataBuffer: Invalid worker index!");

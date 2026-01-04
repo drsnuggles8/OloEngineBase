@@ -852,26 +852,22 @@ void Sandbox3D::RenderLightingTestingScene()
     // Sphere on the right
     auto sphereMatrix = glm::mat4(1.0f);
     sphereMatrix = glm::translate(sphereMatrix, glm::vec3(3.0f, 0.0f, 0.0f));
-    meshDescriptors.push_back({
-        m_SphereMesh,
-        sphereMatrix,
-        m_SilverMaterial,
-        true,
-        false,
-        nullptr
-    });
+    meshDescriptors.push_back({ m_SphereMesh,
+                                sphereMatrix,
+                                m_SilverMaterial,
+                                true,
+                                false,
+                                nullptr });
 
     // Textured sphere on the left
     auto texturedSphereMatrix = glm::mat4(1.0f);
     texturedSphereMatrix = glm::translate(texturedSphereMatrix, glm::vec3(-3.0f, 0.0f, 0.0f));
-    meshDescriptors.push_back({
-        m_SphereMesh,
-        texturedSphereMatrix,
-        m_TexturedMaterial,
-        true,
-        false,
-        nullptr
-    });
+    meshDescriptors.push_back({ m_SphereMesh,
+                                texturedSphereMatrix,
+                                m_TexturedMaterial,
+                                true,
+                                false,
+                                nullptr });
 
     // Submit all meshes in parallel
     OloEngine::Renderer3D::SubmitMeshesParallel(meshDescriptors);

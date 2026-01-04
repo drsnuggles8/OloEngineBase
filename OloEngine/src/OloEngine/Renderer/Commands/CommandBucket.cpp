@@ -119,10 +119,10 @@ namespace OloEngine
                 OLO_PROFILE_SCOPE("ExtractKeys");
                 // Parallel key extraction
                 ParallelFor("ExtractSortKeys", static_cast<i32>(count), PARALLEL_SORT_BATCH_SIZE,
-                    [&packets, &keys](i32 i)
-                    {
-                        keys[i] = packets[i]->GetMetadata().m_SortKey.GetKey();
-                    });
+                            [&packets, &keys](i32 i)
+                            {
+                                keys[i] = packets[i]->GetMetadata().m_SortKey.GetKey();
+                            });
             }
             std::vector<u64> tempKeys(count);
 

@@ -496,10 +496,10 @@ namespace OloEngine
     }
 
     CommandPacket* Renderer3D::DrawMeshParallel(WorkerSubmitContext& ctx,
-                                                 const Ref<Mesh>& mesh,
-                                                 const glm::mat4& modelMatrix,
-                                                 const Material& material,
-                                                 bool isStatic)
+                                                const Ref<Mesh>& mesh,
+                                                const glm::mat4& modelMatrix,
+                                                const Material& material,
+                                                bool isStatic)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -636,11 +636,11 @@ namespace OloEngine
     }
 
     CommandPacket* Renderer3D::DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
-                                                         const Ref<Mesh>& mesh,
-                                                         const glm::mat4& modelMatrix,
-                                                         const Material& material,
-                                                         const std::vector<glm::mat4>& boneMatrices,
-                                                         bool isStatic)
+                                                        const Ref<Mesh>& mesh,
+                                                        const glm::mat4& modelMatrix,
+                                                        const Material& material,
+                                                        const std::vector<glm::mat4>& boneMatrices,
+                                                        bool isStatic)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -797,7 +797,7 @@ namespace OloEngine
     // ========================================================================
 
     u32 Renderer3D::SubmitMeshesParallel(const std::vector<MeshSubmitDesc>& meshes,
-                                          i32 minBatchSize)
+                                         i32 minBatchSize)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1761,14 +1761,12 @@ namespace OloEngine
                                 submeshMaterial = submeshEntityOpt->GetComponent<MaterialComponent>().m_Material;
                             }
 
-                            meshDescriptors.push_back({
-                                submeshComponent.m_Mesh,
-                                worldTransform,
-                                submeshMaterial,
-                                false,  // IsStatic
-                                true,   // IsAnimated
-                                &boneMatrices
-                            });
+                            meshDescriptors.push_back({ submeshComponent.m_Mesh,
+                                                        worldTransform,
+                                                        submeshMaterial,
+                                                        false, // IsStatic
+                                                        true,  // IsAnimated
+                                                        &boneMatrices });
                             foundSubmeshes = true;
                         }
                     }
@@ -1779,14 +1777,12 @@ namespace OloEngine
             if (!foundSubmeshes && meshComp.m_MeshSource->GetSubmeshes().Num() > 0)
             {
                 auto mesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
-                meshDescriptors.push_back({
-                    mesh,
-                    worldTransform,
-                    material,
-                    false,  // IsStatic
-                    true,   // IsAnimated
-                    &boneMatrices
-                });
+                meshDescriptors.push_back({ mesh,
+                                            worldTransform,
+                                            material,
+                                            false, // IsStatic
+                                            true,  // IsAnimated
+                                            &boneMatrices });
             }
 
             s_Data.Stats.RenderedAnimatedMeshes++;

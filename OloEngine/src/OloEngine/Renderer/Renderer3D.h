@@ -191,20 +191,20 @@ namespace OloEngine
          * @return Command packet pointer (caller should submit via ctx)
          */
         static CommandPacket* DrawMeshParallel(WorkerSubmitContext& ctx,
-                                                const Ref<Mesh>& mesh,
-                                                const glm::mat4& modelMatrix,
-                                                const Material& material,
-                                                bool isStatic = true);
+                                               const Ref<Mesh>& mesh,
+                                               const glm::mat4& modelMatrix,
+                                               const Material& material,
+                                               bool isStatic = true);
 
         /**
          * @brief Thread-safe animated mesh drawing for parallel submission
          */
         static CommandPacket* DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
-                                                        const Ref<Mesh>& mesh,
-                                                        const glm::mat4& modelMatrix,
-                                                        const Material& material,
-                                                        const std::vector<glm::mat4>& boneMatrices,
-                                                        bool isStatic = false);
+                                                       const Ref<Mesh>& mesh,
+                                                       const glm::mat4& modelMatrix,
+                                                       const Material& material,
+                                                       const std::vector<glm::mat4>& boneMatrices,
+                                                       bool isStatic = false);
 
         /**
          * @brief Submit a packet to the worker's bucket (thread-safe)
@@ -242,7 +242,7 @@ namespace OloEngine
          * @return Total number of commands submitted
          */
         static u32 SubmitMeshesParallel(const std::vector<MeshSubmitDesc>& meshes,
-                                         i32 minBatchSize = 16);
+                                        i32 minBatchSize = 16);
 
         static void SetLight(const Light& light);
         static void SetViewPosition(const glm::vec3& position);

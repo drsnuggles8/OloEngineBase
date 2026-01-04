@@ -95,7 +95,7 @@ namespace OloEngine
         rawData.Handle = metadata.Handle;
         rawData.DebugName = metadata.FilePath.filename().string();
         rawData.GenerateMipmaps = true;
-        rawData.SRGB = false;  // TODO: Could be determined from asset metadata
+        rawData.SRGB = false; // TODO: Could be determined from asset metadata
 
         // Copy the pixel data
         sizet dataSize = static_cast<sizet>(width) * height * channels;

@@ -70,7 +70,10 @@ namespace OloEngine
         void EndFrame();
 
         // Get the current frame index
-        u32 GetCurrentFrameIndex() const { return m_CurrentFrameIndex; }
+        u32 GetCurrentFrameIndex() const
+        {
+            return m_CurrentFrameIndex;
+        }
 
         // Get an allocator for the current frame
         // Thread-safe: uses atomic index to assign allocators to threads
@@ -80,13 +83,22 @@ namespace OloEngine
         FrameResources& GetCurrentFrameResources();
 
         // Query if double-buffering is active
-        bool IsDoubleBufferingEnabled() const { return m_DoubleBufferingEnabled; }
+        bool IsDoubleBufferingEnabled() const
+        {
+            return m_DoubleBufferingEnabled;
+        }
 
         // Enable/disable double-buffering (default: enabled)
-        void SetDoubleBufferingEnabled(bool enabled) { m_DoubleBufferingEnabled = enabled; }
+        void SetDoubleBufferingEnabled(bool enabled)
+        {
+            m_DoubleBufferingEnabled = enabled;
+        }
 
         // Get total frame count since init
-        u64 GetTotalFrameCount() const { return m_TotalFrameCount; }
+        u64 GetTotalFrameCount() const
+        {
+            return m_TotalFrameCount;
+        }
 
         // Check if GPU has finished a specific frame
         bool IsFrameComplete(u32 frameIndex) const;

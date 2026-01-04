@@ -24,7 +24,7 @@ namespace OloEngine
     {
         AssetMetadata Metadata;
         RawAssetData RawData;
-        AssetType SerializerType = AssetType::None;  ///< Type of serializer to use for finalization
+        AssetType SerializerType = AssetType::None; ///< Type of serializer to use for finalization
     };
 
     /**

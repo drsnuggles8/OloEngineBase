@@ -93,8 +93,8 @@ namespace OloEngine
     struct [[nodiscard]] EditorAssetLoadResponse
     {
         AssetMetadata Metadata;
-        Ref<Asset> AssetRef;       ///< Finalized asset (null if NeedsGPUFinalization)
-        bool NeedsGPUFinalization = false;  ///< True if raw data needs GPU finalization
+        Ref<Asset> AssetRef;               ///< Finalized asset (null if NeedsGPUFinalization)
+        bool NeedsGPUFinalization = false; ///< True if raw data needs GPU finalization
 
         EditorAssetLoadResponse() = default;
         explicit EditorAssetLoadResponse(const AssetMetadata& metadata, Ref<Asset> asset = nullptr)

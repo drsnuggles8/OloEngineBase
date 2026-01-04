@@ -37,9 +37,9 @@ namespace OloEngine
     // Prevents false sharing between worker threads
     struct alignas(OLO_PLATFORM_CACHE_LINE_SIZE) TLSBucketSlot
     {
-        u32 offset = 0;         // Current write offset in thread-local range
-        u32 remaining = 0;      // Remaining slots in current batch
-        u32 batchStart = 0;     // Start offset of current batch in global array
+        u32 offset = 0;     // Current write offset in thread-local range
+        u32 remaining = 0;  // Remaining slots in current batch
+        u32 batchStart = 0; // Start offset of current batch in global array
         // Padding to fill cache line
         u8 _padding[OLO_PLATFORM_CACHE_LINE_SIZE - 3 * sizeof(u32)];
     };

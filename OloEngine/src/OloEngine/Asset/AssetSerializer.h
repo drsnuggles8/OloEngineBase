@@ -8,7 +8,7 @@
 
 #include "OloEngine/Serialization/FileStream.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
-#include "OloEngine/Renderer/GPUResourceQueue.h"  // For RawTextureData, RawShaderData
+#include "OloEngine/Renderer/GPUResourceQueue.h" // For RawTextureData, RawShaderData
 
 // Forward declarations
 namespace YAML
@@ -42,11 +42,11 @@ namespace OloEngine
      * and main thread finalizes GPU resources.
      */
     using RawAssetData = std::variant<
-        std::monostate,      // Empty/invalid
-        RawTextureData,      // Decoded pixel data
-        RawShaderData        // Shader source code
+        std::monostate, // Empty/invalid
+        RawTextureData, // Decoded pixel data
+        RawShaderData   // Shader source code
         // Add more types as needed (RawMeshData, etc.)
-    >;
+        >;
 
     class AssetSerializer
     {
@@ -71,9 +71,9 @@ namespace OloEngine
          * Override in serializers that support async loading.
          */
         [[nodiscard]] virtual bool TryLoadRawData([[maybe_unused]] const AssetMetadata& metadata,
-                                                   [[maybe_unused]] RawAssetData& outRawData) const
+                                                  [[maybe_unused]] RawAssetData& outRawData) const
         {
-            return false;  // Not supported by default
+            return false; // Not supported by default
         }
 
         /**
@@ -88,15 +88,18 @@ namespace OloEngine
          * Default implementation returns false (not supported).
          */
         [[nodiscard]] virtual bool FinalizeFromRawData([[maybe_unused]] const RawAssetData& rawData,
-                                                        [[maybe_unused]] Ref<Asset>& asset) const
+                                                       [[maybe_unused]] Ref<Asset>& asset) const
         {
-            return false;  // Not supported by default
+            return false; // Not supported by default
         }
 
         /**
          * @brief Check if this serializer supports async (two-phase) loading
          */
-        [[nodiscard]] virtual bool SupportsAsyncLoading() const { return false; }
+        [[nodiscard]] virtual bool SupportsAsyncLoading() const
+        {
+            return false;
+        }
 
         [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const = 0;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const = 0;
@@ -117,7 +120,10 @@ namespace OloEngine
         // Two-phase async loading support
         [[nodiscard]] virtual bool TryLoadRawData(const AssetMetadata& metadata, RawAssetData& outRawData) const override;
         [[nodiscard]] virtual bool FinalizeFromRawData(const RawAssetData& rawData, Ref<Asset>& asset) const override;
-        [[nodiscard]] virtual bool SupportsAsyncLoading() const override { return true; }
+        [[nodiscard]] virtual bool SupportsAsyncLoading() const override
+        {
+            return true;
+        }
 
         [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;

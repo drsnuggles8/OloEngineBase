@@ -70,14 +70,14 @@ namespace OloEngine
      */
     struct RawTextureData
     {
-        std::vector<u8> PixelData;   ///< Decoded pixel data (RGBA, RGB, etc.)
+        std::vector<u8> PixelData; ///< Decoded pixel data (RGBA, RGB, etc.)
         u32 Width = 0;
         u32 Height = 0;
-        u32 Channels = 0;            ///< 1=R, 2=RG, 3=RGB, 4=RGBA
+        u32 Channels = 0; ///< 1=R, 2=RG, 3=RGB, 4=RGBA
         bool GenerateMipmaps = true;
-        bool SRGB = false;           ///< True for diffuse/albedo textures
-        std::string DebugName;       ///< For GPU debugging tools
-        AssetHandle Handle = 0;      ///< Associated asset handle
+        bool SRGB = false;      ///< True for diffuse/albedo textures
+        std::string DebugName;  ///< For GPU debugging tools
+        AssetHandle Handle = 0; ///< Associated asset handle
 
         [[nodiscard]] bool IsValid() const
         {
@@ -97,8 +97,8 @@ namespace OloEngine
     {
         std::string VertexSource;
         std::string FragmentSource;
-        std::string GeometrySource;   // Optional
-        std::string ComputeSource;    // Optional (for compute shaders)
+        std::string GeometrySource; // Optional
+        std::string ComputeSource;  // Optional (for compute shaders)
         std::string Name;
         AssetHandle Handle = 0;
 
@@ -125,9 +125,15 @@ namespace OloEngine
         }
 
         void Execute() override;
-        GPUResourceCommandType GetType() const override { return GPUResourceCommandType::CreateTexture2D; }
+        GPUResourceCommandType GetType() const override
+        {
+            return GPUResourceCommandType::CreateTexture2D;
+        }
 
-        const RawTextureData& GetData() const { return m_Data; }
+        const RawTextureData& GetData() const
+        {
+            return m_Data;
+        }
 
       private:
         RawTextureData m_Data;
@@ -147,9 +153,15 @@ namespace OloEngine
         }
 
         void Execute() override;
-        GPUResourceCommandType GetType() const override { return GPUResourceCommandType::CreateShader; }
+        GPUResourceCommandType GetType() const override
+        {
+            return GPUResourceCommandType::CreateShader;
+        }
 
-        const RawShaderData& GetData() const { return m_Data; }
+        const RawShaderData& GetData() const
+        {
+            return m_Data;
+        }
 
       private:
         RawShaderData m_Data;
@@ -175,9 +187,15 @@ namespace OloEngine
                 m_Callback();
         }
 
-        GPUResourceCommandType GetType() const override { return GPUResourceCommandType::Custom; }
+        GPUResourceCommandType GetType() const override
+        {
+            return GPUResourceCommandType::Custom;
+        }
 
-        const std::string& GetDebugName() const { return m_DebugName; }
+        const std::string& GetDebugName() const
+        {
+            return m_DebugName;
+        }
 
       private:
         std::function<void()> m_Callback;

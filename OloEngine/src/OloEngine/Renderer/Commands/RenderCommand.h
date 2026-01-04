@@ -407,9 +407,9 @@ namespace OloEngine
 
         // Animation support
         bool isAnimatedMesh = false;
-        u32 boneBufferOffset = 0; // Offset into FrameDataBuffer for bone matrices
-        u32 boneCount = 0;        // Number of bone matrices
-        u8 workerIndex = 0;       // Worker index for parallel submission (used to remap local bone offset to global)
+        u32 boneBufferOffset = 0;          // Offset into FrameDataBuffer for bone matrices
+        u32 boneCount = 0;                 // Number of bone matrices
+        u8 workerIndex = 0;                // Worker index for parallel submission (used to remap local bone offset to global)
         bool needsBoneOffsetRemap = false; // True if boneBufferOffset is worker-local and needs remapping
     };
 
