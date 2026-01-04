@@ -16,14 +16,14 @@ namespace OloEngine
     // Cache file header for version tracking
     struct IBLCacheHeader
     {
-        char Magic[4] = {'I', 'B', 'L', 'C'};
+        char Magic[4] = { 'I', 'B', 'L', 'C' };
         u32 Version = 1;
         u32 Width = 0;
         u32 Height = 0;
-        u32 Format = 0;       // ImageFormat enum value
+        u32 Format = 0; // ImageFormat enum value
         u32 MipLevels = 0;
-        u32 FaceCount = 0;    // 1 for Texture2D, 6 for cubemap
-        u64 DataSize = 0;     // Total data size following header
+        u32 FaceCount = 0; // 1 for Texture2D, 6 for cubemap
+        u64 DataSize = 0;  // Total data size following header
     };
 
     void IBLCache::Initialize(const std::filesystem::path& cacheDirectory)
