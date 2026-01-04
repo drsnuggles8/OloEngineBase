@@ -119,8 +119,28 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Try to load from cache first
-        std::string cacheKey = m_Specification.FilePath.empty() ? "cubemap_source" : m_Specification.FilePath;
+        // Generate a unique cache key
+        std::string cacheKey;
+        if (!m_Specification.FilePath.empty())
+        {
+            cacheKey = m_Specification.FilePath;
+        }
+        else if (m_EnvironmentMap)
+        {
+            // For in-memory cubemaps, generate a unique key based on properties
+            // Use the cubemap's memory address as a unique identifier + dimensions
+            cacheKey = fmt::format("cubemap_inmem_{:016x}_{}x{}_{}", 
+                                  reinterpret_cast<uintptr_t>(m_EnvironmentMap.get()),
+                                  m_EnvironmentMap->GetWidth(),
+                                  m_EnvironmentMap->GetHeight(),
+                                  static_cast<int>(m_EnvironmentMap->GetSpecification().Format));
+        }
+        else
+        {
+            OLO_CORE_ERROR("GenerateIBLWithConfig: No environment map available");
+            return;
+        }
+
         IBLCache::CachedIBL cached;
 
         if (IBLCache::TryLoad(cacheKey, config, cached))

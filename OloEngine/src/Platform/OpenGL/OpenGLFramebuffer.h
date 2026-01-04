@@ -2,6 +2,8 @@
 
 #include "OloEngine/Renderer/Framebuffer.h"
 
+#include <mutex>
+
 namespace OloEngine
 {
     class OpenGLFramebuffer : public Framebuffer
@@ -64,6 +66,6 @@ namespace OloEngine
 
         // Shared post-processing shader (static to avoid recompilation for each framebuffer)
         static Ref<class Shader> s_PostProcessShader;
-        static bool s_SharedResourcesInitialized;
+        static std::once_flag s_InitOnceFlag;
     };
 } // namespace OloEngine

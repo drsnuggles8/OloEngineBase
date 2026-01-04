@@ -21,9 +21,9 @@ namespace OloEngine
      * Cache Structure:
      * ```
      * assets/cache/ibl/
-     * ├── {hash}_irradiance.ktx2    (diffuse irradiance cubemap)
-     * ├── {hash}_prefilter.ktx2     (specular prefilter cubemap with mips)
-     * └── brdf_lut.ktx2              (shared BRDF LUT, same for all env maps)
+     * ├── {hash}_irradiance.iblcache    (diffuse irradiance cubemap)
+     * ├── {hash}_prefilter.iblcache     (specular prefilter cubemap with mips)
+     * └── {hash}_brdf_{resolution}.iblcache  (BRDF LUT, resolution-specific)
      * ```
      *
      * The hash is computed from the source cubemap path + IBL configuration,
@@ -112,8 +112,11 @@ namespace OloEngine
 
         /**
          * @brief Invalidate cache for a specific environment map
+         *
+         * @param sourcePath Path to the source environment map
+         * @param config IBL configuration to invalidate (needed for hash computation)
          */
-        static void Invalidate(const std::string& sourcePath);
+        static void Invalidate(const std::string& sourcePath, const IBLConfiguration& config);
 
         /**
          * @brief Clear entire IBL cache

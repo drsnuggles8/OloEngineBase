@@ -14,24 +14,23 @@ namespace OloEngine
 
     // Static member definitions for shared post-processing shader
     Ref<Shader> OpenGLFramebuffer::s_PostProcessShader = nullptr;
-    bool OpenGLFramebuffer::s_SharedResourcesInitialized = false;
+    std::once_flag OpenGLFramebuffer::s_InitOnceFlag;
 
     void OpenGLFramebuffer::InitSharedResources()
     {
-        if (s_SharedResourcesInitialized)
-            return;
-
-        // Load post-processing shader once and share across all framebuffers
-        s_PostProcessShader = Shader::Create("assets/shaders/PostProcess.glsl");
-        s_SharedResourcesInitialized = true;
-
-        OLO_CORE_INFO("OpenGLFramebuffer: Shared PostProcess shader initialized");
+        std::call_once(s_InitOnceFlag, []()
+        {
+            // Load post-processing shader once and share across all framebuffers
+            s_PostProcessShader = Shader::Create("assets/shaders/PostProcess.glsl");
+            OLO_CORE_INFO("OpenGLFramebuffer: Shared PostProcess shader initialized");
+        });
     }
 
     void OpenGLFramebuffer::ShutdownSharedResources()
     {
         s_PostProcessShader.Reset();
-        s_SharedResourcesInitialized = false;
+        // Note: std::once_flag cannot be reset - it's designed to guarantee one-time initialization
+        // If re-initialization is needed after shutdown, consider using std::atomic<bool> with double-checked locking
 
         OLO_CORE_INFO("OpenGLFramebuffer: Shared resources shutdown");
     }
@@ -74,11 +73,8 @@ namespace OloEngine
 
     void OpenGLFramebuffer::InitPostProcessing()
     {
-        // Ensure shared shader is initialized
-        if (!s_SharedResourcesInitialized)
-        {
-            InitSharedResources();
-        }
+        // Ensure shared shader is initialized (thread-safe)
+        InitSharedResources();
 
         // Create per-framebuffer VAO/VBO for post-processing quad
         f32 quadVertices[] = {

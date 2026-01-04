@@ -2,6 +2,7 @@
 #include "IBLCache.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Profiler.h"
 #include "Platform/OpenGL/OpenGLTextureCubemap.h"
 
 #include <fstream>
@@ -14,6 +15,8 @@ namespace OloEngine
     IBLCache::Statistics IBLCache::s_Stats;
 
     // Cache file header for version tracking
+    // Use pragma pack to ensure consistent binary layout across compilers
+#pragma pack(push, 1)
     struct IBLCacheHeader
     {
         char Magic[4] = { 'I', 'B', 'L', 'C' };
@@ -25,27 +28,87 @@ namespace OloEngine
         u32 FaceCount = 0; // 1 for Texture2D, 6 for cubemap
         u64 DataSize = 0;  // Total data size following header
     };
+#pragma pack(pop)
+
+    // Verify header size at compile time
+    static_assert(sizeof(IBLCacheHeader) == 36, "IBLCacheHeader size mismatch - packing may be incorrect");
+
+    namespace
+    {
+        /**
+         * @brief Get bytes per pixel for an image format
+         * @param format The image format
+         * @return Bytes per pixel, or 0 for unsupported formats
+         */
+        [[nodiscard]] u32 GetBytesPerPixel(ImageFormat format)
+        {
+            switch (format)
+            {
+                case ImageFormat::R8:
+                    return 1;
+                case ImageFormat::RGB8:
+                    return 3;
+                case ImageFormat::RGBA8:
+                    return 4;
+                case ImageFormat::R32F:
+                    return 4;
+                case ImageFormat::RG32F:
+                    return 8;
+                case ImageFormat::RGB32F:
+                    return 12;
+                case ImageFormat::RGBA32F:
+                    return 16;
+                default:
+                    return 0;
+            }
+        }
+    } // anonymous namespace
 
     void IBLCache::Initialize(const std::filesystem::path& cacheDirectory)
     {
+        OLO_PROFILE_FUNCTION();
+
         s_CacheDirectory = cacheDirectory;
         s_Initialized = true;
         s_Stats = {};
 
-        // Create cache directory if it doesn't exist
-        if (!std::filesystem::exists(s_CacheDirectory))
+        try
         {
-            std::filesystem::create_directories(s_CacheDirectory);
-            OLO_CORE_INFO("IBLCache: Created cache directory: {}", s_CacheDirectory.string());
-        }
-
-        // Calculate existing cache size
-        for (const auto& entry : std::filesystem::directory_iterator(s_CacheDirectory))
-        {
-            if (entry.is_regular_file())
+            // Create cache directory if it doesn't exist
+            if (!std::filesystem::exists(s_CacheDirectory))
             {
-                s_Stats.CacheSizeBytes += entry.file_size();
+                std::filesystem::create_directories(s_CacheDirectory);
+                OLO_CORE_INFO("IBLCache: Created cache directory: {}", s_CacheDirectory.string());
             }
+
+            // Calculate existing cache size
+            std::error_code ec;
+            for (const auto& entry : std::filesystem::directory_iterator(s_CacheDirectory, ec))
+            {
+                if (ec)
+                {
+                    OLO_CORE_WARN("IBLCache: Error iterating cache directory: {}", ec.message());
+                    break;
+                }
+
+                std::error_code fileEc;
+                if (entry.is_regular_file(fileEc) && !fileEc)
+                {
+                    s_Stats.CacheSizeBytes += entry.file_size(fileEc);
+                    if (fileEc)
+                    {
+                        OLO_CORE_WARN("IBLCache: Error getting file size for {}: {}", entry.path().string(), fileEc.message());
+                    }
+                }
+            }
+        }
+        catch (const std::filesystem::filesystem_error& e)
+        {
+            OLO_CORE_ERROR("IBLCache: Filesystem error during initialization: {}", e.what());
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("IBLCache: Error during initialization: {}", e.what());
         }
 
         OLO_CORE_INFO("IBLCache: Initialized with {} bytes cached", s_Stats.CacheSizeBytes);
@@ -53,6 +116,8 @@ namespace OloEngine
 
     void IBLCache::Shutdown()
     {
+        OLO_PROFILE_FUNCTION();
+
         s_Initialized = false;
         OLO_CORE_INFO("IBLCache: Shutdown (Hits: {}, Misses: {}, Saves: {})",
                       s_Stats.CacheHits, s_Stats.CacheMisses, s_Stats.SaveCount);
@@ -96,7 +161,9 @@ namespace OloEngine
 
         paths.Irradiance = s_CacheDirectory / (hashStr + "_irradiance.iblcache");
         paths.Prefilter = s_CacheDirectory / (hashStr + "_prefilter.iblcache");
-        paths.BRDFLut = s_CacheDirectory / "brdf_lut.iblcache";
+        // Include hash in BRDF LUT filename to avoid collisions between different resolutions
+        // (hash already incorporates BRDFLutResolution from config)
+        paths.BRDFLut = s_CacheDirectory / (hashStr + "_brdf.iblcache");
 
         return paths;
     }
@@ -105,6 +172,8 @@ namespace OloEngine
                            const IBLConfiguration& config,
                            CachedIBL& outCached)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!s_Initialized)
         {
             OLO_CORE_WARN("IBLCache: Not initialized");
@@ -115,12 +184,21 @@ namespace OloEngine
         u64 hash = ComputeHash(sourcePath, config);
         CachePaths paths = GetCachePaths(hash);
 
-        // Check if all cache files exist
-        if (!std::filesystem::exists(paths.Irradiance) ||
-            !std::filesystem::exists(paths.Prefilter) ||
-            !std::filesystem::exists(paths.BRDFLut))
+        try
         {
-            OLO_CORE_TRACE("IBLCache: Cache miss for {} (files not found)", sourcePath);
+            // Check if all cache files exist
+            if (!std::filesystem::exists(paths.Irradiance) ||
+                !std::filesystem::exists(paths.Prefilter) ||
+                !std::filesystem::exists(paths.BRDFLut))
+            {
+                OLO_CORE_TRACE("IBLCache: Cache miss for {} (files not found)", sourcePath);
+                s_Stats.CacheMisses++;
+                return false;
+            }
+        }
+        catch (const std::filesystem::filesystem_error& e)
+        {
+            OLO_CORE_ERROR("IBLCache: Filesystem error checking cache: {}", e.what());
             s_Stats.CacheMisses++;
             return false;
         }
@@ -161,6 +239,8 @@ namespace OloEngine
                         const Ref<TextureCubemap>& prefilter,
                         const Ref<Texture2D>& brdfLut)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!s_Initialized)
         {
             OLO_CORE_WARN("IBLCache: Not initialized, cannot save");
@@ -190,14 +270,11 @@ namespace OloEngine
             success = false;
         }
 
-        // Only save BRDF LUT if it doesn't already exist (it's shared)
-        if (!std::filesystem::exists(paths.BRDFLut))
+        // Save BRDF LUT (resolution-specific via hash, so always save)
+        if (!SaveTexture2DToCache(brdfLut, paths.BRDFLut))
         {
-            if (!SaveTexture2DToCache(brdfLut, paths.BRDFLut))
-            {
-                OLO_CORE_WARN("IBLCache: Failed to save BRDF LUT");
-                success = false;
-            }
+            OLO_CORE_WARN("IBLCache: Failed to save BRDF LUT");
+            success = false;
         }
 
         if (success)
@@ -211,49 +288,104 @@ namespace OloEngine
 
     bool IBLCache::HasCache(const std::string& sourcePath, const IBLConfiguration& config)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!s_Initialized)
             return false;
 
         u64 hash = ComputeHash(sourcePath, config);
         CachePaths paths = GetCachePaths(hash);
 
-        return std::filesystem::exists(paths.Irradiance) &&
-               std::filesystem::exists(paths.Prefilter) &&
-               std::filesystem::exists(paths.BRDFLut);
+        try
+        {
+            return std::filesystem::exists(paths.Irradiance) &&
+                   std::filesystem::exists(paths.Prefilter) &&
+                   std::filesystem::exists(paths.BRDFLut);
+        }
+        catch (const std::filesystem::filesystem_error& e)
+        {
+            OLO_CORE_ERROR("IBLCache: Filesystem error checking cache existence: {}", e.what());
+            return false;
+        }
     }
 
-    void IBLCache::Invalidate(const std::string& sourcePath)
+    void IBLCache::Invalidate(const std::string& sourcePath, const IBLConfiguration& config)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!s_Initialized)
             return;
 
-        // We need to search for files matching this source's hash pattern
-        // Since we don't know the config, we can't compute the exact hash
-        // For now, just log that we would invalidate
-        OLO_CORE_INFO("IBLCache: Invalidate called for {} (manual deletion may be required)", sourcePath);
+        u64 hash = ComputeHash(sourcePath, config);
+        CachePaths paths = GetCachePaths(hash);
+
+        try
+        {
+            u64 removedBytes = 0;
+            u32 removedFiles = 0;
+
+            auto removeFile = [&](const std::filesystem::path& path)
+            {
+                if (std::filesystem::exists(path))
+                {
+                    removedBytes += std::filesystem::file_size(path);
+                    std::filesystem::remove(path);
+                    removedFiles++;
+                }
+            };
+
+            removeFile(paths.Irradiance);
+            removeFile(paths.Prefilter);
+            removeFile(paths.BRDFLut);
+
+            if (removedFiles > 0)
+            {
+                s_Stats.CacheSizeBytes = (s_Stats.CacheSizeBytes > removedBytes) 
+                    ? s_Stats.CacheSizeBytes - removedBytes 
+                    : 0;
+                OLO_CORE_INFO("IBLCache: Invalidated cache for {} ({} files, {} bytes)", 
+                             sourcePath, removedFiles, removedBytes);
+            }
+        }
+        catch (const std::filesystem::filesystem_error& e)
+        {
+            OLO_CORE_ERROR("IBLCache: Filesystem error during invalidation: {}", e.what());
+        }
     }
 
     void IBLCache::ClearAll()
     {
-        if (!s_Initialized || !std::filesystem::exists(s_CacheDirectory))
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Initialized)
             return;
 
-        u64 removedBytes = 0;
-        u32 removedFiles = 0;
-
-        for (const auto& entry : std::filesystem::directory_iterator(s_CacheDirectory))
+        try
         {
-            if (entry.is_regular_file())
+            if (!std::filesystem::exists(s_CacheDirectory))
+                return;
+
+            u64 removedBytes = 0;
+            u32 removedFiles = 0;
+
+            for (const auto& entry : std::filesystem::directory_iterator(s_CacheDirectory))
             {
-                removedBytes += entry.file_size();
-                std::filesystem::remove(entry.path());
-                removedFiles++;
+                if (entry.is_regular_file())
+                {
+                    removedBytes += entry.file_size();
+                    std::filesystem::remove(entry.path());
+                    removedFiles++;
+                }
             }
+
+            s_Stats.CacheSizeBytes = 0;
+
+            OLO_CORE_INFO("IBLCache: Cleared {} files ({} bytes)", removedFiles, removedBytes);
         }
-
-        s_Stats.CacheSizeBytes = 0;
-
-        OLO_CORE_INFO("IBLCache: Cleared {} files ({} bytes)", removedFiles, removedBytes);
+        catch (const std::filesystem::filesystem_error& e)
+        {
+            OLO_CORE_ERROR("IBLCache: Filesystem error during clear: {}", e.what());
+        }
     }
 
     IBLCache::Statistics IBLCache::GetStatistics()
@@ -308,34 +440,7 @@ namespace OloEngine
 
         Ref<TextureCubemap> cubemap = TextureCubemap::Create(spec);
 
-        // Determine bytes per pixel
-        u32 bytesPerPixel = 4;
-        switch (spec.Format)
-        {
-            case ImageFormat::R8:
-                bytesPerPixel = 1;
-                break;
-            case ImageFormat::RGB8:
-                bytesPerPixel = 3;
-                break;
-            case ImageFormat::RGBA8:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::R32F:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RG32F:
-                bytesPerPixel = 8;
-                break;
-            case ImageFormat::RGB32F:
-                bytesPerPixel = 12;
-                break;
-            case ImageFormat::RGBA32F:
-                bytesPerPixel = 16;
-                break;
-            default:
-                break;
-        }
+        u32 bytesPerPixel = GetBytesPerPixel(spec.Format);
 
         // Read each mip level's face data
         for (u32 mip = 0; mip < header.MipLevels; mip++)
@@ -348,6 +453,12 @@ namespace OloEngine
             {
                 std::vector<u8> faceData(faceSize);
                 file.read(reinterpret_cast<char*>(faceData.data()), static_cast<std::streamsize>(faceSize));
+
+                if (!file.good())
+                {
+                    OLO_CORE_ERROR("IBLCache: Failed to read face {} mip {} from cache: {}", face, mip, path.string());
+                    return nullptr;
+                }
 
                 if (mip == 0)
                 {
@@ -370,34 +481,7 @@ namespace OloEngine
         const auto& spec = cubemap->GetCubemapSpecification();
         u32 mipLevels = cubemap->GetMipLevelCount();
 
-        // Determine bytes per pixel
-        u32 bytesPerPixel = 4;
-        switch (spec.Format)
-        {
-            case ImageFormat::R8:
-                bytesPerPixel = 1;
-                break;
-            case ImageFormat::RGB8:
-                bytesPerPixel = 3;
-                break;
-            case ImageFormat::RGBA8:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::R32F:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RG32F:
-                bytesPerPixel = 8;
-                break;
-            case ImageFormat::RGB32F:
-                bytesPerPixel = 12;
-                break;
-            case ImageFormat::RGBA32F:
-                bytesPerPixel = 16;
-                break;
-            default:
-                break;
-        }
+        u32 bytesPerPixel = GetBytesPerPixel(spec.Format);
 
         // Calculate total data size
         u64 totalDataSize = 0;
@@ -443,6 +527,12 @@ namespace OloEngine
             }
         }
 
+        file.flush();
+        if (!file.good())
+        {
+            OLO_CORE_ERROR("IBLCache: Failed to write cubemap to cache: {}", path.string());
+            return false;
+        }
         file.close();
 
         // Update cache size stats
@@ -473,6 +563,12 @@ namespace OloEngine
             return nullptr;
         }
 
+        if (header.Version != 1)
+        {
+            OLO_CORE_ERROR("IBLCache: Unsupported cache version: {}", header.Version);
+            return nullptr;
+        }
+
         if (header.FaceCount != 1)
         {
             OLO_CORE_ERROR("IBLCache: Expected 2D texture with 1 face, got {}", header.FaceCount);
@@ -492,6 +588,12 @@ namespace OloEngine
         std::vector<u8> data(header.DataSize);
         file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(header.DataSize));
 
+        if (!file.good())
+        {
+            OLO_CORE_ERROR("IBLCache: Failed to read texture data from cache: {}", path.string());
+            return nullptr;
+        }
+
         texture->SetData(data.data(), static_cast<u32>(header.DataSize));
 
         return texture;
@@ -505,34 +607,7 @@ namespace OloEngine
 
         const auto& spec = texture->GetSpecification();
 
-        // Determine bytes per pixel
-        u32 bytesPerPixel = 4;
-        switch (spec.Format)
-        {
-            case ImageFormat::R8:
-                bytesPerPixel = 1;
-                break;
-            case ImageFormat::RGB8:
-                bytesPerPixel = 3;
-                break;
-            case ImageFormat::RGBA8:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::R32F:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RG32F:
-                bytesPerPixel = 8;
-                break;
-            case ImageFormat::RGB32F:
-                bytesPerPixel = 12;
-                break;
-            case ImageFormat::RGBA32F:
-                bytesPerPixel = 16;
-                break;
-            default:
-                break;
-        }
+        u32 bytesPerPixel = GetBytesPerPixel(spec.Format);
 
         u64 dataSize = static_cast<u64>(spec.Width) * spec.Height * bytesPerPixel;
 
@@ -566,6 +641,12 @@ namespace OloEngine
         file.write(reinterpret_cast<const char*>(data.data()),
                    static_cast<std::streamsize>(data.size()));
 
+        file.flush();
+        if (!file.good())
+        {
+            OLO_CORE_ERROR("IBLCache: Failed to write texture to cache: {}", path.string());
+            return false;
+        }
         file.close();
 
         // Update cache size stats
