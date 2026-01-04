@@ -61,8 +61,11 @@ namespace OloEngine
 
         OLO_CORE_TRACE("EditorAssetSystem: Queued asset {} for loading", (u64)metadata.Handle);
 
+        // Check if this asset type supports async loading (two-phase loading)
+        bool supportsAsync = AssetImporter::SupportsAsyncLoading(metadata.Type);
+
         // Launch async task
-        Tasks::Launch("LoadAsset", [this, metadata]()
+        Tasks::Launch("LoadAsset", [this, metadata, supportsAsync]()
                       {
             if (!m_Running)
             {
@@ -78,38 +81,72 @@ namespace OloEngine
                 m_PendingAssets.erase(metadata.Handle);
             }
 
-            Ref<Asset> asset = GetAsset(metadata);
-
-            if (asset)
+            if (supportsAsync)
             {
-                EditorAssetLoadResponse response;
-                response.Metadata = metadata;
-                response.AssetRef = asset;
+                // Two-phase loading: Load raw data on worker thread (no GPU resources)
+                // GPU finalization will happen on main thread when assets are retrieved
 
-                std::scoped_lock<std::mutex> lock(m_ReadyAssetsMutex);
-                m_ReadyAssets.push(response);
+                RawAssetData rawData;
+                if (AssetImporter::TryLoadRawData(metadata, rawData))
+                {
+                    // Queue raw data for main thread finalization
+                    PendingRawAsset pendingAsset;
+                    pendingAsset.Metadata = metadata;
+                    pendingAsset.RawData = std::move(rawData);
+                    pendingAsset.SerializerType = metadata.Type;
 
-                // Update telemetry
-                m_LoadedAssetsCount.fetch_add(1, std::memory_order_relaxed);
+                    {
+                        std::scoped_lock<std::mutex> lock(m_PendingRawAssetsMutex);
+                        m_PendingRawAssets.push(std::move(pendingAsset));
+                    }
 
-                // Capture atomic values for consistent logging
-                u64 loadedCount = m_LoadedAssetsCount.load(std::memory_order_relaxed);
-                u64 failedCount = m_FailedAssetsCount.load(std::memory_order_relaxed);
+                    // Update telemetry
+                    m_LoadedAssetsCount.fetch_add(1, std::memory_order_relaxed);
 
-                OLO_CORE_TRACE("EditorAssetSystem: Asset loaded | handle={} | stats={{loaded={}, failed={}}}",
-                               (u64)metadata.Handle, loadedCount, failedCount);
+                    OLO_CORE_TRACE("EditorAssetSystem: Raw asset data loaded (pending GPU finalization) | handle={}",
+                                   (u64)metadata.Handle);
+                }
+                else
+                {
+                    // Failed to load raw data
+                    m_FailedAssetsCount.fetch_add(1, std::memory_order_relaxed);
+                    OLO_CORE_ERROR("EditorAssetSystem: Failed to load raw asset data for asset {}",
+                                   (u64)metadata.Handle);
+                }
             }
             else
             {
-                // Update telemetry for failed loads
-                m_FailedAssetsCount.fetch_add(1, std::memory_order_relaxed);
+                // Traditional loading: Load complete asset including GPU resources
+                // NOTE: This path is for assets that don't support async loading
+                // They will create GPU resources on the calling thread which may cause issues
+                // if called from a non-main thread. Consider moving to main thread queue.
 
-                // Capture atomic values for consistent logging
-                u64 loadedCount = m_LoadedAssetsCount.load(std::memory_order_relaxed);
-                u64 failedCount = m_FailedAssetsCount.load(std::memory_order_relaxed);
+                Ref<Asset> asset = GetAsset(metadata);
 
-                OLO_CORE_ERROR("EditorAssetSystem: Failed to load asset {} (loaded: {}, failed: {})",
-                               (u64)metadata.Handle, loadedCount, failedCount);
+                if (asset)
+                {
+                    EditorAssetLoadResponse response;
+                    response.Metadata = metadata;
+                    response.AssetRef = asset;
+                    response.NeedsGPUFinalization = false;
+
+                    std::scoped_lock<std::mutex> lock(m_ReadyAssetsMutex);
+                    m_ReadyAssets.push(response);
+
+                    // Update telemetry
+                    m_LoadedAssetsCount.fetch_add(1, std::memory_order_relaxed);
+
+                    OLO_CORE_TRACE("EditorAssetSystem: Asset loaded | handle={}",
+                                   (u64)metadata.Handle);
+                }
+                else
+                {
+                    // Update telemetry for failed loads
+                    m_FailedAssetsCount.fetch_add(1, std::memory_order_relaxed);
+
+                    OLO_CORE_ERROR("EditorAssetSystem: Failed to load asset {}",
+                                   (u64)metadata.Handle);
+                }
             }
 
             m_ActiveTaskCount.fetch_sub(1, std::memory_order_relaxed); }, Tasks::ETaskPriority::BackgroundNormal);
@@ -161,6 +198,22 @@ namespace OloEngine
         {
             outAssetList.push_back(m_ReadyAssets.front());
             m_ReadyAssets.pop();
+        }
+
+        return true;
+    }
+
+    bool EditorAssetSystem::RetrievePendingRawAssets(std::vector<PendingRawAsset>& outRawAssets)
+    {
+        std::scoped_lock<std::mutex> lock(m_PendingRawAssetsMutex);
+
+        if (m_PendingRawAssets.empty())
+            return false;
+
+        while (!m_PendingRawAssets.empty())
+        {
+            outRawAssets.push_back(std::move(m_PendingRawAssets.front()));
+            m_PendingRawAssets.pop();
         }
 
         return true;

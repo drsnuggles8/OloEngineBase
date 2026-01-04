@@ -15,6 +15,8 @@
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Commands/CommandMemoryManager.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
+#include "OloEngine/Renderer/GPUResourceQueue.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -156,6 +158,7 @@ namespace OloEngine
 
         CommandMemoryManager::Init();
         FrameDataBufferManager::Init();
+        FrameResourceManager::Get().Init();
 
         CommandDispatch::Initialize();
         OLO_CORE_INFO("CommandDispatch system initialized.");
@@ -255,12 +258,16 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Shutting down Renderer3D.");
 
+        // Clear any pending GPU resource commands
+        GPUResourceQueue::Clear();
+
         // Clear shader registries
         s_Data.ShaderRegistries.clear();
 
         if (s_Data.RGraph)
             s_Data.RGraph->Shutdown();
 
+        FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
 
         OLO_CORE_INFO("Renderer3D shutdown complete.");
@@ -269,6 +276,12 @@ namespace OloEngine
     void Renderer3D::BeginScene(const PerspectiveCamera& camera)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Process any pending GPU resource creation commands from async loaders
+        GPUResourceQueue::ProcessAll();
+
+        // Begin new frame for double-buffered resources
+        FrameResourceManager::Get().BeginFrame();
 
         RendererProfiler::GetInstance().BeginFrame();
 
@@ -281,7 +294,13 @@ namespace OloEngine
         // Reset frame data buffer for new frame
         FrameDataBufferManager::Get().Reset();
 
-        CommandAllocator* frameAllocator = CommandMemoryManager::GetFrameAllocator();
+        // Use frame resource manager's allocator for double-buffering
+        CommandAllocator* frameAllocator = FrameResourceManager::Get().GetFrameAllocator();
+        if (!frameAllocator)
+        {
+            // Fallback to legacy allocator if double-buffering is disabled
+            frameAllocator = CommandMemoryManager::GetFrameAllocator();
+        }
         s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
         s_Data.ViewMatrix = camera.GetView();
         s_Data.ProjectionMatrix = camera.GetProjection();
@@ -352,11 +371,14 @@ namespace OloEngine
 
         s_Data.RGraph->Execute();
 
-        CommandAllocator* allocator = s_Data.ScenePass->GetCommandBucket().GetAllocator();
-        CommandMemoryManager::ReturnAllocator(allocator);
+        // Don't return the allocator to the pool - it's managed by FrameResourceManager
+        // The allocator will be reset at the start of the next frame when this buffer is reused
         s_Data.ScenePass->GetCommandBucket().SetAllocator(nullptr);
 
         profiler.EndFrame();
+
+        // End frame for double-buffered resources (inserts GPU fence)
+        FrameResourceManager::Get().EndFrame();
     }
 
     // ========================================================================
