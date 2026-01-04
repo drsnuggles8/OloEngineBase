@@ -331,6 +331,8 @@
 		"OloEngine/Renderer/GPUResourceQueue.cpp"
 		"OloEngine/Renderer/GPUResourceQueue.h"
 		"OloEngine/Renderer/IBLPrecompute.h"
+		"OloEngine/Renderer/IBLCache.cpp"
+		"OloEngine/Renderer/IBLCache.h"
 		"OloEngine/Renderer/UniformBuffer.cpp"
 		"OloEngine/Renderer/UniformBuffer.h"
 		"OloEngine/Renderer/ShaderResourceRegistry.cpp"

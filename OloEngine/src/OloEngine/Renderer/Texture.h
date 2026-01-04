@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/RendererResource.h"
 
 #include <string>
+#include <vector>
 
 namespace OloEngine
 {
@@ -49,6 +50,15 @@ namespace OloEngine
         [[nodiscard("Store this!")]] virtual bool IsLoaded() const = 0;
 
         [[nodiscard("Use for transparency")]] virtual bool HasAlphaChannel() const = 0;
+
+        /**
+         * @brief Read texture data back from GPU
+         *
+         * @param outData Vector to receive the texture data
+         * @param mipLevel Mipmap level to read (0 = base level)
+         * @return true if readback succeeded
+         */
+        virtual bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const = 0;
 
         bool operator==(const Texture& other) const
         {

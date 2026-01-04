@@ -720,10 +720,141 @@ namespace OloEngine
         }
     }
 
+    void OpenGLShader::FinalizeProgram(GLenum const& program, const std::unordered_map<GLenum, std::vector<u32>>& spirvMap)
+    {
+        m_RendererID = program;
+
+        // Compute estimated memory from the appropriate SPIR-V map
+        sizet estimatedMemory = 0;
+        for (const auto& [stage, spirv] : spirvMap)
+        {
+            estimatedMemory += spirv.size() * sizeof(u32);
+        }
+        estimatedMemory += 1024; // Additional overhead for program linking, uniforms, etc.
+
+        // Track GPU memory allocation
+        OLO_TRACK_GPU_ALLOC(this,
+                            estimatedMemory,
+                            RendererMemoryTracker::ResourceType::Shader,
+                            m_Name.empty() ? "OpenGL Shader" : m_Name);
+
+        // Register shader
+        OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
+        OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
+
+        // Store shader source code in debugger
+        for (const auto& [stage, spirv] : spirvMap)
+        {
+            spirv_cross::CompilerGLSL glslCompiler(spirv);
+            const std::string generatedGLSL = glslCompiler.compile();
+
+            std::string originalSource;
+            if (auto originalIt = m_OriginalSourceCode.find(stage); originalIt != m_OriginalSourceCode.end())
+            {
+                originalSource = originalIt->second;
+            }
+
+            std::vector<u8> spirvBytes;
+            spirvBytes.reserve(spirv.size() * sizeof(u32));
+            const u8* spirvData = reinterpret_cast<const u8*>(spirv.data());
+            spirvBytes.assign(spirvData, spirvData + spirv.size() * sizeof(u32));
+
+            OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage),
+                                  originalSource, generatedGLSL, spirvBytes);
+        }
+    }
+
     void OpenGLShader::CreateProgram()
     {
-        const GLuint program = glCreateProgram();
+        GLuint program = glCreateProgram();
 
+        const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
+        const std::filesystem::path shaderFilePath = m_FilePath;
+        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ".cached_opengl.pgr");
+        const bool disableCache = Utils::IsShaderCacheDisabled();
+
+        // Try to load from program binary cache first
+        if (std::ifstream in(cachedPath, std::ios::ate | std::ios::binary); in.is_open() && !disableCache)
+        {
+            std::error_code ec;
+            std::filesystem::file_time_type cacheLastWriteTime = std::filesystem::last_write_time(cachedPath, ec);
+            std::filesystem::file_time_type shaderLastWriteTime = std::filesystem::last_write_time(shaderFilePath, ec);
+
+            if (!ec && shaderLastWriteTime <= cacheLastWriteTime)
+            {
+                const auto size = in.tellg();
+
+                // Validate file size - must contain at least format u32
+                if (size < static_cast<std::streamoff>(sizeof(u32)))
+                {
+                    OLO_CORE_WARN("Shader program binary cache file too small, recompiling: {}", cachedPath.string());
+                    in.close();
+                }
+                else
+                {
+                    in.seekg(0);
+
+                    u32 format = 0;
+                    in.read(reinterpret_cast<char*>(&format), sizeof(u32));
+
+                    if (!in || in.gcount() != static_cast<std::streamsize>(sizeof(u32)))
+                    {
+                        OLO_CORE_WARN("Shader program binary cache: Failed to read format, recompiling: {}", cachedPath.string());
+                        in.close();
+                        glDeleteProgram(program);
+                        program = glCreateProgram();
+                        // Fall through to recompilation
+                    }
+                    else
+                    {
+                        const auto dataSize = size - static_cast<std::streamoff>(sizeof(u32));
+                        auto data = std::vector<char>(dataSize);
+                        in.read(data.data(), dataSize);
+
+                        if (!in || in.gcount() != static_cast<std::streamsize>(dataSize))
+                        {
+                            OLO_CORE_WARN("Shader program binary cache: Failed to read data, recompiling: {}", cachedPath.string());
+                            in.close();
+                            glDeleteProgram(program);
+                            program = glCreateProgram();
+                            // Fall through to recompilation
+                        }
+                        else
+                        {
+                            in.close();
+
+                            glProgramBinary(program, format, data.data(), static_cast<GLsizei>(data.size()));
+
+                            GLint isLinked = 0;
+                            glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
+
+                            if (isLinked == GL_TRUE)
+                            {
+                                FinalizeProgram(program, m_OpenGLSPIRV);
+                                OLO_CORE_TRACE("Loaded shader program from binary cache: {0}", m_FilePath);
+                                return;
+                            }
+                            else
+                            {
+                                OLO_CORE_WARN("Cached program binary failed to link, recompiling: {0}", shaderFilePath.string());
+                                glDeleteProgram(program);
+                                program = glCreateProgram();
+                            }
+                        }
+                    }
+                }
+            }
+            else if (ec)
+            {
+                OLO_CORE_TRACE("Could not check file timestamps for shader cache: {0}", m_FilePath);
+            }
+            else
+            {
+                OLO_CORE_TRACE("Shader source newer than cache, recompiling: {0}", shaderFilePath.string());
+            }
+        }
+
+        // Compile from SPIR-V if cache miss or invalid
         std::vector<GLuint> shaderIDs;
         for (auto&& [stage, spirv] : m_OpenGLSPIRV)
         {
@@ -752,61 +883,46 @@ namespace OloEngine
             {
                 glDeleteShader(id);
             }
+            return;
         }
+
+        // Clean up shader objects
         for (const auto id : shaderIDs)
         {
             glDetachShader(program, id);
             glDeleteShader(id);
         }
 
-        m_RendererID = program;
-
-        // Initialize resource registry now that shader is fully created
-        // Note: We can't use shared_from_this() here as the object isn't fully constructed yet
-        // The registry will be properly set up when the shader is first used
-
-        // Estimate shader memory usage (basic approximation)
-        sizet estimatedMemory = 0;
-        for (const auto& [stage, spirv] : m_OpenGLSPIRV)
+        // Save program binary to cache
+        if (!disableCache)
         {
-            estimatedMemory += spirv.size() * sizeof(u32); // SPIR-V binary size
-        }
-        estimatedMemory += 1024; // Additional overhead for program linking, uniforms, etc.
-                                 // Track GPU memory allocation
-        OLO_TRACK_GPU_ALLOC(this,
-                            estimatedMemory,
-                            RendererMemoryTracker::ResourceType::Shader,
-                            m_Name.empty() ? "OpenGL Shader" : m_Name);
-
-        // Register with shader debugger after program creation
-        OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
-
-        // Register the resource registry with CommandDispatch
-        OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
-
-        // Store shader source code in debugger
-        for (const auto& [stage, spirv] : m_OpenGLSPIRV)
-        {
-            // Get the generated GLSL from SPIR-V
-            spirv_cross::CompilerGLSL glslCompiler(spirv);
-            const std::string generatedGLSL = glslCompiler.compile();
-            // Get original source from stored preprocessed sources
-            std::string originalSource = "";
-            auto originalIt = m_OriginalSourceCode.find(stage);
-            if (originalIt != m_OriginalSourceCode.end())
+            GLint formats = 0;
+            glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
+            if (formats > 0)
             {
-                originalSource = originalIt->second;
+                Utils::CreateCacheDirectoryIfNeeded();
+                GLint length = 0;
+                glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &length);
+                if (length > 0)
+                {
+                    auto shaderData = std::vector<char>(length);
+                    u32 format = 0;
+                    glGetProgramBinary(program, length, nullptr, &format, shaderData.data());
+
+                    std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
+                    if (out.is_open())
+                    {
+                        out.write(reinterpret_cast<char*>(&format), sizeof(u32));
+                        out.write(shaderData.data(), static_cast<std::streamsize>(shaderData.size()));
+                        out.flush();
+                        out.close();
+                        OLO_CORE_TRACE("Saved shader program binary to cache: {0}", cachedPath.string());
+                    }
+                }
             }
-
-            // Store SPIR-V binary as byte vector
-            std::vector<u8> spirvBytes;
-            spirvBytes.reserve(spirv.size() * sizeof(u32));
-            const u8* spirvData = reinterpret_cast<const u8*>(spirv.data());
-            spirvBytes.assign(spirvData, spirvData + spirv.size() * sizeof(u32));
-
-            OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage),
-                                  originalSource, generatedGLSL, spirvBytes);
         }
+
+        FinalizeProgram(program, m_OpenGLSPIRV);
     }
 
     static bool VerifyProgramLink(GLenum const& program)
@@ -864,43 +980,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    m_RendererID = program;
-
-                    sizet estimatedMemory = 0;
-                    for (const auto& [stage, spirv] : m_VulkanSPIRV)
-                    {
-                        estimatedMemory += spirv.size() * sizeof(u32);
-                    }
-                    estimatedMemory += 1024;
-
-                    OLO_TRACK_GPU_ALLOC(this,
-                                        estimatedMemory,
-                                        RendererMemoryTracker::ResourceType::Shader,
-                                        m_Name.empty() ? "OpenGL Shader" : m_Name);
-
-                    OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
-                    OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
-
-                    for (const auto& [stage, spirv] : m_VulkanSPIRV)
-                    {
-                        spirv_cross::CompilerGLSL glslCompiler(spirv);
-                        const std::string generatedGLSL = glslCompiler.compile();
-
-                        std::string originalSource = "";
-                        auto originalIt = m_OriginalSourceCode.find(stage);
-                        if (originalIt != m_OriginalSourceCode.end())
-                        {
-                            originalSource = originalIt->second;
-                        }
-
-                        std::vector<u8> spirvBytes;
-                        spirvBytes.reserve(spirv.size() * sizeof(u32));
-                        const u8* spirvData = reinterpret_cast<const u8*>(spirv.data());
-                        spirvBytes.assign(spirvData, spirvData + spirv.size() * sizeof(u32));
-
-                        OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage),
-                                              originalSource, generatedGLSL, spirvBytes);
-                    }
+                    FinalizeProgram(program, m_VulkanSPIRV);
                     return;
                 }
             }
@@ -944,43 +1024,7 @@ namespace OloEngine
             glDetachShader(program, id);
         }
 
-        m_RendererID = program;
-
-        sizet estimatedMemory = 0;
-        for (const auto& [stage, spirv] : m_VulkanSPIRV)
-        {
-            estimatedMemory += spirv.size() * sizeof(u32);
-        }
-        estimatedMemory += 1024;
-
-        OLO_TRACK_GPU_ALLOC(this,
-                            estimatedMemory,
-                            RendererMemoryTracker::ResourceType::Shader,
-                            m_Name.empty() ? "OpenGL Shader" : m_Name);
-
-        OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
-        OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
-
-        for (const auto& [stage, spirv] : m_VulkanSPIRV)
-        {
-            spirv_cross::CompilerGLSL glslCompiler(spirv);
-            const std::string generatedGLSL = glslCompiler.compile();
-
-            std::string originalSource = "";
-            auto originalIt = m_OriginalSourceCode.find(stage);
-            if (originalIt != m_OriginalSourceCode.end())
-            {
-                originalSource = originalIt->second;
-            }
-
-            std::vector<u8> spirvBytes;
-            spirvBytes.reserve(spirv.size() * sizeof(u32));
-            const u8* spirvData = reinterpret_cast<const u8*>(spirv.data());
-            spirvBytes.assign(spirvData, spirvData + spirv.size() * sizeof(u32));
-
-            OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage),
-                                  originalSource, generatedGLSL, spirvBytes);
-        }
+        FinalizeProgram(program, m_VulkanSPIRV);
     }
 
     void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const

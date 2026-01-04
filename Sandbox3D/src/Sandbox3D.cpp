@@ -25,7 +25,6 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
-// Note: Task.h not currently used - see comments in OnAttach() about async asset loading
 
 Sandbox3D::Sandbox3D()
     : Layer("Sandbox3D"),
@@ -93,56 +92,24 @@ void Sandbox3D::OnAttach()
     // Note: GPUResourceInspector is initialized in Application constructor
 
     // Set up Project and AssetManager for Sandbox3D
-    // This enables proper asset management infrastructure
+    // This enables proper asset management infrastructure including async loading
+    OloEngine::Ref<OloEngine::EditorAssetManager> editorAssetManager;
     {
-        OLO_CORE_INFO("Sandbox3D: Initializing Project and AssetManager...");
         auto project = OloEngine::Project::New();
         project->GetConfig().Name = "Sandbox3D";
         project->GetConfig().AssetDirectory = "assets";
 
-        auto editorAssetManager = OloEngine::Ref<OloEngine::EditorAssetManager>::Create();
+        editorAssetManager = OloEngine::Ref<OloEngine::EditorAssetManager>::Create();
         editorAssetManager->Initialize();
         OloEngine::Project::SetAssetManager(editorAssetManager);
-        OLO_CORE_INFO("Sandbox3D: AssetManager initialized");
     }
 
-    // Create 3D meshes using MeshPrimitives for consistency
+    // Create 3D meshes using MeshPrimitives (instant, procedural)
     m_CubeMesh = OloEngine::MeshPrimitives::CreateCube();
     m_SphereMesh = OloEngine::MeshPrimitives::CreateSphere();
     m_PlaneMesh = OloEngine::MeshPrimitives::CreatePlane(25.0f, 25.0f);
 
-    // ============================================================================
-    // NOTE ON ASYNC ASSET LOADING:
-    // OpenGL resource creation (textures, buffers, VAOs) MUST happen on the main
-    // thread that owns the OpenGL context. The Task System can be used for:
-    //   1. Loading raw file data (stb_image, assimp) on background threads
-    //   2. Processing/decompressing data on background threads
-    //   3. Then submitting GPU resource creation back to main thread
-    //
-    // TODO: Implement deferred asset loading:
-    //   - AssetLoader::LoadAsync() returns a future/handle
-    //   - Background thread loads file data into CPU memory
-    //   - Main thread poll/callback creates GPU resources when data ready
-    //   - See RuntimeAssetSystem for the pattern (uses Tasks::Launch internally)
-    // ============================================================================
-
-    OLO_CORE_INFO("Sandbox3D: Loading assets synchronously (OpenGL requires main thread)...");
-
-    // Load backpack model
-    m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create("assets/backpack/backpack.obj");
-
-    // Load textures
-    m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
-    m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
-    m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
-
-    // Assign textures to the materials
-    m_TexturedMaterial.SetDiffuseMap(m_DiffuseMap);
-    m_TexturedMaterial.SetSpecularMap(m_SpecularMap);
-    m_GoldMaterial.SetDiffuseMap(m_DiffuseMap);
-    m_GoldMaterial.SetSpecularMap(m_SpecularMap);
-
-    // Initialize PBR materials using the new MaterialPresets utility
+    // Initialize PBR materials using MaterialPresets (CPU-only, instant)
     m_PBRGoldMaterial = OloEngine::MaterialPresets::CreateGold("Gold Material");
     m_PBRSilverMaterial = OloEngine::MaterialPresets::CreateSilver("Silver Material");
     m_PBRCopperMaterial = OloEngine::MaterialPresets::CreateCopper("Copper Material");
@@ -150,7 +117,34 @@ void Sandbox3D::OnAttach()
     m_PBRRoughMaterial = *OloEngine::Material::CreatePBR("Rough Red", glm::vec3(0.8f, 0.2f, 0.2f), 0.0f, 0.9f);
     m_PBRSmoothMaterial = *OloEngine::Material::CreatePBR("Smooth Green", glm::vec3(0.2f, 0.8f, 0.2f), 0.0f, 0.1f);
 
-    // Load environment map for IBL
+    // Import and load textures using the existing EditorAssetManager
+    // The EditorAssetManager handles async loading internally with OLO_ASYNC_ASSETS=1
+    {
+        // Import textures into the asset registry
+        auto diffuseHandle = editorAssetManager->ImportAsset("assets/textures/container2.png");
+        auto specularHandle = editorAssetManager->ImportAsset("assets/textures/container2_specular.png");
+        auto grassHandle = editorAssetManager->ImportAsset("assets/textures/grass.png");
+
+        // Load textures - EditorAssetManager handles async loading if OLO_ASYNC_ASSETS is enabled
+        m_DiffuseMap = OloEngine::AssetManager::GetAsset<OloEngine::Texture2D>(diffuseHandle);
+        m_SpecularMap = OloEngine::AssetManager::GetAsset<OloEngine::Texture2D>(specularHandle);
+        m_GrassTexture = OloEngine::AssetManager::GetAsset<OloEngine::Texture2D>(grassHandle);
+
+        // Assign textures to materials
+        if (m_DiffuseMap)
+        {
+            m_TexturedMaterial.SetDiffuseMap(m_DiffuseMap);
+            m_GoldMaterial.SetDiffuseMap(m_DiffuseMap);
+        }
+        if (m_SpecularMap)
+        {
+            m_TexturedMaterial.SetSpecularMap(m_SpecularMap);
+            m_GoldMaterial.SetSpecularMap(m_SpecularMap);
+        }
+    }
+
+    // Load environment map for IBL (needed for skybox background)
+    // NOTE: IBL generation is still synchronous but could be cached in future
     {
         std::vector<std::string> skyboxFaces = {
             "assets/textures/Skybox/right.jpg",
@@ -204,9 +198,6 @@ void Sandbox3D::OnAttach()
                 m_EnvironmentMap->GetBRDFLutMap());
         }
     }
-
-    OLO_CORE_INFO("Sandbox3D: Asset loading complete");
-
     OloEngine::Renderer3D::SetLight(m_Light);
 
     m_TestScene = OloEngine::Ref<OloEngine::Scene>::Create();
@@ -217,7 +208,6 @@ void Sandbox3D::OnAttach()
     m_PhysicsEnabled = true;
 
     LoadTestAnimatedModel();
-    LoadTestPBRModel();
 }
 
 void Sandbox3D::OnDetach()
@@ -242,7 +232,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 {
     OLO_PROFILE_FUNCTION();
 
-    // Sync with asset thread to process any async-loaded assets
+    // Sync with asset thread to process any async-loaded assets (when OLO_ASYNC_ASSETS=1)
     OloEngine::AssetManager::SyncWithAssetThread();
 
     m_FrameTime = ts.GetMilliseconds();
@@ -2634,6 +2624,13 @@ void Sandbox3D::LoadTestPBRModel()
 
     if (m_SelectedPBRModelIndex == 0)
     {
+        // Skip loading if already loaded (performance optimization)
+        if (m_BackpackModel)
+        {
+            OLO_CORE_TRACE("Backpack model already loaded, skipping reload");
+            return;
+        }
+
         // Load Backpack synchronously (OpenGL requires main thread)
         OLO_INFO("Sandbox3D: Loading Backpack model...");
         m_CerberusModel.Reset(); // Clear other model
@@ -2642,6 +2639,13 @@ void Sandbox3D::LoadTestPBRModel()
     }
     else if (m_SelectedPBRModelIndex == 1)
     {
+        // Skip loading if already loaded (performance optimization)
+        if (m_CerberusModel)
+        {
+            OLO_CORE_TRACE("Cerberus model already loaded, skipping reload.");
+            return;
+        }
+
         // Load Cerberus with texture overrides synchronously
         OLO_INFO("Sandbox3D: Loading Cerberus model...");
         m_BackpackModel.Reset();

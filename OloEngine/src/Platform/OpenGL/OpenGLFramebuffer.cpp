@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
@@ -10,6 +11,35 @@
 namespace OloEngine
 {
     constexpr u32 s_MaxFramebufferSize = 8192;
+
+    // Static member definitions for shared post-processing shader
+    Ref<Shader> OpenGLFramebuffer::s_PostProcessShader = nullptr;
+    std::once_flag OpenGLFramebuffer::s_InitOnceFlag;
+
+    void OpenGLFramebuffer::InitSharedResources()
+    {
+        std::call_once(s_InitOnceFlag, []()
+                       {
+            // Load post-processing shader once and share across all framebuffers
+            s_PostProcessShader = Shader::Create("assets/shaders/PostProcess.glsl");
+
+            if (!s_PostProcessShader)
+            {
+                // Throw exception so once_flag remains uncompleted and future attempts can retry
+                throw std::runtime_error("OpenGLFramebuffer: Failed to initialize shared PostProcess shader (assets/shaders/PostProcess.glsl)");
+            }
+
+            OLO_CORE_INFO("OpenGLFramebuffer: Shared PostProcess shader initialized"); });
+    }
+
+    void OpenGLFramebuffer::ShutdownSharedResources()
+    {
+        s_PostProcessShader.Reset();
+        // Note: std::once_flag cannot be reset - it's designed to guarantee one-time initialization
+        // If re-initialization is needed after shutdown, consider using std::atomic<bool> with double-checked locking
+
+        OLO_CORE_INFO("OpenGLFramebuffer: Shared resources shutdown");
+    }
 
     OpenGLFramebuffer::OpenGLFramebuffer(FramebufferSpecification specification)
         : m_Specification(std::move(specification))
@@ -49,7 +79,10 @@ namespace OloEngine
 
     void OpenGLFramebuffer::InitPostProcessing()
     {
-        // Create and setup VAO/VBO for post-processing quad
+        // Ensure shared shader is initialized (thread-safe)
+        InitSharedResources();
+
+        // Create per-framebuffer VAO/VBO for post-processing quad
         f32 quadVertices[] = {
             // positions        // texture coords
             -1.0f,
@@ -88,8 +121,7 @@ namespace OloEngine
 
         glBindVertexArray(0);
 
-        // Load post-processing shader
-        m_PostProcessShader = Shader::Create("assets/shaders/PostProcess.glsl");
+        // Note: Shader is now shared via s_PostProcessShader, no per-instance creation
     }
 
     void OpenGLFramebuffer::ApplyPostProcessing()
@@ -104,17 +136,20 @@ namespace OloEngine
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
 
-            // Bind our shader and texture
-            m_PostProcessShader->Bind();
-            glBindTextureUnit(0, m_ColorAttachments[0]);
+            // Bind our shared shader and texture
+            if (s_PostProcessShader)
+            {
+                s_PostProcessShader->Bind();
+                glBindTextureUnit(0, m_ColorAttachments[0]);
 
-            // Render quad
-            glBindVertexArray(m_PostProcessVAO);
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-            glBindVertexArray(0);
+                // Render quad
+                glBindVertexArray(m_PostProcessVAO);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                glBindVertexArray(0);
 
-            // Cleanup
-            m_PostProcessShader->Unbind();
+                // Cleanup
+                s_PostProcessShader->Unbind();
+            }
             glEnable(GL_DEPTH_TEST);
         }
         // Add more post-processing effects here later

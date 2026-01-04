@@ -2,6 +2,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
+#include "OloEngine/Renderer/IBLCache.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -18,6 +19,24 @@ namespace OloEngine
     void EnvironmentMap::InitializeIBLSystem(ShaderLibrary& shaderLibrary)
     {
         s_ShaderLibrary = &shaderLibrary;
+
+        // Initialize IBL cache for disk caching
+        // Use default cache directory "assets/cache/ibl" from IBLCache::Initialize
+        const std::filesystem::path cacheDir = "assets/cache/ibl";
+        if (!std::filesystem::exists(cacheDir))
+        {
+            try
+            {
+                std::filesystem::create_directories(cacheDir);
+                OLO_CORE_INFO("EnvironmentMap: Created IBL cache directory: {}", cacheDir.string());
+            }
+            catch (const std::filesystem::filesystem_error& e)
+            {
+                OLO_CORE_ERROR("EnvironmentMap: Failed to create IBL cache directory: {}", e.what());
+            }
+        }
+        IBLCache::Initialize(cacheDir);
+
         OLO_CORE_INFO("EnvironmentMap: IBL system initialized with shader library");
     }
 
@@ -114,12 +133,52 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Generate a unique cache key
+        std::string cacheKey;
+        if (!m_Specification.FilePath.empty())
+        {
+            cacheKey = m_Specification.FilePath;
+        }
+        else if (m_EnvironmentMap)
+        {
+            // For in-memory cubemaps, generate a unique key based on properties
+            // Use the cubemap's memory address as a unique identifier + dimensions
+            cacheKey = fmt::format("cubemap_inmem_{:016x}_{}x{}_{}",
+                                   reinterpret_cast<uintptr_t>(m_EnvironmentMap.get()),
+                                   m_EnvironmentMap->GetWidth(),
+                                   m_EnvironmentMap->GetHeight(),
+                                   static_cast<int>(m_EnvironmentMap->GetSpecification().Format));
+        }
+        else
+        {
+            OLO_CORE_ERROR("GenerateIBLWithConfig: No environment map available");
+            return;
+        }
+
+        IBLCache::CachedIBL cached;
+
+        if (IBLCache::TryLoad(cacheKey, config, cached))
+        {
+            // Use cached IBL textures
+            m_IrradianceMap = cached.Irradiance;
+            m_PrefilterMap = cached.Prefilter;
+            m_BRDFLutMap = cached.BRDFLut;
+            OLO_CORE_INFO("IBL textures loaded from cache");
+            return;
+        }
+
         OLO_CORE_INFO("Generating IBL textures with quality: {}, importance sampling: {}",
                       static_cast<int>(config.Quality), config.UseImportanceSampling);
 
         GenerateIrradianceMapWithConfig(config);
         GeneratePrefilterMapWithConfig(config);
         GenerateBRDFLutWithConfig(config);
+
+        // Save to cache for next time
+        if (m_IrradianceMap && m_PrefilterMap && m_BRDFLutMap)
+        {
+            IBLCache::Save(cacheKey, config, m_IrradianceMap, m_PrefilterMap, m_BRDFLutMap);
+        }
     }
 
     void EnvironmentMap::GenerateIrradianceMapWithConfig(const IBLConfiguration& config)

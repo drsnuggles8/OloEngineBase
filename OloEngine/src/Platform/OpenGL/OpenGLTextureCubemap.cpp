@@ -60,6 +60,59 @@ namespace OloEngine
             OLO_CORE_ASSERT(false, "Unknown ImageFormat!");
             return 0;
         }
+
+        struct FormatInfo
+        {
+            u32 BytesPerPixel = 0; // 0 indicates unsupported format
+            GLenum DataType = 0;   // 0 indicates unsupported format
+        };
+
+        [[nodiscard("Store this!")]] static FormatInfo GetFormatInfo(ImageFormat format)
+        {
+            FormatInfo info;
+            switch (format)
+            {
+                case ImageFormat::R8:
+                    info.BytesPerPixel = 1;
+                    info.DataType = GL_UNSIGNED_BYTE;
+                    break;
+                case ImageFormat::RGB8:
+                    info.BytesPerPixel = 3;
+                    info.DataType = GL_UNSIGNED_BYTE;
+                    break;
+                case ImageFormat::RGBA8:
+                    info.BytesPerPixel = 4;
+                    info.DataType = GL_UNSIGNED_BYTE;
+                    break;
+                case ImageFormat::R32F:
+                    info.BytesPerPixel = 4;
+                    info.DataType = GL_FLOAT;
+                    break;
+                case ImageFormat::RG32F:
+                    info.BytesPerPixel = 8;
+                    info.DataType = GL_FLOAT;
+                    break;
+                case ImageFormat::RGB32F:
+                    info.BytesPerPixel = 12;
+                    info.DataType = GL_FLOAT;
+                    break;
+                case ImageFormat::RGBA32F:
+                    info.BytesPerPixel = 16;
+                    info.DataType = GL_FLOAT;
+                    break;
+                case ImageFormat::DEPTH24STENCIL8:
+                    info.BytesPerPixel = 4;
+                    info.DataType = GL_UNSIGNED_INT_24_8;
+                    break;
+                default:
+                    // Mark unsupported formats
+                    OLO_CORE_ERROR("OpenGLTextureCubemap::GetFormatInfo: Unsupported ImageFormat ({}). Using default RGBA8.", static_cast<u32>(format));
+                    info.BytesPerPixel = 0;
+                    info.DataType = 0;
+                    break;
+            }
+            return info;
+        }
     } // namespace Utils
 
     OpenGLTextureCubemap::OpenGLTextureCubemap(const CubemapSpecification& specification)
@@ -88,35 +141,15 @@ namespace OloEngine
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
         // Calculate memory usage based on format and dimensions
-        u32 bytesPerPixel = 4; // Default to RGBA
-        switch (m_Specification.Format)
+        auto formatInfo = Utils::GetFormatInfo(m_Specification.Format);
+        if (formatInfo.BytesPerPixel == 0)
         {
-            case ImageFormat::R8:
-                bytesPerPixel = 1;
-                break;
-            case ImageFormat::RGB8:
-                bytesPerPixel = 3;
-                break;
-            case ImageFormat::RGBA8:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::R32F:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RG32F:
-                bytesPerPixel = 8;
-                break;
-            case ImageFormat::RGB32F:
-                bytesPerPixel = 12;
-                break;
-            case ImageFormat::RGBA32F:
-                bytesPerPixel = 16;
-                break;
-            case ImageFormat::DEPTH24STENCIL8:
-                bytesPerPixel = 4;
-                break;
+            OLO_CORE_ERROR("OpenGLTextureCubemap: Unsupported image format during initialization");
+            glDeleteTextures(1, &m_RendererID);
+            m_RendererID = 0;
+            return;
         }
-        sizet cubemapMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel * 6; // 6 faces
+        sizet cubemapMemory = static_cast<sizet>(m_Width) * m_Height * formatInfo.BytesPerPixel * 6; // 6 faces
 
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
@@ -295,8 +328,18 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         OLO_CORE_ASSERT(faceIndex < 6, "Face index out of range! Must be 0-5.");
-        const u32 bpp = m_DataFormat == GL_RGBA ? 4 : (m_DataFormat == GL_RGB ? 3 : 1);
-        OLO_CORE_ASSERT(size == m_Width * m_Height * bpp, "Data size doesn't match face dimensions!");
+
+        auto formatInfo = Utils::GetFormatInfo(m_CubemapSpecification.Format);
+
+        if (formatInfo.BytesPerPixel == 0)
+        {
+            OLO_CORE_ERROR("SetFaceData: Unsupported image format for cubemap face {}", faceIndex);
+            return;
+        }
+
+        OLO_CORE_ASSERT(size == m_Width * m_Height * formatInfo.BytesPerPixel,
+                        "Data size doesn't match face dimensions! Expected: {}, Got: {}",
+                        m_Width * m_Height * formatInfo.BytesPerPixel, size);
 
         glTextureSubImage3D(
             m_RendererID,
@@ -307,7 +350,7 @@ namespace OloEngine
             static_cast<int>(m_Height), // Height
             1,                          // Depth (1 for a single face)
             m_DataFormat,               // Format of the pixel data
-            GL_UNSIGNED_BYTE,           // Data type
+            formatInfo.DataType,        // Data type (float for HDR formats)
             data                        // Pixel data
         );
 
@@ -326,4 +369,121 @@ namespace OloEngine
 
         glBindTextureUnit(slot, m_RendererID);
     }
+
+    u32 OpenGLTextureCubemap::GetMipLevelCount() const
+    {
+        if (!m_CubemapSpecification.GenerateMips)
+        {
+            return 1;
+        }
+
+        // Calculate number of mip levels based on dimensions
+        u32 maxDim = std::max(m_Width, m_Height);
+        u32 levels = 1;
+        while (maxDim > 1)
+        {
+            maxDim >>= 1;
+            levels++;
+        }
+        return levels;
+    }
+
+    bool OpenGLTextureCubemap::GetFaceData(u32 faceIndex, std::vector<u8>& outData, u32 mipLevel) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_IsLoaded || m_RendererID == 0)
+        {
+            OLO_CORE_ERROR("OpenGLTextureCubemap::GetFaceData: Cubemap not loaded");
+            return false;
+        }
+
+        if (faceIndex >= 6)
+        {
+            OLO_CORE_ERROR("OpenGLTextureCubemap::GetFaceData: Face index {} out of range", faceIndex);
+            return false;
+        }
+
+        // Calculate mip dimensions
+        u32 mipWidth = std::max(1u, m_Width >> mipLevel);
+        u32 mipHeight = std::max(1u, m_Height >> mipLevel);
+
+        auto formatInfo = Utils::GetFormatInfo(m_CubemapSpecification.Format);
+        if (formatInfo.BytesPerPixel == 0)
+        {
+            OLO_CORE_ERROR("OpenGLTextureCubemap::GetFaceData: Unsupported format for readback");
+            return false;
+        }
+
+        sizet faceSize = static_cast<sizet>(mipWidth) * mipHeight * formatInfo.BytesPerPixel;
+        outData.resize(faceSize);
+
+        // For cubemap face readback, we need to use glGetTextureSubImage (OpenGL 4.5+)
+        // which allows reading a single layer/face from a cubemap
+        glGetTextureSubImage(
+            m_RendererID,
+            static_cast<GLint>(mipLevel),    // mip level
+            0, 0,                            // x, y offset
+            static_cast<GLint>(faceIndex),   // z offset (face index)
+            static_cast<GLsizei>(mipWidth),  // width
+            static_cast<GLsizei>(mipHeight), // height
+            1,                               // depth (1 face)
+            m_DataFormat,                    // format
+            formatInfo.DataType,             // type
+            static_cast<GLsizei>(faceSize),  // buffer size
+            outData.data()                   // buffer
+        );
+
+        GLenum error = glGetError();
+        if (error != GL_NO_ERROR)
+        {
+            OLO_CORE_ERROR("OpenGLTextureCubemap::GetFaceData: GL error {}", error);
+            return false;
+        }
+
+        return true;
+    }
+
+    bool OpenGLTextureCubemap::GetData(std::vector<u8>& outData, u32 mipLevel) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_IsLoaded || m_RendererID == 0)
+        {
+            OLO_CORE_ERROR("OpenGLTextureCubemap::GetData: Cubemap not loaded");
+            return false;
+        }
+
+        // Calculate mip dimensions
+        u32 mipWidth = std::max(1u, m_Width >> mipLevel);
+        u32 mipHeight = std::max(1u, m_Height >> mipLevel);
+
+        auto formatInfo = Utils::GetFormatInfo(m_CubemapSpecification.Format);
+        if (formatInfo.BytesPerPixel == 0)
+        {
+            OLO_CORE_ERROR("OpenGLTextureCubemap::GetData: Unsupported format for readback");
+            return false;
+        }
+
+        sizet faceSize = static_cast<sizet>(mipWidth) * mipHeight * formatInfo.BytesPerPixel;
+        outData.resize(faceSize * 6);
+
+        // Reuse buffer for face data to avoid repeated allocations
+        std::vector<u8> faceData;
+        faceData.reserve(faceSize);
+
+        // Read all 6 faces
+        for (u32 face = 0; face < 6; face++)
+        {
+            faceData.clear();
+            if (!GetFaceData(face, faceData, mipLevel))
+            {
+                return false;
+            }
+            std::memcpy(outData.data() + face * faceSize, faceData.data(), faceSize);
+        }
+
+        return true;
+    }
+
 } // namespace OloEngine

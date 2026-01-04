@@ -57,6 +57,11 @@ namespace OloEngine
             return m_CubemapSpecification;
         }
         void SetFaceData(u32 faceIndex, void* data, u32 size) override;
+        bool GetFaceData(u32 faceIndex, std::vector<u8>& outData, u32 mipLevel = 0) const override;
+        u32 GetMipLevelCount() const override;
+
+        // Texture::GetData implementation (reads all 6 faces sequentially)
+        bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
 
       private:
         void LoadFaces(const std::vector<std::string>& facePaths);

@@ -2,6 +2,8 @@
 
 #include "OloEngine/Renderer/Framebuffer.h"
 
+#include <mutex>
+
 namespace OloEngine
 {
     class OpenGLFramebuffer : public Framebuffer
@@ -40,6 +42,10 @@ namespace OloEngine
             return m_RendererID;
         }
 
+        // Static initialization/shutdown for shared resources
+        static void InitSharedResources();
+        static void ShutdownSharedResources();
+
       private:
         void InitPostProcessing();
         void ApplyPostProcessing();
@@ -54,9 +60,12 @@ namespace OloEngine
         std::vector<u32> m_ColorAttachments;
         u32 m_DepthAttachment = 0;
 
-        // Post-processing resources
+        // Post-processing resources (per-framebuffer VAO/VBO for proper state isolation)
         u32 m_PostProcessVAO = 0;
         u32 m_PostProcessVBO = 0;
-        Ref<class Shader> m_PostProcessShader;
+
+        // Shared post-processing shader (static to avoid recompilation for each framebuffer)
+        static Ref<class Shader> s_PostProcessShader;
+        static std::once_flag s_InitOnceFlag;
     };
 } // namespace OloEngine
