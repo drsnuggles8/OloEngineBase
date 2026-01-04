@@ -618,4 +618,87 @@ namespace OloEngine
             GetDrawCommands(transform, outCommands);
         }
     }
+
+    void Model::DrawParallel(const glm::mat4& transform, const Material& fallbackMaterial) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_Meshes.empty())
+            return;
+
+        // Collect mesh descriptors for parallel submission
+        std::vector<Renderer3D::MeshSubmitDesc> meshDescriptors;
+        meshDescriptors.reserve(m_Meshes.size());
+
+        for (sizet i = 0; i < m_Meshes.size(); i++)
+        {
+            const Submesh& submesh = m_Meshes[i]->GetSubmesh();
+
+            // Determine material: use submesh material if valid, otherwise fallback
+            Material meshMaterial = fallbackMaterial;
+            if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
+            {
+                meshMaterial = *m_Materials[submesh.m_MaterialIndex];
+            }
+
+            meshDescriptors.push_back({
+                m_Meshes[i],
+                transform,
+                meshMaterial,
+                true,   // IsStatic
+                false,  // IsAnimated
+                nullptr // BoneMatrices
+            });
+        }
+
+        // Submit all meshes in parallel
+        Renderer3D::SubmitMeshesParallel(meshDescriptors);
+    }
+
+    void Model::DrawParallel(const glm::mat4& transform) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_Meshes.empty())
+            return;
+
+        // Static default material
+        static Material s_DefaultMaterial = []() -> Material
+        {
+            auto defaultMaterialRef = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
+            if (defaultMaterialRef)
+            {
+                return *defaultMaterialRef;
+            }
+            return Material{};
+        }();
+
+        // Collect mesh descriptors for parallel submission
+        std::vector<Renderer3D::MeshSubmitDesc> meshDescriptors;
+        meshDescriptors.reserve(m_Meshes.size());
+
+        for (sizet i = 0; i < m_Meshes.size(); i++)
+        {
+            const Submesh& submesh = m_Meshes[i]->GetSubmesh();
+
+            // Determine material
+            Material meshMaterial = s_DefaultMaterial;
+            if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
+            {
+                meshMaterial = *m_Materials[submesh.m_MaterialIndex];
+            }
+
+            meshDescriptors.push_back({
+                m_Meshes[i],
+                transform,
+                meshMaterial,
+                true,   // IsStatic
+                false,  // IsAnimated
+                nullptr // BoneMatrices
+            });
+        }
+
+        // Submit all meshes in parallel
+        Renderer3D::SubmitMeshesParallel(meshDescriptors);
+    }
 } // namespace OloEngine

@@ -14,6 +14,7 @@ namespace OloEngine
 {
     // Forward declarations
     class RendererAPI;
+    class FrameDataBuffer;
 
     // Maximum number of worker threads for parallel command generation
     // This should match the maximum expected worker thread count
@@ -195,6 +196,11 @@ namespace OloEngine
         // Must be called on the main thread after all workers complete
         // Should be called before SortCommands()
         void MergeThreadLocalCommands();
+
+        // Remap bone buffer offsets from worker-local to global
+        // Must be called after MergeThreadLocalCommands() and FrameDataBuffer::MergeScratchBuffers()
+        // @param frameDataBuffer Reference to the frame data buffer for offset remapping
+        void RemapBoneOffsets(class FrameDataBuffer& frameDataBuffer);
 
         // Prepare the bucket for parallel submission
         // Resets thread-local state and prepares arrays

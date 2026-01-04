@@ -425,6 +425,10 @@ namespace OloEngine
         // Merge command bucket thread-local commands
         s_Data.ScenePass->GetCommandBucket().MergeThreadLocalCommands();
 
+        // Remap bone offsets from worker-local to global
+        // Must be done after both MergeScratchBuffers() and MergeThreadLocalCommands()
+        s_Data.ScenePass->GetCommandBucket().RemapBoneOffsets(FrameDataBufferManager::Get());
+
         // Release worker allocators
         CommandMemoryManager::ReleaseWorkerAllocators();
 
@@ -757,12 +761,13 @@ namespace OloEngine
 
         cmd->renderState = CreatePODRenderStateForMaterial(material);
 
-        // Animation support - store worker-local offset (will be remapped after merge)
-        // Note: The offset stored here is worker-local; after MergeScratchBuffers(),
-        // we need to remap using GetGlobalBoneOffset() during command processing
+        // Animation support - store worker-local offset with remapping info
+        // The offset will be remapped to global in EndParallelSubmission()
         cmd->isAnimatedMesh = true;
         cmd->boneBufferOffset = localBoneOffset;
         cmd->boneCount = boneCount;
+        cmd->workerIndex = static_cast<u8>(ctx.WorkerIndex);
+        cmd->needsBoneOffsetRemap = true;
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -1693,28 +1698,113 @@ namespace OloEngine
             return;
         }
 
-        // Get view and optimize with single loop to avoid unnecessary iteration
+        // Get all entities with required components
         auto view = scene->GetAllEntitiesWith<MeshComponent, SkeletonComponent, TransformComponent>();
-        static sizet s_EntityCount = 0;
-        sizet currentEntityCount = 0;
 
-        // Single loop optimization: count and process entities together
+        // Collect mesh descriptors for parallel submission
+        std::vector<MeshSubmitDesc> meshDescriptors;
+        meshDescriptors.reserve(32); // Pre-allocate for typical case
+
+        sizet entityCount = 0;
         for (auto entityID : view)
         {
             Entity entity = { entityID, scene.get() };
             s_Data.Stats.TotalAnimatedMeshes++;
-            currentEntityCount++;
+            entityCount++;
 
-            RenderAnimatedMesh(scene, entity, defaultMaterial);
+            // Validate components
+            if (!entity.HasComponent<MeshComponent>() ||
+                !entity.HasComponent<SkeletonComponent>() ||
+                !entity.HasComponent<TransformComponent>())
+            {
+                s_Data.Stats.SkippedAnimatedMeshes++;
+                continue;
+            }
+
+            auto& meshComp = entity.GetComponent<MeshComponent>();
+            auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
+            auto& transformComp = entity.GetComponent<TransformComponent>();
+
+            if (!meshComp.m_MeshSource || !skeletonComp.m_Skeleton)
+            {
+                s_Data.Stats.SkippedAnimatedMeshes++;
+                continue;
+            }
+
+            glm::mat4 worldTransform = transformComp.GetTransform();
+            const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
+
+            // Get material from entity or use default
+            Material material = defaultMaterial;
+            if (entity.HasComponent<MaterialComponent>())
+            {
+                material = entity.GetComponent<MaterialComponent>().m_Material;
+            }
+
+            // Check for RelationshipComponent to find child submeshes
+            bool foundSubmeshes = false;
+            if (entity.HasComponent<RelationshipComponent>())
+            {
+                const auto& relationshipComponent = entity.GetComponent<RelationshipComponent>();
+                for (const UUID& childUUID : relationshipComponent.m_Children)
+                {
+                    auto submeshEntityOpt = scene->TryGetEntityWithUUID(childUUID);
+                    if (submeshEntityOpt && submeshEntityOpt->HasComponent<SubmeshComponent>())
+                    {
+                        auto& submeshComponent = submeshEntityOpt->GetComponent<SubmeshComponent>();
+                        if (submeshComponent.m_Mesh && submeshComponent.m_Visible)
+                        {
+                            // Get submesh material if available
+                            Material submeshMaterial = material;
+                            if (submeshEntityOpt->HasComponent<MaterialComponent>())
+                            {
+                                submeshMaterial = submeshEntityOpt->GetComponent<MaterialComponent>().m_Material;
+                            }
+
+                            meshDescriptors.push_back({
+                                submeshComponent.m_Mesh,
+                                worldTransform,
+                                submeshMaterial,
+                                false,  // IsStatic
+                                true,   // IsAnimated
+                                &boneMatrices
+                            });
+                            foundSubmeshes = true;
+                        }
+                    }
+                }
+            }
+
+            // Fallback: if no submesh entities found, use first submesh from MeshSource
+            if (!foundSubmeshes && meshComp.m_MeshSource->GetSubmeshes().Num() > 0)
+            {
+                auto mesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
+                meshDescriptors.push_back({
+                    mesh,
+                    worldTransform,
+                    material,
+                    false,  // IsStatic
+                    true,   // IsAnimated
+                    &boneMatrices
+                });
+            }
+
+            s_Data.Stats.RenderedAnimatedMeshes++;
         }
 
-        // Log stats only when count changes to reduce logging overhead
-        static bool loggedStats = false;
-        if (!loggedStats || currentEntityCount != s_EntityCount)
+        // Submit all animated meshes in parallel
+        if (!meshDescriptors.empty())
         {
-            OLO_CORE_INFO("RenderAnimatedMeshes: Found {} animated entities", currentEntityCount);
-            loggedStats = true;
-            s_EntityCount = currentEntityCount;
+            SubmitMeshesParallel(meshDescriptors);
+        }
+
+        // Log stats when count changes
+        static sizet s_LastEntityCount = 0;
+        if (entityCount != s_LastEntityCount)
+        {
+            OLO_CORE_INFO("RenderAnimatedMeshes: Found {} animated entities, {} submeshes",
+                          entityCount, meshDescriptors.size());
+            s_LastEntityCount = entityCount;
         }
     }
 

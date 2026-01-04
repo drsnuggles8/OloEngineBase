@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "CommandBucket.h"
 #include "FrameDataBuffer.h"
+#include "RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/Containers/Array.h"
@@ -882,6 +883,38 @@ namespace OloEngine
 
         OLO_CORE_TRACE("CommandBucket: Merged {} commands from parallel submission",
                        m_CommandCount);
+    }
+
+    void CommandBucket::RemapBoneOffsets(FrameDataBuffer& frameDataBuffer)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        u32 remappedCount = 0;
+
+        // Iterate through the linked list of commands
+        CommandPacket* current = m_Head;
+        while (current)
+        {
+            // Check if this is a DrawMeshCommand with bone data that needs remapping
+            if (current->GetCommandType() == CommandType::DrawMesh)
+            {
+                auto* cmd = current->GetCommandData<DrawMeshCommand>();
+                if (cmd->isAnimatedMesh && cmd->needsBoneOffsetRemap && cmd->boneCount > 0)
+                {
+                    // Remap the worker-local offset to the global offset
+                    u32 globalOffset = frameDataBuffer.GetGlobalBoneOffset(cmd->workerIndex, cmd->boneBufferOffset);
+                    cmd->boneBufferOffset = globalOffset;
+                    cmd->needsBoneOffsetRemap = false;
+                    remappedCount++;
+                }
+            }
+            current = current->GetNext();
+        }
+
+        if (remappedCount > 0)
+        {
+            OLO_CORE_TRACE("CommandBucket: Remapped {} animated mesh bone offsets", remappedCount);
+        }
     }
 
     void CommandBucket::Reset(CommandAllocator& allocator)
