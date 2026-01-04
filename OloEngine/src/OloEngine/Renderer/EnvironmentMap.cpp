@@ -129,11 +129,11 @@ namespace OloEngine
         {
             // For in-memory cubemaps, generate a unique key based on properties
             // Use the cubemap's memory address as a unique identifier + dimensions
-            cacheKey = fmt::format("cubemap_inmem_{:016x}_{}x{}_{}", 
-                                  reinterpret_cast<uintptr_t>(m_EnvironmentMap.get()),
-                                  m_EnvironmentMap->GetWidth(),
-                                  m_EnvironmentMap->GetHeight(),
-                                  static_cast<int>(m_EnvironmentMap->GetSpecification().Format));
+            cacheKey = fmt::format("cubemap_inmem_{:016x}_{}x{}_{}",
+                                   reinterpret_cast<uintptr_t>(m_EnvironmentMap.get()),
+                                   m_EnvironmentMap->GetWidth(),
+                                   m_EnvironmentMap->GetHeight(),
+                                   static_cast<int>(m_EnvironmentMap->GetSpecification().Format));
         }
         else
         {

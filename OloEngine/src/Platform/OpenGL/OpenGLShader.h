@@ -91,6 +91,9 @@ namespace OloEngine
 
         void Reflect(GLenum stage, const std::vector<u32>& shaderData);
 
+        // Helper to finalize a compiled shader program with registration, memory tracking, and SPIR-V decompilation
+        void FinalizeProgram(GLenum const& program, const std::unordered_map<GLenum, std::vector<u32>>& spirvMap);
+
       private:
         u32 m_RendererID{};
         std::string m_FilePath;

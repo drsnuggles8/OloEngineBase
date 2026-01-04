@@ -340,11 +340,11 @@ namespace OloEngine
 
             if (removedFiles > 0)
             {
-                s_Stats.CacheSizeBytes = (s_Stats.CacheSizeBytes > removedBytes) 
-                    ? s_Stats.CacheSizeBytes - removedBytes 
-                    : 0;
-                OLO_CORE_INFO("IBLCache: Invalidated cache for {} ({} files, {} bytes)", 
-                             sourcePath, removedFiles, removedBytes);
+                s_Stats.CacheSizeBytes = (s_Stats.CacheSizeBytes > removedBytes)
+                                             ? s_Stats.CacheSizeBytes - removedBytes
+                                             : 0;
+                OLO_CORE_INFO("IBLCache: Invalidated cache for {} ({} files, {} bytes)",
+                              sourcePath, removedFiles, removedBytes);
             }
         }
         catch (const std::filesystem::filesystem_error& e)
@@ -411,6 +411,13 @@ namespace OloEngine
         IBLCacheHeader header;
         file.read(reinterpret_cast<char*>(&header), sizeof(header));
 
+        // Validate header read
+        if (!file || file.gcount() != static_cast<std::streamsize>(sizeof(header)))
+        {
+            OLO_CORE_ERROR("IBLCache: Failed to read cache file header: {}", path.string());
+            return nullptr;
+        }
+
         // Validate magic
         if (header.Magic[0] != 'I' || header.Magic[1] != 'B' ||
             header.Magic[2] != 'L' || header.Magic[3] != 'C')
@@ -451,21 +458,30 @@ namespace OloEngine
 
             for (u32 face = 0; face < 6; face++)
             {
-                std::vector<u8> faceData(faceSize);
-                file.read(reinterpret_cast<char*>(faceData.data()), static_cast<std::streamsize>(faceSize));
-
-                if (!file.good())
-                {
-                    OLO_CORE_ERROR("IBLCache: Failed to read face {} mip {} from cache: {}", face, mip, path.string());
-                    return nullptr;
-                }
-
                 if (mip == 0)
                 {
+                    std::vector<u8> faceData(faceSize);
+                    file.read(reinterpret_cast<char*>(faceData.data()), static_cast<std::streamsize>(faceSize));
+
+                    if (!file.good())
+                    {
+                        OLO_CORE_ERROR("IBLCache: Failed to read base mip data for face {} from {}", face, path.string());
+                        return nullptr;
+                    }
+
                     // SetFaceData only works for mip 0, for now just load base level
                     cubemap->SetFaceData(face, faceData.data(), static_cast<u32>(faceSize));
                 }
-                // TODO: Support loading mip levels directly if needed
+                else
+                {
+                    // Skip higher mip levels for now to avoid unnecessary I/O
+                    file.seekg(static_cast<std::streamoff>(faceSize), std::ios::cur);
+                    if (!file.good())
+                    {
+                        OLO_CORE_ERROR("IBLCache: Failed to skip mip {} data for face {} in {}", mip, face, path.string());
+                        return nullptr;
+                    }
+                }
             }
         }
 
@@ -554,6 +570,13 @@ namespace OloEngine
         // Read header
         IBLCacheHeader header;
         file.read(reinterpret_cast<char*>(&header), sizeof(header));
+
+        // Validate header read
+        if (!file || file.gcount() != static_cast<std::streamsize>(sizeof(header)))
+        {
+            OLO_CORE_ERROR("IBLCache: Failed to read cache file header: {}", path.string());
+            return nullptr;
+        }
 
         // Validate magic
         if (header.Magic[0] != 'I' || header.Magic[1] != 'B' ||

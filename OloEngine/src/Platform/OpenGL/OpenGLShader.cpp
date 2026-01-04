@@ -720,6 +720,50 @@ namespace OloEngine
         }
     }
 
+    void OpenGLShader::FinalizeProgram(GLenum const& program, const std::unordered_map<GLenum, std::vector<u32>>& spirvMap)
+    {
+        m_RendererID = program;
+
+        // Compute estimated memory from the appropriate SPIR-V map
+        sizet estimatedMemory = 0;
+        for (const auto& [stage, spirv] : spirvMap)
+        {
+            estimatedMemory += spirv.size() * sizeof(u32);
+        }
+        estimatedMemory += 1024; // Additional overhead for program linking, uniforms, etc.
+
+        // Track GPU memory allocation
+        OLO_TRACK_GPU_ALLOC(this,
+                            estimatedMemory,
+                            RendererMemoryTracker::ResourceType::Shader,
+                            m_Name.empty() ? "OpenGL Shader" : m_Name);
+
+        // Register shader
+        OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
+        OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
+
+        // Store shader source code in debugger
+        for (const auto& [stage, spirv] : spirvMap)
+        {
+            spirv_cross::CompilerGLSL glslCompiler(spirv);
+            const std::string generatedGLSL = glslCompiler.compile();
+
+            std::string originalSource;
+            if (auto originalIt = m_OriginalSourceCode.find(stage); originalIt != m_OriginalSourceCode.end())
+            {
+                originalSource = originalIt->second;
+            }
+
+            std::vector<u8> spirvBytes;
+            spirvBytes.reserve(spirv.size() * sizeof(u32));
+            const u8* spirvData = reinterpret_cast<const u8*>(spirv.data());
+            spirvBytes.assign(spirvData, spirvData + spirv.size() * sizeof(u32));
+
+            OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage),
+                                  originalSource, generatedGLSL, spirvBytes);
+        }
+    }
+
     void OpenGLShader::CreateProgram()
     {
         GLuint program = glCreateProgram();
@@ -786,45 +830,7 @@ namespace OloEngine
 
                             if (isLinked == GL_TRUE)
                             {
-                                m_RendererID = program;
-
-                                // Track memory and register shader
-                                sizet estimatedMemory = 0;
-                                for (const auto& [stage, spirv] : m_OpenGLSPIRV)
-                                {
-                                    estimatedMemory += spirv.size() * sizeof(u32);
-                                }
-                                estimatedMemory += 1024;
-
-                                OLO_TRACK_GPU_ALLOC(this,
-                                                    estimatedMemory,
-                                                    RendererMemoryTracker::ResourceType::Shader,
-                                                    m_Name.empty() ? "OpenGL Shader" : m_Name);
-
-                                OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
-                                OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
-
-                                // Store shader source code in debugger
-                                for (const auto& [stage, spirv] : m_OpenGLSPIRV)
-                                {
-                                    spirv_cross::CompilerGLSL glslCompiler(spirv);
-                                    const std::string generatedGLSL = glslCompiler.compile();
-
-                                    std::string originalSource;
-                                    if (auto originalIt = m_OriginalSourceCode.find(stage); originalIt != m_OriginalSourceCode.end())
-                                    {
-                                        originalSource = originalIt->second;
-                                    }
-
-                                    std::vector<u8> spirvBytes;
-                                    spirvBytes.reserve(spirv.size() * sizeof(u32));
-                                    const u8* spirvData = reinterpret_cast<const u8*>(spirv.data());
-                                    spirvBytes.assign(spirvData, spirvData + spirv.size() * sizeof(u32));
-
-                                    OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage),
-                                                          originalSource, generatedGLSL, spirvBytes);
-                                }
-
+                                FinalizeProgram(program, m_OpenGLSPIRV);
                                 OLO_CORE_TRACE("Loaded shader program from binary cache: {0}", m_FilePath);
                                 return;
                             }
@@ -916,47 +922,7 @@ namespace OloEngine
             }
         }
 
-        m_RendererID = program;
-
-        // Track memory allocation
-        sizet estimatedMemory = 0;
-        for (const auto& [stage, spirv] : m_OpenGLSPIRV)
-        {
-            estimatedMemory += spirv.size() * sizeof(u32);
-        }
-        estimatedMemory += 1024;
-
-        OLO_TRACK_GPU_ALLOC(this,
-                            estimatedMemory,
-                            RendererMemoryTracker::ResourceType::Shader,
-                            m_Name.empty() ? "OpenGL Shader" : m_Name);
-
-        // Register with shader debugger after program creation
-        OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
-
-        // Register the resource registry with CommandDispatch
-        OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
-
-        // Store shader source code in debugger
-        for (const auto& [stage, spirv] : m_OpenGLSPIRV)
-        {
-            spirv_cross::CompilerGLSL glslCompiler(spirv);
-            const std::string generatedGLSL = glslCompiler.compile();
-
-            std::string originalSource;
-            if (auto originalIt = m_OriginalSourceCode.find(stage); originalIt != m_OriginalSourceCode.end())
-            {
-                originalSource = originalIt->second;
-            }
-
-            std::vector<u8> spirvBytes;
-            spirvBytes.reserve(spirv.size() * sizeof(u32));
-            const u8* spirvData = reinterpret_cast<const u8*>(spirv.data());
-            spirvBytes.assign(spirvData, spirvData + spirv.size() * sizeof(u32));
-
-            OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage),
-                                  originalSource, generatedGLSL, spirvBytes);
-        }
+        FinalizeProgram(program, m_OpenGLSPIRV);
     }
 
     static bool VerifyProgramLink(GLenum const& program)
@@ -1014,43 +980,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    m_RendererID = program;
-
-                    sizet estimatedMemory = 0;
-                    for (const auto& [stage, spirv] : m_VulkanSPIRV)
-                    {
-                        estimatedMemory += spirv.size() * sizeof(u32);
-                    }
-                    estimatedMemory += 1024;
-
-                    OLO_TRACK_GPU_ALLOC(this,
-                                        estimatedMemory,
-                                        RendererMemoryTracker::ResourceType::Shader,
-                                        m_Name.empty() ? "OpenGL Shader" : m_Name);
-
-                    OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
-                    OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
-
-                    for (const auto& [stage, spirv] : m_VulkanSPIRV)
-                    {
-                        spirv_cross::CompilerGLSL glslCompiler(spirv);
-                        const std::string generatedGLSL = glslCompiler.compile();
-
-                        std::string originalSource = "";
-                        auto originalIt = m_OriginalSourceCode.find(stage);
-                        if (originalIt != m_OriginalSourceCode.end())
-                        {
-                            originalSource = originalIt->second;
-                        }
-
-                        std::vector<u8> spirvBytes;
-                        spirvBytes.reserve(spirv.size() * sizeof(u32));
-                        const u8* spirvData = reinterpret_cast<const u8*>(spirv.data());
-                        spirvBytes.assign(spirvData, spirvData + spirv.size() * sizeof(u32));
-
-                        OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage),
-                                              originalSource, generatedGLSL, spirvBytes);
-                    }
+                    FinalizeProgram(program, m_VulkanSPIRV);
                     return;
                 }
             }
@@ -1094,43 +1024,7 @@ namespace OloEngine
             glDetachShader(program, id);
         }
 
-        m_RendererID = program;
-
-        sizet estimatedMemory = 0;
-        for (const auto& [stage, spirv] : m_VulkanSPIRV)
-        {
-            estimatedMemory += spirv.size() * sizeof(u32);
-        }
-        estimatedMemory += 1024;
-
-        OLO_TRACK_GPU_ALLOC(this,
-                            estimatedMemory,
-                            RendererMemoryTracker::ResourceType::Shader,
-                            m_Name.empty() ? "OpenGL Shader" : m_Name);
-
-        OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
-        OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
-
-        for (const auto& [stage, spirv] : m_VulkanSPIRV)
-        {
-            spirv_cross::CompilerGLSL glslCompiler(spirv);
-            const std::string generatedGLSL = glslCompiler.compile();
-
-            std::string originalSource = "";
-            auto originalIt = m_OriginalSourceCode.find(stage);
-            if (originalIt != m_OriginalSourceCode.end())
-            {
-                originalSource = originalIt->second;
-            }
-
-            std::vector<u8> spirvBytes;
-            spirvBytes.reserve(spirv.size() * sizeof(u32));
-            const u8* spirvData = reinterpret_cast<const u8*>(spirv.data());
-            spirvBytes.assign(spirvData, spirvData + spirv.size() * sizeof(u32));
-
-            OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage),
-                                  originalSource, generatedGLSL, spirvBytes);
-        }
+        FinalizeProgram(program, m_VulkanSPIRV);
     }
 
     void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const

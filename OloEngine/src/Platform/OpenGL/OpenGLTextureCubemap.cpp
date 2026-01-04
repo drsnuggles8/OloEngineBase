@@ -320,8 +320,8 @@ namespace OloEngine
 
         auto formatInfo = Utils::GetFormatInfo(m_CubemapSpecification.Format);
 
-        OLO_CORE_ASSERT(size == m_Width * m_Height * formatInfo.BytesPerPixel, 
-                        "Data size doesn't match face dimensions! Expected: {}, Got: {}", 
+        OLO_CORE_ASSERT(size == m_Width * m_Height * formatInfo.BytesPerPixel,
+                        "Data size doesn't match face dimensions! Expected: {}, Got: {}",
                         m_Width * m_Height * formatInfo.BytesPerPixel, size);
 
         glTextureSubImage3D(

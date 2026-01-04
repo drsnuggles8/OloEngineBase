@@ -19,11 +19,18 @@ namespace OloEngine
     void OpenGLFramebuffer::InitSharedResources()
     {
         std::call_once(s_InitOnceFlag, []()
-        {
+                       {
             // Load post-processing shader once and share across all framebuffers
             s_PostProcessShader = Shader::Create("assets/shaders/PostProcess.glsl");
-            OLO_CORE_INFO("OpenGLFramebuffer: Shared PostProcess shader initialized");
-        });
+
+            if (!s_PostProcessShader)
+            {
+                // Keep initialization flag false so we can retry later
+                OLO_CORE_ERROR("OpenGLFramebuffer: Failed to initialize shared PostProcess shader (assets/shaders/PostProcess.glsl)");
+                return;
+            }
+
+            OLO_CORE_INFO("OpenGLFramebuffer: Shared PostProcess shader initialized"); });
     }
 
     void OpenGLFramebuffer::ShutdownSharedResources()
