@@ -2627,7 +2627,7 @@ void Sandbox3D::LoadTestPBRModel()
         // Skip loading if already loaded (performance optimization)
         if (m_BackpackModel)
         {
-            OLO_TRACE("Backpack model already loaded, skipping reload");
+            OLO_CORE_TRACE("Backpack model already loaded, skipping reload");
             return;
         }
 
@@ -2642,7 +2642,7 @@ void Sandbox3D::LoadTestPBRModel()
         // Skip loading if already loaded (performance optimization)
         if (m_CerberusModel)
         {
-            OLO_TRACE("Cerberus model already loaded, skipping reload.");
+            OLO_CORE_TRACE("Cerberus model already loaded, skipping reload.");
             return;
         }
 

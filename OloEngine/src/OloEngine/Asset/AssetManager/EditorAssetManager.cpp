@@ -261,14 +261,17 @@ namespace OloEngine
             if (m_AssetThread)
             {
                 m_AssetThread->QueueAssetLoad(metadata);
-            }
 
-            // Return not-ready result; caller should call SyncWithAssetThread() and retry
-            return AsyncAssetResult<Asset>{ nullptr, false };
+                // Return not-ready result; caller should call SyncWithAssetThread() and retry
+                return AsyncAssetResult<Asset>{ nullptr, false };
+            }
+            // If async is supported but the asset thread is not initialized,
+            // fall back to synchronous loading below to avoid an infinite retry loop.
         }
 #endif
 
         // Fallback: load synchronously for assets that don't support async
+        // or when the asset thread is not available.
         auto asset = LoadAssetFromFile(metadata);
         return AsyncAssetResult<Asset>{ asset, asset != nullptr };
     }
