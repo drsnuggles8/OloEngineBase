@@ -267,19 +267,45 @@ namespace OloEngine
         OLO_CORE_ASSERT(m_ParallelSubmissionActive,
                         "FrameDataBuffer: Not in parallel submission mode!");
 
+        // Sanity check: count must be positive and not overflow
+        if (count == 0)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer::AllocateTransformsParallel: Count is zero!");
+            return UINT32_MAX;
+        }
+        if (count > WORKER_SCRATCH_TRANSFORM_CAPACITY)
+        {
+            OLO_CORE_ERROR(
+                "FrameDataBuffer::AllocateTransformsParallel: Requested {} transforms exceeds max per-worker limit {}",
+                count, WORKER_SCRATCH_TRANSFORM_CAPACITY);
+            return UINT32_MAX;
+        }
+
         WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
 
-        // Ensure capacity
-        if (scratch.transformCount + count > scratch.transforms.size())
+        // Check for overflow: ensure addition doesn't wrap around
+        if (scratch.transformCount > UINT32_MAX - count)
         {
+            OLO_CORE_ERROR(
+                "FrameDataBuffer::AllocateTransformsParallel: Allocation would overflow (current={}, requested={})",
+                scratch.transformCount, count);
+            return UINT32_MAX;
+        }
+
+        u32 newCount = scratch.transformCount + count;
+
+        // Ensure capacity with safe type conversion
+        if (newCount > scratch.transforms.size())
+        {
+            // Use size_t to avoid overflow in capacity calculation
             sizet newCapacity = std::max(
                 scratch.transforms.size() * 2,
-                static_cast<sizet>(scratch.transformCount + count));
+                static_cast<sizet>(newCount));
             scratch.transforms.resize(newCapacity);
         }
 
         u32 localOffset = scratch.transformCount;
-        scratch.transformCount += count;
+        scratch.transformCount = newCount;
 
         return localOffset;
     }

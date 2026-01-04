@@ -85,22 +85,24 @@ namespace OloEngine
             return 0;
         }
 
+        u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
+
         // When double-buffering, we need to wait for the frame we're about to reuse
         if (m_DoubleBufferingEnabled && m_TotalFrameCount >= NUM_BUFFERED_FRAMES)
         {
             // Wait for the frame that's about to be reused
-            WaitForFrame(m_CurrentFrameIndex);
+            WaitForFrame(currentIndex);
         }
 
         // Reset the current frame's resources
-        auto& frame = m_FrameResources[m_CurrentFrameIndex];
+        auto& frame = m_FrameResources[currentIndex];
         frame.Reset();
         frame.FenceSignaled = false;
 
         // Reset atomic allocator index for this frame
         m_CurrentAllocatorIndex.store(0, std::memory_order_relaxed);
 
-        return m_CurrentFrameIndex;
+        return currentIndex;
     }
 
     void FrameResourceManager::EndFrame()
@@ -113,7 +115,8 @@ namespace OloEngine
             return;
         }
 
-        auto& frame = m_FrameResources[m_CurrentFrameIndex];
+        u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_relaxed);
+        auto& frame = m_FrameResources[currentIndex];
 
         // Delete the old fence if it exists
         if (frame.FenceId != 0)
@@ -125,14 +128,22 @@ namespace OloEngine
         if (m_DoubleBufferingEnabled)
         {
             frame.FenceId = CreateFence();
+            // If fence creation fails, treat frame as immediately signaled
+            if (frame.FenceId == 0)
+            {
+                OLO_CORE_ERROR("FrameResourceManager::EndFrame: Failed to create GPU fence!");
+                frame.FenceSignaled = true;
+            }
         }
         else
         {
             frame.FenceSignaled = true;
         }
 
-        // Advance to the next frame buffer
-        m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % NUM_BUFFERED_FRAMES;
+        // Advance to the next frame buffer with release semantics
+        // Workers read this with acquire to ensure they see the updated frame state
+        u32 nextIndex = (currentIndex + 1) % NUM_BUFFERED_FRAMES;
+        m_CurrentFrameIndex.store(nextIndex, std::memory_order_release);
         m_TotalFrameCount++;
     }
 
@@ -144,7 +155,8 @@ namespace OloEngine
             return nullptr;
         }
 
-        auto& frame = m_FrameResources[m_CurrentFrameIndex];
+        u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
+        auto& frame = m_FrameResources[currentIndex];
 
         // Atomically get the next allocator index
         u32 index = m_CurrentAllocatorIndex.fetch_add(1, std::memory_order_relaxed);
@@ -170,7 +182,8 @@ namespace OloEngine
 
     FrameResourceManager::FrameResources& FrameResourceManager::GetCurrentFrameResources()
     {
-        return m_FrameResources[m_CurrentFrameIndex];
+        u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
+        return m_FrameResources[currentIndex];
     }
 
     bool FrameResourceManager::IsFrameComplete(u32 frameIndex) const
@@ -206,6 +219,11 @@ namespace OloEngine
         }
 
         frame.FenceSignaled = true;
+    }
+
+    u32 FrameResourceManager::GetCurrentFrameIndex() const
+    {
+        return m_CurrentFrameIndex.load(std::memory_order_acquire);
     }
 
     // ========================================================================

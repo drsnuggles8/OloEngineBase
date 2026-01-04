@@ -69,11 +69,9 @@ namespace OloEngine
         // End the current frame - inserts GPU fence
         void EndFrame();
 
-        // Get the current frame index
-        u32 GetCurrentFrameIndex() const
-        {
-            return m_CurrentFrameIndex;
-        }
+        // Get the current frame index (thread-safe)
+        // Worker threads call this to get the current frame for allocation
+        u32 GetCurrentFrameIndex() const;
 
         // Get an allocator for the current frame
         // Thread-safe: uses atomic index to assign allocators to threads
@@ -129,7 +127,9 @@ namespace OloEngine
         void DeleteFence(u64 fenceId);
 
         std::array<FrameResources, NUM_BUFFERED_FRAMES> m_FrameResources;
-        u32 m_CurrentFrameIndex = 0;
+        // Atomic frame index: main thread writes with release, worker threads read with acquire
+        // to synchronize access to m_FrameResources and frame-local allocators
+        std::atomic<u32> m_CurrentFrameIndex{ 0 };
         u64 m_TotalFrameCount = 0;
         bool m_DoubleBufferingEnabled = true;
         bool m_Initialized = false;

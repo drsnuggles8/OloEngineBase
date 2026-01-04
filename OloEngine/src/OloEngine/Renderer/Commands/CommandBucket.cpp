@@ -875,7 +875,12 @@ namespace OloEngine
                 }
 
                 m_CommandCount++;
-                m_Stats.TotalCommands++;
+                // NOTE: m_Stats.TotalCommands is NOT incremented here.
+                // TotalCommands is a cumulative counter incremented in AddCommand,
+                // which counts all commands submitted (both serial and parallel).
+                // During parallel submission, commands are already counted in AddCommand
+                // before being placed in m_ParallelCommands, so we only update m_CommandCount
+                // here (the per-frame linked list size) to track current state.
             }
         }
 
