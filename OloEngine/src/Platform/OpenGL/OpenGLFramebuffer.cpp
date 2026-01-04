@@ -25,9 +25,8 @@ namespace OloEngine
 
             if (!s_PostProcessShader)
             {
-                // Keep initialization flag false so we can retry later
-                OLO_CORE_ERROR("OpenGLFramebuffer: Failed to initialize shared PostProcess shader (assets/shaders/PostProcess.glsl)");
-                return;
+                // Throw exception so once_flag remains uncompleted and future attempts can retry
+                throw std::runtime_error("OpenGLFramebuffer: Failed to initialize shared PostProcess shader (assets/shaders/PostProcess.glsl)");
             }
 
             OLO_CORE_INFO("OpenGLFramebuffer: Shared PostProcess shader initialized"); });

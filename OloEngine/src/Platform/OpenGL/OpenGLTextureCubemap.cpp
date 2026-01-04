@@ -63,8 +63,8 @@ namespace OloEngine
 
         struct FormatInfo
         {
-            u32 BytesPerPixel = 4;
-            GLenum DataType = GL_UNSIGNED_BYTE;
+            u32 BytesPerPixel = 0; // 0 indicates unsupported format
+            GLenum DataType = 0;   // 0 indicates unsupported format
         };
 
         [[nodiscard("Store this!")]] static FormatInfo GetFormatInfo(ImageFormat format)
@@ -105,6 +105,10 @@ namespace OloEngine
                     info.DataType = GL_UNSIGNED_INT_24_8;
                     break;
                 default:
+                    // Mark unsupported formats
+                    OLO_CORE_ERROR("OpenGLTextureCubemap::GetFormatInfo: Unsupported ImageFormat ({}). Using default RGBA8.", static_cast<u32>(format));
+                    info.BytesPerPixel = 0;
+                    info.DataType = 0;
                     break;
             }
             return info;
@@ -138,6 +142,13 @@ namespace OloEngine
 
         // Calculate memory usage based on format and dimensions
         auto formatInfo = Utils::GetFormatInfo(m_Specification.Format);
+        if (formatInfo.BytesPerPixel == 0)
+        {
+            OLO_CORE_ERROR("OpenGLTextureCubemap: Unsupported image format during initialization");
+            glDeleteTextures(1, &m_RendererID);
+            m_RendererID = 0;
+            return;
+        }
         sizet cubemapMemory = static_cast<sizet>(m_Width) * m_Height * formatInfo.BytesPerPixel * 6; // 6 faces
 
         // Track GPU memory allocation
@@ -319,6 +330,12 @@ namespace OloEngine
         OLO_CORE_ASSERT(faceIndex < 6, "Face index out of range! Must be 0-5.");
 
         auto formatInfo = Utils::GetFormatInfo(m_CubemapSpecification.Format);
+
+        if (formatInfo.BytesPerPixel == 0)
+        {
+            OLO_CORE_ERROR("SetFaceData: Unsupported image format for cubemap face {}", faceIndex);
+            return;
+        }
 
         OLO_CORE_ASSERT(size == m_Width * m_Height * formatInfo.BytesPerPixel,
                         "Data size doesn't match face dimensions! Expected: {}, Got: {}",

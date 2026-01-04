@@ -21,7 +21,21 @@ namespace OloEngine
         s_ShaderLibrary = &shaderLibrary;
 
         // Initialize IBL cache for disk caching
-        IBLCache::Initialize();
+        // Use default cache directory "assets/cache/ibl" from IBLCache::Initialize
+        const std::filesystem::path cacheDir = "assets/cache/ibl";
+        if (!std::filesystem::exists(cacheDir))
+        {
+            try
+            {
+                std::filesystem::create_directories(cacheDir);
+                OLO_CORE_INFO("EnvironmentMap: Created IBL cache directory: {}", cacheDir.string());
+            }
+            catch (const std::filesystem::filesystem_error& e)
+            {
+                OLO_CORE_ERROR("EnvironmentMap: Failed to create IBL cache directory: {}", e.what());
+            }
+        }
+        IBLCache::Initialize(cacheDir);
 
         OLO_CORE_INFO("EnvironmentMap: IBL system initialized with shader library");
     }
