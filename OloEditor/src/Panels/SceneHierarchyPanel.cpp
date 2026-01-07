@@ -4,6 +4,7 @@
 #include "OloEngine/UI/UI.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <imgui.h>
@@ -299,10 +300,31 @@ namespace OloEngine
             DisplayAddComponentEntry<DirectionalLightComponent>("Directional Light");
             DisplayAddComponentEntry<PointLightComponent>("Point Light");
             DisplayAddComponentEntry<SpotLightComponent>("Spot Light");
+
+            ImGui::Separator();
+
+            // 3D Physics Components
             DisplayAddComponentEntry<Rigidbody3DComponent>("Rigidbody 3D");
             DisplayAddComponentEntry<BoxCollider3DComponent>("Box Collider 3D");
             DisplayAddComponentEntry<SphereCollider3DComponent>("Sphere Collider 3D");
             DisplayAddComponentEntry<CapsuleCollider3DComponent>("Capsule Collider 3D");
+            DisplayAddComponentEntry<MeshCollider3DComponent>("Mesh Collider 3D");
+            DisplayAddComponentEntry<ConvexMeshCollider3DComponent>("Convex Mesh Collider 3D");
+            DisplayAddComponentEntry<TriangleMeshCollider3DComponent>("Triangle Mesh Collider 3D");
+            DisplayAddComponentEntry<CharacterController3DComponent>("Character Controller 3D");
+
+            ImGui::Separator();
+
+            // Audio Components
+            DisplayAddComponentEntry<AudioSourceComponent>("Audio Source");
+            DisplayAddComponentEntry<AudioListenerComponent>("Audio Listener");
+
+            ImGui::Separator();
+
+            // Animation Components
+            DisplayAddComponentEntry<AnimationStateComponent>("Animation State");
+            DisplayAddComponentEntry<SkeletonComponent>("Skeleton");
+            DisplayAddComponentEntry<SubmeshComponent>("Submesh");
 
             ImGui::EndPopup();
         }
@@ -536,7 +558,7 @@ namespace OloEngine
 			ImGui::DragFloat("Line Spacing", &component.LineSpacing, 0.025f); });
 
         // 3D Components
-        DrawComponent<MeshComponent>("Mesh", entity, [](auto& component)
+        DrawComponent<MeshComponent>("Mesh", entity, [entity, scene = m_Context](auto& component) mutable
                                      {
 			ImGui::Text("Mesh Source: %s", component.m_MeshSource ? "Loaded" : "None");
 			
@@ -546,8 +568,8 @@ namespace OloEngine
 				ImGui::Text("Vertices: %d", component.m_MeshSource->GetVertices().Num());
 			}
 
-			// Import model from file
-			if (ImGui::Button("Import Model..."))
+			// Import static model from file
+			if (ImGui::Button("Import Static Model..."))
 			{
 				std::string filepath = FileDialogs::OpenFile(
 					"3D Models (*.obj;*.fbx;*.gltf;*.glb)\0*.obj;*.fbx;*.gltf;*.glb\0"
@@ -565,7 +587,7 @@ namespace OloEngine
 						if (combinedMeshSource)
 						{
 							component.m_MeshSource = combinedMeshSource;
-							OLO_CORE_INFO("Imported model: {} ({} meshes combined)", filepath, model->GetMeshCount());
+							OLO_CORE_INFO("Imported static model: {} ({} meshes combined)", filepath, model->GetMeshCount());
 						}
 						else
 						{
@@ -580,6 +602,99 @@ namespace OloEngine
 			}
 			
 			ImGui::SameLine();
+
+			// Import animated model from file (adds skeleton, animation components)
+			if (ImGui::Button("Import Animated Model..."))
+			{
+				std::string filepath = FileDialogs::OpenFile(
+					"Animated Models (*.fbx;*.gltf;*.glb)\0*.fbx;*.gltf;*.glb\0"
+					"FBX (*.fbx)\0*.fbx\0"
+					"glTF (*.gltf;*.glb)\0*.gltf;*.glb\0"
+					"All Files (*.*)\0*.*\0");
+				if (!filepath.empty())
+				{
+					auto animatedModel = Ref<AnimatedModel>::Create(filepath);
+					if (animatedModel && !animatedModel->GetMeshes().empty())
+					{
+						// Set the mesh source from the animated model
+						component.m_MeshSource = animatedModel->GetMeshes()[0];
+						OLO_CORE_INFO("Imported animated model: {} ({} meshes)", filepath, animatedModel->GetMeshes().size());
+
+						// Add MaterialComponent if the model has materials
+						if (!animatedModel->GetMaterials().empty())
+						{
+							if (!entity.HasComponent<MaterialComponent>())
+							{
+								auto& materialComp = entity.AddComponent<MaterialComponent>();
+								materialComp.m_Material = animatedModel->GetMaterials()[0];
+								OLO_CORE_INFO("Added MaterialComponent from animated model");
+							}
+							else
+							{
+								auto& materialComp = entity.GetComponent<MaterialComponent>();
+								materialComp.m_Material = animatedModel->GetMaterials()[0];
+							}
+						}
+
+						// Add SkeletonComponent if the model has a skeleton
+						if (animatedModel->HasSkeleton())
+						{
+							if (!entity.HasComponent<SkeletonComponent>())
+							{
+								auto& skeletonComp = entity.AddComponent<SkeletonComponent>();
+								skeletonComp.m_Skeleton = animatedModel->GetSkeleton();
+								OLO_CORE_INFO("Added SkeletonComponent: {} bones", skeletonComp.m_Skeleton->m_BoneNames.size());
+							}
+							else
+							{
+								auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
+								skeletonComp.m_Skeleton = animatedModel->GetSkeleton();
+							}
+						}
+
+						// Add AnimationStateComponent if the model has animations
+						if (animatedModel->HasAnimations())
+						{
+							if (!entity.HasComponent<AnimationStateComponent>())
+							{
+								auto& animStateComp = entity.AddComponent<AnimationStateComponent>();
+								// Store all available clips
+								animStateComp.m_AvailableClips = animatedModel->GetAnimations();
+								animStateComp.m_CurrentClip = animStateComp.m_AvailableClips[0];
+								animStateComp.m_CurrentClipIndex = 0;
+								animStateComp.m_State = AnimationStateComponent::State::Idle;
+								animStateComp.m_CurrentTime = 0.0f;
+								animStateComp.m_IsPlaying = false;
+								animStateComp.m_SourceFilePath = filepath; // Save for serialization
+								OLO_CORE_INFO("Added AnimationStateComponent: {} animations available", animStateComp.m_AvailableClips.size());
+								
+								// List all available animations
+								for (sizet i = 0; i < animStateComp.m_AvailableClips.size(); i++)
+								{
+									auto& anim = animStateComp.m_AvailableClips[i];
+									OLO_CORE_INFO("  Animation [{}]: '{}' - Duration: {:.2f}s", i, anim->Name, anim->Duration);
+								}
+							}
+							else
+							{
+								auto& animStateComp = entity.GetComponent<AnimationStateComponent>();
+								animStateComp.m_AvailableClips = animatedModel->GetAnimations();
+								animStateComp.m_CurrentClip = animStateComp.m_AvailableClips[0];
+								animStateComp.m_CurrentClipIndex = 0;
+								animStateComp.m_SourceFilePath = filepath; // Save for serialization
+							}
+						}
+						else
+						{
+							OLO_CORE_WARN("Animated model has no animations: {}", filepath);
+						}
+					}
+					else
+					{
+						OLO_CORE_ERROR("Failed to load animated model: {}", filepath);
+					}
+				}
+			}
 
 			// Primitive mesh creation dropdown
 			const char* primitives[] = { "Create Primitive...", "Cube", "Sphere", "Plane", "Cylinder", "Cone", "Icosphere", "Torus" };
@@ -783,6 +898,162 @@ namespace OloEngine
             f32 restitution = component.m_Material.GetRestitution();
             if (ImGui::DragFloat("Restitution##CapsuleCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
                 component.m_Material.SetRestitution(restitution); });
+
+        DrawComponent<MeshCollider3DComponent>("Mesh Collider 3D", entity, [](auto& component)
+                                               {
+            ImGui::Text("Collider Asset: %s", component.m_ColliderAsset ? "Set" : "None");
+            DrawVec3Control("Offset##MeshCollider3D", component.m_Offset);
+            DrawVec3Control("Scale##MeshCollider3D", component.m_Scale, 1.0f);
+            ImGui::Checkbox("Use Complex As Simple##MeshCollider3D", &component.m_UseComplexAsSimple);
+            f32 staticFriction = component.m_Material.GetStaticFriction();
+            if (ImGui::DragFloat("Static Friction##MeshCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetStaticFriction(staticFriction);
+            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
+            if (ImGui::DragFloat("Dynamic Friction##MeshCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetDynamicFriction(dynamicFriction);
+            f32 restitution = component.m_Material.GetRestitution();
+            if (ImGui::DragFloat("Restitution##MeshCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
+                component.m_Material.SetRestitution(restitution); });
+
+        DrawComponent<ConvexMeshCollider3DComponent>("Convex Mesh Collider 3D", entity, [](auto& component)
+                                                     {
+            ImGui::Text("Collider Asset: %s", component.m_ColliderAsset ? "Set" : "None");
+            DrawVec3Control("Offset##ConvexMeshCollider3D", component.m_Offset);
+            DrawVec3Control("Scale##ConvexMeshCollider3D", component.m_Scale, 1.0f);
+            ImGui::DragFloat("Convex Radius##ConvexMeshCollider3D", &component.m_ConvexRadius, 0.01f, 0.0f, 1.0f);
+            int maxVertices = static_cast<int>(component.m_MaxVertices);
+            if (ImGui::DragInt("Max Vertices##ConvexMeshCollider3D", &maxVertices, 1, 4, 256))
+                component.m_MaxVertices = static_cast<u32>(maxVertices);
+            f32 staticFriction = component.m_Material.GetStaticFriction();
+            if (ImGui::DragFloat("Static Friction##ConvexMeshCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetStaticFriction(staticFriction);
+            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
+            if (ImGui::DragFloat("Dynamic Friction##ConvexMeshCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetDynamicFriction(dynamicFriction);
+            f32 restitution = component.m_Material.GetRestitution();
+            if (ImGui::DragFloat("Restitution##ConvexMeshCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
+                component.m_Material.SetRestitution(restitution); });
+
+        DrawComponent<TriangleMeshCollider3DComponent>("Triangle Mesh Collider 3D", entity, [](auto& component)
+                                                       {
+            ImGui::Text("Collider Asset: %s", component.m_ColliderAsset ? "Set" : "None");
+            ImGui::TextWrapped("Note: Triangle mesh colliders are always static.");
+            DrawVec3Control("Offset##TriangleMeshCollider3D", component.m_Offset);
+            DrawVec3Control("Scale##TriangleMeshCollider3D", component.m_Scale, 1.0f);
+            f32 staticFriction = component.m_Material.GetStaticFriction();
+            if (ImGui::DragFloat("Static Friction##TriangleMeshCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetStaticFriction(staticFriction);
+            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
+            if (ImGui::DragFloat("Dynamic Friction##TriangleMeshCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetDynamicFriction(dynamicFriction);
+            f32 restitution = component.m_Material.GetRestitution();
+            if (ImGui::DragFloat("Restitution##TriangleMeshCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
+                component.m_Material.SetRestitution(restitution); });
+
+        DrawComponent<CharacterController3DComponent>("Character Controller 3D", entity, [](auto& component)
+                                                      {
+            ImGui::DragFloat("Slope Limit (deg)##CharacterController3D", &component.m_SlopeLimitDeg, 1.0f, 0.0f, 90.0f);
+            ImGui::DragFloat("Step Offset##CharacterController3D", &component.m_StepOffset, 0.01f, 0.0f, 2.0f);
+            ImGui::DragFloat("Jump Power##CharacterController3D", &component.m_JumpPower, 0.1f, 0.0f, 50.0f);
+            int layerID = static_cast<int>(component.m_LayerID);
+            if (ImGui::DragInt("Layer ID##CharacterController3D", &layerID, 1, 0, 31))
+                component.m_LayerID = static_cast<u32>(layerID);
+            ImGui::Checkbox("Disable Gravity##CharacterController3D", &component.m_DisableGravity);
+            ImGui::Checkbox("Control Movement In Air##CharacterController3D", &component.m_ControlMovementInAir);
+            ImGui::Checkbox("Control Rotation In Air##CharacterController3D", &component.m_ControlRotationInAir); });
+
+        // Audio Components
+        DrawComponent<AudioSourceComponent>("Audio Source", entity, [](auto& component)
+                                            {
+            ImGui::Text("Audio Source: %s", component.Source ? "Loaded" : "None");
+            if (component.Source)
+            {
+                ImGui::Text("File: %s", component.Source->GetPath());
+            }
+            
+            ImGui::DragFloat("Volume##AudioSource", &component.Config.VolumeMultiplier, 0.01f, 0.0f, 2.0f);
+            ImGui::DragFloat("Pitch##AudioSource", &component.Config.PitchMultiplier, 0.01f, 0.1f, 3.0f);
+            ImGui::Checkbox("Play On Awake##AudioSource", &component.Config.PlayOnAwake);
+            ImGui::Checkbox("Looping##AudioSource", &component.Config.Looping);
+            
+            ImGui::Separator();
+            ImGui::Text("Spatialization");
+            ImGui::Checkbox("Spatialization##AudioSource", &component.Config.Spatialization);
+            
+            if (component.Config.Spatialization)
+            {
+                const char* attenuationModels[] = { "None", "Inverse", "Linear", "Exponential" };
+                int currentModel = static_cast<int>(component.Config.AttenuationModel);
+                if (ImGui::Combo("Attenuation Model##AudioSource", &currentModel, attenuationModels, IM_ARRAYSIZE(attenuationModels)))
+                    component.Config.AttenuationModel = static_cast<AttenuationModelType>(currentModel);
+                
+                ImGui::DragFloat("Roll Off##AudioSource", &component.Config.RollOff, 0.1f, 0.0f, 10.0f);
+                ImGui::DragFloat("Min Gain##AudioSource", &component.Config.MinGain, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Max Gain##AudioSource", &component.Config.MaxGain, 0.01f, 0.0f, 2.0f);
+                ImGui::DragFloat("Min Distance##AudioSource", &component.Config.MinDistance, 0.1f, 0.0f, 100.0f);
+                ImGui::DragFloat("Max Distance##AudioSource", &component.Config.MaxDistance, 1.0f, 0.0f, 1000.0f);
+                
+                ImGui::Separator();
+                ImGui::Text("Cone Settings");
+                ImGui::DragFloat("Inner Angle##AudioSource", &component.Config.ConeInnerAngle, 1.0f, 0.0f, 360.0f);
+                ImGui::DragFloat("Outer Angle##AudioSource", &component.Config.ConeOuterAngle, 1.0f, 0.0f, 360.0f);
+                ImGui::DragFloat("Outer Gain##AudioSource", &component.Config.ConeOuterGain, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Doppler Factor##AudioSource", &component.Config.DopplerFactor, 0.1f, 0.0f, 10.0f);
+            } });
+
+        DrawComponent<AudioListenerComponent>("Audio Listener", entity, [](auto& component)
+                                              {
+            ImGui::Checkbox("Active##AudioListener", &component.Active);
+            
+            ImGui::Separator();
+            ImGui::Text("Cone Settings");
+            ImGui::DragFloat("Inner Angle##AudioListener", &component.Config.ConeInnerAngle, 1.0f, 0.0f, 360.0f);
+            ImGui::DragFloat("Outer Angle##AudioListener", &component.Config.ConeOuterAngle, 1.0f, 0.0f, 360.0f);
+            ImGui::DragFloat("Outer Gain##AudioListener", &component.Config.ConeOuterGain, 0.01f, 0.0f, 1.0f); });
+
+        // Animation Components
+        DrawComponent<AnimationStateComponent>("Animation State", entity, [](auto& component)
+                                               {
+            const char* stateStrings[] = { "Idle", "Bounce", "Custom" };
+            int currentState = static_cast<int>(component.m_State);
+            if (ImGui::Combo("State##AnimationState", &currentState, stateStrings, IM_ARRAYSIZE(stateStrings)))
+                component.m_State = static_cast<AnimationStateComponent::State>(currentState);
+            
+            ImGui::Text("Current Clip: %s", component.m_CurrentClip ? "Loaded" : "None");
+            ImGui::Text("Next Clip: %s", component.m_NextClip ? "Loaded" : "None");
+            
+            ImGui::DragFloat("Current Time##AnimationState", &component.m_CurrentTime, 0.01f, 0.0f, 100.0f);
+            ImGui::DragFloat("Blend Duration##AnimationState", &component.m_BlendDuration, 0.01f, 0.0f, 5.0f);
+            
+            if (component.m_Blending)
+            {
+                ImGui::Text("Blending: %.2f", component.m_BlendFactor);
+                ImGui::ProgressBar(component.m_BlendFactor, ImVec2(-1, 0), "Blend Progress");
+            }
+            
+            ImGui::Text("Bone Entities: %zu", component.m_BoneEntityIds.size()); });
+
+        DrawComponent<SkeletonComponent>("Skeleton", entity, [](auto& component)
+                                         {
+            ImGui::Text("Skeleton: %s", component.m_Skeleton ? "Loaded" : "None");
+            if (component.m_Skeleton)
+            {
+                ImGui::Text("Bones: %zu", component.m_Skeleton->m_BoneNames.size());
+            }
+            
+            if (ImGui::Button("Invalidate Cache##Skeleton"))
+            {
+                component.InvalidateCache();
+            } });
+
+        DrawComponent<SubmeshComponent>("Submesh", entity, [](auto& component)
+                                        {
+            ImGui::Text("Mesh: %s", component.m_Mesh ? "Loaded" : "None");
+            int submeshIndex = static_cast<int>(component.m_SubmeshIndex);
+            if (ImGui::DragInt("Submesh Index##Submesh", &submeshIndex, 1, 0, 255))
+                component.m_SubmeshIndex = static_cast<u32>(submeshIndex);
+            ImGui::Checkbox("Visible##Submesh", &component.m_Visible);
+            ImGui::Text("Bone Entities: %zu", component.m_BoneEntityIds.size()); });
     }
 
     template<typename T>

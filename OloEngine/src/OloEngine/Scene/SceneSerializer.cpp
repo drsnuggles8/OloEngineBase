@@ -8,6 +8,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Renderer/AnimatedModel.h"
 
 #include <fstream>
 
@@ -602,7 +603,14 @@ namespace OloEngine
             out << YAML::Key << "State" << YAML::Value << static_cast<int>(animComponent.m_State);
             out << YAML::Key << "CurrentTime" << YAML::Value << animComponent.m_CurrentTime;
             out << YAML::Key << "BlendDuration" << YAML::Value << animComponent.m_BlendDuration;
-            // Note: m_CurrentClip, m_NextClip, m_BoneEntityIds are runtime data
+            out << YAML::Key << "CurrentClipIndex" << YAML::Value << animComponent.m_CurrentClipIndex;
+            out << YAML::Key << "IsPlaying" << YAML::Value << animComponent.m_IsPlaying;
+            out << YAML::Key << "SourceFilePath" << YAML::Value << animComponent.m_SourceFilePath;
+            // Save current clip name for reference (helps with debugging)
+            if (animComponent.m_CurrentClip)
+            {
+                out << YAML::Key << "CurrentClipName" << YAML::Value << animComponent.m_CurrentClip->Name;
+            }
 
             out << YAML::EndMap; // AnimationStateComponent
         }
@@ -1097,13 +1105,88 @@ namespace OloEngine
                     anim.m_State = static_cast<AnimationStateComponent::State>(animComponent["State"].as<int>(static_cast<int>(anim.m_State)));
                     anim.m_CurrentTime = animComponent["CurrentTime"].as<f32>(anim.m_CurrentTime);
                     anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
-                    // Note: Animation clips are runtime data, loaded from model
+                    anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
+                    anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
+                    
+                    // Load source file path and reload animated model if available
+                    if (animComponent["SourceFilePath"])
+                    {
+                        anim.m_SourceFilePath = animComponent["SourceFilePath"].as<std::string>();
+                        if (!anim.m_SourceFilePath.empty())
+                        {
+                            auto animatedModel = Ref<AnimatedModel>::Create(anim.m_SourceFilePath);
+                            if (animatedModel)
+                            {
+                                // Load animations
+                                if (animatedModel->HasAnimations())
+                                {
+                                    anim.m_AvailableClips = animatedModel->GetAnimations();
+                                    if (anim.m_CurrentClipIndex >= 0 && anim.m_CurrentClipIndex < static_cast<int>(anim.m_AvailableClips.size()))
+                                    {
+                                        anim.m_CurrentClip = anim.m_AvailableClips[anim.m_CurrentClipIndex];
+                                    }
+                                    else if (!anim.m_AvailableClips.empty())
+                                    {
+                                        anim.m_CurrentClip = anim.m_AvailableClips[0];
+                                        anim.m_CurrentClipIndex = 0;
+                                    }
+                                    OLO_CORE_INFO("Deserialized AnimationStateComponent: loaded {} clips from '{}'", 
+                                        anim.m_AvailableClips.size(), anim.m_SourceFilePath);
+                                }
+                                
+                                // Update or add MeshComponent with loaded mesh data
+                                if (!animatedModel->GetMeshes().empty())
+                                {
+                                    if (!deserializedEntity.HasComponent<MeshComponent>())
+                                    {
+                                        deserializedEntity.AddComponent<MeshComponent>();
+                                    }
+                                    auto& meshComp = deserializedEntity.GetComponent<MeshComponent>();
+                                    meshComp.m_MeshSource = animatedModel->GetMeshes()[0];
+                                    OLO_CORE_INFO("Deserialized MeshComponent: loaded mesh from animated model");
+                                }
+                                
+                                // Update or add SkeletonComponent with loaded skeleton data
+                                if (animatedModel->HasSkeleton())
+                                {
+                                    if (!deserializedEntity.HasComponent<SkeletonComponent>())
+                                    {
+                                        deserializedEntity.AddComponent<SkeletonComponent>();
+                                    }
+                                    auto& skelComp = deserializedEntity.GetComponent<SkeletonComponent>();
+                                    skelComp.m_Skeleton = animatedModel->GetSkeleton();
+                                    OLO_CORE_INFO("Deserialized SkeletonComponent: loaded {} bones from animated model", 
+                                        skelComp.m_Skeleton ? skelComp.m_Skeleton->m_BoneNames.size() : 0);
+                                }
+                                
+                                // Update MaterialComponent if model has materials
+                                if (!animatedModel->GetMaterials().empty())
+                                {
+                                    if (!deserializedEntity.HasComponent<MaterialComponent>())
+                                    {
+                                        deserializedEntity.AddComponent<MaterialComponent>();
+                                    }
+                                    auto& matComp = deserializedEntity.GetComponent<MaterialComponent>();
+                                    matComp.m_Material = animatedModel->GetMaterials()[0];
+                                    OLO_CORE_INFO("Deserialized MaterialComponent: loaded material from animated model");
+                                }
+                            }
+                            else
+                            {
+                                OLO_CORE_ERROR("Failed to load animated model from '{}'", anim.m_SourceFilePath);
+                            }
+                        }
+                    }
                 }
 
                 if (auto skelComponent = entity["SkeletonComponent"]; skelComponent)
                 {
-                    deserializedEntity.AddComponent<SkeletonComponent>();
-                    // Note: Skeleton is loaded from model file at runtime
+                    // Only add if not already added by AnimationStateComponent deserialization
+                    if (!deserializedEntity.HasComponent<SkeletonComponent>())
+                    {
+                        deserializedEntity.AddComponent<SkeletonComponent>();
+                    }
+                    // Note: Skeleton data is loaded from AnimationStateComponent's source file
                 }
             }
         }
@@ -1594,11 +1677,79 @@ namespace OloEngine
                     anim.m_State = static_cast<AnimationStateComponent::State>(animComponent["State"].as<int>(static_cast<int>(anim.m_State)));
                     anim.m_CurrentTime = animComponent["CurrentTime"].as<f32>(anim.m_CurrentTime);
                     anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
+                    anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
+                    anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
+                    
+                    // Load source file path and reload animated model if available
+                    if (animComponent["SourceFilePath"])
+                    {
+                        anim.m_SourceFilePath = animComponent["SourceFilePath"].as<std::string>();
+                        if (!anim.m_SourceFilePath.empty())
+                        {
+                            auto animatedModel = Ref<AnimatedModel>::Create(anim.m_SourceFilePath);
+                            if (animatedModel)
+                            {
+                                // Load animations
+                                if (animatedModel->HasAnimations())
+                                {
+                                    anim.m_AvailableClips = animatedModel->GetAnimations();
+                                    if (anim.m_CurrentClipIndex >= 0 && anim.m_CurrentClipIndex < static_cast<int>(anim.m_AvailableClips.size()))
+                                    {
+                                        anim.m_CurrentClip = anim.m_AvailableClips[anim.m_CurrentClipIndex];
+                                    }
+                                    else if (!anim.m_AvailableClips.empty())
+                                    {
+                                        anim.m_CurrentClip = anim.m_AvailableClips[0];
+                                        anim.m_CurrentClipIndex = 0;
+                                    }
+                                    OLO_CORE_INFO("Deserialized AnimationStateComponent: loaded {} clips from '{}'", 
+                                        anim.m_AvailableClips.size(), anim.m_SourceFilePath);
+                                }
+                                
+                                // Update or add MeshComponent with loaded mesh data
+                                if (!animatedModel->GetMeshes().empty())
+                                {
+                                    if (!deserializedEntity.HasComponent<MeshComponent>())
+                                    {
+                                        deserializedEntity.AddComponent<MeshComponent>();
+                                    }
+                                    auto& meshComp = deserializedEntity.GetComponent<MeshComponent>();
+                                    meshComp.m_MeshSource = animatedModel->GetMeshes()[0];
+                                }
+                                
+                                // Update or add SkeletonComponent with loaded skeleton data
+                                if (animatedModel->HasSkeleton())
+                                {
+                                    if (!deserializedEntity.HasComponent<SkeletonComponent>())
+                                    {
+                                        deserializedEntity.AddComponent<SkeletonComponent>();
+                                    }
+                                    auto& skelComp = deserializedEntity.GetComponent<SkeletonComponent>();
+                                    skelComp.m_Skeleton = animatedModel->GetSkeleton();
+                                }
+                                
+                                // Update MaterialComponent if model has materials
+                                if (!animatedModel->GetMaterials().empty())
+                                {
+                                    if (!deserializedEntity.HasComponent<MaterialComponent>())
+                                    {
+                                        deserializedEntity.AddComponent<MaterialComponent>();
+                                    }
+                                    auto& matComp = deserializedEntity.GetComponent<MaterialComponent>();
+                                    matComp.m_Material = animatedModel->GetMaterials()[0];
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (auto skelComponent = entity["SkeletonComponent"]; skelComponent)
                 {
-                    deserializedEntity.AddComponent<SkeletonComponent>();
+                    if (!deserializedEntity.HasComponent<SkeletonComponent>())
+                    {
+                        deserializedEntity.AddComponent<SkeletonComponent>();
+                    }
+                    // Note: Skeleton data is loaded from AnimationStateComponent's source file
                 }
             }
         }

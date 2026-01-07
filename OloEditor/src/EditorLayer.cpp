@@ -148,11 +148,13 @@ namespace OloEngine
             {
                 m_EditorCamera.OnUpdate(ts);
 
+                m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
                 m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
                 break;
             }
             case SceneState::Play:
             {
+                m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
                 m_ActiveScene->OnUpdateRuntime(ts);
                 break;
             }
@@ -358,6 +360,13 @@ namespace OloEngine
         {
             ImGui::MenuItem("Shader Debugger", nullptr, &m_ShowShaderDebugger);
             ImGui::MenuItem("GPU Resource Inspector", nullptr, &m_ShowGPUResourceInspector);
+
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Window"))
+        {
+            ImGui::MenuItem("Animation Panel", nullptr, &m_ShowAnimationPanel);
 
             ImGui::EndMenu();
         }
@@ -591,6 +600,13 @@ namespace OloEngine
         {
             m_AssetPackBuilderPanel->OnImGuiRender(m_ShowAssetPackBuilder);
         }
+
+        // Animation Panel
+        if (m_ShowAnimationPanel)
+        {
+            m_AnimationPanel.SetSelectedEntity(m_SceneHierarchyPanel.GetSelectedEntity());
+            m_AnimationPanel.OnImGuiRender();
+        }
     }
 
     void EditorLayer::UI_Settings()
@@ -641,7 +657,8 @@ namespace OloEngine
     {
         ImGui::Begin("Stats");
         std::string name = "None";
-        if (m_HoveredEntity && m_HoveredEntity.HasComponent<TagComponent>())
+        // Validate entity belongs to current active scene before accessing components
+        if (m_HoveredEntity && m_HoveredEntity.GetScene() == m_ActiveScene.get() && m_HoveredEntity.HasComponent<TagComponent>())
         {
             name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
         }
@@ -1048,6 +1065,7 @@ namespace OloEngine
         m_ActiveScene->OnRuntimeStart();
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneSimulate()
@@ -1063,6 +1081,7 @@ namespace OloEngine
         m_ActiveScene->OnSimulationStart();
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneStop()
@@ -1081,9 +1100,13 @@ namespace OloEngine
 
         m_SceneState = Edit;
 
+        // Reset hovered entity before changing scenes to prevent accessing stale registry
+        m_HoveredEntity = Entity();
+
         m_ActiveScene = m_EditorScene;
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
@@ -1095,6 +1118,7 @@ namespace OloEngine
 
         m_EditorScene = scene;
         m_SceneHierarchyPanel.SetContext(m_EditorScene);
+        m_AnimationPanel.SetContext(m_EditorScene);
 
         m_ActiveScene = m_EditorScene;
 

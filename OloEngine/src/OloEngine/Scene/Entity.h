@@ -115,6 +115,12 @@ namespace OloEngine
         {
             return GetComponent<IDComponent>().ID;
         }
+
+        [[nodiscard]] Scene* GetScene() const
+        {
+            return m_Scene;
+        }
+
         const std::string& GetName()
         {
             return GetComponent<TagComponent>().Tag;

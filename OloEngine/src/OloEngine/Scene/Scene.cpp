@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
+#include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 
@@ -256,6 +257,20 @@ namespace OloEngine
                 ScriptEngine::OnCreateEntity(entity);
             }
         }
+
+        // Start animations
+        {
+            auto animView = m_Registry.view<AnimationStateComponent>();
+            for (auto e : animView)
+            {
+                auto& animState = animView.get<AnimationStateComponent>(e);
+                if (animState.m_CurrentClip)
+                {
+                    animState.m_IsPlaying = true;
+                    animState.m_CurrentTime = 0.0f;
+                }
+            }
+        }
     }
 
     void Scene::OnRuntimeStop()
@@ -297,6 +312,21 @@ namespace OloEngine
                 {
                     Entity entity = { e, this };
                     ScriptEngine::OnUpdateEntity(entity, ts);
+                }
+            }
+
+            // Update animations
+            {
+                auto animView = m_Registry.view<AnimationStateComponent, SkeletonComponent>();
+                for (auto e : animView)
+                {
+                    auto& animState = animView.get<AnimationStateComponent>(e);
+                    auto& skelComp = animView.get<SkeletonComponent>(e);
+                    
+                    if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
+                    {
+                        Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds());
+                    }
                 }
             }
 
@@ -874,11 +904,17 @@ namespace OloEngine
             }
         }
 
-        // Draw mesh entities
+        // Draw mesh entities (skip animated entities - they're rendered separately)
         {
             auto view = m_Registry.view<TransformComponent, MeshComponent>();
             for (auto entity : view)
             {
+                // Skip entities with SkeletonComponent - they're rendered by the animated mesh path
+                if (m_Registry.all_of<SkeletonComponent>(entity))
+                {
+                    continue;
+                }
+
                 const auto [transform, mesh] = view.get<TransformComponent, MeshComponent>(entity);
                 
                 if (!mesh.m_MeshSource)
@@ -949,6 +985,43 @@ namespace OloEngine
                 // Model::DrawParallel uses the model's own materials loaded from file
                 // Pass entity ID for mouse picking support
                 model.m_Model->DrawParallel(transform.GetTransform(), static_cast<int>(entity));
+            }
+        }
+
+        // Draw animated mesh entities (entities with MeshComponent + SkeletonComponent)
+        {
+            auto view = m_Registry.view<TransformComponent, MeshComponent, SkeletonComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, mesh, skeleton] = view.get<TransformComponent, MeshComponent, SkeletonComponent>(entity);
+                
+                if (!mesh.m_MeshSource || !skeleton.m_Skeleton)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                    ? m_Registry.get<MaterialComponent>(entity).m_Material
+                    : GetDefaultMaterial();
+
+                // Get bone matrices from skeleton
+                const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                // Draw each submesh as an animated mesh
+                if (!mesh.m_MeshSource->GetSubmeshes().IsEmpty())
+                {
+                    for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
+                    {
+                        auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false);
+                        if (packet)
+                            Renderer3D::SubmitPacket(packet);
+                    }
+                }
             }
         }
 
@@ -1022,11 +1095,17 @@ namespace OloEngine
             }
         }
 
-        // Draw mesh entities
+        // Draw mesh entities (skip animated entities - they're rendered separately)
         {
             auto view = m_Registry.view<TransformComponent, MeshComponent>();
             for (auto entity : view)
             {
+                // Skip entities with SkeletonComponent - they're rendered by the animated mesh path
+                if (m_Registry.all_of<SkeletonComponent>(entity))
+                {
+                    continue;
+                }
+
                 const auto [transform, mesh] = view.get<TransformComponent, MeshComponent>(entity);
                 
                 if (!mesh.m_MeshSource)
@@ -1097,6 +1176,43 @@ namespace OloEngine
                 // Model::DrawParallel uses the model's own materials loaded from file
                 // Pass entity ID for mouse picking support
                 model.m_Model->DrawParallel(transform.GetTransform(), static_cast<int>(entity));
+            }
+        }
+
+        // Draw animated mesh entities (entities with MeshComponent + SkeletonComponent)
+        {
+            auto view = m_Registry.view<TransformComponent, MeshComponent, SkeletonComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, mesh, skeleton] = view.get<TransformComponent, MeshComponent, SkeletonComponent>(entity);
+                
+                if (!mesh.m_MeshSource || !skeleton.m_Skeleton)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                    ? m_Registry.get<MaterialComponent>(entity).m_Material
+                    : GetDefaultMaterial();
+
+                // Get bone matrices from skeleton
+                const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                // Draw each submesh as an animated mesh
+                if (!mesh.m_MeshSource->GetSubmeshes().IsEmpty())
+                {
+                    for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
+                    {
+                        auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false);
+                        if (packet)
+                            Renderer3D::SubmitPacket(packet);
+                    }
+                }
             }
         }
 
