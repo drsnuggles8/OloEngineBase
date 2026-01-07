@@ -2,6 +2,9 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/UI/UI.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -287,6 +290,20 @@ namespace OloEngine
             DisplayAddComponentEntry<CircleCollider2DComponent>("Circle Collider 2D");
             DisplayAddComponentEntry<TextComponent>("Text Component");
 
+            ImGui::Separator();
+
+            // 3D Components
+            DisplayAddComponentEntry<MeshComponent>("Mesh");
+            DisplayAddComponentEntry<ModelComponent>("Model (with Materials)");
+            DisplayAddComponentEntry<MaterialComponent>("Material");
+            DisplayAddComponentEntry<DirectionalLightComponent>("Directional Light");
+            DisplayAddComponentEntry<PointLightComponent>("Point Light");
+            DisplayAddComponentEntry<SpotLightComponent>("Spot Light");
+            DisplayAddComponentEntry<Rigidbody3DComponent>("Rigidbody 3D");
+            DisplayAddComponentEntry<BoxCollider3DComponent>("Box Collider 3D");
+            DisplayAddComponentEntry<SphereCollider3DComponent>("Sphere Collider 3D");
+            DisplayAddComponentEntry<CapsuleCollider3DComponent>("Capsule Collider 3D");
+
             ImGui::EndPopup();
         }
 
@@ -517,6 +534,255 @@ namespace OloEngine
 			ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
 			ImGui::DragFloat("Kerning", &component.Kerning, 0.025f);
 			ImGui::DragFloat("Line Spacing", &component.LineSpacing, 0.025f); });
+
+        // 3D Components
+        DrawComponent<MeshComponent>("Mesh", entity, [](auto& component)
+                                     {
+			ImGui::Text("Mesh Source: %s", component.m_MeshSource ? "Loaded" : "None");
+			
+			if (component.m_MeshSource)
+			{
+				ImGui::Text("Submeshes: %d", component.m_MeshSource->GetSubmeshes().Num());
+				ImGui::Text("Vertices: %d", component.m_MeshSource->GetVertices().Num());
+			}
+
+			// Import model from file
+			if (ImGui::Button("Import Model..."))
+			{
+				std::string filepath = FileDialogs::OpenFile(
+					"3D Models (*.obj;*.fbx;*.gltf;*.glb)\0*.obj;*.fbx;*.gltf;*.glb\0"
+					"Wavefront OBJ (*.obj)\0*.obj\0"
+					"FBX (*.fbx)\0*.fbx\0"
+					"glTF (*.gltf;*.glb)\0*.gltf;*.glb\0"
+					"All Files (*.*)\0*.*\0");
+				if (!filepath.empty())
+				{
+					auto model = Ref<Model>::Create(filepath);
+					if (model && model->GetMeshCount() > 0)
+					{
+						// Create a combined MeshSource from all meshes in the model
+						auto combinedMeshSource = model->CreateCombinedMeshSource();
+						if (combinedMeshSource)
+						{
+							component.m_MeshSource = combinedMeshSource;
+							OLO_CORE_INFO("Imported model: {} ({} meshes combined)", filepath, model->GetMeshCount());
+						}
+						else
+						{
+							OLO_CORE_ERROR("Failed to create combined mesh from model: {}", filepath);
+						}
+					}
+					else
+					{
+						OLO_CORE_ERROR("Failed to load model: {}", filepath);
+					}
+				}
+			}
+			
+			ImGui::SameLine();
+
+			// Primitive mesh creation dropdown
+			const char* primitives[] = { "Create Primitive...", "Cube", "Sphere", "Plane", "Cylinder", "Cone", "Icosphere", "Torus" };
+			static int currentPrimitive = 0;
+			ImGui::SetNextItemWidth(150.0f);
+			if (ImGui::Combo("##PrimitiveCombo", &currentPrimitive, primitives, IM_ARRAYSIZE(primitives)))
+			{
+				Ref<Mesh> mesh = nullptr;
+				switch (currentPrimitive)
+				{
+				case 1: mesh = MeshPrimitives::CreateCube(); break;
+				case 2: mesh = MeshPrimitives::CreateSphere(); break;
+				case 3: mesh = MeshPrimitives::CreatePlane(); break;
+				case 4: mesh = MeshPrimitives::CreateCylinder(); break;
+				case 5: mesh = MeshPrimitives::CreateCone(); break;
+				case 6: mesh = MeshPrimitives::CreateIcosphere(); break;
+				case 7: mesh = MeshPrimitives::CreateTorus(); break;
+				}
+				if (mesh)
+				{
+					component.m_MeshSource = mesh->GetMeshSource();
+				}
+				currentPrimitive = 0; // Reset selection
+			}
+			
+			// Clear mesh button
+			if (component.m_MeshSource)
+			{
+				if (ImGui::Button("Clear Mesh"))
+				{
+					component.m_MeshSource.Reset();
+				}
+			} });
+
+        DrawComponent<ModelComponent>("Model", entity, [](auto& component)
+                                      {
+            ImGui::Text("Model: %s", component.IsLoaded() ? "Loaded" : "None");
+            
+            if (component.IsLoaded())
+            {
+                ImGui::Text("Meshes: %zu", component.m_Model->GetMeshCount());
+                if (!component.m_FilePath.empty())
+                {
+                    // Show just the filename, not the full path
+                    auto lastSlash = component.m_FilePath.find_last_of("/\\");
+                    std::string filename = (lastSlash != std::string::npos) 
+                        ? component.m_FilePath.substr(lastSlash + 1) 
+                        : component.m_FilePath;
+                    ImGui::Text("File: %s", filename.c_str());
+                }
+            }
+
+            ImGui::Checkbox("Visible", &component.m_Visible);
+
+            // Import model from file
+            if (ImGui::Button("Import Model...##ModelComponent"))
+            {
+                std::string filepath = FileDialogs::OpenFile(
+                    "3D Models (*.obj;*.fbx;*.gltf;*.glb)\0*.obj;*.fbx;*.gltf;*.glb\0"
+                    "Wavefront OBJ (*.obj)\0*.obj\0"
+                    "FBX (*.fbx)\0*.fbx\0"
+                    "glTF (*.gltf;*.glb)\0*.gltf;*.glb\0"
+                    "All Files (*.*)\0*.*\0");
+                if (!filepath.empty())
+                {
+                    component.m_FilePath = filepath;
+                    component.Reload();
+                    if (component.IsLoaded())
+                    {
+                        OLO_CORE_INFO("Imported model with materials: {} ({} meshes)", 
+                            filepath, component.m_Model->GetMeshCount());
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("Failed to load model: {}", filepath);
+                    }
+                }
+            }
+            
+            // Reload button
+            if (component.IsLoaded())
+            {
+                ImGui::SameLine();
+                if (ImGui::Button("Reload##ModelComponent"))
+                {
+                    component.Reload();
+                }
+                
+                ImGui::SameLine();
+                if (ImGui::Button("Clear##ModelComponent"))
+                {
+                    component.m_Model.Reset();
+                    component.m_FilePath.clear();
+                }
+            } });
+
+        DrawComponent<MaterialComponent>("Material", entity, [](auto& component)
+                                         {
+            auto baseColor = component.m_Material.GetBaseColorFactor();
+            glm::vec3 albedo(baseColor.r, baseColor.g, baseColor.b);
+            if (ImGui::ColorEdit3("Albedo", glm::value_ptr(albedo)))
+                component.m_Material.SetBaseColorFactor(glm::vec4(albedo, baseColor.a));
+			
+            f32 metallic = component.m_Material.GetMetallicFactor();
+            if (ImGui::DragFloat("Metallic", &metallic, 0.01f, 0.0f, 1.0f))
+                component.m_Material.SetMetallicFactor(metallic);
+			
+            f32 roughness = component.m_Material.GetRoughnessFactor();
+            if (ImGui::DragFloat("Roughness", &roughness, 0.01f, 0.0f, 1.0f))
+                component.m_Material.SetRoughnessFactor(roughness); });
+
+        DrawComponent<DirectionalLightComponent>("Directional Light", entity, [](auto& component)
+                                                 {
+			DrawVec3Control("Direction", component.m_Direction);
+			ImGui::ColorEdit3("Color", glm::value_ptr(component.m_Color));
+			ImGui::DragFloat("Intensity##DirectionalLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
+			ImGui::Checkbox("Cast Shadows##DirectionalLight", &component.m_CastShadows); });
+
+        DrawComponent<PointLightComponent>("Point Light", entity, [](auto& component)
+                                           {
+			ImGui::ColorEdit3("Color##PointLight", glm::value_ptr(component.m_Color));
+			ImGui::DragFloat("Intensity##PointLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
+			ImGui::DragFloat("Range##PointLight", &component.m_Range, 0.1f, 0.1f, 100.0f);
+			ImGui::DragFloat("Attenuation##PointLight", &component.m_Attenuation, 0.1f, 0.1f, 4.0f);
+			ImGui::Checkbox("Cast Shadows##PointLight", &component.m_CastShadows); });
+
+        DrawComponent<SpotLightComponent>("Spot Light", entity, [](auto& component)
+                                          {
+			DrawVec3Control("Direction##SpotLight", component.m_Direction);
+			ImGui::ColorEdit3("Color##SpotLight", glm::value_ptr(component.m_Color));
+			ImGui::DragFloat("Intensity##SpotLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
+			ImGui::DragFloat("Range##SpotLight", &component.m_Range, 0.1f, 0.1f, 100.0f);
+			ImGui::DragFloat("Inner Cutoff##SpotLight", &component.m_InnerCutoff, 0.1f, 0.0f, 90.0f);
+			ImGui::DragFloat("Outer Cutoff##SpotLight", &component.m_OuterCutoff, 0.1f, 0.0f, 90.0f);
+			ImGui::DragFloat("Attenuation##SpotLight", &component.m_Attenuation, 0.1f, 0.1f, 4.0f);
+			ImGui::Checkbox("Cast Shadows##SpotLight", &component.m_CastShadows); });
+
+        DrawComponent<Rigidbody3DComponent>("Rigidbody 3D", entity, [](auto& component)
+                                            {
+			const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
+			const char* currentBodyTypeString = bodyTypeStrings[static_cast<int>(component.m_Type)];
+			if (ImGui::BeginCombo("Body Type", currentBodyTypeString))
+			{
+				for (int i = 0; i < 3; ++i)
+				{
+					const bool isSelected = currentBodyTypeString == bodyTypeStrings[i];
+					if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
+					{
+						component.m_Type = static_cast<BodyType3D>(i);
+					}
+					if (isSelected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::DragFloat("Mass##Rigidbody3D", &component.m_Mass, 0.01f, 0.1f, 1000.0f);
+			ImGui::DragFloat("Linear Drag##Rigidbody3D", &component.m_LinearDrag, 0.001f, 0.0f, 1.0f);
+			ImGui::DragFloat("Angular Drag##Rigidbody3D", &component.m_AngularDrag, 0.001f, 0.0f, 1.0f);
+			ImGui::Checkbox("Disable Gravity##Rigidbody3D", &component.m_DisableGravity);
+			ImGui::Checkbox("Is Trigger##Rigidbody3D", &component.m_IsTrigger); });
+
+        DrawComponent<BoxCollider3DComponent>("Box Collider 3D", entity, [](auto& component)
+                                              {
+			DrawVec3Control("Half Extents##BoxCollider3D", component.m_HalfExtents);
+			DrawVec3Control("Offset##BoxCollider3D", component.m_Offset);
+            f32 staticFriction = component.m_Material.GetStaticFriction();
+            if (ImGui::DragFloat("Static Friction##BoxCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetStaticFriction(staticFriction);
+            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
+            if (ImGui::DragFloat("Dynamic Friction##BoxCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetDynamicFriction(dynamicFriction);
+            f32 restitution = component.m_Material.GetRestitution();
+            if (ImGui::DragFloat("Restitution##BoxCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
+                component.m_Material.SetRestitution(restitution); });
+
+        DrawComponent<SphereCollider3DComponent>("Sphere Collider 3D", entity, [](auto& component)
+                                                 {
+			ImGui::DragFloat("Radius##SphereCollider3D", &component.m_Radius, 0.01f, 0.01f, 100.0f);
+			DrawVec3Control("Offset##SphereCollider3D", component.m_Offset);
+            f32 staticFriction = component.m_Material.GetStaticFriction();
+            if (ImGui::DragFloat("Static Friction##SphereCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetStaticFriction(staticFriction);
+            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
+            if (ImGui::DragFloat("Dynamic Friction##SphereCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetDynamicFriction(dynamicFriction);
+            f32 restitution = component.m_Material.GetRestitution();
+            if (ImGui::DragFloat("Restitution##SphereCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
+                component.m_Material.SetRestitution(restitution); });
+
+        DrawComponent<CapsuleCollider3DComponent>("Capsule Collider 3D", entity, [](auto& component)
+                                                  {
+			ImGui::DragFloat("Radius##CapsuleCollider3D", &component.m_Radius, 0.01f, 0.01f, 100.0f);
+			ImGui::DragFloat("Half Height##CapsuleCollider3D", &component.m_HalfHeight, 0.01f, 0.01f, 100.0f);
+			DrawVec3Control("Offset##CapsuleCollider3D", component.m_Offset);
+            f32 staticFriction = component.m_Material.GetStaticFriction();
+            if (ImGui::DragFloat("Static Friction##CapsuleCollider3D", &staticFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetStaticFriction(staticFriction);
+            f32 dynamicFriction = component.m_Material.GetDynamicFriction();
+            if (ImGui::DragFloat("Dynamic Friction##CapsuleCollider3D", &dynamicFriction, 0.01f, 0.0f, 2.0f))
+                component.m_Material.SetDynamicFriction(dynamicFriction);
+            f32 restitution = component.m_Material.GetRestitution();
+            if (ImGui::DragFloat("Restitution##CapsuleCollider3D", &restitution, 0.01f, 0.0f, 1.0f))
+                component.m_Material.SetRestitution(restitution); });
     }
 
     template<typename T>

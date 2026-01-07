@@ -7,6 +7,7 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Asset/AssetManager.h"
 
 #include <fstream>
 
@@ -333,6 +334,155 @@ namespace OloEngine
             out << YAML::EndMap; // TextComponent
         }
 
+        if (entity.HasComponent<MeshComponent>())
+        {
+            out << YAML::Key << "MeshComponent";
+            out << YAML::BeginMap; // MeshComponent
+
+            auto const& meshComponent = entity.GetComponent<MeshComponent>();
+            if (meshComponent.m_MeshSource)
+            {
+                out << YAML::Key << "MeshSourceHandle" << YAML::Value << static_cast<u64>(meshComponent.m_MeshSource->GetHandle());
+            }
+
+            out << YAML::EndMap; // MeshComponent
+        }
+
+        if (entity.HasComponent<ModelComponent>())
+        {
+            out << YAML::Key << "ModelComponent";
+            out << YAML::BeginMap; // ModelComponent
+
+            auto const& modelComponent = entity.GetComponent<ModelComponent>();
+            out << YAML::Key << "FilePath" << YAML::Value << modelComponent.m_FilePath;
+            out << YAML::Key << "Visible" << YAML::Value << modelComponent.m_Visible;
+
+            out << YAML::EndMap; // ModelComponent
+        }
+
+        if (entity.HasComponent<MaterialComponent>())
+        {
+            out << YAML::Key << "MaterialComponent";
+            out << YAML::BeginMap; // MaterialComponent
+
+            auto const& matComponent = entity.GetComponent<MaterialComponent>();
+            auto baseColor = matComponent.m_Material.GetBaseColorFactor();
+            out << YAML::Key << "AlbedoColor" << YAML::Value << glm::vec3(baseColor.r, baseColor.g, baseColor.b);
+            out << YAML::Key << "Metallic" << YAML::Value << matComponent.m_Material.GetMetallicFactor();
+            out << YAML::Key << "Roughness" << YAML::Value << matComponent.m_Material.GetRoughnessFactor();
+
+            out << YAML::EndMap; // MaterialComponent
+        }
+
+        if (entity.HasComponent<DirectionalLightComponent>())
+        {
+            out << YAML::Key << "DirectionalLightComponent";
+            out << YAML::BeginMap; // DirectionalLightComponent
+
+            auto const& dirLight = entity.GetComponent<DirectionalLightComponent>();
+            out << YAML::Key << "Direction" << YAML::Value << dirLight.m_Direction;
+            out << YAML::Key << "Color" << YAML::Value << dirLight.m_Color;
+            out << YAML::Key << "Intensity" << YAML::Value << dirLight.m_Intensity;
+            out << YAML::Key << "CastShadows" << YAML::Value << dirLight.m_CastShadows;
+
+            out << YAML::EndMap; // DirectionalLightComponent
+        }
+
+        if (entity.HasComponent<PointLightComponent>())
+        {
+            out << YAML::Key << "PointLightComponent";
+            out << YAML::BeginMap; // PointLightComponent
+
+            auto const& pointLight = entity.GetComponent<PointLightComponent>();
+            out << YAML::Key << "Color" << YAML::Value << pointLight.m_Color;
+            out << YAML::Key << "Intensity" << YAML::Value << pointLight.m_Intensity;
+            out << YAML::Key << "Range" << YAML::Value << pointLight.m_Range;
+            out << YAML::Key << "Attenuation" << YAML::Value << pointLight.m_Attenuation;
+            out << YAML::Key << "CastShadows" << YAML::Value << pointLight.m_CastShadows;
+
+            out << YAML::EndMap; // PointLightComponent
+        }
+
+        if (entity.HasComponent<SpotLightComponent>())
+        {
+            out << YAML::Key << "SpotLightComponent";
+            out << YAML::BeginMap; // SpotLightComponent
+
+            auto const& spotLight = entity.GetComponent<SpotLightComponent>();
+            out << YAML::Key << "Direction" << YAML::Value << spotLight.m_Direction;
+            out << YAML::Key << "Color" << YAML::Value << spotLight.m_Color;
+            out << YAML::Key << "Intensity" << YAML::Value << spotLight.m_Intensity;
+            out << YAML::Key << "Range" << YAML::Value << spotLight.m_Range;
+            out << YAML::Key << "InnerCutoff" << YAML::Value << spotLight.m_InnerCutoff;
+            out << YAML::Key << "OuterCutoff" << YAML::Value << spotLight.m_OuterCutoff;
+            out << YAML::Key << "Attenuation" << YAML::Value << spotLight.m_Attenuation;
+            out << YAML::Key << "CastShadows" << YAML::Value << spotLight.m_CastShadows;
+
+            out << YAML::EndMap; // SpotLightComponent
+        }
+
+        if (entity.HasComponent<Rigidbody3DComponent>())
+        {
+            out << YAML::Key << "Rigidbody3DComponent";
+            out << YAML::BeginMap; // Rigidbody3DComponent
+
+            auto const& rb3dComponent = entity.GetComponent<Rigidbody3DComponent>();
+            out << YAML::Key << "BodyType" << YAML::Value << static_cast<int>(rb3dComponent.m_Type);
+            out << YAML::Key << "Mass" << YAML::Value << rb3dComponent.m_Mass;
+            out << YAML::Key << "LinearDrag" << YAML::Value << rb3dComponent.m_LinearDrag;
+            out << YAML::Key << "AngularDrag" << YAML::Value << rb3dComponent.m_AngularDrag;
+            out << YAML::Key << "DisableGravity" << YAML::Value << rb3dComponent.m_DisableGravity;
+            out << YAML::Key << "IsTrigger" << YAML::Value << rb3dComponent.m_IsTrigger;
+
+            out << YAML::EndMap; // Rigidbody3DComponent
+        }
+
+        if (entity.HasComponent<BoxCollider3DComponent>())
+        {
+            out << YAML::Key << "BoxCollider3DComponent";
+            out << YAML::BeginMap; // BoxCollider3DComponent
+
+            auto const& bc3dComponent = entity.GetComponent<BoxCollider3DComponent>();
+            out << YAML::Key << "HalfExtents" << YAML::Value << bc3dComponent.m_HalfExtents;
+            out << YAML::Key << "Offset" << YAML::Value << bc3dComponent.m_Offset;
+            out << YAML::Key << "StaticFriction" << YAML::Value << bc3dComponent.m_Material.GetStaticFriction();
+            out << YAML::Key << "DynamicFriction" << YAML::Value << bc3dComponent.m_Material.GetDynamicFriction();
+            out << YAML::Key << "Restitution" << YAML::Value << bc3dComponent.m_Material.GetRestitution();
+
+            out << YAML::EndMap; // BoxCollider3DComponent
+        }
+
+        if (entity.HasComponent<SphereCollider3DComponent>())
+        {
+            out << YAML::Key << "SphereCollider3DComponent";
+            out << YAML::BeginMap; // SphereCollider3DComponent
+
+            auto const& sc3dComponent = entity.GetComponent<SphereCollider3DComponent>();
+            out << YAML::Key << "Radius" << YAML::Value << sc3dComponent.m_Radius;
+            out << YAML::Key << "Offset" << YAML::Value << sc3dComponent.m_Offset;
+            out << YAML::Key << "StaticFriction" << YAML::Value << sc3dComponent.m_Material.GetStaticFriction();
+            out << YAML::Key << "DynamicFriction" << YAML::Value << sc3dComponent.m_Material.GetDynamicFriction();
+            out << YAML::Key << "Restitution" << YAML::Value << sc3dComponent.m_Material.GetRestitution();
+
+            out << YAML::EndMap; // SphereCollider3DComponent
+        }
+
+        if (entity.HasComponent<CapsuleCollider3DComponent>())
+        {
+            out << YAML::Key << "CapsuleCollider3DComponent";
+            out << YAML::BeginMap; // CapsuleCollider3DComponent
+
+            auto const& cc3dComponent = entity.GetComponent<CapsuleCollider3DComponent>();
+            out << YAML::Key << "Radius" << YAML::Value << cc3dComponent.m_Radius;
+            out << YAML::Key << "HalfHeight" << YAML::Value << cc3dComponent.m_HalfHeight;
+            out << YAML::Key << "Offset" << YAML::Value << cc3dComponent.m_Offset;
+            out << YAML::Key << "StaticFriction" << YAML::Value << cc3dComponent.m_Material.GetStaticFriction();
+            out << YAML::Key << "DynamicFriction" << YAML::Value << cc3dComponent.m_Material.GetDynamicFriction();
+            out << YAML::Key << "Restitution" << YAML::Value << cc3dComponent.m_Material.GetRestitution();
+
+            out << YAML::EndMap; // CapsuleCollider3DComponent
+        }
+
         if (entity.HasComponent<PrefabComponent>())
         {
             out << YAML::Key << "PrefabComponent";
@@ -598,6 +748,135 @@ namespace OloEngine
                     tc.Color = textComponent["Color"].as<glm::vec4>();
                     tc.Kerning = textComponent["Kerning"].as<float>();
                     tc.LineSpacing = textComponent["LineSpacing"].as<float>();
+                }
+
+                if (auto meshComponent = entity["MeshComponent"]; meshComponent)
+                {
+                    auto& mc = deserializedEntity.AddComponent<MeshComponent>();
+                    if (meshComponent["MeshSourceHandle"])
+                    {
+                        u64 handle = meshComponent["MeshSourceHandle"].as<u64>();
+                        mc.m_MeshSource = AssetManager::GetAsset<MeshSource>(handle);
+                    }
+                }
+
+                if (auto modelComponent = entity["ModelComponent"]; modelComponent)
+                {
+                    auto& mc = deserializedEntity.AddComponent<ModelComponent>();
+                    if (modelComponent["FilePath"])
+                    {
+                        mc.m_FilePath = modelComponent["FilePath"].as<std::string>();
+                        if (!mc.m_FilePath.empty())
+                        {
+                            mc.Reload(); // Load the model from file
+                        }
+                    }
+                    if (modelComponent["Visible"])
+                    {
+                        mc.m_Visible = modelComponent["Visible"].as<bool>();
+                    }
+                }
+
+                if (auto materialComponent = entity["MaterialComponent"]; materialComponent)
+                {
+                    auto& matc = deserializedEntity.AddComponent<MaterialComponent>();
+                    if (materialComponent["AlbedoColor"])
+                    {
+                        auto albedo = materialComponent["AlbedoColor"].as<glm::vec3>();
+                        matc.m_Material.SetBaseColorFactor(glm::vec4(albedo, 1.0f));
+                    }
+                    if (materialComponent["Metallic"])
+                    {
+                        matc.m_Material.SetMetallicFactor(materialComponent["Metallic"].as<f32>());
+                    }
+                    if (materialComponent["Roughness"])
+                    {
+                        matc.m_Material.SetRoughnessFactor(materialComponent["Roughness"].as<f32>());
+                    }
+                }
+
+
+                if (auto dirLightComponent = entity["DirectionalLightComponent"]; dirLightComponent)
+                {
+                    auto& dirLight = deserializedEntity.AddComponent<DirectionalLightComponent>();
+                    dirLight.m_Direction = dirLightComponent["Direction"].as<glm::vec3>(dirLight.m_Direction);
+                    dirLight.m_Color = dirLightComponent["Color"].as<glm::vec3>(dirLight.m_Color);
+                    dirLight.m_Intensity = dirLightComponent["Intensity"].as<f32>(dirLight.m_Intensity);
+                    dirLight.m_CastShadows = dirLightComponent["CastShadows"].as<bool>(dirLight.m_CastShadows);
+                }
+
+                if (auto pointLightComponent = entity["PointLightComponent"]; pointLightComponent)
+                {
+                    auto& pointLight = deserializedEntity.AddComponent<PointLightComponent>();
+                    pointLight.m_Color = pointLightComponent["Color"].as<glm::vec3>(pointLight.m_Color);
+                    pointLight.m_Intensity = pointLightComponent["Intensity"].as<f32>(pointLight.m_Intensity);
+                    pointLight.m_Range = pointLightComponent["Range"].as<f32>(pointLight.m_Range);
+                    pointLight.m_Attenuation = pointLightComponent["Attenuation"].as<f32>(pointLight.m_Attenuation);
+                    pointLight.m_CastShadows = pointLightComponent["CastShadows"].as<bool>(pointLight.m_CastShadows);
+                }
+
+                if (auto spotLightComponent = entity["SpotLightComponent"]; spotLightComponent)
+                {
+                    auto& spotLight = deserializedEntity.AddComponent<SpotLightComponent>();
+                    spotLight.m_Direction = spotLightComponent["Direction"].as<glm::vec3>(spotLight.m_Direction);
+                    spotLight.m_Color = spotLightComponent["Color"].as<glm::vec3>(spotLight.m_Color);
+                    spotLight.m_Intensity = spotLightComponent["Intensity"].as<f32>(spotLight.m_Intensity);
+                    spotLight.m_Range = spotLightComponent["Range"].as<f32>(spotLight.m_Range);
+                    spotLight.m_InnerCutoff = spotLightComponent["InnerCutoff"].as<f32>(spotLight.m_InnerCutoff);
+                    spotLight.m_OuterCutoff = spotLightComponent["OuterCutoff"].as<f32>(spotLight.m_OuterCutoff);
+                    spotLight.m_Attenuation = spotLightComponent["Attenuation"].as<f32>(spotLight.m_Attenuation);
+                    spotLight.m_CastShadows = spotLightComponent["CastShadows"].as<bool>(spotLight.m_CastShadows);
+                }
+
+                if (auto rb3dComponent = entity["Rigidbody3DComponent"]; rb3dComponent)
+                {
+                    auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
+                    rb3d.m_Type = static_cast<BodyType3D>(rb3dComponent["BodyType"].as<int>(static_cast<int>(rb3d.m_Type)));
+                    rb3d.m_Mass = rb3dComponent["Mass"].as<f32>(rb3d.m_Mass);
+                    rb3d.m_LinearDrag = rb3dComponent["LinearDrag"].as<f32>(rb3d.m_LinearDrag);
+                    rb3d.m_AngularDrag = rb3dComponent["AngularDrag"].as<f32>(rb3d.m_AngularDrag);
+                    rb3d.m_DisableGravity = rb3dComponent["DisableGravity"].as<bool>(rb3d.m_DisableGravity);
+                    rb3d.m_IsTrigger = rb3dComponent["IsTrigger"].as<bool>(rb3d.m_IsTrigger);
+                }
+
+                if (auto bc3dComponent = entity["BoxCollider3DComponent"]; bc3dComponent)
+                {
+                    auto& bc3d = deserializedEntity.AddComponent<BoxCollider3DComponent>();
+                    bc3d.m_HalfExtents = bc3dComponent["HalfExtents"].as<glm::vec3>(bc3d.m_HalfExtents);
+                    bc3d.m_Offset = bc3dComponent["Offset"].as<glm::vec3>(bc3d.m_Offset);
+                    if (bc3dComponent["StaticFriction"])
+                        bc3d.m_Material.SetStaticFriction(bc3dComponent["StaticFriction"].as<f32>());
+                    if (bc3dComponent["DynamicFriction"])
+                        bc3d.m_Material.SetDynamicFriction(bc3dComponent["DynamicFriction"].as<f32>());
+                    if (bc3dComponent["Restitution"])
+                        bc3d.m_Material.SetRestitution(bc3dComponent["Restitution"].as<f32>());
+                }
+
+                if (auto sc3dComponent = entity["SphereCollider3DComponent"]; sc3dComponent)
+                {
+                    auto& sc3d = deserializedEntity.AddComponent<SphereCollider3DComponent>();
+                    sc3d.m_Radius = sc3dComponent["Radius"].as<f32>(sc3d.m_Radius);
+                    sc3d.m_Offset = sc3dComponent["Offset"].as<glm::vec3>(sc3d.m_Offset);
+                    if (sc3dComponent["StaticFriction"])
+                        sc3d.m_Material.SetStaticFriction(sc3dComponent["StaticFriction"].as<f32>());
+                    if (sc3dComponent["DynamicFriction"])
+                        sc3d.m_Material.SetDynamicFriction(sc3dComponent["DynamicFriction"].as<f32>());
+                    if (sc3dComponent["Restitution"])
+                        sc3d.m_Material.SetRestitution(sc3dComponent["Restitution"].as<f32>());
+                }
+
+                if (auto cc3dComponent = entity["CapsuleCollider3DComponent"]; cc3dComponent)
+                {
+                    auto& cc3d = deserializedEntity.AddComponent<CapsuleCollider3DComponent>();
+                    cc3d.m_Radius = cc3dComponent["Radius"].as<f32>(cc3d.m_Radius);
+                    cc3d.m_HalfHeight = cc3dComponent["HalfHeight"].as<f32>(cc3d.m_HalfHeight);
+                    cc3d.m_Offset = cc3dComponent["Offset"].as<glm::vec3>(cc3d.m_Offset);
+                    if (cc3dComponent["StaticFriction"])
+                        cc3d.m_Material.SetStaticFriction(cc3dComponent["StaticFriction"].as<f32>());
+                    if (cc3dComponent["DynamicFriction"])
+                        cc3d.m_Material.SetDynamicFriction(cc3dComponent["DynamicFriction"].as<f32>());
+                    if (cc3dComponent["Restitution"])
+                        cc3d.m_Material.SetRestitution(cc3dComponent["Restitution"].as<f32>());
                 }
 
                 if (auto prefabComponent = entity["PrefabComponent"]; prefabComponent)

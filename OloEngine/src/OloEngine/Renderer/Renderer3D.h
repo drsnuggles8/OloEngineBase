@@ -21,6 +21,7 @@ namespace OloEngine
     class Scene;
     class Entity;
     class CommandAllocator;
+    class EditorCamera;
 } // namespace OloEngine
 
 namespace OloEngine
@@ -112,10 +113,13 @@ namespace OloEngine
       public:
         static void Init();
         static void Shutdown();
+        static bool IsInitialized();
 
         static void BeginScene(const PerspectiveCamera& camera);
+        static void BeginScene(const EditorCamera& camera);
+        static void BeginScene(const Camera& camera, const glm::mat4& transform);
         static void EndScene();
-        static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+        static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true, i32 entityID = -1);
         // Animated drawing commands
         static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = false);
         static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
@@ -123,6 +127,9 @@ namespace OloEngine
         static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
         static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
         static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
+        
+        // Grid rendering
+        static void DrawInfiniteGrid(f32 gridScale = 1.0f);
 
         // Skeleton visualization
         static void DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix,
@@ -194,7 +201,8 @@ namespace OloEngine
                                                const Ref<Mesh>& mesh,
                                                const glm::mat4& modelMatrix,
                                                const Material& material,
-                                               bool isStatic = true);
+                                               bool isStatic = true,
+                                               i32 entityID = -1);
 
         /**
          * @brief Thread-safe animated mesh drawing for parallel submission
@@ -225,6 +233,7 @@ namespace OloEngine
             glm::mat4 Transform = glm::mat4(1.0f);
             Material MaterialData;
             bool IsStatic = true;
+            i32 EntityID = -1;  // Entity ID for picking (-1 = no entity)
             // For animated meshes
             bool IsAnimated = false;
             const std::vector<glm::mat4>* BoneMatrices = nullptr;
@@ -246,6 +255,9 @@ namespace OloEngine
 
         static void SetLight(const Light& light);
         static void SetViewPosition(const glm::vec3& position);
+
+        // Scene light collection (collects light components from scene)
+        static void SetSceneLights(const Ref<Scene>& scene);
 
         // Culling methods
         static void EnableFrustumCulling(bool enable);
@@ -302,11 +314,38 @@ namespace OloEngine
             return s_Data.ScenePass ? &s_Data.ScenePass->GetCommandBucket() : nullptr;
         }
 
+        // Entity ID picking support
+        /**
+         * @brief Read entity ID from the scene framebuffer at the given pixel coordinates
+         * @param x Pixel x coordinate
+         * @param y Pixel y coordinate
+         * @return Entity ID at the given position (0 if no entity)
+         */
+        static int ReadEntityIDFromFramebuffer(int x, int y)
+        {
+            if (!s_Data.ScenePass)
+            {
+                return 0;
+            }
+            auto framebuffer = s_Data.ScenePass->GetTarget();
+            if (!framebuffer)
+            {
+                return 0;
+            }
+            // Entity ID is stored in attachment index 1 (RED_INTEGER format)
+            return framebuffer->ReadPixel(1, x, y);
+        }
+
         // Window resize handling
         static void OnWindowResize(u32 width, u32 height);
         static const Ref<RenderGraph>& GetRenderGraph()
         {
             return s_Data.RGraph;
+        }
+
+        static const Ref<SceneRenderPass>& GetScenePass()
+        {
+            return s_Data.ScenePass;
         }
 
         // Shader library access for PBR material shader selection
@@ -351,6 +390,8 @@ namespace OloEngine
             Ref<Shader> PBRMultiLightShader;
             Ref<Shader> PBRMultiLightSkinnedShader;
             Ref<Shader> SkyboxShader;
+            Ref<Shader> InfiniteGridShader;
+            Ref<VertexArray> FullscreenQuadVAO;  // Fullscreen quad for grid and post-processing
             Ref<UniformBuffer> CameraUBO;
             Ref<UniformBuffer> MaterialUBO;
             Ref<UniformBuffer> LightPropertiesUBO;

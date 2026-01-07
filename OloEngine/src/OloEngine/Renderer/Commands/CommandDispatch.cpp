@@ -561,6 +561,10 @@ namespace OloEngine
             ShaderBindingLayout::ModelUBO modelData;
             modelData.Model = cmd->transform;
             modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
+            modelData.EntityID = cmd->entityID;
+            modelData._paddingEntity[0] = 0;
+            modelData._paddingEntity[1] = 0;
+            modelData._paddingEntity[2] = 0;
 
             constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
@@ -990,6 +994,10 @@ namespace OloEngine
             ShaderBindingLayout::ModelUBO modelData;
             modelData.Model = cmd->transform;
             modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
+            modelData.EntityID = -1;
+            modelData._paddingEntity[0] = 0;
+            modelData._paddingEntity[1] = 0;
+            modelData._paddingEntity[2] = 0;
 
             constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");

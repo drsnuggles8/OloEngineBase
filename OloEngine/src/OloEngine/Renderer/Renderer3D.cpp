@@ -156,6 +156,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Initializing Renderer3D.");
 
+        RendererProfiler::GetInstance().Initialize();
+
         CommandMemoryManager::Init();
         FrameDataBufferManager::Init();
         FrameResourceManager::Get().Init();
@@ -192,6 +194,28 @@ namespace OloEngine
             src->Build();
             s_Data.LineQuadMesh = Ref<Mesh>::Create(src, 0);
         }
+        
+        // Create fullscreen quad VAO for grid and post-processing
+        {
+            // NDC fullscreen quad vertices (position only)
+            float quadVertices[] = {
+                // positions
+                -1.0f, -1.0f, 0.0f,
+                 1.0f, -1.0f, 0.0f,
+                 1.0f,  1.0f, 0.0f,
+                -1.0f, -1.0f, 0.0f,
+                 1.0f,  1.0f, 0.0f,
+                -1.0f,  1.0f, 0.0f
+            };
+            
+            s_Data.FullscreenQuadVAO = VertexArray::Create();
+            Ref<VertexBuffer> quadVBO = VertexBuffer::Create(quadVertices, sizeof(quadVertices));
+            quadVBO->SetLayout({
+                { ShaderDataType::Float3, "a_Position" }
+            });
+            s_Data.FullscreenQuadVAO->AddVertexBuffer(quadVBO);
+        }
+        
         m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
         m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
         m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
@@ -205,6 +229,7 @@ namespace OloEngine
         m_ShaderLibrary.Load("assets/shaders/IBLPrefilter.glsl");
         m_ShaderLibrary.Load("assets/shaders/BRDFLutGeneration.glsl");
         m_ShaderLibrary.Load("assets/shaders/Skybox.glsl");
+        m_ShaderLibrary.Load("assets/shaders/InfiniteGrid.glsl");
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
         s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
@@ -215,6 +240,7 @@ namespace OloEngine
         s_Data.PBRMultiLightShader = m_ShaderLibrary.Get("PBR_MultiLight");
         s_Data.PBRMultiLightSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
         s_Data.SkyboxShader = m_ShaderLibrary.Get("Skybox");
+        s_Data.InfiniteGridShader = m_ShaderLibrary.Get("InfiniteGrid");
 
         s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
         s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
@@ -253,6 +279,11 @@ namespace OloEngine
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
 
+    bool Renderer3D::IsInitialized()
+    {
+        return s_Data.RGraph != nullptr && s_Data.ScenePass != nullptr;
+    }
+
     void Renderer3D::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
@@ -269,6 +300,8 @@ namespace OloEngine
 
         FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
+
+        RendererProfiler::GetInstance().Shutdown();
 
         OLO_CORE_INFO("Renderer3D shutdown complete.");
     }
@@ -305,6 +338,164 @@ namespace OloEngine
         s_Data.ViewMatrix = camera.GetView();
         s_Data.ProjectionMatrix = camera.GetProjection();
         s_Data.ViewProjectionMatrix = camera.GetViewProjection();
+
+        CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
+        CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
+        CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
+
+        s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
+
+        s_Data.Stats.Reset();
+        s_Data.CommandCounter = 0;
+
+        UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
+        UpdateLightPropertiesUBO();
+
+        CommandDispatch::SetSceneLight(s_Data.SceneLight);
+        CommandDispatch::SetViewPosition(s_Data.ViewPos);
+
+        s_Data.ScenePass->ResetCommandBucket();
+
+        CommandDispatch::ResetState();
+
+        // Initialize parallel scene context with immutable frame data
+        s_Data.ParallelContext.ViewMatrix = s_Data.ViewMatrix;
+        s_Data.ParallelContext.ProjectionMatrix = s_Data.ProjectionMatrix;
+        s_Data.ParallelContext.ViewProjectionMatrix = s_Data.ViewProjectionMatrix;
+        s_Data.ParallelContext.ViewPosition = s_Data.ViewPos;
+        s_Data.ParallelContext.ViewFrustum = s_Data.ViewFrustum;
+        s_Data.ParallelContext.FrustumCullingEnabled = s_Data.FrustumCullingEnabled;
+        s_Data.ParallelContext.DynamicCullingEnabled = s_Data.DynamicCullingEnabled;
+
+        // Cache shader references for parallel access
+        s_Data.ParallelContext.LightingShader = s_Data.LightingShader;
+        s_Data.ParallelContext.SkinnedLightingShader = s_Data.SkinnedLightingShader;
+        s_Data.ParallelContext.PBRShader = s_Data.PBRShader;
+        s_Data.ParallelContext.PBRSkinnedShader = s_Data.PBRSkinnedShader;
+        s_Data.ParallelContext.LightCubeShader = s_Data.LightCubeShader;
+        s_Data.ParallelContext.SkyboxShader = s_Data.SkyboxShader;
+        s_Data.ParallelContext.QuadShader = s_Data.QuadShader;
+
+        s_Data.ParallelSubmissionActive = false;
+    }
+
+    void Renderer3D::BeginScene(const EditorCamera& camera)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Extract view and projection matrices from EditorCamera and call the main BeginScene
+        // EditorCamera inherits from Camera which has GetViewMatrix() and GetProjection()
+        // We need to create a temporary PerspectiveCamera-like interface or directly use the matrices
+        // Since EditorCamera provides GetViewMatrix() and GetProjection(), we can use them
+        
+        // Note: We cannot easily convert EditorCamera to PerspectiveCamera, so we replicate the setup
+        // Process any pending GPU resource creation commands from async loaders
+        GPUResourceQueue::ProcessAll();
+
+        // Begin new frame for double-buffered resources
+        FrameResourceManager::Get().BeginFrame();
+
+        RendererProfiler::GetInstance().BeginFrame();
+
+        if (!s_Data.ScenePass)
+        {
+            OLO_CORE_ERROR("Renderer3D::BeginScene(EditorCamera): ScenePass is null!");
+            return;
+        }
+
+        // Reset frame data buffer for new frame
+        FrameDataBufferManager::Get().Reset();
+
+        // Use frame resource manager's allocator for double-buffering
+        CommandAllocator* frameAllocator = FrameResourceManager::Get().GetFrameAllocator();
+        if (!frameAllocator)
+        {
+            // Fallback to legacy allocator if double-buffering is disabled
+            frameAllocator = CommandMemoryManager::GetFrameAllocator();
+        }
+        s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
+        
+        s_Data.ViewMatrix = camera.GetViewMatrix();
+        s_Data.ProjectionMatrix = camera.GetProjection();
+        s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
+
+        CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
+        CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
+        CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
+
+        s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
+
+        s_Data.Stats.Reset();
+        s_Data.CommandCounter = 0;
+
+        UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
+        UpdateLightPropertiesUBO();
+
+        CommandDispatch::SetSceneLight(s_Data.SceneLight);
+        CommandDispatch::SetViewPosition(s_Data.ViewPos);
+
+        s_Data.ScenePass->ResetCommandBucket();
+
+        CommandDispatch::ResetState();
+
+        // Initialize parallel scene context with immutable frame data
+        s_Data.ParallelContext.ViewMatrix = s_Data.ViewMatrix;
+        s_Data.ParallelContext.ProjectionMatrix = s_Data.ProjectionMatrix;
+        s_Data.ParallelContext.ViewProjectionMatrix = s_Data.ViewProjectionMatrix;
+        s_Data.ParallelContext.ViewPosition = s_Data.ViewPos;
+        s_Data.ParallelContext.ViewFrustum = s_Data.ViewFrustum;
+        s_Data.ParallelContext.FrustumCullingEnabled = s_Data.FrustumCullingEnabled;
+        s_Data.ParallelContext.DynamicCullingEnabled = s_Data.DynamicCullingEnabled;
+
+        // Cache shader references for parallel access
+        s_Data.ParallelContext.LightingShader = s_Data.LightingShader;
+        s_Data.ParallelContext.SkinnedLightingShader = s_Data.SkinnedLightingShader;
+        s_Data.ParallelContext.PBRShader = s_Data.PBRShader;
+        s_Data.ParallelContext.PBRSkinnedShader = s_Data.PBRSkinnedShader;
+        s_Data.ParallelContext.LightCubeShader = s_Data.LightCubeShader;
+        s_Data.ParallelContext.SkyboxShader = s_Data.SkyboxShader;
+        s_Data.ParallelContext.QuadShader = s_Data.QuadShader;
+
+        s_Data.ParallelSubmissionActive = false;
+    }
+
+    void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& transform)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Process any pending GPU resource creation commands from async loaders
+        GPUResourceQueue::ProcessAll();
+
+        // Begin new frame for double-buffered resources
+        FrameResourceManager::Get().BeginFrame();
+
+        RendererProfiler::GetInstance().BeginFrame();
+
+        if (!s_Data.ScenePass)
+        {
+            OLO_CORE_ERROR("Renderer3D::BeginScene(Camera, transform): ScenePass is null!");
+            return;
+        }
+
+        // Reset frame data buffer for new frame
+        FrameDataBufferManager::Get().Reset();
+
+        // Use frame resource manager's allocator for double-buffering
+        CommandAllocator* frameAllocator = FrameResourceManager::Get().GetFrameAllocator();
+        if (!frameAllocator)
+        {
+            // Fallback to legacy allocator if double-buffering is disabled
+            frameAllocator = CommandMemoryManager::GetFrameAllocator();
+        }
+        s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
+        
+        // Derive view matrix from the inverse of the camera's transform
+        s_Data.ViewMatrix = glm::inverse(transform);
+        s_Data.ProjectionMatrix = camera.GetProjection();
+        s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
+        
+        // Extract camera position from transform (translation column)
+        s_Data.ViewPos = glm::vec3(transform[3]);
 
         CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
         CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
@@ -499,7 +690,8 @@ namespace OloEngine
                                                 const Ref<Mesh>& mesh,
                                                 const glm::mat4& modelMatrix,
                                                 const Material& material,
-                                                bool isStatic)
+                                                bool isStatic,
+                                                i32 entityID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -605,6 +797,9 @@ namespace OloEngine
 
         // Inlined POD render state
         cmd->renderState = CreatePODRenderStateForMaterial(material);
+
+        // Entity ID for picking
+        cmd->entityID = entityID;
 
         // No bone matrices for non-animated mesh
         cmd->isAnimatedMesh = false;
@@ -821,7 +1016,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic);
+                    packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic, desc.EntityID);
                 }
                 if (packet)
                 {
@@ -880,7 +1075,8 @@ namespace OloEngine
                         desc.Mesh,
                         desc.Transform,
                         desc.MaterialData,
-                        desc.IsStatic);
+                        desc.IsStatic,
+                        desc.EntityID);
                 }
 
                 if (packet)
@@ -915,6 +1111,64 @@ namespace OloEngine
     void Renderer3D::SetViewPosition(const glm::vec3& position)
     {
         s_Data.ViewPos = position;
+    }
+
+    void Renderer3D::SetSceneLights(const Ref<Scene>& scene)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        if (!scene || !s_Data.MultiLightBuffer)
+        {
+            return;
+        }
+
+        // Collect lights from the scene
+        constexpr u32 MAX_POINT_LIGHTS = 16;
+        constexpr u32 MAX_SPOT_LIGHTS = 8;
+        
+        u32 pointLightCount = 0;
+        u32 spotLightCount = 0;
+
+        // TODO: Create proper multi-light UBO structure and populate it
+        // For now, we'll just gather the count and warn if limits exceeded
+        
+        // Count directional lights
+        auto dirLightView = scene->GetAllEntitiesWith<DirectionalLightComponent>();
+        u32 dirLightCount = 0;
+        for ([[maybe_unused]] auto entity : dirLightView)
+        {
+            dirLightCount++;
+        }
+
+        // Count and collect point lights
+        auto pointLightView = scene->GetAllEntitiesWith<PointLightComponent>();
+        for ([[maybe_unused]] auto entity : pointLightView)
+        {
+            pointLightCount++;
+        }
+
+        // Count and collect spot lights
+        auto spotLightView = scene->GetAllEntitiesWith<SpotLightComponent>();
+        for ([[maybe_unused]] auto entity : spotLightView)
+        {
+            spotLightCount++;
+        }
+
+        // Warn if limits exceeded
+        if (pointLightCount > MAX_POINT_LIGHTS)
+        {
+            OLO_CORE_WARN("Scene contains {} point lights, but max is {}. Only first {} will be rendered.",
+                         pointLightCount, MAX_POINT_LIGHTS, MAX_POINT_LIGHTS);
+        }
+
+        if (spotLightCount > MAX_SPOT_LIGHTS)
+        {
+            OLO_CORE_WARN("Scene contains {} spot lights, but max is {}. Only first {} will be rendered.",
+                         spotLightCount, MAX_SPOT_LIGHTS, MAX_SPOT_LIGHTS);
+        }
+
+        // TODO: Populate multi-light UBO with actual light data
+        // This requires matching the shader's light structure
     }
 
     void Renderer3D::EnableFrustumCulling(bool enable)
@@ -1002,7 +1256,7 @@ namespace OloEngine
         return s_Data.ViewFrustum.IsBoundingBoxVisible(box);
     }
 
-    CommandPacket* Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
+    CommandPacket* Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic, i32 entityID)
     {
         OLO_PROFILE_FUNCTION();
         if (!s_Data.ScenePass)
@@ -1056,6 +1310,7 @@ namespace OloEngine
         cmd->vertexArrayID = mesh->GetVertexArray()->GetRendererID();
         cmd->indexCount = mesh->GetIndexCount();
         cmd->transform = glm::mat4(modelMatrix);
+        cmd->entityID = entityID;
         cmd->shaderHandle = shaderToUse->GetHandle();
         cmd->shaderRendererID = shaderToUse->GetRendererID();
 
@@ -1408,6 +1663,7 @@ namespace OloEngine
         scenePassSpec.Samples = 1;
         scenePassSpec.Attachments = {
             FramebufferTextureFormat::RGBA8,
+            FramebufferTextureFormat::RED_INTEGER,  // Entity ID attachment
             FramebufferTextureFormat::Depth
         };
 
@@ -1765,6 +2021,7 @@ namespace OloEngine
                                                         worldTransform,
                                                         submeshMaterial,
                                                         false, // IsStatic
+                                                        -1,    // EntityID
                                                         true,  // IsAnimated
                                                         &boneMatrices });
                             foundSubmeshes = true;
@@ -1781,6 +2038,7 @@ namespace OloEngine
                                             worldTransform,
                                             material,
                                             false, // IsStatic
+                                            -1,    // EntityID
                                             true,  // IsAnimated
                                             &boneMatrices });
             }
@@ -2132,6 +2390,40 @@ namespace OloEngine
         }
 
         return packet;
+    }
+
+    void Renderer3D::DrawInfiniteGrid(f32 gridScale)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        if (!s_Data.InfiniteGridShader)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawInfiniteGrid: InfiniteGrid shader not loaded!");
+            return;
+        }
+        
+        if (!s_Data.FullscreenQuadVAO)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawInfiniteGrid: FullscreenQuadVAO not initialized!");
+            return;
+        }
+
+        // Bind the grid shader
+        s_Data.InfiniteGridShader->Bind();
+        
+        // Enable blending for transparent grid lines
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        
+        // Enable depth testing but allow writing
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        
+        // Bind fullscreen quad VAO and draw
+        s_Data.FullscreenQuadVAO->Bind();
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        
+        s_Data.InfiniteGridShader->Unbind();
     }
 
     void Renderer3D::DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix,

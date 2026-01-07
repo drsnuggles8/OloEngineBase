@@ -362,6 +362,46 @@ namespace OloEngine
         MaterialComponent(const MaterialComponent&) = default;
     };
 
+    // 3D Light Components
+
+    struct DirectionalLightComponent
+    {
+        glm::vec3 m_Direction = { 0.0f, -1.0f, 0.0f };
+        glm::vec3 m_Color = { 1.0f, 1.0f, 1.0f };
+        f32 m_Intensity = 1.0f;
+        bool m_CastShadows = true;
+
+        DirectionalLightComponent() = default;
+        DirectionalLightComponent(const DirectionalLightComponent&) = default;
+    };
+
+    struct PointLightComponent
+    {
+        glm::vec3 m_Color = { 1.0f, 1.0f, 1.0f };
+        f32 m_Intensity = 1.0f;
+        f32 m_Range = 10.0f;  // Falloff range
+        f32 m_Attenuation = 2.0f;  // Attenuation power
+        bool m_CastShadows = false;
+
+        PointLightComponent() = default;
+        PointLightComponent(const PointLightComponent&) = default;
+    };
+
+    struct SpotLightComponent
+    {
+        glm::vec3 m_Direction = { 0.0f, -1.0f, 0.0f };
+        glm::vec3 m_Color = { 1.0f, 1.0f, 1.0f };
+        f32 m_Intensity = 1.0f;
+        f32 m_Range = 10.0f;
+        f32 m_InnerCutoff = 12.5f;  // Inner cone angle in degrees
+        f32 m_OuterCutoff = 17.5f;  // Outer cone angle in degrees
+        f32 m_Attenuation = 2.0f;
+        bool m_CastShadows = false;
+
+        SpotLightComponent() = default;
+        SpotLightComponent(const SpotLightComponent&) = default;
+    };
+
     // Entity relationship component for parent-child hierarchies (Hazel-style)
     struct RelationshipComponent
     {
@@ -404,8 +444,12 @@ namespace OloEngine
         AudioListenerComponent,
         SubmeshComponent,
         MeshComponent,
+        ModelComponent,
         AnimationStateComponent,
         SkeletonComponent,
         MaterialComponent,
+        DirectionalLightComponent,
+        PointLightComponent,
+        SpotLightComponent,
         RelationshipComponent>;
 } // namespace OloEngine

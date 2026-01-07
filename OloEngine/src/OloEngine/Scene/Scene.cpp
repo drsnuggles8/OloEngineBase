@@ -6,6 +6,8 @@
 #include "Prefab.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -375,7 +377,7 @@ namespace OloEngine
             }
         }
 
-        // Render 2D
+        // Find the primary camera
         Camera const* mainCamera = nullptr;
         glm::mat4 cameraTransform;
         {
@@ -394,6 +396,13 @@ namespace OloEngine
 
         if (mainCamera)
         {
+            // Render 3D if 3D mode is enabled
+            if (m_Is3DModeEnabled)
+            {
+                RenderScene3D(*mainCamera, cameraTransform);
+            }
+            
+            // Always render 2D (sprites, circles, text overlay on top of 3D)
             Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
             // Draw sprites
@@ -491,8 +500,15 @@ namespace OloEngine
 
     void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
     {
-        // Render
-        RenderScene(camera);
+        // Render based on mode
+        if (m_Is3DModeEnabled)
+        {
+            RenderScene3D(camera);
+        }
+        else
+        {
+            RenderScene(camera);
+        }
     }
 
     void Scene::OnViewportResize(const u32 width, const u32 height)
@@ -549,6 +565,8 @@ namespace OloEngine
     template<>
     void Scene::OnComponentAdded<MeshComponent>(Entity, MeshComponent&) {}
     template<>
+    void Scene::OnComponentAdded<ModelComponent>(Entity, ModelComponent&) {}
+    template<>
     void Scene::OnComponentAdded<SubmeshComponent>(Entity, SubmeshComponent&) {}
     template<>
     void Scene::OnComponentAdded<AnimationStateComponent>(Entity, AnimationStateComponent&) {}
@@ -559,6 +577,12 @@ namespace OloEngine
     void Scene::OnComponentAdded<SkeletonComponent>(Entity, SkeletonComponent&) {}
     template<>
     void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<DirectionalLightComponent>(Entity, DirectionalLightComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<PointLightComponent>(Entity, PointLightComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<SpotLightComponent>(Entity, SpotLightComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
@@ -809,6 +833,274 @@ namespace OloEngine
         }
 
         Renderer2D::EndScene();
+    }
+
+    // Static cached default material for 3D rendering
+    static Ref<Material> s_DefaultMaterial = nullptr;
+
+    static Material& GetDefaultMaterial()
+    {
+        if (!s_DefaultMaterial)
+        {
+            s_DefaultMaterial = Material::CreatePBR("Default", glm::vec3(0.8f, 0.8f, 0.8f), 0.0f, 0.5f);
+        }
+        return *s_DefaultMaterial;
+    }
+
+    void Scene::RenderScene3D(EditorCamera const& camera)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        Renderer3D::BeginScene(camera);
+
+        // Collect and set scene lights from light components
+        // Note: We need to pass a Ref<Scene>, so we use a workaround since Scene doesn't inherit from enable_shared_from_this
+        // For now, we'll collect lights manually here
+        {
+            // Set first directional light as the main scene light
+            auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
+            for (auto entity : dirLightView)
+            {
+                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
+                Light light;
+                light.Type = LightType::Directional;
+                light.Direction = dirLight.m_Direction;
+                light.Ambient = dirLight.m_Color * 0.1f;
+                light.Diffuse = dirLight.m_Color * dirLight.m_Intensity;
+                light.Specular = dirLight.m_Color * dirLight.m_Intensity;
+                Renderer3D::SetLight(light);
+                Renderer3D::SetViewPosition(camera.GetPosition());
+                break; // Only use first directional light for now
+            }
+        }
+
+        // Draw mesh entities
+        {
+            auto view = m_Registry.view<TransformComponent, MeshComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, mesh] = view.get<TransformComponent, MeshComponent>(entity);
+                
+                if (!mesh.m_MeshSource)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                    ? m_Registry.get<MaterialComponent>(entity).m_Material
+                    : GetDefaultMaterial();
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                // Draw each submesh with entity ID
+                if (mesh.m_MeshSource && !mesh.m_MeshSource->GetSubmeshes().IsEmpty())
+                {
+                    for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
+                    {
+                        auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                        auto* packet = Renderer3D::DrawMesh(submesh, transform.GetTransform(), material, true, entityID);
+                        if (packet)
+                            Renderer3D::SubmitPacket(packet);
+                    }
+                }
+            }
+        }
+
+        // Draw submesh entities (if they have their own transforms)
+        {
+            auto view = m_Registry.view<TransformComponent, SubmeshComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, submesh] = view.get<TransformComponent, SubmeshComponent>(entity);
+                
+                if (!submesh.m_Mesh || !submesh.m_Visible)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                    ? m_Registry.get<MaterialComponent>(entity).m_Material
+                    : GetDefaultMaterial();
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, transform.GetTransform(), material, true, entityID);
+                if (packet)
+                    Renderer3D::SubmitPacket(packet);
+            }
+        }
+
+        // Draw model entities (full models with materials from file)
+        {
+            auto view = m_Registry.view<TransformComponent, ModelComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, model] = view.get<TransformComponent, ModelComponent>(entity);
+                
+                if (!model.m_Model || !model.m_Visible)
+                {
+                    continue;
+                }
+
+                // Model::DrawParallel uses the model's own materials loaded from file
+                // Pass entity ID for mouse picking support
+                model.m_Model->DrawParallel(transform.GetTransform(), static_cast<int>(entity));
+            }
+        }
+
+        // TODO: Implement infinite grid as a proper command packet
+        // The grid currently uses immediate-mode OpenGL (glDrawArrays) which conflicts 
+        // with the deferred command buffer system. Grid rendering has been disabled
+        // until it can be properly integrated.
+        // Renderer3D::DrawInfiniteGrid(1.0f);
+
+        // Draw light visualization gizmos
+        {
+            auto view = m_Registry.view<TransformComponent, DirectionalLightComponent>();
+            for (auto entity : view)
+            {
+                const auto& tc = view.get<TransformComponent>(entity);
+                glm::mat4 lightTransform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
+                auto* packet = Renderer3D::DrawLightCube(lightTransform);
+                if (packet)
+                    Renderer3D::SubmitPacket(packet);
+            }
+        }
+        {
+            auto view = m_Registry.view<TransformComponent, PointLightComponent>();
+            for (auto entity : view)
+            {
+                const auto& tc = view.get<TransformComponent>(entity);
+                glm::mat4 lightTransform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
+                auto* packet = Renderer3D::DrawLightCube(lightTransform);
+                if (packet)
+                    Renderer3D::SubmitPacket(packet);
+            }
+        }
+        {
+            auto view = m_Registry.view<TransformComponent, SpotLightComponent>();
+            for (auto entity : view)
+            {
+                const auto& tc = view.get<TransformComponent>(entity);
+                glm::mat4 lightTransform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
+                auto* packet = Renderer3D::DrawLightCube(lightTransform);
+                if (packet)
+                    Renderer3D::SubmitPacket(packet);
+            }
+        }
+
+        Renderer3D::EndScene();
+    }
+
+    void Scene::RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        Renderer3D::BeginScene(camera, cameraTransform);
+
+        // Collect and set scene lights from light components
+        {
+            // Set first directional light as the main scene light
+            auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
+            for (auto entity : dirLightView)
+            {
+                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
+                Light light;
+                light.Type = LightType::Directional;
+                light.Direction = dirLight.m_Direction;
+                light.Ambient = dirLight.m_Color * 0.1f;
+                light.Diffuse = dirLight.m_Color * dirLight.m_Intensity;
+                light.Specular = dirLight.m_Color * dirLight.m_Intensity;
+                Renderer3D::SetLight(light);
+                // Extract camera position from transform
+                Renderer3D::SetViewPosition(glm::vec3(cameraTransform[3]));
+                break; // Only use first directional light for now
+            }
+        }
+
+        // Draw mesh entities
+        {
+            auto view = m_Registry.view<TransformComponent, MeshComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, mesh] = view.get<TransformComponent, MeshComponent>(entity);
+                
+                if (!mesh.m_MeshSource)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                    ? m_Registry.get<MaterialComponent>(entity).m_Material
+                    : GetDefaultMaterial();
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                // Draw each submesh with entity ID
+                if (mesh.m_MeshSource && !mesh.m_MeshSource->GetSubmeshes().IsEmpty())
+                {
+                    for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
+                    {
+                        auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                        auto* packet = Renderer3D::DrawMesh(submesh, transform.GetTransform(), material, true, entityID);
+                        if (packet)
+                            Renderer3D::SubmitPacket(packet);
+                    }
+                }
+            }
+        }
+
+        // Draw submesh entities (if they have their own transforms)
+        {
+            auto view = m_Registry.view<TransformComponent, SubmeshComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, submesh] = view.get<TransformComponent, SubmeshComponent>(entity);
+                
+                if (!submesh.m_Mesh || !submesh.m_Visible)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                    ? m_Registry.get<MaterialComponent>(entity).m_Material
+                    : GetDefaultMaterial();
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, transform.GetTransform(), material, true, entityID);
+                if (packet)
+                    Renderer3D::SubmitPacket(packet);
+            }
+        }
+
+        // Draw model entities (full models with materials from file)
+        {
+            auto view = m_Registry.view<TransformComponent, ModelComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, model] = view.get<TransformComponent, ModelComponent>(entity);
+                
+                if (!model.m_Model || !model.m_Visible)
+                {
+                    continue;
+                }
+
+                // Model::DrawParallel uses the model's own materials loaded from file
+                // Pass entity ID for mouse picking support
+                model.m_Model->DrawParallel(transform.GetTransform(), static_cast<int>(entity));
+            }
+        }
+
+        Renderer3D::EndScene();
     }
 
 } // namespace OloEngine

@@ -368,6 +368,9 @@ namespace OloEngine
         u32 indexCount;
         glm::mat4 transform;
 
+        // Entity ID for picking (editor support)
+        i32 entityID = -1;
+
         // Shader (store both handle and renderer ID for POD dispatch)
         AssetHandle shaderHandle;    // Shader asset handle (for asset tracking)
         RendererID shaderRendererID; // Shader program ID for glUseProgram

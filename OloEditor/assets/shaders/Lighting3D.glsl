@@ -16,6 +16,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
 layout(std140, binding = 3) uniform ModelMatrices {
     mat4 u_Model;
     mat4 u_Normal;
+    int u_EntityID;
+    int _paddingEntity0;
+    int _paddingEntity1;
+    int _paddingEntity2;
 };
 
 layout(location = 0) out vec3 v_Normal;
@@ -38,6 +42,16 @@ layout(location = 1) in vec3 v_FragPos;
 layout(location = 2) in vec2 v_TexCoord;
 
 layout(location = 0) out vec4 FragColor;
+layout(location = 1) out int o_EntityID;
+
+layout(std140, binding = 3) uniform ModelMatrices {
+    mat4 u_Model;
+    mat4 u_Normal;
+    int u_EntityID;
+    int _paddingEntity0;
+    int _paddingEntity1;
+    int _paddingEntity2;
+};
 
 const int DIRECTIONAL_LIGHT = 0;
 const int POINT_LIGHT = 1;
@@ -147,4 +161,5 @@ void main()
     }
 
     FragColor = vec4(result, 1.0);
+    o_EntityID = u_EntityID;
 }

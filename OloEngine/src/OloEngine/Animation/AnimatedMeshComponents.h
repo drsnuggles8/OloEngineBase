@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Assert.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/Model.h"
 
 #include <glm/glm.hpp>
 #include "SkeletonData.h"
@@ -62,6 +63,46 @@ namespace OloEngine
 
         MeshComponent() = default;
         explicit MeshComponent(const Ref<OloEngine::MeshSource>& meshSource) noexcept : m_MeshSource(meshSource) {}
+    };
+
+    /**
+     * @brief Component for entities with a fully loaded 3D model
+     *
+     * This component stores a complete Model with all its meshes, materials,
+     * and textures loaded from a file. Use this for importing external 3D
+     * model files (OBJ, FBX, GLTF, etc.) with their materials intact.
+     *
+     * Unlike MeshComponent which only stores raw mesh data, ModelComponent
+     * provides full material and texture support from the source file.
+     */
+    struct ModelComponent
+    {
+        Ref<Model> m_Model;
+        std::string m_FilePath;  // Original file path for serialization/reload
+        bool m_Visible = true;
+
+        ModelComponent() = default;
+        explicit ModelComponent(const std::string& filePath)
+            : m_FilePath(filePath)
+        {
+            if (!filePath.empty())
+            {
+                m_Model = Ref<Model>::Create(filePath);
+            }
+        }
+        explicit ModelComponent(const Ref<Model>& model, const std::string& filePath = "")
+            : m_Model(model), m_FilePath(filePath) {}
+
+        // Reload the model from the stored file path
+        void Reload()
+        {
+            if (!m_FilePath.empty())
+            {
+                m_Model = Ref<Model>::Create(m_FilePath);
+            }
+        }
+
+        [[nodiscard]] bool IsLoaded() const { return m_Model != nullptr && m_Model->GetMeshCount() > 0; }
     };
 
     /**

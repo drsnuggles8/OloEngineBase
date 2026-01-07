@@ -45,9 +45,9 @@ namespace OloEngine
 
         m_Target->Bind();
 
-        // Clear the framebuffer
-        RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
-        RenderCommand::Clear();
+        // Clear all attachments properly (handles mixed integer/float attachments)
+        // This clears color attachments with the specified color, entity ID with -1, and depth/stencil
+        m_Target->ClearAllAttachments({ 0.1f, 0.1f, 0.1f, 1.0f }, -1);
 
         // Reset to default OpenGL state to ensure consistent rendering
         auto& rendererAPI = RenderCommand::GetRendererAPI();

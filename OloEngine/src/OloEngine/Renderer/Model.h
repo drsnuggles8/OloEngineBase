@@ -12,7 +12,6 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
-#include "OloEngine/Renderer/Renderer3D.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -20,6 +19,8 @@
 
 namespace OloEngine
 {
+    // Forward declaration for CommandPacket (defined in Commands/CommandPacket.h)
+    class CommandPacket;
     // Configuration for overriding texture paths when model's embedded paths are incorrect
     struct TextureOverride
     {
@@ -49,8 +50,8 @@ namespace OloEngine
         void Draw(const glm::mat4& transform, const Ref<const Material>& material) const;
 
         // Parallel draw methods - uses SubmitMeshesParallel for efficient multi-threaded command generation
-        void DrawParallel(const glm::mat4& transform, const Material& fallbackMaterial) const;
-        void DrawParallel(const glm::mat4& transform) const;
+        void DrawParallel(const glm::mat4& transform, const Material& fallbackMaterial, i32 entityID = -1) const;
+        void DrawParallel(const glm::mat4& transform, i32 entityID = -1) const;
 
         void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
         void GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, std::vector<CommandPacket*>& outCommands) const;
@@ -100,6 +101,26 @@ namespace OloEngine
         {
             return m_Materials.size();
         }
+
+        // Mesh accessors for extracting mesh data after loading
+        [[nodiscard]] const std::vector<Ref<Mesh>>& GetMeshes() const
+        {
+            return m_Meshes;
+        }
+
+        [[nodiscard]] sizet GetMeshCount() const
+        {
+            return m_Meshes.size();
+        }
+
+        [[nodiscard]] Ref<Mesh> GetMesh(sizet index) const
+        {
+            return index < m_Meshes.size() ? m_Meshes[index] : nullptr;
+        }
+
+        // Create a combined MeshSource from all meshes in the model
+        // Each mesh becomes a submesh in the combined MeshSource
+        [[nodiscard]] Ref<MeshSource> CreateCombinedMeshSource() const;
 
       private:
         // Helper method to return a null material reference for const access
