@@ -495,6 +495,129 @@ namespace OloEngine
             out << YAML::EndMap; // PrefabComponent
         }
 
+        if (entity.HasComponent<MeshCollider3DComponent>())
+        {
+            out << YAML::Key << "MeshCollider3DComponent";
+            out << YAML::BeginMap; // MeshCollider3DComponent
+
+            auto const& mc3dComponent = entity.GetComponent<MeshCollider3DComponent>();
+            out << YAML::Key << "ColliderAsset" << YAML::Value << static_cast<u64>(mc3dComponent.m_ColliderAsset);
+            out << YAML::Key << "Offset" << YAML::Value << mc3dComponent.m_Offset;
+            out << YAML::Key << "Scale" << YAML::Value << mc3dComponent.m_Scale;
+            out << YAML::Key << "UseComplexAsSimple" << YAML::Value << mc3dComponent.m_UseComplexAsSimple;
+            out << YAML::Key << "StaticFriction" << YAML::Value << mc3dComponent.m_Material.GetStaticFriction();
+            out << YAML::Key << "DynamicFriction" << YAML::Value << mc3dComponent.m_Material.GetDynamicFriction();
+            out << YAML::Key << "Restitution" << YAML::Value << mc3dComponent.m_Material.GetRestitution();
+
+            out << YAML::EndMap; // MeshCollider3DComponent
+        }
+
+        if (entity.HasComponent<ConvexMeshCollider3DComponent>())
+        {
+            out << YAML::Key << "ConvexMeshCollider3DComponent";
+            out << YAML::BeginMap; // ConvexMeshCollider3DComponent
+
+            auto const& cmc3dComponent = entity.GetComponent<ConvexMeshCollider3DComponent>();
+            out << YAML::Key << "ColliderAsset" << YAML::Value << static_cast<u64>(cmc3dComponent.m_ColliderAsset);
+            out << YAML::Key << "Offset" << YAML::Value << cmc3dComponent.m_Offset;
+            out << YAML::Key << "Scale" << YAML::Value << cmc3dComponent.m_Scale;
+            out << YAML::Key << "ConvexRadius" << YAML::Value << cmc3dComponent.m_ConvexRadius;
+            out << YAML::Key << "MaxVertices" << YAML::Value << cmc3dComponent.m_MaxVertices;
+            out << YAML::Key << "StaticFriction" << YAML::Value << cmc3dComponent.m_Material.GetStaticFriction();
+            out << YAML::Key << "DynamicFriction" << YAML::Value << cmc3dComponent.m_Material.GetDynamicFriction();
+            out << YAML::Key << "Restitution" << YAML::Value << cmc3dComponent.m_Material.GetRestitution();
+
+            out << YAML::EndMap; // ConvexMeshCollider3DComponent
+        }
+
+        if (entity.HasComponent<TriangleMeshCollider3DComponent>())
+        {
+            out << YAML::Key << "TriangleMeshCollider3DComponent";
+            out << YAML::BeginMap; // TriangleMeshCollider3DComponent
+
+            auto const& tmc3dComponent = entity.GetComponent<TriangleMeshCollider3DComponent>();
+            out << YAML::Key << "ColliderAsset" << YAML::Value << static_cast<u64>(tmc3dComponent.m_ColliderAsset);
+            out << YAML::Key << "Offset" << YAML::Value << tmc3dComponent.m_Offset;
+            out << YAML::Key << "Scale" << YAML::Value << tmc3dComponent.m_Scale;
+            out << YAML::Key << "StaticFriction" << YAML::Value << tmc3dComponent.m_Material.GetStaticFriction();
+            out << YAML::Key << "DynamicFriction" << YAML::Value << tmc3dComponent.m_Material.GetDynamicFriction();
+            out << YAML::Key << "Restitution" << YAML::Value << tmc3dComponent.m_Material.GetRestitution();
+
+            out << YAML::EndMap; // TriangleMeshCollider3DComponent
+        }
+
+        if (entity.HasComponent<CharacterController3DComponent>())
+        {
+            out << YAML::Key << "CharacterController3DComponent";
+            out << YAML::BeginMap; // CharacterController3DComponent
+
+            auto const& cc3dComponent = entity.GetComponent<CharacterController3DComponent>();
+            out << YAML::Key << "SlopeLimitDeg" << YAML::Value << cc3dComponent.m_SlopeLimitDeg;
+            out << YAML::Key << "StepOffset" << YAML::Value << cc3dComponent.m_StepOffset;
+            out << YAML::Key << "JumpPower" << YAML::Value << cc3dComponent.m_JumpPower;
+            out << YAML::Key << "LayerID" << YAML::Value << cc3dComponent.m_LayerID;
+            out << YAML::Key << "DisableGravity" << YAML::Value << cc3dComponent.m_DisableGravity;
+            out << YAML::Key << "ControlMovementInAir" << YAML::Value << cc3dComponent.m_ControlMovementInAir;
+            out << YAML::Key << "ControlRotationInAir" << YAML::Value << cc3dComponent.m_ControlRotationInAir;
+
+            out << YAML::EndMap; // CharacterController3DComponent
+        }
+
+        if (entity.HasComponent<RelationshipComponent>())
+        {
+            out << YAML::Key << "RelationshipComponent";
+            out << YAML::BeginMap; // RelationshipComponent
+
+            auto const& relComponent = entity.GetComponent<RelationshipComponent>();
+            out << YAML::Key << "ParentHandle" << YAML::Value << relComponent.m_ParentHandle;
+            out << YAML::Key << "Children" << YAML::Value << YAML::BeginSeq;
+            for (const auto& childUUID : relComponent.m_Children)
+            {
+                out << childUUID;
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap; // RelationshipComponent
+        }
+
+        if (entity.HasComponent<SubmeshComponent>())
+        {
+            out << YAML::Key << "SubmeshComponent";
+            out << YAML::BeginMap; // SubmeshComponent
+
+            auto const& submeshComponent = entity.GetComponent<SubmeshComponent>();
+            out << YAML::Key << "SubmeshIndex" << YAML::Value << submeshComponent.m_SubmeshIndex;
+            out << YAML::Key << "Visible" << YAML::Value << submeshComponent.m_Visible;
+            // Note: m_Mesh and m_BoneEntityIds are runtime data, reconstructed from parent MeshComponent
+
+            out << YAML::EndMap; // SubmeshComponent
+        }
+
+        if (entity.HasComponent<AnimationStateComponent>())
+        {
+            out << YAML::Key << "AnimationStateComponent";
+            out << YAML::BeginMap; // AnimationStateComponent
+
+            auto const& animComponent = entity.GetComponent<AnimationStateComponent>();
+            out << YAML::Key << "State" << YAML::Value << static_cast<int>(animComponent.m_State);
+            out << YAML::Key << "CurrentTime" << YAML::Value << animComponent.m_CurrentTime;
+            out << YAML::Key << "BlendDuration" << YAML::Value << animComponent.m_BlendDuration;
+            // Note: m_CurrentClip, m_NextClip, m_BoneEntityIds are runtime data
+
+            out << YAML::EndMap; // AnimationStateComponent
+        }
+
+        if (entity.HasComponent<SkeletonComponent>())
+        {
+            out << YAML::Key << "SkeletonComponent";
+            out << YAML::BeginMap; // SkeletonComponent
+
+            // Note: Skeleton is typically loaded from model file, stored as reference
+            // The cache is runtime data, not serialized
+
+            out << YAML::EndMap; // SkeletonComponent
+        }
+
         out << YAML::EndMap; // Entity
     }
 
@@ -885,6 +1008,103 @@ namespace OloEngine
                     pc.m_PrefabID = prefabComponent["PrefabID"].as<u64>();
                     pc.m_PrefabEntityID = prefabComponent["PrefabEntityID"].as<u64>();
                 }
+
+                if (auto mc3dComponent = entity["MeshCollider3DComponent"]; mc3dComponent)
+                {
+                    auto& mc3d = deserializedEntity.AddComponent<MeshCollider3DComponent>();
+                    if (mc3dComponent["ColliderAsset"])
+                        mc3d.m_ColliderAsset = mc3dComponent["ColliderAsset"].as<u64>();
+                    mc3d.m_Offset = mc3dComponent["Offset"].as<glm::vec3>(mc3d.m_Offset);
+                    mc3d.m_Scale = mc3dComponent["Scale"].as<glm::vec3>(mc3d.m_Scale);
+                    mc3d.m_UseComplexAsSimple = mc3dComponent["UseComplexAsSimple"].as<bool>(mc3d.m_UseComplexAsSimple);
+                    if (mc3dComponent["StaticFriction"])
+                        mc3d.m_Material.SetStaticFriction(mc3dComponent["StaticFriction"].as<f32>());
+                    if (mc3dComponent["DynamicFriction"])
+                        mc3d.m_Material.SetDynamicFriction(mc3dComponent["DynamicFriction"].as<f32>());
+                    if (mc3dComponent["Restitution"])
+                        mc3d.m_Material.SetRestitution(mc3dComponent["Restitution"].as<f32>());
+                }
+
+                if (auto cmc3dComponent = entity["ConvexMeshCollider3DComponent"]; cmc3dComponent)
+                {
+                    auto& cmc3d = deserializedEntity.AddComponent<ConvexMeshCollider3DComponent>();
+                    if (cmc3dComponent["ColliderAsset"])
+                        cmc3d.m_ColliderAsset = cmc3dComponent["ColliderAsset"].as<u64>();
+                    cmc3d.m_Offset = cmc3dComponent["Offset"].as<glm::vec3>(cmc3d.m_Offset);
+                    cmc3d.m_Scale = cmc3dComponent["Scale"].as<glm::vec3>(cmc3d.m_Scale);
+                    cmc3d.m_ConvexRadius = cmc3dComponent["ConvexRadius"].as<f32>(cmc3d.m_ConvexRadius);
+                    cmc3d.m_MaxVertices = cmc3dComponent["MaxVertices"].as<u32>(cmc3d.m_MaxVertices);
+                    if (cmc3dComponent["StaticFriction"])
+                        cmc3d.m_Material.SetStaticFriction(cmc3dComponent["StaticFriction"].as<f32>());
+                    if (cmc3dComponent["DynamicFriction"])
+                        cmc3d.m_Material.SetDynamicFriction(cmc3dComponent["DynamicFriction"].as<f32>());
+                    if (cmc3dComponent["Restitution"])
+                        cmc3d.m_Material.SetRestitution(cmc3dComponent["Restitution"].as<f32>());
+                }
+
+                if (auto tmc3dComponent = entity["TriangleMeshCollider3DComponent"]; tmc3dComponent)
+                {
+                    auto& tmc3d = deserializedEntity.AddComponent<TriangleMeshCollider3DComponent>();
+                    if (tmc3dComponent["ColliderAsset"])
+                        tmc3d.m_ColliderAsset = tmc3dComponent["ColliderAsset"].as<u64>();
+                    tmc3d.m_Offset = tmc3dComponent["Offset"].as<glm::vec3>(tmc3d.m_Offset);
+                    tmc3d.m_Scale = tmc3dComponent["Scale"].as<glm::vec3>(tmc3d.m_Scale);
+                    if (tmc3dComponent["StaticFriction"])
+                        tmc3d.m_Material.SetStaticFriction(tmc3dComponent["StaticFriction"].as<f32>());
+                    if (tmc3dComponent["DynamicFriction"])
+                        tmc3d.m_Material.SetDynamicFriction(tmc3dComponent["DynamicFriction"].as<f32>());
+                    if (tmc3dComponent["Restitution"])
+                        tmc3d.m_Material.SetRestitution(tmc3dComponent["Restitution"].as<f32>());
+                }
+
+                if (auto cc3dComponent = entity["CharacterController3DComponent"]; cc3dComponent)
+                {
+                    auto& cc3d = deserializedEntity.AddComponent<CharacterController3DComponent>();
+                    cc3d.m_SlopeLimitDeg = cc3dComponent["SlopeLimitDeg"].as<f32>(cc3d.m_SlopeLimitDeg);
+                    cc3d.m_StepOffset = cc3dComponent["StepOffset"].as<f32>(cc3d.m_StepOffset);
+                    cc3d.m_JumpPower = cc3dComponent["JumpPower"].as<f32>(cc3d.m_JumpPower);
+                    cc3d.m_LayerID = cc3dComponent["LayerID"].as<u32>(cc3d.m_LayerID);
+                    cc3d.m_DisableGravity = cc3dComponent["DisableGravity"].as<bool>(cc3d.m_DisableGravity);
+                    cc3d.m_ControlMovementInAir = cc3dComponent["ControlMovementInAir"].as<bool>(cc3d.m_ControlMovementInAir);
+                    cc3d.m_ControlRotationInAir = cc3dComponent["ControlRotationInAir"].as<bool>(cc3d.m_ControlRotationInAir);
+                }
+
+                if (auto relComponent = entity["RelationshipComponent"]; relComponent)
+                {
+                    auto& rel = deserializedEntity.AddComponent<RelationshipComponent>();
+                    if (relComponent["ParentHandle"])
+                        rel.m_ParentHandle = relComponent["ParentHandle"].as<u64>();
+                    if (auto children = relComponent["Children"]; children)
+                    {
+                        for (auto child : children)
+                        {
+                            rel.m_Children.push_back(child.as<u64>());
+                        }
+                    }
+                }
+
+                if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
+                {
+                    auto& submesh = deserializedEntity.AddComponent<SubmeshComponent>();
+                    submesh.m_SubmeshIndex = submeshComponent["SubmeshIndex"].as<u32>(submesh.m_SubmeshIndex);
+                    submesh.m_Visible = submeshComponent["Visible"].as<bool>(submesh.m_Visible);
+                    // Note: m_Mesh is reconstructed from parent MeshComponent at runtime
+                }
+
+                if (auto animComponent = entity["AnimationStateComponent"]; animComponent)
+                {
+                    auto& anim = deserializedEntity.AddComponent<AnimationStateComponent>();
+                    anim.m_State = static_cast<AnimationStateComponent::State>(animComponent["State"].as<int>(static_cast<int>(anim.m_State)));
+                    anim.m_CurrentTime = animComponent["CurrentTime"].as<f32>(anim.m_CurrentTime);
+                    anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
+                    // Note: Animation clips are runtime data, loaded from model
+                }
+
+                if (auto skelComponent = entity["SkeletonComponent"]; skelComponent)
+                {
+                    deserializedEntity.AddComponent<SkeletonComponent>();
+                    // Note: Skeleton is loaded from model file at runtime
+                }
             }
         }
         m_Scene->SetName(std::filesystem::path(filepath).filename().string());
@@ -1156,6 +1376,229 @@ namespace OloEngine
                     auto& pc = deserializedEntity.AddComponent<PrefabComponent>();
                     pc.m_PrefabID = prefabComponent["PrefabID"].as<u64>();
                     pc.m_PrefabEntityID = prefabComponent["PrefabEntityID"].as<u64>();
+                }
+
+                // 3D Components (matching Deserialize method)
+                if (auto meshComponent = entity["MeshComponent"]; meshComponent)
+                {
+                    auto& mc = deserializedEntity.AddComponent<MeshComponent>();
+                    if (meshComponent["MeshSourceHandle"])
+                    {
+                        u64 handle = meshComponent["MeshSourceHandle"].as<u64>();
+                        mc.m_MeshSource = AssetManager::GetAsset<MeshSource>(handle);
+                    }
+                }
+
+                if (auto modelComponent = entity["ModelComponent"]; modelComponent)
+                {
+                    auto& mc = deserializedEntity.AddComponent<ModelComponent>();
+                    if (modelComponent["FilePath"])
+                    {
+                        mc.m_FilePath = modelComponent["FilePath"].as<std::string>();
+                        if (!mc.m_FilePath.empty())
+                        {
+                            mc.Reload();
+                        }
+                    }
+                    if (modelComponent["Visible"])
+                    {
+                        mc.m_Visible = modelComponent["Visible"].as<bool>();
+                    }
+                }
+
+                if (auto materialComponent = entity["MaterialComponent"]; materialComponent)
+                {
+                    auto& matc = deserializedEntity.AddComponent<MaterialComponent>();
+                    if (materialComponent["AlbedoColor"])
+                    {
+                        auto albedo = materialComponent["AlbedoColor"].as<glm::vec3>();
+                        matc.m_Material.SetBaseColorFactor(glm::vec4(albedo, 1.0f));
+                    }
+                    if (materialComponent["Metallic"])
+                    {
+                        matc.m_Material.SetMetallicFactor(materialComponent["Metallic"].as<f32>());
+                    }
+                    if (materialComponent["Roughness"])
+                    {
+                        matc.m_Material.SetRoughnessFactor(materialComponent["Roughness"].as<f32>());
+                    }
+                }
+
+                if (auto dirLightComponent = entity["DirectionalLightComponent"]; dirLightComponent)
+                {
+                    auto& dirLight = deserializedEntity.AddComponent<DirectionalLightComponent>();
+                    dirLight.m_Direction = dirLightComponent["Direction"].as<glm::vec3>(dirLight.m_Direction);
+                    dirLight.m_Color = dirLightComponent["Color"].as<glm::vec3>(dirLight.m_Color);
+                    dirLight.m_Intensity = dirLightComponent["Intensity"].as<f32>(dirLight.m_Intensity);
+                    dirLight.m_CastShadows = dirLightComponent["CastShadows"].as<bool>(dirLight.m_CastShadows);
+                }
+
+                if (auto pointLightComponent = entity["PointLightComponent"]; pointLightComponent)
+                {
+                    auto& pointLight = deserializedEntity.AddComponent<PointLightComponent>();
+                    pointLight.m_Color = pointLightComponent["Color"].as<glm::vec3>(pointLight.m_Color);
+                    pointLight.m_Intensity = pointLightComponent["Intensity"].as<f32>(pointLight.m_Intensity);
+                    pointLight.m_Range = pointLightComponent["Range"].as<f32>(pointLight.m_Range);
+                    pointLight.m_Attenuation = pointLightComponent["Attenuation"].as<f32>(pointLight.m_Attenuation);
+                    pointLight.m_CastShadows = pointLightComponent["CastShadows"].as<bool>(pointLight.m_CastShadows);
+                }
+
+                if (auto spotLightComponent = entity["SpotLightComponent"]; spotLightComponent)
+                {
+                    auto& spotLight = deserializedEntity.AddComponent<SpotLightComponent>();
+                    spotLight.m_Direction = spotLightComponent["Direction"].as<glm::vec3>(spotLight.m_Direction);
+                    spotLight.m_Color = spotLightComponent["Color"].as<glm::vec3>(spotLight.m_Color);
+                    spotLight.m_Intensity = spotLightComponent["Intensity"].as<f32>(spotLight.m_Intensity);
+                    spotLight.m_Range = spotLightComponent["Range"].as<f32>(spotLight.m_Range);
+                    spotLight.m_InnerCutoff = spotLightComponent["InnerCutoff"].as<f32>(spotLight.m_InnerCutoff);
+                    spotLight.m_OuterCutoff = spotLightComponent["OuterCutoff"].as<f32>(spotLight.m_OuterCutoff);
+                    spotLight.m_Attenuation = spotLightComponent["Attenuation"].as<f32>(spotLight.m_Attenuation);
+                    spotLight.m_CastShadows = spotLightComponent["CastShadows"].as<bool>(spotLight.m_CastShadows);
+                }
+
+                if (auto rb3dComponent = entity["Rigidbody3DComponent"]; rb3dComponent)
+                {
+                    auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
+                    rb3d.m_Type = static_cast<BodyType3D>(rb3dComponent["BodyType"].as<int>(static_cast<int>(rb3d.m_Type)));
+                    rb3d.m_Mass = rb3dComponent["Mass"].as<f32>(rb3d.m_Mass);
+                    rb3d.m_LinearDrag = rb3dComponent["LinearDrag"].as<f32>(rb3d.m_LinearDrag);
+                    rb3d.m_AngularDrag = rb3dComponent["AngularDrag"].as<f32>(rb3d.m_AngularDrag);
+                    rb3d.m_DisableGravity = rb3dComponent["DisableGravity"].as<bool>(rb3d.m_DisableGravity);
+                    rb3d.m_IsTrigger = rb3dComponent["IsTrigger"].as<bool>(rb3d.m_IsTrigger);
+                }
+
+                if (auto bc3dComponent = entity["BoxCollider3DComponent"]; bc3dComponent)
+                {
+                    auto& bc3d = deserializedEntity.AddComponent<BoxCollider3DComponent>();
+                    bc3d.m_HalfExtents = bc3dComponent["HalfExtents"].as<glm::vec3>(bc3d.m_HalfExtents);
+                    bc3d.m_Offset = bc3dComponent["Offset"].as<glm::vec3>(bc3d.m_Offset);
+                    if (bc3dComponent["StaticFriction"])
+                        bc3d.m_Material.SetStaticFriction(bc3dComponent["StaticFriction"].as<f32>());
+                    if (bc3dComponent["DynamicFriction"])
+                        bc3d.m_Material.SetDynamicFriction(bc3dComponent["DynamicFriction"].as<f32>());
+                    if (bc3dComponent["Restitution"])
+                        bc3d.m_Material.SetRestitution(bc3dComponent["Restitution"].as<f32>());
+                }
+
+                if (auto sc3dComponent = entity["SphereCollider3DComponent"]; sc3dComponent)
+                {
+                    auto& sc3d = deserializedEntity.AddComponent<SphereCollider3DComponent>();
+                    sc3d.m_Radius = sc3dComponent["Radius"].as<f32>(sc3d.m_Radius);
+                    sc3d.m_Offset = sc3dComponent["Offset"].as<glm::vec3>(sc3d.m_Offset);
+                    if (sc3dComponent["StaticFriction"])
+                        sc3d.m_Material.SetStaticFriction(sc3dComponent["StaticFriction"].as<f32>());
+                    if (sc3dComponent["DynamicFriction"])
+                        sc3d.m_Material.SetDynamicFriction(sc3dComponent["DynamicFriction"].as<f32>());
+                    if (sc3dComponent["Restitution"])
+                        sc3d.m_Material.SetRestitution(sc3dComponent["Restitution"].as<f32>());
+                }
+
+                if (auto cc3dComponent = entity["CapsuleCollider3DComponent"]; cc3dComponent)
+                {
+                    auto& cc3d = deserializedEntity.AddComponent<CapsuleCollider3DComponent>();
+                    cc3d.m_Radius = cc3dComponent["Radius"].as<f32>(cc3d.m_Radius);
+                    cc3d.m_HalfHeight = cc3dComponent["HalfHeight"].as<f32>(cc3d.m_HalfHeight);
+                    cc3d.m_Offset = cc3dComponent["Offset"].as<glm::vec3>(cc3d.m_Offset);
+                    if (cc3dComponent["StaticFriction"])
+                        cc3d.m_Material.SetStaticFriction(cc3dComponent["StaticFriction"].as<f32>());
+                    if (cc3dComponent["DynamicFriction"])
+                        cc3d.m_Material.SetDynamicFriction(cc3dComponent["DynamicFriction"].as<f32>());
+                    if (cc3dComponent["Restitution"])
+                        cc3d.m_Material.SetRestitution(cc3dComponent["Restitution"].as<f32>());
+                }
+
+                if (auto mc3dComponent = entity["MeshCollider3DComponent"]; mc3dComponent)
+                {
+                    auto& mc3d = deserializedEntity.AddComponent<MeshCollider3DComponent>();
+                    if (mc3dComponent["ColliderAsset"])
+                        mc3d.m_ColliderAsset = mc3dComponent["ColliderAsset"].as<u64>();
+                    mc3d.m_Offset = mc3dComponent["Offset"].as<glm::vec3>(mc3d.m_Offset);
+                    mc3d.m_Scale = mc3dComponent["Scale"].as<glm::vec3>(mc3d.m_Scale);
+                    mc3d.m_UseComplexAsSimple = mc3dComponent["UseComplexAsSimple"].as<bool>(mc3d.m_UseComplexAsSimple);
+                    if (mc3dComponent["StaticFriction"])
+                        mc3d.m_Material.SetStaticFriction(mc3dComponent["StaticFriction"].as<f32>());
+                    if (mc3dComponent["DynamicFriction"])
+                        mc3d.m_Material.SetDynamicFriction(mc3dComponent["DynamicFriction"].as<f32>());
+                    if (mc3dComponent["Restitution"])
+                        mc3d.m_Material.SetRestitution(mc3dComponent["Restitution"].as<f32>());
+                }
+
+                if (auto cmc3dComponent = entity["ConvexMeshCollider3DComponent"]; cmc3dComponent)
+                {
+                    auto& cmc3d = deserializedEntity.AddComponent<ConvexMeshCollider3DComponent>();
+                    if (cmc3dComponent["ColliderAsset"])
+                        cmc3d.m_ColliderAsset = cmc3dComponent["ColliderAsset"].as<u64>();
+                    cmc3d.m_Offset = cmc3dComponent["Offset"].as<glm::vec3>(cmc3d.m_Offset);
+                    cmc3d.m_Scale = cmc3dComponent["Scale"].as<glm::vec3>(cmc3d.m_Scale);
+                    cmc3d.m_ConvexRadius = cmc3dComponent["ConvexRadius"].as<f32>(cmc3d.m_ConvexRadius);
+                    cmc3d.m_MaxVertices = cmc3dComponent["MaxVertices"].as<u32>(cmc3d.m_MaxVertices);
+                    if (cmc3dComponent["StaticFriction"])
+                        cmc3d.m_Material.SetStaticFriction(cmc3dComponent["StaticFriction"].as<f32>());
+                    if (cmc3dComponent["DynamicFriction"])
+                        cmc3d.m_Material.SetDynamicFriction(cmc3dComponent["DynamicFriction"].as<f32>());
+                    if (cmc3dComponent["Restitution"])
+                        cmc3d.m_Material.SetRestitution(cmc3dComponent["Restitution"].as<f32>());
+                }
+
+                if (auto tmc3dComponent = entity["TriangleMeshCollider3DComponent"]; tmc3dComponent)
+                {
+                    auto& tmc3d = deserializedEntity.AddComponent<TriangleMeshCollider3DComponent>();
+                    if (tmc3dComponent["ColliderAsset"])
+                        tmc3d.m_ColliderAsset = tmc3dComponent["ColliderAsset"].as<u64>();
+                    tmc3d.m_Offset = tmc3dComponent["Offset"].as<glm::vec3>(tmc3d.m_Offset);
+                    tmc3d.m_Scale = tmc3dComponent["Scale"].as<glm::vec3>(tmc3d.m_Scale);
+                    if (tmc3dComponent["StaticFriction"])
+                        tmc3d.m_Material.SetStaticFriction(tmc3dComponent["StaticFriction"].as<f32>());
+                    if (tmc3dComponent["DynamicFriction"])
+                        tmc3d.m_Material.SetDynamicFriction(tmc3dComponent["DynamicFriction"].as<f32>());
+                    if (tmc3dComponent["Restitution"])
+                        tmc3d.m_Material.SetRestitution(tmc3dComponent["Restitution"].as<f32>());
+                }
+
+                if (auto cc3dComponent = entity["CharacterController3DComponent"]; cc3dComponent)
+                {
+                    auto& cc3d = deserializedEntity.AddComponent<CharacterController3DComponent>();
+                    cc3d.m_SlopeLimitDeg = cc3dComponent["SlopeLimitDeg"].as<f32>(cc3d.m_SlopeLimitDeg);
+                    cc3d.m_StepOffset = cc3dComponent["StepOffset"].as<f32>(cc3d.m_StepOffset);
+                    cc3d.m_JumpPower = cc3dComponent["JumpPower"].as<f32>(cc3d.m_JumpPower);
+                    cc3d.m_LayerID = cc3dComponent["LayerID"].as<u32>(cc3d.m_LayerID);
+                    cc3d.m_DisableGravity = cc3dComponent["DisableGravity"].as<bool>(cc3d.m_DisableGravity);
+                    cc3d.m_ControlMovementInAir = cc3dComponent["ControlMovementInAir"].as<bool>(cc3d.m_ControlMovementInAir);
+                    cc3d.m_ControlRotationInAir = cc3dComponent["ControlRotationInAir"].as<bool>(cc3d.m_ControlRotationInAir);
+                }
+
+                if (auto relComponent = entity["RelationshipComponent"]; relComponent)
+                {
+                    auto& rel = deserializedEntity.AddComponent<RelationshipComponent>();
+                    if (relComponent["ParentHandle"])
+                        rel.m_ParentHandle = relComponent["ParentHandle"].as<u64>();
+                    if (auto children = relComponent["Children"]; children)
+                    {
+                        for (auto child : children)
+                        {
+                            rel.m_Children.push_back(child.as<u64>());
+                        }
+                    }
+                }
+
+                if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
+                {
+                    auto& submesh = deserializedEntity.AddComponent<SubmeshComponent>();
+                    submesh.m_SubmeshIndex = submeshComponent["SubmeshIndex"].as<u32>(submesh.m_SubmeshIndex);
+                    submesh.m_Visible = submeshComponent["Visible"].as<bool>(submesh.m_Visible);
+                }
+
+                if (auto animComponent = entity["AnimationStateComponent"]; animComponent)
+                {
+                    auto& anim = deserializedEntity.AddComponent<AnimationStateComponent>();
+                    anim.m_State = static_cast<AnimationStateComponent::State>(animComponent["State"].as<int>(static_cast<int>(anim.m_State)));
+                    anim.m_CurrentTime = animComponent["CurrentTime"].as<f32>(anim.m_CurrentTime);
+                    anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
+                }
+
+                if (auto skelComponent = entity["SkeletonComponent"]; skelComponent)
+                {
+                    deserializedEntity.AddComponent<SkeletonComponent>();
                 }
             }
         }
