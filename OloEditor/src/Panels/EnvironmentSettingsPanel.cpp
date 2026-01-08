@@ -47,6 +47,8 @@ namespace OloEngine
                 }
             }
             m_NeedsHDRRefresh = false;
+            // Reset selectedHDR when HDR list changes to avoid stale index
+            m_SelectedHDRIndex = -1;
         }
 
         DrawSkyboxSection();
@@ -90,9 +92,16 @@ namespace OloEngine
                 // HDR file dropdown
                 if (!m_AvailableHDRFiles.empty())
                 {
-                    static int selectedHDR = -1;
-                    if (ImGui::BeginCombo("Available HDR Files",
-                                          selectedHDR >= 0 ? m_AvailableHDRFiles[selectedHDR].c_str() : "Select..."))
+                    // Validate selectedHDR index is within bounds
+                    if (m_SelectedHDRIndex >= static_cast<int>(m_AvailableHDRFiles.size()))
+                    {
+                        m_SelectedHDRIndex = -1;
+                    }
+
+                    const char* previewLabel = (m_SelectedHDRIndex >= 0)
+                                                   ? m_AvailableHDRFiles[m_SelectedHDRIndex].c_str()
+                                                   : "Select...";
+                    if (ImGui::BeginCombo("Available HDR Files", previewLabel))
                     {
                         for (int i = 0; i < static_cast<int>(m_AvailableHDRFiles.size()); i++)
                         {
@@ -101,9 +110,9 @@ namespace OloEngine
                                                        ? m_AvailableHDRFiles[i].substr(lastSlash + 1)
                                                        : m_AvailableHDRFiles[i];
 
-                            if (ImGui::Selectable(filename.c_str(), selectedHDR == i))
+                            if (ImGui::Selectable(filename.c_str(), m_SelectedHDRIndex == i))
                             {
-                                selectedHDR = i;
+                                m_SelectedHDRIndex = i;
                                 LoadEnvironmentMap(m_AvailableHDRFiles[i]);
                             }
                         }
@@ -250,12 +259,6 @@ namespace OloEngine
 
     void EnvironmentSettingsPanel::LoadEnvironmentMap(const std::string& filepath)
     {
-        EnvironmentMapSpecification spec;
-        spec.FilePath = filepath;
-        spec.Resolution = 512;
-        spec.GenerateIBL = true;
-        spec.GenerateMipmaps = true;
-
         try
         {
             m_Settings.EnvironmentMapAsset = EnvironmentMap::CreateFromEquirectangular(filepath);

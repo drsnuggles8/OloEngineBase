@@ -420,6 +420,9 @@ namespace OloEngine
         s_Data.ProjectionMatrix = camera.GetProjection();
         s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
 
+        // Extract camera position from EditorCamera
+        s_Data.ViewPos = camera.GetPosition();
+
         CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
         CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
         CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
@@ -1706,7 +1709,7 @@ namespace OloEngine
         }
     }
 
-    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
+    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic, i32 entityID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1876,6 +1879,9 @@ namespace OloEngine
         cmd->isAnimatedMesh = true;
         cmd->boneBufferOffset = boneBufferOffset;
         cmd->boneCount = boneCount;
+
+        // Entity ID for picking
+        cmd->entityID = entityID;
 
         static bool s_LoggedBoneMatrices = false;
         if (!s_LoggedBoneMatrices && !boneMatrices.empty())

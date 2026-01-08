@@ -1,5 +1,12 @@
-Scene: fox
+Scene: fox.olo
 Entities:
+  - Entity: 6314009358522869315
+    TagComponent:
+      Tag: skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
   - Entity: 11366012263217394104
     TagComponent:
       Tag: fox
@@ -8,7 +15,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     MeshComponent:
-      MeshSourceHandle: 0
+      {}
     MaterialComponent:
       AlbedoColor: [1, 1, 1]
       Metallic: 0
@@ -19,14 +26,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 0
       IsPlaying: false
-      SourceFilePath: E:\repos\OloEngineBase\OloEditor\assets\models\Fox\Fox.gltf
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
       CurrentClipName: Survey
     SkeletonComponent:
       {}
-  - Entity: 6314009358522869315
-    TagComponent:
-      Tag: skybox
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]

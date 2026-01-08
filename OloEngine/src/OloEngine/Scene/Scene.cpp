@@ -1075,7 +1075,7 @@ namespace OloEngine
                     for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false);
+                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false, entityID);
                         if (packet)
                             Renderer3D::SubmitPacket(packet);
                     }
@@ -1437,7 +1437,7 @@ namespace OloEngine
                     for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false);
+                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false, entityID);
                         if (packet)
                             Renderer3D::SubmitPacket(packet);
                     }

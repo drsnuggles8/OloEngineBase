@@ -9,6 +9,11 @@
 #include <yaml-cpp/yaml.h>
 #include <fstream>
 
+#ifdef OLO_PLATFORM_WINDOWS
+    #include <Windows.h>
+    #include <shellapi.h>
+#endif
+
 namespace OloEngine
 {
     // Static helper to map extensions to file types
@@ -170,12 +175,6 @@ namespace OloEngine
                 }
 
                 ImGui::SetDragDropPayload(payloadType, itemPath, (std::wcslen(itemPath) + 1) * sizeof(wchar_t));
-
-                // Also set generic payload for backward compatibility
-                if (payloadType != std::string_view("CONTENT_BROWSER_ITEM"))
-                {
-                    ImGui::SetDragDropPayload("CONTENT_BROWSER_ITEM", itemPath, (std::wcslen(itemPath) + 1) * sizeof(wchar_t), ImGuiCond_Always);
-                }
 
                 // Show preview tooltip
                 ImGui::Text("%s", filenameString.c_str());
@@ -354,6 +353,13 @@ namespace OloEngine
                     out << YAML::EndMap;
 
                     std::ofstream fout(matPath);
+                    if (!fout)
+                    {
+                        OLO_CORE_ERROR("Failed to create material file: {}", matPath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        return;
+                    }
                     fout << out.c_str();
                     fout.close();
 
@@ -372,8 +378,9 @@ namespace OloEngine
         if (ImGui::MenuItem("Open in Explorer"))
         {
 #ifdef OLO_PLATFORM_WINDOWS
-            std::string command = "explorer /select,\"" + path.string() + "\"";
-            std::system(command.c_str());
+            // Use ShellExecuteW to avoid command injection vulnerability
+            std::wstring args = L"/select,\"" + path.wstring() + L"\"";
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
 #endif
         }
 
@@ -409,7 +416,15 @@ namespace OloEngine
 
         if (ImGui::MenuItem("Delete", nullptr, false, !std::filesystem::is_directory(path)))
         {
-            std::filesystem::remove(path);
+            try
+            {
+                std::filesystem::remove(path);
+                OLO_CORE_INFO("Deleted: {}", path.string());
+            }
+            catch (const std::filesystem::filesystem_error& e)
+            {
+                OLO_CORE_ERROR("Failed to delete {}: {}", path.string(), e.what());
+            }
         }
     }
 
@@ -462,6 +477,11 @@ namespace OloEngine
         out << YAML::EndMap;
 
         std::ofstream fout(filePath);
+        if (!fout)
+        {
+            OLO_CORE_ERROR("Failed to create primitive file: {}", filePath.string());
+            return;
+        }
         fout << out.c_str();
         fout.close();
 

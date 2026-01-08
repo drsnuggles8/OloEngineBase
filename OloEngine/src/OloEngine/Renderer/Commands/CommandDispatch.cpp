@@ -1049,6 +1049,13 @@ namespace OloEngine
         // Note: Grid shader typically reads view/projection from Camera UBO
         // and calculates grid lines in fragment shader using world position
 
+        // Set grid scale uniform if the shader supports it
+        GLint gridScaleLoc = glGetUniformLocation(cmd->shaderRendererID, "u_GridScale");
+        if (gridScaleLoc != -1)
+        {
+            glUniform1f(gridScaleLoc, cmd->gridScale);
+        }
+
         // Bind fullscreen quad VAO and draw
         glBindVertexArray(cmd->quadVAOID);
         glDrawArrays(GL_TRIANGLES, 0, 6);

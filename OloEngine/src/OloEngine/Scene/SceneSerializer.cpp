@@ -341,7 +341,8 @@ namespace OloEngine
             out << YAML::BeginMap; // MeshComponent
 
             auto const& meshComponent = entity.GetComponent<MeshComponent>();
-            if (meshComponent.m_MeshSource)
+            // Only serialize valid asset handles (non-zero); handle 0 indicates uninitialized/runtime data
+            if (meshComponent.m_MeshSource && meshComponent.m_MeshSource->GetHandle() != 0)
             {
                 out << YAML::Key << "MeshSourceHandle" << YAML::Value << static_cast<u64>(meshComponent.m_MeshSource->GetHandle());
             }
@@ -420,6 +421,25 @@ namespace OloEngine
             out << YAML::Key << "CastShadows" << YAML::Value << spotLight.m_CastShadows;
 
             out << YAML::EndMap; // SpotLightComponent
+        }
+
+        if (entity.HasComponent<EnvironmentMapComponent>())
+        {
+            out << YAML::Key << "EnvironmentMapComponent";
+            out << YAML::BeginMap; // EnvironmentMapComponent
+
+            auto const& envMap = entity.GetComponent<EnvironmentMapComponent>();
+            out << YAML::Key << "FilePath" << YAML::Value << envMap.m_FilePath;
+            out << YAML::Key << "IsCubemapFolder" << YAML::Value << envMap.m_IsCubemapFolder;
+            out << YAML::Key << "EnableSkybox" << YAML::Value << envMap.m_EnableSkybox;
+            out << YAML::Key << "Rotation" << YAML::Value << envMap.m_Rotation;
+            out << YAML::Key << "Exposure" << YAML::Value << envMap.m_Exposure;
+            out << YAML::Key << "BlurAmount" << YAML::Value << envMap.m_BlurAmount;
+            out << YAML::Key << "EnableIBL" << YAML::Value << envMap.m_EnableIBL;
+            out << YAML::Key << "IBLIntensity" << YAML::Value << envMap.m_IBLIntensity;
+            out << YAML::Key << "Tint" << YAML::Value << envMap.m_Tint;
+
+            out << YAML::EndMap; // EnvironmentMapComponent
         }
 
         if (entity.HasComponent<Rigidbody3DComponent>())
@@ -605,7 +625,18 @@ namespace OloEngine
             out << YAML::Key << "BlendDuration" << YAML::Value << animComponent.m_BlendDuration;
             out << YAML::Key << "CurrentClipIndex" << YAML::Value << animComponent.m_CurrentClipIndex;
             out << YAML::Key << "IsPlaying" << YAML::Value << animComponent.m_IsPlaying;
-            out << YAML::Key << "SourceFilePath" << YAML::Value << animComponent.m_SourceFilePath;
+            // Store source file path as relative path for portability
+            if (!animComponent.m_SourceFilePath.empty())
+            {
+                std::filesystem::path sourcePath(animComponent.m_SourceFilePath);
+                auto assetDirectory = Project::GetAssetDirectory();
+                auto relativePath = std::filesystem::relative(sourcePath, assetDirectory);
+                out << YAML::Key << "SourceFilePath" << YAML::Value << relativePath.generic_string();
+            }
+            else
+            {
+                out << YAML::Key << "SourceFilePath" << YAML::Value << "";
+            }
             // Save current clip name for reference (helps with debugging)
             if (animComponent.m_CurrentClip)
             {
@@ -958,6 +989,20 @@ namespace OloEngine
                     spotLight.m_CastShadows = spotLightComponent["CastShadows"].as<bool>(spotLight.m_CastShadows);
                 }
 
+                if (auto envMapComponent = entity["EnvironmentMapComponent"]; envMapComponent)
+                {
+                    auto& envMap = deserializedEntity.AddComponent<EnvironmentMapComponent>();
+                    envMap.m_FilePath = envMapComponent["FilePath"].as<std::string>(envMap.m_FilePath);
+                    envMap.m_IsCubemapFolder = envMapComponent["IsCubemapFolder"].as<bool>(envMap.m_IsCubemapFolder);
+                    envMap.m_EnableSkybox = envMapComponent["EnableSkybox"].as<bool>(envMap.m_EnableSkybox);
+                    envMap.m_Rotation = envMapComponent["Rotation"].as<f32>(envMap.m_Rotation);
+                    envMap.m_Exposure = envMapComponent["Exposure"].as<f32>(envMap.m_Exposure);
+                    envMap.m_BlurAmount = envMapComponent["BlurAmount"].as<f32>(envMap.m_BlurAmount);
+                    envMap.m_EnableIBL = envMapComponent["EnableIBL"].as<bool>(envMap.m_EnableIBL);
+                    envMap.m_IBLIntensity = envMapComponent["IBLIntensity"].as<f32>(envMap.m_IBLIntensity);
+                    envMap.m_Tint = envMapComponent["Tint"].as<glm::vec3>(envMap.m_Tint);
+                }
+
                 if (auto rb3dComponent = entity["Rigidbody3DComponent"]; rb3dComponent)
                 {
                     auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
@@ -1107,12 +1152,18 @@ namespace OloEngine
                     anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
                     anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
 
-                    // Load source file path and reload animated model if available
+                    // Load source file path (stored as relative, convert to absolute) and reload animated model if available
                     if (animComponent["SourceFilePath"])
                     {
-                        anim.m_SourceFilePath = animComponent["SourceFilePath"].as<std::string>();
-                        if (!anim.m_SourceFilePath.empty())
+                        auto relativePathStr = animComponent["SourceFilePath"].as<std::string>();
+                        if (!relativePathStr.empty())
                         {
+                            // Convert relative path back to absolute
+                            std::filesystem::path relativePath(relativePathStr);
+                            auto assetDirectory = Project::GetAssetDirectory();
+                            auto absolutePath = assetDirectory / relativePath;
+                            anim.m_SourceFilePath = absolutePath.string();
+
                             auto animatedModel = Ref<AnimatedModel>::Create(anim.m_SourceFilePath);
                             if (animatedModel)
                             {
@@ -1538,6 +1589,20 @@ namespace OloEngine
                     spotLight.m_CastShadows = spotLightComponent["CastShadows"].as<bool>(spotLight.m_CastShadows);
                 }
 
+                if (auto envMapComponent = entity["EnvironmentMapComponent"]; envMapComponent)
+                {
+                    auto& envMap = deserializedEntity.AddComponent<EnvironmentMapComponent>();
+                    envMap.m_FilePath = envMapComponent["FilePath"].as<std::string>(envMap.m_FilePath);
+                    envMap.m_IsCubemapFolder = envMapComponent["IsCubemapFolder"].as<bool>(envMap.m_IsCubemapFolder);
+                    envMap.m_EnableSkybox = envMapComponent["EnableSkybox"].as<bool>(envMap.m_EnableSkybox);
+                    envMap.m_Rotation = envMapComponent["Rotation"].as<f32>(envMap.m_Rotation);
+                    envMap.m_Exposure = envMapComponent["Exposure"].as<f32>(envMap.m_Exposure);
+                    envMap.m_BlurAmount = envMapComponent["BlurAmount"].as<f32>(envMap.m_BlurAmount);
+                    envMap.m_EnableIBL = envMapComponent["EnableIBL"].as<bool>(envMap.m_EnableIBL);
+                    envMap.m_IBLIntensity = envMapComponent["IBLIntensity"].as<f32>(envMap.m_IBLIntensity);
+                    envMap.m_Tint = envMapComponent["Tint"].as<glm::vec3>(envMap.m_Tint);
+                }
+
                 if (auto rb3dComponent = entity["Rigidbody3DComponent"]; rb3dComponent)
                 {
                     auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
@@ -1679,12 +1744,18 @@ namespace OloEngine
                     anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
                     anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
 
-                    // Load source file path and reload animated model if available
+                    // Load source file path (stored as relative, convert to absolute) and reload animated model if available
                     if (animComponent["SourceFilePath"])
                     {
-                        anim.m_SourceFilePath = animComponent["SourceFilePath"].as<std::string>();
-                        if (!anim.m_SourceFilePath.empty())
+                        auto relativePathStr = animComponent["SourceFilePath"].as<std::string>();
+                        if (!relativePathStr.empty())
                         {
+                            // Convert relative path back to absolute
+                            std::filesystem::path relativePath(relativePathStr);
+                            auto assetDirectory = Project::GetAssetDirectory();
+                            auto absolutePath = assetDirectory / relativePath;
+                            anim.m_SourceFilePath = absolutePath.string();
+
                             auto animatedModel = Ref<AnimatedModel>::Create(anim.m_SourceFilePath);
                             if (animatedModel)
                             {

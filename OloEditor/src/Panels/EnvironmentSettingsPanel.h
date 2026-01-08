@@ -84,6 +84,7 @@ namespace OloEngine
         // Cached HDR file paths for dropdown
         std::vector<std::string> m_AvailableHDRFiles;
         bool m_NeedsHDRRefresh = true;
+        int m_SelectedHDRIndex = -1; // Track selected HDR file index
     };
 
 } // namespace OloEngine

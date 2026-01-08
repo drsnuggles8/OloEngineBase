@@ -265,6 +265,7 @@ namespace OloEngine
                 else
                 {
                     animState.m_CurrentTime = clipDuration;
+                    animState.m_IsPlaying = false; // Also clear component state
                     m_IsPlaying = false;
                 }
             }
@@ -290,8 +291,9 @@ namespace OloEngine
             m_TimelineOffset = 0.0f;
         }
 
-        // Get actual clip duration
+        // Get actual clip duration (clamp to small epsilon to prevent division by zero)
         f32 clipDuration = animState.m_CurrentClip ? animState.m_CurrentClip->Duration : 2.0f;
+        clipDuration = std::max(clipDuration, 0.001f);
 
         ImGui::SetNextItemWidth(-1);
         if (ImGui::SliderFloat("##TimelineScrubber", &animState.m_CurrentTime, 0.0f, clipDuration, "Time: %.3f s"))
