@@ -7,7 +7,7 @@ namespace OloEngine
 {
     // Static member definitions
     std::queue<std::unique_ptr<GPUResourceCommand>> GPUResourceQueue::s_CommandQueue;
-    std::mutex GPUResourceQueue::s_QueueMutex;
+    FMutex GPUResourceQueue::s_QueueMutex;
     std::atomic<u64> GPUResourceQueue::s_QueuedCount{ 0 };
     std::atomic<u64> GPUResourceQueue::s_ProcessedCount{ 0 };
     std::atomic<u64> GPUResourceQueue::s_FailedCount{ 0 };
@@ -20,7 +20,7 @@ namespace OloEngine
 
         // Move all commands to local queue under lock
         {
-            std::scoped_lock<std::mutex> lock(s_QueueMutex);
+            TUniqueLock<FMutex> lock(s_QueueMutex);
             std::swap(localQueue, s_CommandQueue);
         }
 
@@ -68,7 +68,7 @@ namespace OloEngine
 
         // Extract up to maxCommands from the queue
         {
-            std::scoped_lock<std::mutex> lock(s_QueueMutex);
+            TUniqueLock<FMutex> lock(s_QueueMutex);
             while (!s_CommandQueue.empty() && batch.size() < maxCommands)
             {
                 batch.push_back(std::move(s_CommandQueue.front()));

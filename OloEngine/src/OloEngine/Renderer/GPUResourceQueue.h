@@ -2,10 +2,11 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <functional>
 #include <queue>
-#include <mutex>
 #include <variant>
 #include <vector>
 #include <memory>
@@ -258,7 +259,7 @@ namespace OloEngine
 
             auto cmd = std::make_unique<T>(std::forward<Args>(args)...);
 
-            std::scoped_lock<std::mutex> lock(s_QueueMutex);
+            TUniqueLock<FMutex> lock(s_QueueMutex);
             s_CommandQueue.push(std::move(cmd));
             s_QueuedCount.fetch_add(1, std::memory_order_relaxed);
         }
@@ -293,7 +294,7 @@ namespace OloEngine
          */
         static bool HasPending()
         {
-            std::scoped_lock<std::mutex> lock(s_QueueMutex);
+            TUniqueLock<FMutex> lock(s_QueueMutex);
             return !s_CommandQueue.empty();
         }
 
@@ -302,7 +303,7 @@ namespace OloEngine
          */
         static u32 GetPendingCount()
         {
-            std::scoped_lock<std::mutex> lock(s_QueueMutex);
+            TUniqueLock<FMutex> lock(s_QueueMutex);
             return static_cast<u32>(s_CommandQueue.size());
         }
 
@@ -319,7 +320,7 @@ namespace OloEngine
 
         static Statistics GetStatistics()
         {
-            std::scoped_lock<std::mutex> lock(s_QueueMutex);
+            TUniqueLock<FMutex> lock(s_QueueMutex);
             Statistics stats;
             stats.TotalQueued = s_QueuedCount.load(std::memory_order_relaxed);
             stats.TotalProcessed = s_ProcessedCount.load(std::memory_order_relaxed);
@@ -333,14 +334,14 @@ namespace OloEngine
          */
         static void Clear()
         {
-            std::scoped_lock<std::mutex> lock(s_QueueMutex);
+            TUniqueLock<FMutex> lock(s_QueueMutex);
             while (!s_CommandQueue.empty())
                 s_CommandQueue.pop();
         }
 
       private:
         static std::queue<std::unique_ptr<GPUResourceCommand>> s_CommandQueue;
-        static std::mutex s_QueueMutex;
+        static FMutex s_QueueMutex;
         static std::atomic<u64> s_QueuedCount;
         static std::atomic<u64> s_ProcessedCount;
         static std::atomic<u64> s_FailedCount;
