@@ -5,8 +5,8 @@
 #include "SoundGraphSource.h"
 #include <miniaudio.h>
 #include <unordered_map>
-#include <mutex>
 #include <atomic>
+#include "OloEngine/Threading/Mutex.h"
 #include <choc/containers/choc_SingleReaderSingleWriterFIFO.h>
 
 namespace OloEngine::Audio::SoundGraph
@@ -69,11 +69,7 @@ namespace OloEngine::Audio::SoundGraph
         /// Global Controls
 
         void SetMasterVolume(f32 volume);
-        f32 GetMasterVolume() const
-        {
-            std::lock_guard<std::mutex> lock(m_Mutex);
-            return m_MasterVolume;
-        }
+        f32 GetMasterVolume() const;
 
         void Update(f64 deltaTime);
 
@@ -82,11 +78,7 @@ namespace OloEngine::Audio::SoundGraph
 
         u32 GetActiveSourceCount() const;
 
-        u32 GetTotalSourceCount() const
-        {
-            std::lock_guard<std::mutex> lock(m_Mutex);
-            return static_cast<u32>(m_SoundGraphSources.size());
-        }
+        u32 GetTotalSourceCount() const;
 
       private:
         // Audio engine reference
@@ -97,7 +89,7 @@ namespace OloEngine::Audio::SoundGraph
         f32 m_MasterVolume = 1.0f;
 
         // Thread synchronization
-        mutable std::mutex m_Mutex;
+        mutable FMutex m_Mutex;
 
         // Sound graph sources (protected by m_Mutex)
         // NOTE: Uses unique ownership (Scope) but Update() must carefully avoid use-after-free

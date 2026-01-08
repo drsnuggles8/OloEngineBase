@@ -377,6 +377,18 @@ namespace OloEngine::Tasks
             return false;
         }
 
+        // @brief Prepare to wait for tasks (for external use by thread loops)
+        FEventCountToken PrepareWait()
+        {
+            return m_TaskAvailable.PrepareWait();
+        }
+
+        // @brief Wait for tasks with timeout (for external use by thread loops)
+        bool WaitFor(FEventCountToken Token, FMonotonicTimeSpan Timeout)
+        {
+            return m_TaskAvailable.WaitFor(Token, Timeout);
+        }
+
         // @brief Request the thread to return from ProcessUntil
         void RequestReturn()
         {
@@ -394,6 +406,12 @@ namespace OloEngine::Tasks
         bool IsReturnRequested() const
         {
             return m_bReturnRequested.load(std::memory_order_acquire);
+        }
+
+        // @brief Notify waiting threads (for waking up thread without enqueuing task)
+        void Notify()
+        {
+            m_TaskAvailable.Notify();
         }
 
       private:
@@ -533,6 +551,14 @@ namespace OloEngine::Tasks
             OLO_CORE_ASSERT(Thread != ENamedThread::Invalid && Thread < ENamedThread::Count,
                             "Invalid named thread");
             m_Queues[static_cast<u32>(Thread)].RequestReturn();
+        }
+
+        // @brief Wake a waiting named thread (sends notification without enqueuing task)
+        void WakeThread(ENamedThread Thread)
+        {
+            OLO_CORE_ASSERT(Thread != ENamedThread::Invalid && Thread < ENamedThread::Count,
+                            "Invalid named thread");
+            m_Queues[static_cast<u32>(Thread)].Notify();
         }
 
         // @brief Check if a named thread is currently processing tasks

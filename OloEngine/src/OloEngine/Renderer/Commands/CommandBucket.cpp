@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Threading/UniqueLock.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -291,7 +292,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_Config.EnableSorting || m_IsSorted || m_CommandCount <= 1)
             return;
@@ -449,7 +450,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!target || !source || !target->CanBatchWith(*source))
             return false;
@@ -589,7 +590,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_Config.EnableBatching || m_IsBatched || m_CommandCount <= 1)
             return;
@@ -653,7 +654,7 @@ namespace OloEngine
         // Take a snapshot of the head pointer under lock
         CommandPacket const* current;
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             // Reset execution statistics
             m_Stats.DrawCalls = 0;
             m_Stats.StateChanges = 0;
@@ -713,7 +714,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         // Reset parallel command array with sufficient capacity
         m_ParallelCommands.clear();
@@ -740,7 +741,7 @@ namespace OloEngine
     {
         std::thread::id threadId = std::this_thread::get_id();
 
-        std::lock_guard<std::mutex> lock(m_ThreadMapMutex);
+        TUniqueLock<FMutex> lock(m_ThreadMapMutex);
 
         auto it = m_ThreadToWorkerIndex.find(threadId);
         if (it != m_ThreadToWorkerIndex.end())
@@ -765,7 +766,7 @@ namespace OloEngine
     {
         std::thread::id threadId = std::this_thread::get_id();
 
-        std::lock_guard<std::mutex> lock(m_ThreadMapMutex);
+        TUniqueLock<FMutex> lock(m_ThreadMapMutex);
 
         auto it = m_ThreadToWorkerIndex.find(threadId);
         if (it != m_ThreadToWorkerIndex.end())
@@ -784,7 +785,7 @@ namespace OloEngine
         u32 requiredCapacity = batchStart + TLS_BATCH_SIZE;
         if (requiredCapacity > m_ParallelCommands.size())
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             if (requiredCapacity > m_ParallelCommands.size())
             {
                 // Double the capacity or grow to required size
@@ -834,7 +835,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_ParallelSubmissionActive)
         {

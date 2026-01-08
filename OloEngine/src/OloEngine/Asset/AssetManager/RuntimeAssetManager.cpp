@@ -8,6 +8,8 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Threading/UniqueLock.h"
+#include "OloEngine/Threading/SharedLock.h"
 
 namespace OloEngine
 {
@@ -58,7 +60,9 @@ namespace OloEngine
 #endif
 
         // Lock all mutexes atomically to prevent race conditions
-        std::scoped_lock lock(m_AssetsMutex, m_PacksMutex, m_DependenciesMutex);
+        TUniqueLock<FSharedMutex> assetsLock(m_AssetsMutex);
+        TUniqueLock<FSharedMutex> packsLock(m_PacksMutex);
+        TUniqueLock<FSharedMutex> depsLock(m_DependenciesMutex);
         m_LoadedAssets.clear();
         m_MemoryAssets.clear();
         m_LoadedPacks.clear();
@@ -72,7 +76,7 @@ namespace OloEngine
     {
         // Check loaded assets and memory assets under a single shared lock
         {
-            std::shared_lock lock(m_AssetsMutex);
+            TSharedLock<FSharedMutex> lock(m_AssetsMutex);
 
             // Check loaded assets first
             auto it = m_LoadedAssets.find(assetHandle);
@@ -95,7 +99,7 @@ namespace OloEngine
 
     AssetMetadata RuntimeAssetManager::GetAssetMetadata(AssetHandle handle) const noexcept
     {
-        std::shared_lock lock(m_PacksMutex);
+        TSharedLock<FSharedMutex> lock(m_PacksMutex);
 
         // Return copy of metadata from the loaded packs storage
         auto it = m_AssetMetadata.find(handle);
@@ -115,7 +119,7 @@ namespace OloEngine
 
         // First check: acquire shared lock and check if asset is already loaded
         {
-            std::shared_lock lock(m_AssetsMutex);
+            TSharedLock<FSharedMutex> lock(m_AssetsMutex);
 
             // Check loaded assets first
             auto it = m_LoadedAssets.find(assetHandle);
@@ -130,7 +134,7 @@ namespace OloEngine
 
         // Asset not found, need to load it - acquire unique lock for double-checked locking
         {
-            std::unique_lock lock(m_AssetsMutex);
+            TDynamicUniqueLock<FSharedMutex> lock(m_AssetsMutex);
 
             // Second check: verify asset wasn't loaded by another thread while we waited for the lock
             auto it = m_LoadedAssets.find(assetHandle);
@@ -144,13 +148,13 @@ namespace OloEngine
 
             // Asset still not loaded, safe to load it now
             // Release the lock temporarily while loading from pack (expensive operation)
-            lock.unlock();
+            lock.Unlock();
             Ref<Asset> asset = LoadAssetFromPack(assetHandle);
 
             if (asset)
             {
                 // Re-acquire lock to insert the loaded asset
-                lock.lock();
+                lock.Lock();
 
                 // Final check: ensure no other thread loaded it while we were loading
                 auto finalIt = m_LoadedAssets.find(assetHandle);
@@ -182,7 +186,7 @@ namespace OloEngine
         if (!asset || asset->m_Handle == 0)
             return;
 
-        std::unique_lock lock(m_AssetsMutex);
+        TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
         m_MemoryAssets[asset->m_Handle] = asset;
     }
 
@@ -227,14 +231,14 @@ namespace OloEngine
 
     Ref<Asset> RuntimeAssetManager::GetMemoryAsset(AssetHandle handle) const
     {
-        std::shared_lock lock(m_AssetsMutex);
+        TSharedLock<FSharedMutex> lock(m_AssetsMutex);
         auto it = m_MemoryAssets.find(handle);
         return (it != m_MemoryAssets.end()) ? it->second : nullptr;
     }
 
     bool RuntimeAssetManager::IsAssetLoaded(AssetHandle handle) const noexcept
     {
-        std::shared_lock lock(m_AssetsMutex);
+        TSharedLock<FSharedMutex> lock(m_AssetsMutex);
         return m_LoadedAssets.find(handle) != m_LoadedAssets.end();
     }
 
@@ -242,7 +246,7 @@ namespace OloEngine
     {
         // Check if it's loaded and valid
         {
-            std::shared_lock lock(m_AssetsMutex);
+            TSharedLock<FSharedMutex> lock(m_AssetsMutex);
             auto it = m_LoadedAssets.find(handle);
             if (it != m_LoadedAssets.end())
                 return it->second != nullptr;
@@ -268,7 +272,7 @@ namespace OloEngine
 
     bool RuntimeAssetManager::IsMemoryAsset(AssetHandle handle) const noexcept
     {
-        std::shared_lock lock(m_AssetsMutex);
+        TSharedLock<FSharedMutex> lock(m_AssetsMutex);
         return m_MemoryAssets.find(handle) != m_MemoryAssets.end();
     }
 
@@ -279,7 +283,7 @@ namespace OloEngine
 
     void RuntimeAssetManager::RemoveAsset(AssetHandle handle)
     {
-        std::unique_lock lock(m_AssetsMutex);
+        TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
 
         // Remove from loaded assets
         m_LoadedAssets.erase(handle);
@@ -293,13 +297,13 @@ namespace OloEngine
 
     void RuntimeAssetManager::RegisterDependency(AssetHandle handle, AssetHandle dependency)
     {
-        std::unique_lock lock(m_DependenciesMutex);
+        TUniqueLock<FSharedMutex> lock(m_DependenciesMutex);
         m_AssetDependencies[handle].insert(dependency);
     }
 
     void RuntimeAssetManager::DeregisterDependency(AssetHandle handle, AssetHandle dependency)
     {
-        std::unique_lock lock(m_DependenciesMutex);
+        TUniqueLock<FSharedMutex> lock(m_DependenciesMutex);
         auto it = m_AssetDependencies.find(handle);
         if (it != m_AssetDependencies.end())
         {
@@ -311,13 +315,13 @@ namespace OloEngine
 
     void RuntimeAssetManager::DeregisterDependencies(AssetHandle handle)
     {
-        std::unique_lock lock(m_DependenciesMutex);
+        TUniqueLock<FSharedMutex> lock(m_DependenciesMutex);
         m_AssetDependencies.erase(handle);
     }
 
     std::unordered_set<AssetHandle> RuntimeAssetManager::GetDependencies(AssetHandle handle) const
     {
-        std::shared_lock lock(m_DependenciesMutex);
+        TSharedLock<FSharedMutex> lock(m_DependenciesMutex);
         auto it = m_AssetDependencies.find(handle);
         return (it != m_AssetDependencies.end()) ? it->second : std::unordered_set<AssetHandle>{};
     }
@@ -334,7 +338,7 @@ namespace OloEngine
 
         // Check loaded assets
         {
-            std::shared_lock lock(m_AssetsMutex);
+            TSharedLock<FSharedMutex> lock(m_AssetsMutex);
             for (const auto& [handle, asset] : m_LoadedAssets)
             {
                 if (asset && asset->GetAssetType() == type)
@@ -361,13 +365,13 @@ namespace OloEngine
 
     std::unordered_map<AssetHandle, Ref<Asset>> RuntimeAssetManager::GetLoadedAssets() const
     {
-        std::shared_lock lock(m_AssetsMutex);
+        TSharedLock<FSharedMutex> lock(m_AssetsMutex);
         return m_LoadedAssets;
     }
 
     void RuntimeAssetManager::ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const
     {
-        std::shared_lock lock(m_AssetsMutex);
+        TSharedLock<FSharedMutex> lock(m_AssetsMutex);
         for (const auto& [handle, asset] : m_LoadedAssets)
         {
             if (!callback(handle, asset))
@@ -385,7 +389,7 @@ namespace OloEngine
 
         // Check if already loaded
         {
-            std::shared_lock lock(m_PacksMutex);
+            TSharedLock<FSharedMutex> lock(m_PacksMutex);
             if (m_LoadedPacks.find(packPath) != m_LoadedPacks.end())
             {
                 OLO_CORE_WARN("Asset pack already loaded: {}", packPath.string());
@@ -403,7 +407,7 @@ namespace OloEngine
 
         // Store the loaded pack
         {
-            std::unique_lock lock(m_PacksMutex);
+            TUniqueLock<FSharedMutex> lock(m_PacksMutex);
             m_LoadedPacks[packPath] = assetPack;
         }
 
@@ -413,7 +417,7 @@ namespace OloEngine
 
     void RuntimeAssetManager::UnloadAssetPack(const std::filesystem::path& packPath)
     {
-        std::unique_lock lock(m_PacksMutex);
+        TUniqueLock<FSharedMutex> lock(m_PacksMutex);
         auto it = m_LoadedPacks.find(packPath);
         if (it != m_LoadedPacks.end())
         {
@@ -453,7 +457,7 @@ namespace OloEngine
         }
 
         // Find which pack contains the asset
-        std::shared_lock lock(m_PacksMutex);
+        TSharedLock<FSharedMutex> lock(m_PacksMutex);
         for (const auto& [packPath, assetPack] : m_LoadedPacks)
         {
             if (assetPack->IsAssetAvailable(handle))

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "SoundGraphSource.h"
 #include "OloEngine/Audio/AudioLoader.h"
+#include "OloEngine/Threading/UniqueLock.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Project/Project.h"
@@ -179,7 +180,7 @@ namespace OloEngine::Audio::SoundGraph
 
         // Atomically swap in the new preset while holding the lock
         {
-            std::lock_guard<std::mutex> lock(m_PresetMutex);
+            TUniqueLock<FMutex> lock(m_PresetMutex);
             m_Preset = newPreset;
         }
 
@@ -194,7 +195,7 @@ namespace OloEngine::Audio::SoundGraph
             // Take a local copy of the shared_ptr while holding the lock briefly
             std::shared_ptr<SoundGraphPatchPreset> localPreset;
             {
-                std::lock_guard<std::mutex> lock(m_PresetMutex);
+                TUniqueLock<FMutex> lock(m_PresetMutex);
                 localPreset = m_Preset;
             }
 

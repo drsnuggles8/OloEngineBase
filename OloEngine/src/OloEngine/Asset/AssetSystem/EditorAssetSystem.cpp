@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Task/Task.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 namespace OloEngine
 {
@@ -46,7 +47,7 @@ namespace OloEngine
 
         // Check if already pending to prevent duplicate loading
         {
-            std::scoped_lock<std::mutex> lock(m_PendingAssetsMutex);
+            TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
             if (m_PendingAssets.contains(metadata.Handle))
             {
                 OLO_CORE_TRACE("EditorAssetSystem: Asset {} already queued for loading", (u64)metadata.Handle);
@@ -77,7 +78,7 @@ namespace OloEngine
 
             // Remove from pending set now that we're processing it
             {
-                std::scoped_lock<std::mutex> lock(m_PendingAssetsMutex);
+                TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
                 m_PendingAssets.erase(metadata.Handle);
             }
 
@@ -96,7 +97,7 @@ namespace OloEngine
                     pendingAsset.SerializerType = metadata.Type;
 
                     {
-                        std::scoped_lock<std::mutex> lock(m_PendingRawAssetsMutex);
+                        TUniqueLock<FMutex> lock(m_PendingRawAssetsMutex);
                         m_PendingRawAssets.push(std::move(pendingAsset));
                     }
 
@@ -130,7 +131,7 @@ namespace OloEngine
                     response.AssetRef = asset;
                     response.NeedsGPUFinalization = false;
 
-                    std::scoped_lock<std::mutex> lock(m_ReadyAssetsMutex);
+                    TUniqueLock<FMutex> lock(m_ReadyAssetsMutex);
                     m_ReadyAssets.push(response);
 
                     // Update telemetry
@@ -189,7 +190,7 @@ namespace OloEngine
 
     bool EditorAssetSystem::RetrieveReadyAssets(std::vector<EditorAssetLoadResponse>& outAssetList)
     {
-        std::scoped_lock<std::mutex> lock(m_ReadyAssetsMutex);
+        TUniqueLock<FMutex> lock(m_ReadyAssetsMutex);
 
         if (m_ReadyAssets.empty())
             return false;
@@ -205,7 +206,7 @@ namespace OloEngine
 
     bool EditorAssetSystem::RetrievePendingRawAssets(std::vector<PendingRawAsset>& outRawAssets)
     {
-        std::scoped_lock<std::mutex> lock(m_PendingRawAssetsMutex);
+        TUniqueLock<FMutex> lock(m_PendingRawAssetsMutex);
 
         if (m_PendingRawAssets.empty())
             return false;
@@ -221,7 +222,7 @@ namespace OloEngine
 
     void EditorAssetSystem::UpdateLoadedAssetList(const std::unordered_map<AssetHandle, Ref<Asset>>& loadedAssets)
     {
-        std::scoped_lock<std::mutex> lock(m_LoadedAssetsMutex);
+        TUniqueLock<FMutex> lock(m_LoadedAssetsMutex);
         m_LoadedAssets = loadedAssets;
     }
 

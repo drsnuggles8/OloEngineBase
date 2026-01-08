@@ -16,8 +16,8 @@
 #include <unordered_map>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <vector>
+#include "OloEngine/Threading/Mutex.h"
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -233,7 +233,7 @@ namespace OloEngine::Audio::SoundGraph
         struct ThreadSafePreset
         {
             std::atomic<bool> m_HasChanges{ false };
-            mutable std::mutex m_PresetMutex;
+            mutable FMutex m_PresetMutex;
             std::shared_ptr<SoundGraphPatchPreset> m_Preset;
 
             // Only one writer at a time expected - called from main thread

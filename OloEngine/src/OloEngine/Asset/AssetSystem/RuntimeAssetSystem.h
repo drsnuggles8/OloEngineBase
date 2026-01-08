@@ -4,10 +4,9 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Asset/AssetMetadata.h"
 #include "OloEngine/Core/Thread.h"
+#include "OloEngine/Threading/Mutex.h"
 
 #include <queue>
-#include <mutex>
-#include <condition_variable>
 #include <atomic>
 #include <unordered_set>
 #include <utility>
@@ -100,11 +99,11 @@ namespace OloEngine
 
         // Completed assets (ready for main thread pickup)
         std::queue<std::pair<AssetHandle, Ref<Asset>>> m_CompletedAssets;
-        std::mutex m_CompletedAssetsMutex;
+        FMutex m_CompletedAssetsMutex;
 
         // Pending assets tracking
         std::unordered_set<AssetHandle> m_PendingAssets;
-        mutable std::mutex m_PendingAssetsMutex;
+        mutable FMutex m_PendingAssetsMutex;
     };
 
 } // namespace OloEngine

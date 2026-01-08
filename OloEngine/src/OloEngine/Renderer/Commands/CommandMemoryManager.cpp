@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "CommandMemoryManager.h"
+#include "OloEngine/Threading/UniqueLock.h"
 #include <cstring>
 
 namespace OloEngine
@@ -7,16 +8,16 @@ namespace OloEngine
     // Static member initialization
     std::vector<std::unique_ptr<CommandAllocator>> CommandMemoryManager::s_AllocatorPool;
     std::unordered_map<std::thread::id, CommandAllocator*> CommandMemoryManager::s_ThreadAllocators;
-    std::mutex CommandMemoryManager::s_PoolMutex;
-    std::mutex CommandMemoryManager::s_ThreadMapMutex;
-    std::mutex CommandMemoryManager::s_StatsMutex;
+    FMutex CommandMemoryManager::s_PoolMutex;
+    FMutex CommandMemoryManager::s_ThreadMapMutex;
+    FMutex CommandMemoryManager::s_StatsMutex;
     CommandMemoryManager::Statistics CommandMemoryManager::s_Stats;
     bool CommandMemoryManager::s_Initialized = false;
 
     // Per-worker allocator storage initialization
     std::array<WorkerAllocatorSlot, MAX_ALLOCATOR_WORKERS> CommandMemoryManager::s_WorkerAllocators = {};
     std::unordered_map<std::thread::id, u32> CommandMemoryManager::s_ThreadToWorkerIndex;
-    std::mutex CommandMemoryManager::s_WorkerMapMutex;
+    FMutex CommandMemoryManager::s_WorkerMapMutex;
     std::atomic<u32> CommandMemoryManager::s_NextWorkerIndex{ 0 };
 
     void CommandMemoryManager::Init()
@@ -27,7 +28,7 @@ namespace OloEngine
             return;
 
         // Create initial pool of allocators
-        std::scoped_lock<std::mutex> lock(s_PoolMutex);
+        TUniqueLock<FMutex> lock(s_PoolMutex);
         const sizet initialPoolSize = 4; // Start with a few allocators
 
         for (sizet i = 0; i < initialPoolSize; ++i)
@@ -58,13 +59,13 @@ namespace OloEngine
 
         // Clear thread allocator mappings
         {
-            std::scoped_lock<std::mutex> lock(s_ThreadMapMutex);
+            TUniqueLock<FMutex> lock(s_ThreadMapMutex);
             s_ThreadAllocators.clear();
         }
 
         // Clear worker allocator mappings
         {
-            std::scoped_lock<std::mutex> lock(s_WorkerMapMutex);
+            TUniqueLock<FMutex> lock(s_WorkerMapMutex);
             s_ThreadToWorkerIndex.clear();
         }
 
@@ -78,13 +79,13 @@ namespace OloEngine
 
         // Clear allocator pool
         {
-            std::scoped_lock<std::mutex> lock(s_PoolMutex);
+            TUniqueLock<FMutex> lock(s_PoolMutex);
             s_AllocatorPool.clear();
         }
 
         // Reset statistics
         {
-            std::scoped_lock<std::mutex> lock(s_StatsMutex);
+            TUniqueLock<FMutex> lock(s_StatsMutex);
             s_Stats = Statistics{};
         }
 
@@ -104,14 +105,14 @@ namespace OloEngine
         }
 
         // Try to get an allocator from the pool
-        std::scoped_lock<std::mutex> poolLock(s_PoolMutex);
+        TUniqueLock<FMutex> poolLock(s_PoolMutex);
 
         if (s_AllocatorPool.empty())
         {
             // Create a new allocator if the pool is empty
             s_AllocatorPool.push_back(std::make_unique<CommandAllocator>());
 
-            std::scoped_lock<std::mutex> statsLock(s_StatsMutex);
+            TUniqueLock<FMutex> statsLock(s_StatsMutex);
             s_Stats.ActiveAllocatorCount++;
 
             OLO_CORE_TRACE("CommandMemoryManager: Created new allocator, total count: {0}",
@@ -136,7 +137,7 @@ namespace OloEngine
         allocator->Reset();
 
         // Add the allocator back to the pool
-        std::scoped_lock<std::mutex> lock(s_PoolMutex);
+        TUniqueLock<FMutex> lock(s_PoolMutex);
         s_AllocatorPool.push_back(std::unique_ptr<CommandAllocator>(allocator));
 
         // OLO_CORE_TRACE("CommandMemoryManager: Returned allocator to pool, available: {0}", s_AllocatorPool.size());
@@ -152,7 +153,7 @@ namespace OloEngine
 
         // Update statistics
         {
-            std::scoped_lock<std::mutex> lock(s_StatsMutex);
+            TUniqueLock<FMutex> lock(s_StatsMutex);
             if (s_Stats.ActivePacketCount > 0)
                 s_Stats.ActivePacketCount--;
         }
@@ -169,7 +170,7 @@ namespace OloEngine
 
         // Reset thread allocators
         {
-            std::scoped_lock<std::mutex> lock(s_ThreadMapMutex);
+            TUniqueLock<FMutex> lock(s_ThreadMapMutex);
             for (auto& [threadId, allocator] : s_ThreadAllocators)
             {
                 if (allocator)
@@ -181,7 +182,7 @@ namespace OloEngine
 
         // Reset pool allocators
         {
-            std::scoped_lock<std::mutex> lock(s_PoolMutex);
+            TUniqueLock<FMutex> lock(s_PoolMutex);
             for (auto& allocator : s_AllocatorPool)
             {
                 allocator->Reset();
@@ -190,7 +191,7 @@ namespace OloEngine
 
         // Reset frame statistics
         {
-            std::scoped_lock<std::mutex> lock(s_StatsMutex);
+            TUniqueLock<FMutex> lock(s_StatsMutex);
             s_Stats.FramePacketCount = 0;
             s_Stats.ActivePacketCount = 0;
         }
@@ -200,7 +201,7 @@ namespace OloEngine
 
     CommandMemoryManager::Statistics CommandMemoryManager::GetStatistics()
     {
-        std::scoped_lock<std::mutex> lock(s_StatsMutex);
+        TUniqueLock<FMutex> lock(s_StatsMutex);
         return s_Stats;
     }
 
@@ -218,7 +219,7 @@ namespace OloEngine
 
         // Check if this thread already has an allocator
         {
-            std::scoped_lock<std::mutex> lock(s_ThreadMapMutex);
+            TUniqueLock<FMutex> lock(s_ThreadMapMutex);
             auto it = s_ThreadAllocators.find(threadId);
             if (it != s_ThreadAllocators.end() && it->second)
                 return it->second;
@@ -230,7 +231,7 @@ namespace OloEngine
         // Register this allocator for this thread
         if (allocator)
         {
-            std::scoped_lock<std::mutex> lock(s_ThreadMapMutex);
+            TUniqueLock<FMutex> lock(s_ThreadMapMutex);
             s_ThreadAllocators[threadId] = allocator;
             OLO_CORE_TRACE("CommandMemoryManager: Assigned allocator to thread ID {0}", static_cast<void*>(&threadId));
         }
@@ -288,7 +289,7 @@ namespace OloEngine
 
         // Clear worker thread mapping for new frame
         {
-            std::scoped_lock<std::mutex> lock(s_WorkerMapMutex);
+            TUniqueLock<FMutex> lock(s_WorkerMapMutex);
             s_ThreadToWorkerIndex.clear();
         }
 
@@ -326,7 +327,7 @@ namespace OloEngine
 
         // Check if thread is already registered
         {
-            std::scoped_lock<std::mutex> lock(s_WorkerMapMutex);
+            TUniqueLock<FMutex> lock(s_WorkerMapMutex);
             auto it = s_ThreadToWorkerIndex.find(threadId);
             if (it != s_ThreadToWorkerIndex.end())
             {
@@ -346,7 +347,7 @@ namespace OloEngine
 
         // Map thread to worker index
         {
-            std::scoped_lock<std::mutex> lock(s_WorkerMapMutex);
+            TUniqueLock<FMutex> lock(s_WorkerMapMutex);
             s_ThreadToWorkerIndex[threadId] = workerIndex;
         }
 
@@ -361,7 +362,7 @@ namespace OloEngine
 
         std::thread::id threadId = std::this_thread::get_id();
 
-        std::scoped_lock<std::mutex> lock(s_WorkerMapMutex);
+        TUniqueLock<FMutex> lock(s_WorkerMapMutex);
         auto it = s_ThreadToWorkerIndex.find(threadId);
         if (it != s_ThreadToWorkerIndex.end())
         {

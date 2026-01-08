@@ -12,7 +12,7 @@ namespace OloEngine
 {
     // Static member definitions
     std::unordered_map<AssetType, Ref<Asset>> PlaceholderAssetManager::s_PlaceholderAssets;
-    std::mutex PlaceholderAssetManager::s_PlaceholderMutex;
+    FMutex PlaceholderAssetManager::s_PlaceholderMutex;
     bool PlaceholderAssetManager::s_Initialized = false;
 
     //////////////////////////////////////////////////////////////////////////////////
@@ -176,7 +176,7 @@ namespace OloEngine
 
     void PlaceholderAssetManager::Initialize()
     {
-        std::scoped_lock lock(s_PlaceholderMutex);
+        TUniqueLock<FMutex> lock(s_PlaceholderMutex);
 
         if (s_Initialized)
         {
@@ -192,7 +192,7 @@ namespace OloEngine
 
     void PlaceholderAssetManager::Shutdown()
     {
-        std::scoped_lock lock(s_PlaceholderMutex);
+        TUniqueLock<FMutex> lock(s_PlaceholderMutex);
 
         if (!s_Initialized)
             return;
@@ -203,7 +203,7 @@ namespace OloEngine
 
     Ref<Asset> PlaceholderAssetManager::GetPlaceholderAsset(AssetType type)
     {
-        std::scoped_lock lock(s_PlaceholderMutex);
+        TUniqueLock<FMutex> lock(s_PlaceholderMutex);
 
         if (!s_Initialized)
         {

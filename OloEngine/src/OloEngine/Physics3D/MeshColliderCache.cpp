@@ -4,6 +4,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
 #include "OloEngine/Task/Task.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <atomic>
 #include <chrono>
@@ -71,7 +72,7 @@ namespace OloEngine
 
         // Wait for all cooking tasks to complete
         {
-            std::lock_guard<std::mutex> lock(m_CookingMutex);
+            TUniqueLock<FMutex> lock(m_CookingMutex);
             // Wait for active tasks to complete (spin-wait with yield)
             while (m_ActiveCookingTasks.load(std::memory_order_acquire) > 0)
             {
@@ -82,7 +83,7 @@ namespace OloEngine
 
         // Clear cache
         {
-            std::lock_guard<std::mutex> lock(m_CacheMutex);
+            TUniqueLock<FMutex> lock(m_CacheMutex);
             m_CachedData.clear();
             m_CurrentCacheSize = 0;
         }
@@ -132,14 +133,14 @@ namespace OloEngine
             return false;
         }
 
-        std::lock_guard<std::mutex> lock(m_CacheMutex);
+        TUniqueLock<FMutex> lock(m_CacheMutex);
         auto it = m_CachedData.find(colliderAsset->GetHandle());
         return it != m_CachedData.end() && it->second.m_IsValid;
     }
 
     std::future<ECookingResult> MeshColliderCache::CookMeshAsync(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, bool invalidateOld)
     {
-        std::lock_guard<std::mutex> lock(m_CookingMutex);
+        TUniqueLock<FMutex> lock(m_CookingMutex);
 
         CookingRequest request;
         request.m_ColliderAsset = colliderAsset;
@@ -155,7 +156,7 @@ namespace OloEngine
 
     void MeshColliderCache::ProcessCookingRequests()
     {
-        std::lock_guard<std::mutex> lock(m_CookingMutex);
+        TUniqueLock<FMutex> lock(m_CookingMutex);
 
         // Process new requests if we have capacity
         while (!m_CookingQueue.empty() && m_ActiveCookingTasks.load(std::memory_order_relaxed) < m_MaxConcurrentCooks.load())
@@ -181,7 +182,7 @@ namespace OloEngine
                     if (updatedData.m_IsValid)
                     {
                         // Update the in-memory cache
-                        std::lock_guard<std::mutex> cacheLock(m_CacheMutex);
+                        TUniqueLock<FMutex> cacheLock(m_CacheMutex);
                         auto it = m_CachedData.find(handle);
                         if (it != m_CachedData.end())
                         {
@@ -331,7 +332,7 @@ namespace OloEngine
 
         // Remove from memory cache
         {
-            std::lock_guard<std::mutex> lock(m_CacheMutex);
+            TUniqueLock<FMutex> lock(m_CacheMutex);
             auto it = m_CachedData.find(handle);
             if (it != m_CachedData.end())
             {
@@ -367,7 +368,7 @@ namespace OloEngine
     {
         // Clear memory cache
         {
-            std::lock_guard<std::mutex> lock(m_CacheMutex);
+            TUniqueLock<FMutex> lock(m_CacheMutex);
             m_CachedData.clear();
             m_CurrentCacheSize = 0;
         }
@@ -468,13 +469,13 @@ namespace OloEngine
 
     sizet MeshColliderCache::GetCachedMeshCount() const
     {
-        std::lock_guard<std::mutex> lock(m_CacheMutex);
+        TUniqueLock<FMutex> lock(m_CacheMutex);
         return m_CachedData.size();
     }
 
     sizet MeshColliderCache::GetMemoryUsage() const
     {
-        std::lock_guard<std::mutex> lock(m_CacheMutex);
+        TUniqueLock<FMutex> lock(m_CacheMutex);
         return m_CurrentCacheSize;
     }
 
@@ -489,7 +490,7 @@ namespace OloEngine
 
     std::vector<AssetHandle> MeshColliderCache::GetCachedAssets() const
     {
-        std::lock_guard<std::mutex> lock(m_CacheMutex);
+        TUniqueLock<FMutex> lock(m_CacheMutex);
 
         std::vector<AssetHandle> handles;
         handles.reserve(m_CachedData.size());
@@ -504,7 +505,7 @@ namespace OloEngine
 
     CachedColliderData MeshColliderCache::GetDebugMeshData(AssetHandle handle) const
     {
-        std::lock_guard<std::mutex> lock(m_CacheMutex);
+        TUniqueLock<FMutex> lock(m_CacheMutex);
 
         auto it = m_CachedData.find(handle);
         if (it != m_CachedData.end())
@@ -518,7 +519,7 @@ namespace OloEngine
     // Helper methods for GetMeshData refactoring
     std::optional<CachedColliderData> MeshColliderCache::TryGetFromCache(AssetHandle handle)
     {
-        std::lock_guard<std::mutex> lock(m_CacheMutex);
+        TUniqueLock<FMutex> lock(m_CacheMutex);
         auto it = m_CachedData.find(handle);
         if (it != m_CachedData.end() && it->second.m_IsValid)
         {
@@ -540,7 +541,7 @@ namespace OloEngine
         // Add to memory cache with proper eviction management
         CachedColliderData cachedResult;
         {
-            std::lock_guard<std::mutex> lock(m_CacheMutex);
+            TUniqueLock<FMutex> lock(m_CacheMutex);
             sizet dataSize = CalculateDataSize(loadedData);
 
             // Check if we need to evict entries
@@ -579,7 +580,7 @@ namespace OloEngine
             {
                 CachedColliderData cachedResult;
                 {
-                    std::lock_guard<std::mutex> lock(m_CacheMutex);
+                    TUniqueLock<FMutex> lock(m_CacheMutex);
                     sizet dataSize = CalculateDataSize(loadedData);
 
                     if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
@@ -622,7 +623,7 @@ namespace OloEngine
             {
                 CachedColliderData cachedResult;
                 {
-                    std::lock_guard<std::mutex> lock(m_CacheMutex);
+                    TUniqueLock<FMutex> lock(m_CacheMutex);
                     sizet dataSize = CalculateDataSize(loadedData);
 
                     if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)

@@ -11,9 +11,10 @@
 #include <functional>
 #include <optional>
 #include <unordered_map>
-#include <mutex>
 #include <vector>
 #include <future> // Still needed for CookMeshAsync return type and CookingRequest::m_Promise
+
+#include "OloEngine/Threading/Mutex.h"
 
 namespace OloEngine
 {
@@ -126,8 +127,8 @@ namespace OloEngine
         MeshColliderCache& operator=(MeshColliderCache&&) = delete;
 
         // Thread safety
-        mutable std::mutex m_CacheMutex;
-        std::mutex m_CookingMutex;
+        mutable FMutex m_CacheMutex;
+        FMutex m_CookingMutex;
 
         // Cache storage
         std::unordered_map<AssetHandle, CachedColliderData> m_CachedData;

@@ -14,8 +14,9 @@
 #include <iomanip>
 #include <string>
 #include <thread>
-#include <mutex>
 #include <sstream>
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #if !TRACY_ENABLE
 namespace OloEngine
@@ -44,7 +45,7 @@ namespace OloEngine
 
         void BeginSession(const std::string& name, const std::string& filepath = "results.json")
         {
-            std::lock_guard lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             if (m_CurrentSession)
             {
                 // If there is already a current session, then close it before beginning new one.
@@ -75,7 +76,7 @@ namespace OloEngine
 
         void EndSession()
         {
-            std::lock_guard lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             InternalEndSession();
         }
 
@@ -94,7 +95,7 @@ namespace OloEngine
             json << "\"ts\":" << result.Start.count();
             json << "}";
 
-            std::lock_guard lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             if (m_CurrentSession)
             {
                 m_OutputStream << json.str();
@@ -145,7 +146,7 @@ namespace OloEngine
         }
 
       private:
-        std::mutex m_Mutex;
+        FMutex m_Mutex;
         InstrumentationSession* m_CurrentSession{ nullptr };
         std::ofstream m_OutputStream;
     };

@@ -2,6 +2,7 @@
 #include "CommandAllocator.h"
 #include "ThreadLocalCache.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Threading/UniqueLock.h"
 #include <cstdlib>
 #include <algorithm>
 
@@ -54,7 +55,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Lock to prevent other threads from adding caches during reset
-        std::scoped_lock<std::mutex> lock(m_CachesLock);
+        TUniqueLock<FMutex> lock(m_CachesLock);
 
         // Reset all thread caches
         for (auto& [threadId, cache] : m_ThreadCaches)
@@ -68,7 +69,7 @@ namespace OloEngine
 
     sizet CommandAllocator::GetTotalAllocated() const
     {
-        std::scoped_lock<std::mutex> lock(m_CachesLock);
+        TUniqueLock<FMutex> lock(m_CachesLock);
 
         sizet total = 0;
         for (const auto& [threadId, cache] : m_ThreadCaches)
@@ -87,7 +88,7 @@ namespace OloEngine
         std::thread::id threadId = std::this_thread::get_id();
 
         // Acquire lock once for the entire operation
-        std::scoped_lock<std::mutex> lock(m_CachesLock);
+        TUniqueLock<FMutex> lock(m_CachesLock);
 
         // try_emplace will only insert if the key doesn't exist
         // - If threadId already exists in m_ThreadCaches, no insertion occurs

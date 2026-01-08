@@ -3,6 +3,8 @@
 #include "JoltUtils.h"
 #include "Physics3DTypes.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Threading/UniqueLock.h"
+#include "OloEngine/Threading/SharedLock.h"
 #include <cstdlib>
 #include <limits>
 #include <stdexcept>
@@ -12,7 +14,7 @@ namespace OloEngine
 
     void PhysicsLayerManager::RebuildLayerIndexMap()
     {
-        std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+        TUniqueLock<FSharedMutex> lock(s_LayersMutex);
 
         s_LayerIndexMap.clear();
         for (sizet i = 0; i < s_Layers.size(); ++i)
@@ -39,7 +41,7 @@ namespace OloEngine
 
     u32 PhysicsLayerManager::AddLayer(const std::string& name, bool setCollisions)
     {
-        std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+        TUniqueLock<FSharedMutex> lock(s_LayersMutex);
 
         // Enforce Jolt Physics 32-layer limit - check before any allocation or mutation
         if (s_Layers.size() >= JoltUtils::kMaxJoltLayers)
@@ -106,7 +108,7 @@ namespace OloEngine
 
     void PhysicsLayerManager::RemoveLayer(u32 layerId)
     {
-        std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+        TUniqueLock<FSharedMutex> lock(s_LayersMutex);
 
         // Check if the layer exists before attempting removal
         auto layerIndexIt = s_LayerIndexMap.find(layerId);
@@ -152,7 +154,7 @@ namespace OloEngine
 
     void PhysicsLayerManager::UpdateLayerName(u32 layerId, const std::string& newName)
     {
-        std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+        TUniqueLock<FSharedMutex> lock(s_LayersMutex);
 
         // Early validation to prevent mutating s_NullLayer for invalid IDs
         auto indexIt = s_LayerIndexMap.find(layerId);
@@ -179,7 +181,7 @@ namespace OloEngine
 
     void PhysicsLayerManager::SetLayerCollision(u32 layerId, u32 otherLayer, bool shouldCollide)
     {
-        std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+        TUniqueLock<FSharedMutex> lock(s_LayersMutex);
 
         PhysicsLayer& layerInfo = GetLayerMutableUnsafe(layerId);
         PhysicsLayer& otherLayerInfo = GetLayerMutableUnsafe(otherLayer);
@@ -205,7 +207,7 @@ namespace OloEngine
 
     void PhysicsLayerManager::SetLayerSelfCollision(u32 layerId, bool shouldCollide)
     {
-        std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+        TUniqueLock<FSharedMutex> lock(s_LayersMutex);
 
         PhysicsLayer& layerInfo = GetLayerMutableUnsafe(layerId);
         if (layerInfo.IsValid())
@@ -227,7 +229,7 @@ namespace OloEngine
 
     void PhysicsLayerManager::GetLayerCollisions(u32 layerId, std::vector<PhysicsLayer>& outLayers)
     {
-        std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+        TSharedLock<FSharedMutex> lock(s_LayersMutex);
 
         const PhysicsLayer& layer = GetLayerUnsafe(layerId);
 
@@ -247,13 +249,13 @@ namespace OloEngine
 
     PhysicsLayer PhysicsLayerManager::GetLayer(u32 layerId)
     {
-        std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+        TSharedLock<FSharedMutex> lock(s_LayersMutex);
         return GetLayerImpl(layerId);
     }
 
     PhysicsLayer PhysicsLayerManager::GetLayer(const std::string& layerName)
     {
-        std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+        TSharedLock<FSharedMutex> lock(s_LayersMutex);
 
         for (const auto& layer : s_Layers)
         {
@@ -266,7 +268,7 @@ namespace OloEngine
 
     PhysicsLayer PhysicsLayerManager::GetLayer(const std::string_view& layerName)
     {
-        std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+        TSharedLock<FSharedMutex> lock(s_LayersMutex);
 
         for (const auto& layer : s_Layers)
         {
@@ -279,13 +281,13 @@ namespace OloEngine
 
     std::vector<PhysicsLayer> PhysicsLayerManager::GetLayers()
     {
-        std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+        TSharedLock<FSharedMutex> lock(s_LayersMutex);
         return s_Layers; // Return a copy for thread safety
     }
 
     u32 PhysicsLayerManager::GetLayerCount()
     {
-        std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+        TSharedLock<FSharedMutex> lock(s_LayersMutex);
 
         // Count only valid layers (exclude those with INVALID_LAYER_ID)
         u32 validCount = 0;
@@ -301,7 +303,7 @@ namespace OloEngine
 
     std::vector<std::string> PhysicsLayerManager::GetLayerNames()
     {
-        std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+        TSharedLock<FSharedMutex> lock(s_LayersMutex);
 
         // Return names in stable order based on s_Layers insertion order (deterministic)
         std::vector<std::string> names;
@@ -319,7 +321,7 @@ namespace OloEngine
 
     bool PhysicsLayerManager::ShouldCollide(u32 layer1, u32 layer2) noexcept
     {
-        std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+        TSharedLock<FSharedMutex> lock(s_LayersMutex);
 
         // Validate both layer IDs first
         const PhysicsLayer& layerA = GetLayerUnsafe(layer1);
@@ -341,7 +343,7 @@ namespace OloEngine
 
     bool PhysicsLayerManager::IsLayerValid(u32 layerId) noexcept
     {
-        std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+        TSharedLock<FSharedMutex> lock(s_LayersMutex);
 
         const PhysicsLayer& layer = GetLayerUnsafe(layerId);
         return layer.IsValid();
@@ -349,7 +351,7 @@ namespace OloEngine
 
     bool PhysicsLayerManager::IsLayerValid(const std::string& layerName)
     {
-        std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+        TSharedLock<FSharedMutex> lock(s_LayersMutex);
 
         const PhysicsLayer& layer = GetLayerUnsafe(layerName);
         return layer.IsValid();
@@ -357,7 +359,7 @@ namespace OloEngine
 
     bool PhysicsLayerManager::IsLayerValid(const std::string_view& layerName)
     {
-        std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+        TSharedLock<FSharedMutex> lock(s_LayersMutex);
 
         // For string_view, we need to iterate directly since GetLayerUnsafe expects std::string
         for (const auto& layer : s_Layers)
@@ -370,7 +372,7 @@ namespace OloEngine
 
     void PhysicsLayerManager::ClearLayers()
     {
-        std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+        TUniqueLock<FSharedMutex> lock(s_LayersMutex);
 
         s_Layers.clear();
         s_LayerNames.clear();
@@ -489,6 +491,6 @@ namespace OloEngine
     std::unordered_map<u32, std::string> PhysicsLayerManager::s_LayerNames;
     std::unordered_map<u32, sizet> PhysicsLayerManager::s_LayerIndexMap;
     const PhysicsLayer PhysicsLayerManager::s_NullLayer = { INVALID_LAYER_ID, "NULL", NO_COLLISION_BITS, NO_COLLISION_BITS };
-    std::shared_mutex PhysicsLayerManager::s_LayersMutex;
+    FSharedMutex PhysicsLayerManager::s_LayersMutex;
 
 } // namespace OloEngine

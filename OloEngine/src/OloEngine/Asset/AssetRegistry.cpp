@@ -12,7 +12,7 @@ namespace OloEngine
     static const AssetMetadata s_EmptyMetadata{};
     void AssetRegistry::AddAsset(const AssetMetadata& metadata)
     {
-        std::unique_lock lock(m_Mutex);
+        TUniqueLock<FSharedMutex> lock(m_Mutex);
 
         if (metadata.Handle == 0)
         {
@@ -66,7 +66,7 @@ namespace OloEngine
 
     bool AssetRegistry::RemoveAsset(AssetHandle handle)
     {
-        std::unique_lock lock(m_Mutex);
+        TUniqueLock<FSharedMutex> lock(m_Mutex);
 
         auto it = m_AssetMetadata.find(handle);
         if (it == m_AssetMetadata.end())
@@ -87,7 +87,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::shared_lock lock(m_Mutex);
+        TSharedLock<FSharedMutex> lock(m_Mutex);
 
         auto it = m_AssetMetadata.find(handle);
         return (it != m_AssetMetadata.end()) ? it->second : s_EmptyMetadata;
@@ -95,7 +95,7 @@ namespace OloEngine
 
     AssetMetadata AssetRegistry::GetMetadata(const std::filesystem::path& path) const
     {
-        std::shared_lock lock(m_Mutex);
+        TSharedLock<FSharedMutex> lock(m_Mutex);
 
         auto it = m_PathToHandle.find(path);
         if (it != m_PathToHandle.end())
@@ -110,19 +110,19 @@ namespace OloEngine
 
     bool AssetRegistry::Exists(AssetHandle handle) const
     {
-        std::shared_lock lock(m_Mutex);
+        TSharedLock<FSharedMutex> lock(m_Mutex);
         return m_AssetMetadata.find(handle) != m_AssetMetadata.end();
     }
 
     bool AssetRegistry::Exists(const std::filesystem::path& path) const
     {
-        std::shared_lock lock(m_Mutex);
+        TSharedLock<FSharedMutex> lock(m_Mutex);
         return m_PathToHandle.find(path) != m_PathToHandle.end();
     }
 
     AssetHandle AssetRegistry::GetHandleFromPath(const std::filesystem::path& path) const
     {
-        std::shared_lock lock(m_Mutex);
+        TSharedLock<FSharedMutex> lock(m_Mutex);
 
         auto it = m_PathToHandle.find(path);
         return (it != m_PathToHandle.end()) ? it->second : AssetHandle(0);
@@ -130,7 +130,7 @@ namespace OloEngine
 
     std::vector<AssetMetadata> AssetRegistry::GetAssetsOfType(AssetType type) const
     {
-        std::shared_lock lock(m_Mutex);
+        TSharedLock<FSharedMutex> lock(m_Mutex);
 
         std::vector<AssetMetadata> result;
         for (const auto& [handle, metadata] : m_AssetMetadata)
@@ -144,7 +144,7 @@ namespace OloEngine
 
     std::unordered_set<AssetHandle> AssetRegistry::GetAssetHandlesOfType(AssetType type) const
     {
-        std::shared_lock lock(m_Mutex);
+        TSharedLock<FSharedMutex> lock(m_Mutex);
 
         std::unordered_set<AssetHandle> result;
         for (const auto& [handle, metadata] : m_AssetMetadata)
@@ -158,7 +158,7 @@ namespace OloEngine
 
     std::vector<AssetMetadata> AssetRegistry::GetAllAssets() const
     {
-        std::shared_lock lock(m_Mutex);
+        TSharedLock<FSharedMutex> lock(m_Mutex);
 
         std::vector<AssetMetadata> result;
         result.reserve(m_AssetMetadata.size());
@@ -173,13 +173,13 @@ namespace OloEngine
 
     sizet AssetRegistry::GetAssetCount() const noexcept
     {
-        std::shared_lock lock(m_Mutex);
+        TSharedLock<FSharedMutex> lock(m_Mutex);
         return m_AssetMetadata.size();
     }
 
     void AssetRegistry::Clear()
     {
-        std::unique_lock lock(m_Mutex);
+        TUniqueLock<FSharedMutex> lock(m_Mutex);
         m_AssetMetadata.clear();
         m_PathToHandle.clear();
         m_HandleCounter.store(1, std::memory_order_relaxed);
@@ -187,7 +187,7 @@ namespace OloEngine
 
     void AssetRegistry::UpdateMetadata(AssetHandle handle, const AssetMetadata& metadata)
     {
-        std::unique_lock lock(m_Mutex);
+        TUniqueLock<FSharedMutex> lock(m_Mutex);
 
         auto it = m_AssetMetadata.find(handle);
         if (it == m_AssetMetadata.end())
@@ -232,7 +232,7 @@ namespace OloEngine
     {
         try
         {
-            std::shared_lock lock(m_Mutex);
+            TSharedLock<FSharedMutex> lock(m_Mutex);
 
             std::ofstream file(filepath, std::ios::binary);
             if (!file.is_open())
@@ -295,7 +295,7 @@ namespace OloEngine
             // Enable exceptions for better error detection on I/O failures
             file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
 
-            std::unique_lock lock(m_Mutex);
+            TUniqueLock<FSharedMutex> lock(m_Mutex);
 
             // Clear existing data
             m_AssetMetadata.clear();
@@ -402,7 +402,7 @@ namespace OloEngine
 
     bool AssetRegistry::Empty() const
     {
-        std::shared_lock lock(m_Mutex);
+        TSharedLock<FSharedMutex> lock(m_Mutex);
         return m_AssetMetadata.empty();
     }
 

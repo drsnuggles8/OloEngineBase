@@ -4,8 +4,9 @@
 #if OLO_ENABLE_ALLOCATION_TRACKING
 #include <unordered_set>
 #include <unordered_map>
-#include <mutex>
 #include <vector>
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 #include <chrono>
 #include <algorithm>
 #include <thread>
@@ -112,7 +113,7 @@ namespace OloEngine
          */
         static void TrackCreation(void const* obj)
         {
-            std::lock_guard<std::mutex> lock(GetMutex());
+            TUniqueLock<FMutex> lock(GetMutex());
             GetLiveObjects().emplace(obj, ObjectInfo{ obj });
         }
 
@@ -121,7 +122,7 @@ namespace OloEngine
          */
         static void TrackDestruction(void const* obj)
         {
-            std::lock_guard<std::mutex> lock(GetMutex());
+            TUniqueLock<FMutex> lock(GetMutex());
             GetLiveObjects().erase(obj);
         }
 
@@ -131,7 +132,7 @@ namespace OloEngine
          */
         static std::vector<void const*> GetLiveObjectPointers()
         {
-            std::lock_guard<std::mutex> lock(GetMutex());
+            TUniqueLock<FMutex> lock(GetMutex());
             std::vector<void const*> result;
             result.reserve(GetLiveObjects().size());
 
@@ -148,7 +149,7 @@ namespace OloEngine
          */
         static std::vector<ObjectInfo> GetLiveObjectInfo()
         {
-            std::lock_guard<std::mutex> lock(GetMutex());
+            TUniqueLock<FMutex> lock(GetMutex());
             std::vector<ObjectInfo> result;
             result.reserve(GetLiveObjects().size());
 
@@ -167,7 +168,7 @@ namespace OloEngine
          */
         static std::vector<ObjectInfo> GetOldObjects(double min_age_seconds = 60.0)
         {
-            std::lock_guard<std::mutex> lock(GetMutex());
+            TUniqueLock<FMutex> lock(GetMutex());
             std::vector<ObjectInfo> result;
 
             for (auto const& [ptr, info] : GetLiveObjects())
@@ -193,7 +194,7 @@ namespace OloEngine
          */
         static std::vector<ObjectInfo> GetObjectsByThread(std::thread::id thread_id)
         {
-            std::lock_guard<std::mutex> lock(GetMutex());
+            TUniqueLock<FMutex> lock(GetMutex());
             std::vector<ObjectInfo> result;
 
             for (auto const& [ptr, info] : GetLiveObjects())
@@ -214,7 +215,7 @@ namespace OloEngine
             std::chrono::steady_clock::time_point start,
             std::chrono::steady_clock::time_point end)
         {
-            std::lock_guard<std::mutex> lock(GetMutex());
+            TUniqueLock<FMutex> lock(GetMutex());
             std::vector<ObjectInfo> result;
 
             for (auto const& [ptr, info] : GetLiveObjects())
@@ -267,7 +268,7 @@ namespace OloEngine
          */
         static void PrintAllStackTraces()
         {
-            std::lock_guard<std::mutex> lock(GetMutex());
+            TUniqueLock<FMutex> lock(GetMutex());
 
             if (GetLiveObjects().empty())
             {
@@ -292,7 +293,7 @@ namespace OloEngine
          */
         static sizet GetLiveCount()
         {
-            std::lock_guard<std::mutex> lock(GetMutex());
+            TUniqueLock<FMutex> lock(GetMutex());
             return GetLiveObjects().size();
         }
 
@@ -302,7 +303,7 @@ namespace OloEngine
          */
         static void Clear()
         {
-            std::lock_guard<std::mutex> lock(GetMutex());
+            TUniqueLock<FMutex> lock(GetMutex());
             GetLiveObjects().clear();
         }
 
@@ -315,9 +316,9 @@ namespace OloEngine
             return s_live_objects;
         }
 
-        static std::mutex& GetMutex()
+        static FMutex& GetMutex()
         {
-            static std::mutex s_mutex;
+            static FMutex s_mutex;
             return s_mutex;
         }
     };

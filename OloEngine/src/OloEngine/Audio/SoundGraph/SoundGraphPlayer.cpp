@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "SoundGraphPlayer.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -47,7 +48,7 @@ namespace OloEngine::Audio::SoundGraph
 
         // Stop and remove all sources
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             for (auto& [id, source] : m_SoundGraphSources)
             {
                 if (source)
@@ -165,7 +166,7 @@ namespace OloEngine::Audio::SoundGraph
             m_LogQueue.push(std::move(msg)); });
 
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             m_SoundGraphSources[sourceID] = std::move(source);
         }
 
@@ -177,7 +178,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
         {
@@ -210,7 +211,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
         {
@@ -229,7 +230,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
         {
@@ -248,7 +249,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
         {
@@ -262,7 +263,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
         {
@@ -283,7 +284,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         auto it = m_SoundGraphSources.find(sourceID);
         if (it == m_SoundGraphSources.end())
         {
@@ -291,6 +292,18 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         return it->second->GetGraph();
+    }
+
+    f32 SoundGraphPlayer::GetMasterVolume() const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        return m_MasterVolume;
+    }
+
+    u32 SoundGraphPlayer::GetTotalSourceCount() const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        return static_cast<u32>(m_SoundGraphSources.size());
     }
 
     void SoundGraphPlayer::SetMasterVolume(f32 volume)
@@ -317,7 +330,7 @@ namespace OloEngine::Audio::SoundGraph
 
         // Only update cached value after successful engine call to maintain consistency
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             m_MasterVolume = clampedVolume;
         }
 
@@ -362,7 +375,7 @@ namespace OloEngine::Audio::SoundGraph
         // RemoveSource() could delete a source between unlock and Update() call.
         // Trade-off: Holding lock during updates reduces concurrency but ensures safety.
         // Future optimization: Could use shared_ptr if SoundGraphSource inherits RefCounted.
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         for (auto& [id, source] : m_SoundGraphSources)
         {
             if (source)
@@ -378,7 +391,7 @@ namespace OloEngine::Audio::SoundGraph
     u32 SoundGraphPlayer::GetActiveSourceCount() const
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         u32 count = 0;
         for (const auto& [id, source] : m_SoundGraphSources)
         {
@@ -420,7 +433,7 @@ namespace OloEngine::Audio::SoundGraph
 
                 // Now check all candidates under a single lock
                 {
-                    std::lock_guard<std::mutex> lock(m_Mutex);
+                    TUniqueLock<FMutex> lock(m_Mutex);
                     for (u32 i = 0; i < validCandidateCount; ++i)
                     {
                         if (m_SoundGraphSources.find(candidates[i]) == m_SoundGraphSources.end())

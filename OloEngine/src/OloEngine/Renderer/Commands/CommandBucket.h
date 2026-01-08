@@ -5,10 +5,11 @@
 #include "CommandPacket.h"
 #include "CommandAllocator.h"
 #include <vector>
-#include <mutex>
 #include <unordered_map>
 #include <atomic>
 #include <thread>
+
+#include "OloEngine/Threading/Mutex.h"
 
 namespace OloEngine
 {
@@ -72,7 +73,7 @@ namespace OloEngine
             // TODO: Restore this check when implementing a proper resource manager with handles
             // static_assert(std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value,
             // 	"Command data must be trivially copyable and have standard layout");
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
 
             CommandPacket* packet = allocator->CreateCommandPacket(commandData, metadata);
             if (packet)
@@ -173,7 +174,7 @@ namespace OloEngine
         void SubmitPacket(CommandPacket* packet)
         {
             OLO_CORE_ASSERT(packet, "CommandBucket::SubmitPacket: Null packet!");
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
 
             AddCommand(packet);
         }
@@ -314,7 +315,7 @@ namespace OloEngine
         // Allocator for command memory (must be set before use)
         CommandAllocator* m_Allocator = nullptr;
 
-        mutable std::mutex m_Mutex;
+        mutable FMutex m_Mutex;
 
         // ====================================================================
         // Thread-Local Storage for Parallel Command Generation
@@ -335,7 +336,7 @@ namespace OloEngine
         std::atomic<u32> m_ParallelCommandCount{ 0 };
 
         // Thread ID to worker index mapping
-        mutable std::mutex m_ThreadMapMutex;
+        mutable FMutex m_ThreadMapMutex;
         std::unordered_map<std::thread::id, u32> m_ThreadToWorkerIndex;
         std::atomic<u32> m_NextWorkerIndex{ 0 };
 

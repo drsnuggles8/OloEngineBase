@@ -7,9 +7,10 @@
 #include <vector>
 #include <unordered_map>
 #include <memory>
-#include <mutex>
 #include <atomic>
 #include <array>
+
+#include "OloEngine/Threading/Mutex.h"
 
 namespace OloEngine
 {
@@ -129,7 +130,7 @@ namespace OloEngine
         sizet GetTotalMemoryUsageUnlocked() const;
 
         // Thread safety
-        mutable std::mutex m_Mutex;
+        mutable FMutex m_Mutex;
         // Allocation tracking
         std::unordered_map<void*, AllocationInfo> m_Allocations;
         std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> m_TypeUsage{};

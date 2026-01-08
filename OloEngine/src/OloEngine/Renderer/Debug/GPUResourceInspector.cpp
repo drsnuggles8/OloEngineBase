@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Utils/PlatformUtils.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <fstream>
 #include <sstream>
@@ -64,7 +65,7 @@ namespace OloEngine
 
         // Clean up resources
         {
-            std::lock_guard<std::mutex> lock(m_ResourceMutex);
+            TUniqueLock<FMutex> lock(m_ResourceMutex);
             m_Resources.clear();
         }
 
@@ -76,7 +77,7 @@ namespace OloEngine
         if (!m_IsInitialized || rendererID == 0)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
 
         auto textureInfo = CreateScope<TextureInfo>();
         textureInfo->m_RendererID = rendererID;
@@ -124,7 +125,7 @@ namespace OloEngine
         if (!m_IsInitialized || rendererID == 0)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
 
         auto textureInfo = CreateScope<TextureInfo>();
         textureInfo->m_RendererID = rendererID;
@@ -173,7 +174,7 @@ namespace OloEngine
         if (!m_IsInitialized || rendererID == 0)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
 
         auto bufferInfo = CreateScope<BufferInfo>();
         bufferInfo->m_RendererID = rendererID;
@@ -238,7 +239,7 @@ namespace OloEngine
         if (!m_IsInitialized || rendererID == 0)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
 
         auto framebufferInfo = CreateScope<FramebufferInfo>();
         framebufferInfo->m_RendererID = rendererID;
@@ -285,7 +286,7 @@ namespace OloEngine
         if (!m_IsInitialized || rendererID == 0)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
 
         auto it = m_Resources.find(rendererID);
         if (it != m_Resources.end())
@@ -304,7 +305,7 @@ namespace OloEngine
 
         // This would be called by the renderer to update binding states
         // For now, we'll implement basic texture binding detection
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
 
         for (auto& [id, resource] : m_Resources)
         {
@@ -330,7 +331,7 @@ namespace OloEngine
         if (!m_IsInitialized || rendererID == 0)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
 
         auto it = m_Resources.find(rendererID);
         if (it != m_Resources.end())
@@ -344,7 +345,7 @@ namespace OloEngine
         if (!m_IsInitialized || rendererID == 0)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
 
         auto it = m_Resources.find(rendererID);
         if (it != m_Resources.end())
@@ -902,13 +903,13 @@ namespace OloEngine
 
     sizet GPUResourceInspector::GetMemoryUsage(ResourceType type) const
     {
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
         return m_MemoryUsageByType[static_cast<sizet>(type)];
     }
 
     sizet GPUResourceInspector::GetTotalMemoryUsage() const
     {
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
         sizet total = 0;
         for (const auto& [id, resource] : m_Resources)
         {
@@ -1010,7 +1011,7 @@ namespace OloEngine
 
     void GPUResourceInspector::RenderResourceTree()
     {
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
 
         ImGui::Text("Resources (%u)", GetResourceCount());
         ImGui::Separator();
@@ -1111,7 +1112,7 @@ namespace OloEngine
             return;
         }
 
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
 
         auto it = m_Resources.find(m_SelectedResourceID);
         if (it == m_Resources.end())
@@ -1506,7 +1507,7 @@ namespace OloEngine
         sizet totalMemory = 0;
 
         {
-            std::lock_guard<std::mutex> lock(m_ResourceMutex);
+            TUniqueLock<FMutex> lock(m_ResourceMutex);
             for (const auto& [id, resource] : m_Resources)
             {
                 sizet typeIndex = static_cast<sizet>(resource->m_Type);
@@ -1544,7 +1545,7 @@ namespace OloEngine
         // CSV header
         file << "ID,Type,Name,DebugName,MemoryUsage,Active,Bound,CreationTime\n";
 
-        std::lock_guard<std::mutex> lock(m_ResourceMutex);
+        TUniqueLock<FMutex> lock(m_ResourceMutex);
 
         for (const auto& [id, resource] : m_Resources)
         {

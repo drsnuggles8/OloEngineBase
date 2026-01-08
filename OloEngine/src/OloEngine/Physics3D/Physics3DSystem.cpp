@@ -197,7 +197,7 @@ namespace OloEngine
     {
         // Set up static pointers for global access (thread-safe)
         {
-            std::lock_guard<std::mutex> lock(s_InstanceMutex);
+            TUniqueLock<FMutex> lock(s_InstanceMutex);
             s_Instance = this;
             s_BroadPhaseLayerInterface = &m_BroadPhaseLayerInterface;
         }
@@ -212,7 +212,7 @@ namespace OloEngine
 
         // Clear static pointers (thread-safe)
         {
-            std::lock_guard<std::mutex> lock(s_InstanceMutex);
+            TUniqueLock<FMutex> lock(s_InstanceMutex);
             if (s_Instance == this)
                 s_Instance = nullptr;
             if (s_BroadPhaseLayerInterface == &m_BroadPhaseLayerInterface)

@@ -3,11 +3,12 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Asset/AssetMetadata.h"
 #include "OloEngine/Asset/AssetTypes.h"
+#include "OloEngine/Threading/SharedMutex.h"
+#include "OloEngine/Threading/SharedLock.h"
 
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <shared_mutex>
 #include <atomic>
 #include <filesystem>
 
@@ -37,7 +38,7 @@ namespace OloEngine
         AssetRegistry(const AssetRegistry&) = delete;
         AssetRegistry& operator=(const AssetRegistry&) = delete;
 
-        // Disable move operations - std::shared_mutex is not movable
+        // Disable move operations - FSharedMutex is not movable
         AssetRegistry(AssetRegistry&&) = delete;
         AssetRegistry& operator=(AssetRegistry&&) = delete;
 
@@ -160,12 +161,12 @@ namespace OloEngine
          */
         auto begin() const
         {
-            std::shared_lock lock(m_Mutex);
+            TSharedLock<FSharedMutex> lock(m_Mutex);
             return m_AssetMetadata.begin();
         }
         auto end() const
         {
-            std::shared_lock lock(m_Mutex);
+            TSharedLock<FSharedMutex> lock(m_Mutex);
             return m_AssetMetadata.end();
         }
 
@@ -196,7 +197,7 @@ namespace OloEngine
         std::atomic<u64> m_HandleCounter{ 1 };
 
         // Thread synchronization
-        mutable std::shared_mutex m_Mutex;
+        mutable FSharedMutex m_Mutex;
     };
 
 } // namespace OloEngine

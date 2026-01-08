@@ -9,8 +9,8 @@
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Threading/SharedMutex.h"
 
-#include <shared_mutex>
 #include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
@@ -362,9 +362,9 @@ namespace OloEngine
         Ref<EditorAssetSystem> m_AssetThread;
 
         // Thread synchronization
-        mutable std::shared_mutex m_AssetsMutex;
-        mutable std::shared_mutex m_RegistryMutex;
-        mutable std::shared_mutex m_DependenciesMutex;
+        mutable FSharedMutex m_AssetsMutex;
+        mutable FSharedMutex m_RegistryMutex;
+        mutable FSharedMutex m_DependenciesMutex;
 
 #if OLO_ASYNC_ASSETS
         // File watching control (using Task System instead of dedicated thread)

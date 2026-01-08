@@ -2,9 +2,9 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Memory/Platform.h"
+#include "OloEngine/Threading/Mutex.h"
 #include <glm/glm.hpp>
 #include <vector>
-#include <mutex>
 #include <atomic>
 #include <array>
 #include <thread>
@@ -252,8 +252,8 @@ namespace OloEngine
         u32 m_BoneMatrixOffset = 0; // Current allocation offset
         u32 m_TransformOffset = 0;  // Current allocation offset
 
-        mutable std::mutex m_BoneMutex;
-        mutable std::mutex m_TransformMutex;
+        mutable FMutex m_BoneMutex;
+        mutable FMutex m_TransformMutex;
 
         // ====================================================================
         // Thread-Local Scratch Buffer Storage
@@ -261,7 +261,7 @@ namespace OloEngine
 
         std::array<WorkerScratchBuffer, MAX_FRAME_DATA_WORKERS> m_WorkerScratchBuffers;
         std::unordered_map<std::thread::id, u32> m_ThreadToWorkerIndex;
-        mutable std::mutex m_WorkerMapMutex;
+        mutable FMutex m_WorkerMapMutex;
         std::atomic<u32> m_NextWorkerIndex{ 0 };
         bool m_ParallelSubmissionActive = false;
     };

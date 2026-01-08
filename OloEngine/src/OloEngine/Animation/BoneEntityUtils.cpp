@@ -6,9 +6,9 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include <algorithm>
 #include <functional>
-#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
+#include "OloEngine/Threading/UniqueLock.h"
 
 namespace OloEngine
 {
@@ -154,7 +154,7 @@ namespace OloEngine
         // Single lock for cache validation, potential rebuild, and reading to ensure atomicity
         bool foundAtLeastOne = false;
         {
-            std::lock_guard<std::mutex> lock(skeletonComponent.m_CacheMutex);
+            TUniqueLock<FMutex> lock(skeletonComponent.m_CacheMutex);
 
             // Check if cache is valid, if not rebuild it
             if (!skeletonComponent.m_CacheValid)

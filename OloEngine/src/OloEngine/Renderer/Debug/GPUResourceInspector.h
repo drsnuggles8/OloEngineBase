@@ -10,7 +10,8 @@
 #include <string>
 #include <unordered_map>
 #include <memory>
-#include <mutex>
+
+#include "OloEngine/Threading/Mutex.h"
 
 // Convenience macros for resource registration (only in debug builds)
 #ifdef OLO_DEBUG
@@ -270,7 +271,7 @@ namespace OloEngine
         std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_ResourceCounts{};
         std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> m_MemoryUsageByType{};
         // Threading
-        mutable std::mutex m_ResourceMutex;
+        mutable FMutex m_ResourceMutex;
 
         bool m_IsInitialized = false;
     };
