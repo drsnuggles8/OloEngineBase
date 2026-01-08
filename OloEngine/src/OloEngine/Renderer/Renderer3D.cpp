@@ -37,6 +37,9 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/constants.hpp>
 
+#include <array>
+#include <cmath>
+
 namespace OloEngine
 {
     static bool s_ForceDisableCulling = false;
@@ -2392,38 +2395,847 @@ namespace OloEngine
         return packet;
     }
 
-    void Renderer3D::DrawInfiniteGrid(f32 gridScale)
+    void Renderer3D::DrawCameraFrustum(const glm::mat4& cameraTransform,
+                                       f32 fov, f32 aspectRatio,
+                                       f32 nearClip, f32 farClip,
+                                       const glm::vec3& color,
+                                       bool isPerspective,
+                                       f32 orthoSize)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawCameraFrustum: ScenePass is null!");
+            return;
+        }
+
+        // Clamp far plane for visualization (avoid frustums too large to be useful)
+        const f32 visualFar = glm::min(farClip, 50.0f);
+        const f32 lineThickness = 1.5f;
+
+        // Extract camera position and orientation from transform
+        glm::vec3 position = glm::vec3(cameraTransform[3]);
+        glm::vec3 forward = -glm::normalize(glm::vec3(cameraTransform[2])); // -Z is forward
+        glm::vec3 right = glm::normalize(glm::vec3(cameraTransform[0]));
+        glm::vec3 up = glm::normalize(glm::vec3(cameraTransform[1]));
+
+        // Calculate frustum corners
+        std::array<glm::vec3, 8> corners;
+
+        if (isPerspective)
+        {
+            // Perspective frustum
+            const f32 tanHalfFov = std::tan(fov * 0.5f);
+            
+            // Near plane dimensions
+            const f32 nearHeight = 2.0f * tanHalfFov * nearClip;
+            const f32 nearWidth = nearHeight * aspectRatio;
+            
+            // Far plane dimensions (clamped for visualization)
+            const f32 farHeight = 2.0f * tanHalfFov * visualFar;
+            const f32 farWidth = farHeight * aspectRatio;
+
+            // Near plane center
+            glm::vec3 nearCenter = position + forward * nearClip;
+            // Far plane center
+            glm::vec3 farCenter = position + forward * visualFar;
+
+            // Near plane corners (top-left, top-right, bottom-right, bottom-left)
+            corners[0] = nearCenter + up * (nearHeight * 0.5f) - right * (nearWidth * 0.5f);  // Near top-left
+            corners[1] = nearCenter + up * (nearHeight * 0.5f) + right * (nearWidth * 0.5f);  // Near top-right
+            corners[2] = nearCenter - up * (nearHeight * 0.5f) + right * (nearWidth * 0.5f);  // Near bottom-right
+            corners[3] = nearCenter - up * (nearHeight * 0.5f) - right * (nearWidth * 0.5f);  // Near bottom-left
+
+            // Far plane corners
+            corners[4] = farCenter + up * (farHeight * 0.5f) - right * (farWidth * 0.5f);    // Far top-left
+            corners[5] = farCenter + up * (farHeight * 0.5f) + right * (farWidth * 0.5f);    // Far top-right
+            corners[6] = farCenter - up * (farHeight * 0.5f) + right * (farWidth * 0.5f);    // Far bottom-right
+            corners[7] = farCenter - up * (farHeight * 0.5f) - right * (farWidth * 0.5f);    // Far bottom-left
+        }
+        else
+        {
+            // Orthographic frustum
+            const f32 halfHeight = orthoSize;
+            const f32 halfWidth = orthoSize * aspectRatio;
+
+            glm::vec3 nearCenter = position + forward * nearClip;
+            glm::vec3 farCenter = position + forward * visualFar;
+
+            // Near plane corners
+            corners[0] = nearCenter + up * halfHeight - right * halfWidth;
+            corners[1] = nearCenter + up * halfHeight + right * halfWidth;
+            corners[2] = nearCenter - up * halfHeight + right * halfWidth;
+            corners[3] = nearCenter - up * halfHeight - right * halfWidth;
+
+            // Far plane corners
+            corners[4] = farCenter + up * halfHeight - right * halfWidth;
+            corners[5] = farCenter + up * halfHeight + right * halfWidth;
+            corners[6] = farCenter - up * halfHeight + right * halfWidth;
+            corners[7] = farCenter - up * halfHeight - right * halfWidth;
+        }
+
+        // Draw near plane (quad)
+        auto* p0 = DrawLine(corners[0], corners[1], color, lineThickness);
+        auto* p1 = DrawLine(corners[1], corners[2], color, lineThickness);
+        auto* p2 = DrawLine(corners[2], corners[3], color, lineThickness);
+        auto* p3 = DrawLine(corners[3], corners[0], color, lineThickness);
+        if (p0) SubmitPacket(p0);
+        if (p1) SubmitPacket(p1);
+        if (p2) SubmitPacket(p2);
+        if (p3) SubmitPacket(p3);
+
+        // Draw far plane (quad)
+        auto* p4 = DrawLine(corners[4], corners[5], color, lineThickness);
+        auto* p5 = DrawLine(corners[5], corners[6], color, lineThickness);
+        auto* p6 = DrawLine(corners[6], corners[7], color, lineThickness);
+        auto* p7 = DrawLine(corners[7], corners[4], color, lineThickness);
+        if (p4) SubmitPacket(p4);
+        if (p5) SubmitPacket(p5);
+        if (p6) SubmitPacket(p6);
+        if (p7) SubmitPacket(p7);
+
+        // Draw connecting edges (near to far)
+        auto* p8 = DrawLine(corners[0], corners[4], color, lineThickness);
+        auto* p9 = DrawLine(corners[1], corners[5], color, lineThickness);
+        auto* p10 = DrawLine(corners[2], corners[6], color, lineThickness);
+        auto* p11 = DrawLine(corners[3], corners[7], color, lineThickness);
+        if (p8) SubmitPacket(p8);
+        if (p9) SubmitPacket(p9);
+        if (p10) SubmitPacket(p10);
+        if (p11) SubmitPacket(p11);
+
+        // Draw camera direction indicator (small arrow from camera position)
+        const f32 arrowLength = 0.5f;
+        const f32 arrowHeadSize = 0.15f;
+        glm::vec3 arrowTip = position + forward * arrowLength;
+        glm::vec3 arrowColor = glm::vec3(0.2f, 0.8f, 0.2f); // Green for direction
+
+        auto* arrowLine = DrawLine(position, arrowTip, arrowColor, lineThickness * 1.5f);
+        if (arrowLine) SubmitPacket(arrowLine);
+
+        // Arrow head (two lines from tip going back)
+        glm::vec3 arrowBack = position + forward * (arrowLength - arrowHeadSize);
+        glm::vec3 arrowHead1 = arrowBack + up * arrowHeadSize * 0.5f;
+        glm::vec3 arrowHead2 = arrowBack - up * arrowHeadSize * 0.5f;
+        glm::vec3 arrowHead3 = arrowBack + right * arrowHeadSize * 0.5f;
+        glm::vec3 arrowHead4 = arrowBack - right * arrowHeadSize * 0.5f;
+
+        auto* ah1 = DrawLine(arrowTip, arrowHead1, arrowColor, lineThickness);
+        auto* ah2 = DrawLine(arrowTip, arrowHead2, arrowColor, lineThickness);
+        auto* ah3 = DrawLine(arrowTip, arrowHead3, arrowColor, lineThickness);
+        auto* ah4 = DrawLine(arrowTip, arrowHead4, arrowColor, lineThickness);
+        if (ah1) SubmitPacket(ah1);
+        if (ah2) SubmitPacket(ah2);
+        if (ah3) SubmitPacket(ah3);
+        if (ah4) SubmitPacket(ah4);
+    }
+
+    CommandPacket* Renderer3D::DrawInfiniteGrid(f32 gridScale)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        if (!s_Data.ScenePass)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawInfiniteGrid: ScenePass is null!");
+            return nullptr;
+        }
         
         if (!s_Data.InfiniteGridShader)
         {
             OLO_CORE_ERROR("Renderer3D::DrawInfiniteGrid: InfiniteGrid shader not loaded!");
-            return;
+            return nullptr;
         }
         
         if (!s_Data.FullscreenQuadVAO)
         {
             OLO_CORE_ERROR("Renderer3D::DrawInfiniteGrid: FullscreenQuadVAO not initialized!");
+            return nullptr;
+        }
+
+        // Create POD command packet
+        CommandPacket* packet = CreateDrawCall<DrawInfiniteGridCommand>();
+        auto* cmd = packet->GetCommandData<DrawInfiniteGridCommand>();
+        cmd->header.type = CommandType::DrawInfiniteGrid;
+
+        // Store renderer IDs (POD)
+        cmd->shaderHandle = s_Data.InfiniteGridShader->GetHandle();
+        cmd->shaderRendererID = s_Data.InfiniteGridShader->GetRendererID();
+        cmd->quadVAOID = s_Data.FullscreenQuadVAO->GetRendererID();
+        cmd->gridScale = gridScale;
+
+        // Grid-specific render state
+        cmd->renderState = CreateDefaultPODRenderState();
+        cmd->renderState.blendEnabled = true;
+        cmd->renderState.blendSrcFactor = GL_SRC_ALPHA;
+        cmd->renderState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+        cmd->renderState.depthTestEnabled = true;
+        cmd->renderState.depthWriteMask = true;
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Set sort key for grid (rendered in opaque layer, low priority)
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = s_Data.InfiniteGridShader->GetRendererID() & 0xFFFF;
+        // Grid renders at medium depth, after opaque geometry
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, 0x800000);
+        packet->SetMetadata(metadata);
+
+        // Submit packet
+        SubmitPacket(packet);
+        return packet;
+    }
+
+    void Renderer3D::DrawDirectionalLightGizmo(const glm::vec3& position,
+                                                const glm::vec3& direction,
+                                                const glm::vec3& color,
+                                                f32 intensity)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
             return;
         }
 
-        // Bind the grid shader
-        s_Data.InfiniteGridShader->Bind();
+        const f32 lineThickness = 2.0f;
+        const f32 arrowLength = 1.5f;
+        const f32 arrowHeadSize = 0.2f;
+
+        // Normalize direction
+        glm::vec3 dir = glm::normalize(direction);
+        glm::vec3 arrowEnd = position + dir * arrowLength;
+
+        // Main arrow line
+        auto* mainLine = DrawLine(position, arrowEnd, color * intensity, lineThickness);
+        if (mainLine) SubmitPacket(mainLine);
+
+        // Create arrow head - find perpendicular vectors
+        glm::vec3 up = std::abs(glm::dot(dir, glm::vec3(0, 1, 0))) < 0.99f 
+            ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0);
+        glm::vec3 right = glm::normalize(glm::cross(dir, up));
+        up = glm::normalize(glm::cross(right, dir));
+
+        glm::vec3 arrowBack = arrowEnd - dir * arrowHeadSize;
+
+        // Arrow head lines (4 lines forming a pyramid)
+        auto* ah1 = DrawLine(arrowEnd, arrowBack + up * arrowHeadSize, color * intensity, lineThickness);
+        auto* ah2 = DrawLine(arrowEnd, arrowBack - up * arrowHeadSize, color * intensity, lineThickness);
+        auto* ah3 = DrawLine(arrowEnd, arrowBack + right * arrowHeadSize, color * intensity, lineThickness);
+        auto* ah4 = DrawLine(arrowEnd, arrowBack - right * arrowHeadSize, color * intensity, lineThickness);
+        if (ah1) SubmitPacket(ah1);
+        if (ah2) SubmitPacket(ah2);
+        if (ah3) SubmitPacket(ah3);
+        if (ah4) SubmitPacket(ah4);
+
+        // Draw a small sun-like icon at position (circle with rays)
+        const f32 sunRadius = 0.2f;
+        const i32 segments = 8;
+        for (i32 i = 0; i < segments; ++i)
+        {
+            f32 angle1 = (f32(i) / f32(segments)) * glm::two_pi<f32>();
+            f32 angle2 = (f32(i + 1) / f32(segments)) * glm::two_pi<f32>();
+            
+            glm::vec3 p1 = position + right * std::cos(angle1) * sunRadius + up * std::sin(angle1) * sunRadius;
+            glm::vec3 p2 = position + right * std::cos(angle2) * sunRadius + up * std::sin(angle2) * sunRadius;
+            
+            auto* seg = DrawLine(p1, p2, color * intensity, lineThickness * 0.8f);
+            if (seg) SubmitPacket(seg);
+        }
+
+        // Rays emanating from the sun
+        for (i32 i = 0; i < 8; ++i)
+        {
+            f32 angle = (f32(i) / 8.0f) * glm::two_pi<f32>();
+            glm::vec3 rayDir = right * std::cos(angle) + up * std::sin(angle);
+            glm::vec3 rayStart = position + rayDir * (sunRadius + 0.05f);
+            glm::vec3 rayEnd = position + rayDir * (sunRadius + 0.15f);
+            
+            auto* ray = DrawLine(rayStart, rayEnd, color * intensity, lineThickness * 0.6f);
+            if (ray) SubmitPacket(ray);
+        }
+    }
+
+    void Renderer3D::DrawPointLightGizmo(const glm::vec3& position,
+                                          f32 range,
+                                          const glm::vec3& color,
+                                          bool showRangeSphere)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            return;
+        }
+
+        const f32 lineThickness = 1.5f;
         
-        // Enable blending for transparent grid lines
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        // Draw a light bulb icon at position
+        const f32 bulbRadius = 0.15f;
+        const i32 segments = 12;
+
+        // Draw three orthogonal circles to represent a sphere
+        for (i32 axis = 0; axis < 3; ++axis)
+        {
+            for (i32 i = 0; i < segments; ++i)
+            {
+                f32 angle1 = (f32(i) / f32(segments)) * glm::two_pi<f32>();
+                f32 angle2 = (f32(i + 1) / f32(segments)) * glm::two_pi<f32>();
+
+                glm::vec3 offset1, offset2;
+                if (axis == 0) // XY plane
+                {
+                    offset1 = glm::vec3(std::cos(angle1), std::sin(angle1), 0.0f) * bulbRadius;
+                    offset2 = glm::vec3(std::cos(angle2), std::sin(angle2), 0.0f) * bulbRadius;
+                }
+                else if (axis == 1) // XZ plane
+                {
+                    offset1 = glm::vec3(std::cos(angle1), 0.0f, std::sin(angle1)) * bulbRadius;
+                    offset2 = glm::vec3(std::cos(angle2), 0.0f, std::sin(angle2)) * bulbRadius;
+                }
+                else // YZ plane
+                {
+                    offset1 = glm::vec3(0.0f, std::cos(angle1), std::sin(angle1)) * bulbRadius;
+                    offset2 = glm::vec3(0.0f, std::cos(angle2), std::sin(angle2)) * bulbRadius;
+                }
+
+                auto* seg = DrawLine(position + offset1, position + offset2, color, lineThickness);
+                if (seg) SubmitPacket(seg);
+            }
+        }
+
+        // Draw range sphere if enabled (larger circle to show falloff range)
+        if (showRangeSphere && range > 0.0f)
+        {
+            // Clamp range for visualization
+            f32 visualRange = glm::min(range, 20.0f);
+            const i32 rangeSegments = 24;
+            glm::vec3 dimColor = color * 0.3f;
+
+            // Draw range circles on three planes
+            for (i32 axis = 0; axis < 3; ++axis)
+            {
+                for (i32 i = 0; i < rangeSegments; ++i)
+                {
+                    f32 angle1 = (f32(i) / f32(rangeSegments)) * glm::two_pi<f32>();
+                    f32 angle2 = (f32(i + 1) / f32(rangeSegments)) * glm::two_pi<f32>();
+
+                    glm::vec3 offset1, offset2;
+                    if (axis == 0)
+                    {
+                        offset1 = glm::vec3(std::cos(angle1), std::sin(angle1), 0.0f) * visualRange;
+                        offset2 = glm::vec3(std::cos(angle2), std::sin(angle2), 0.0f) * visualRange;
+                    }
+                    else if (axis == 1)
+                    {
+                        offset1 = glm::vec3(std::cos(angle1), 0.0f, std::sin(angle1)) * visualRange;
+                        offset2 = glm::vec3(std::cos(angle2), 0.0f, std::sin(angle2)) * visualRange;
+                    }
+                    else
+                    {
+                        offset1 = glm::vec3(0.0f, std::cos(angle1), std::sin(angle1)) * visualRange;
+                        offset2 = glm::vec3(0.0f, std::cos(angle2), std::sin(angle2)) * visualRange;
+                    }
+
+                    auto* seg = DrawLine(position + offset1, position + offset2, dimColor, lineThickness * 0.5f);
+                    if (seg) SubmitPacket(seg);
+                }
+            }
+        }
+    }
+
+    void Renderer3D::DrawSpotLightGizmo(const glm::vec3& position,
+                                         const glm::vec3& direction,
+                                         f32 range,
+                                         f32 innerCutoff,
+                                         f32 outerCutoff,
+                                         const glm::vec3& color)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            return;
+        }
+
+        const f32 lineThickness = 1.5f;
         
-        // Enable depth testing but allow writing
-        glEnable(GL_DEPTH_TEST);
-        glDepthMask(GL_TRUE);
+        // Normalize direction
+        glm::vec3 dir = glm::normalize(direction);
         
-        // Bind fullscreen quad VAO and draw
-        s_Data.FullscreenQuadVAO->Bind();
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        // Clamp range for visualization
+        f32 visualRange = glm::min(range, 15.0f);
+
+        // Calculate outer cone radius at the end of the range
+        f32 outerAngleRad = glm::radians(outerCutoff);
+        f32 innerAngleRad = glm::radians(innerCutoff);
+        f32 outerRadius = visualRange * std::tan(outerAngleRad);
+        f32 innerRadius = visualRange * std::tan(innerAngleRad);
+
+        // Create coordinate system aligned with direction
+        glm::vec3 up = std::abs(glm::dot(dir, glm::vec3(0, 1, 0))) < 0.99f 
+            ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0);
+        glm::vec3 right = glm::normalize(glm::cross(dir, up));
+        up = glm::normalize(glm::cross(right, dir));
+
+        // Cone tip to base
+        glm::vec3 coneEnd = position + dir * visualRange;
+
+        // Draw central direction line
+        auto* centerLine = DrawLine(position, coneEnd, color, lineThickness);
+        if (centerLine) SubmitPacket(centerLine);
+
+        // Draw outer cone edges (4 lines from tip to base)
+        const i32 coneEdges = 8;
+        for (i32 i = 0; i < coneEdges; ++i)
+        {
+            f32 angle = (f32(i) / f32(coneEdges)) * glm::two_pi<f32>();
+            glm::vec3 offset = right * std::cos(angle) * outerRadius + up * std::sin(angle) * outerRadius;
+            glm::vec3 edgeEnd = coneEnd + offset;
+            
+            auto* edge = DrawLine(position, edgeEnd, color * 0.6f, lineThickness * 0.8f);
+            if (edge) SubmitPacket(edge);
+        }
+
+        // Draw outer cone base circle
+        const i32 circleSegments = 16;
+        for (i32 i = 0; i < circleSegments; ++i)
+        {
+            f32 angle1 = (f32(i) / f32(circleSegments)) * glm::two_pi<f32>();
+            f32 angle2 = (f32(i + 1) / f32(circleSegments)) * glm::two_pi<f32>();
+            
+            glm::vec3 p1 = coneEnd + right * std::cos(angle1) * outerRadius + up * std::sin(angle1) * outerRadius;
+            glm::vec3 p2 = coneEnd + right * std::cos(angle2) * outerRadius + up * std::sin(angle2) * outerRadius;
+            
+            auto* seg = DrawLine(p1, p2, color * 0.5f, lineThickness * 0.7f);
+            if (seg) SubmitPacket(seg);
+        }
+
+        // Draw inner cone base circle (brighter, showing hotspot)
+        if (innerRadius > 0.01f && innerRadius < outerRadius)
+        {
+            for (i32 i = 0; i < circleSegments; ++i)
+            {
+                f32 angle1 = (f32(i) / f32(circleSegments)) * glm::two_pi<f32>();
+                f32 angle2 = (f32(i + 1) / f32(circleSegments)) * glm::two_pi<f32>();
+                
+                glm::vec3 p1 = coneEnd + right * std::cos(angle1) * innerRadius + up * std::sin(angle1) * innerRadius;
+                glm::vec3 p2 = coneEnd + right * std::cos(angle2) * innerRadius + up * std::sin(angle2) * innerRadius;
+                
+                auto* seg = DrawLine(p1, p2, color, lineThickness);
+                if (seg) SubmitPacket(seg);
+            }
+        }
+
+        // Draw a small light bulb icon at position
+        const f32 bulbRadius = 0.1f;
+        for (i32 i = 0; i < 8; ++i)
+        {
+            f32 angle1 = (f32(i) / 8.0f) * glm::two_pi<f32>();
+            f32 angle2 = (f32(i + 1) / 8.0f) * glm::two_pi<f32>();
+            
+            glm::vec3 p1 = position + right * std::cos(angle1) * bulbRadius + up * std::sin(angle1) * bulbRadius;
+            glm::vec3 p2 = position + right * std::cos(angle2) * bulbRadius + up * std::sin(angle2) * bulbRadius;
+            
+            auto* seg = DrawLine(p1, p2, color, lineThickness);
+            if (seg) SubmitPacket(seg);
+        }
+    }
+
+    void Renderer3D::DrawAudioSourceGizmo(const glm::vec3& position,
+                                           f32 minDistance,
+                                           f32 maxDistance,
+                                           const glm::vec3& color)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            return;
+        }
+
+        const f32 lineThickness = 1.5f;
+        const i32 segments = 16;
+
+        // Clamp distances for visualization
+        f32 visualMin = glm::min(minDistance, 10.0f);
+        f32 visualMax = glm::min(maxDistance, 30.0f);
+
+        // Draw speaker icon at position (small)
+        const f32 iconSize = 0.15f;
+        glm::vec3 iconColor = color * 1.2f;
+
+        // Speaker body (rectangle)
+        auto* l1 = DrawLine(position + glm::vec3(-iconSize, -iconSize * 0.5f, 0), 
+                            position + glm::vec3(-iconSize, iconSize * 0.5f, 0), iconColor, lineThickness);
+        auto* l2 = DrawLine(position + glm::vec3(-iconSize, iconSize * 0.5f, 0), 
+                            position + glm::vec3(0, iconSize * 0.5f, 0), iconColor, lineThickness);
+        auto* l3 = DrawLine(position + glm::vec3(0, iconSize * 0.5f, 0), 
+                            position + glm::vec3(iconSize, iconSize, 0), iconColor, lineThickness);
+        auto* l4 = DrawLine(position + glm::vec3(iconSize, iconSize, 0), 
+                            position + glm::vec3(iconSize, -iconSize, 0), iconColor, lineThickness);
+        auto* l5 = DrawLine(position + glm::vec3(iconSize, -iconSize, 0), 
+                            position + glm::vec3(0, -iconSize * 0.5f, 0), iconColor, lineThickness);
+        auto* l6 = DrawLine(position + glm::vec3(0, -iconSize * 0.5f, 0), 
+                            position + glm::vec3(-iconSize, -iconSize * 0.5f, 0), iconColor, lineThickness);
+        if (l1) SubmitPacket(l1);
+        if (l2) SubmitPacket(l2);
+        if (l3) SubmitPacket(l3);
+        if (l4) SubmitPacket(l4);
+        if (l5) SubmitPacket(l5);
+        if (l6) SubmitPacket(l6);
+
+        // Draw min distance sphere (bright, full volume zone)
+        if (visualMin > 0.01f)
+        {
+            for (i32 axis = 0; axis < 3; ++axis)
+            {
+                for (i32 i = 0; i < segments; ++i)
+                {
+                    f32 angle1 = (f32(i) / f32(segments)) * glm::two_pi<f32>();
+                    f32 angle2 = (f32(i + 1) / f32(segments)) * glm::two_pi<f32>();
+
+                    glm::vec3 offset1, offset2;
+                    if (axis == 0)
+                    {
+                        offset1 = glm::vec3(std::cos(angle1), std::sin(angle1), 0.0f) * visualMin;
+                        offset2 = glm::vec3(std::cos(angle2), std::sin(angle2), 0.0f) * visualMin;
+                    }
+                    else if (axis == 1)
+                    {
+                        offset1 = glm::vec3(std::cos(angle1), 0.0f, std::sin(angle1)) * visualMin;
+                        offset2 = glm::vec3(std::cos(angle2), 0.0f, std::sin(angle2)) * visualMin;
+                    }
+                    else
+                    {
+                        offset1 = glm::vec3(0.0f, std::cos(angle1), std::sin(angle1)) * visualMin;
+                        offset2 = glm::vec3(0.0f, std::cos(angle2), std::sin(angle2)) * visualMin;
+                    }
+
+                    auto* seg = DrawLine(position + offset1, position + offset2, color, lineThickness);
+                    if (seg) SubmitPacket(seg);
+                }
+            }
+        }
+
+        // Draw max distance sphere (dimmer, falloff boundary)
+        if (visualMax > visualMin)
+        {
+            glm::vec3 dimColor = color * 0.3f;
+            for (i32 axis = 0; axis < 3; ++axis)
+            {
+                for (i32 i = 0; i < segments; ++i)
+                {
+                    f32 angle1 = (f32(i) / f32(segments)) * glm::two_pi<f32>();
+                    f32 angle2 = (f32(i + 1) / f32(segments)) * glm::two_pi<f32>();
+
+                    glm::vec3 offset1, offset2;
+                    if (axis == 0)
+                    {
+                        offset1 = glm::vec3(std::cos(angle1), std::sin(angle1), 0.0f) * visualMax;
+                        offset2 = glm::vec3(std::cos(angle2), std::sin(angle2), 0.0f) * visualMax;
+                    }
+                    else if (axis == 1)
+                    {
+                        offset1 = glm::vec3(std::cos(angle1), 0.0f, std::sin(angle1)) * visualMax;
+                        offset2 = glm::vec3(std::cos(angle2), 0.0f, std::sin(angle2)) * visualMax;
+                    }
+                    else
+                    {
+                        offset1 = glm::vec3(0.0f, std::cos(angle1), std::sin(angle1)) * visualMax;
+                        offset2 = glm::vec3(0.0f, std::cos(angle2), std::sin(angle2)) * visualMax;
+                    }
+
+                    auto* seg = DrawLine(position + offset1, position + offset2, dimColor, lineThickness * 0.5f);
+                    if (seg) SubmitPacket(seg);
+                }
+            }
+        }
+    }
+
+    void Renderer3D::DrawWorldAxisHelper(f32 axisLength)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            return;
+        }
+
+        const f32 lineThickness = 2.5f;
+        const glm::vec3 origin(0.0f);
+
+        // X axis - Red
+        auto* xAxis = DrawLine(origin, glm::vec3(axisLength, 0.0f, 0.0f), glm::vec3(1.0f, 0.2f, 0.2f), lineThickness);
+        if (xAxis) SubmitPacket(xAxis);
+
+        // X axis arrow head
+        auto* xArrow1 = DrawLine(glm::vec3(axisLength, 0, 0), glm::vec3(axisLength - 0.2f, 0.1f, 0), glm::vec3(1.0f, 0.2f, 0.2f), lineThickness);
+        auto* xArrow2 = DrawLine(glm::vec3(axisLength, 0, 0), glm::vec3(axisLength - 0.2f, -0.1f, 0), glm::vec3(1.0f, 0.2f, 0.2f), lineThickness);
+        if (xArrow1) SubmitPacket(xArrow1);
+        if (xArrow2) SubmitPacket(xArrow2);
+
+        // Y axis - Green
+        auto* yAxis = DrawLine(origin, glm::vec3(0.0f, axisLength, 0.0f), glm::vec3(0.2f, 1.0f, 0.2f), lineThickness);
+        if (yAxis) SubmitPacket(yAxis);
+
+        // Y axis arrow head
+        auto* yArrow1 = DrawLine(glm::vec3(0, axisLength, 0), glm::vec3(0.1f, axisLength - 0.2f, 0), glm::vec3(0.2f, 1.0f, 0.2f), lineThickness);
+        auto* yArrow2 = DrawLine(glm::vec3(0, axisLength, 0), glm::vec3(-0.1f, axisLength - 0.2f, 0), glm::vec3(0.2f, 1.0f, 0.2f), lineThickness);
+        if (yArrow1) SubmitPacket(yArrow1);
+        if (yArrow2) SubmitPacket(yArrow2);
+
+        // Z axis - Blue
+        auto* zAxis = DrawLine(origin, glm::vec3(0.0f, 0.0f, axisLength), glm::vec3(0.2f, 0.2f, 1.0f), lineThickness);
+        if (zAxis) SubmitPacket(zAxis);
+
+        // Z axis arrow head
+        auto* zArrow1 = DrawLine(glm::vec3(0, 0, axisLength), glm::vec3(0, 0.1f, axisLength - 0.2f), glm::vec3(0.2f, 0.2f, 1.0f), lineThickness);
+        auto* zArrow2 = DrawLine(glm::vec3(0, 0, axisLength), glm::vec3(0, -0.1f, axisLength - 0.2f), glm::vec3(0.2f, 0.2f, 1.0f), lineThickness);
+        if (zArrow1) SubmitPacket(zArrow1);
+        if (zArrow2) SubmitPacket(zArrow2);
+
+        // Draw small negative axis indicators (dashed appearance using short segments)
+        const f32 negLength = axisLength * 0.3f;
+        const f32 dashLen = 0.1f;
         
-        s_Data.InfiniteGridShader->Unbind();
+        // Negative X (dimmer red)
+        for (f32 t = 0; t < negLength; t += dashLen * 2)
+        {
+            auto* dash = DrawLine(glm::vec3(-t, 0, 0), glm::vec3(-t - dashLen, 0, 0), glm::vec3(0.5f, 0.1f, 0.1f), lineThickness * 0.5f);
+            if (dash) SubmitPacket(dash);
+        }
+
+        // Negative Y (dimmer green)
+        for (f32 t = 0; t < negLength; t += dashLen * 2)
+        {
+            auto* dash = DrawLine(glm::vec3(0, -t, 0), glm::vec3(0, -t - dashLen, 0), glm::vec3(0.1f, 0.5f, 0.1f), lineThickness * 0.5f);
+            if (dash) SubmitPacket(dash);
+        }
+
+        // Negative Z (dimmer blue)
+        for (f32 t = 0; t < negLength; t += dashLen * 2)
+        {
+            auto* dash = DrawLine(glm::vec3(0, 0, -t), glm::vec3(0, 0, -t - dashLen), glm::vec3(0.1f, 0.1f, 0.5f), lineThickness * 0.5f);
+            if (dash) SubmitPacket(dash);
+        }
+    }
+
+    void Renderer3D::DrawBoxColliderGizmo(const glm::vec3& position,
+                                           const glm::vec3& halfExtents,
+                                           const glm::quat& rotation,
+                                           const glm::vec3& color)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            return;
+        }
+
+        const f32 lineThickness = 2.0f;
+
+        // Create rotation matrix
+        glm::mat3 rotMat = glm::mat3_cast(rotation);
+
+        // Local corners of the box
+        glm::vec3 corners[8] = {
+            glm::vec3(-halfExtents.x, -halfExtents.y, -halfExtents.z),
+            glm::vec3( halfExtents.x, -halfExtents.y, -halfExtents.z),
+            glm::vec3( halfExtents.x,  halfExtents.y, -halfExtents.z),
+            glm::vec3(-halfExtents.x,  halfExtents.y, -halfExtents.z),
+            glm::vec3(-halfExtents.x, -halfExtents.y,  halfExtents.z),
+            glm::vec3( halfExtents.x, -halfExtents.y,  halfExtents.z),
+            glm::vec3( halfExtents.x,  halfExtents.y,  halfExtents.z),
+            glm::vec3(-halfExtents.x,  halfExtents.y,  halfExtents.z)
+        };
+
+        // Transform corners to world space
+        for (auto& corner : corners)
+        {
+            corner = position + rotMat * corner;
+        }
+
+        // Draw edges - bottom face
+        auto* e1 = DrawLine(corners[0], corners[1], color, lineThickness);
+        auto* e2 = DrawLine(corners[1], corners[2], color, lineThickness);
+        auto* e3 = DrawLine(corners[2], corners[3], color, lineThickness);
+        auto* e4 = DrawLine(corners[3], corners[0], color, lineThickness);
+        if (e1) SubmitPacket(e1);
+        if (e2) SubmitPacket(e2);
+        if (e3) SubmitPacket(e3);
+        if (e4) SubmitPacket(e4);
+
+        // Top face
+        auto* e5 = DrawLine(corners[4], corners[5], color, lineThickness);
+        auto* e6 = DrawLine(corners[5], corners[6], color, lineThickness);
+        auto* e7 = DrawLine(corners[6], corners[7], color, lineThickness);
+        auto* e8 = DrawLine(corners[7], corners[4], color, lineThickness);
+        if (e5) SubmitPacket(e5);
+        if (e6) SubmitPacket(e6);
+        if (e7) SubmitPacket(e7);
+        if (e8) SubmitPacket(e8);
+
+        // Vertical edges
+        auto* e9  = DrawLine(corners[0], corners[4], color, lineThickness);
+        auto* e10 = DrawLine(corners[1], corners[5], color, lineThickness);
+        auto* e11 = DrawLine(corners[2], corners[6], color, lineThickness);
+        auto* e12 = DrawLine(corners[3], corners[7], color, lineThickness);
+        if (e9)  SubmitPacket(e9);
+        if (e10) SubmitPacket(e10);
+        if (e11) SubmitPacket(e11);
+        if (e12) SubmitPacket(e12);
+    }
+
+    void Renderer3D::DrawSphereColliderGizmo(const glm::vec3& position,
+                                              f32 radius,
+                                              const glm::vec3& color)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            return;
+        }
+
+        const f32 lineThickness = 1.5f;
+        const i32 segments = 24;
+
+        // Draw three circles for each axis
+        for (i32 axis = 0; axis < 3; ++axis)
+        {
+            for (i32 i = 0; i < segments; ++i)
+            {
+                f32 angle1 = (f32(i) / f32(segments)) * glm::two_pi<f32>();
+                f32 angle2 = (f32(i + 1) / f32(segments)) * glm::two_pi<f32>();
+
+                glm::vec3 p1, p2;
+                if (axis == 0) // XY plane
+                {
+                    p1 = position + glm::vec3(std::cos(angle1), std::sin(angle1), 0.0f) * radius;
+                    p2 = position + glm::vec3(std::cos(angle2), std::sin(angle2), 0.0f) * radius;
+                }
+                else if (axis == 1) // XZ plane
+                {
+                    p1 = position + glm::vec3(std::cos(angle1), 0.0f, std::sin(angle1)) * radius;
+                    p2 = position + glm::vec3(std::cos(angle2), 0.0f, std::sin(angle2)) * radius;
+                }
+                else // YZ plane
+                {
+                    p1 = position + glm::vec3(0.0f, std::cos(angle1), std::sin(angle1)) * radius;
+                    p2 = position + glm::vec3(0.0f, std::cos(angle2), std::sin(angle2)) * radius;
+                }
+
+                auto* seg = DrawLine(p1, p2, color, lineThickness);
+                if (seg) SubmitPacket(seg);
+            }
+        }
+    }
+
+    void Renderer3D::DrawCapsuleColliderGizmo(const glm::vec3& position,
+                                               f32 radius,
+                                               f32 halfHeight,
+                                               const glm::quat& rotation,
+                                               const glm::vec3& color)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            return;
+        }
+
+        const f32 lineThickness = 1.5f;
+        const i32 segments = 16;
+        const i32 hemisphereSegments = 8;
+
+        // Create rotation matrix
+        glm::mat3 rotMat = glm::mat3_cast(rotation);
+
+        // Local up vector (capsule aligned with Y axis locally)
+        glm::vec3 localUp = rotMat * glm::vec3(0.0f, 1.0f, 0.0f);
+        glm::vec3 localRight = rotMat * glm::vec3(1.0f, 0.0f, 0.0f);
+        glm::vec3 localForward = rotMat * glm::vec3(0.0f, 0.0f, 1.0f);
+
+        glm::vec3 topCenter = position + localUp * halfHeight;
+        glm::vec3 bottomCenter = position - localUp * halfHeight;
+
+        // Draw cylindrical body circles at top and bottom
+        for (i32 i = 0; i < segments; ++i)
+        {
+            f32 angle1 = (f32(i) / f32(segments)) * glm::two_pi<f32>();
+            f32 angle2 = (f32(i + 1) / f32(segments)) * glm::two_pi<f32>();
+
+            glm::vec3 offset1 = localRight * std::cos(angle1) * radius + localForward * std::sin(angle1) * radius;
+            glm::vec3 offset2 = localRight * std::cos(angle2) * radius + localForward * std::sin(angle2) * radius;
+
+            // Top circle
+            auto* topSeg = DrawLine(topCenter + offset1, topCenter + offset2, color, lineThickness);
+            if (topSeg) SubmitPacket(topSeg);
+
+            // Bottom circle
+            auto* bottomSeg = DrawLine(bottomCenter + offset1, bottomCenter + offset2, color, lineThickness);
+            if (bottomSeg) SubmitPacket(bottomSeg);
+        }
+
+        // Draw vertical lines connecting top and bottom
+        for (i32 i = 0; i < 4; ++i)
+        {
+            f32 angle = (f32(i) / 4.0f) * glm::two_pi<f32>();
+            glm::vec3 offset = localRight * std::cos(angle) * radius + localForward * std::sin(angle) * radius;
+
+            auto* vertLine = DrawLine(topCenter + offset, bottomCenter + offset, color, lineThickness);
+            if (vertLine) SubmitPacket(vertLine);
+        }
+
+        // Draw top hemisphere
+        for (i32 i = 0; i < hemisphereSegments; ++i)
+        {
+            f32 phi1 = (f32(i) / f32(hemisphereSegments)) * glm::half_pi<f32>();
+            f32 phi2 = (f32(i + 1) / f32(hemisphereSegments)) * glm::half_pi<f32>();
+
+            f32 r1 = radius * std::cos(phi1);
+            f32 r2 = radius * std::cos(phi2);
+            f32 y1 = radius * std::sin(phi1);
+            f32 y2 = radius * std::sin(phi2);
+
+            // Draw arc segments
+            for (i32 j = 0; j < segments; ++j)
+            {
+                f32 theta = (f32(j) / f32(segments)) * glm::two_pi<f32>();
+                glm::vec3 offset1 = localRight * std::cos(theta) * r1 + localForward * std::sin(theta) * r1;
+                glm::vec3 offset2 = localRight * std::cos(theta) * r2 + localForward * std::sin(theta) * r2;
+
+                auto* arcSeg = DrawLine(topCenter + offset1 + localUp * y1, 
+                                        topCenter + offset2 + localUp * y2, color, lineThickness * 0.5f);
+                if (arcSeg) SubmitPacket(arcSeg);
+            }
+        }
+
+        // Draw bottom hemisphere
+        for (i32 i = 0; i < hemisphereSegments; ++i)
+        {
+            f32 phi1 = (f32(i) / f32(hemisphereSegments)) * glm::half_pi<f32>();
+            f32 phi2 = (f32(i + 1) / f32(hemisphereSegments)) * glm::half_pi<f32>();
+
+            f32 r1 = radius * std::cos(phi1);
+            f32 r2 = radius * std::cos(phi2);
+            f32 y1 = radius * std::sin(phi1);
+            f32 y2 = radius * std::sin(phi2);
+
+            // Draw arc segments
+            for (i32 j = 0; j < segments; ++j)
+            {
+                f32 theta = (f32(j) / f32(segments)) * glm::two_pi<f32>();
+                glm::vec3 offset1 = localRight * std::cos(theta) * r1 + localForward * std::sin(theta) * r1;
+                glm::vec3 offset2 = localRight * std::cos(theta) * r2 + localForward * std::sin(theta) * r2;
+
+                auto* arcSeg = DrawLine(bottomCenter + offset1 - localUp * y1, 
+                                        bottomCenter + offset2 - localUp * y2, color, lineThickness * 0.5f);
+                if (arcSeg) SubmitPacket(arcSeg);
+            }
+        }
     }
 
     void Renderer3D::DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix,

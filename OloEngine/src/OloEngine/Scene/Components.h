@@ -8,6 +8,7 @@
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
+#include "OloEngine/Renderer/EnvironmentMap.h"
 
 #include "box2d/box2d.h"
 
@@ -402,6 +403,35 @@ namespace OloEngine
         SpotLightComponent(const SpotLightComponent&) = default;
     };
 
+    // Environment map component for skybox and IBL
+    struct EnvironmentMapComponent
+    {
+        AssetHandle m_EnvironmentMapAsset = 0;
+        std::string m_FilePath;  // Path to HDR/EXR file OR folder containing cubemap faces
+        Ref<EnvironmentMap> m_EnvironmentMap;  // Cached environment map (loaded from file path)
+        
+        // Cubemap mode: if true, m_FilePath is a folder with right.jpg, left.jpg, top.jpg, bottom.jpg, front.jpg, back.jpg
+        // If false, m_FilePath is an HDR/EXR equirectangular file
+        bool m_IsCubemapFolder = true;  // Default to cubemap folder mode
+        
+        // Skybox display settings
+        bool m_EnableSkybox = true;
+        f32 m_Rotation = 0.0f;      // Rotation around Y axis in degrees
+        f32 m_Exposure = 1.0f;      // Exposure multiplier
+        f32 m_BlurAmount = 0.0f;    // Blur for background (0 = sharp, 1 = fully blurred)
+        
+        // IBL settings
+        bool m_EnableIBL = true;
+        f32 m_IBLIntensity = 1.0f;
+        
+        // Tint/color adjustment
+        glm::vec3 m_Tint = glm::vec3(1.0f);
+        
+        EnvironmentMapComponent() = default;
+        EnvironmentMapComponent(const EnvironmentMapComponent&) = default;
+        explicit EnvironmentMapComponent(const std::string& filepath) : m_FilePath(filepath) {}
+    };
+
     // Entity relationship component for parent-child hierarchies (Hazel-style)
     struct RelationshipComponent
     {
@@ -451,5 +481,6 @@ namespace OloEngine
         DirectionalLightComponent,
         PointLightComponent,
         SpotLightComponent,
+        EnvironmentMapComponent,
         RelationshipComponent>;
 } // namespace OloEngine

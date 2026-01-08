@@ -167,6 +167,7 @@ namespace OloEngine
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawSkybox)] = CommandDispatch::DrawSkybox;
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawInfiniteGrid)] = CommandDispatch::DrawInfiniteGrid;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
 
         s_Data.CurrentBoundShaderID = 0;
@@ -1019,5 +1020,39 @@ namespace OloEngine
         glBindVertexArray(cmd->quadVAID);
         s_Data.Stats.DrawCalls++;
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
+    }
+
+    void CommandDispatch::DrawInfiniteGrid(const void* data, RendererAPI& api)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto const* cmd = static_cast<const DrawInfiniteGridCommand*>(data);
+
+        // Validate POD renderer IDs
+        if (cmd->quadVAOID == 0 || cmd->shaderRendererID == 0)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawInfiniteGrid: Invalid VAO ID or shader ID");
+            return;
+        }
+
+        // Apply POD render state (grid-specific: blending enabled, depth test enabled)
+        ApplyPODRenderState(cmd->renderState, api);
+
+        // Bind grid shader using renderer ID directly
+        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        {
+            glUseProgram(cmd->shaderRendererID);
+            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            s_Data.Stats.ShaderBinds++;
+        }
+
+        // Note: Grid shader typically reads view/projection from Camera UBO
+        // and calculates grid lines in fragment shader using world position
+
+        // Bind fullscreen quad VAO and draw
+        glBindVertexArray(cmd->quadVAOID);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        s_Data.Stats.DrawCalls++;
     }
 } // namespace OloEngine

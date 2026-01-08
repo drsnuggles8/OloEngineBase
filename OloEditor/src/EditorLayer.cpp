@@ -367,6 +367,7 @@ namespace OloEngine
         if (ImGui::BeginMenu("Window"))
         {
             ImGui::MenuItem("Animation Panel", nullptr, &m_ShowAnimationPanel);
+            ImGui::MenuItem("Environment Settings", nullptr, &m_ShowEnvironmentSettings);
 
             ImGui::EndMenu();
         }
@@ -445,7 +446,13 @@ namespace OloEngine
 
     void EditorLayer::UI_Gizmos() const
     {
-        if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); selectedEntity && (m_GizmoType != -1) && (!Input::IsKeyPressed(Key::LeftAlt)))
+        Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+        if (!selectedEntity || !selectedEntity.HasComponent<TransformComponent>())
+        {
+            return;
+        }
+        
+        if ((m_GizmoType != -1) && (!Input::IsKeyPressed(Key::LeftAlt)))
         {
             ImGuizmo::SetOrthographic(false);
             ImGuizmo::SetDrawlist();
@@ -606,6 +613,13 @@ namespace OloEngine
         {
             m_AnimationPanel.SetSelectedEntity(m_SceneHierarchyPanel.GetSelectedEntity());
             m_AnimationPanel.OnImGuiRender();
+        }
+        
+        // Environment Settings Panel
+        if (m_ShowEnvironmentSettings)
+        {
+            m_EnvironmentSettingsPanel.SetContext(m_ActiveScene);
+            m_EnvironmentSettingsPanel.OnImGuiRender();
         }
     }
 

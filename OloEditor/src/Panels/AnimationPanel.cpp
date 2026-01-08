@@ -2,6 +2,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -78,6 +79,9 @@ namespace OloEngine
         
         if (hasSkeleton)
         {
+            ImGui::Separator();
+            DrawSkeletonVisualization(m_SelectedEntity);
+            
             ImGui::Separator();
             DrawBoneHierarchy(m_SelectedEntity);
         }
@@ -393,19 +397,42 @@ namespace OloEngine
             
             ImGui::Separator();
             
-            // Bone list (simplified tree view)
+            // Bone list with actual names from skeleton
             if (ImGui::BeginChild("BoneList", ImVec2(0, 200), true))
             {
                 auto boneCount = skelComp.m_Skeleton->m_BoneNames.size();
                 for (size_t i = 0; i < boneCount; ++i)
                 {
-                    // TODO: Get bone name from skeleton when available
-                    char boneName[32];
-                    std::snprintf(boneName, sizeof(boneName), "Bone %zu", i);
+                    // Use actual bone name from skeleton
+                    const std::string& boneName = skelComp.m_Skeleton->m_BoneNames[i];
+                    std::string displayName = boneName.empty() 
+                        ? "Bone " + std::to_string(i) 
+                        : boneName;
                     
-                    if (ImGui::Selectable(boneName))
+                    // Show parent info in tooltip
+                    if (ImGui::Selectable(displayName.c_str()))
                     {
                         // TODO: Select bone entity in hierarchy when clicked
+                    }
+                    
+                    // Tooltip with bone details
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::BeginTooltip();
+                        ImGui::Text("Bone Index: %zu", i);
+                        if (i < skelComp.m_Skeleton->m_ParentIndices.size())
+                        {
+                            i32 parentIdx = skelComp.m_Skeleton->m_ParentIndices[i];
+                            if (parentIdx >= 0 && parentIdx < static_cast<i32>(boneCount))
+                            {
+                                ImGui::Text("Parent: %s", skelComp.m_Skeleton->m_BoneNames[parentIdx].c_str());
+                            }
+                            else
+                            {
+                                ImGui::Text("Parent: (root)");
+                            }
+                        }
+                        ImGui::EndTooltip();
                     }
                 }
             }
@@ -421,6 +448,77 @@ namespace OloEngine
             if (ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip("Invalidates the tag-to-entity cache.\nUse after modifying bone entity structure.");
+            }
+        }
+    }
+
+    void AnimationPanel::DrawSkeletonVisualization(Entity entity)
+    {
+        if (!entity.HasComponent<SkeletonComponent>())
+            return;
+
+        auto& skelComp = entity.GetComponent<SkeletonComponent>();
+
+        if (ImGui::CollapsingHeader("Skeleton Visualization", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            if (!skelComp.m_Skeleton)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "No skeleton to visualize");
+                return;
+            }
+
+            bool settingsChanged = false;
+
+            // Main toggle
+            if (ImGui::Checkbox("Show Skeleton", &m_ShowSkeleton))
+            {
+                settingsChanged = true;
+            }
+            
+            if (m_ShowSkeleton)
+            {
+                ImGui::Indent();
+                
+                // Sub-toggles
+                if (ImGui::Checkbox("Show Bones", &m_ShowBones))
+                {
+                    settingsChanged = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::Checkbox("Show Joints", &m_ShowJoints))
+                {
+                    settingsChanged = true;
+                }
+                
+                // Size controls
+                if (ImGui::DragFloat("Joint Size", &m_JointSize, 0.001f, 0.005f, 0.1f, "%.3f"))
+                {
+                    settingsChanged = true;
+                }
+                if (ImGui::DragFloat("Bone Thickness", &m_BoneThickness, 0.1f, 0.5f, 5.0f, "%.1f"))
+                {
+                    settingsChanged = true;
+                }
+                
+                ImGui::Unindent();
+                
+                // Show info
+                ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f), "Skeleton rendering enabled");
+                ImGui::Text("Bones: %zu, Joints: %zu", 
+                    skelComp.m_Skeleton->m_GlobalTransforms.size(),
+                    skelComp.m_Skeleton->m_BoneNames.size());
+            }
+
+            // Sync settings with the scene for rendering
+            if (settingsChanged && m_Context)
+            {
+                Scene::SkeletonVisualizationSettings settings;
+                settings.ShowSkeleton = m_ShowSkeleton;
+                settings.ShowBones = m_ShowBones;
+                settings.ShowJoints = m_ShowJoints;
+                settings.JointSize = m_JointSize;
+                settings.BoneThickness = m_BoneThickness;
+                m_Context->SetSkeletonVisualization(settings);
             }
         }
     }

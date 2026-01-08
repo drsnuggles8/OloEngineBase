@@ -1,28 +1,10 @@
-Scene: fox.olo
+Scene: fox
 Entities:
-  - Entity: 9912089701767671193
-    TagComponent:
-      Tag: camera
-    TransformComponent:
-      Translation: [22.971684, 10.0899, -56.198944]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 1.012291
-        PerspectiveNear: 0.01
-        PerspectiveFar: 1000
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
-  - Entity: 12926552543662025511
+  - Entity: 11366012263217394104
     TagComponent:
       Tag: fox
     TransformComponent:
-      Translation: [0, 0, 2.781105]
+      Translation: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     MeshComponent:
@@ -33,7 +15,7 @@ Entities:
       Roughness: 0.58
     AnimationStateComponent:
       State: 0
-      CurrentTime: 2.5437694
+      CurrentTime: 0
       BlendDuration: 0.3
       CurrentClipIndex: 0
       IsPlaying: false
@@ -41,3 +23,10 @@ Entities:
       CurrentClipName: Survey
     SkeletonComponent:
       {}
+  - Entity: 6314009358522869315
+    TagComponent:
+      Tag: skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]

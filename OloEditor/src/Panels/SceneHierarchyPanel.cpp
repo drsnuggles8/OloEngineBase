@@ -300,6 +300,7 @@ namespace OloEngine
             DisplayAddComponentEntry<DirectionalLightComponent>("Directional Light");
             DisplayAddComponentEntry<PointLightComponent>("Point Light");
             DisplayAddComponentEntry<SpotLightComponent>("Spot Light");
+            DisplayAddComponentEntry<EnvironmentMapComponent>("Environment Map (Skybox/IBL)");
 
             ImGui::Separator();
 
@@ -793,6 +794,76 @@ namespace OloEngine
 
         DrawComponent<MaterialComponent>("Material", entity, [](auto& component)
                                          {
+            // Material Presets Dropdown
+            const char* presets[] = { "Custom", "Default", "Metallic", "Rough Plastic", "Polished Metal", "Rubber", "Glass", "Gold", "Silver", "Copper", "Wood", "Marble" };
+            static int currentPreset = 0;
+            if (ImGui::Combo("Preset", &currentPreset, presets, IM_ARRAYSIZE(presets)))
+            {
+                switch (currentPreset)
+                {
+                    case 1: // Default
+                        component.m_Material.SetBaseColorFactor(glm::vec4(0.8f, 0.8f, 0.8f, 1.0f));
+                        component.m_Material.SetMetallicFactor(0.0f);
+                        component.m_Material.SetRoughnessFactor(0.5f);
+                        break;
+                    case 2: // Metallic
+                        component.m_Material.SetBaseColorFactor(glm::vec4(0.9f, 0.9f, 0.9f, 1.0f));
+                        component.m_Material.SetMetallicFactor(1.0f);
+                        component.m_Material.SetRoughnessFactor(0.2f);
+                        break;
+                    case 3: // Rough Plastic
+                        component.m_Material.SetBaseColorFactor(glm::vec4(0.2f, 0.2f, 0.8f, 1.0f));
+                        component.m_Material.SetMetallicFactor(0.0f);
+                        component.m_Material.SetRoughnessFactor(0.8f);
+                        break;
+                    case 4: // Polished Metal
+                        component.m_Material.SetBaseColorFactor(glm::vec4(0.95f, 0.95f, 0.95f, 1.0f));
+                        component.m_Material.SetMetallicFactor(1.0f);
+                        component.m_Material.SetRoughnessFactor(0.05f);
+                        break;
+                    case 5: // Rubber
+                        component.m_Material.SetBaseColorFactor(glm::vec4(0.1f, 0.1f, 0.1f, 1.0f));
+                        component.m_Material.SetMetallicFactor(0.0f);
+                        component.m_Material.SetRoughnessFactor(0.95f);
+                        break;
+                    case 6: // Glass
+                        component.m_Material.SetBaseColorFactor(glm::vec4(0.9f, 0.9f, 0.95f, 0.3f));
+                        component.m_Material.SetMetallicFactor(0.0f);
+                        component.m_Material.SetRoughnessFactor(0.05f);
+                        break;
+                    case 7: // Gold
+                        component.m_Material.SetBaseColorFactor(glm::vec4(1.0f, 0.766f, 0.336f, 1.0f));
+                        component.m_Material.SetMetallicFactor(1.0f);
+                        component.m_Material.SetRoughnessFactor(0.3f);
+                        break;
+                    case 8: // Silver
+                        component.m_Material.SetBaseColorFactor(glm::vec4(0.972f, 0.960f, 0.915f, 1.0f));
+                        component.m_Material.SetMetallicFactor(1.0f);
+                        component.m_Material.SetRoughnessFactor(0.2f);
+                        break;
+                    case 9: // Copper
+                        component.m_Material.SetBaseColorFactor(glm::vec4(0.955f, 0.637f, 0.538f, 1.0f));
+                        component.m_Material.SetMetallicFactor(1.0f);
+                        component.m_Material.SetRoughnessFactor(0.25f);
+                        break;
+                    case 10: // Wood
+                        component.m_Material.SetBaseColorFactor(glm::vec4(0.55f, 0.35f, 0.2f, 1.0f));
+                        component.m_Material.SetMetallicFactor(0.0f);
+                        component.m_Material.SetRoughnessFactor(0.7f);
+                        break;
+                    case 11: // Marble
+                        component.m_Material.SetBaseColorFactor(glm::vec4(0.95f, 0.93f, 0.88f, 1.0f));
+                        component.m_Material.SetMetallicFactor(0.0f);
+                        component.m_Material.SetRoughnessFactor(0.15f);
+                        break;
+                    default:
+                        break;
+                }
+                currentPreset = 0; // Reset to Custom after applying
+            }
+            
+            ImGui::Separator();
+            
             auto baseColor = component.m_Material.GetBaseColorFactor();
             glm::vec3 albedo(baseColor.r, baseColor.g, baseColor.b);
             if (ImGui::ColorEdit3("Albedo", glm::value_ptr(albedo)))
@@ -831,6 +902,93 @@ namespace OloEngine
 			ImGui::DragFloat("Outer Cutoff##SpotLight", &component.m_OuterCutoff, 0.1f, 0.0f, 90.0f);
 			ImGui::DragFloat("Attenuation##SpotLight", &component.m_Attenuation, 0.1f, 0.1f, 4.0f);
 			ImGui::Checkbox("Cast Shadows##SpotLight", &component.m_CastShadows); });
+
+        DrawComponent<EnvironmentMapComponent>("Environment Map", entity, [](auto& component)
+                                                {
+            // Mode toggle
+            ImGui::Checkbox("Use Cubemap Folder", &component.m_IsCubemapFolder);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("If enabled, specify a folder path containing:\nright.jpg, left.jpg, top.jpg, bottom.jpg, front.jpg, back.jpg\n\nIf disabled, specify an HDR/EXR equirectangular file.");
+            }
+            
+            // Current environment map display
+            if (!component.m_FilePath.empty())
+            {
+                auto lastSlash = component.m_FilePath.find_last_of("/\\");
+                std::string displayName = (lastSlash != std::string::npos) 
+                    ? component.m_FilePath.substr(lastSlash + 1) 
+                    : component.m_FilePath;
+                ImGui::Text("%s: %s", component.m_IsCubemapFolder ? "Folder" : "File", displayName.c_str());
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No environment map loaded");
+            }
+            
+            // Path input (editable)
+            char pathBuffer[512];
+            std::strncpy(pathBuffer, component.m_FilePath.c_str(), sizeof(pathBuffer) - 1);
+            pathBuffer[sizeof(pathBuffer) - 1] = '\0';
+            if (ImGui::InputText("Path##EnvMapPath", pathBuffer, sizeof(pathBuffer)))
+            {
+                component.m_FilePath = pathBuffer;
+                component.m_EnvironmentMap = nullptr;  // Force reload
+            }
+            
+            // Browse button (for HDR files only; for cubemap folders, user types path)
+            if (!component.m_IsCubemapFolder)
+            {
+                if (ImGui::Button("Browse HDR...##EnvMap"))
+                {
+                    std::string filepath = FileDialogs::OpenFile(
+                        "HDR Images (*.hdr;*.exr)\0*.hdr;*.exr\0"
+                        "All Files (*.*)\0*.*\0");
+                    if (!filepath.empty())
+                    {
+                        component.m_FilePath = filepath;
+                        component.m_EnvironmentMap = nullptr;  // Force reload
+                    }
+                }
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Example: assets/textures/Skybox");
+            }
+            
+            if (!component.m_FilePath.empty())
+            {
+                ImGui::SameLine();
+                if (ImGui::Button("Clear##EnvMap"))
+                {
+                    component.m_FilePath.clear();
+                    component.m_EnvironmentMapAsset = 0;
+                    component.m_EnvironmentMap = nullptr;
+                }
+            }
+            
+            ImGui::Separator();
+            
+            // Skybox settings
+            ImGui::Checkbox("Enable Skybox##EnvMap", &component.m_EnableSkybox);
+            
+            if (component.m_EnableSkybox)
+            {
+                ImGui::DragFloat("Rotation##EnvMap", &component.m_Rotation, 1.0f, 0.0f, 360.0f, "%.1f deg");
+                ImGui::DragFloat("Exposure##EnvMap", &component.m_Exposure, 0.01f, 0.1f, 10.0f);
+                ImGui::DragFloat("Blur##EnvMap", &component.m_BlurAmount, 0.01f, 0.0f, 1.0f);
+                ImGui::ColorEdit3("Tint##EnvMap", glm::value_ptr(component.m_Tint));
+            }
+            
+            ImGui::Separator();
+            
+            // IBL settings
+            ImGui::Checkbox("Enable IBL##EnvMap", &component.m_EnableIBL);
+            
+            if (component.m_EnableIBL)
+            {
+                ImGui::DragFloat("IBL Intensity##EnvMap", &component.m_IBLIntensity, 0.01f, 0.0f, 5.0f);
+            } });
 
         DrawComponent<Rigidbody3DComponent>("Rigidbody 3D", entity, [](auto& component)
                                             {

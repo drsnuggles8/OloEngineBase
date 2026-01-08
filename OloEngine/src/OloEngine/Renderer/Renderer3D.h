@@ -128,8 +128,8 @@ namespace OloEngine
         static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
         static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
         
-        // Grid rendering
-        static void DrawInfiniteGrid(f32 gridScale = 1.0f);
+        // Grid rendering (returns command packet for deferred execution)
+        static CommandPacket* DrawInfiniteGrid(f32 gridScale = 1.0f);
 
         // Skeleton visualization
         static void DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix,
@@ -139,6 +139,128 @@ namespace OloEngine
                                        const glm::vec3& color = glm::vec3(1.0f), f32 thickness = 1.0f);
         static CommandPacket* DrawSphere(const glm::vec3& position, f32 radius,
                                          const glm::vec3& color = glm::vec3(1.0f));
+
+        // Gizmo visualization for scene cameras
+        /**
+         * @brief Draw a wireframe frustum visualization for a scene camera
+         *
+         * Draws the near plane, far plane, and connecting edges of a camera's view frustum.
+         * Also draws a small camera icon indicator at the camera position.
+         *
+         * @param cameraTransform World transform of the camera entity
+         * @param fov Vertical field of view in radians (for perspective cameras)
+         * @param aspectRatio Camera aspect ratio (width/height)
+         * @param nearClip Near clipping plane distance
+         * @param farClip Far clipping plane distance (clamped for visualization)
+         * @param color Frustum line color
+         * @param isPerspective True for perspective, false for orthographic
+         * @param orthoSize Orthographic size (half-height, used when !isPerspective)
+         */
+        static void DrawCameraFrustum(const glm::mat4& cameraTransform,
+                                      f32 fov, f32 aspectRatio,
+                                      f32 nearClip, f32 farClip,
+                                      const glm::vec3& color = glm::vec3(0.9f, 0.9f, 0.3f),
+                                      bool isPerspective = true,
+                                      f32 orthoSize = 10.0f);
+
+        // Light gizmo visualization
+        /**
+         * @brief Draw a directional light gizmo (arrow indicating direction)
+         * @param position World position of the light
+         * @param direction Normalized direction vector the light points
+         * @param color Light color for the gizmo
+         * @param intensity Light intensity (affects gizmo brightness)
+         */
+        static void DrawDirectionalLightGizmo(const glm::vec3& position,
+                                               const glm::vec3& direction,
+                                               const glm::vec3& color = glm::vec3(1.0f, 0.9f, 0.3f),
+                                               f32 intensity = 1.0f);
+
+        /**
+         * @brief Draw a point light gizmo (sphere showing range)
+         * @param position World position of the light
+         * @param range Light falloff range
+         * @param color Light color for the gizmo
+         * @param showRangeSphere Whether to draw the range sphere
+         */
+        static void DrawPointLightGizmo(const glm::vec3& position,
+                                         f32 range,
+                                         const glm::vec3& color = glm::vec3(1.0f, 0.8f, 0.2f),
+                                         bool showRangeSphere = true);
+
+        /**
+         * @brief Draw a spot light gizmo (cone showing direction and angle)
+         * @param position World position of the light
+         * @param direction Normalized direction vector
+         * @param range Light range
+         * @param innerCutoff Inner cone angle in degrees
+         * @param outerCutoff Outer cone angle in degrees
+         * @param color Light color for the gizmo
+         */
+        static void DrawSpotLightGizmo(const glm::vec3& position,
+                                        const glm::vec3& direction,
+                                        f32 range,
+                                        f32 innerCutoff,
+                                        f32 outerCutoff,
+                                        const glm::vec3& color = glm::vec3(1.0f, 0.8f, 0.2f));
+
+        /**
+         * @brief Draw an audio source range gizmo (spheres showing min/max distance)
+         * @param position World position of the audio source
+         * @param minDistance Minimum attenuation distance
+         * @param maxDistance Maximum attenuation distance
+         * @param color Gizmo color
+         */
+        static void DrawAudioSourceGizmo(const glm::vec3& position,
+                                          f32 minDistance,
+                                          f32 maxDistance,
+                                          const glm::vec3& color = glm::vec3(0.2f, 0.6f, 1.0f));
+
+        /**
+         * @brief Draw world axis helper at origin
+         * @param axisLength Length of each axis line
+         */
+        static void DrawWorldAxisHelper(f32 axisLength = 5.0f);
+
+        // ====================================================================
+        // 3D Collider Gizmo Visualization
+        // ====================================================================
+
+        /**
+         * @brief Draw a wireframe box collider gizmo
+         * @param position World position (center of the box)
+         * @param halfExtents Half-size of the box in each axis
+         * @param rotation Rotation quaternion
+         * @param color Wireframe color
+         */
+        static void DrawBoxColliderGizmo(const glm::vec3& position,
+                                          const glm::vec3& halfExtents,
+                                          const glm::quat& rotation = glm::quat(1, 0, 0, 0),
+                                          const glm::vec3& color = glm::vec3(0.0f, 1.0f, 0.0f));
+
+        /**
+         * @brief Draw a wireframe sphere collider gizmo
+         * @param position World position (center of the sphere)
+         * @param radius Sphere radius
+         * @param color Wireframe color
+         */
+        static void DrawSphereColliderGizmo(const glm::vec3& position,
+                                             f32 radius,
+                                             const glm::vec3& color = glm::vec3(0.0f, 1.0f, 0.0f));
+
+        /**
+         * @brief Draw a wireframe capsule collider gizmo
+         * @param position World position (center of the capsule)
+         * @param radius Capsule radius
+         * @param halfHeight Half-height of the cylindrical section
+         * @param rotation Rotation quaternion (capsule aligned with local Y axis)
+         * @param color Wireframe color
+         */
+        static void DrawCapsuleColliderGizmo(const glm::vec3& position,
+                                              f32 radius,
+                                              f32 halfHeight,
+                                              const glm::quat& rotation = glm::quat(1, 0, 0, 0),
+                                              const glm::vec3& color = glm::vec3(0.0f, 1.0f, 0.0f));
 
         // ECS Animated Mesh Rendering
         static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);

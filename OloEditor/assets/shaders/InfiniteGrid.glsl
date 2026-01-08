@@ -2,7 +2,7 @@
 #version 450 core
 
 // Infinite grid shader - renders a grid on the XZ plane that extends to infinity
-// Uses reverse depth (near=1, far=0) for better precision
+// Uses standard depth (near=0, far=1)
 
 layout(location = 0) in vec3 a_Position;
 
@@ -30,8 +30,9 @@ void main() {
     mat4 projInverse = inverse(u_Projection);
     
     // Unproject to get near and far points on the grid plane
-    v_NearPoint = UnprojectPoint(a_Position.x, a_Position.y, 1.0, viewInverse, projInverse);  // Near plane (depth 1 for reverse-z)
-    v_FarPoint = UnprojectPoint(a_Position.x, a_Position.y, 0.0, viewInverse, projInverse);   // Far plane (depth 0 for reverse-z)
+    // Standard depth: near plane is at z=-1 in NDC, far plane is at z=1
+    v_NearPoint = UnprojectPoint(a_Position.x, a_Position.y, -1.0, viewInverse, projInverse);
+    v_FarPoint = UnprojectPoint(a_Position.x, a_Position.y, 1.0, viewInverse, projInverse);
     
     v_View = u_View;
     v_Projection = u_Projection;
@@ -80,7 +81,8 @@ vec4 Grid(vec3 fragPos3D, float scale, bool drawAxis) {
 
 float ComputeDepth(vec3 pos) {
     vec4 clipSpacePos = v_Projection * v_View * vec4(pos, 1.0);
-    return (clipSpacePos.z / clipSpacePos.w);
+    // Convert from NDC [-1, 1] to depth buffer range [0, 1]
+    return (clipSpacePos.z / clipSpacePos.w) * 0.5 + 0.5;
 }
 
 float ComputeLinearDepth(vec3 pos) {

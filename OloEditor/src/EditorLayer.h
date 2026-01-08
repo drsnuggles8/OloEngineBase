@@ -4,6 +4,7 @@
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/AnimationPanel.h"
+#include "Panels/EnvironmentSettingsPanel.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
@@ -148,7 +149,9 @@ namespace OloEngine
         Scope<ContentBrowserPanel> m_ContentBrowserPanel;
         Scope<AssetPackBuilderPanel> m_AssetPackBuilderPanel;
         AnimationPanel m_AnimationPanel;
+        EnvironmentSettingsPanel m_EnvironmentSettingsPanel;
         bool m_ShowAnimationPanel = true;
+        bool m_ShowEnvironmentSettings = false;
 
         // Editor resources
         Ref<Texture2D> m_IconPlay;

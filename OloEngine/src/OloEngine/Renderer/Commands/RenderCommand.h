@@ -106,6 +106,7 @@ namespace OloEngine
         DrawMesh,
         DrawMeshInstanced,
         DrawSkybox,
+        DrawInfiniteGrid,
         DrawQuad,
         BindDefaultFramebuffer,
         BindTexture,
@@ -492,6 +493,19 @@ namespace OloEngine
 
     // Static assertion for DrawSkyboxCommand
     static_assert(std::is_trivially_copyable_v<DrawSkyboxCommand>, "DrawSkyboxCommand must be trivially copyable for radix sort");
+
+    struct DrawInfiniteGridCommand
+    {
+        CommandHeader header;
+        AssetHandle shaderHandle;    // Grid shader handle (for asset tracking)
+        RendererID shaderRendererID; // Shader program ID for glUseProgram
+        RendererID quadVAOID;        // Fullscreen quad VAO renderer ID
+        f32 gridScale;               // Grid spacing scale factor
+        PODRenderState renderState;  // Inlined render state
+    };
+
+    // Static assertion for DrawInfiniteGridCommand
+    static_assert(std::is_trivially_copyable_v<DrawInfiniteGridCommand>, "DrawInfiniteGridCommand must be trivially copyable for radix sort");
 
     struct DrawQuadCommand
     {
