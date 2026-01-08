@@ -23,6 +23,8 @@ namespace OloEngine
         int ReadPixel(u32 attachmentIndex, int x, int y) override;
 
         void ClearAttachment(u32 attachmentIndex, int value) override;
+        void ClearAttachment(u32 attachmentIndex, const glm::vec4& value) override;
+        void ClearAllAttachments(const glm::vec4& clearColor = glm::vec4(0.0f), int entityIdClear = -1) override;
 
         [[nodiscard("Store this!")]] u32 GetColorAttachmentRendererID(const u32 index) const override
         {

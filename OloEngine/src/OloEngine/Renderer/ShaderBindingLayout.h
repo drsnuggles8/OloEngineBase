@@ -135,6 +135,8 @@ namespace OloEngine
         {
             glm::mat4 Model;
             glm::mat4 Normal; // transpose(inverse(model))
+            i32 EntityID;
+            i32 _paddingEntity[3];
 
             static constexpr u32 GetSize()
             {
@@ -338,6 +340,10 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 layout(std140, binding = 3) uniform ModelMatrices {
     mat4 u_Model;
     mat4 u_Normal;
+    int u_EntityID;
+    int _paddingEntity0;
+    int _paddingEntity1;
+    int _paddingEntity2;
 };)";
         }
 

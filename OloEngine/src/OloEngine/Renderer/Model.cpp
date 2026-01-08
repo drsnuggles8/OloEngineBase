@@ -619,7 +619,7 @@ namespace OloEngine
         }
     }
 
-    void Model::DrawParallel(const glm::mat4& transform, const Material& fallbackMaterial) const
+    void Model::DrawParallel(const glm::mat4& transform, const Material& fallbackMaterial, i32 entityID) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -645,9 +645,10 @@ namespace OloEngine
                 m_Meshes[i],
                 transform,
                 meshMaterial,
-                true,   // IsStatic
-                false,  // IsAnimated
-                nullptr // BoneMatrices
+                true,     // IsStatic
+                entityID, // EntityID for picking
+                false,    // IsAnimated
+                nullptr   // BoneMatrices
             });
         }
 
@@ -655,7 +656,7 @@ namespace OloEngine
         Renderer3D::SubmitMeshesParallel(meshDescriptors);
     }
 
-    void Model::DrawParallel(const glm::mat4& transform) const
+    void Model::DrawParallel(const glm::mat4& transform, i32 entityID) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -692,13 +693,114 @@ namespace OloEngine
                 m_Meshes[i],
                 transform,
                 meshMaterial,
-                true,   // IsStatic
-                false,  // IsAnimated
-                nullptr // BoneMatrices
+                true,     // IsStatic
+                entityID, // EntityID for picking
+                false,    // IsAnimated
+                nullptr   // BoneMatrices
             });
         }
 
         // Submit all meshes in parallel
         Renderer3D::SubmitMeshesParallel(meshDescriptors);
+    }
+
+    Ref<MeshSource> Model::CreateCombinedMeshSource() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_Meshes.empty())
+        {
+            OLO_CORE_WARN("Model::CreateCombinedMeshSource: No meshes to combine");
+            return nullptr;
+        }
+
+        // Calculate total vertex and index counts
+        sizet totalVertices = 0;
+        sizet totalIndices = 0;
+        for (const auto& mesh : m_Meshes)
+        {
+            if (mesh && mesh->GetMeshSource())
+            {
+                totalVertices += mesh->GetMeshSource()->GetVertices().Num();
+                totalIndices += mesh->GetMeshSource()->GetIndices().Num();
+            }
+        }
+
+        if (totalVertices == 0)
+        {
+            OLO_CORE_WARN("Model::CreateCombinedMeshSource: No vertices found in meshes");
+            return nullptr;
+        }
+
+        // Create combined vertex and index arrays
+        TArray<Vertex> combinedVertices;
+        TArray<u32> combinedIndices;
+        combinedVertices.Reserve(static_cast<i32>(totalVertices));
+        combinedIndices.Reserve(static_cast<i32>(totalIndices));
+
+        // Create the combined MeshSource
+        auto combinedMeshSource = Ref<MeshSource>::Create();
+
+        u32 baseVertex = 0;
+        u32 baseIndex = 0;
+
+        for (sizet meshIdx = 0; meshIdx < m_Meshes.size(); ++meshIdx)
+        {
+            const auto& mesh = m_Meshes[meshIdx];
+            if (!mesh || !mesh->GetMeshSource())
+            {
+                continue;
+            }
+
+            const auto& srcMeshSource = mesh->GetMeshSource();
+            const auto& srcVertices = srcMeshSource->GetVertices();
+            const auto& srcIndices = srcMeshSource->GetIndices();
+
+            // Copy vertices
+            for (i32 i = 0; i < srcVertices.Num(); ++i)
+            {
+                combinedVertices.Add(srcVertices[i]);
+            }
+
+            // Copy indices with offset
+            for (i32 i = 0; i < srcIndices.Num(); ++i)
+            {
+                combinedIndices.Add(srcIndices[i] + baseVertex);
+            }
+
+            // Create a submesh for this mesh
+            Submesh submesh;
+            submesh.m_BaseVertex = baseVertex;
+            submesh.m_BaseIndex = baseIndex;
+            submesh.m_VertexCount = static_cast<u32>(srcVertices.Num());
+            submesh.m_IndexCount = static_cast<u32>(srcIndices.Num());
+            submesh.m_MaterialIndex = static_cast<u32>(meshIdx); // Use mesh index as material index
+            submesh.m_IsRigged = false;
+            submesh.m_NodeName = "Mesh_" + std::to_string(meshIdx);
+
+            // Copy submesh bounding box if available
+            if (!srcMeshSource->GetSubmeshes().IsEmpty())
+            {
+                submesh.m_BoundingBox = srcMeshSource->GetSubmeshes()[0].m_BoundingBox;
+            }
+
+            combinedMeshSource->GetSubmeshes().Add(submesh);
+
+            baseVertex += static_cast<u32>(srcVertices.Num());
+            baseIndex += static_cast<u32>(srcIndices.Num());
+        }
+
+        // Set the combined vertex and index data
+        combinedMeshSource->GetVertices() = std::move(combinedVertices);
+        combinedMeshSource->GetIndices() = std::move(combinedIndices);
+
+        // Build GPU resources
+        combinedMeshSource->Build();
+
+        OLO_CORE_INFO("Model::CreateCombinedMeshSource: Combined {} meshes into {} vertices, {} indices, {} submeshes",
+                      m_Meshes.size(), combinedMeshSource->GetVertices().Num(),
+                      combinedMeshSource->GetIndices().Num(), combinedMeshSource->GetSubmeshes().Num());
+
+        return combinedMeshSource;
     }
 } // namespace OloEngine

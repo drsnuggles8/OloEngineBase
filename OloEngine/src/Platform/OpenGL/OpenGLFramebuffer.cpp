@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
+#include <glm/gtc/type_ptr.hpp>
 #include <utility>
 
 namespace OloEngine
@@ -311,6 +312,39 @@ namespace OloEngine
 
         auto const& spec = m_ColorAttachmentSpecifications[attachmentIndex];
         glClearTexImage(m_ColorAttachments[attachmentIndex], 0, Utils::OloFBTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
+    }
+
+    void OpenGLFramebuffer::ClearAttachment(const u32 attachmentIndex, const glm::vec4& value)
+    {
+        OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
+
+        // Use glClearBufferfv to clear a specific color buffer
+        glClearBufferfv(GL_COLOR, static_cast<GLint>(attachmentIndex), glm::value_ptr(value));
+    }
+
+    void OpenGLFramebuffer::ClearAllAttachments(const glm::vec4& clearColor, int entityIdClear)
+    {
+        // Clear depth and stencil first (these work with regular glClear)
+        glClearDepth(1.0);
+        glClearStencil(0);
+        glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+        // Clear each color attachment based on its type
+        for (sizet i = 0; i < m_ColorAttachmentSpecifications.size(); ++i)
+        {
+            auto const& spec = m_ColorAttachmentSpecifications[i];
+            if (spec.TextureFormat == FramebufferTextureFormat::RED_INTEGER)
+            {
+                // Clear integer attachments with glClearBufferiv
+                GLint clearValue = entityIdClear;
+                glClearBufferiv(GL_COLOR, static_cast<GLint>(i), &clearValue);
+            }
+            else
+            {
+                // Clear float attachments with glClearBufferfv
+                glClearBufferfv(GL_COLOR, static_cast<GLint>(i), glm::value_ptr(clearColor));
+            }
+        }
     }
 
 } // namespace OloEngine

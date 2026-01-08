@@ -123,6 +123,39 @@ namespace OloEngine
         void OnPhysics3DStart();
         void OnPhysics3DStop();
 
+        // 3D rendering mode
+        void SetIs3DModeEnabled(bool enabled)
+        {
+            m_Is3DModeEnabled = enabled;
+        }
+        [[nodiscard("Store this!")]] bool IsIs3DModeEnabled() const
+        {
+            return m_Is3DModeEnabled;
+        }
+
+        // Skeleton visualization settings (editor only)
+        struct SkeletonVisualizationSettings
+        {
+            bool ShowSkeleton = false;
+            bool ShowBones = true;
+            bool ShowJoints = true;
+            f32 JointSize = 0.02f;
+            f32 BoneThickness = 2.0f;
+        };
+
+        void SetSkeletonVisualization(const SkeletonVisualizationSettings& settings)
+        {
+            m_SkeletonVisualization = settings;
+        }
+        [[nodiscard]] const SkeletonVisualizationSettings& GetSkeletonVisualization() const
+        {
+            return m_SkeletonVisualization;
+        }
+        [[nodiscard]] SkeletonVisualizationSettings& GetSkeletonVisualization()
+        {
+            return m_SkeletonVisualization;
+        }
+
         // Asset interface
         static AssetType GetStaticType()
         {
@@ -141,6 +174,8 @@ namespace OloEngine
         void OnPhysics2DStop();
 
         void RenderScene(EditorCamera const& camera);
+        void RenderScene3D(EditorCamera const& camera);
+        void RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform);
 
       private:
         entt::registry m_Registry;
@@ -149,6 +184,8 @@ namespace OloEngine
         bool m_IsRunning = false;
         bool m_IsPaused = false;
         int m_StepFrames = 0;
+        bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
+        SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;

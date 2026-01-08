@@ -3,6 +3,8 @@
 #include "Panels/AssetPackBuilderPanel.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Font.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -105,16 +107,27 @@ namespace OloEngine
             m_Framebuffer->Resize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
             m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
             m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
+
+            // Also resize Renderer3D's render graph for 3D mode
+            if (m_Is3DMode)
+            {
+                Renderer3D::OnWindowResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
+            }
         }
 
         // Render
         Renderer2D::ResetStats();
-        m_Framebuffer->Bind();
-        RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
-        RenderCommand::Clear();
 
-        // Clear our entity ID attachment to -1
-        m_Framebuffer->ClearAttachment(1, -1);
+        // In 3D mode, Renderer3D manages its own framebuffer via RenderGraph
+        // In 2D mode, we use the editor's framebuffer
+        if (!m_Is3DMode)
+        {
+            m_Framebuffer->Bind();
+            RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
+            RenderCommand::Clear();
+            // Clear our entity ID attachment to -1
+            m_Framebuffer->ClearAttachment(1, -1);
+        }
 
         switch (m_SceneState)
         {
@@ -127,6 +140,7 @@ namespace OloEngine
 
                 m_EditorCamera.OnUpdate(ts);
 
+                m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
                 m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
                 break;
             }
@@ -134,11 +148,13 @@ namespace OloEngine
             {
                 m_EditorCamera.OnUpdate(ts);
 
+                m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
                 m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
                 break;
             }
             case SceneState::Play:
             {
+                m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
                 m_ActiveScene->OnUpdateRuntime(ts);
                 break;
             }
@@ -153,13 +169,28 @@ namespace OloEngine
 
         if (const auto mouseY = static_cast<int>(my); (mouseX >= 0) && (mouseY >= 0) && (mouseX < static_cast<int>(viewportSize.x)) && (mouseY < static_cast<int>(viewportSize.y)))
         {
-            const int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
+            // Read entity ID from appropriate framebuffer based on mode
+            int pixelData = -1;
+            if (m_Is3DMode)
+            {
+                pixelData = Renderer3D::ReadEntityIDFromFramebuffer(mouseX, mouseY);
+            }
+            else
+            {
+                pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
+            }
             m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
         }
 
-        OnOverlayRender();
-
-        m_Framebuffer->Unbind();
+        if (m_Is3DMode)
+        {
+            OnOverlayRender3D();
+        }
+        else
+        {
+            OnOverlayRender();
+            m_Framebuffer->Unbind();
+        }
     }
 
     void EditorLayer::OnImGuiRender()
@@ -333,6 +364,14 @@ namespace OloEngine
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("Window"))
+        {
+            ImGui::MenuItem("Animation Panel", nullptr, &m_ShowAnimationPanel);
+            ImGui::MenuItem("Environment Settings", nullptr, &m_ShowEnvironmentSettings);
+
+            ImGui::EndMenu();
+        }
+
         ImGui::EndMainMenuBar();
     }
 
@@ -353,7 +392,23 @@ namespace OloEngine
         ImVec2 const viewportPanelSize = ImGui::GetContentRegionAvail();
         m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
-        u64 const textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
+        // Display appropriate framebuffer based on mode
+        u64 textureID = 0;
+        if (m_Is3DMode)
+        {
+            // Get Renderer3D's scene pass output (the FinalPass renders to screen, not a target)
+            if (auto scenePass = Renderer3D::GetScenePass(); scenePass)
+            {
+                if (auto target = scenePass->GetTarget(); target)
+                {
+                    textureID = target->GetColorAttachmentRendererID(0);
+                }
+            }
+        }
+        else
+        {
+            textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
+        }
         ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 
         if (ImGui::BeginDragDropTarget())
@@ -391,7 +446,13 @@ namespace OloEngine
 
     void EditorLayer::UI_Gizmos() const
     {
-        if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); selectedEntity && (m_GizmoType != -1) && (!Input::IsKeyPressed(Key::LeftAlt)))
+        Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+        if (!selectedEntity || !selectedEntity.HasComponent<TransformComponent>())
+        {
+            return;
+        }
+
+        if ((m_GizmoType != -1) && (!Input::IsKeyPressed(Key::LeftAlt)))
         {
             ImGuizmo::SetOrthographic(false);
             ImGuizmo::SetDrawlist();
@@ -546,12 +607,44 @@ namespace OloEngine
         {
             m_AssetPackBuilderPanel->OnImGuiRender(m_ShowAssetPackBuilder);
         }
+
+        // Animation Panel
+        if (m_ShowAnimationPanel)
+        {
+            m_AnimationPanel.SetSelectedEntity(m_SceneHierarchyPanel.GetSelectedEntity());
+            m_AnimationPanel.OnImGuiRender();
+        }
+
+        // Environment Settings Panel
+        if (m_ShowEnvironmentSettings)
+        {
+            m_EnvironmentSettingsPanel.SetContext(m_ActiveScene);
+            m_EnvironmentSettingsPanel.OnImGuiRender();
+        }
     }
 
     void EditorLayer::UI_Settings()
     {
         ImGui::Begin("Settings");
         ImGui::Checkbox("Show physics colliders", &m_ShowPhysicsColliders);
+
+        // 3D Mode toggle with lazy initialization
+        bool was3DMode = m_Is3DMode;
+        ImGui::Checkbox("3D Mode", &m_Is3DMode);
+        if (m_Is3DMode && !was3DMode)
+        {
+            // Lazily initialize Renderer3D when 3D mode is first enabled
+            if (!Renderer3D::IsInitialized())
+            {
+                OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
+                Renderer3D::Init();
+                // Resize to current viewport size
+                if (m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
+                {
+                    Renderer3D::OnWindowResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
+                }
+            }
+        }
 
         ImGui::Separator();
 
@@ -578,7 +671,8 @@ namespace OloEngine
     {
         ImGui::Begin("Stats");
         std::string name = "None";
-        if (m_HoveredEntity)
+        // Validate entity belongs to current active scene before accessing components
+        if (m_HoveredEntity && m_HoveredEntity.GetScene() == m_ActiveScene.get() && m_HoveredEntity.HasComponent<TagComponent>())
         {
             name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
         }
@@ -842,6 +936,20 @@ namespace OloEngine
         Renderer2D::EndScene();
     }
 
+    void EditorLayer::OnOverlayRender3D() const
+    {
+        // In 3D mode, overlays (grid, light gizmos) are rendered as part of Scene::RenderScene3D
+        // to avoid calling BeginScene/EndScene multiple times which would reset the frame.
+        //
+        // This function is kept for any future 3D overlay rendering that needs to happen
+        // AFTER the scene has been rendered (e.g., UI overlays, debug info).
+        //
+        // Currently, all 3D overlays are integrated into RenderScene3D in Scene.cpp.
+
+        // Note: Selection highlight could be done here if needed, but currently
+        // we're keeping it simple by integrating everything into the scene render.
+    }
+
     void EditorLayer::NewProject()
     {
         Project::New();
@@ -971,6 +1079,7 @@ namespace OloEngine
         m_ActiveScene->OnRuntimeStart();
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneSimulate()
@@ -986,6 +1095,7 @@ namespace OloEngine
         m_ActiveScene->OnSimulationStart();
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneStop()
@@ -1004,17 +1114,25 @@ namespace OloEngine
 
         m_SceneState = Edit;
 
+        // Reset hovered entity before changing scenes to prevent accessing stale registry
+        m_HoveredEntity = Entity();
+
         m_ActiveScene = m_EditorScene;
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
     {
         OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
 
+        // Reset hovered entity before changing scenes to prevent accessing stale registry
+        m_HoveredEntity = Entity();
+
         m_EditorScene = scene;
         m_SceneHierarchyPanel.SetContext(m_EditorScene);
+        m_AnimationPanel.SetContext(m_EditorScene);
 
         m_ActiveScene = m_EditorScene;
 

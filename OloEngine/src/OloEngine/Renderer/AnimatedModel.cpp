@@ -597,8 +597,8 @@ namespace OloEngine
             animClip->Name = anim->mName.data;
             animClip->Duration = static_cast<f32>(anim->mDuration / anim->mTicksPerSecond);
 
-            OLO_CORE_INFO("AnimatedModel::ProcessAnimations: Processing animation '{}' - Duration: {:.2f}s, Channels: {}",
-                          animClip->Name, animClip->Duration, anim->mNumChannels);
+            OLO_CORE_INFO("AnimatedModel::ProcessAnimations: Processing animation [{}] '{}' - Duration: {:.2f}s, Channels: {}",
+                          i, animClip->Name.empty() ? "(unnamed)" : animClip->Name, animClip->Duration, anim->mNumChannels);
 
             // Process animation channels (bone animations)
             for (u32 j = 0; j < anim->mNumChannels; ++j)

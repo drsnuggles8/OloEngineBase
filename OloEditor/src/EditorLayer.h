@@ -3,6 +3,8 @@
 #include "OloEngine.h"
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
+#include "Panels/AnimationPanel.h"
+#include "Panels/EnvironmentSettingsPanel.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
@@ -35,6 +37,7 @@ namespace OloEngine
         bool OnAssetReloaded(AssetReloadedEvent const& e);
 
         void OnOverlayRender() const;
+        void OnOverlayRender3D() const;
 
         void NewProject();
         bool OpenProject();
@@ -118,8 +121,9 @@ namespace OloEngine
 
         glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 
-        int m_GizmoType = -1;
+        int m_GizmoType = 0; // Default to Translate (ImGuizmo::TRANSLATE) for immediate usability
         bool m_ShowPhysicsColliders = false;
+        bool m_Is3DMode = false; // Toggle for 2D/3D rendering
 
         // Debug windows
         bool m_ShowShaderDebugger = false;
@@ -144,6 +148,10 @@ namespace OloEngine
         SceneHierarchyPanel m_SceneHierarchyPanel;
         Scope<ContentBrowserPanel> m_ContentBrowserPanel;
         Scope<AssetPackBuilderPanel> m_AssetPackBuilderPanel;
+        AnimationPanel m_AnimationPanel;
+        EnvironmentSettingsPanel m_EnvironmentSettingsPanel;
+        bool m_ShowAnimationPanel = true;
+        bool m_ShowEnvironmentSettings = false;
 
         // Editor resources
         Ref<Texture2D> m_IconPlay;

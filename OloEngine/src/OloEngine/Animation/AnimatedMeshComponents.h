@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Assert.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/Model.h"
 
 #include <glm/glm.hpp>
 #include "SkeletonData.h"
@@ -65,6 +66,49 @@ namespace OloEngine
     };
 
     /**
+     * @brief Component for entities with a fully loaded 3D model
+     *
+     * This component stores a complete Model with all its meshes, materials,
+     * and textures loaded from a file. Use this for importing external 3D
+     * model files (OBJ, FBX, GLTF, etc.) with their materials intact.
+     *
+     * Unlike MeshComponent which only stores raw mesh data, ModelComponent
+     * provides full material and texture support from the source file.
+     */
+    struct ModelComponent
+    {
+        Ref<Model> m_Model;
+        std::string m_FilePath; // Original file path for serialization/reload
+        bool m_Visible = true;
+
+        ModelComponent() = default;
+        explicit ModelComponent(const std::string& filePath)
+            : m_FilePath(filePath)
+        {
+            if (!filePath.empty())
+            {
+                m_Model = Ref<Model>::Create(filePath);
+            }
+        }
+        explicit ModelComponent(const Ref<Model>& model, const std::string& filePath = "")
+            : m_Model(model), m_FilePath(filePath) {}
+
+        // Reload the model from the stored file path
+        void Reload()
+        {
+            if (!m_FilePath.empty())
+            {
+                m_Model = Ref<Model>::Create(m_FilePath);
+            }
+        }
+
+        [[nodiscard]] bool IsLoaded() const
+        {
+            return m_Model != nullptr && m_Model->GetMeshCount() > 0;
+        }
+    };
+
+    /**
      * @brief Animation state component for managing animation playback
      *
      * This component manages the current animation state, including blending
@@ -82,13 +126,17 @@ namespace OloEngine
 
         State m_State = State::Idle;
         Ref<AnimationClip> m_CurrentClip;
-        Ref<AnimationClip> m_NextClip; // For blending
+        Ref<AnimationClip> m_NextClip;                    // For blending
+        std::vector<Ref<AnimationClip>> m_AvailableClips; // All available animation clips from the model
+        int m_CurrentClipIndex = 0;                       // Index into m_AvailableClips
         float m_CurrentTime = 0.0f;
         float m_NextTime = 0.0f;
         float m_BlendFactor = 0.0f; // 0 = current, 1 = next
         bool m_Blending = false;
         float m_BlendDuration = 0.3f; // seconds
         float m_BlendTime = 0.0f;
+        bool m_IsPlaying = false;     // Whether animation is currently playing
+        std::string m_SourceFilePath; // Path to the animated model file for serialization/reload
 
         // Bone entity management
         /**

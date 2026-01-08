@@ -167,6 +167,7 @@ namespace OloEngine
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawSkybox)] = CommandDispatch::DrawSkybox;
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawInfiniteGrid)] = CommandDispatch::DrawInfiniteGrid;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
 
         s_Data.CurrentBoundShaderID = 0;
@@ -561,6 +562,10 @@ namespace OloEngine
             ShaderBindingLayout::ModelUBO modelData;
             modelData.Model = cmd->transform;
             modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
+            modelData.EntityID = cmd->entityID;
+            modelData._paddingEntity[0] = 0;
+            modelData._paddingEntity[1] = 0;
+            modelData._paddingEntity[2] = 0;
 
             constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
@@ -990,6 +995,10 @@ namespace OloEngine
             ShaderBindingLayout::ModelUBO modelData;
             modelData.Model = cmd->transform;
             modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
+            modelData.EntityID = -1;
+            modelData._paddingEntity[0] = 0;
+            modelData._paddingEntity[1] = 0;
+            modelData._paddingEntity[2] = 0;
 
             constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
@@ -1011,5 +1020,46 @@ namespace OloEngine
         glBindVertexArray(cmd->quadVAID);
         s_Data.Stats.DrawCalls++;
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
+    }
+
+    void CommandDispatch::DrawInfiniteGrid(const void* data, RendererAPI& api)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto const* cmd = static_cast<const DrawInfiniteGridCommand*>(data);
+
+        // Validate POD renderer IDs
+        if (cmd->quadVAOID == 0 || cmd->shaderRendererID == 0)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawInfiniteGrid: Invalid VAO ID or shader ID");
+            return;
+        }
+
+        // Apply POD render state (grid-specific: blending enabled, depth test enabled)
+        ApplyPODRenderState(cmd->renderState, api);
+
+        // Bind grid shader using renderer ID directly
+        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        {
+            glUseProgram(cmd->shaderRendererID);
+            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            s_Data.Stats.ShaderBinds++;
+        }
+
+        // Note: Grid shader typically reads view/projection from Camera UBO
+        // and calculates grid lines in fragment shader using world position
+
+        // Set grid scale uniform if the shader supports it
+        GLint gridScaleLoc = glGetUniformLocation(cmd->shaderRendererID, "u_GridScale");
+        if (gridScaleLoc != -1)
+        {
+            glUniform1f(gridScaleLoc, cmd->gridScale);
+        }
+
+        // Bind fullscreen quad VAO and draw
+        glBindVertexArray(cmd->quadVAOID);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        s_Data.Stats.DrawCalls++;
     }
 } // namespace OloEngine

@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 
+#include <glm/glm.hpp>
+
 namespace OloEngine
 {
     // TODO(olbu): Add more formats here and to the OpenFLFramebuffer functions
@@ -74,8 +76,12 @@ namespace OloEngine
         virtual void Resize(u32 width, u32 height) = 0;
         virtual int ReadPixel(u32 attachmentIndex, int x, int y) = 0;
 
-        // TODO(olbu): template this for different value types (int/float etc.)
+        // Clear integer attachment (e.g., entity ID)
         virtual void ClearAttachment(u32 attachmentIndex, int value) = 0;
+        // Clear float/color attachment with RGBA color
+        virtual void ClearAttachment(u32 attachmentIndex, const glm::vec4& value) = 0;
+        // Clear all attachments with appropriate types (float for color, int for integer, depth/stencil)
+        virtual void ClearAllAttachments(const glm::vec4& clearColor = glm::vec4(0.0f), int entityIdClear = -1) = 0;
 
         [[nodiscard("Store this!")]] virtual u32 GetColorAttachmentRendererID(u32 index) const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetDepthAttachmentRendererID() const = 0;

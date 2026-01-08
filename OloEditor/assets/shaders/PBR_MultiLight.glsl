@@ -24,6 +24,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
 layout(std140, binding = 3) uniform ModelMatrices {
     mat4 u_Model;
     mat4 u_Normal;
+    int u_EntityID;
+    int _paddingEntity0;
+    int _paddingEntity1;
+    int _paddingEntity2;
 };
 
 // Output to fragment shader
@@ -113,6 +117,17 @@ layout(location = 2) in vec2 v_TexCoord;
 
 // Output
 layout(location = 0) out vec4 o_Color;
+layout(location = 1) out int o_EntityID;
+
+// Model UBO (binding 3) for entity ID access
+layout(std140, binding = 3) uniform ModelMatrices {
+    mat4 u_Model;
+    mat4 u_Normal;
+    int u_EntityID;
+    int _paddingEntity0;
+    int _paddingEntity1;
+    int _paddingEntity2;
+};
 
 // =============================================================================
 // MAIN FRAGMENT SHADER
@@ -166,4 +181,5 @@ void main()
     color = postProcessColor(color, TONEMAP_REINHARD, u_ApplyGammaCorrection == 1);
 
     o_Color = vec4(color, u_BaseColorFactor.a);
+    o_EntityID = u_EntityID;
 }

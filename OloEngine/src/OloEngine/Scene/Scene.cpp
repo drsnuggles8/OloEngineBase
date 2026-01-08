@@ -6,8 +6,13 @@
 #include "Prefab.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Light.h"
+#include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
+#include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 
@@ -254,6 +259,20 @@ namespace OloEngine
                 ScriptEngine::OnCreateEntity(entity);
             }
         }
+
+        // Start animations
+        {
+            auto animView = m_Registry.view<AnimationStateComponent>();
+            for (auto e : animView)
+            {
+                auto& animState = animView.get<AnimationStateComponent>(e);
+                if (animState.m_CurrentClip)
+                {
+                    animState.m_IsPlaying = true;
+                    animState.m_CurrentTime = 0.0f;
+                }
+            }
+        }
     }
 
     void Scene::OnRuntimeStop()
@@ -295,6 +314,21 @@ namespace OloEngine
                 {
                     Entity entity = { e, this };
                     ScriptEngine::OnUpdateEntity(entity, ts);
+                }
+            }
+
+            // Update animations
+            {
+                auto animView = m_Registry.view<AnimationStateComponent, SkeletonComponent>();
+                for (auto e : animView)
+                {
+                    auto& animState = animView.get<AnimationStateComponent>(e);
+                    auto& skelComp = animView.get<SkeletonComponent>(e);
+
+                    if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
+                    {
+                        Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds());
+                    }
                 }
             }
 
@@ -375,7 +409,7 @@ namespace OloEngine
             }
         }
 
-        // Render 2D
+        // Find the primary camera
         Camera const* mainCamera = nullptr;
         glm::mat4 cameraTransform;
         {
@@ -394,6 +428,13 @@ namespace OloEngine
 
         if (mainCamera)
         {
+            // Render 3D if 3D mode is enabled
+            if (m_Is3DModeEnabled)
+            {
+                RenderScene3D(*mainCamera, cameraTransform);
+            }
+
+            // Always render 2D (sprites, circles, text overlay on top of 3D)
             Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
             // Draw sprites
@@ -491,8 +532,15 @@ namespace OloEngine
 
     void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
     {
-        // Render
-        RenderScene(camera);
+        // Render based on mode
+        if (m_Is3DModeEnabled)
+        {
+            RenderScene3D(camera);
+        }
+        else
+        {
+            RenderScene(camera);
+        }
     }
 
     void Scene::OnViewportResize(const u32 width, const u32 height)
@@ -549,6 +597,8 @@ namespace OloEngine
     template<>
     void Scene::OnComponentAdded<MeshComponent>(Entity, MeshComponent&) {}
     template<>
+    void Scene::OnComponentAdded<ModelComponent>(Entity, ModelComponent&) {}
+    template<>
     void Scene::OnComponentAdded<SubmeshComponent>(Entity, SubmeshComponent&) {}
     template<>
     void Scene::OnComponentAdded<AnimationStateComponent>(Entity, AnimationStateComponent&) {}
@@ -559,6 +609,14 @@ namespace OloEngine
     void Scene::OnComponentAdded<SkeletonComponent>(Entity, SkeletonComponent&) {}
     template<>
     void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<DirectionalLightComponent>(Entity, DirectionalLightComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<PointLightComponent>(Entity, PointLightComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<SpotLightComponent>(Entity, SpotLightComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<EnvironmentMapComponent>(Entity, EnvironmentMapComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
@@ -809,6 +867,585 @@ namespace OloEngine
         }
 
         Renderer2D::EndScene();
+    }
+
+    // Static cached default material for 3D rendering
+    static Ref<Material> s_DefaultMaterial = nullptr;
+
+    static Material& GetDefaultMaterial()
+    {
+        if (!s_DefaultMaterial)
+        {
+            s_DefaultMaterial = Material::CreatePBR("Default", glm::vec3(0.8f, 0.8f, 0.8f), 0.0f, 0.5f);
+        }
+        return *s_DefaultMaterial;
+    }
+
+    void Scene::RenderScene3D(EditorCamera const& camera)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        Renderer3D::BeginScene(camera);
+
+        // Render skybox from EnvironmentMapComponent (first one found)
+        {
+            auto view = m_Registry.view<EnvironmentMapComponent>();
+            for (auto entity : view)
+            {
+                auto& envMapComp = view.get<EnvironmentMapComponent>(entity);
+                if (!envMapComp.m_EnableSkybox)
+                    continue;
+
+                // Lazy load environment map from file path if not already loaded
+                if (!envMapComp.m_EnvironmentMap && !envMapComp.m_FilePath.empty())
+                {
+                    if (envMapComp.m_IsCubemapFolder)
+                    {
+                        // Load 6 cubemap face textures from folder
+                        std::string basePath = envMapComp.m_FilePath;
+                        // Ensure path ends with separator
+                        if (!basePath.empty() && basePath.back() != '/' && basePath.back() != '\\')
+                            basePath += '/';
+
+                        std::vector<std::string> skyboxFaces = {
+                            basePath + "right.jpg",
+                            basePath + "left.jpg",
+                            basePath + "top.jpg",
+                            basePath + "bottom.jpg",
+                            basePath + "front.jpg",
+                            basePath + "back.jpg"
+                        };
+
+                        auto skyboxCubemap = TextureCubemap::Create(skyboxFaces);
+                        if (skyboxCubemap)
+                        {
+                            envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromCubemap(skyboxCubemap);
+                        }
+                    }
+                    else
+                    {
+                        // Load as HDR/EXR equirectangular environment map
+                        envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromEquirectangular(envMapComp.m_FilePath);
+                    }
+                }
+
+                if (envMapComp.m_EnvironmentMap && envMapComp.m_EnvironmentMap->GetEnvironmentMap())
+                {
+                    auto* skyboxPacket = Renderer3D::DrawSkybox(envMapComp.m_EnvironmentMap->GetEnvironmentMap());
+                    if (skyboxPacket)
+                    {
+                        Renderer3D::SubmitPacket(skyboxPacket);
+                    }
+                }
+                break; // Only use first environment map
+            }
+        }
+
+        // Collect and set scene lights from light components
+        // Note: We need to pass a Ref<Scene>, so we use a workaround since Scene doesn't inherit from enable_shared_from_this
+        // For now, we'll collect lights manually here
+        {
+            // Set first directional light as the main scene light
+            auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
+            for (auto entity : dirLightView)
+            {
+                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
+                Light light;
+                light.Type = LightType::Directional;
+                light.Direction = dirLight.m_Direction;
+                light.Ambient = dirLight.m_Color * 0.1f;
+                light.Diffuse = dirLight.m_Color * dirLight.m_Intensity;
+                light.Specular = dirLight.m_Color * dirLight.m_Intensity;
+                Renderer3D::SetLight(light);
+                Renderer3D::SetViewPosition(camera.GetPosition());
+                break; // Only use first directional light for now
+            }
+        }
+
+        // Draw mesh entities (skip animated entities - they're rendered separately)
+        {
+            auto view = m_Registry.view<TransformComponent, MeshComponent>();
+            for (auto entity : view)
+            {
+                // Skip entities with SkeletonComponent - they're rendered by the animated mesh path
+                if (m_Registry.all_of<SkeletonComponent>(entity))
+                {
+                    continue;
+                }
+
+                const auto [transform, mesh] = view.get<TransformComponent, MeshComponent>(entity);
+
+                if (!mesh.m_MeshSource)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                // Draw each submesh with entity ID
+                if (mesh.m_MeshSource && !mesh.m_MeshSource->GetSubmeshes().IsEmpty())
+                {
+                    for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
+                    {
+                        auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                        auto* packet = Renderer3D::DrawMesh(submesh, transform.GetTransform(), material, true, entityID);
+                        if (packet)
+                            Renderer3D::SubmitPacket(packet);
+                    }
+                }
+            }
+        }
+
+        // Draw submesh entities (if they have their own transforms)
+        {
+            auto view = m_Registry.view<TransformComponent, SubmeshComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, submesh] = view.get<TransformComponent, SubmeshComponent>(entity);
+
+                if (!submesh.m_Mesh || !submesh.m_Visible)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, transform.GetTransform(), material, true, entityID);
+                if (packet)
+                    Renderer3D::SubmitPacket(packet);
+            }
+        }
+
+        // Draw model entities (full models with materials from file)
+        {
+            auto view = m_Registry.view<TransformComponent, ModelComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, model] = view.get<TransformComponent, ModelComponent>(entity);
+
+                if (!model.m_Model || !model.m_Visible)
+                {
+                    continue;
+                }
+
+                // Model::DrawParallel uses the model's own materials loaded from file
+                // Pass entity ID for mouse picking support
+                model.m_Model->DrawParallel(transform.GetTransform(), static_cast<int>(entity));
+            }
+        }
+
+        // Draw animated mesh entities (entities with MeshComponent + SkeletonComponent)
+        {
+            auto view = m_Registry.view<TransformComponent, MeshComponent, SkeletonComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, mesh, skeleton] = view.get<TransformComponent, MeshComponent, SkeletonComponent>(entity);
+
+                if (!mesh.m_MeshSource || !skeleton.m_Skeleton)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
+
+                // Get bone matrices from skeleton
+                const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                // Draw each submesh as an animated mesh
+                if (!mesh.m_MeshSource->GetSubmeshes().IsEmpty())
+                {
+                    for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
+                    {
+                        auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false, entityID);
+                        if (packet)
+                            Renderer3D::SubmitPacket(packet);
+                    }
+                }
+
+                // Draw skeleton visualization if enabled
+                if (m_SkeletonVisualization.ShowSkeleton && skeleton.m_Skeleton)
+                {
+                    Renderer3D::DrawSkeleton(
+                        *skeleton.m_Skeleton,
+                        transform.GetTransform(),
+                        m_SkeletonVisualization.ShowBones,
+                        m_SkeletonVisualization.ShowJoints,
+                        m_SkeletonVisualization.JointSize,
+                        m_SkeletonVisualization.BoneThickness);
+                }
+            }
+        }
+
+        // TODO: Implement infinite grid as a proper command packet
+        // The grid currently uses immediate-mode OpenGL (glDrawArrays) which conflicts
+        // with the deferred command buffer system. Grid rendering has been disabled
+        // until it can be properly integrated.
+        Renderer3D::DrawInfiniteGrid(1.0f);
+
+        // Draw world axis helper at origin
+        Renderer3D::DrawWorldAxisHelper(3.0f);
+
+        // Draw light visualization gizmos
+        {
+            auto view = m_Registry.view<TransformComponent, DirectionalLightComponent>();
+            for (auto entity : view)
+            {
+                const auto& [tc, dirLight] = view.get<TransformComponent, DirectionalLightComponent>(entity);
+
+                // Draw the directional light gizmo with arrow and sun icon
+                Renderer3D::DrawDirectionalLightGizmo(
+                    tc.Translation,
+                    dirLight.m_Direction,
+                    dirLight.m_Color,
+                    dirLight.m_Intensity);
+            }
+        }
+        {
+            auto view = m_Registry.view<TransformComponent, PointLightComponent>();
+            for (auto entity : view)
+            {
+                const auto& [tc, pointLight] = view.get<TransformComponent, PointLightComponent>(entity);
+
+                // Draw the point light gizmo with range sphere
+                Renderer3D::DrawPointLightGizmo(
+                    tc.Translation,
+                    pointLight.m_Range,
+                    pointLight.m_Color,
+                    true // Show range sphere
+                );
+            }
+        }
+        {
+            auto view = m_Registry.view<TransformComponent, SpotLightComponent>();
+            for (auto entity : view)
+            {
+                const auto& [tc, spotLight] = view.get<TransformComponent, SpotLightComponent>(entity);
+
+                // Draw the spot light gizmo with cone visualization
+                Renderer3D::DrawSpotLightGizmo(
+                    tc.Translation,
+                    spotLight.m_Direction,
+                    spotLight.m_Range,
+                    spotLight.m_InnerCutoff,
+                    spotLight.m_OuterCutoff,
+                    spotLight.m_Color);
+            }
+        }
+
+        // Draw audio source gizmos
+        {
+            auto view = m_Registry.view<TransformComponent, AudioSourceComponent>();
+            for (auto entity : view)
+            {
+                const auto& [tc, audioSource] = view.get<TransformComponent, AudioSourceComponent>(entity);
+
+                // Only draw gizmo if spatialization is enabled
+                if (audioSource.Config.Spatialization)
+                {
+                    Renderer3D::DrawAudioSourceGizmo(
+                        tc.Translation,
+                        audioSource.Config.MinDistance,
+                        audioSource.Config.MaxDistance,
+                        glm::vec3(0.2f, 0.6f, 1.0f) // Blue color for audio
+                    );
+                }
+            }
+        }
+
+        // Draw camera frustum gizmos for scene cameras (only in editor mode)
+        {
+            auto view = m_Registry.view<TransformComponent, CameraComponent>();
+            for (auto entity : view)
+            {
+                const auto& [transform, cameraComp] = view.get<TransformComponent, CameraComponent>(entity);
+                const SceneCamera& sceneCamera = cameraComp.Camera;
+
+                // Calculate aspect ratio (use current viewport aspect if not fixed)
+                f32 aspectRatio = (m_ViewportHeight > 0) ? static_cast<f32>(m_ViewportWidth) / static_cast<f32>(m_ViewportHeight) : 1.778f;
+
+                if (sceneCamera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
+                {
+                    Renderer3D::DrawCameraFrustum(
+                        transform.GetTransform(),
+                        sceneCamera.GetPerspectiveVerticalFOV(),
+                        aspectRatio,
+                        sceneCamera.GetPerspectiveNearClip(),
+                        sceneCamera.GetPerspectiveFarClip(),
+                        glm::vec3(0.9f, 0.9f, 0.3f), // Yellow-ish color for frustum
+                        true,                        // isPerspective
+                        0.0f                         // orthoSize (not used for perspective)
+                    );
+                }
+                else
+                {
+                    // Orthographic camera
+                    Renderer3D::DrawCameraFrustum(
+                        transform.GetTransform(),
+                        0.0f, // fov (not used for ortho)
+                        aspectRatio,
+                        sceneCamera.GetOrthographicNearClip(),
+                        sceneCamera.GetOrthographicFarClip(),
+                        glm::vec3(0.3f, 0.9f, 0.9f), // Cyan color for ortho frustum
+                        false,                       // isPerspective
+                        sceneCamera.GetOrthographicSize());
+                }
+            }
+        }
+
+        // Draw 3D collider gizmos (green wireframes)
+        {
+            // Box colliders
+            auto boxView = m_Registry.view<TransformComponent, BoxCollider3DComponent>();
+            for (auto entity : boxView)
+            {
+                const auto& [tc, boxCollider] = boxView.get<TransformComponent, BoxCollider3DComponent>(entity);
+                glm::vec3 position = tc.Translation + boxCollider.m_Offset;
+                glm::quat rotation = glm::quat(tc.Rotation);
+                Renderer3D::DrawBoxColliderGizmo(position, boxCollider.m_HalfExtents, rotation);
+            }
+
+            // Sphere colliders
+            auto sphereView = m_Registry.view<TransformComponent, SphereCollider3DComponent>();
+            for (auto entity : sphereView)
+            {
+                const auto& [tc, sphereCollider] = sphereView.get<TransformComponent, SphereCollider3DComponent>(entity);
+                glm::vec3 position = tc.Translation + sphereCollider.m_Offset;
+                Renderer3D::DrawSphereColliderGizmo(position, sphereCollider.m_Radius);
+            }
+
+            // Capsule colliders
+            auto capsuleView = m_Registry.view<TransformComponent, CapsuleCollider3DComponent>();
+            for (auto entity : capsuleView)
+            {
+                const auto& [tc, capsuleCollider] = capsuleView.get<TransformComponent, CapsuleCollider3DComponent>(entity);
+                glm::vec3 position = tc.Translation + capsuleCollider.m_Offset;
+                glm::quat rotation = glm::quat(tc.Rotation);
+                Renderer3D::DrawCapsuleColliderGizmo(position, capsuleCollider.m_Radius, capsuleCollider.m_HalfHeight, rotation);
+            }
+        }
+
+        Renderer3D::EndScene();
+    }
+
+    void Scene::RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        Renderer3D::BeginScene(camera, cameraTransform);
+
+        // Render skybox from EnvironmentMapComponent (first one found)
+        {
+            auto view = m_Registry.view<EnvironmentMapComponent>();
+            for (auto entity : view)
+            {
+                auto& envMapComp = view.get<EnvironmentMapComponent>(entity);
+                if (!envMapComp.m_EnableSkybox)
+                    continue;
+
+                // Lazy load environment map from file path if not already loaded
+                if (!envMapComp.m_EnvironmentMap && !envMapComp.m_FilePath.empty())
+                {
+                    if (envMapComp.m_IsCubemapFolder)
+                    {
+                        // Load 6 cubemap face textures from folder
+                        std::string basePath = envMapComp.m_FilePath;
+                        if (!basePath.empty() && basePath.back() != '/' && basePath.back() != '\\')
+                            basePath += '/';
+
+                        std::vector<std::string> skyboxFaces = {
+                            basePath + "right.jpg",
+                            basePath + "left.jpg",
+                            basePath + "top.jpg",
+                            basePath + "bottom.jpg",
+                            basePath + "front.jpg",
+                            basePath + "back.jpg"
+                        };
+
+                        auto skyboxCubemap = TextureCubemap::Create(skyboxFaces);
+                        if (skyboxCubemap)
+                        {
+                            envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromCubemap(skyboxCubemap);
+                        }
+                    }
+                    else
+                    {
+                        envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromEquirectangular(envMapComp.m_FilePath);
+                    }
+                }
+
+                if (envMapComp.m_EnvironmentMap && envMapComp.m_EnvironmentMap->GetEnvironmentMap())
+                {
+                    auto* skyboxPacket = Renderer3D::DrawSkybox(envMapComp.m_EnvironmentMap->GetEnvironmentMap());
+                    if (skyboxPacket)
+                    {
+                        Renderer3D::SubmitPacket(skyboxPacket);
+                    }
+                }
+                break; // Only use first environment map
+            }
+        }
+
+        // Collect and set scene lights from light components
+        {
+            // Set first directional light as the main scene light
+            auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
+            for (auto entity : dirLightView)
+            {
+                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
+                Light light;
+                light.Type = LightType::Directional;
+                light.Direction = dirLight.m_Direction;
+                light.Ambient = dirLight.m_Color * 0.1f;
+                light.Diffuse = dirLight.m_Color * dirLight.m_Intensity;
+                light.Specular = dirLight.m_Color * dirLight.m_Intensity;
+                Renderer3D::SetLight(light);
+                // Extract camera position from transform
+                Renderer3D::SetViewPosition(glm::vec3(cameraTransform[3]));
+                break; // Only use first directional light for now
+            }
+        }
+
+        // Draw mesh entities (skip animated entities - they're rendered separately)
+        {
+            auto view = m_Registry.view<TransformComponent, MeshComponent>();
+            for (auto entity : view)
+            {
+                // Skip entities with SkeletonComponent - they're rendered by the animated mesh path
+                if (m_Registry.all_of<SkeletonComponent>(entity))
+                {
+                    continue;
+                }
+
+                const auto [transform, mesh] = view.get<TransformComponent, MeshComponent>(entity);
+
+                if (!mesh.m_MeshSource)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                // Draw each submesh with entity ID
+                if (mesh.m_MeshSource && !mesh.m_MeshSource->GetSubmeshes().IsEmpty())
+                {
+                    for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
+                    {
+                        auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                        auto* packet = Renderer3D::DrawMesh(submesh, transform.GetTransform(), material, true, entityID);
+                        if (packet)
+                            Renderer3D::SubmitPacket(packet);
+                    }
+                }
+            }
+        }
+
+        // Draw submesh entities (if they have their own transforms)
+        {
+            auto view = m_Registry.view<TransformComponent, SubmeshComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, submesh] = view.get<TransformComponent, SubmeshComponent>(entity);
+
+                if (!submesh.m_Mesh || !submesh.m_Visible)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, transform.GetTransform(), material, true, entityID);
+                if (packet)
+                    Renderer3D::SubmitPacket(packet);
+            }
+        }
+
+        // Draw model entities (full models with materials from file)
+        {
+            auto view = m_Registry.view<TransformComponent, ModelComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, model] = view.get<TransformComponent, ModelComponent>(entity);
+
+                if (!model.m_Model || !model.m_Visible)
+                {
+                    continue;
+                }
+
+                // Model::DrawParallel uses the model's own materials loaded from file
+                // Pass entity ID for mouse picking support
+                model.m_Model->DrawParallel(transform.GetTransform(), static_cast<int>(entity));
+            }
+        }
+
+        // Draw animated mesh entities (entities with MeshComponent + SkeletonComponent)
+        {
+            auto view = m_Registry.view<TransformComponent, MeshComponent, SkeletonComponent>();
+            for (auto entity : view)
+            {
+                const auto [transform, mesh, skeleton] = view.get<TransformComponent, MeshComponent, SkeletonComponent>(entity);
+
+                if (!mesh.m_MeshSource || !skeleton.m_Skeleton)
+                {
+                    continue;
+                }
+
+                // Get material or use cached default
+                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
+
+                // Get bone matrices from skeleton
+                const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
+
+                // Convert entt entity to int for entity ID picking
+                i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+
+                // Draw each submesh as an animated mesh
+                if (!mesh.m_MeshSource->GetSubmeshes().IsEmpty())
+                {
+                    for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
+                    {
+                        auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false, entityID);
+                        if (packet)
+                            Renderer3D::SubmitPacket(packet);
+                    }
+                }
+            }
+        }
+
+        Renderer3D::EndScene();
     }
 
 } // namespace OloEngine

@@ -3,10 +3,14 @@
 		"EditorLayer.h"
 		"OloEditorApp.cpp"
 		
+		"Panels/AnimationPanel.cpp"
+		"Panels/AnimationPanel.h"
 		"Panels/AssetPackBuilderPanel.cpp"
 		"Panels/AssetPackBuilderPanel.h"
 		"Panels/ContentBrowserPanel.cpp"
 		"Panels/ContentBrowserPanel.h"
+		"Panels/EnvironmentSettingsPanel.cpp"
+		"Panels/EnvironmentSettingsPanel.h"
 		"Panels/SceneHierarchyPanel.cpp"
 		"Panels/SceneHierarchyPanel.h"
 )
