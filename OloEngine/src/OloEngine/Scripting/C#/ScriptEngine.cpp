@@ -153,10 +153,10 @@ namespace OloEngine
         {
             s_Data->AssemblyReloadPending = true;
 
-            OloEngine::Tasks::EnqueueGameThreadTask([]() {
+            OloEngine::Tasks::EnqueueGameThreadTask([]()
+                                                    {
                 s_Data->AppAssemblyFileWatcher.reset();
-                ScriptEngine::ReloadAssembly();
-            }, "ScriptAssemblyReload");
+                ScriptEngine::ReloadAssembly(); }, "ScriptAssemblyReload");
         }
     }
 

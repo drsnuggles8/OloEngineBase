@@ -32,18 +32,17 @@ namespace OloEngine
         if (result == MA_SUCCESS)
         {
             OLO_CORE_TRACE("[AudioEngine] Initialized successfully with sample rate {}", ma_engine_get_sample_rate(s_Engine));
-            
+
             // Start dedicated audio thread with TimeCritical priority
             s_AudioThreadRunning.store(true, std::memory_order_release);
             s_AudioThread = FThread(
                 "OloEngine::AudioThread",
                 &AudioEngine::AudioThreadFunc,
-                0,  // Default stack size
+                0, // Default stack size
                 EThreadPriority::TPri_TimeCritical,
                 FThreadAffinity{},
-                FThread::NonForkable
-            );
-            
+                FThread::NonForkable);
+
             OLO_CORE_TRACE("[AudioEngine] Audio thread started with TimeCritical priority");
             return true;
         }
@@ -67,10 +66,10 @@ namespace OloEngine
         {
             OLO_CORE_TRACE("[AudioEngine] Stopping audio thread...");
             s_AudioThreadRunning.store(false, std::memory_order_release);
-            
+
             // Wake up the audio thread if it's waiting
             Tasks::FNamedThreadManager::Get().WakeThread(Tasks::ENamedThread::AudioThread);
-            
+
             // Wait for thread to finish
             if (s_AudioThread.IsJoinable())
             {
@@ -106,19 +105,19 @@ namespace OloEngine
         while (s_AudioThreadRunning.load(std::memory_order_acquire))
         {
             OLO_PROFILE_SCOPE("AudioThread::ProcessTasks");
-            
+
             // Get the audio thread's task queue
             auto& Queue = Tasks::FNamedThreadManager::Get().GetQueue(Tasks::ENamedThread::AudioThread);
-            
+
             // Process all pending audio tasks
-            u32 TasksProcessed = Queue.ProcessAll(true);  // true = include local queue
+            u32 TasksProcessed = Queue.ProcessAll(true); // true = include local queue
 
             // If no tasks were processed, wait for notification to avoid busy-waiting
             if (TasksProcessed == 0 && s_AudioThreadRunning.load(std::memory_order_acquire))
             {
                 // Prepare to wait for tasks
                 FEventCountToken Token = Queue.PrepareWait();
-                
+
                 // Double-check that there are no tasks and we should still wait
                 if (!Queue.HasPendingTasks(true) && s_AudioThreadRunning.load(std::memory_order_acquire))
                 {

@@ -106,9 +106,8 @@ namespace OloEngine
                     m_ProjectPath.string(),
                     [this](const std::string& file, const filewatch::Event change_type)
                     {
-                        OloEngine::Tasks::EnqueueGameThreadTask([this, file, change_type]() {
-                            OnFileSystemEvent(file, change_type);
-                        }, "AssetFileWatch");
+                        OloEngine::Tasks::EnqueueGameThreadTask([this, file, change_type]()
+                                                                { OnFileSystemEvent(file, change_type); }, "AssetFileWatch");
                     });
                 OLO_CORE_INFO("Real-time file watcher started successfully");
             }

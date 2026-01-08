@@ -196,12 +196,15 @@ namespace OloEngine
             OLO_CORE_WARN("RendererMemoryTracker: Could not acquire lock for deallocation, possibly during shutdown");
             return;
         }
-        
+
         // Scope guard to ensure unlock on all exit paths
         struct FScopedUnlock
         {
             FMutex& Mutex;
-            ~FScopedUnlock() { Mutex.Unlock(); }
+            ~FScopedUnlock()
+            {
+                Mutex.Unlock();
+            }
         } ScopedUnlock{ m_Mutex };
 
         // Double-check shutdown state after acquiring lock
