@@ -11,6 +11,7 @@
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
+#include "OloEngine/Task/NamedThreads.h"
 
 #include <algorithm>
 #include <future>
@@ -103,7 +104,9 @@ namespace OloEngine
                     m_ProjectPath.string(),
                     [this](const std::string& file, const filewatch::Event change_type)
                     {
-                        OnFileSystemEvent(file, change_type);
+                        OloEngine::Tasks::EnqueueGameThreadTask([this, file, change_type]() {
+                            OnFileSystemEvent(file, change_type);
+                        }, "AssetFileWatch");
                     });
                 OLO_CORE_INFO("Real-time file watcher started successfully");
             }

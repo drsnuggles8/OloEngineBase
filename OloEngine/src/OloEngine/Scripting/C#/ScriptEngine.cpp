@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Buffer.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Timer.h"
+#include "OloEngine/Task/NamedThreads.h"
 
 #include <mono/jit/jit.h>
 #include <mono/metadata/assembly.h>
@@ -152,10 +153,10 @@ namespace OloEngine
         {
             s_Data->AssemblyReloadPending = true;
 
-            Application::Get().SubmitToMainThread([]()
-                                                  {
-				s_Data->AppAssemblyFileWatcher.reset();
-				ScriptEngine::ReloadAssembly(); });
+            OloEngine::Tasks::EnqueueGameThreadTask([]() {
+                s_Data->AppAssemblyFileWatcher.reset();
+                ScriptEngine::ReloadAssembly();
+            }, "ScriptAssemblyReload");
         }
     }
 
