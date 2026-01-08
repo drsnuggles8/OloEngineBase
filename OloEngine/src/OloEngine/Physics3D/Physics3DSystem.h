@@ -4,6 +4,7 @@
 #include "PhysicsSettings.h"
 #include "PhysicsLayer.h"
 #include "JoltLayerInterface.h"
+#include "JoltJobSystemAdapter.h"
 #include <stdexcept>
 #include <cassert>
 
@@ -22,7 +23,6 @@ namespace OloEngine
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/TempAllocator.h>
-#include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -260,8 +260,8 @@ namespace OloEngine
         // A temp allocator
         std::unique_ptr<JPH::TempAllocatorImpl> m_TempAllocator;
 
-        // Job system that will execute physics jobs
-        std::unique_ptr<JPH::JobSystemThreadPool> m_JobSystem;
+        // Job system adapter that wraps FScheduler
+        std::unique_ptr<JoltJobSystemAdapter> m_JobSystem;
 
         // ====================================================================
         // Listeners & Flags

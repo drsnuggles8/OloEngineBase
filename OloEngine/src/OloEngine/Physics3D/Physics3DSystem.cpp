@@ -3,12 +3,12 @@
 #include "PhysicsLayer.h"
 #include "JoltLayerInterface.h"
 #include "JoltUtils.h"
+#include "JoltJobSystemAdapter.h"
 
 // Jolt includes
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/TempAllocator.h>
-#include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
@@ -262,14 +262,9 @@ namespace OloEngine
         // malloc / free.
         m_TempAllocator = std::make_unique<JPH::TempAllocatorImpl>(10 * 1024 * 1024);
 
-        // We need a job system that will execute physics jobs on multiple threads. Typically
-        // you would implement the JobSystem interface yourself and let Jolt Physics run on top
-        // of your own job scheduler. JobSystemThreadPool is an example implementation.
-        unsigned hc = std::thread::hardware_concurrency();
-        if (hc == 0)
-            hc = 1; // Treat 0 as 1
-        unsigned workerThreads = (hc > 1 ? hc - 1 : 1);
-        m_JobSystem = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, workerThreads);
+        // Create job system adapter that wraps the UE5.7 FScheduler
+        // This allows Jolt physics to execute on our task system instead of creating its own threads
+        m_JobSystem = std::make_unique<JoltJobSystemAdapter>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers);
 
         // Now we can create the actual physics system.
         m_PhysicsSystem = std::make_unique<JPH::PhysicsSystem>();

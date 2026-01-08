@@ -434,6 +434,8 @@
 		"OloEngine/Physics3D/MeshColliderCache.cpp"
 		"OloEngine/Physics3D/JoltCaptureManager.h"
 		"OloEngine/Physics3D/JoltCaptureManager.cpp"
+		"OloEngine/Physics3D/JoltJobSystemAdapter.h"
+		"OloEngine/Physics3D/JoltJobSystemAdapter.cpp"
 
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/Entity.cpp"
