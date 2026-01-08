@@ -10,8 +10,8 @@
 #include <fstream>
 
 #ifdef OLO_PLATFORM_WINDOWS
-    #include <Windows.h>
-    #include <shellapi.h>
+#include <Windows.h>
+#include <shellapi.h>
 #endif
 
 namespace OloEngine
