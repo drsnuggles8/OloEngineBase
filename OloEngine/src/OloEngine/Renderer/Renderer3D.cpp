@@ -197,28 +197,26 @@ namespace OloEngine
             src->Build();
             s_Data.LineQuadMesh = Ref<Mesh>::Create(src, 0);
         }
-        
+
         // Create fullscreen quad VAO for grid and post-processing
         {
             // NDC fullscreen quad vertices (position only)
             float quadVertices[] = {
                 // positions
                 -1.0f, -1.0f, 0.0f,
-                 1.0f, -1.0f, 0.0f,
-                 1.0f,  1.0f, 0.0f,
+                1.0f, -1.0f, 0.0f,
+                1.0f, 1.0f, 0.0f,
                 -1.0f, -1.0f, 0.0f,
-                 1.0f,  1.0f, 0.0f,
-                -1.0f,  1.0f, 0.0f
+                1.0f, 1.0f, 0.0f,
+                -1.0f, 1.0f, 0.0f
             };
-            
+
             s_Data.FullscreenQuadVAO = VertexArray::Create();
             Ref<VertexBuffer> quadVBO = VertexBuffer::Create(quadVertices, sizeof(quadVertices));
-            quadVBO->SetLayout({
-                { ShaderDataType::Float3, "a_Position" }
-            });
+            quadVBO->SetLayout({ { ShaderDataType::Float3, "a_Position" } });
             s_Data.FullscreenQuadVAO->AddVertexBuffer(quadVBO);
         }
-        
+
         m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
         m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
         m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
@@ -390,7 +388,7 @@ namespace OloEngine
         // EditorCamera inherits from Camera which has GetViewMatrix() and GetProjection()
         // We need to create a temporary PerspectiveCamera-like interface or directly use the matrices
         // Since EditorCamera provides GetViewMatrix() and GetProjection(), we can use them
-        
+
         // Note: We cannot easily convert EditorCamera to PerspectiveCamera, so we replicate the setup
         // Process any pending GPU resource creation commands from async loaders
         GPUResourceQueue::ProcessAll();
@@ -417,7 +415,7 @@ namespace OloEngine
             frameAllocator = CommandMemoryManager::GetFrameAllocator();
         }
         s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
-        
+
         s_Data.ViewMatrix = camera.GetViewMatrix();
         s_Data.ProjectionMatrix = camera.GetProjection();
         s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
@@ -491,12 +489,12 @@ namespace OloEngine
             frameAllocator = CommandMemoryManager::GetFrameAllocator();
         }
         s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
-        
+
         // Derive view matrix from the inverse of the camera's transform
         s_Data.ViewMatrix = glm::inverse(transform);
         s_Data.ProjectionMatrix = camera.GetProjection();
         s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
-        
+
         // Extract camera position from transform (translation column)
         s_Data.ViewPos = glm::vec3(transform[3]);
 
@@ -1119,7 +1117,7 @@ namespace OloEngine
     void Renderer3D::SetSceneLights(const Ref<Scene>& scene)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         if (!scene || !s_Data.MultiLightBuffer)
         {
             return;
@@ -1128,13 +1126,13 @@ namespace OloEngine
         // Collect lights from the scene
         constexpr u32 MAX_POINT_LIGHTS = 16;
         constexpr u32 MAX_SPOT_LIGHTS = 8;
-        
+
         u32 pointLightCount = 0;
         u32 spotLightCount = 0;
 
         // TODO: Create proper multi-light UBO structure and populate it
         // For now, we'll just gather the count and warn if limits exceeded
-        
+
         // Count directional lights
         auto dirLightView = scene->GetAllEntitiesWith<DirectionalLightComponent>();
         u32 dirLightCount = 0;
@@ -1161,13 +1159,13 @@ namespace OloEngine
         if (pointLightCount > MAX_POINT_LIGHTS)
         {
             OLO_CORE_WARN("Scene contains {} point lights, but max is {}. Only first {} will be rendered.",
-                         pointLightCount, MAX_POINT_LIGHTS, MAX_POINT_LIGHTS);
+                          pointLightCount, MAX_POINT_LIGHTS, MAX_POINT_LIGHTS);
         }
 
         if (spotLightCount > MAX_SPOT_LIGHTS)
         {
             OLO_CORE_WARN("Scene contains {} spot lights, but max is {}. Only first {} will be rendered.",
-                         spotLightCount, MAX_SPOT_LIGHTS, MAX_SPOT_LIGHTS);
+                          spotLightCount, MAX_SPOT_LIGHTS, MAX_SPOT_LIGHTS);
         }
 
         // TODO: Populate multi-light UBO with actual light data
@@ -1666,7 +1664,7 @@ namespace OloEngine
         scenePassSpec.Samples = 1;
         scenePassSpec.Attachments = {
             FramebufferTextureFormat::RGBA8,
-            FramebufferTextureFormat::RED_INTEGER,  // Entity ID attachment
+            FramebufferTextureFormat::RED_INTEGER, // Entity ID attachment
             FramebufferTextureFormat::Depth
         };
 
@@ -2427,11 +2425,11 @@ namespace OloEngine
         {
             // Perspective frustum
             const f32 tanHalfFov = std::tan(fov * 0.5f);
-            
+
             // Near plane dimensions
             const f32 nearHeight = 2.0f * tanHalfFov * nearClip;
             const f32 nearWidth = nearHeight * aspectRatio;
-            
+
             // Far plane dimensions (clamped for visualization)
             const f32 farHeight = 2.0f * tanHalfFov * visualFar;
             const f32 farWidth = farHeight * aspectRatio;
@@ -2442,16 +2440,16 @@ namespace OloEngine
             glm::vec3 farCenter = position + forward * visualFar;
 
             // Near plane corners (top-left, top-right, bottom-right, bottom-left)
-            corners[0] = nearCenter + up * (nearHeight * 0.5f) - right * (nearWidth * 0.5f);  // Near top-left
-            corners[1] = nearCenter + up * (nearHeight * 0.5f) + right * (nearWidth * 0.5f);  // Near top-right
-            corners[2] = nearCenter - up * (nearHeight * 0.5f) + right * (nearWidth * 0.5f);  // Near bottom-right
-            corners[3] = nearCenter - up * (nearHeight * 0.5f) - right * (nearWidth * 0.5f);  // Near bottom-left
+            corners[0] = nearCenter + up * (nearHeight * 0.5f) - right * (nearWidth * 0.5f); // Near top-left
+            corners[1] = nearCenter + up * (nearHeight * 0.5f) + right * (nearWidth * 0.5f); // Near top-right
+            corners[2] = nearCenter - up * (nearHeight * 0.5f) + right * (nearWidth * 0.5f); // Near bottom-right
+            corners[3] = nearCenter - up * (nearHeight * 0.5f) - right * (nearWidth * 0.5f); // Near bottom-left
 
             // Far plane corners
-            corners[4] = farCenter + up * (farHeight * 0.5f) - right * (farWidth * 0.5f);    // Far top-left
-            corners[5] = farCenter + up * (farHeight * 0.5f) + right * (farWidth * 0.5f);    // Far top-right
-            corners[6] = farCenter - up * (farHeight * 0.5f) + right * (farWidth * 0.5f);    // Far bottom-right
-            corners[7] = farCenter - up * (farHeight * 0.5f) - right * (farWidth * 0.5f);    // Far bottom-left
+            corners[4] = farCenter + up * (farHeight * 0.5f) - right * (farWidth * 0.5f); // Far top-left
+            corners[5] = farCenter + up * (farHeight * 0.5f) + right * (farWidth * 0.5f); // Far top-right
+            corners[6] = farCenter - up * (farHeight * 0.5f) + right * (farWidth * 0.5f); // Far bottom-right
+            corners[7] = farCenter - up * (farHeight * 0.5f) - right * (farWidth * 0.5f); // Far bottom-left
         }
         else
         {
@@ -2480,30 +2478,42 @@ namespace OloEngine
         auto* p1 = DrawLine(corners[1], corners[2], color, lineThickness);
         auto* p2 = DrawLine(corners[2], corners[3], color, lineThickness);
         auto* p3 = DrawLine(corners[3], corners[0], color, lineThickness);
-        if (p0) SubmitPacket(p0);
-        if (p1) SubmitPacket(p1);
-        if (p2) SubmitPacket(p2);
-        if (p3) SubmitPacket(p3);
+        if (p0)
+            SubmitPacket(p0);
+        if (p1)
+            SubmitPacket(p1);
+        if (p2)
+            SubmitPacket(p2);
+        if (p3)
+            SubmitPacket(p3);
 
         // Draw far plane (quad)
         auto* p4 = DrawLine(corners[4], corners[5], color, lineThickness);
         auto* p5 = DrawLine(corners[5], corners[6], color, lineThickness);
         auto* p6 = DrawLine(corners[6], corners[7], color, lineThickness);
         auto* p7 = DrawLine(corners[7], corners[4], color, lineThickness);
-        if (p4) SubmitPacket(p4);
-        if (p5) SubmitPacket(p5);
-        if (p6) SubmitPacket(p6);
-        if (p7) SubmitPacket(p7);
+        if (p4)
+            SubmitPacket(p4);
+        if (p5)
+            SubmitPacket(p5);
+        if (p6)
+            SubmitPacket(p6);
+        if (p7)
+            SubmitPacket(p7);
 
         // Draw connecting edges (near to far)
         auto* p8 = DrawLine(corners[0], corners[4], color, lineThickness);
         auto* p9 = DrawLine(corners[1], corners[5], color, lineThickness);
         auto* p10 = DrawLine(corners[2], corners[6], color, lineThickness);
         auto* p11 = DrawLine(corners[3], corners[7], color, lineThickness);
-        if (p8) SubmitPacket(p8);
-        if (p9) SubmitPacket(p9);
-        if (p10) SubmitPacket(p10);
-        if (p11) SubmitPacket(p11);
+        if (p8)
+            SubmitPacket(p8);
+        if (p9)
+            SubmitPacket(p9);
+        if (p10)
+            SubmitPacket(p10);
+        if (p11)
+            SubmitPacket(p11);
 
         // Draw camera direction indicator (small arrow from camera position)
         const f32 arrowLength = 0.5f;
@@ -2512,7 +2522,8 @@ namespace OloEngine
         glm::vec3 arrowColor = glm::vec3(0.2f, 0.8f, 0.2f); // Green for direction
 
         auto* arrowLine = DrawLine(position, arrowTip, arrowColor, lineThickness * 1.5f);
-        if (arrowLine) SubmitPacket(arrowLine);
+        if (arrowLine)
+            SubmitPacket(arrowLine);
 
         // Arrow head (two lines from tip going back)
         glm::vec3 arrowBack = position + forward * (arrowLength - arrowHeadSize);
@@ -2525,28 +2536,32 @@ namespace OloEngine
         auto* ah2 = DrawLine(arrowTip, arrowHead2, arrowColor, lineThickness);
         auto* ah3 = DrawLine(arrowTip, arrowHead3, arrowColor, lineThickness);
         auto* ah4 = DrawLine(arrowTip, arrowHead4, arrowColor, lineThickness);
-        if (ah1) SubmitPacket(ah1);
-        if (ah2) SubmitPacket(ah2);
-        if (ah3) SubmitPacket(ah3);
-        if (ah4) SubmitPacket(ah4);
+        if (ah1)
+            SubmitPacket(ah1);
+        if (ah2)
+            SubmitPacket(ah2);
+        if (ah3)
+            SubmitPacket(ah3);
+        if (ah4)
+            SubmitPacket(ah4);
     }
 
     CommandPacket* Renderer3D::DrawInfiniteGrid(f32 gridScale)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         if (!s_Data.ScenePass)
         {
             OLO_CORE_ERROR("Renderer3D::DrawInfiniteGrid: ScenePass is null!");
             return nullptr;
         }
-        
+
         if (!s_Data.InfiniteGridShader)
         {
             OLO_CORE_ERROR("Renderer3D::DrawInfiniteGrid: InfiniteGrid shader not loaded!");
             return nullptr;
         }
-        
+
         if (!s_Data.FullscreenQuadVAO)
         {
             OLO_CORE_ERROR("Renderer3D::DrawInfiniteGrid: FullscreenQuadVAO not initialized!");
@@ -2588,9 +2603,9 @@ namespace OloEngine
     }
 
     void Renderer3D::DrawDirectionalLightGizmo(const glm::vec3& position,
-                                                const glm::vec3& direction,
-                                                const glm::vec3& color,
-                                                f32 intensity)
+                                               const glm::vec3& direction,
+                                               const glm::vec3& color,
+                                               f32 intensity)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -2609,11 +2624,13 @@ namespace OloEngine
 
         // Main arrow line
         auto* mainLine = DrawLine(position, arrowEnd, color * intensity, lineThickness);
-        if (mainLine) SubmitPacket(mainLine);
+        if (mainLine)
+            SubmitPacket(mainLine);
 
         // Create arrow head - find perpendicular vectors
-        glm::vec3 up = std::abs(glm::dot(dir, glm::vec3(0, 1, 0))) < 0.99f 
-            ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0);
+        glm::vec3 up = std::abs(glm::dot(dir, glm::vec3(0, 1, 0))) < 0.99f
+                           ? glm::vec3(0, 1, 0)
+                           : glm::vec3(1, 0, 0);
         glm::vec3 right = glm::normalize(glm::cross(dir, up));
         up = glm::normalize(glm::cross(right, dir));
 
@@ -2624,10 +2641,14 @@ namespace OloEngine
         auto* ah2 = DrawLine(arrowEnd, arrowBack - up * arrowHeadSize, color * intensity, lineThickness);
         auto* ah3 = DrawLine(arrowEnd, arrowBack + right * arrowHeadSize, color * intensity, lineThickness);
         auto* ah4 = DrawLine(arrowEnd, arrowBack - right * arrowHeadSize, color * intensity, lineThickness);
-        if (ah1) SubmitPacket(ah1);
-        if (ah2) SubmitPacket(ah2);
-        if (ah3) SubmitPacket(ah3);
-        if (ah4) SubmitPacket(ah4);
+        if (ah1)
+            SubmitPacket(ah1);
+        if (ah2)
+            SubmitPacket(ah2);
+        if (ah3)
+            SubmitPacket(ah3);
+        if (ah4)
+            SubmitPacket(ah4);
 
         // Draw a small sun-like icon at position (circle with rays)
         const f32 sunRadius = 0.2f;
@@ -2636,12 +2657,13 @@ namespace OloEngine
         {
             f32 angle1 = (f32(i) / f32(segments)) * glm::two_pi<f32>();
             f32 angle2 = (f32(i + 1) / f32(segments)) * glm::two_pi<f32>();
-            
+
             glm::vec3 p1 = position + right * std::cos(angle1) * sunRadius + up * std::sin(angle1) * sunRadius;
             glm::vec3 p2 = position + right * std::cos(angle2) * sunRadius + up * std::sin(angle2) * sunRadius;
-            
+
             auto* seg = DrawLine(p1, p2, color * intensity, lineThickness * 0.8f);
-            if (seg) SubmitPacket(seg);
+            if (seg)
+                SubmitPacket(seg);
         }
 
         // Rays emanating from the sun
@@ -2651,16 +2673,17 @@ namespace OloEngine
             glm::vec3 rayDir = right * std::cos(angle) + up * std::sin(angle);
             glm::vec3 rayStart = position + rayDir * (sunRadius + 0.05f);
             glm::vec3 rayEnd = position + rayDir * (sunRadius + 0.15f);
-            
+
             auto* ray = DrawLine(rayStart, rayEnd, color * intensity, lineThickness * 0.6f);
-            if (ray) SubmitPacket(ray);
+            if (ray)
+                SubmitPacket(ray);
         }
     }
 
     void Renderer3D::DrawPointLightGizmo(const glm::vec3& position,
-                                          f32 range,
-                                          const glm::vec3& color,
-                                          bool showRangeSphere)
+                                         f32 range,
+                                         const glm::vec3& color,
+                                         bool showRangeSphere)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -2670,7 +2693,7 @@ namespace OloEngine
         }
 
         const f32 lineThickness = 1.5f;
-        
+
         // Draw a light bulb icon at position
         const f32 bulbRadius = 0.15f;
         const i32 segments = 12;
@@ -2701,7 +2724,8 @@ namespace OloEngine
                 }
 
                 auto* seg = DrawLine(position + offset1, position + offset2, color, lineThickness);
-                if (seg) SubmitPacket(seg);
+                if (seg)
+                    SubmitPacket(seg);
             }
         }
 
@@ -2739,18 +2763,19 @@ namespace OloEngine
                     }
 
                     auto* seg = DrawLine(position + offset1, position + offset2, dimColor, lineThickness * 0.5f);
-                    if (seg) SubmitPacket(seg);
+                    if (seg)
+                        SubmitPacket(seg);
                 }
             }
         }
     }
 
     void Renderer3D::DrawSpotLightGizmo(const glm::vec3& position,
-                                         const glm::vec3& direction,
-                                         f32 range,
-                                         f32 innerCutoff,
-                                         f32 outerCutoff,
-                                         const glm::vec3& color)
+                                        const glm::vec3& direction,
+                                        f32 range,
+                                        f32 innerCutoff,
+                                        f32 outerCutoff,
+                                        const glm::vec3& color)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -2760,10 +2785,10 @@ namespace OloEngine
         }
 
         const f32 lineThickness = 1.5f;
-        
+
         // Normalize direction
         glm::vec3 dir = glm::normalize(direction);
-        
+
         // Clamp range for visualization
         f32 visualRange = glm::min(range, 15.0f);
 
@@ -2774,8 +2799,9 @@ namespace OloEngine
         f32 innerRadius = visualRange * std::tan(innerAngleRad);
 
         // Create coordinate system aligned with direction
-        glm::vec3 up = std::abs(glm::dot(dir, glm::vec3(0, 1, 0))) < 0.99f 
-            ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0);
+        glm::vec3 up = std::abs(glm::dot(dir, glm::vec3(0, 1, 0))) < 0.99f
+                           ? glm::vec3(0, 1, 0)
+                           : glm::vec3(1, 0, 0);
         glm::vec3 right = glm::normalize(glm::cross(dir, up));
         up = glm::normalize(glm::cross(right, dir));
 
@@ -2784,7 +2810,8 @@ namespace OloEngine
 
         // Draw central direction line
         auto* centerLine = DrawLine(position, coneEnd, color, lineThickness);
-        if (centerLine) SubmitPacket(centerLine);
+        if (centerLine)
+            SubmitPacket(centerLine);
 
         // Draw outer cone edges (4 lines from tip to base)
         const i32 coneEdges = 8;
@@ -2793,9 +2820,10 @@ namespace OloEngine
             f32 angle = (f32(i) / f32(coneEdges)) * glm::two_pi<f32>();
             glm::vec3 offset = right * std::cos(angle) * outerRadius + up * std::sin(angle) * outerRadius;
             glm::vec3 edgeEnd = coneEnd + offset;
-            
+
             auto* edge = DrawLine(position, edgeEnd, color * 0.6f, lineThickness * 0.8f);
-            if (edge) SubmitPacket(edge);
+            if (edge)
+                SubmitPacket(edge);
         }
 
         // Draw outer cone base circle
@@ -2804,12 +2832,13 @@ namespace OloEngine
         {
             f32 angle1 = (f32(i) / f32(circleSegments)) * glm::two_pi<f32>();
             f32 angle2 = (f32(i + 1) / f32(circleSegments)) * glm::two_pi<f32>();
-            
+
             glm::vec3 p1 = coneEnd + right * std::cos(angle1) * outerRadius + up * std::sin(angle1) * outerRadius;
             glm::vec3 p2 = coneEnd + right * std::cos(angle2) * outerRadius + up * std::sin(angle2) * outerRadius;
-            
+
             auto* seg = DrawLine(p1, p2, color * 0.5f, lineThickness * 0.7f);
-            if (seg) SubmitPacket(seg);
+            if (seg)
+                SubmitPacket(seg);
         }
 
         // Draw inner cone base circle (brighter, showing hotspot)
@@ -2819,12 +2848,13 @@ namespace OloEngine
             {
                 f32 angle1 = (f32(i) / f32(circleSegments)) * glm::two_pi<f32>();
                 f32 angle2 = (f32(i + 1) / f32(circleSegments)) * glm::two_pi<f32>();
-                
+
                 glm::vec3 p1 = coneEnd + right * std::cos(angle1) * innerRadius + up * std::sin(angle1) * innerRadius;
                 glm::vec3 p2 = coneEnd + right * std::cos(angle2) * innerRadius + up * std::sin(angle2) * innerRadius;
-                
+
                 auto* seg = DrawLine(p1, p2, color, lineThickness);
-                if (seg) SubmitPacket(seg);
+                if (seg)
+                    SubmitPacket(seg);
             }
         }
 
@@ -2834,19 +2864,20 @@ namespace OloEngine
         {
             f32 angle1 = (f32(i) / 8.0f) * glm::two_pi<f32>();
             f32 angle2 = (f32(i + 1) / 8.0f) * glm::two_pi<f32>();
-            
+
             glm::vec3 p1 = position + right * std::cos(angle1) * bulbRadius + up * std::sin(angle1) * bulbRadius;
             glm::vec3 p2 = position + right * std::cos(angle2) * bulbRadius + up * std::sin(angle2) * bulbRadius;
-            
+
             auto* seg = DrawLine(p1, p2, color, lineThickness);
-            if (seg) SubmitPacket(seg);
+            if (seg)
+                SubmitPacket(seg);
         }
     }
 
     void Renderer3D::DrawAudioSourceGizmo(const glm::vec3& position,
-                                           f32 minDistance,
-                                           f32 maxDistance,
-                                           const glm::vec3& color)
+                                          f32 minDistance,
+                                          f32 maxDistance,
+                                          const glm::vec3& color)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -2867,24 +2898,30 @@ namespace OloEngine
         glm::vec3 iconColor = color * 1.2f;
 
         // Speaker body (rectangle)
-        auto* l1 = DrawLine(position + glm::vec3(-iconSize, -iconSize * 0.5f, 0), 
+        auto* l1 = DrawLine(position + glm::vec3(-iconSize, -iconSize * 0.5f, 0),
                             position + glm::vec3(-iconSize, iconSize * 0.5f, 0), iconColor, lineThickness);
-        auto* l2 = DrawLine(position + glm::vec3(-iconSize, iconSize * 0.5f, 0), 
+        auto* l2 = DrawLine(position + glm::vec3(-iconSize, iconSize * 0.5f, 0),
                             position + glm::vec3(0, iconSize * 0.5f, 0), iconColor, lineThickness);
-        auto* l3 = DrawLine(position + glm::vec3(0, iconSize * 0.5f, 0), 
+        auto* l3 = DrawLine(position + glm::vec3(0, iconSize * 0.5f, 0),
                             position + glm::vec3(iconSize, iconSize, 0), iconColor, lineThickness);
-        auto* l4 = DrawLine(position + glm::vec3(iconSize, iconSize, 0), 
+        auto* l4 = DrawLine(position + glm::vec3(iconSize, iconSize, 0),
                             position + glm::vec3(iconSize, -iconSize, 0), iconColor, lineThickness);
-        auto* l5 = DrawLine(position + glm::vec3(iconSize, -iconSize, 0), 
+        auto* l5 = DrawLine(position + glm::vec3(iconSize, -iconSize, 0),
                             position + glm::vec3(0, -iconSize * 0.5f, 0), iconColor, lineThickness);
-        auto* l6 = DrawLine(position + glm::vec3(0, -iconSize * 0.5f, 0), 
+        auto* l6 = DrawLine(position + glm::vec3(0, -iconSize * 0.5f, 0),
                             position + glm::vec3(-iconSize, -iconSize * 0.5f, 0), iconColor, lineThickness);
-        if (l1) SubmitPacket(l1);
-        if (l2) SubmitPacket(l2);
-        if (l3) SubmitPacket(l3);
-        if (l4) SubmitPacket(l4);
-        if (l5) SubmitPacket(l5);
-        if (l6) SubmitPacket(l6);
+        if (l1)
+            SubmitPacket(l1);
+        if (l2)
+            SubmitPacket(l2);
+        if (l3)
+            SubmitPacket(l3);
+        if (l4)
+            SubmitPacket(l4);
+        if (l5)
+            SubmitPacket(l5);
+        if (l6)
+            SubmitPacket(l6);
 
         // Draw min distance sphere (bright, full volume zone)
         if (visualMin > 0.01f)
@@ -2914,7 +2951,8 @@ namespace OloEngine
                     }
 
                     auto* seg = DrawLine(position + offset1, position + offset2, color, lineThickness);
-                    if (seg) SubmitPacket(seg);
+                    if (seg)
+                        SubmitPacket(seg);
                 }
             }
         }
@@ -2948,7 +2986,8 @@ namespace OloEngine
                     }
 
                     auto* seg = DrawLine(position + offset1, position + offset2, dimColor, lineThickness * 0.5f);
-                    if (seg) SubmitPacket(seg);
+                    if (seg)
+                        SubmitPacket(seg);
                 }
             }
         }
@@ -2968,64 +3007,76 @@ namespace OloEngine
 
         // X axis - Red
         auto* xAxis = DrawLine(origin, glm::vec3(axisLength, 0.0f, 0.0f), glm::vec3(1.0f, 0.2f, 0.2f), lineThickness);
-        if (xAxis) SubmitPacket(xAxis);
+        if (xAxis)
+            SubmitPacket(xAxis);
 
         // X axis arrow head
         auto* xArrow1 = DrawLine(glm::vec3(axisLength, 0, 0), glm::vec3(axisLength - 0.2f, 0.1f, 0), glm::vec3(1.0f, 0.2f, 0.2f), lineThickness);
         auto* xArrow2 = DrawLine(glm::vec3(axisLength, 0, 0), glm::vec3(axisLength - 0.2f, -0.1f, 0), glm::vec3(1.0f, 0.2f, 0.2f), lineThickness);
-        if (xArrow1) SubmitPacket(xArrow1);
-        if (xArrow2) SubmitPacket(xArrow2);
+        if (xArrow1)
+            SubmitPacket(xArrow1);
+        if (xArrow2)
+            SubmitPacket(xArrow2);
 
         // Y axis - Green
         auto* yAxis = DrawLine(origin, glm::vec3(0.0f, axisLength, 0.0f), glm::vec3(0.2f, 1.0f, 0.2f), lineThickness);
-        if (yAxis) SubmitPacket(yAxis);
+        if (yAxis)
+            SubmitPacket(yAxis);
 
         // Y axis arrow head
         auto* yArrow1 = DrawLine(glm::vec3(0, axisLength, 0), glm::vec3(0.1f, axisLength - 0.2f, 0), glm::vec3(0.2f, 1.0f, 0.2f), lineThickness);
         auto* yArrow2 = DrawLine(glm::vec3(0, axisLength, 0), glm::vec3(-0.1f, axisLength - 0.2f, 0), glm::vec3(0.2f, 1.0f, 0.2f), lineThickness);
-        if (yArrow1) SubmitPacket(yArrow1);
-        if (yArrow2) SubmitPacket(yArrow2);
+        if (yArrow1)
+            SubmitPacket(yArrow1);
+        if (yArrow2)
+            SubmitPacket(yArrow2);
 
         // Z axis - Blue
         auto* zAxis = DrawLine(origin, glm::vec3(0.0f, 0.0f, axisLength), glm::vec3(0.2f, 0.2f, 1.0f), lineThickness);
-        if (zAxis) SubmitPacket(zAxis);
+        if (zAxis)
+            SubmitPacket(zAxis);
 
         // Z axis arrow head
         auto* zArrow1 = DrawLine(glm::vec3(0, 0, axisLength), glm::vec3(0, 0.1f, axisLength - 0.2f), glm::vec3(0.2f, 0.2f, 1.0f), lineThickness);
         auto* zArrow2 = DrawLine(glm::vec3(0, 0, axisLength), glm::vec3(0, -0.1f, axisLength - 0.2f), glm::vec3(0.2f, 0.2f, 1.0f), lineThickness);
-        if (zArrow1) SubmitPacket(zArrow1);
-        if (zArrow2) SubmitPacket(zArrow2);
+        if (zArrow1)
+            SubmitPacket(zArrow1);
+        if (zArrow2)
+            SubmitPacket(zArrow2);
 
         // Draw small negative axis indicators (dashed appearance using short segments)
         const f32 negLength = axisLength * 0.3f;
         const f32 dashLen = 0.1f;
-        
+
         // Negative X (dimmer red)
         for (f32 t = 0; t < negLength; t += dashLen * 2)
         {
             auto* dash = DrawLine(glm::vec3(-t, 0, 0), glm::vec3(-t - dashLen, 0, 0), glm::vec3(0.5f, 0.1f, 0.1f), lineThickness * 0.5f);
-            if (dash) SubmitPacket(dash);
+            if (dash)
+                SubmitPacket(dash);
         }
 
         // Negative Y (dimmer green)
         for (f32 t = 0; t < negLength; t += dashLen * 2)
         {
             auto* dash = DrawLine(glm::vec3(0, -t, 0), glm::vec3(0, -t - dashLen, 0), glm::vec3(0.1f, 0.5f, 0.1f), lineThickness * 0.5f);
-            if (dash) SubmitPacket(dash);
+            if (dash)
+                SubmitPacket(dash);
         }
 
         // Negative Z (dimmer blue)
         for (f32 t = 0; t < negLength; t += dashLen * 2)
         {
             auto* dash = DrawLine(glm::vec3(0, 0, -t), glm::vec3(0, 0, -t - dashLen), glm::vec3(0.1f, 0.1f, 0.5f), lineThickness * 0.5f);
-            if (dash) SubmitPacket(dash);
+            if (dash)
+                SubmitPacket(dash);
         }
     }
 
     void Renderer3D::DrawBoxColliderGizmo(const glm::vec3& position,
-                                           const glm::vec3& halfExtents,
-                                           const glm::quat& rotation,
-                                           const glm::vec3& color)
+                                          const glm::vec3& halfExtents,
+                                          const glm::quat& rotation,
+                                          const glm::vec3& color)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -3042,13 +3093,13 @@ namespace OloEngine
         // Local corners of the box
         glm::vec3 corners[8] = {
             glm::vec3(-halfExtents.x, -halfExtents.y, -halfExtents.z),
-            glm::vec3( halfExtents.x, -halfExtents.y, -halfExtents.z),
-            glm::vec3( halfExtents.x,  halfExtents.y, -halfExtents.z),
-            glm::vec3(-halfExtents.x,  halfExtents.y, -halfExtents.z),
-            glm::vec3(-halfExtents.x, -halfExtents.y,  halfExtents.z),
-            glm::vec3( halfExtents.x, -halfExtents.y,  halfExtents.z),
-            glm::vec3( halfExtents.x,  halfExtents.y,  halfExtents.z),
-            glm::vec3(-halfExtents.x,  halfExtents.y,  halfExtents.z)
+            glm::vec3(halfExtents.x, -halfExtents.y, -halfExtents.z),
+            glm::vec3(halfExtents.x, halfExtents.y, -halfExtents.z),
+            glm::vec3(-halfExtents.x, halfExtents.y, -halfExtents.z),
+            glm::vec3(-halfExtents.x, -halfExtents.y, halfExtents.z),
+            glm::vec3(halfExtents.x, -halfExtents.y, halfExtents.z),
+            glm::vec3(halfExtents.x, halfExtents.y, halfExtents.z),
+            glm::vec3(-halfExtents.x, halfExtents.y, halfExtents.z)
         };
 
         // Transform corners to world space
@@ -3062,35 +3113,47 @@ namespace OloEngine
         auto* e2 = DrawLine(corners[1], corners[2], color, lineThickness);
         auto* e3 = DrawLine(corners[2], corners[3], color, lineThickness);
         auto* e4 = DrawLine(corners[3], corners[0], color, lineThickness);
-        if (e1) SubmitPacket(e1);
-        if (e2) SubmitPacket(e2);
-        if (e3) SubmitPacket(e3);
-        if (e4) SubmitPacket(e4);
+        if (e1)
+            SubmitPacket(e1);
+        if (e2)
+            SubmitPacket(e2);
+        if (e3)
+            SubmitPacket(e3);
+        if (e4)
+            SubmitPacket(e4);
 
         // Top face
         auto* e5 = DrawLine(corners[4], corners[5], color, lineThickness);
         auto* e6 = DrawLine(corners[5], corners[6], color, lineThickness);
         auto* e7 = DrawLine(corners[6], corners[7], color, lineThickness);
         auto* e8 = DrawLine(corners[7], corners[4], color, lineThickness);
-        if (e5) SubmitPacket(e5);
-        if (e6) SubmitPacket(e6);
-        if (e7) SubmitPacket(e7);
-        if (e8) SubmitPacket(e8);
+        if (e5)
+            SubmitPacket(e5);
+        if (e6)
+            SubmitPacket(e6);
+        if (e7)
+            SubmitPacket(e7);
+        if (e8)
+            SubmitPacket(e8);
 
         // Vertical edges
-        auto* e9  = DrawLine(corners[0], corners[4], color, lineThickness);
+        auto* e9 = DrawLine(corners[0], corners[4], color, lineThickness);
         auto* e10 = DrawLine(corners[1], corners[5], color, lineThickness);
         auto* e11 = DrawLine(corners[2], corners[6], color, lineThickness);
         auto* e12 = DrawLine(corners[3], corners[7], color, lineThickness);
-        if (e9)  SubmitPacket(e9);
-        if (e10) SubmitPacket(e10);
-        if (e11) SubmitPacket(e11);
-        if (e12) SubmitPacket(e12);
+        if (e9)
+            SubmitPacket(e9);
+        if (e10)
+            SubmitPacket(e10);
+        if (e11)
+            SubmitPacket(e11);
+        if (e12)
+            SubmitPacket(e12);
     }
 
     void Renderer3D::DrawSphereColliderGizmo(const glm::vec3& position,
-                                              f32 radius,
-                                              const glm::vec3& color)
+                                             f32 radius,
+                                             const glm::vec3& color)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -3128,16 +3191,17 @@ namespace OloEngine
                 }
 
                 auto* seg = DrawLine(p1, p2, color, lineThickness);
-                if (seg) SubmitPacket(seg);
+                if (seg)
+                    SubmitPacket(seg);
             }
         }
     }
 
     void Renderer3D::DrawCapsuleColliderGizmo(const glm::vec3& position,
-                                               f32 radius,
-                                               f32 halfHeight,
-                                               const glm::quat& rotation,
-                                               const glm::vec3& color)
+                                              f32 radius,
+                                              f32 halfHeight,
+                                              const glm::quat& rotation,
+                                              const glm::vec3& color)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -3172,11 +3236,13 @@ namespace OloEngine
 
             // Top circle
             auto* topSeg = DrawLine(topCenter + offset1, topCenter + offset2, color, lineThickness);
-            if (topSeg) SubmitPacket(topSeg);
+            if (topSeg)
+                SubmitPacket(topSeg);
 
             // Bottom circle
             auto* bottomSeg = DrawLine(bottomCenter + offset1, bottomCenter + offset2, color, lineThickness);
-            if (bottomSeg) SubmitPacket(bottomSeg);
+            if (bottomSeg)
+                SubmitPacket(bottomSeg);
         }
 
         // Draw vertical lines connecting top and bottom
@@ -3186,7 +3252,8 @@ namespace OloEngine
             glm::vec3 offset = localRight * std::cos(angle) * radius + localForward * std::sin(angle) * radius;
 
             auto* vertLine = DrawLine(topCenter + offset, bottomCenter + offset, color, lineThickness);
-            if (vertLine) SubmitPacket(vertLine);
+            if (vertLine)
+                SubmitPacket(vertLine);
         }
 
         // Draw top hemisphere
@@ -3207,9 +3274,10 @@ namespace OloEngine
                 glm::vec3 offset1 = localRight * std::cos(theta) * r1 + localForward * std::sin(theta) * r1;
                 glm::vec3 offset2 = localRight * std::cos(theta) * r2 + localForward * std::sin(theta) * r2;
 
-                auto* arcSeg = DrawLine(topCenter + offset1 + localUp * y1, 
+                auto* arcSeg = DrawLine(topCenter + offset1 + localUp * y1,
                                         topCenter + offset2 + localUp * y2, color, lineThickness * 0.5f);
-                if (arcSeg) SubmitPacket(arcSeg);
+                if (arcSeg)
+                    SubmitPacket(arcSeg);
             }
         }
 
@@ -3231,9 +3299,10 @@ namespace OloEngine
                 glm::vec3 offset1 = localRight * std::cos(theta) * r1 + localForward * std::sin(theta) * r1;
                 glm::vec3 offset2 = localRight * std::cos(theta) * r2 + localForward * std::sin(theta) * r2;
 
-                auto* arcSeg = DrawLine(bottomCenter + offset1 - localUp * y1, 
+                auto* arcSeg = DrawLine(bottomCenter + offset1 - localUp * y1,
                                         bottomCenter + offset2 - localUp * y2, color, lineThickness * 0.5f);
-                if (arcSeg) SubmitPacket(arcSeg);
+                if (arcSeg)
+                    SubmitPacket(arcSeg);
             }
         }
     }

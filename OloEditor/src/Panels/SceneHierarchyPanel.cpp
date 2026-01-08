@@ -562,7 +562,7 @@ namespace OloEngine
         DrawComponent<MeshComponent>("Mesh", entity, [entity, scene = m_Context](auto& component) mutable
                                      {
 			ImGui::Text("Mesh Source: %s", component.m_MeshSource ? "Loaded" : "None");
-			
+
 			if (component.m_MeshSource)
 			{
 				ImGui::Text("Submeshes: %d", component.m_MeshSource->GetSubmeshes().Num());
@@ -601,7 +601,7 @@ namespace OloEngine
 					}
 				}
 			}
-			
+
 			ImGui::SameLine();
 
 			// Import animated model from file (adds skeleton, animation components)
@@ -668,7 +668,7 @@ namespace OloEngine
 								animStateComp.m_IsPlaying = false;
 								animStateComp.m_SourceFilePath = filepath; // Save for serialization
 								OLO_CORE_INFO("Added AnimationStateComponent: {} animations available", animStateComp.m_AvailableClips.size());
-								
+
 								// List all available animations
 								for (sizet i = 0; i < animStateComp.m_AvailableClips.size(); i++)
 								{
@@ -720,7 +720,7 @@ namespace OloEngine
 				}
 				currentPrimitive = 0; // Reset selection
 			}
-			
+
 			// Clear mesh button
 			if (component.m_MeshSource)
 			{
@@ -733,7 +733,7 @@ namespace OloEngine
         DrawComponent<ModelComponent>("Model", entity, [](auto& component)
                                       {
             ImGui::Text("Model: %s", component.IsLoaded() ? "Loaded" : "None");
-            
+
             if (component.IsLoaded())
             {
                 ImGui::Text("Meshes: %zu", component.m_Model->GetMeshCount());
@@ -741,8 +741,8 @@ namespace OloEngine
                 {
                     // Show just the filename, not the full path
                     auto lastSlash = component.m_FilePath.find_last_of("/\\");
-                    std::string filename = (lastSlash != std::string::npos) 
-                        ? component.m_FilePath.substr(lastSlash + 1) 
+                    std::string filename = (lastSlash != std::string::npos)
+                        ? component.m_FilePath.substr(lastSlash + 1)
                         : component.m_FilePath;
                     ImGui::Text("File: %s", filename.c_str());
                 }
@@ -765,7 +765,7 @@ namespace OloEngine
                     component.Reload();
                     if (component.IsLoaded())
                     {
-                        OLO_CORE_INFO("Imported model with materials: {} ({} meshes)", 
+                        OLO_CORE_INFO("Imported model with materials: {} ({} meshes)",
                             filepath, component.m_Model->GetMeshCount());
                     }
                     else
@@ -774,7 +774,7 @@ namespace OloEngine
                     }
                 }
             }
-            
+
             // Reload button
             if (component.IsLoaded())
             {
@@ -783,7 +783,7 @@ namespace OloEngine
                 {
                     component.Reload();
                 }
-                
+
                 ImGui::SameLine();
                 if (ImGui::Button("Clear##ModelComponent"))
                 {
@@ -861,18 +861,18 @@ namespace OloEngine
                 }
                 currentPreset = 0; // Reset to Custom after applying
             }
-            
+
             ImGui::Separator();
-            
+
             auto baseColor = component.m_Material.GetBaseColorFactor();
             glm::vec3 albedo(baseColor.r, baseColor.g, baseColor.b);
             if (ImGui::ColorEdit3("Albedo", glm::value_ptr(albedo)))
                 component.m_Material.SetBaseColorFactor(glm::vec4(albedo, baseColor.a));
-			
+
             f32 metallic = component.m_Material.GetMetallicFactor();
             if (ImGui::DragFloat("Metallic", &metallic, 0.01f, 0.0f, 1.0f))
                 component.m_Material.SetMetallicFactor(metallic);
-			
+
             f32 roughness = component.m_Material.GetRoughnessFactor();
             if (ImGui::DragFloat("Roughness", &roughness, 0.01f, 0.0f, 1.0f))
                 component.m_Material.SetRoughnessFactor(roughness); });
@@ -904,20 +904,20 @@ namespace OloEngine
 			ImGui::Checkbox("Cast Shadows##SpotLight", &component.m_CastShadows); });
 
         DrawComponent<EnvironmentMapComponent>("Environment Map", entity, [](auto& component)
-                                                {
+                                               {
             // Mode toggle
             ImGui::Checkbox("Use Cubemap Folder", &component.m_IsCubemapFolder);
             if (ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip("If enabled, specify a folder path containing:\nright.jpg, left.jpg, top.jpg, bottom.jpg, front.jpg, back.jpg\n\nIf disabled, specify an HDR/EXR equirectangular file.");
             }
-            
+
             // Current environment map display
             if (!component.m_FilePath.empty())
             {
                 auto lastSlash = component.m_FilePath.find_last_of("/\\");
-                std::string displayName = (lastSlash != std::string::npos) 
-                    ? component.m_FilePath.substr(lastSlash + 1) 
+                std::string displayName = (lastSlash != std::string::npos)
+                    ? component.m_FilePath.substr(lastSlash + 1)
                     : component.m_FilePath;
                 ImGui::Text("%s: %s", component.m_IsCubemapFolder ? "Folder" : "File", displayName.c_str());
             }
@@ -925,7 +925,7 @@ namespace OloEngine
             {
                 ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No environment map loaded");
             }
-            
+
             // Path input (editable)
             char pathBuffer[512];
             std::strncpy(pathBuffer, component.m_FilePath.c_str(), sizeof(pathBuffer) - 1);
@@ -935,7 +935,7 @@ namespace OloEngine
                 component.m_FilePath = pathBuffer;
                 component.m_EnvironmentMap = nullptr;  // Force reload
             }
-            
+
             // Browse button (for HDR files only; for cubemap folders, user types path)
             if (!component.m_IsCubemapFolder)
             {
@@ -955,7 +955,7 @@ namespace OloEngine
             {
                 ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Example: assets/textures/Skybox");
             }
-            
+
             if (!component.m_FilePath.empty())
             {
                 ImGui::SameLine();
@@ -966,12 +966,12 @@ namespace OloEngine
                     component.m_EnvironmentMap = nullptr;
                 }
             }
-            
+
             ImGui::Separator();
-            
+
             // Skybox settings
             ImGui::Checkbox("Enable Skybox##EnvMap", &component.m_EnableSkybox);
-            
+
             if (component.m_EnableSkybox)
             {
                 ImGui::DragFloat("Rotation##EnvMap", &component.m_Rotation, 1.0f, 0.0f, 360.0f, "%.1f deg");
@@ -979,12 +979,12 @@ namespace OloEngine
                 ImGui::DragFloat("Blur##EnvMap", &component.m_BlurAmount, 0.01f, 0.0f, 1.0f);
                 ImGui::ColorEdit3("Tint##EnvMap", glm::value_ptr(component.m_Tint));
             }
-            
+
             ImGui::Separator();
-            
+
             // IBL settings
             ImGui::Checkbox("Enable IBL##EnvMap", &component.m_EnableIBL);
-            
+
             if (component.m_EnableIBL)
             {
                 ImGui::DragFloat("IBL Intensity##EnvMap", &component.m_IBLIntensity, 0.01f, 0.0f, 5.0f);
@@ -1128,29 +1128,29 @@ namespace OloEngine
             {
                 ImGui::Text("File: %s", component.Source->GetPath());
             }
-            
+
             ImGui::DragFloat("Volume##AudioSource", &component.Config.VolumeMultiplier, 0.01f, 0.0f, 2.0f);
             ImGui::DragFloat("Pitch##AudioSource", &component.Config.PitchMultiplier, 0.01f, 0.1f, 3.0f);
             ImGui::Checkbox("Play On Awake##AudioSource", &component.Config.PlayOnAwake);
             ImGui::Checkbox("Looping##AudioSource", &component.Config.Looping);
-            
+
             ImGui::Separator();
             ImGui::Text("Spatialization");
             ImGui::Checkbox("Spatialization##AudioSource", &component.Config.Spatialization);
-            
+
             if (component.Config.Spatialization)
             {
                 const char* attenuationModels[] = { "None", "Inverse", "Linear", "Exponential" };
                 int currentModel = static_cast<int>(component.Config.AttenuationModel);
                 if (ImGui::Combo("Attenuation Model##AudioSource", &currentModel, attenuationModels, IM_ARRAYSIZE(attenuationModels)))
                     component.Config.AttenuationModel = static_cast<AttenuationModelType>(currentModel);
-                
+
                 ImGui::DragFloat("Roll Off##AudioSource", &component.Config.RollOff, 0.1f, 0.0f, 10.0f);
                 ImGui::DragFloat("Min Gain##AudioSource", &component.Config.MinGain, 0.01f, 0.0f, 1.0f);
                 ImGui::DragFloat("Max Gain##AudioSource", &component.Config.MaxGain, 0.01f, 0.0f, 2.0f);
                 ImGui::DragFloat("Min Distance##AudioSource", &component.Config.MinDistance, 0.1f, 0.0f, 100.0f);
                 ImGui::DragFloat("Max Distance##AudioSource", &component.Config.MaxDistance, 1.0f, 0.0f, 1000.0f);
-                
+
                 ImGui::Separator();
                 ImGui::Text("Cone Settings");
                 ImGui::DragFloat("Inner Angle##AudioSource", &component.Config.ConeInnerAngle, 1.0f, 0.0f, 360.0f);
@@ -1162,7 +1162,7 @@ namespace OloEngine
         DrawComponent<AudioListenerComponent>("Audio Listener", entity, [](auto& component)
                                               {
             ImGui::Checkbox("Active##AudioListener", &component.Active);
-            
+
             ImGui::Separator();
             ImGui::Text("Cone Settings");
             ImGui::DragFloat("Inner Angle##AudioListener", &component.Config.ConeInnerAngle, 1.0f, 0.0f, 360.0f);
@@ -1176,19 +1176,19 @@ namespace OloEngine
             int currentState = static_cast<int>(component.m_State);
             if (ImGui::Combo("State##AnimationState", &currentState, stateStrings, IM_ARRAYSIZE(stateStrings)))
                 component.m_State = static_cast<AnimationStateComponent::State>(currentState);
-            
+
             ImGui::Text("Current Clip: %s", component.m_CurrentClip ? "Loaded" : "None");
             ImGui::Text("Next Clip: %s", component.m_NextClip ? "Loaded" : "None");
-            
+
             ImGui::DragFloat("Current Time##AnimationState", &component.m_CurrentTime, 0.01f, 0.0f, 100.0f);
             ImGui::DragFloat("Blend Duration##AnimationState", &component.m_BlendDuration, 0.01f, 0.0f, 5.0f);
-            
+
             if (component.m_Blending)
             {
                 ImGui::Text("Blending: %.2f", component.m_BlendFactor);
                 ImGui::ProgressBar(component.m_BlendFactor, ImVec2(-1, 0), "Blend Progress");
             }
-            
+
             ImGui::Text("Bone Entities: %zu", component.m_BoneEntityIds.size()); });
 
         DrawComponent<SkeletonComponent>("Skeleton", entity, [](auto& component)
@@ -1198,7 +1198,7 @@ namespace OloEngine
             {
                 ImGui::Text("Bones: %zu", component.m_Skeleton->m_BoneNames.size());
             }
-            
+
             if (ImGui::Button("Invalidate Cache##Skeleton"))
             {
                 component.InvalidateCache();

@@ -53,32 +53,32 @@ namespace OloEngine
     {
         m_BaseDirectory = Project::GetAssetDirectory();
         m_CurrentDirectory = m_BaseDirectory;
-        
+
         // Load icons
         m_DirectoryIcon = Texture2D::Create("Resources/Icons/ContentBrowser/DirectoryIcon.png");
         m_FileIcon = Texture2D::Create("Resources/Icons/ContentBrowser/FileIcon.png");
-        
+
         // Load specialized icons (fallback to file icon if not found)
         m_ModelIcon = Texture2D::Create("Resources/Icons/ContentBrowser/ModelIcon.png");
         if (!m_ModelIcon || !m_ModelIcon->IsLoaded())
             m_ModelIcon = m_FileIcon;
-            
+
         m_SceneIcon = Texture2D::Create("Resources/Icons/ContentBrowser/SceneIcon.png");
         if (!m_SceneIcon || !m_SceneIcon->IsLoaded())
             m_SceneIcon = m_FileIcon;
-            
+
         m_ScriptIcon = Texture2D::Create("Resources/Icons/ContentBrowser/ScriptIcon.png");
         if (!m_ScriptIcon || !m_ScriptIcon->IsLoaded())
             m_ScriptIcon = m_FileIcon;
-            
+
         m_AudioIcon = Texture2D::Create("Resources/Icons/ContentBrowser/AudioIcon.png");
         if (!m_AudioIcon || !m_AudioIcon->IsLoaded())
             m_AudioIcon = m_FileIcon;
-            
+
         m_MaterialIcon = Texture2D::Create("Resources/Icons/ContentBrowser/MaterialIcon.png");
         if (!m_MaterialIcon || !m_MaterialIcon->IsLoaded())
             m_MaterialIcon = m_FileIcon;
-            
+
         m_ShaderIcon = Texture2D::Create("Resources/Icons/ContentBrowser/ShaderIcon.png");
         if (!m_ShaderIcon || !m_ShaderIcon->IsLoaded())
             m_ShaderIcon = m_FileIcon;
@@ -88,14 +88,14 @@ namespace OloEngine
     {
         if (std::filesystem::is_directory(filepath))
             return ContentFileType::Directory;
-            
+
         std::string ext = filepath.extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-        
+
         auto it = s_ExtensionToFileType.find(ext);
         if (it != s_ExtensionToFileType.end())
             return it->second;
-            
+
         return ContentFileType::Unknown;
     }
 
@@ -108,15 +108,15 @@ namespace OloEngine
         {
             m_CurrentDirectory = m_CurrentDirectory.parent_path();
         }
-        
+
         ImGui::SameLine();
-        
+
         // Create menu
         if (ImGui::Button("+ Create"))
         {
             ImGui::OpenPopup("CreateMenu");
         }
-        
+
         DrawCreateMenu();
 
         static f32 padding = 16.0f;
@@ -145,7 +145,7 @@ namespace OloEngine
             {
                 std::filesystem::path relativePath(path);
                 wchar_t const* const itemPath = relativePath.c_str();
-                
+
                 // Use different payload types for different file types
                 const char* payloadType = "CONTENT_BROWSER_ITEM";
                 switch (fileType)
@@ -168,15 +168,15 @@ namespace OloEngine
                     default:
                         break;
                 }
-                
+
                 ImGui::SetDragDropPayload(payloadType, itemPath, (std::wcslen(itemPath) + 1) * sizeof(wchar_t));
-                
+
                 // Also set generic payload for backward compatibility
                 if (payloadType != std::string_view("CONTENT_BROWSER_ITEM"))
                 {
                     ImGui::SetDragDropPayload("CONTENT_BROWSER_ITEM", itemPath, (std::wcslen(itemPath) + 1) * sizeof(wchar_t), ImGuiCond_Always);
                 }
-                
+
                 // Show preview tooltip
                 ImGui::Text("%s", filenameString.c_str());
                 ImGui::EndDragDropSource();
@@ -205,7 +205,7 @@ namespace OloEngine
                         m_AssetSelectedCallback(path, fileType);
                     }
                 }
-                
+
                 // Show tooltip with file info
                 ImGui::BeginTooltip();
                 ImGui::Text("%s", filenameString.c_str());
@@ -237,7 +237,7 @@ namespace OloEngine
                 }
                 ImGui::EndTooltip();
             }
-            
+
             ImGui::TextWrapped(filenameString.c_str());
 
             ImGui::NextColumn();
@@ -258,8 +258,10 @@ namespace OloEngine
         {
             totalCount++;
             ContentFileType type = GetFileType(entry.path());
-            if (type == ContentFileType::Model3D) modelCount++;
-            if (type == ContentFileType::Scene) sceneCount++;
+            if (type == ContentFileType::Model3D)
+                modelCount++;
+            if (type == ContentFileType::Scene)
+                sceneCount++;
         }
 
         ImGui::Separator(); // Draw a line to separate the status bar from the rest of the content.
@@ -311,9 +313,9 @@ namespace OloEngine
                 }
                 ImGui::EndMenu();
             }
-            
+
             ImGui::Separator();
-            
+
             if (ImGui::BeginMenu("3D Primitive"))
             {
                 if (ImGui::MenuItem("Cube"))
@@ -332,7 +334,7 @@ namespace OloEngine
                     CreateMeshPrimitiveFile("Torus");
                 ImGui::EndMenu();
             }
-            
+
             if (ImGui::BeginMenu("Material"))
             {
                 static char matName[256] = "NewMaterial";
@@ -350,17 +352,17 @@ namespace OloEngine
                     out << YAML::Key << "Roughness" << YAML::Value << 0.5f;
                     out << YAML::EndMap;
                     out << YAML::EndMap;
-                    
+
                     std::ofstream fout(matPath);
                     fout << out.c_str();
                     fout.close();
-                    
+
                     OLO_CORE_INFO("Created material: {}", matPath.string());
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::EndMenu();
             }
-            
+
             ImGui::EndPopup();
         }
     }
@@ -369,19 +371,19 @@ namespace OloEngine
     {
         if (ImGui::MenuItem("Open in Explorer"))
         {
-            #ifdef OLO_PLATFORM_WINDOWS
+#ifdef OLO_PLATFORM_WINDOWS
             std::string command = "explorer /select,\"" + path.string() + "\"";
             std::system(command.c_str());
-            #endif
+#endif
         }
-        
+
         if (ImGui::MenuItem("Copy Path"))
         {
             ImGui::SetClipboardText(path.string().c_str());
         }
-        
+
         ImGui::Separator();
-        
+
         switch (fileType)
         {
             case ContentFileType::Model3D:
@@ -402,9 +404,9 @@ namespace OloEngine
             default:
                 break;
         }
-        
+
         ImGui::Separator();
-        
+
         if (ImGui::MenuItem("Delete", nullptr, false, !std::filesystem::is_directory(path)))
         {
             std::filesystem::remove(path);
@@ -421,13 +423,13 @@ namespace OloEngine
         {
             filePath = m_CurrentDirectory / (baseName + "_" + std::to_string(counter++) + ".primitive");
         }
-        
+
         // Create primitive definition file
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Primitive" << YAML::Value << YAML::BeginMap;
         out << YAML::Key << "Type" << YAML::Value << primitiveType;
-        
+
         // Add default parameters based on type
         if (primitiveType == "Sphere" || primitiveType == "Icosphere")
         {
@@ -455,14 +457,14 @@ namespace OloEngine
             out << YAML::Key << "MajorSegments" << YAML::Value << 24;
             out << YAML::Key << "MinorSegments" << YAML::Value << 12;
         }
-        
+
         out << YAML::EndMap;
         out << YAML::EndMap;
-        
+
         std::ofstream fout(filePath);
         fout << out.c_str();
         fout.close();
-        
+
         OLO_CORE_INFO("Created primitive: {}", filePath.string());
     }
 
@@ -475,7 +477,7 @@ namespace OloEngine
         }
 
         ContentFileType fileType = GetFileType(filepath);
-        
+
         // Return type-specific icons
         switch (fileType)
         {

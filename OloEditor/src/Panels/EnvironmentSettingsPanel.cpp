@@ -67,9 +67,9 @@ namespace OloEngine
         if (ImGui::CollapsingHeader("Skybox", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::Indent();
-            
+
             ImGui::Checkbox("Enable Skybox", &m_Settings.EnableSkybox);
-            
+
             if (m_Settings.EnableSkybox)
             {
                 // Current skybox display
@@ -77,9 +77,9 @@ namespace OloEngine
                 {
                     // Show just filename
                     auto lastSlash = m_Settings.SkyboxPath.find_last_of("/\\");
-                    std::string filename = (lastSlash != std::string::npos) 
-                        ? m_Settings.SkyboxPath.substr(lastSlash + 1) 
-                        : m_Settings.SkyboxPath;
+                    std::string filename = (lastSlash != std::string::npos)
+                                               ? m_Settings.SkyboxPath.substr(lastSlash + 1)
+                                               : m_Settings.SkyboxPath;
                     ImGui::Text("Current: %s", filename.c_str());
                 }
                 else
@@ -91,16 +91,16 @@ namespace OloEngine
                 if (!m_AvailableHDRFiles.empty())
                 {
                     static int selectedHDR = -1;
-                    if (ImGui::BeginCombo("Available HDR Files", 
-                        selectedHDR >= 0 ? m_AvailableHDRFiles[selectedHDR].c_str() : "Select..."))
+                    if (ImGui::BeginCombo("Available HDR Files",
+                                          selectedHDR >= 0 ? m_AvailableHDRFiles[selectedHDR].c_str() : "Select..."))
                     {
                         for (int i = 0; i < static_cast<int>(m_AvailableHDRFiles.size()); i++)
                         {
                             auto lastSlash = m_AvailableHDRFiles[i].find_last_of("/\\");
-                            std::string filename = (lastSlash != std::string::npos) 
-                                ? m_AvailableHDRFiles[i].substr(lastSlash + 1) 
-                                : m_AvailableHDRFiles[i];
-                                
+                            std::string filename = (lastSlash != std::string::npos)
+                                                       ? m_AvailableHDRFiles[i].substr(lastSlash + 1)
+                                                       : m_AvailableHDRFiles[i];
+
                             if (ImGui::Selectable(filename.c_str(), selectedHDR == i))
                             {
                                 selectedHDR = i;
@@ -110,14 +110,14 @@ namespace OloEngine
                         ImGui::EndCombo();
                     }
                 }
-                
+
                 if (ImGui::Button("Refresh HDR List"))
                 {
                     m_NeedsHDRRefresh = true;
                 }
-                
+
                 ImGui::SameLine();
-                
+
                 if (ImGui::Button("Browse..."))
                 {
                     std::string filepath = FileDialogs::OpenFile(
@@ -128,17 +128,17 @@ namespace OloEngine
                         LoadEnvironmentMap(filepath);
                     }
                 }
-                
+
                 ImGui::SliderFloat("Rotation##Skybox", &m_Settings.SkyboxRotation, 0.0f, 360.0f, "%.1f deg");
                 ImGui::SliderFloat("Exposure##Skybox", &m_Settings.SkyboxExposure, 0.1f, 10.0f, "%.2f");
-                
+
                 if (m_Settings.EnvironmentMapAsset && ImGui::Button("Clear Skybox"))
                 {
                     m_Settings.EnvironmentMapAsset = nullptr;
                     m_Settings.SkyboxPath.clear();
                 }
             }
-            
+
             ImGui::Unindent();
         }
     }
@@ -148,15 +148,15 @@ namespace OloEngine
         if (ImGui::CollapsingHeader("Ambient Light", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::Indent();
-            
+
             ImGui::Checkbox("Enable Ambient", &m_Settings.EnableAmbientLight);
-            
+
             if (m_Settings.EnableAmbientLight)
             {
                 ImGui::ColorEdit3("Ambient Color", glm::value_ptr(m_Settings.AmbientColor));
                 ImGui::SliderFloat("Intensity##Ambient", &m_Settings.AmbientIntensity, 0.0f, 2.0f, "%.3f");
             }
-            
+
             ImGui::Unindent();
         }
     }
@@ -166,20 +166,20 @@ namespace OloEngine
         if (ImGui::CollapsingHeader("Image-Based Lighting"))
         {
             ImGui::Indent();
-            
+
             ImGui::Checkbox("Enable IBL", &m_Settings.EnableIBL);
-            
+
             if (m_Settings.EnableIBL)
             {
                 ImGui::SliderFloat("IBL Intensity", &m_Settings.IBLIntensity, 0.0f, 5.0f, "%.2f");
-                
+
                 if (m_Settings.EnvironmentMapAsset)
                 {
                     bool hasIBL = m_Settings.EnvironmentMapAsset->HasIBL();
                     ImGui::TextColored(
                         hasIBL ? ImVec4(0.2f, 0.8f, 0.2f, 1.0f) : ImVec4(0.8f, 0.5f, 0.2f, 1.0f),
                         hasIBL ? "IBL textures available" : "IBL not generated");
-                    
+
                     if (!hasIBL && ImGui::Button("Generate IBL"))
                     {
                         IBLConfiguration config;
@@ -192,7 +192,7 @@ namespace OloEngine
                     ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Load an environment map first");
                 }
             }
-            
+
             ImGui::Unindent();
         }
     }
@@ -202,21 +202,21 @@ namespace OloEngine
         if (ImGui::CollapsingHeader("Fog"))
         {
             ImGui::Indent();
-            
+
             ImGui::Checkbox("Enable Fog", &m_Settings.EnableFog);
-            
+
             if (m_Settings.EnableFog)
             {
                 ImGui::ColorEdit3("Fog Color", glm::value_ptr(m_Settings.FogColor));
                 ImGui::SliderFloat("Density", &m_Settings.FogDensity, 0.0f, 0.1f, "%.4f");
                 ImGui::DragFloat("Start Distance", &m_Settings.FogStart, 1.0f, 0.0f, 1000.0f);
                 ImGui::DragFloat("End Distance", &m_Settings.FogEnd, 1.0f, 0.0f, 2000.0f);
-                
+
                 // Ensure end > start
                 if (m_Settings.FogEnd < m_Settings.FogStart)
                     m_Settings.FogEnd = m_Settings.FogStart + 1.0f;
             }
-            
+
             ImGui::Unindent();
         }
     }
@@ -226,24 +226,24 @@ namespace OloEngine
         if (ImGui::CollapsingHeader("Tone Mapping & Post-Processing"))
         {
             ImGui::Indent();
-            
+
             const char* toneMappingModes[] = { "None", "Reinhard", "ACES", "Filmic", "Uncharted2" };
             int currentMode = static_cast<int>(m_Settings.ToneMapping);
             if (ImGui::Combo("Tone Mapping", &currentMode, toneMappingModes, IM_ARRAYSIZE(toneMappingModes)))
             {
                 m_Settings.ToneMapping = static_cast<EnvironmentSettings::ToneMappingMode>(currentMode);
             }
-            
+
             ImGui::SliderFloat("Exposure", &m_Settings.Exposure, 0.1f, 10.0f, "%.2f");
             ImGui::SliderFloat("Gamma", &m_Settings.Gamma, 1.0f, 3.0f, "%.2f");
-            
+
             if (ImGui::Button("Reset to Defaults"))
             {
                 m_Settings.ToneMapping = EnvironmentSettings::ToneMappingMode::ACES;
                 m_Settings.Exposure = 1.0f;
                 m_Settings.Gamma = 2.2f;
             }
-            
+
             ImGui::Unindent();
         }
     }
@@ -255,7 +255,7 @@ namespace OloEngine
         spec.Resolution = 512;
         spec.GenerateIBL = true;
         spec.GenerateMipmaps = true;
-        
+
         try
         {
             m_Settings.EnvironmentMapAsset = EnvironmentMap::CreateFromEquirectangular(filepath);

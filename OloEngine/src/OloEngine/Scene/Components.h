@@ -380,8 +380,8 @@ namespace OloEngine
     {
         glm::vec3 m_Color = { 1.0f, 1.0f, 1.0f };
         f32 m_Intensity = 1.0f;
-        f32 m_Range = 10.0f;  // Falloff range
-        f32 m_Attenuation = 2.0f;  // Attenuation power
+        f32 m_Range = 10.0f;      // Falloff range
+        f32 m_Attenuation = 2.0f; // Attenuation power
         bool m_CastShadows = false;
 
         PointLightComponent() = default;
@@ -394,8 +394,8 @@ namespace OloEngine
         glm::vec3 m_Color = { 1.0f, 1.0f, 1.0f };
         f32 m_Intensity = 1.0f;
         f32 m_Range = 10.0f;
-        f32 m_InnerCutoff = 12.5f;  // Inner cone angle in degrees
-        f32 m_OuterCutoff = 17.5f;  // Outer cone angle in degrees
+        f32 m_InnerCutoff = 12.5f; // Inner cone angle in degrees
+        f32 m_OuterCutoff = 17.5f; // Outer cone angle in degrees
         f32 m_Attenuation = 2.0f;
         bool m_CastShadows = false;
 
@@ -407,26 +407,26 @@ namespace OloEngine
     struct EnvironmentMapComponent
     {
         AssetHandle m_EnvironmentMapAsset = 0;
-        std::string m_FilePath;  // Path to HDR/EXR file OR folder containing cubemap faces
-        Ref<EnvironmentMap> m_EnvironmentMap;  // Cached environment map (loaded from file path)
-        
+        std::string m_FilePath;               // Path to HDR/EXR file OR folder containing cubemap faces
+        Ref<EnvironmentMap> m_EnvironmentMap; // Cached environment map (loaded from file path)
+
         // Cubemap mode: if true, m_FilePath is a folder with right.jpg, left.jpg, top.jpg, bottom.jpg, front.jpg, back.jpg
         // If false, m_FilePath is an HDR/EXR equirectangular file
-        bool m_IsCubemapFolder = true;  // Default to cubemap folder mode
-        
+        bool m_IsCubemapFolder = true; // Default to cubemap folder mode
+
         // Skybox display settings
         bool m_EnableSkybox = true;
-        f32 m_Rotation = 0.0f;      // Rotation around Y axis in degrees
-        f32 m_Exposure = 1.0f;      // Exposure multiplier
-        f32 m_BlurAmount = 0.0f;    // Blur for background (0 = sharp, 1 = fully blurred)
-        
+        f32 m_Rotation = 0.0f;   // Rotation around Y axis in degrees
+        f32 m_Exposure = 1.0f;   // Exposure multiplier
+        f32 m_BlurAmount = 0.0f; // Blur for background (0 = sharp, 1 = fully blurred)
+
         // IBL settings
         bool m_EnableIBL = true;
         f32 m_IBLIntensity = 1.0f;
-        
+
         // Tint/color adjustment
         glm::vec3 m_Tint = glm::vec3(1.0f);
-        
+
         EnvironmentMapComponent() = default;
         EnvironmentMapComponent(const EnvironmentMapComponent&) = default;
         explicit EnvironmentMapComponent(const std::string& filepath) : m_FilePath(filepath) {}

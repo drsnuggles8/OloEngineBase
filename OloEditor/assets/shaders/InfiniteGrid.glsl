@@ -28,15 +28,15 @@ vec3 UnprojectPoint(float x, float y, float z, mat4 viewInverse, mat4 projInvers
 void main() {
     mat4 viewInverse = inverse(u_View);
     mat4 projInverse = inverse(u_Projection);
-    
+
     // Unproject to get near and far points on the grid plane
     // Standard depth: near plane is at z=-1 in NDC, far plane is at z=1
     v_NearPoint = UnprojectPoint(a_Position.x, a_Position.y, -1.0, viewInverse, projInverse);
     v_FarPoint = UnprojectPoint(a_Position.x, a_Position.y, 1.0, viewInverse, projInverse);
-    
+
     v_View = u_View;
     v_Projection = u_Projection;
-    
+
     gl_Position = vec4(a_Position, 1.0);
 }
 
@@ -62,9 +62,9 @@ vec4 Grid(vec3 fragPos3D, float scale, bool drawAxis) {
     float line = min(grid.x, grid.y);
     float minimumz = min(derivative.y, 1.0);
     float minimumx = min(derivative.x, 1.0);
-    
+
     vec4 color = vec4(0.3, 0.3, 0.3, 1.0 - min(line, 1.0));
-    
+
     // X axis (red) - when Z is near 0
     if (drawAxis && fragPos3D.z > -0.1 * minimumz && fragPos3D.z < 0.1 * minimumz) {
         color.rgb = vec3(1.0, 0.3, 0.3);
@@ -75,7 +75,7 @@ vec4 Grid(vec3 fragPos3D, float scale, bool drawAxis) {
         color.rgb = vec3(0.3, 0.3, 1.0);
         color.a = 1.0;
     }
-    
+
     return color;
 }
 
@@ -97,31 +97,31 @@ float ComputeLinearDepth(vec3 pos) {
 void main() {
     // Calculate t for ray-plane intersection (Y = 0 plane)
     float t = -v_NearPoint.y / (v_FarPoint.y - v_NearPoint.y);
-    
+
     // Calculate 3D position on the grid plane
     vec3 fragPos3D = v_NearPoint + t * (v_FarPoint - v_NearPoint);
-    
+
     // Compute depth for depth testing
     float depth = ComputeDepth(fragPos3D);
-    
+
     // Only render if the plane intersection is valid (t > 0) and in front of camera
     if (t > 0.0) {
         // Render grid at two scales for better visibility
         vec4 gridColor = Grid(fragPos3D, c_GridScale, true);
         gridColor += Grid(fragPos3D, c_GridScale * 0.1, true) * 0.5;
-        
+
         // Distance-based fade
         float linearDepth = ComputeLinearDepth(fragPos3D);
         float fading = max(0.0, 1.0 - linearDepth * 2.0);
-        
+
         // Apply fading
         gridColor.a *= fading;
-        
+
         // Discard fully transparent fragments
         if (gridColor.a < 0.01) {
             discard;
         }
-        
+
         FragColor = gridColor;
         gl_FragDepth = depth;
         EntityID = -1;  // Grid is not pickable

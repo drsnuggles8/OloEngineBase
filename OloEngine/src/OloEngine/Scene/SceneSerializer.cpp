@@ -926,7 +926,6 @@ namespace OloEngine
                     }
                 }
 
-
                 if (auto dirLightComponent = entity["DirectionalLightComponent"]; dirLightComponent)
                 {
                     auto& dirLight = deserializedEntity.AddComponent<DirectionalLightComponent>();
@@ -1107,7 +1106,7 @@ namespace OloEngine
                     anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
                     anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
                     anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
-                    
+
                     // Load source file path and reload animated model if available
                     if (animComponent["SourceFilePath"])
                     {
@@ -1130,10 +1129,10 @@ namespace OloEngine
                                         anim.m_CurrentClip = anim.m_AvailableClips[0];
                                         anim.m_CurrentClipIndex = 0;
                                     }
-                                    OLO_CORE_INFO("Deserialized AnimationStateComponent: loaded {} clips from '{}'", 
-                                        anim.m_AvailableClips.size(), anim.m_SourceFilePath);
+                                    OLO_CORE_INFO("Deserialized AnimationStateComponent: loaded {} clips from '{}'",
+                                                  anim.m_AvailableClips.size(), anim.m_SourceFilePath);
                                 }
-                                
+
                                 // Update or add MeshComponent with loaded mesh data
                                 if (!animatedModel->GetMeshes().empty())
                                 {
@@ -1145,7 +1144,7 @@ namespace OloEngine
                                     meshComp.m_MeshSource = animatedModel->GetMeshes()[0];
                                     OLO_CORE_INFO("Deserialized MeshComponent: loaded mesh from animated model");
                                 }
-                                
+
                                 // Update or add SkeletonComponent with loaded skeleton data
                                 if (animatedModel->HasSkeleton())
                                 {
@@ -1155,10 +1154,10 @@ namespace OloEngine
                                     }
                                     auto& skelComp = deserializedEntity.GetComponent<SkeletonComponent>();
                                     skelComp.m_Skeleton = animatedModel->GetSkeleton();
-                                    OLO_CORE_INFO("Deserialized SkeletonComponent: loaded {} bones from animated model", 
-                                        skelComp.m_Skeleton ? skelComp.m_Skeleton->m_BoneNames.size() : 0);
+                                    OLO_CORE_INFO("Deserialized SkeletonComponent: loaded {} bones from animated model",
+                                                  skelComp.m_Skeleton ? skelComp.m_Skeleton->m_BoneNames.size() : 0);
                                 }
-                                
+
                                 // Update MaterialComponent if model has materials
                                 if (!animatedModel->GetMaterials().empty())
                                 {
@@ -1679,7 +1678,7 @@ namespace OloEngine
                     anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
                     anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
                     anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
-                    
+
                     // Load source file path and reload animated model if available
                     if (animComponent["SourceFilePath"])
                     {
@@ -1702,10 +1701,10 @@ namespace OloEngine
                                         anim.m_CurrentClip = anim.m_AvailableClips[0];
                                         anim.m_CurrentClipIndex = 0;
                                     }
-                                    OLO_CORE_INFO("Deserialized AnimationStateComponent: loaded {} clips from '{}'", 
-                                        anim.m_AvailableClips.size(), anim.m_SourceFilePath);
+                                    OLO_CORE_INFO("Deserialized AnimationStateComponent: loaded {} clips from '{}'",
+                                                  anim.m_AvailableClips.size(), anim.m_SourceFilePath);
                                 }
-                                
+
                                 // Update or add MeshComponent with loaded mesh data
                                 if (!animatedModel->GetMeshes().empty())
                                 {
@@ -1716,7 +1715,7 @@ namespace OloEngine
                                     auto& meshComp = deserializedEntity.GetComponent<MeshComponent>();
                                     meshComp.m_MeshSource = animatedModel->GetMeshes()[0];
                                 }
-                                
+
                                 // Update or add SkeletonComponent with loaded skeleton data
                                 if (animatedModel->HasSkeleton())
                                 {
@@ -1727,7 +1726,7 @@ namespace OloEngine
                                     auto& skelComp = deserializedEntity.GetComponent<SkeletonComponent>();
                                     skelComp.m_Skeleton = animatedModel->GetSkeleton();
                                 }
-                                
+
                                 // Update MaterialComponent if model has materials
                                 if (!animatedModel->GetMaterials().empty())
                                 {

@@ -848,9 +848,9 @@ void Sandbox3D::RenderLightingTestingScene()
     meshDescriptors.push_back({ m_SphereMesh,
                                 sphereMatrix,
                                 m_SilverMaterial,
-                                true,   // IsStatic
-                                -1,     // EntityID
-                                false,  // IsAnimated
+                                true,  // IsStatic
+                                -1,    // EntityID
+                                false, // IsAnimated
                                 nullptr });
 
     // Textured sphere on the left
@@ -859,9 +859,9 @@ void Sandbox3D::RenderLightingTestingScene()
     meshDescriptors.push_back({ m_SphereMesh,
                                 texturedSphereMatrix,
                                 m_TexturedMaterial,
-                                true,   // IsStatic
-                                -1,     // EntityID
-                                false,  // IsAnimated
+                                true,  // IsStatic
+                                -1,    // EntityID
+                                false, // IsAnimated
                                 nullptr });
 
     // Submit all meshes in parallel

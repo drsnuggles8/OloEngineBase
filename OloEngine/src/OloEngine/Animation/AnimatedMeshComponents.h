@@ -78,7 +78,7 @@ namespace OloEngine
     struct ModelComponent
     {
         Ref<Model> m_Model;
-        std::string m_FilePath;  // Original file path for serialization/reload
+        std::string m_FilePath; // Original file path for serialization/reload
         bool m_Visible = true;
 
         ModelComponent() = default;
@@ -102,7 +102,10 @@ namespace OloEngine
             }
         }
 
-        [[nodiscard]] bool IsLoaded() const { return m_Model != nullptr && m_Model->GetMeshCount() > 0; }
+        [[nodiscard]] bool IsLoaded() const
+        {
+            return m_Model != nullptr && m_Model->GetMeshCount() > 0;
+        }
     };
 
     /**
@@ -123,16 +126,16 @@ namespace OloEngine
 
         State m_State = State::Idle;
         Ref<AnimationClip> m_CurrentClip;
-        Ref<AnimationClip> m_NextClip; // For blending
+        Ref<AnimationClip> m_NextClip;                    // For blending
         std::vector<Ref<AnimationClip>> m_AvailableClips; // All available animation clips from the model
-        int m_CurrentClipIndex = 0; // Index into m_AvailableClips
+        int m_CurrentClipIndex = 0;                       // Index into m_AvailableClips
         float m_CurrentTime = 0.0f;
         float m_NextTime = 0.0f;
         float m_BlendFactor = 0.0f; // 0 = current, 1 = next
         bool m_Blending = false;
         float m_BlendDuration = 0.3f; // seconds
         float m_BlendTime = 0.0f;
-        bool m_IsPlaying = false; // Whether animation is currently playing
+        bool m_IsPlaying = false;     // Whether animation is currently playing
         std::string m_SourceFilePath; // Path to the animated model file for serialization/reload
 
         // Bone entity management

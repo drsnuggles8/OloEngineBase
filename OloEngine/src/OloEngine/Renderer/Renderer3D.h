@@ -127,7 +127,7 @@ namespace OloEngine
         static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
         static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
         static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
-        
+
         // Grid rendering (returns command packet for deferred execution)
         static CommandPacket* DrawInfiniteGrid(f32 gridScale = 1.0f);
 
@@ -172,9 +172,9 @@ namespace OloEngine
          * @param intensity Light intensity (affects gizmo brightness)
          */
         static void DrawDirectionalLightGizmo(const glm::vec3& position,
-                                               const glm::vec3& direction,
-                                               const glm::vec3& color = glm::vec3(1.0f, 0.9f, 0.3f),
-                                               f32 intensity = 1.0f);
+                                              const glm::vec3& direction,
+                                              const glm::vec3& color = glm::vec3(1.0f, 0.9f, 0.3f),
+                                              f32 intensity = 1.0f);
 
         /**
          * @brief Draw a point light gizmo (sphere showing range)
@@ -184,9 +184,9 @@ namespace OloEngine
          * @param showRangeSphere Whether to draw the range sphere
          */
         static void DrawPointLightGizmo(const glm::vec3& position,
-                                         f32 range,
-                                         const glm::vec3& color = glm::vec3(1.0f, 0.8f, 0.2f),
-                                         bool showRangeSphere = true);
+                                        f32 range,
+                                        const glm::vec3& color = glm::vec3(1.0f, 0.8f, 0.2f),
+                                        bool showRangeSphere = true);
 
         /**
          * @brief Draw a spot light gizmo (cone showing direction and angle)
@@ -198,11 +198,11 @@ namespace OloEngine
          * @param color Light color for the gizmo
          */
         static void DrawSpotLightGizmo(const glm::vec3& position,
-                                        const glm::vec3& direction,
-                                        f32 range,
-                                        f32 innerCutoff,
-                                        f32 outerCutoff,
-                                        const glm::vec3& color = glm::vec3(1.0f, 0.8f, 0.2f));
+                                       const glm::vec3& direction,
+                                       f32 range,
+                                       f32 innerCutoff,
+                                       f32 outerCutoff,
+                                       const glm::vec3& color = glm::vec3(1.0f, 0.8f, 0.2f));
 
         /**
          * @brief Draw an audio source range gizmo (spheres showing min/max distance)
@@ -212,9 +212,9 @@ namespace OloEngine
          * @param color Gizmo color
          */
         static void DrawAudioSourceGizmo(const glm::vec3& position,
-                                          f32 minDistance,
-                                          f32 maxDistance,
-                                          const glm::vec3& color = glm::vec3(0.2f, 0.6f, 1.0f));
+                                         f32 minDistance,
+                                         f32 maxDistance,
+                                         const glm::vec3& color = glm::vec3(0.2f, 0.6f, 1.0f));
 
         /**
          * @brief Draw world axis helper at origin
@@ -234,9 +234,9 @@ namespace OloEngine
          * @param color Wireframe color
          */
         static void DrawBoxColliderGizmo(const glm::vec3& position,
-                                          const glm::vec3& halfExtents,
-                                          const glm::quat& rotation = glm::quat(1, 0, 0, 0),
-                                          const glm::vec3& color = glm::vec3(0.0f, 1.0f, 0.0f));
+                                         const glm::vec3& halfExtents,
+                                         const glm::quat& rotation = glm::quat(1, 0, 0, 0),
+                                         const glm::vec3& color = glm::vec3(0.0f, 1.0f, 0.0f));
 
         /**
          * @brief Draw a wireframe sphere collider gizmo
@@ -245,8 +245,8 @@ namespace OloEngine
          * @param color Wireframe color
          */
         static void DrawSphereColliderGizmo(const glm::vec3& position,
-                                             f32 radius,
-                                             const glm::vec3& color = glm::vec3(0.0f, 1.0f, 0.0f));
+                                            f32 radius,
+                                            const glm::vec3& color = glm::vec3(0.0f, 1.0f, 0.0f));
 
         /**
          * @brief Draw a wireframe capsule collider gizmo
@@ -257,10 +257,10 @@ namespace OloEngine
          * @param color Wireframe color
          */
         static void DrawCapsuleColliderGizmo(const glm::vec3& position,
-                                              f32 radius,
-                                              f32 halfHeight,
-                                              const glm::quat& rotation = glm::quat(1, 0, 0, 0),
-                                              const glm::vec3& color = glm::vec3(0.0f, 1.0f, 0.0f));
+                                             f32 radius,
+                                             f32 halfHeight,
+                                             const glm::quat& rotation = glm::quat(1, 0, 0, 0),
+                                             const glm::vec3& color = glm::vec3(0.0f, 1.0f, 0.0f));
 
         // ECS Animated Mesh Rendering
         static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);
@@ -355,7 +355,7 @@ namespace OloEngine
             glm::mat4 Transform = glm::mat4(1.0f);
             Material MaterialData;
             bool IsStatic = true;
-            i32 EntityID = -1;  // Entity ID for picking (-1 = no entity)
+            i32 EntityID = -1; // Entity ID for picking (-1 = no entity)
             // For animated meshes
             bool IsAnimated = false;
             const std::vector<glm::mat4>* BoneMatrices = nullptr;
@@ -513,7 +513,7 @@ namespace OloEngine
             Ref<Shader> PBRMultiLightSkinnedShader;
             Ref<Shader> SkyboxShader;
             Ref<Shader> InfiniteGridShader;
-            Ref<VertexArray> FullscreenQuadVAO;  // Fullscreen quad for grid and post-processing
+            Ref<VertexArray> FullscreenQuadVAO; // Fullscreen quad for grid and post-processing
             Ref<UniformBuffer> CameraUBO;
             Ref<UniformBuffer> MaterialUBO;
             Ref<UniformBuffer> LightPropertiesUBO;

@@ -31,7 +31,10 @@ namespace OloEngine
 
         // Callback for when an asset is selected (optional)
         using AssetSelectedCallback = std::function<void(const std::filesystem::path&, ContentFileType)>;
-        void SetAssetSelectedCallback(AssetSelectedCallback callback) { m_AssetSelectedCallback = callback; }
+        void SetAssetSelectedCallback(AssetSelectedCallback callback)
+        {
+            m_AssetSelectedCallback = callback;
+        }
 
       private:
         Ref<Texture2D>& GetFileIcon(const std::filesystem::path& filepath);

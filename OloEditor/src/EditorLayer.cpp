@@ -107,7 +107,7 @@ namespace OloEngine
             m_Framebuffer->Resize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
             m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
             m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
-            
+
             // Also resize Renderer3D's render graph for 3D mode
             if (m_Is3DMode)
             {
@@ -117,7 +117,7 @@ namespace OloEngine
 
         // Render
         Renderer2D::ResetStats();
-        
+
         // In 3D mode, Renderer3D manages its own framebuffer via RenderGraph
         // In 2D mode, we use the editor's framebuffer
         if (!m_Is3DMode)
@@ -451,7 +451,7 @@ namespace OloEngine
         {
             return;
         }
-        
+
         if ((m_GizmoType != -1) && (!Input::IsKeyPressed(Key::LeftAlt)))
         {
             ImGuizmo::SetOrthographic(false);
@@ -614,7 +614,7 @@ namespace OloEngine
             m_AnimationPanel.SetSelectedEntity(m_SceneHierarchyPanel.GetSelectedEntity());
             m_AnimationPanel.OnImGuiRender();
         }
-        
+
         // Environment Settings Panel
         if (m_ShowEnvironmentSettings)
         {
@@ -627,7 +627,7 @@ namespace OloEngine
     {
         ImGui::Begin("Settings");
         ImGui::Checkbox("Show physics colliders", &m_ShowPhysicsColliders);
-        
+
         // 3D Mode toggle with lazy initialization
         bool was3DMode = m_Is3DMode;
         ImGui::Checkbox("3D Mode", &m_Is3DMode);
@@ -940,12 +940,12 @@ namespace OloEngine
     {
         // In 3D mode, overlays (grid, light gizmos) are rendered as part of Scene::RenderScene3D
         // to avoid calling BeginScene/EndScene multiple times which would reset the frame.
-        // 
+        //
         // This function is kept for any future 3D overlay rendering that needs to happen
         // AFTER the scene has been rendered (e.g., UI overlays, debug info).
         //
         // Currently, all 3D overlays are integrated into RenderScene3D in Scene.cpp.
-        
+
         // Note: Selection highlight could be done here if needed, but currently
         // we're keeping it simple by integrating everything into the scene render.
     }

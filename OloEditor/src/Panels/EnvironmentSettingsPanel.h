@@ -15,23 +15,23 @@ namespace OloEngine
         std::string SkyboxPath;
         float SkyboxRotation = 0.0f;
         float SkyboxExposure = 1.0f;
-        
+
         // Ambient lighting
         bool EnableAmbientLight = true;
         glm::vec3 AmbientColor = glm::vec3(0.1f);
         float AmbientIntensity = 0.3f;
-        
+
         // IBL (Image-Based Lighting)
         bool EnableIBL = true;
         float IBLIntensity = 1.0f;
-        
+
         // Fog settings
         bool EnableFog = false;
         glm::vec3 FogColor = glm::vec3(0.5f, 0.6f, 0.7f);
         float FogDensity = 0.01f;
         float FogStart = 10.0f;
         float FogEnd = 100.0f;
-        
+
         // Tone mapping
         enum class ToneMappingMode : int
         {
@@ -53,11 +53,20 @@ namespace OloEngine
         ~EnvironmentSettingsPanel() = default;
 
         void OnImGuiRender();
-        
-        void SetContext(const Ref<Scene>& scene) { m_Context = scene; }
-        
-        EnvironmentSettings& GetSettings() { return m_Settings; }
-        const EnvironmentSettings& GetSettings() const { return m_Settings; }
+
+        void SetContext(const Ref<Scene>& scene)
+        {
+            m_Context = scene;
+        }
+
+        EnvironmentSettings& GetSettings()
+        {
+            return m_Settings;
+        }
+        const EnvironmentSettings& GetSettings() const
+        {
+            return m_Settings;
+        }
 
       private:
         void DrawSkyboxSection();
@@ -65,13 +74,13 @@ namespace OloEngine
         void DrawIBLSection();
         void DrawFogSection();
         void DrawToneMappingSection();
-        
+
         void LoadEnvironmentMap(const std::string& filepath);
 
       private:
         Ref<Scene> m_Context;
         EnvironmentSettings m_Settings;
-        
+
         // Cached HDR file paths for dropdown
         std::vector<std::string> m_AvailableHDRFiles;
         bool m_NeedsHDRRefresh = true;

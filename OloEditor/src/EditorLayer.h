@@ -121,9 +121,9 @@ namespace OloEngine
 
         glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 
-        int m_GizmoType = 0;  // Default to Translate (ImGuizmo::TRANSLATE) for immediate usability
+        int m_GizmoType = 0; // Default to Translate (ImGuizmo::TRANSLATE) for immediate usability
         bool m_ShowPhysicsColliders = false;
-        bool m_Is3DMode = false;  // Toggle for 2D/3D rendering
+        bool m_Is3DMode = false; // Toggle for 2D/3D rendering
 
         // Debug windows
         bool m_ShowShaderDebugger = false;

@@ -72,16 +72,16 @@ namespace OloEngine
         }
 
         DrawAnimationControls(m_SelectedEntity);
-        
+
         ImGui::Separator();
-        
+
         DrawAnimationTimeline(m_SelectedEntity);
-        
+
         if (hasSkeleton)
         {
             ImGui::Separator();
             DrawSkeletonVisualization(m_SelectedEntity);
-            
+
             ImGui::Separator();
             DrawBoneHierarchy(m_SelectedEntity);
         }
@@ -100,7 +100,7 @@ namespace OloEngine
         auto& animState = entity.GetComponent<AnimationStateComponent>();
 
         ImGui::Text("Animation Playback");
-        
+
         // Playback controls
         ImGui::BeginGroup();
         {
@@ -121,9 +121,9 @@ namespace OloEngine
                     m_IsPlaying = true;
                 }
             }
-            
+
             ImGui::SameLine();
-            
+
             // Stop button (reset to beginning)
             if (ImGui::Button("Stop##AnimPlayback"))
             {
@@ -131,17 +131,17 @@ namespace OloEngine
                 m_IsPlaying = false;
                 animState.m_CurrentTime = 0.0f;
             }
-            
+
             ImGui::SameLine();
-            
+
             // Step backward
             if (ImGui::Button("<<##AnimPlayback"))
             {
                 animState.m_CurrentTime = std::max(0.0f, animState.m_CurrentTime - 0.1f);
             }
-            
+
             ImGui::SameLine();
-            
+
             // Step forward
             if (ImGui::Button(">>##AnimPlayback"))
             {
@@ -149,15 +149,15 @@ namespace OloEngine
             }
         }
         ImGui::EndGroup();
-        
+
         // Playback speed
         ImGui::DragFloat("Playback Speed##AnimPlayback", &m_PlaybackSpeed, 0.01f, 0.0f, 5.0f);
-        
+
         // Loop toggle
         ImGui::Checkbox("Loop##AnimPlayback", &m_LoopPlayback);
-        
+
         ImGui::Separator();
-        
+
         // Animation clip selector dropdown
         if (!animState.m_AvailableClips.empty())
         {
@@ -171,7 +171,7 @@ namespace OloEngine
                     previewLabel = clip->Name.empty() ? "(unnamed)" : clip->Name;
                 }
             }
-            
+
             if (ImGui::BeginCombo("Animation Clip##AnimControl", previewLabel.c_str()))
             {
                 for (int i = 0; i < static_cast<int>(animState.m_AvailableClips.size()); i++)
@@ -180,16 +180,16 @@ namespace OloEngine
                     bool isSelected = (i == selectedClip);
                     std::string itemLabel = clip ? (clip->Name.empty() ? "(unnamed)" : clip->Name) : "(null)";
                     itemLabel += "##" + std::to_string(i); // Ensure unique ID
-                    
+
                     if (ImGui::Selectable(itemLabel.c_str(), isSelected))
                     {
                         animState.m_CurrentClipIndex = i;
                         animState.m_CurrentClip = animState.m_AvailableClips[i];
                         animState.m_CurrentTime = 0.0f;
-                        OLO_CORE_INFO("Switched to animation [{}]: '{}'", i, 
-                            animState.m_CurrentClip ? animState.m_CurrentClip->Name : "(null)");
+                        OLO_CORE_INFO("Switched to animation [{}]: '{}'", i,
+                                      animState.m_CurrentClip ? animState.m_CurrentClip->Name : "(null)");
                     }
-                    
+
                     if (isSelected)
                     {
                         ImGui::SetItemDefaultFocus();
@@ -208,12 +208,12 @@ namespace OloEngine
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "No animation clips available");
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Use 'Import Animated Model...' to load");
         }
-        
+
         // Current clip info
         if (animState.m_CurrentClip)
         {
-            ImGui::Text("Current Clip: %s", 
-                animState.m_CurrentClip->Name.empty() ? "(unnamed)" : animState.m_CurrentClip->Name.c_str());
+            ImGui::Text("Current Clip: %s",
+                        animState.m_CurrentClip->Name.empty() ? "(unnamed)" : animState.m_CurrentClip->Name.c_str());
             ImGui::Text("Duration: %.2f s", animState.m_CurrentClip->Duration);
             ImGui::Text("Current Time: %.3f s", animState.m_CurrentTime);
         }
@@ -221,7 +221,7 @@ namespace OloEngine
         {
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Current Clip: None");
         }
-        
+
         // Blending info
         if (animState.m_Blending)
         {
@@ -229,16 +229,16 @@ namespace OloEngine
             ImGui::ProgressBar(animState.m_BlendFactor, ImVec2(-1, 0), "Blend");
             ImGui::DragFloat("Blend Duration##AnimControl", &animState.m_BlendDuration, 0.01f, 0.0f, 5.0f);
         }
-        
+
         // Update animation if playing (editor preview mode)
         if (animState.m_IsPlaying && animState.m_CurrentClip)
         {
             // Get delta time from ImGui (for editor preview only)
             f32 deltaTime = ImGui::GetIO().DeltaTime * m_PlaybackSpeed;
-            
+
             // Get clip duration from the actual clip
             f32 clipDuration = animState.m_CurrentClip->Duration;
-            
+
             // Update skeleton transforms if we have a skeleton
             if (entity.HasComponent<SkeletonComponent>())
             {
@@ -254,7 +254,7 @@ namespace OloEngine
                 // No skeleton, just advance time manually
                 animState.m_CurrentTime += deltaTime;
             }
-            
+
             // Handle looping
             if (animState.m_CurrentTime > clipDuration)
             {
@@ -279,7 +279,7 @@ namespace OloEngine
         auto& animState = entity.GetComponent<AnimationStateComponent>();
 
         ImGui::Text("Timeline");
-        
+
         // Timeline zoom controls
         ImGui::SetNextItemWidth(100.0f);
         ImGui::DragFloat("Zoom##Timeline", &m_TimelineZoom, 0.1f, 0.1f, 10.0f);
@@ -289,42 +289,40 @@ namespace OloEngine
             m_TimelineZoom = 1.0f;
             m_TimelineOffset = 0.0f;
         }
-        
+
         // Get actual clip duration
         f32 clipDuration = animState.m_CurrentClip ? animState.m_CurrentClip->Duration : 2.0f;
-        
+
         ImGui::SetNextItemWidth(-1);
         if (ImGui::SliderFloat("##TimelineScrubber", &animState.m_CurrentTime, 0.0f, clipDuration, "Time: %.3f s"))
         {
             // User is scrubbing, pause playback
             m_IsPlaying = false;
         }
-        
+
         // Visual timeline representation
         ImVec2 timelinePos = ImGui::GetCursorScreenPos();
         ImVec2 timelineSize = ImVec2(ImGui::GetContentRegionAvail().x, 40.0f);
-        
+
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        
+
         // Timeline background
         drawList->AddRectFilled(
             timelinePos,
             ImVec2(timelinePos.x + timelineSize.x, timelinePos.y + timelineSize.y),
-            IM_COL32(40, 40, 40, 255)
-        );
-        
+            IM_COL32(40, 40, 40, 255));
+
         // Timeline border
         drawList->AddRect(
             timelinePos,
             ImVec2(timelinePos.x + timelineSize.x, timelinePos.y + timelineSize.y),
-            IM_COL32(80, 80, 80, 255)
-        );
-        
+            IM_COL32(80, 80, 80, 255));
+
         // Time markers
         f32 visibleDuration = clipDuration / m_TimelineZoom;
         f32 pixelsPerSecond = timelineSize.x / visibleDuration;
         f32 markerInterval = 0.5f; // Marker every 0.5 seconds
-        
+
         for (f32 t = 0.0f; t <= clipDuration; t += markerInterval)
         {
             f32 x = timelinePos.x + (t - m_TimelineOffset) * pixelsPerSecond;
@@ -333,11 +331,10 @@ namespace OloEngine
                 drawList->AddLine(
                     ImVec2(x, timelinePos.y),
                     ImVec2(x, timelinePos.y + 10.0f),
-                    IM_COL32(100, 100, 100, 255)
-                );
+                    IM_COL32(100, 100, 100, 255));
             }
         }
-        
+
         // Playhead
         f32 playheadX = timelinePos.x + (animState.m_CurrentTime - m_TimelineOffset) * pixelsPerSecond;
         if (playheadX >= timelinePos.x && playheadX <= timelinePos.x + timelineSize.x)
@@ -346,18 +343,16 @@ namespace OloEngine
                 ImVec2(playheadX, timelinePos.y),
                 ImVec2(playheadX, timelinePos.y + timelineSize.y),
                 IM_COL32(255, 100, 100, 255),
-                2.0f
-            );
-            
+                2.0f);
+
             // Playhead triangle
             drawList->AddTriangleFilled(
                 ImVec2(playheadX - 5.0f, timelinePos.y),
                 ImVec2(playheadX + 5.0f, timelinePos.y),
                 ImVec2(playheadX, timelinePos.y + 8.0f),
-                IM_COL32(255, 100, 100, 255)
-            );
+                IM_COL32(255, 100, 100, 255));
         }
-        
+
         // Make timeline interactive
         ImGui::InvisibleButton("##TimelineInteract", timelineSize);
         if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
@@ -367,7 +362,7 @@ namespace OloEngine
             animState.m_CurrentTime = std::clamp(normalizedX * visibleDuration + m_TimelineOffset, 0.0f, clipDuration);
             m_IsPlaying = false;
         }
-        
+
         ImGui::Dummy(ImVec2(0, 10)); // Spacing after timeline
     }
 
@@ -387,16 +382,16 @@ namespace OloEngine
             }
 
             ImGui::Text("Total Bones: %zu", skelComp.m_Skeleton->m_BoneNames.size());
-            
+
             // Show bone entity mappings if available
             if (entity.HasComponent<AnimationStateComponent>())
             {
                 auto& animState = entity.GetComponent<AnimationStateComponent>();
                 ImGui::Text("Mapped Bone Entities: %zu", animState.m_BoneEntityIds.size());
             }
-            
+
             ImGui::Separator();
-            
+
             // Bone list with actual names from skeleton
             if (ImGui::BeginChild("BoneList", ImVec2(0, 200), true))
             {
@@ -405,16 +400,16 @@ namespace OloEngine
                 {
                     // Use actual bone name from skeleton
                     const std::string& boneName = skelComp.m_Skeleton->m_BoneNames[i];
-                    std::string displayName = boneName.empty() 
-                        ? "Bone " + std::to_string(i) 
-                        : boneName;
-                    
+                    std::string displayName = boneName.empty()
+                                                  ? "Bone " + std::to_string(i)
+                                                  : boneName;
+
                     // Show parent info in tooltip
                     if (ImGui::Selectable(displayName.c_str()))
                     {
                         // TODO: Select bone entity in hierarchy when clicked
                     }
-                    
+
                     // Tooltip with bone details
                     if (ImGui::IsItemHovered())
                     {
@@ -437,7 +432,7 @@ namespace OloEngine
                 }
             }
             ImGui::EndChild();
-            
+
             // Cache management
             if (ImGui::Button("Invalidate Bone Cache"))
             {
@@ -474,11 +469,11 @@ namespace OloEngine
             {
                 settingsChanged = true;
             }
-            
+
             if (m_ShowSkeleton)
             {
                 ImGui::Indent();
-                
+
                 // Sub-toggles
                 if (ImGui::Checkbox("Show Bones", &m_ShowBones))
                 {
@@ -489,7 +484,7 @@ namespace OloEngine
                 {
                     settingsChanged = true;
                 }
-                
+
                 // Size controls
                 if (ImGui::DragFloat("Joint Size", &m_JointSize, 0.001f, 0.005f, 0.1f, "%.3f"))
                 {
@@ -499,14 +494,14 @@ namespace OloEngine
                 {
                     settingsChanged = true;
                 }
-                
+
                 ImGui::Unindent();
-                
+
                 // Show info
                 ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f), "Skeleton rendering enabled");
-                ImGui::Text("Bones: %zu, Joints: %zu", 
-                    skelComp.m_Skeleton->m_GlobalTransforms.size(),
-                    skelComp.m_Skeleton->m_BoneNames.size());
+                ImGui::Text("Bones: %zu, Joints: %zu",
+                            skelComp.m_Skeleton->m_GlobalTransforms.size(),
+                            skelComp.m_Skeleton->m_BoneNames.size());
             }
 
             // Sync settings with the scene for rendering

@@ -324,7 +324,7 @@ namespace OloEngine
                 {
                     auto& animState = animView.get<AnimationStateComponent>(e);
                     auto& skelComp = animView.get<SkeletonComponent>(e);
-                    
+
                     if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                     {
                         Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds());
@@ -433,7 +433,7 @@ namespace OloEngine
             {
                 RenderScene3D(*mainCamera, cameraTransform);
             }
-            
+
             // Always render 2D (sprites, circles, text overlay on top of 3D)
             Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
@@ -884,7 +884,7 @@ namespace OloEngine
     void Scene::RenderScene3D(EditorCamera const& camera)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         Renderer3D::BeginScene(camera);
 
         // Render skybox from EnvironmentMapComponent (first one found)
@@ -895,7 +895,7 @@ namespace OloEngine
                 auto& envMapComp = view.get<EnvironmentMapComponent>(entity);
                 if (!envMapComp.m_EnableSkybox)
                     continue;
-                    
+
                 // Lazy load environment map from file path if not already loaded
                 if (!envMapComp.m_EnvironmentMap && !envMapComp.m_FilePath.empty())
                 {
@@ -906,7 +906,7 @@ namespace OloEngine
                         // Ensure path ends with separator
                         if (!basePath.empty() && basePath.back() != '/' && basePath.back() != '\\')
                             basePath += '/';
-                        
+
                         std::vector<std::string> skyboxFaces = {
                             basePath + "right.jpg",
                             basePath + "left.jpg",
@@ -915,7 +915,7 @@ namespace OloEngine
                             basePath + "front.jpg",
                             basePath + "back.jpg"
                         };
-                        
+
                         auto skyboxCubemap = TextureCubemap::Create(skyboxFaces);
                         if (skyboxCubemap)
                         {
@@ -928,7 +928,7 @@ namespace OloEngine
                         envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromEquirectangular(envMapComp.m_FilePath);
                     }
                 }
-                
+
                 if (envMapComp.m_EnvironmentMap && envMapComp.m_EnvironmentMap->GetEnvironmentMap())
                 {
                     auto* skyboxPacket = Renderer3D::DrawSkybox(envMapComp.m_EnvironmentMap->GetEnvironmentMap());
@@ -974,7 +974,7 @@ namespace OloEngine
                 }
 
                 const auto [transform, mesh] = view.get<TransformComponent, MeshComponent>(entity);
-                
+
                 if (!mesh.m_MeshSource)
                 {
                     continue;
@@ -982,8 +982,8 @@ namespace OloEngine
 
                 // Get material or use cached default
                 const Material& material = m_Registry.all_of<MaterialComponent>(entity)
-                    ? m_Registry.get<MaterialComponent>(entity).m_Material
-                    : GetDefaultMaterial();
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -1008,7 +1008,7 @@ namespace OloEngine
             for (auto entity : view)
             {
                 const auto [transform, submesh] = view.get<TransformComponent, SubmeshComponent>(entity);
-                
+
                 if (!submesh.m_Mesh || !submesh.m_Visible)
                 {
                     continue;
@@ -1016,8 +1016,8 @@ namespace OloEngine
 
                 // Get material or use cached default
                 const Material& material = m_Registry.all_of<MaterialComponent>(entity)
-                    ? m_Registry.get<MaterialComponent>(entity).m_Material
-                    : GetDefaultMaterial();
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -1034,7 +1034,7 @@ namespace OloEngine
             for (auto entity : view)
             {
                 const auto [transform, model] = view.get<TransformComponent, ModelComponent>(entity);
-                
+
                 if (!model.m_Model || !model.m_Visible)
                 {
                     continue;
@@ -1052,7 +1052,7 @@ namespace OloEngine
             for (auto entity : view)
             {
                 const auto [transform, mesh, skeleton] = view.get<TransformComponent, MeshComponent, SkeletonComponent>(entity);
-                
+
                 if (!mesh.m_MeshSource || !skeleton.m_Skeleton)
                 {
                     continue;
@@ -1060,8 +1060,8 @@ namespace OloEngine
 
                 // Get material or use cached default
                 const Material& material = m_Registry.all_of<MaterialComponent>(entity)
-                    ? m_Registry.get<MaterialComponent>(entity).m_Material
-                    : GetDefaultMaterial();
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
 
                 // Get bone matrices from skeleton
                 const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
@@ -1090,14 +1090,13 @@ namespace OloEngine
                         m_SkeletonVisualization.ShowBones,
                         m_SkeletonVisualization.ShowJoints,
                         m_SkeletonVisualization.JointSize,
-                        m_SkeletonVisualization.BoneThickness
-                    );
+                        m_SkeletonVisualization.BoneThickness);
                 }
             }
         }
 
         // TODO: Implement infinite grid as a proper command packet
-        // The grid currently uses immediate-mode OpenGL (glDrawArrays) which conflicts 
+        // The grid currently uses immediate-mode OpenGL (glDrawArrays) which conflicts
         // with the deferred command buffer system. Grid rendering has been disabled
         // until it can be properly integrated.
         Renderer3D::DrawInfiniteGrid(1.0f);
@@ -1111,14 +1110,13 @@ namespace OloEngine
             for (auto entity : view)
             {
                 const auto& [tc, dirLight] = view.get<TransformComponent, DirectionalLightComponent>(entity);
-                
+
                 // Draw the directional light gizmo with arrow and sun icon
                 Renderer3D::DrawDirectionalLightGizmo(
                     tc.Translation,
                     dirLight.m_Direction,
                     dirLight.m_Color,
-                    dirLight.m_Intensity
-                );
+                    dirLight.m_Intensity);
             }
         }
         {
@@ -1126,13 +1124,13 @@ namespace OloEngine
             for (auto entity : view)
             {
                 const auto& [tc, pointLight] = view.get<TransformComponent, PointLightComponent>(entity);
-                
+
                 // Draw the point light gizmo with range sphere
                 Renderer3D::DrawPointLightGizmo(
                     tc.Translation,
                     pointLight.m_Range,
                     pointLight.m_Color,
-                    true  // Show range sphere
+                    true // Show range sphere
                 );
             }
         }
@@ -1141,7 +1139,7 @@ namespace OloEngine
             for (auto entity : view)
             {
                 const auto& [tc, spotLight] = view.get<TransformComponent, SpotLightComponent>(entity);
-                
+
                 // Draw the spot light gizmo with cone visualization
                 Renderer3D::DrawSpotLightGizmo(
                     tc.Translation,
@@ -1149,8 +1147,7 @@ namespace OloEngine
                     spotLight.m_Range,
                     spotLight.m_InnerCutoff,
                     spotLight.m_OuterCutoff,
-                    spotLight.m_Color
-                );
+                    spotLight.m_Color);
             }
         }
 
@@ -1160,7 +1157,7 @@ namespace OloEngine
             for (auto entity : view)
             {
                 const auto& [tc, audioSource] = view.get<TransformComponent, AudioSourceComponent>(entity);
-                
+
                 // Only draw gizmo if spatialization is enabled
                 if (audioSource.Config.Spatialization)
                 {
@@ -1168,7 +1165,7 @@ namespace OloEngine
                         tc.Translation,
                         audioSource.Config.MinDistance,
                         audioSource.Config.MaxDistance,
-                        glm::vec3(0.2f, 0.6f, 1.0f)  // Blue color for audio
+                        glm::vec3(0.2f, 0.6f, 1.0f) // Blue color for audio
                     );
                 }
             }
@@ -1183,8 +1180,7 @@ namespace OloEngine
                 const SceneCamera& sceneCamera = cameraComp.Camera;
 
                 // Calculate aspect ratio (use current viewport aspect if not fixed)
-                f32 aspectRatio = (m_ViewportHeight > 0) ? 
-                    static_cast<f32>(m_ViewportWidth) / static_cast<f32>(m_ViewportHeight) : 1.778f;
+                f32 aspectRatio = (m_ViewportHeight > 0) ? static_cast<f32>(m_ViewportWidth) / static_cast<f32>(m_ViewportHeight) : 1.778f;
 
                 if (sceneCamera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
                 {
@@ -1194,9 +1190,9 @@ namespace OloEngine
                         aspectRatio,
                         sceneCamera.GetPerspectiveNearClip(),
                         sceneCamera.GetPerspectiveFarClip(),
-                        glm::vec3(0.9f, 0.9f, 0.3f),  // Yellow-ish color for frustum
-                        true,  // isPerspective
-                        0.0f   // orthoSize (not used for perspective)
+                        glm::vec3(0.9f, 0.9f, 0.3f), // Yellow-ish color for frustum
+                        true,                        // isPerspective
+                        0.0f                         // orthoSize (not used for perspective)
                     );
                 }
                 else
@@ -1204,14 +1200,13 @@ namespace OloEngine
                     // Orthographic camera
                     Renderer3D::DrawCameraFrustum(
                         transform.GetTransform(),
-                        0.0f,  // fov (not used for ortho)
+                        0.0f, // fov (not used for ortho)
                         aspectRatio,
                         sceneCamera.GetOrthographicNearClip(),
                         sceneCamera.GetOrthographicFarClip(),
-                        glm::vec3(0.3f, 0.9f, 0.9f),  // Cyan color for ortho frustum
-                        false, // isPerspective
-                        sceneCamera.GetOrthographicSize()
-                    );
+                        glm::vec3(0.3f, 0.9f, 0.9f), // Cyan color for ortho frustum
+                        false,                       // isPerspective
+                        sceneCamera.GetOrthographicSize());
                 }
             }
         }
@@ -1254,7 +1249,7 @@ namespace OloEngine
     void Scene::RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         Renderer3D::BeginScene(camera, cameraTransform);
 
         // Render skybox from EnvironmentMapComponent (first one found)
@@ -1265,7 +1260,7 @@ namespace OloEngine
                 auto& envMapComp = view.get<EnvironmentMapComponent>(entity);
                 if (!envMapComp.m_EnableSkybox)
                     continue;
-                    
+
                 // Lazy load environment map from file path if not already loaded
                 if (!envMapComp.m_EnvironmentMap && !envMapComp.m_FilePath.empty())
                 {
@@ -1275,7 +1270,7 @@ namespace OloEngine
                         std::string basePath = envMapComp.m_FilePath;
                         if (!basePath.empty() && basePath.back() != '/' && basePath.back() != '\\')
                             basePath += '/';
-                        
+
                         std::vector<std::string> skyboxFaces = {
                             basePath + "right.jpg",
                             basePath + "left.jpg",
@@ -1284,7 +1279,7 @@ namespace OloEngine
                             basePath + "front.jpg",
                             basePath + "back.jpg"
                         };
-                        
+
                         auto skyboxCubemap = TextureCubemap::Create(skyboxFaces);
                         if (skyboxCubemap)
                         {
@@ -1296,7 +1291,7 @@ namespace OloEngine
                         envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromEquirectangular(envMapComp.m_FilePath);
                     }
                 }
-                
+
                 if (envMapComp.m_EnvironmentMap && envMapComp.m_EnvironmentMap->GetEnvironmentMap())
                 {
                     auto* skyboxPacket = Renderer3D::DrawSkybox(envMapComp.m_EnvironmentMap->GetEnvironmentMap());
@@ -1341,7 +1336,7 @@ namespace OloEngine
                 }
 
                 const auto [transform, mesh] = view.get<TransformComponent, MeshComponent>(entity);
-                
+
                 if (!mesh.m_MeshSource)
                 {
                     continue;
@@ -1349,8 +1344,8 @@ namespace OloEngine
 
                 // Get material or use cached default
                 const Material& material = m_Registry.all_of<MaterialComponent>(entity)
-                    ? m_Registry.get<MaterialComponent>(entity).m_Material
-                    : GetDefaultMaterial();
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -1375,7 +1370,7 @@ namespace OloEngine
             for (auto entity : view)
             {
                 const auto [transform, submesh] = view.get<TransformComponent, SubmeshComponent>(entity);
-                
+
                 if (!submesh.m_Mesh || !submesh.m_Visible)
                 {
                     continue;
@@ -1383,8 +1378,8 @@ namespace OloEngine
 
                 // Get material or use cached default
                 const Material& material = m_Registry.all_of<MaterialComponent>(entity)
-                    ? m_Registry.get<MaterialComponent>(entity).m_Material
-                    : GetDefaultMaterial();
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -1401,7 +1396,7 @@ namespace OloEngine
             for (auto entity : view)
             {
                 const auto [transform, model] = view.get<TransformComponent, ModelComponent>(entity);
-                
+
                 if (!model.m_Model || !model.m_Visible)
                 {
                     continue;
@@ -1419,7 +1414,7 @@ namespace OloEngine
             for (auto entity : view)
             {
                 const auto [transform, mesh, skeleton] = view.get<TransformComponent, MeshComponent, SkeletonComponent>(entity);
-                
+
                 if (!mesh.m_MeshSource || !skeleton.m_Skeleton)
                 {
                     continue;
@@ -1427,8 +1422,8 @@ namespace OloEngine
 
                 // Get material or use cached default
                 const Material& material = m_Registry.all_of<MaterialComponent>(entity)
-                    ? m_Registry.get<MaterialComponent>(entity).m_Material
-                    : GetDefaultMaterial();
+                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
+                                               : GetDefaultMaterial();
 
                 // Get bone matrices from skeleton
                 const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
