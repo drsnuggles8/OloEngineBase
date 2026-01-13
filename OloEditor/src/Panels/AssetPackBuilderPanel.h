@@ -3,11 +3,11 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/ImGui/ImGuiLayer.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Threading/Mutex.h"
 
 #include <array>
 #include <atomic>
 #include <thread>
-#include <mutex>
 
 namespace OloEngine
 {
@@ -91,7 +91,7 @@ namespace OloEngine
         std::jthread m_BuildThread;
 
         // Results
-        mutable std::mutex m_ResultMutex; // Protects m_LastBuildResult and m_HasBuildResult
+        mutable FMutex m_ResultMutex; // Protects m_LastBuildResult and m_HasBuildResult
         AssetPackBuilder::BuildResult m_LastBuildResult;
         std::atomic<bool> m_HasBuildResult{ false };
 

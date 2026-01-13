@@ -23,6 +23,10 @@ namespace OloEngine
     template<typename T>
     class Ref;
 
+    // Callback type for async cooking completion
+    // The callback is always invoked on the game thread for thread safety
+    using CookingCallback = std::function<void(ECookingResult)>;
+
     // Cooking request structure
     struct CookingRequest
     {
@@ -64,6 +68,17 @@ namespace OloEngine
         bool HasMeshData(Ref<MeshColliderAsset> colliderAsset) const;
 
         // Async cooking interface
+        /// @brief Cook mesh asynchronously with callback notification (preferred)
+        /// @param colliderAsset The mesh collider asset to cook
+        /// @param type The type of collider to cook (Convex or Triangle)
+        /// @param callback Callback invoked on game thread when cooking completes
+        /// @param invalidateOld Whether to invalidate existing cached data
+        void CookMeshWithCallback(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, 
+                                  CookingCallback callback, bool invalidateOld = false);
+
+        /// @brief Cook mesh asynchronously (legacy API)
+        /// @deprecated Use CookMeshWithCallback() for callback-based async cooking
+        [[deprecated("Use CookMeshWithCallback() for callback-based async cooking")]]
         std::future<ECookingResult> CookMeshAsync(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, bool invalidateOld = false);
         void ProcessCookingRequests();
 

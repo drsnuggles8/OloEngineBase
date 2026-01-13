@@ -69,9 +69,10 @@ namespace OloEngine
         // Call at the end of each frame (in EndScene)
         static void ReleaseWorkerAllocators();
 
-        // Register current thread as a worker and get a dedicated allocator
-        // Combines RegisterWorkerThread() + GetWorkerAllocator()
-        // @return Pair of (workerIndex, allocator)
+        /// @brief Register current thread as a worker and get a dedicated allocator
+        /// @return Pair of (workerIndex, allocator)
+        /// @deprecated Use GetWorkerAllocatorByIndex() with explicit worker index from ParallelFor
+        [[deprecated("Use GetWorkerAllocatorByIndex() with explicit worker index from ParallelFor")]]
         static std::pair<u32, CommandAllocator*> RegisterAndGetWorkerAllocator();
 
         // Get a dedicated allocator for an explicit worker index (no thread ID lookup)
@@ -82,7 +83,10 @@ namespace OloEngine
         // @return Pair of (workerIndex, allocator) - workerIndex is passed through unchanged
         static std::pair<u32, CommandAllocator*> GetWorkerAllocatorByIndex(u32 workerIndex);
 
-        // Get worker index for the current thread (-1 if not registered)
+        /// @brief Get worker index for the current thread
+        /// @return Worker index or -1 if not registered
+        /// @deprecated Use explicit worker index from ParallelFor instead
+        [[deprecated("Use explicit worker index from ParallelFor instead")]]
         static i32 GetCurrentWorkerIndex();
 
         // Create a command packet using the current allocator

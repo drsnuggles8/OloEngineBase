@@ -185,9 +185,10 @@ namespace OloEngine
         // @param workerIndex The worker thread index (0 to MAX_RENDER_WORKERS-1)
         void SubmitPacketParallel(CommandPacket* packet, u32 workerIndex);
 
-        // Register the current thread as a worker and get its index
-        // Call this once per worker thread before submitting commands
-        // @return Worker index for use with SubmitPacketParallel
+        /// @brief Register the current thread as a worker and get its index
+        /// @return Worker index for use with SubmitPacketParallel
+        /// @deprecated Use UseWorkerIndex() with explicit worker index from ParallelFor
+        [[deprecated("Use UseWorkerIndex() with explicit worker index from ParallelFor")]]
         u32 RegisterWorkerThread();
 
         // Use an explicit worker index (no thread ID lookup needed)
@@ -196,7 +197,10 @@ namespace OloEngine
         // @param workerIndex The worker index (typically from ParallelFor contextIndex)
         void UseWorkerIndex(u32 workerIndex);
 
-        // Get the worker index for the current thread (returns -1 if not registered)
+        /// @brief Get the worker index for the current thread
+        /// @return Worker index or -1 if not registered
+        /// @deprecated Use explicit worker index from ParallelFor instead
+        [[deprecated("Use explicit worker index from ParallelFor instead")]]
         i32 GetCurrentWorkerIndex() const;
 
         // Merge all thread-local command ranges into a contiguous array

@@ -445,4 +445,20 @@ namespace OloEngine
         return -1;
     }
 
+    std::pair<u32, WorkerScratchBuffer*> FrameDataBuffer::GetScratchBufferByIndex(u32 workerIndex)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (workerIndex >= MAX_FRAME_DATA_WORKERS)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer::GetScratchBufferByIndex: Invalid worker index {}! Max is {}",
+                           workerIndex, MAX_FRAME_DATA_WORKERS - 1);
+            return { 0, nullptr };
+        }
+
+        // No mutex needed - direct array access with bounds-checked index
+        // Each worker only accesses its own slot
+        return { workerIndex, &m_WorkerScratchBuffers[workerIndex] };
+    }
+
 } // namespace OloEngine

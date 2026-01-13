@@ -4,6 +4,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
 #include "OloEngine/Task/Task.h"
+#include "OloEngine/Task/NamedThreads.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include <atomic>
@@ -136,6 +137,82 @@ namespace OloEngine
         TUniqueLock<FMutex> lock(m_CacheMutex);
         auto it = m_CachedData.find(colliderAsset->GetHandle());
         return it != m_CachedData.end() && it->second.m_IsValid;
+    }
+
+    void MeshColliderCache::CookMeshWithCallback(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, 
+                                                  CookingCallback callback, bool invalidateOld)
+    {
+        if (!colliderAsset || !m_IsInitialized.load(std::memory_order_acquire))
+        {
+            if (callback)
+            {
+                Tasks::EnqueueGameThreadTask([callback]() {
+                    callback(ECookingResult::Failed);
+                }, "CookMeshCallback_Failed");
+            }
+            return;
+        }
+
+        // Increment active task counter
+        m_ActiveCookingTasks.fetch_add(1, std::memory_order_relaxed);
+
+        // Launch cooking task directly without going through the queue
+        Tasks::Launch("MeshColliderCooking", [this, asset = colliderAsset, meshType = type, 
+                                               cb = std::move(callback), invalidate = invalidateOld]()
+        {
+            ECookingResult result = m_CookingFactory->CookMeshType(asset, meshType, invalidate);
+
+            // If cooking succeeded, update the cache entry with the new data
+            if (result == ECookingResult::Success && asset)
+            {
+                AssetHandle handle = asset->GetHandle();
+
+                // Load the updated data from disk
+                CachedColliderData updatedData = LoadFromCache(asset);
+                if (updatedData.m_IsValid)
+                {
+                    // Update the in-memory cache
+                    TUniqueLock<FMutex> cacheLock(m_CacheMutex);
+                    auto it = m_CachedData.find(handle);
+                    if (it != m_CachedData.end())
+                    {
+                        // Update existing entry with new data
+                        sizet oldDataSize = CalculateDataSize(it->second);
+                        sizet newDataSize = CalculateDataSize(updatedData);
+
+                        // Update cache size tracking
+                        m_CurrentCacheSize = m_CurrentCacheSize - oldDataSize + newDataSize;
+
+                        // Replace with updated data
+                        it->second = updatedData;
+                    }
+                    else
+                    {
+                        // Add new entry if it doesn't exist
+                        sizet dataSize = CalculateDataSize(updatedData);
+
+                        if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
+                        {
+                            EvictOldestEntries();
+                        }
+
+                        m_CachedData[handle] = updatedData;
+                        m_CurrentCacheSize += dataSize;
+                    }
+                }
+            }
+
+            // Decrement active task counter
+            m_ActiveCookingTasks.fetch_sub(1, std::memory_order_relaxed);
+
+            // Invoke callback on game thread
+            if (cb)
+            {
+                Tasks::EnqueueGameThreadTask([cb, result]() {
+                    cb(result);
+                }, "CookMeshCallback");
+            }
+        }, Tasks::ETaskPriority::BackgroundNormal);
     }
 
     std::future<ECookingResult> MeshColliderCache::CookMeshAsync(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, bool invalidateOld)

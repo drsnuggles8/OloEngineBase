@@ -179,8 +179,18 @@ namespace OloEngine
         /**
          * @brief Register current thread as a worker and get scratch buffer
          * @return Pair of (workerIndex, scratchBuffer pointer)
+         * @deprecated Use GetScratchBufferByIndex() with explicit worker index from ParallelFor
          */
+        [[deprecated("Use GetScratchBufferByIndex() with explicit worker index from ParallelFor")]]
         std::pair<u32, WorkerScratchBuffer*> RegisterAndGetScratchBuffer();
+
+        /**
+         * @brief Get scratch buffer by explicit worker index (no thread ID lookup)
+         * @param workerIndex The worker index (typically from ParallelFor contextIndex)
+         * @return Pair of (workerIndex, scratchBuffer pointer)
+         * @note This is the optimized path that avoids std::thread::id lookup and mutex contention
+         */
+        std::pair<u32, WorkerScratchBuffer*> GetScratchBufferByIndex(u32 workerIndex);
 
         /**
          * @brief Allocate bone matrices in worker's scratch buffer
@@ -242,7 +252,9 @@ namespace OloEngine
 
         /**
          * @brief Get worker index for current thread (-1 if not registered)
+         * @deprecated Use explicit worker index from ParallelFor instead
          */
+        [[deprecated("Use explicit worker index from ParallelFor instead")]]
         i32 GetCurrentWorkerIndex() const;
 
       private:
