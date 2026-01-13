@@ -74,6 +74,14 @@ namespace OloEngine
         // @return Pair of (workerIndex, allocator)
         static std::pair<u32, CommandAllocator*> RegisterAndGetWorkerAllocator();
 
+        // Get a dedicated allocator for an explicit worker index (no thread ID lookup)
+        // Use this when the worker index is already known (e.g., from ParallelForWithTaskContext)
+        // This is more efficient than RegisterAndGetWorkerAllocator() as it avoids
+        // std::thread::id lookup and mutex acquisition for thread ID mapping.
+        // @param workerIndex The worker index (typically from ParallelFor contextIndex)
+        // @return Pair of (workerIndex, allocator) - workerIndex is passed through unchanged
+        static std::pair<u32, CommandAllocator*> GetWorkerAllocatorByIndex(u32 workerIndex);
+
         // Get worker index for the current thread (-1 if not registered)
         static i32 GetCurrentWorkerIndex();
 

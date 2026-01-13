@@ -355,6 +355,29 @@ namespace OloEngine
         return { workerIndex, allocator };
     }
 
+    std::pair<u32, CommandAllocator*> CommandMemoryManager::GetWorkerAllocatorByIndex(u32 workerIndex)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Initialized)
+        {
+            OLO_CORE_ERROR("CommandMemoryManager: Not initialized!");
+            return { 0, nullptr };
+        }
+
+        if (workerIndex >= MAX_ALLOCATOR_WORKERS)
+        {
+            OLO_CORE_ERROR("CommandMemoryManager: Worker index {} exceeds max {}!",
+                           workerIndex, MAX_ALLOCATOR_WORKERS);
+            return { 0, nullptr };
+        }
+
+        // Directly access the worker allocator by index - no thread ID lookup needed
+        // This is the optimized path for ParallelFor where contextIndex is already known
+        CommandAllocator* allocator = GetWorkerAllocator(workerIndex);
+        return { workerIndex, allocator };
+    }
+
     i32 CommandMemoryManager::GetCurrentWorkerIndex()
     {
         if (!s_Initialized)

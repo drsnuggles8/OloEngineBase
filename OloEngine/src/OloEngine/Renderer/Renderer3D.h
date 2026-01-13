@@ -297,6 +297,18 @@ namespace OloEngine
         static WorkerSubmitContext GetWorkerContext();
 
         /**
+         * @brief Get worker context for an explicit worker index
+         *
+         * Uses the provided worker index directly without thread ID lookup.
+         * This is the optimized path when contextIndex is already known
+         * from ParallelForWithTaskContext.
+         *
+         * @param workerIndex The worker index (typically from ParallelFor contextIndex)
+         * @return Worker submission context with allocator and bucket access
+         */
+        static WorkerSubmitContext GetWorkerContext(u32 workerIndex);
+
+        /**
          * @brief Get the current parallel scene context
          *
          * Returns the immutable scene data for the current frame.

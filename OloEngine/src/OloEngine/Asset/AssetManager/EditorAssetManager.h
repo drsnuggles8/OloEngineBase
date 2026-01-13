@@ -9,6 +9,7 @@
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Task/NamedThreads.h"
 #include "OloEngine/Threading/SharedMutex.h"
 
 #include <filesystem>
@@ -244,10 +245,10 @@ namespace OloEngine
                 auto handle = metadata.Handle;
                 auto type = metadata.Type;
                 auto path = metadata.FilePath;
-                Application::Get().SubmitToMainThread([handle, type, path]() mutable
+                Tasks::EnqueueGameThreadTask([handle, type, path]() mutable
                                                       {
                     AssetReloadedEvent evt(handle, type, path);
-                    Application::Get().OnEvent(evt); });
+                    Application::Get().OnEvent(evt); }, "AssetReloadedEvent");
             }
 
             return asset;

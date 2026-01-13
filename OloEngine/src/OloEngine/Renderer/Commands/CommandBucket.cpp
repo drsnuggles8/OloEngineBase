@@ -762,6 +762,18 @@ namespace OloEngine
         return workerIndex;
     }
 
+    void CommandBucket::UseWorkerIndex(u32 workerIndex)
+    {
+        // Optimized path: directly use the provided worker index without thread ID lookup.
+        // This is called when the worker index is already known (e.g., from ParallelFor contextIndex).
+        // No mutex needed, no map lookup - just validate the index is in range.
+        OLO_CORE_ASSERT(workerIndex < MAX_RENDER_WORKERS,
+                        "CommandBucket::UseWorkerIndex: Invalid worker index {}!", workerIndex);
+        
+        // Ensure TLS slot is initialized for this worker
+        // (PrepareForParallelSubmission should have already done this, but be defensive)
+    }
+
     i32 CommandBucket::GetCurrentWorkerIndex() const
     {
         std::thread::id threadId = std::this_thread::get_id();

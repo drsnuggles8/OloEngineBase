@@ -190,6 +190,12 @@ namespace OloEngine
         // @return Worker index for use with SubmitPacketParallel
         u32 RegisterWorkerThread();
 
+        // Use an explicit worker index (no thread ID lookup needed)
+        // This is the optimized path when contextIndex is already known from ParallelFor.
+        // Unlike RegisterWorkerThread(), this avoids std::thread::id lookup and mutex contention.
+        // @param workerIndex The worker index (typically from ParallelFor contextIndex)
+        void UseWorkerIndex(u32 workerIndex);
+
         // Get the worker index for the current thread (returns -1 if not registered)
         i32 GetCurrentWorkerIndex() const;
 

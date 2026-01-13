@@ -4,8 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Threading/Mutex.h"
 #include "OloEngine/HAL/ManualResetEvent.h"
-
-#include <thread>
+#include "OloEngine/Task/Task.h"
 
 #include <string>
 #include <unordered_map>
@@ -135,12 +134,10 @@ namespace OloEngine::Audio::SoundGraph
         mutable std::atomic<u64> m_HitCount = 0;
         mutable std::atomic<u64> m_MissCount = 0;
 
-        // Async loading
-        std::queue<std::pair<std::string, LoadCallback>> m_LoadQueue;
-        FMutex m_LoadQueueMutex;
-        FPlatformManualResetEvent m_LoadEvent;
-        std::atomic<bool> m_ShutdownLoader = false;
-        std::thread m_LoaderThread;
+        // Async loading - using task system instead of dedicated thread
+        // Each LoadAsync call now spawns an independent task via Tasks::Launch()
+        // No loader thread needed - tasks are managed by the global task scheduler
+        std::atomic<u32> m_ActiveLoadTasks = 0;
 
         // Helper methods
         void UpdateLRU(const std::string& sourcePath);
@@ -150,8 +147,8 @@ namespace OloEngine::Audio::SoundGraph
         std::chrono::time_point<std::chrono::system_clock> GetFileModificationTime(const std::string& filePath) const;
         sizet HashFile(const std::string& filePath) const;
 
-        // Async loading thread function
-        void LoaderThreadFunc();
+        // Internal load implementation - used by Tasks::Launch()
+        void LoadGraphInternal(const std::string& sourcePath, LoadCallback callback);
 
         // Cache eviction policies
         void EvictBySize();

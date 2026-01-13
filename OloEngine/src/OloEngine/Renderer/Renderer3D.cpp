@@ -660,6 +660,34 @@ namespace OloEngine
         return ctx;
     }
 
+    WorkerSubmitContext Renderer3D::GetWorkerContext(u32 workerIndex)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        WorkerSubmitContext ctx;
+
+        // Get worker allocator by explicit index - no thread ID lookup needed
+        auto [index, allocator] = CommandMemoryManager::GetWorkerAllocatorByIndex(workerIndex);
+        ctx.WorkerIndex = index;
+        ctx.Allocator = allocator;
+
+        // Get command bucket
+        if (s_Data.ScenePass)
+        {
+            ctx.Bucket = &s_Data.ScenePass->GetCommandBucket();
+            // Use the explicit worker index - no thread ID lookup needed
+            ctx.Bucket->UseWorkerIndex(workerIndex);
+        }
+
+        // Set scene context
+        ctx.SceneContext = &s_Data.ParallelContext;
+
+        ctx.CommandsSubmitted = 0;
+        ctx.MeshesCulled = 0;
+
+        return ctx;
+    }
+
     const ParallelSceneContext* Renderer3D::GetParallelSceneContext()
     {
         return &s_Data.ParallelContext;
@@ -1050,10 +1078,12 @@ namespace OloEngine
             numMeshes,
             minBatchSize,
             // Context constructor - initialize worker context for each task slot
-            [](i32 /*contextIndex*/, i32 /*numContexts*/) -> WorkerStats
+            // Use explicit contextIndex to avoid std::thread::id lookup
+            [](i32 contextIndex, i32 /*numContexts*/) -> WorkerStats
             {
                 WorkerStats stats;
-                stats.Context = Renderer3D::GetWorkerContext();
+                // Use the optimized path with explicit worker index
+                stats.Context = Renderer3D::GetWorkerContext(static_cast<u32>(contextIndex));
                 return stats;
             },
             // Body - process one mesh descriptor
