@@ -138,8 +138,6 @@
 		"OloEngine/Core/Ref.h"
 		"OloEngine/Core/TaskTag.cpp"
 		"OloEngine/Core/TaskTag.h"
-		"OloEngine/Core/Thread.cpp"
-		"OloEngine/Core/Thread.h"
 		"OloEngine/Core/Timer.h"
 		"OloEngine/Core/Timestep.h"
 		"OloEngine/Core/UUID.cpp"

@@ -53,7 +53,7 @@ namespace OloEngine
         UUID entityB = 0;
 
         {
-            std::lock_guard<std::mutex> lock(m_ActiveContactsMutex);
+            TUniqueLock<FMutex> lock(m_ActiveContactsMutex);
             auto it = m_ActiveContacts.find(inSubShapePair);
             if (it != m_ActiveContacts.end())
             {
@@ -85,7 +85,7 @@ namespace OloEngine
 
         // Swap the queue contents under minimal lock time
         {
-            std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
+            TUniqueLock<FMutex> lock(m_ContactEventsMutex);
 
             // Swap entire queue - O(1) operation instead of N moves
             localEventQueue.swap(m_ContactEventQueue);
@@ -114,7 +114,7 @@ namespace OloEngine
 
             // Handle contact tracking based on the contact type
             {
-                std::lock_guard<std::mutex> lock(m_ActiveContactsMutex);
+                TUniqueLock<FMutex> lock(m_ActiveContactsMutex);
                 if (type == ContactType::ContactAdded)
                 {
                     // Always insert for ContactAdded

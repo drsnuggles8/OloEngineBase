@@ -16,21 +16,21 @@ namespace OloEngine::Audio::SoundGraph
     /// SoundGraphCache Implementation
 
     SoundGraphCache::SoundGraphCache(sizet maxCacheSize, sizet maxMemoryUsage)
-        : m_MaxCacheSize(maxCacheSize), m_MaxMemoryUsage(maxMemoryUsage), m_LoaderThread("SoundGraphCache Loader")
+        : m_MaxCacheSize(maxCacheSize), m_MaxMemoryUsage(maxMemoryUsage)
     {
         // Start async loader thread
-        m_LoaderThread.Dispatch([this]()
-                                { LoaderThreadFunc(); });
+        m_LoaderThread = std::thread([this]()
+                                      { LoaderThreadFunc(); });
     }
 
     SoundGraphCache::SoundGraphCache(const SoundGraphCacheConfig& config)
-        : m_MaxCacheSize(config.m_MaxCacheSize), m_MaxMemoryUsage(config.m_MaxMemoryUsage), m_CacheDirectory(config.m_CacheDirectory), m_LoaderThread("SoundGraphCache Loader")
+        : m_MaxCacheSize(config.m_MaxCacheSize), m_MaxMemoryUsage(config.m_MaxMemoryUsage), m_CacheDirectory(config.m_CacheDirectory)
     {
-        // Start async loader thread if enabled
+        // Start async loader task if enabled
         if (config.m_EnableAsyncLoading)
         {
-            m_LoaderThread.Dispatch([this]()
-                                    { LoaderThreadFunc(); });
+            m_LoaderThread = std::thread([this]()
+                                          { LoaderThreadFunc(); });
         }
     }
 
@@ -39,11 +39,12 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         // Shutdown async loader with proper synchronization
         {
-            std::lock_guard<std::mutex> lock(m_LoadQueueMutex);
+            TDynamicUniqueLock<FMutex> Lock(m_LoadQueueMutex);
             m_ShutdownLoader = true;
         }
-        m_LoadCondition.notify_all();
-        m_LoaderThread.Join();
+        m_LoadEvent.Notify();
+        if (m_LoaderThread.joinable())
+            m_LoaderThread.join();
 
         Clear();
     }
@@ -51,14 +52,14 @@ namespace OloEngine::Audio::SoundGraph
     bool SoundGraphCache::Has(const std::string& sourcePath) const
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
         auto it = m_CacheEntries.find(sourcePath);
         return it != m_CacheEntries.end() && it->second.m_IsValid;
     }
 
     Ref<SoundGraph> SoundGraphCache::Get(const std::string& sourcePath)
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
 
         auto it = m_CacheEntries.find(sourcePath);
         if (it == m_CacheEntries.end() || !it->second.m_IsValid)
@@ -88,7 +89,7 @@ namespace OloEngine::Audio::SoundGraph
         auto sourceHash = HashFile(sourcePath);
         auto lastModified = GetFileModificationTime(sourcePath);
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
 
         // Calculate memory usage
         sizet graphMemory = CalculateGraphMemoryUsage(graph);
@@ -151,7 +152,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
 
         auto it = m_CacheEntries.find(sourcePath);
         if (it != m_CacheEntries.end())
@@ -166,7 +167,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
 
         m_CacheEntries.clear();
         m_LRUOrder.clear();
@@ -179,7 +180,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
         u64 totalAccesses = m_HitCount + m_MissCount;
         return totalAccesses > 0 ? static_cast<f32>(m_HitCount) / static_cast<f32>(totalAccesses) : 0.0f;
     }
@@ -213,7 +214,7 @@ namespace OloEngine::Audio::SoundGraph
         // Gather paths and cached timestamps while holding the mutex
         std::vector<std::pair<std::string, std::chrono::time_point<std::chrono::system_clock>>> pathsToCheck;
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TDynamicUniqueLock<FMutex> Lock(m_Mutex);
             for (auto& [path, entry] : m_CacheEntries)
             {
                 pathsToCheck.emplace_back(path, entry.m_LastModified);
@@ -259,7 +260,7 @@ namespace OloEngine::Audio::SoundGraph
 
         // Gather old paths while holding the mutex
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TDynamicUniqueLock<FMutex> Lock(m_Mutex);
             for (const auto& [path, entry] : m_CacheEntries)
             {
                 if (entry.m_LastAccessed < threshold && entry.m_AccessCount < 5)
@@ -287,7 +288,7 @@ namespace OloEngine::Audio::SoundGraph
         // Copy the cached timestamp while holding the mutex to avoid race conditions
         std::optional<std::chrono::time_point<std::chrono::system_clock>> cachedModTime;
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TDynamicUniqueLock<FMutex> Lock(m_Mutex);
             auto it = m_CacheEntries.find(sourcePath);
             if (it == m_CacheEntries.end())
                 return true;
@@ -302,7 +303,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::InvalidateByPath(const std::string& sourcePath)
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
 
         auto it = m_CacheEntries.find(sourcePath);
         if (it != m_CacheEntries.end())
@@ -314,7 +315,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::InvalidateByDirectory(const std::string& directoryPath)
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
 
         std::vector<std::string> pathsToInvalidate;
 
@@ -350,9 +351,9 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphCache::LoadAsync(const std::string& sourcePath, LoadCallback callback)
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_LoadQueueMutex);
+        TDynamicUniqueLock<FMutex> Lock(m_LoadQueueMutex);
         m_LoadQueue.emplace(sourcePath, callback);
-        m_LoadCondition.notify_one();
+        m_LoadEvent.Notify();
     }
 
     void SoundGraphCache::PreloadGraphs(const std::vector<std::string>& sourcePaths)
@@ -376,7 +377,7 @@ namespace OloEngine::Audio::SoundGraph
     std::vector<std::string> SoundGraphCache::GetCachedPaths() const
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
 
         std::vector<std::string> paths;
         paths.reserve(m_CacheEntries.size());
@@ -396,7 +397,7 @@ namespace OloEngine::Audio::SoundGraph
     std::optional<SoundGraphCacheEntry> SoundGraphCache::GetCacheEntry(const std::string& sourcePath) const
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
 
         auto it = m_CacheEntries.find(sourcePath);
         if (it != m_CacheEntries.end())
@@ -409,7 +410,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphCache::LogStatistics() const
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
 
         OLO_CORE_INFO("SoundGraphCache Statistics:");
         OLO_CORE_INFO("  Entries: {}/{}", m_CacheEntries.size(), m_MaxCacheSize);
@@ -610,10 +611,16 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         while (true)
         {
-            std::unique_lock<std::mutex> lock(m_LoadQueueMutex);
+            TDynamicUniqueLock<FMutex> Lock(m_LoadQueueMutex);
 
-            m_LoadCondition.wait(lock, [this]
-                                 { return !m_LoadQueue.empty() || m_ShutdownLoader; });
+            // Wait for work or shutdown signal
+            while (m_LoadQueue.empty() && !m_ShutdownLoader)
+            {
+                Lock.Unlock();
+                m_LoadEvent.Wait();
+                m_LoadEvent.Reset(); // Reset event after wait
+                Lock.Lock();
+            }
 
             // Check shutdown condition under mutex protection
             if (m_ShutdownLoader && m_LoadQueue.empty())
@@ -623,7 +630,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 auto [sourcePath, callback] = m_LoadQueue.front();
                 m_LoadQueue.pop();
-                lock.unlock();
+                Lock.Unlock();
 
                 // Load and compile the sound graph
                 Ref<SoundGraph> graph = nullptr;
@@ -703,7 +710,7 @@ namespace OloEngine::Audio::SoundGraph
                 std::filesystem::path sourcePathFs(sourcePath);
                 std::string compiledPath;
                 {
-                    std::lock_guard<std::mutex> cacheLock(m_Mutex);
+                    TUniqueLock<FMutex> CacheLock(m_Mutex);
                     compiledPath = m_CacheDirectory + sourcePathFs.stem().string() + ".sgc";
                 }
 
@@ -775,14 +782,14 @@ namespace OloEngine::Audio::SoundGraph
     sizet SoundGraphCache::GetSize() const
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
         return m_CacheEntries.size();
     }
 
     sizet SoundGraphCache::GetMemoryUsage() const
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
         return m_CurrentMemoryUsage;
     }
 
@@ -792,7 +799,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphCache::SetMaxCacheSize(sizet maxSize)
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
         m_MaxCacheSize = maxSize;
 
         // Trigger eviction if current cache exceeds new limit
@@ -805,7 +812,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphCache::SetMaxMemoryUsage(sizet maxMemory)
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
         m_MaxMemoryUsage = maxMemory;
 
         // Trigger eviction if current memory usage exceeds new limit
@@ -818,21 +825,21 @@ namespace OloEngine::Audio::SoundGraph
     sizet SoundGraphCache::GetMaxCacheSize() const
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
         return m_MaxCacheSize;
     }
 
     sizet SoundGraphCache::GetMaxMemoryUsage() const
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
         return m_MaxMemoryUsage;
     }
 
     void SoundGraphCache::SetCacheDirectory(const std::string& directory)
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
         m_CacheDirectory = directory;
 
         // Ensure the directory ends with a slash
@@ -845,7 +852,7 @@ namespace OloEngine::Audio::SoundGraph
     std::string SoundGraphCache::GetCacheDirectory() const
     {
         OLO_PROFILE_FUNCTION();
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
         return m_CacheDirectory;
     }
 
@@ -855,11 +862,11 @@ namespace OloEngine::Audio::SoundGraph
     namespace CacheUtilities
     {
         static Ref<SoundGraphCache> s_GlobalCache;
-        static std::mutex s_GlobalCacheMutex;
+        static FMutex s_GlobalCacheMutex;
 
         Ref<SoundGraphCache> GetGlobalCache()
         {
-            std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
+            TDynamicUniqueLock<FMutex> Lock(s_GlobalCacheMutex);
 
             if (!s_GlobalCache)
             {
@@ -874,7 +881,7 @@ namespace OloEngine::Audio::SoundGraph
 
         void SetGlobalCache(Ref<SoundGraphCache> cache)
         {
-            std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
+            TDynamicUniqueLock<FMutex> Lock(s_GlobalCacheMutex);
             s_GlobalCache = cache;
         }
 
@@ -887,7 +894,7 @@ namespace OloEngine::Audio::SoundGraph
 
         void ShutdownCache()
         {
-            std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
+            TDynamicUniqueLock<FMutex> Lock(s_GlobalCacheMutex);
 
             if (s_GlobalCache)
             {

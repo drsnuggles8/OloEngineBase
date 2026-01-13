@@ -2,18 +2,19 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
-#include "OloEngine/Core/Thread.h"
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/HAL/ManualResetEvent.h"
+
+#include <thread>
 
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <deque>
 #include <functional>
 #include <queue>
-#include <mutex>
 #include <vector>
 #include <optional>
 #include <utility>
@@ -116,7 +117,7 @@ namespace OloEngine::Audio::SoundGraph
         bool LoadCacheMetadata(const std::string& filePath);
 
       private:
-        mutable std::mutex m_Mutex;
+        mutable FMutex m_Mutex;
         std::unordered_map<std::string, SoundGraphCacheEntry> m_CacheEntries;
 
         // LRU tracking - most recent at back for O(1) insertion
@@ -135,11 +136,11 @@ namespace OloEngine::Audio::SoundGraph
         mutable std::atomic<u64> m_MissCount = 0;
 
         // Async loading
-        Thread m_LoaderThread;
         std::queue<std::pair<std::string, LoadCallback>> m_LoadQueue;
-        std::mutex m_LoadQueueMutex;
-        std::condition_variable m_LoadCondition;
+        FMutex m_LoadQueueMutex;
+        FPlatformManualResetEvent m_LoadEvent;
         std::atomic<bool> m_ShutdownLoader = false;
+        std::thread m_LoaderThread;
 
         // Helper methods
         void UpdateLRU(const std::string& sourcePath);

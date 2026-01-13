@@ -11,7 +11,8 @@
 #include <array>
 #include <type_traits>
 #include <thread>
-#include <mutex>
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 #include <atomic>
 
 #define LOG_DBG_MESSAGES 0
@@ -303,7 +304,7 @@ namespace OloEngine::Audio::SoundGraph
 
                 // Store result for pickup by audio thread
                 {
-                    std::lock_guard<std::mutex> lock(m_LoadResultMutex);
+                    TUniqueLock<FMutex> lock(m_LoadResultMutex);
                     m_LoadResult = std::move(result);
                     m_LoadResultReady.store(true, std::memory_order_release);
                 } }, Tasks::ETaskPriority::BackgroundNormal);
@@ -320,7 +321,7 @@ namespace OloEngine::Audio::SoundGraph
             // Retrieve the result
             std::optional<AudioData> result;
             {
-                std::lock_guard<std::mutex> lock(m_LoadResultMutex);
+                TUniqueLock<FMutex> lock(m_LoadResultMutex);
                 result = std::move(m_LoadResult);
                 m_LoadResult.reset();
                 m_LoadResultReady.store(false, std::memory_order_release);
@@ -386,7 +387,7 @@ namespace OloEngine::Audio::SoundGraph
 
             // Clear any pending result
             {
-                std::lock_guard<std::mutex> lock(m_LoadResultMutex);
+                TUniqueLock<FMutex> lock(m_LoadResultMutex);
                 m_LoadResult.reset();
                 m_LoadResultReady.store(false, std::memory_order_release);
             }
@@ -510,7 +511,7 @@ namespace OloEngine::Audio::SoundGraph
         std::atomic<u32> m_LoadGeneration{ 0 };       // Incremented to invalidate in-flight loads
 
         // Thread-safe result delivery from Task to audio thread
-        std::mutex m_LoadResultMutex;
+        FMutex m_LoadResultMutex;
         std::optional<AudioData> m_LoadResult;
         std::atomic<bool> m_LoadResultReady{ false };
 

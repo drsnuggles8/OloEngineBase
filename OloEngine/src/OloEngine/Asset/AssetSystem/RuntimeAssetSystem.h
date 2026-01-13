@@ -3,7 +3,6 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Asset/AssetMetadata.h"
-#include "OloEngine/Core/Thread.h"
 #include "OloEngine/Threading/Mutex.h"
 
 #include <queue>

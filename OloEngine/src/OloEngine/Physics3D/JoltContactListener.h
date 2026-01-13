@@ -9,7 +9,8 @@
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/Shape/SubShapeIDPair.h>
 
-#include <mutex>
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 #include <deque>
 #include <atomic>
 #include <unordered_map>
@@ -67,7 +68,7 @@ namespace OloEngine
         template<typename T>
         void QueueContactEvent(T&& event)
         {
-            std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
+            TUniqueLock<FMutex> lock(m_ContactEventsMutex);
 
             // Check queue size limit and early-return to prevent queue growth during contact storms
             // Use the protected container size under mutex rather than relaxed atomic load
@@ -103,11 +104,11 @@ namespace OloEngine
             ContactInfo(UUID entityA, UUID entityB) : m_EntityA(entityA), m_EntityB(entityB) {}
         };
 
-        mutable std::mutex m_ActiveContactsMutex;
+        mutable FMutex m_ActiveContactsMutex;
         std::unordered_map<JPH::SubShapeIDPair, ContactInfo> m_ActiveContacts;
 
         // Thread-safe contact event queue
-        mutable std::mutex m_ContactEventsMutex;
+        mutable FMutex m_ContactEventsMutex;
         std::deque<ContactEvent> m_ContactEventQueue;
 
         // Atomic queue size counter for fast, thread-safe access
