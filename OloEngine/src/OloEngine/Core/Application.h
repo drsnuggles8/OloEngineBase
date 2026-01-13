@@ -68,12 +68,6 @@ namespace OloEngine
             return m_Specification;
         }
 
-        /// @brief Submit a function to be executed on the main/game thread
-        /// @param function The function to execute
-        /// @deprecated Use Tasks::EnqueueGameThreadTask() instead for better integration with the task system
-        [[deprecated("Use Tasks::EnqueueGameThreadTask() instead")]]
-        void SubmitToMainThread(const std::function<void()>& function);
-
       private:
         void Run();
         bool OnWindowClose(WindowCloseEvent const& e);

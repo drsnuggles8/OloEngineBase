@@ -737,31 +737,6 @@ namespace OloEngine
         m_IsBatched = false;
     }
 
-    u32 CommandBucket::RegisterWorkerThread()
-    {
-        std::thread::id threadId = std::this_thread::get_id();
-
-        TUniqueLock<FMutex> lock(m_ThreadMapMutex);
-
-        auto it = m_ThreadToWorkerIndex.find(threadId);
-        if (it != m_ThreadToWorkerIndex.end())
-        {
-            return it->second;
-        }
-
-        // Check bounds before allocating
-        u32 currentIndex = m_NextWorkerIndex.load(std::memory_order_relaxed);
-        if (currentIndex >= MAX_RENDER_WORKERS)
-        {
-            OLO_CORE_ERROR("CommandBucket: Too many worker threads! Max is {}", MAX_RENDER_WORKERS);
-            return MAX_RENDER_WORKERS - 1; // Return last valid index as fallback
-        }
-
-        u32 workerIndex = m_NextWorkerIndex.fetch_add(1, std::memory_order_relaxed);
-        m_ThreadToWorkerIndex[threadId] = workerIndex;
-        return workerIndex;
-    }
-
     void CommandBucket::UseWorkerIndex(u32 workerIndex)
     {
         // Optimized path: directly use the provided worker index without thread ID lookup.
@@ -772,20 +747,6 @@ namespace OloEngine
         
         // Ensure TLS slot is initialized for this worker
         // (PrepareForParallelSubmission should have already done this, but be defensive)
-    }
-
-    i32 CommandBucket::GetCurrentWorkerIndex() const
-    {
-        std::thread::id threadId = std::this_thread::get_id();
-
-        TUniqueLock<FMutex> lock(m_ThreadMapMutex);
-
-        auto it = m_ThreadToWorkerIndex.find(threadId);
-        if (it != m_ThreadToWorkerIndex.end())
-        {
-            return static_cast<i32>(it->second);
-        }
-        return -1;
     }
 
     u32 CommandBucket::ClaimBatch()

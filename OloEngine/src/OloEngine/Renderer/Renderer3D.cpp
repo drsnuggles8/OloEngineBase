@@ -632,34 +632,6 @@ namespace OloEngine
         OLO_CORE_TRACE("Renderer3D: Parallel submission mode disabled");
     }
 
-    WorkerSubmitContext Renderer3D::GetWorkerContext()
-    {
-        OLO_PROFILE_FUNCTION();
-
-        WorkerSubmitContext ctx;
-
-        // Get worker allocator
-        auto [workerIndex, allocator] = CommandMemoryManager::RegisterAndGetWorkerAllocator();
-        ctx.WorkerIndex = workerIndex;
-        ctx.Allocator = allocator;
-
-        // Get command bucket
-        if (s_Data.ScenePass)
-        {
-            ctx.Bucket = &s_Data.ScenePass->GetCommandBucket();
-            // Register this thread with the bucket
-            ctx.Bucket->RegisterWorkerThread();
-        }
-
-        // Set scene context
-        ctx.SceneContext = &s_Data.ParallelContext;
-
-        ctx.CommandsSubmitted = 0;
-        ctx.MeshesCulled = 0;
-
-        return ctx;
-    }
-
     WorkerSubmitContext Renderer3D::GetWorkerContext(u32 workerIndex)
     {
         OLO_PROFILE_FUNCTION();

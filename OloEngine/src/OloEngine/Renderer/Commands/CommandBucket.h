@@ -7,7 +7,6 @@
 #include <vector>
 #include <unordered_map>
 #include <atomic>
-#include <thread>
 
 #include "OloEngine/Threading/Mutex.h"
 
@@ -185,23 +184,10 @@ namespace OloEngine
         // @param workerIndex The worker thread index (0 to MAX_RENDER_WORKERS-1)
         void SubmitPacketParallel(CommandPacket* packet, u32 workerIndex);
 
-        /// @brief Register the current thread as a worker and get its index
-        /// @return Worker index for use with SubmitPacketParallel
-        /// @deprecated Use UseWorkerIndex() with explicit worker index from ParallelFor
-        [[deprecated("Use UseWorkerIndex() with explicit worker index from ParallelFor")]]
-        u32 RegisterWorkerThread();
-
         // Use an explicit worker index (no thread ID lookup needed)
         // This is the optimized path when contextIndex is already known from ParallelFor.
-        // Unlike RegisterWorkerThread(), this avoids std::thread::id lookup and mutex contention.
         // @param workerIndex The worker index (typically from ParallelFor contextIndex)
         void UseWorkerIndex(u32 workerIndex);
-
-        /// @brief Get the worker index for the current thread
-        /// @return Worker index or -1 if not registered
-        /// @deprecated Use explicit worker index from ParallelFor instead
-        [[deprecated("Use explicit worker index from ParallelFor instead")]]
-        i32 GetCurrentWorkerIndex() const;
 
         // Merge all thread-local command ranges into a contiguous array
         // Must be called on the main thread after all workers complete
@@ -344,11 +330,6 @@ namespace OloEngine
 
         // Total commands submitted across all workers (for statistics)
         std::atomic<u32> m_ParallelCommandCount{ 0 };
-
-        // Thread ID to worker index mapping
-        mutable FMutex m_ThreadMapMutex;
-        std::unordered_map<std::thread::id, u32> m_ThreadToWorkerIndex;
-        std::atomic<u32> m_NextWorkerIndex{ 0 };
 
         // Whether we're currently in parallel submission mode
         bool m_ParallelSubmissionActive = false;

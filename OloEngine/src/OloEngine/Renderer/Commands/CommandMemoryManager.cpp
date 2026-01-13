@@ -16,9 +16,6 @@ namespace OloEngine
 
     // Per-worker allocator storage initialization
     std::array<WorkerAllocatorSlot, MAX_ALLOCATOR_WORKERS> CommandMemoryManager::s_WorkerAllocators = {};
-    std::unordered_map<std::thread::id, u32> CommandMemoryManager::s_ThreadToWorkerIndex;
-    FMutex CommandMemoryManager::s_WorkerMapMutex;
-    std::atomic<u32> CommandMemoryManager::s_NextWorkerIndex{ 0 };
 
     void CommandMemoryManager::Init()
     {
@@ -63,12 +60,6 @@ namespace OloEngine
             s_ThreadAllocators.clear();
         }
 
-        // Clear worker allocator mappings
-        {
-            TUniqueLock<FMutex> lock(s_WorkerMapMutex);
-            s_ThreadToWorkerIndex.clear();
-        }
-
         // Free per-worker allocators
         for (u32 i = 0; i < MAX_ALLOCATOR_WORKERS; ++i)
         {
@@ -89,7 +80,6 @@ namespace OloEngine
             s_Stats = Statistics{};
         }
 
-        s_NextWorkerIndex.store(0, std::memory_order_relaxed);
         s_Initialized = false;
         OLO_CORE_INFO("CommandMemoryManager: Shutdown completed");
     }
@@ -284,15 +274,6 @@ namespace OloEngine
             s_WorkerAllocators[i].inUse.store(false, std::memory_order_release);
         }
 
-        // Reset worker index counter for new frame
-        s_NextWorkerIndex.store(0, std::memory_order_relaxed);
-
-        // Clear worker thread mapping for new frame
-        {
-            TUniqueLock<FMutex> lock(s_WorkerMapMutex);
-            s_ThreadToWorkerIndex.clear();
-        }
-
         OLO_CORE_TRACE("CommandMemoryManager: Prepared {} worker allocators for frame",
                        MAX_ALLOCATOR_WORKERS);
     }
@@ -311,48 +292,6 @@ namespace OloEngine
         }
 
         OLO_CORE_TRACE("CommandMemoryManager: Released all worker allocators");
-    }
-
-    std::pair<u32, CommandAllocator*> CommandMemoryManager::RegisterAndGetWorkerAllocator()
-    {
-        OLO_PROFILE_FUNCTION();
-
-        if (!s_Initialized)
-        {
-            OLO_CORE_ERROR("CommandMemoryManager: Not initialized!");
-            return { 0, nullptr };
-        }
-
-        std::thread::id threadId = std::this_thread::get_id();
-
-        // Check if thread is already registered
-        {
-            TUniqueLock<FMutex> lock(s_WorkerMapMutex);
-            auto it = s_ThreadToWorkerIndex.find(threadId);
-            if (it != s_ThreadToWorkerIndex.end())
-            {
-                u32 workerIndex = it->second;
-                return { workerIndex, s_WorkerAllocators[workerIndex].allocator };
-            }
-        }
-
-        // Register new worker
-        u32 workerIndex = s_NextWorkerIndex.fetch_add(1, std::memory_order_relaxed);
-        if (workerIndex >= MAX_ALLOCATOR_WORKERS)
-        {
-            OLO_CORE_ERROR("CommandMemoryManager: Too many worker threads! Max is {}",
-                           MAX_ALLOCATOR_WORKERS);
-            return { 0, nullptr };
-        }
-
-        // Map thread to worker index
-        {
-            TUniqueLock<FMutex> lock(s_WorkerMapMutex);
-            s_ThreadToWorkerIndex[threadId] = workerIndex;
-        }
-
-        CommandAllocator* allocator = GetWorkerAllocator(workerIndex);
-        return { workerIndex, allocator };
     }
 
     std::pair<u32, CommandAllocator*> CommandMemoryManager::GetWorkerAllocatorByIndex(u32 workerIndex)
@@ -376,21 +315,5 @@ namespace OloEngine
         // This is the optimized path for ParallelFor where contextIndex is already known
         CommandAllocator* allocator = GetWorkerAllocator(workerIndex);
         return { workerIndex, allocator };
-    }
-
-    i32 CommandMemoryManager::GetCurrentWorkerIndex()
-    {
-        if (!s_Initialized)
-            return -1;
-
-        std::thread::id threadId = std::this_thread::get_id();
-
-        TUniqueLock<FMutex> lock(s_WorkerMapMutex);
-        auto it = s_ThreadToWorkerIndex.find(threadId);
-        if (it != s_ThreadToWorkerIndex.end())
-        {
-            return static_cast<i32>(it->second);
-        }
-        return -1;
     }
 } // namespace OloEngine

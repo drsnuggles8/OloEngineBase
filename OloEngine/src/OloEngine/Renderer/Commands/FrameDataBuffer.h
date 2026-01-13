@@ -7,8 +7,6 @@
 #include <vector>
 #include <atomic>
 #include <array>
-#include <thread>
-#include <unordered_map>
 
 namespace OloEngine
 {
@@ -177,18 +175,9 @@ namespace OloEngine
         void PrepareForParallelSubmission();
 
         /**
-         * @brief Register current thread as a worker and get scratch buffer
-         * @return Pair of (workerIndex, scratchBuffer pointer)
-         * @deprecated Use GetScratchBufferByIndex() with explicit worker index from ParallelFor
-         */
-        [[deprecated("Use GetScratchBufferByIndex() with explicit worker index from ParallelFor")]]
-        std::pair<u32, WorkerScratchBuffer*> RegisterAndGetScratchBuffer();
-
-        /**
          * @brief Get scratch buffer by explicit worker index (no thread ID lookup)
          * @param workerIndex The worker index (typically from ParallelFor contextIndex)
          * @return Pair of (workerIndex, scratchBuffer pointer)
-         * @note This is the optimized path that avoids std::thread::id lookup and mutex contention
          */
         std::pair<u32, WorkerScratchBuffer*> GetScratchBufferByIndex(u32 workerIndex);
 
@@ -250,13 +239,6 @@ namespace OloEngine
          */
         u32 GetGlobalTransformOffset(u32 workerIndex, u32 localOffset) const;
 
-        /**
-         * @brief Get worker index for current thread (-1 if not registered)
-         * @deprecated Use explicit worker index from ParallelFor instead
-         */
-        [[deprecated("Use explicit worker index from ParallelFor instead")]]
-        i32 GetCurrentWorkerIndex() const;
-
       private:
         std::vector<glm::mat4> m_BoneMatrices;
         std::vector<glm::mat4> m_Transforms;
@@ -272,9 +254,6 @@ namespace OloEngine
         // ====================================================================
 
         std::array<WorkerScratchBuffer, MAX_FRAME_DATA_WORKERS> m_WorkerScratchBuffers;
-        std::unordered_map<std::thread::id, u32> m_ThreadToWorkerIndex;
-        mutable FMutex m_WorkerMapMutex;
-        std::atomic<u32> m_NextWorkerIndex{ 0 };
         bool m_ParallelSubmissionActive = false;
     };
 

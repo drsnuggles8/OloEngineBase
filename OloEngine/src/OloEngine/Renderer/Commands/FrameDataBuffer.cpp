@@ -3,7 +3,6 @@
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include <cstring>
-#include <thread>
 
 namespace OloEngine
 {
@@ -30,18 +29,11 @@ namespace OloEngine
 
         // Reset parallel submission state
         m_ParallelSubmissionActive = false;
-        m_NextWorkerIndex.store(0, std::memory_order_relaxed);
 
         // Reset worker scratch buffers
         for (auto& scratch : m_WorkerScratchBuffers)
         {
             scratch.Reset();
-        }
-
-        // Clear worker thread mapping
-        {
-            TUniqueLock<FMutex> lock(m_WorkerMapMutex);
-            m_ThreadToWorkerIndex.clear();
         }
     }
 
@@ -192,49 +184,7 @@ namespace OloEngine
             scratch.Reset();
         }
 
-        // Reset worker index counter
-        m_NextWorkerIndex.store(0, std::memory_order_relaxed);
-
-        // Clear worker thread mapping
-        {
-            TUniqueLock<FMutex> lock(m_WorkerMapMutex);
-            m_ThreadToWorkerIndex.clear();
-        }
-
         m_ParallelSubmissionActive = true;
-    }
-
-    std::pair<u32, WorkerScratchBuffer*> FrameDataBuffer::RegisterAndGetScratchBuffer()
-    {
-        OLO_PROFILE_FUNCTION();
-
-        std::thread::id threadId = std::this_thread::get_id();
-
-        // Hold lock for entire registration path to fix TOCTOU race condition
-        TUniqueLock<FMutex> lock(m_WorkerMapMutex);
-
-        // Check if thread is already registered
-        auto it = m_ThreadToWorkerIndex.find(threadId);
-        if (it != m_ThreadToWorkerIndex.end())
-        {
-            u32 workerIndex = it->second;
-            return { workerIndex, &m_WorkerScratchBuffers[workerIndex] };
-        }
-
-        // Register new worker - check bounds before atomic increment
-        u32 currentIndex = m_NextWorkerIndex.load(std::memory_order_relaxed);
-        if (currentIndex >= MAX_FRAME_DATA_WORKERS)
-        {
-            OLO_CORE_ERROR("FrameDataBuffer: Too many worker threads! Max is {}",
-                           MAX_FRAME_DATA_WORKERS);
-            return { 0, nullptr };
-        }
-
-        // Now safe to increment since we're within bounds
-        u32 workerIndex = m_NextWorkerIndex.fetch_add(1, std::memory_order_relaxed);
-        m_ThreadToWorkerIndex[threadId] = workerIndex;
-
-        return { workerIndex, &m_WorkerScratchBuffers[workerIndex] };
     }
 
     u32 FrameDataBuffer::AllocateBoneMatricesParallel(u32 workerIndex, u32 count)
@@ -430,19 +380,6 @@ namespace OloEngine
 
         const WorkerScratchBuffer& scratch = m_WorkerScratchBuffers[workerIndex];
         return scratch.globalTransformOffset + localOffset;
-    }
-
-    i32 FrameDataBuffer::GetCurrentWorkerIndex() const
-    {
-        std::thread::id threadId = std::this_thread::get_id();
-
-        TUniqueLock<FMutex> lock(m_WorkerMapMutex);
-        auto it = m_ThreadToWorkerIndex.find(threadId);
-        if (it != m_ThreadToWorkerIndex.end())
-        {
-            return static_cast<i32>(it->second);
-        }
-        return -1;
     }
 
     std::pair<u32, WorkerScratchBuffer*> FrameDataBuffer::GetScratchBufferByIndex(u32 workerIndex)

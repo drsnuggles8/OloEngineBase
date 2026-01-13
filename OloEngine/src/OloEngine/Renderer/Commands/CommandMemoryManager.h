@@ -69,25 +69,11 @@ namespace OloEngine
         // Call at the end of each frame (in EndScene)
         static void ReleaseWorkerAllocators();
 
-        /// @brief Register current thread as a worker and get a dedicated allocator
-        /// @return Pair of (workerIndex, allocator)
-        /// @deprecated Use GetWorkerAllocatorByIndex() with explicit worker index from ParallelFor
-        [[deprecated("Use GetWorkerAllocatorByIndex() with explicit worker index from ParallelFor")]]
-        static std::pair<u32, CommandAllocator*> RegisterAndGetWorkerAllocator();
-
         // Get a dedicated allocator for an explicit worker index (no thread ID lookup)
         // Use this when the worker index is already known (e.g., from ParallelForWithTaskContext)
-        // This is more efficient than RegisterAndGetWorkerAllocator() as it avoids
-        // std::thread::id lookup and mutex acquisition for thread ID mapping.
         // @param workerIndex The worker index (typically from ParallelFor contextIndex)
         // @return Pair of (workerIndex, allocator) - workerIndex is passed through unchanged
         static std::pair<u32, CommandAllocator*> GetWorkerAllocatorByIndex(u32 workerIndex);
-
-        /// @brief Get worker index for the current thread
-        /// @return Worker index or -1 if not registered
-        /// @deprecated Use explicit worker index from ParallelFor instead
-        [[deprecated("Use explicit worker index from ParallelFor instead")]]
-        static i32 GetCurrentWorkerIndex();
 
         // Create a command packet using the current allocator
         template<typename T>
@@ -136,10 +122,5 @@ namespace OloEngine
 
         // Cache-line-aligned per-worker allocator slots
         static std::array<WorkerAllocatorSlot, MAX_ALLOCATOR_WORKERS> s_WorkerAllocators;
-
-        // Thread ID to worker index mapping for parallel submission
-        static std::unordered_map<std::thread::id, u32> s_ThreadToWorkerIndex;
-        static FMutex s_WorkerMapMutex;
-        static std::atomic<u32> s_NextWorkerIndex;
     };
 } // namespace OloEngine
