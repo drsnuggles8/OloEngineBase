@@ -185,8 +185,6 @@ namespace OloEngine
 
         /** Static empty string for unknown threads */
         inline static std::string s_UnknownThreadName = "UnknownThread";
-        inline static std::string s_GameThreadName = "GameThread";
-        inline static std::string s_RenderThreadName = "RenderThread";
     };
 
 } // namespace OloEngine
@@ -196,7 +194,6 @@ namespace OloEngine
 //=============================================================================
 
 #include "OloEngine/HAL/RunnableThread.h"
-#include "OloEngine/Core/CoreGlobals.h"
 
 namespace OloEngine
 {
@@ -256,15 +253,7 @@ namespace OloEngine
 
     inline const std::string& FThreadManager::GetThreadName(u32 ThreadId)
     {
-        // Check for well-known thread IDs first
-        if (ThreadId == GGameThreadId)
-        {
-            return s_GameThreadName;
-        }
-        else if (ThreadId == GRenderThreadId)
-        {
-            return s_RenderThreadName;
-        }
+        // Look up from the thread registry
         return Get().GetThreadNameInternal(ThreadId);
     }
 

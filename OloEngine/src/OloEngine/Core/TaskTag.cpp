@@ -17,10 +17,7 @@ namespace OLO
     u32 GGameThreadId = 0;
     u32 GRenderThreadId = 0;
     u32 GSlateLoadingThreadId = 0;
-    u32 GRHIThreadId = 0;
     bool GIsGameThreadIdInitialized = false;
-    bool GIsRunningRHIInSeparateThread = false;
-    bool GIsRunningRHIInDedicatedThread = false;
 
     //////////////////////////////////////////////////////////////////////////
     // FTaskTagScope implementation
@@ -180,7 +177,7 @@ namespace OLO
 
     bool IsInAnyRenderingThread()
     {
-        return FTaskTagScope::IsCurrentTag(ETaskTag::EParallelRenderingThread) || FTaskTagScope::IsCurrentTag(ETaskTag::ERenderingThread) || FTaskTagScope::IsCurrentTag(ETaskTag::EParallelRhiThread) || FTaskTagScope::IsCurrentTag(ETaskTag::ERhiThread);
+        return FTaskTagScope::IsCurrentTag(ETaskTag::EParallelRenderingThread) || FTaskTagScope::IsCurrentTag(ETaskTag::ERenderingThread);
     }
 
     bool IsInParallelRenderingThread()
@@ -192,23 +189,8 @@ namespace OLO
         }
         else
         {
-            return FTaskTagScope::IsCurrentTag(ETaskTag::EParallelRenderingThread) || FTaskTagScope::IsCurrentTag(ETaskTag::ERenderingThread) || FTaskTagScope::IsCurrentTag(ETaskTag::EParallelRhiThread) || FTaskTagScope::IsCurrentTag(ETaskTag::ERhiThread);
+            return FTaskTagScope::IsCurrentTag(ETaskTag::EParallelRenderingThread) || FTaskTagScope::IsCurrentTag(ETaskTag::ERenderingThread);
         }
-    }
-
-    bool IsRHIThreadRunning()
-    {
-        return GIsRunningRHIInDedicatedThread;
-    }
-
-    bool IsInRHIThread()
-    {
-        return FTaskTagScope::IsCurrentTag(ETaskTag::ERhiThread);
-    }
-
-    bool IsInParallelRHIThread()
-    {
-        return (FTaskTagScope::GetCurrentTag() & ETaskTag::ERhiThread) == ETaskTag::ERhiThread;
     }
 
     bool IsInSlateThread()

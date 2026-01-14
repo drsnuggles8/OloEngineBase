@@ -16,27 +16,30 @@ namespace OloEngine::Tasks
     // - Inline: Execute immediately on the calling thread (no scheduling)
     // - TaskEvent: Optimized for synchronization events (no execution body)
     // - Named thread priorities: For integration with game/render thread model
+    //
+    // NAMED THREAD STATUS IN OLOENGINE:
+    // - GameThread*:   ✅ Active - use EnqueueGameThreadTask()
+    // - RenderThread*: ⚠️ Reserved - not currently used (rendering runs on GameThread)
+    //
+    // @see ENamedThread in NamedThreads.h for detailed thread activation status
+    //
     enum class EExtendedTaskPriority : i8
     {
         None,      ///< Use regular task priority
         Inline,    ///< Execute inline without scheduling
         TaskEvent, ///< Task event - optimized for events, skips scheduling
 
-        // Named thread support (for integration with game/render thread model)
+        // GameThread priorities (ACTIVE - attached in Application::Application())
         GameThreadNormalPri,
         GameThreadHiPri,
         GameThreadNormalPriLocalQueue,
         GameThreadHiPriLocalQueue,
 
+        // RenderThread priorities (RESERVED - not currently activated)
         RenderThreadNormalPri,
         RenderThreadHiPri,
         RenderThreadNormalPriLocalQueue,
         RenderThreadHiPriLocalQueue,
-
-        RHIThreadNormalPri,
-        RHIThreadHiPri,
-        RHIThreadNormalPriLocalQueue,
-        RHIThreadHiPriLocalQueue,
 
         Count
     };
@@ -62,12 +65,7 @@ namespace OloEngine::Tasks
             "RenderThreadNormalPri",
             "RenderThreadHiPri",
             "RenderThreadNormalPriLocalQueue",
-            "RenderThreadHiPriLocalQueue",
-
-            "RHIThreadNormalPri",
-            "RHIThreadHiPri",
-            "RHIThreadNormalPriLocalQueue",
-            "RHIThreadHiPriLocalQueue"
+            "RenderThreadHiPriLocalQueue"
         };
         return ExtendedTaskPriorityToStr[static_cast<i32>(ExtendedPriority)];
     }
@@ -117,11 +115,6 @@ namespace OloEngine::Tasks
         CONVERT_EXTENDED_TASK_PRIORITY(RenderThreadHiPri);
         CONVERT_EXTENDED_TASK_PRIORITY(RenderThreadNormalPriLocalQueue);
         CONVERT_EXTENDED_TASK_PRIORITY(RenderThreadHiPriLocalQueue);
-
-        CONVERT_EXTENDED_TASK_PRIORITY(RHIThreadNormalPri);
-        CONVERT_EXTENDED_TASK_PRIORITY(RHIThreadHiPri);
-        CONVERT_EXTENDED_TASK_PRIORITY(RHIThreadNormalPriLocalQueue);
-        CONVERT_EXTENDED_TASK_PRIORITY(RHIThreadHiPriLocalQueue);
 
 #undef CONVERT_EXTENDED_TASK_PRIORITY
 

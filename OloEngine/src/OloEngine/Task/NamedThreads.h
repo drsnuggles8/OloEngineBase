@@ -35,7 +35,7 @@
 //
 // KEY COMPONENTS:
 // ---------------
-// - ENamedThread: Enum identifying special threads (GameThread, RenderThread, RHIThread)
+// - ENamedThread: Enum identifying special threads (GameThread, RenderThread, AudioThread)
 // - FNamedThreadTask: Wrapper around a callable with priority/debug info
 // - FNamedThreadQueue: Per-thread queue with Main/Local and High/Normal priority
 // - FNamedThreadManager: Singleton managing all named thread queues
@@ -114,12 +114,25 @@ namespace OloEngine::Tasks
 
     // @enum ENamedThread
     // @brief Named thread identifiers for task dispatch
+    //
+    // CURRENTLY ACTIVE THREADS:
+    // - GameThread:   ✅ Active - Main application thread, attached in Application::Application()
+    // - AudioThread:  ✅ Active - Dedicated audio processing thread, attached in AudioEngine::AudioThreadFunc()
+    //
+    // RESERVED BUT NOT CURRENTLY USED:
+    // - RenderThread: ⚠️ Reserved - Not currently used; rendering runs on GameThread.
+    //                 Could be activated for multi-threaded rendering in the future.
+    //
+    // To activate a new named thread:
+    //   1. Create a dedicated thread (using FThread)
+    //   2. Call AttachToThread(ENamedThread::YourThread) from that thread
+    //   3. Process tasks via GetQueue(thread).ProcessAll() in the thread loop
+    //
     enum class ENamedThread : i32
     {
-        GameThread = 0,
-        RenderThread = 1,
-        RHIThread = 2,
-        AudioThread = 3,
+        GameThread = 0,   ///< Main application thread (active)
+        RenderThread = 1, ///< Reserved for future multi-threaded rendering
+        AudioThread = 2,  ///< Dedicated audio processing thread (active)
 
         Count,
         Invalid = -1
@@ -143,12 +156,6 @@ namespace OloEngine::Tasks
             case EExtendedTaskPriority::RenderThreadHiPriLocalQueue:
                 return ENamedThread::RenderThread;
 
-            case EExtendedTaskPriority::RHIThreadNormalPri:
-            case EExtendedTaskPriority::RHIThreadHiPri:
-            case EExtendedTaskPriority::RHIThreadNormalPriLocalQueue:
-            case EExtendedTaskPriority::RHIThreadHiPriLocalQueue:
-                return ENamedThread::RHIThread;
-
             default:
                 return ENamedThread::Invalid;
         }
@@ -163,8 +170,6 @@ namespace OloEngine::Tasks
             case EExtendedTaskPriority::GameThreadHiPriLocalQueue:
             case EExtendedTaskPriority::RenderThreadHiPri:
             case EExtendedTaskPriority::RenderThreadHiPriLocalQueue:
-            case EExtendedTaskPriority::RHIThreadHiPri:
-            case EExtendedTaskPriority::RHIThreadHiPriLocalQueue:
                 return true;
             default:
                 return false;
@@ -180,8 +185,6 @@ namespace OloEngine::Tasks
             case EExtendedTaskPriority::GameThreadHiPriLocalQueue:
             case EExtendedTaskPriority::RenderThreadNormalPriLocalQueue:
             case EExtendedTaskPriority::RenderThreadHiPriLocalQueue:
-            case EExtendedTaskPriority::RHIThreadNormalPriLocalQueue:
-            case EExtendedTaskPriority::RHIThreadHiPriLocalQueue:
                 return true;
             default:
                 return false;
@@ -648,6 +651,14 @@ namespace OloEngine::Tasks
     }
 
     // @brief Enqueue a task to the render thread
+    //
+    // @note CURRENTLY UNUSED: RenderThread is not activated in OloEngine.
+    //       Rendering runs on the GameThread. This function is provided for
+    //       future multi-threaded rendering support. Tasks enqueued here will
+    //       NOT be processed until a RenderThread is created and attached.
+    //
+    // @see ENamedThread for thread activation status
+    //
     template<typename TaskBody>
     void EnqueueRenderThreadTask(TaskBody&& Task, const char* DebugName = "RenderThreadTask",
                                  bool bHighPriority = false, bool bLocalQueue = false)
@@ -662,26 +673,6 @@ namespace OloEngine::Tasks
         {
             Priority = bHighPriority ? EExtendedTaskPriority::RenderThreadHiPri
                                      : EExtendedTaskPriority::RenderThreadNormalPri;
-        }
-
-        FNamedThreadManager::Get().EnqueueTask(Priority, Forward<TaskBody>(Task), DebugName);
-    }
-
-    // @brief Enqueue a task to the RHI thread
-    template<typename TaskBody>
-    void EnqueueRHIThreadTask(TaskBody&& Task, const char* DebugName = "RHIThreadTask",
-                              bool bHighPriority = false, bool bLocalQueue = false)
-    {
-        EExtendedTaskPriority Priority;
-        if (bLocalQueue)
-        {
-            Priority = bHighPriority ? EExtendedTaskPriority::RHIThreadHiPriLocalQueue
-                                     : EExtendedTaskPriority::RHIThreadNormalPriLocalQueue;
-        }
-        else
-        {
-            Priority = bHighPriority ? EExtendedTaskPriority::RHIThreadHiPri
-                                     : EExtendedTaskPriority::RHIThreadNormalPri;
         }
 
         FNamedThreadManager::Get().EnqueueTask(Priority, Forward<TaskBody>(Task), DebugName);
