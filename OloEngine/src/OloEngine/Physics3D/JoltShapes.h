@@ -35,8 +35,10 @@
 #include <unordered_map>
 #include <vector>
 #include <filesystem>
-#include <mutex>
-#include <shared_mutex>
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/SharedMutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
+#include "OloEngine/Threading/SharedLock.h"
 #include <utility>
 #include <atomic>
 
@@ -144,12 +146,12 @@ namespace OloEngine
 
       private:
         static std::atomic<bool> s_Initialized;
-        static std::mutex s_InitializationMutex;
+        static FMutex s_InitializationMutex;
         static std::unordered_map<std::string, JPH::Ref<JPH::Shape>> s_ShapeCache;
-        static std::shared_mutex s_ShapeCacheMutex;
+        static FSharedMutex s_ShapeCacheMutex;
         static std::atomic<bool> s_PersistentCacheEnabled;
         static std::filesystem::path s_PersistentCacheDirectory;
-        static std::shared_mutex s_PersistentCacheDirectoryMutex;
+        static FSharedMutex s_PersistentCacheDirectoryMutex;
 
         // Constants for shape validation
         static constexpr f32 s_MinShapeSize = 0.001f;

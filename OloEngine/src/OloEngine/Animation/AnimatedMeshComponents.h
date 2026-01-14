@@ -15,8 +15,9 @@
 
 #include <string>
 #include <vector>
-#include <mutex>
 #include <unordered_map>
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 namespace OloEngine
 {
@@ -170,7 +171,7 @@ namespace OloEngine
     struct SkeletonComponent
     {
         Ref<Skeleton> m_Skeleton;                                       // Shared skeleton reference
-        mutable std::mutex m_CacheMutex;                                // Protects cache members from concurrent access
+        mutable FMutex m_CacheMutex;                                    // Protects cache members from concurrent access
         mutable std::unordered_map<std::string, UUID> m_TagEntityCache; // Cache for tag-to-entity UUID mapping
         mutable bool m_CacheValid = false;                              // Whether the cache is still valid
 
@@ -182,7 +183,7 @@ namespace OloEngine
             : m_Skeleton(other.m_Skeleton)
         {
             // Thread-safe copy of cache data
-            std::lock_guard<std::mutex> lock(other.m_CacheMutex);
+            TUniqueLock<FMutex> lock(other.m_CacheMutex);
             m_TagEntityCache = other.m_TagEntityCache;
             m_CacheValid = other.m_CacheValid;
             // Each component gets its own mutex
@@ -193,8 +194,16 @@ namespace OloEngine
         {
             if (this != &other)
             {
-                // Thread-safe assignment with deadlock avoidance
-                std::scoped_lock lock(m_CacheMutex, other.m_CacheMutex);
+                // Thread-safe assignment with deadlock avoidance using address-based ordering
+                // Always lock the mutex at the lower address first to prevent ABBA deadlocks
+                FMutex* first = &m_CacheMutex;
+                FMutex* second = &other.m_CacheMutex;
+                if (second < first)
+                {
+                    std::swap(first, second);
+                }
+                TUniqueLock<FMutex> lock1(*first);
+                TUniqueLock<FMutex> lock2(*second);
                 m_Skeleton = other.m_Skeleton;
                 m_TagEntityCache = other.m_TagEntityCache;
                 m_CacheValid = other.m_CacheValid;
@@ -208,7 +217,7 @@ namespace OloEngine
             : m_Skeleton(std::move(other.m_Skeleton))
         {
             // Transfer cache data under lock from the source
-            std::lock_guard<std::mutex> lock(other.m_CacheMutex);
+            TUniqueLock<FMutex> lock(other.m_CacheMutex);
             m_TagEntityCache = std::move(other.m_TagEntityCache);
             m_CacheValid = other.m_CacheValid;
             other.m_CacheValid = false; // Invalidate source cache
@@ -220,8 +229,16 @@ namespace OloEngine
         {
             if (this != &other)
             {
-                // Lock both mutexes to ensure thread safety during move
-                std::scoped_lock lock(m_CacheMutex, other.m_CacheMutex);
+                // Thread-safe move with deadlock avoidance using address-based ordering
+                // Always lock the mutex at the lower address first to prevent ABBA deadlocks
+                FMutex* first = &m_CacheMutex;
+                FMutex* second = &other.m_CacheMutex;
+                if (second < first)
+                {
+                    std::swap(first, second);
+                }
+                TUniqueLock<FMutex> lock1(*first);
+                TUniqueLock<FMutex> lock2(*second);
                 m_Skeleton = std::move(other.m_Skeleton);
                 m_TagEntityCache = std::move(other.m_TagEntityCache);
                 m_CacheValid = other.m_CacheValid;
@@ -233,7 +250,7 @@ namespace OloEngine
         // Invalidate cache when skeleton changes
         void InvalidateCache() const noexcept
         {
-            std::lock_guard<std::mutex> lock(m_CacheMutex);
+            TUniqueLock<FMutex> lock(m_CacheMutex);
             m_CacheValid = false;
             m_TagEntityCache.clear();
         }
@@ -241,7 +258,7 @@ namespace OloEngine
         // Thread-safe setter for skeleton that automatically invalidates cache
         void SetSkeleton(const Ref<Skeleton>& skeleton) noexcept
         {
-            std::lock_guard<std::mutex> lock(m_CacheMutex);
+            TUniqueLock<FMutex> lock(m_CacheMutex);
             m_Skeleton = skeleton;
             m_CacheValid = false;
             m_TagEntityCache.clear();

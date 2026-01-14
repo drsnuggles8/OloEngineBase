@@ -68,8 +68,6 @@ namespace OloEngine
             return m_Specification;
         }
 
-        void SubmitToMainThread(const std::function<void()>& function);
-
       private:
         void Run();
         bool OnWindowClose(WindowCloseEvent const& e);

@@ -746,10 +746,8 @@ namespace OloEngine
         // Create temp allocator
         m_TempAllocator = std::make_unique<JPH::TempAllocatorImpl>(s_TempAllocatorSize);
 
-        // Create job system with safe thread count calculation
-        u32 hardwareConcurrency = std::thread::hardware_concurrency();
-        u32 threadCount = (hardwareConcurrency <= 1) ? 1 : (hardwareConcurrency - 1);
-        m_JobSystem = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, threadCount);
+        // Create job system adapter that wraps FScheduler
+        m_JobSystem = std::make_unique<JoltJobSystemAdapter>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers);
 
         // Create layer interfaces
         m_BroadPhaseLayerInterface = std::make_unique<BroadPhaseLayerInterface>();

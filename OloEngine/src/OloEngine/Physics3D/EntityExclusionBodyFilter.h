@@ -4,7 +4,9 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include <vector>
-#include <shared_mutex>
+#include "OloEngine/Threading/SharedMutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
+#include "OloEngine/Threading/SharedLock.h"
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
 
@@ -74,7 +76,7 @@ namespace OloEngine
 
       private:
         ExcludedEntitySet m_ExcludedEntities;
-        mutable std::shared_mutex m_ExclusionMutex; // Protects m_ExcludedEntities for thread-safe access
+        mutable FSharedMutex m_ExclusionMutex; // Protects m_ExcludedEntities for thread-safe access
     };
 
 } // namespace OloEngine

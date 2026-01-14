@@ -11,8 +11,10 @@
 #include <complex>
 #include <functional>
 #include <memory>
-#include <mutex>
-#include <shared_mutex>
+
+#include "OloEngine/Threading/SharedMutex.h"
+#include "OloEngine/Threading/SharedLock.h"
+#include "OloEngine/Threading/UniqueLock.h"
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -279,7 +281,7 @@ namespace OloEngine::Audio::SoundGraph
         std::unordered_map<Identifier, std::shared_ptr<void>> m_ParameterWrappers;
 
         // Mutex for thread-safe parameter access
-        mutable std::shared_mutex m_ParameterMutex;
+        mutable FSharedMutex m_ParameterMutex;
 
         template<typename T>
         std::shared_ptr<ParameterWrapper<T>> GetParameter(const Identifier& id)
@@ -288,7 +290,7 @@ namespace OloEngine::Audio::SoundGraph
 
             // First, try to find existing wrapper with shared lock (read-only)
             {
-                std::shared_lock<std::shared_mutex> lock(m_ParameterMutex);
+                TSharedLock<FSharedMutex> lock(m_ParameterMutex);
                 auto wrapperIt = m_ParameterWrappers.find(id);
                 if (wrapperIt != m_ParameterWrappers.end())
                 {
@@ -297,7 +299,7 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             // Not found in cache, need to create it - acquire exclusive lock
-            std::unique_lock<std::shared_mutex> lock(m_ParameterMutex);
+            TUniqueLock<FSharedMutex> lock(m_ParameterMutex);
 
             // Double-check: another thread might have created it while we were waiting for the lock
             auto wrapperIt = m_ParameterWrappers.find(id);
@@ -352,7 +354,7 @@ namespace OloEngine::Audio::SoundGraph
 
             // Store parameter value for GetParameter access (thread-safe)
             {
-                std::unique_lock<std::shared_mutex> lock(m_ParameterMutex);
+                TUniqueLock<FSharedMutex> lock(m_ParameterMutex);
                 m_ParameterStorage[id] = defaultValue;
             }
 

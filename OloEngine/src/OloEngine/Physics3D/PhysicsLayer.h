@@ -6,7 +6,8 @@
 #include <string_view>
 #include <vector>
 #include <unordered_map>
-#include <shared_mutex>
+
+#include "OloEngine/Threading/SharedMutex.h"
 
 namespace OloEngine
 {
@@ -82,7 +83,7 @@ namespace OloEngine
         static std::unordered_map<u32, std::string> s_LayerNames;
         static std::unordered_map<u32, sizet> s_LayerIndexMap; // Maps LayerID to index in s_Layers for O(1) lookup
         static const PhysicsLayer s_NullLayer;
-        static std::shared_mutex s_LayersMutex; // Protects all static containers
+        static FSharedMutex s_LayersMutex; // Protects all static containers
     };
 
 } // namespace OloEngine

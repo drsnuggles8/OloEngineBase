@@ -1,8 +1,8 @@
 #include "OloEnginePCH.h"
 #include "FrameDataBuffer.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <cstring>
-#include <thread>
 
 namespace OloEngine
 {
@@ -19,28 +19,21 @@ namespace OloEngine
         // Just reset offsets - no need to clear data
         // Thread-safe: acquire both locks to prevent races with allocations
         {
-            std::lock_guard<std::mutex> boneLock(m_BoneMutex);
+            TUniqueLock<FMutex> boneLock(m_BoneMutex);
             m_BoneMatrixOffset = 0;
         }
         {
-            std::lock_guard<std::mutex> transformLock(m_TransformMutex);
+            TUniqueLock<FMutex> transformLock(m_TransformMutex);
             m_TransformOffset = 0;
         }
 
         // Reset parallel submission state
         m_ParallelSubmissionActive = false;
-        m_NextWorkerIndex.store(0, std::memory_order_relaxed);
 
         // Reset worker scratch buffers
         for (auto& scratch : m_WorkerScratchBuffers)
         {
             scratch.Reset();
-        }
-
-        // Clear worker thread mapping
-        {
-            std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
-            m_ThreadToWorkerIndex.clear();
         }
     }
 
@@ -49,7 +42,7 @@ namespace OloEngine
         if (count == 0)
             return 0;
 
-        std::lock_guard<std::mutex> lock(m_BoneMutex);
+        TUniqueLock<FMutex> lock(m_BoneMutex);
 
         u32 offset = m_BoneMatrixOffset;
 
@@ -70,7 +63,7 @@ namespace OloEngine
         if (count == 0)
             return 0;
 
-        std::lock_guard<std::mutex> lock(m_TransformMutex);
+        TUniqueLock<FMutex> lock(m_TransformMutex);
 
         u32 offset = m_TransformOffset;
 
@@ -88,7 +81,7 @@ namespace OloEngine
 
     glm::mat4* FrameDataBuffer::GetBoneMatrixPtr(u32 offset)
     {
-        std::lock_guard<std::mutex> lock(m_BoneMutex);
+        TUniqueLock<FMutex> lock(m_BoneMutex);
         if (offset >= m_BoneMatrices.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid bone matrix offset {}", offset);
@@ -99,7 +92,7 @@ namespace OloEngine
 
     const glm::mat4* FrameDataBuffer::GetBoneMatrixPtr(u32 offset) const
     {
-        std::lock_guard<std::mutex> lock(m_BoneMutex);
+        TUniqueLock<FMutex> lock(m_BoneMutex);
         if (offset >= m_BoneMatrices.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid bone matrix offset {}", offset);
@@ -110,7 +103,7 @@ namespace OloEngine
 
     glm::mat4* FrameDataBuffer::GetTransformPtr(u32 offset)
     {
-        std::lock_guard<std::mutex> lock(m_TransformMutex);
+        TUniqueLock<FMutex> lock(m_TransformMutex);
         if (offset >= m_Transforms.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid transform offset {}", offset);
@@ -121,7 +114,7 @@ namespace OloEngine
 
     const glm::mat4* FrameDataBuffer::GetTransformPtr(u32 offset) const
     {
-        std::lock_guard<std::mutex> lock(m_TransformMutex);
+        TUniqueLock<FMutex> lock(m_TransformMutex);
         if (offset >= m_Transforms.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: Invalid transform offset {}", offset);
@@ -132,7 +125,7 @@ namespace OloEngine
 
     void FrameDataBuffer::WriteBoneMatrices(u32 offset, const glm::mat4* data, u32 count)
     {
-        std::lock_guard<std::mutex> lock(m_BoneMutex);
+        TUniqueLock<FMutex> lock(m_BoneMutex);
         if (offset + count > m_BoneMatrices.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteBoneMatrices out of bounds: offset={}, count={}, capacity={}",
@@ -144,7 +137,7 @@ namespace OloEngine
 
     void FrameDataBuffer::WriteTransforms(u32 offset, const glm::mat4* data, u32 count)
     {
-        std::lock_guard<std::mutex> lock(m_TransformMutex);
+        TUniqueLock<FMutex> lock(m_TransformMutex);
         if (offset + count > m_Transforms.size())
         {
             OLO_CORE_ERROR("FrameDataBuffer: WriteTransforms out of bounds: offset={}, count={}, capacity={}",
@@ -191,49 +184,7 @@ namespace OloEngine
             scratch.Reset();
         }
 
-        // Reset worker index counter
-        m_NextWorkerIndex.store(0, std::memory_order_relaxed);
-
-        // Clear worker thread mapping
-        {
-            std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
-            m_ThreadToWorkerIndex.clear();
-        }
-
         m_ParallelSubmissionActive = true;
-    }
-
-    std::pair<u32, WorkerScratchBuffer*> FrameDataBuffer::RegisterAndGetScratchBuffer()
-    {
-        OLO_PROFILE_FUNCTION();
-
-        std::thread::id threadId = std::this_thread::get_id();
-
-        // Hold lock for entire registration path to fix TOCTOU race condition
-        std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
-
-        // Check if thread is already registered
-        auto it = m_ThreadToWorkerIndex.find(threadId);
-        if (it != m_ThreadToWorkerIndex.end())
-        {
-            u32 workerIndex = it->second;
-            return { workerIndex, &m_WorkerScratchBuffers[workerIndex] };
-        }
-
-        // Register new worker - check bounds before atomic increment
-        u32 currentIndex = m_NextWorkerIndex.load(std::memory_order_relaxed);
-        if (currentIndex >= MAX_FRAME_DATA_WORKERS)
-        {
-            OLO_CORE_ERROR("FrameDataBuffer: Too many worker threads! Max is {}",
-                           MAX_FRAME_DATA_WORKERS);
-            return { 0, nullptr };
-        }
-
-        // Now safe to increment since we're within bounds
-        u32 workerIndex = m_NextWorkerIndex.fetch_add(1, std::memory_order_relaxed);
-        m_ThreadToWorkerIndex[threadId] = workerIndex;
-
-        return { workerIndex, &m_WorkerScratchBuffers[workerIndex] };
     }
 
     u32 FrameDataBuffer::AllocateBoneMatricesParallel(u32 workerIndex, u32 count)
@@ -431,17 +382,20 @@ namespace OloEngine
         return scratch.globalTransformOffset + localOffset;
     }
 
-    i32 FrameDataBuffer::GetCurrentWorkerIndex() const
+    std::pair<u32, WorkerScratchBuffer*> FrameDataBuffer::GetScratchBufferByIndex(u32 workerIndex)
     {
-        std::thread::id threadId = std::this_thread::get_id();
+        OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_WorkerMapMutex);
-        auto it = m_ThreadToWorkerIndex.find(threadId);
-        if (it != m_ThreadToWorkerIndex.end())
+        if (workerIndex >= MAX_FRAME_DATA_WORKERS)
         {
-            return static_cast<i32>(it->second);
+            OLO_CORE_ERROR("FrameDataBuffer::GetScratchBufferByIndex: Invalid worker index {}! Max is {}",
+                           workerIndex, MAX_FRAME_DATA_WORKERS - 1);
+            return { 0, nullptr };
         }
-        return -1;
+
+        // No mutex needed - direct array access with bounds-checked index
+        // Each worker only accesses its own slot
+        return { workerIndex, &m_WorkerScratchBuffers[workerIndex] };
     }
 
 } // namespace OloEngine

@@ -188,8 +188,7 @@ namespace OloEngine
                 OLO::ETaskTag::EStaticInit |
                 OLO::ETaskTag::EGameThread |
                 OLO::ETaskTag::ESlateThread |
-                OLO::ETaskTag::ERenderingThread |
-                OLO::ETaskTag::ERhiThread;
+                OLO::ETaskTag::ERenderingThread;
 
             const bool bBackgroundPriority = (Flags & EParallelForFlags::BackgroundPriority) != EParallelForFlags::None;
             const bool bIsLatencySensitive = (OLO::FTaskTagScope::GetCurrentTag() & LatencySensitiveTasks) != OLO::ETaskTag::ENone;

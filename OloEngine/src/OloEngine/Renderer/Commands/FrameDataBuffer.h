@@ -2,13 +2,11 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Memory/Platform.h"
+#include "OloEngine/Threading/Mutex.h"
 #include <glm/glm.hpp>
 #include <vector>
-#include <mutex>
 #include <atomic>
 #include <array>
-#include <thread>
-#include <unordered_map>
 
 namespace OloEngine
 {
@@ -177,10 +175,11 @@ namespace OloEngine
         void PrepareForParallelSubmission();
 
         /**
-         * @brief Register current thread as a worker and get scratch buffer
+         * @brief Get scratch buffer by explicit worker index (no thread ID lookup)
+         * @param workerIndex The worker index (typically from ParallelFor contextIndex)
          * @return Pair of (workerIndex, scratchBuffer pointer)
          */
-        std::pair<u32, WorkerScratchBuffer*> RegisterAndGetScratchBuffer();
+        std::pair<u32, WorkerScratchBuffer*> GetScratchBufferByIndex(u32 workerIndex);
 
         /**
          * @brief Allocate bone matrices in worker's scratch buffer
@@ -240,11 +239,6 @@ namespace OloEngine
          */
         u32 GetGlobalTransformOffset(u32 workerIndex, u32 localOffset) const;
 
-        /**
-         * @brief Get worker index for current thread (-1 if not registered)
-         */
-        i32 GetCurrentWorkerIndex() const;
-
       private:
         std::vector<glm::mat4> m_BoneMatrices;
         std::vector<glm::mat4> m_Transforms;
@@ -252,17 +246,14 @@ namespace OloEngine
         u32 m_BoneMatrixOffset = 0; // Current allocation offset
         u32 m_TransformOffset = 0;  // Current allocation offset
 
-        mutable std::mutex m_BoneMutex;
-        mutable std::mutex m_TransformMutex;
+        mutable FMutex m_BoneMutex;
+        mutable FMutex m_TransformMutex;
 
         // ====================================================================
         // Thread-Local Scratch Buffer Storage
         // ====================================================================
 
         std::array<WorkerScratchBuffer, MAX_FRAME_DATA_WORKERS> m_WorkerScratchBuffers;
-        std::unordered_map<std::thread::id, u32> m_ThreadToWorkerIndex;
-        mutable std::mutex m_WorkerMapMutex;
-        std::atomic<u32> m_NextWorkerIndex{ 0 };
         bool m_ParallelSubmissionActive = false;
     };
 

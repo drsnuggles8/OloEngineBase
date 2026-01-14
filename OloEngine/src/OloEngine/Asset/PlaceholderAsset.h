@@ -12,9 +12,11 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Audio/AudioSource.h"
 
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
+
 #include <glm/glm.hpp>
 #include <unordered_map>
-#include <mutex>
 
 namespace OloEngine
 {
@@ -169,13 +171,13 @@ namespace OloEngine
          */
         static sizet GetPlaceholderCount()
         {
-            std::lock_guard<std::mutex> lock(s_PlaceholderMutex);
+            TUniqueLock<FMutex> lock(s_PlaceholderMutex);
             return s_PlaceholderAssets.size();
         }
 
       private:
         static std::unordered_map<AssetType, Ref<Asset>> s_PlaceholderAssets;
-        static std::mutex s_PlaceholderMutex;
+        static FMutex s_PlaceholderMutex;
         static bool s_Initialized;
 
         static Ref<Asset> CreatePlaceholderAsset(AssetType type);

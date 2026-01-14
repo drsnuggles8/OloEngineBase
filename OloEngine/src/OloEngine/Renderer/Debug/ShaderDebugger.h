@@ -13,8 +13,9 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
-#include <mutex>
 #include <chrono>
+
+#include "OloEngine/Threading/Mutex.h"
 
 // Convenience macros for shader debugging (only in debug builds)
 #ifdef OLO_DEBUG
@@ -296,7 +297,7 @@ namespace OloEngine
 
         // Data members
         bool m_IsInitialized = false;
-        mutable std::mutex m_ShaderMutex;
+        mutable FMutex m_ShaderMutex;
         std::unordered_map<u32, ShaderInfo> m_Shaders;
 
         // Compilation tracking

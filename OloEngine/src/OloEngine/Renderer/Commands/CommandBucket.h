@@ -5,10 +5,10 @@
 #include "CommandPacket.h"
 #include "CommandAllocator.h"
 #include <vector>
-#include <mutex>
 #include <unordered_map>
 #include <atomic>
-#include <thread>
+
+#include "OloEngine/Threading/Mutex.h"
 
 namespace OloEngine
 {
@@ -72,7 +72,7 @@ namespace OloEngine
             // TODO: Restore this check when implementing a proper resource manager with handles
             // static_assert(std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value,
             // 	"Command data must be trivially copyable and have standard layout");
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
 
             CommandPacket* packet = allocator->CreateCommandPacket(commandData, metadata);
             if (packet)
@@ -173,7 +173,7 @@ namespace OloEngine
         void SubmitPacket(CommandPacket* packet)
         {
             OLO_CORE_ASSERT(packet, "CommandBucket::SubmitPacket: Null packet!");
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
 
             AddCommand(packet);
         }
@@ -184,13 +184,10 @@ namespace OloEngine
         // @param workerIndex The worker thread index (0 to MAX_RENDER_WORKERS-1)
         void SubmitPacketParallel(CommandPacket* packet, u32 workerIndex);
 
-        // Register the current thread as a worker and get its index
-        // Call this once per worker thread before submitting commands
-        // @return Worker index for use with SubmitPacketParallel
-        u32 RegisterWorkerThread();
-
-        // Get the worker index for the current thread (returns -1 if not registered)
-        i32 GetCurrentWorkerIndex() const;
+        // Use an explicit worker index (no thread ID lookup needed)
+        // This is the optimized path when contextIndex is already known from ParallelFor.
+        // @param workerIndex The worker index (typically from ParallelFor contextIndex)
+        void UseWorkerIndex(u32 workerIndex);
 
         // Merge all thread-local command ranges into a contiguous array
         // Must be called on the main thread after all workers complete
@@ -314,7 +311,7 @@ namespace OloEngine
         // Allocator for command memory (must be set before use)
         CommandAllocator* m_Allocator = nullptr;
 
-        mutable std::mutex m_Mutex;
+        mutable FMutex m_Mutex;
 
         // ====================================================================
         // Thread-Local Storage for Parallel Command Generation
@@ -333,11 +330,6 @@ namespace OloEngine
 
         // Total commands submitted across all workers (for statistics)
         std::atomic<u32> m_ParallelCommandCount{ 0 };
-
-        // Thread ID to worker index mapping
-        mutable std::mutex m_ThreadMapMutex;
-        std::unordered_map<std::thread::id, u32> m_ThreadToWorkerIndex;
-        std::atomic<u32> m_NextWorkerIndex{ 0 };
 
         // Whether we're currently in parallel submission mode
         bool m_ParallelSubmissionActive = false;

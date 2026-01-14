@@ -61,31 +61,31 @@ namespace OloEngine
 
     void EntityExclusionBodyFilter::AddExcludedEntity(UUID entityID)
     {
-        std::unique_lock<std::shared_mutex> lock(m_ExclusionMutex);
+        TUniqueLock<FSharedMutex> lock(m_ExclusionMutex);
         m_ExcludedEntities.AddExcludedEntity(entityID);
     }
 
     void EntityExclusionBodyFilter::RemoveExcludedEntity(UUID entityID)
     {
-        std::unique_lock<std::shared_mutex> lock(m_ExclusionMutex);
+        TUniqueLock<FSharedMutex> lock(m_ExclusionMutex);
         m_ExcludedEntities.RemoveExcludedEntity(entityID);
     }
 
     void EntityExclusionBodyFilter::ClearExcludedEntities()
     {
-        std::unique_lock<std::shared_mutex> lock(m_ExclusionMutex);
+        TUniqueLock<FSharedMutex> lock(m_ExclusionMutex);
         m_ExcludedEntities.Clear();
     }
 
     [[nodiscard]] bool EntityExclusionBodyFilter::IsEntityExcluded(UUID entityID) const
     {
-        std::shared_lock<std::shared_mutex> lock(m_ExclusionMutex);
+        TSharedLock<FSharedMutex> lock(m_ExclusionMutex);
         return m_ExcludedEntities.IsEntityExcluded(entityID);
     }
 
     [[nodiscard]] std::vector<UUID> EntityExclusionBodyFilter::GetExcludedEntities() const
     {
-        std::shared_lock<std::shared_mutex> lock(m_ExclusionMutex);
+        TSharedLock<FSharedMutex> lock(m_ExclusionMutex);
         return m_ExcludedEntities.ToVector();
     }
 

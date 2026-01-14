@@ -6,8 +6,9 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
-#include <mutex>
 #include <atomic>
+
+#include "OloEngine/Threading/Mutex.h"
 
 namespace OloEngine
 {
@@ -93,7 +94,7 @@ namespace OloEngine
 
         sizet m_BlockSize;
         std::unordered_map<std::thread::id, ThreadLocalCache> m_ThreadCaches;
-        mutable std::mutex m_CachesLock;
+        mutable FMutex m_CachesLock;
         std::atomic<sizet> m_AllocationCount{ 0 };
     };
 } // namespace OloEngine

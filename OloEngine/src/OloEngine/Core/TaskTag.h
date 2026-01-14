@@ -20,7 +20,6 @@ namespace OLO
         EGameThread = 1 << 1,         // Main game thread
         ESlateThread = 1 << 2,        // Slate loading thread
         ERenderingThread = 1 << 4,    // Rendering thread
-        ERhiThread = 1 << 5,          // RHI thread
         EAsyncLoadingThread = 1 << 6, // Async loading thread
         EEventThread = 1 << 7,        // Event processing thread
 
@@ -34,7 +33,6 @@ namespace OLO
         EWorkerThread = 1 << 29 | EParallelThread,
         EParallelRenderingThread = ERenderingThread | EParallelThread,
         EParallelGameThread = EGameThread | EParallelThread,
-        EParallelRhiThread = ERhiThread | EParallelThread,
         EParallelLoadingThread = EAsyncLoadingThread | EParallelThread,
     };
 
@@ -123,17 +121,8 @@ namespace OLO
     /** Thread ID of the slate loading thread (if any) */
     extern u32 GSlateLoadingThreadId;
 
-    /** Thread ID of the RHI thread (if any) */
-    extern u32 GRHIThreadId;
-
     /** Has GGameThreadId been set yet? */
     extern bool GIsGameThreadIdInitialized;
-
-    /** Is the RHI running in a separate thread? */
-    extern bool GIsRunningRHIInSeparateThread;
-
-    /** Is the RHI running in a dedicated thread? */
-    extern bool GIsRunningRHIInDedicatedThread;
 
     //////////////////////////////////////////////////////////////////////////
     // Thread query functions
@@ -167,21 +156,6 @@ namespace OLO
      * Returns true if the current thread is in a parallel rendering context.
      */
     bool IsInParallelRenderingThread();
-
-    /**
-     * Returns true if the RHI thread is currently running.
-     */
-    bool IsRHIThreadRunning();
-
-    /**
-     * Returns true if the current thread is the RHI thread.
-     */
-    bool IsInRHIThread();
-
-    /**
-     * Returns true if the current thread is in a parallel RHI context.
-     */
-    bool IsInParallelRHIThread();
 
     /**
      * Returns true if the current thread is the slate loading thread.

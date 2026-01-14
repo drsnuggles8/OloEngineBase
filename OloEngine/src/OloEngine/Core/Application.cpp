@@ -143,11 +143,6 @@ namespace OloEngine
         m_Running = false;
     }
 
-    void Application::SubmitToMainThread(const std::function<void()>& function)
-    {
-        Tasks::EnqueueGameThreadTask(function);
-    }
-
     void Application::OnEvent(Event& e)
     {
         OLO_PROFILE_FUNCTION();

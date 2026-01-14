@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Task/Task.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <chrono>
 #include <optional>
@@ -48,7 +49,7 @@ namespace OloEngine
 
         // Check if already pending
         {
-            std::scoped_lock<std::mutex> lock(m_PendingAssetsMutex);
+            TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
             if (m_PendingAssets.find(request.Handle) != m_PendingAssets.end())
             {
                 // Already pending, don't queue again
@@ -86,7 +87,7 @@ namespace OloEngine
 
             // Move asset to completed queue with capacity check
             {
-                std::scoped_lock<std::mutex> lock(m_CompletedAssetsMutex);
+                TUniqueLock<FMutex> lock(m_CompletedAssetsMutex);
 
                 // Implement back-pressure: limit completed queue size
                 constexpr sizet MAX_COMPLETED_QUEUE_SIZE = 1000;
@@ -101,7 +102,7 @@ namespace OloEngine
 
             // Remove from pending set
             {
-                std::scoped_lock<std::mutex> lock(m_PendingAssetsMutex);
+                TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
                 m_PendingAssets.erase(request.Handle);
             }
 
@@ -116,7 +117,7 @@ namespace OloEngine
         // In a full implementation, this would notify the RuntimeAssetManager
         // of newly loaded assets. For now, we just clear the completed queue.
 
-        std::scoped_lock<std::mutex> lock(m_CompletedAssetsMutex);
+        TUniqueLock<FMutex> lock(m_CompletedAssetsMutex);
         while (!m_CompletedAssets.empty())
         {
             auto [handle, asset] = m_CompletedAssets.front();
@@ -136,13 +137,13 @@ namespace OloEngine
 
     bool RuntimeAssetSystem::IsAssetPending(AssetHandle handle) const
     {
-        std::scoped_lock<std::mutex> lock(m_PendingAssetsMutex);
+        TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
         return m_PendingAssets.find(handle) != m_PendingAssets.end();
     }
 
     sizet RuntimeAssetSystem::GetPendingAssetCount() const noexcept
     {
-        std::scoped_lock<std::mutex> lock(m_PendingAssetsMutex);
+        TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
         return m_PendingAssets.size();
     }
 

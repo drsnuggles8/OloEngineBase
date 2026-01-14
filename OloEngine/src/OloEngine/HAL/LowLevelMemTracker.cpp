@@ -3,9 +3,10 @@
 
 #include "OloEngine/HAL/LowLevelMemTracker.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <cstring>
-#include <mutex>
 #include <unordered_map>
 
 namespace OloEngine
@@ -57,13 +58,13 @@ namespace OloEngine
 
             void Add(const void* Ptr, u64 Size, ELLMTag Tag)
             {
-                std::lock_guard<std::mutex> Lock(m_Mutex);
+                TUniqueLock<FMutex> Lock(m_Mutex);
                 m_Map[Ptr] = { Size, Tag };
             }
 
             bool Remove(const void* Ptr, FAllocationInfo& OutInfo)
             {
-                std::lock_guard<std::mutex> Lock(m_Mutex);
+                TUniqueLock<FMutex> Lock(m_Mutex);
                 auto It = m_Map.find(Ptr);
                 if (It != m_Map.end())
                 {
@@ -76,7 +77,7 @@ namespace OloEngine
 
             u64 GetTotalSize() const
             {
-                std::lock_guard<std::mutex> Lock(m_Mutex);
+                TUniqueLock<FMutex> Lock(m_Mutex);
                 u64 Total = 0;
                 for (const auto& Pair : m_Map)
                 {
@@ -86,7 +87,7 @@ namespace OloEngine
             }
 
           private:
-            mutable std::mutex m_Mutex;
+            mutable FMutex m_Mutex;
             std::unordered_map<const void*, FAllocationInfo> m_Map;
         };
 

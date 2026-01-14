@@ -6,8 +6,8 @@
 #include "OloEngine/Asset/AssetMetadata.h"
 #include "OloEngine/Asset/AssetSystem/RuntimeAssetSystem.h"
 #include "OloEngine/Asset/AssetPack.h"
+#include "OloEngine/Threading/SharedMutex.h"
 
-#include <shared_mutex>
 #include <unordered_map>
 
 namespace OloEngine
@@ -140,9 +140,9 @@ namespace OloEngine
         Ref<RuntimeAssetSystem> m_AssetThread;
 
         // Thread synchronization
-        mutable std::shared_mutex m_AssetsMutex;
-        mutable std::shared_mutex m_PacksMutex;
-        mutable std::shared_mutex m_DependenciesMutex;
+        mutable FSharedMutex m_AssetsMutex;
+        mutable FSharedMutex m_PacksMutex;
+        mutable FSharedMutex m_DependenciesMutex;
     };
 
 } // namespace OloEngine

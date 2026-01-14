@@ -2,8 +2,9 @@
 
 #if OLO_ENABLE_ARRAY_SLACK_TRACKING
 
-#include <mutex>
 #include <atomic>
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 namespace OloEngine
 {
@@ -11,7 +12,7 @@ namespace OloEngine
     // Global State
     // ============================================================================
 
-    static std::mutex g_SlackTrackingMutex;
+    static FMutex g_SlackTrackingMutex;
     static FArraySlackTrackingHeader* g_TrackingListHead = nullptr;
     static std::atomic<u32> g_TrackedAllocationCount{ 0 };
     static std::atomic<u8> g_ActiveTag{ 0 };
@@ -31,7 +32,7 @@ namespace OloEngine
 
     void ArraySlackTrackGenerateReport(const char* Cmd)
     {
-        std::lock_guard<std::mutex> Lock(g_SlackTrackingMutex);
+        TUniqueLock<FMutex> Lock(g_SlackTrackingMutex);
 
         OLO_CORE_INFO("=== Array Slack Tracking Report ===");
         OLO_CORE_INFO("Tracked allocations: {}", g_TrackedAllocationCount.load());
@@ -98,7 +99,7 @@ namespace OloEngine
         // Add to linked list if tracking is enabled
         if (g_ArraySlackInit)
         {
-            std::lock_guard<std::mutex> Lock(g_SlackTrackingMutex);
+            TUniqueLock<FMutex> Lock(g_SlackTrackingMutex);
 
             if (g_TrackingListHead)
             {
@@ -117,7 +118,7 @@ namespace OloEngine
         // Only remove from list if Prev is set (meaning it was added to the list)
         if (Prev)
         {
-            std::lock_guard<std::mutex> Lock(g_SlackTrackingMutex);
+            TUniqueLock<FMutex> Lock(g_SlackTrackingMutex);
 
             if (Next)
             {

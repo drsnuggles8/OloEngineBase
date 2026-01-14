@@ -287,14 +287,16 @@ namespace OloEngine
         static void EndParallelSubmission();
 
         /**
-         * @brief Get worker context for the current thread
+         * @brief Get worker context for an explicit worker index
          *
-         * Registers the calling thread as a worker and returns its context.
-         * Should be called once per thread at the start of parallel work.
+         * Uses the provided worker index directly without thread ID lookup.
+         * This is the optimized path when contextIndex is already known
+         * from ParallelForWithTaskContext.
          *
+         * @param workerIndex The worker index (typically from ParallelFor contextIndex)
          * @return Worker submission context with allocator and bucket access
          */
-        static WorkerSubmitContext GetWorkerContext();
+        static WorkerSubmitContext GetWorkerContext(u32 workerIndex);
 
         /**
          * @brief Get the current parallel scene context

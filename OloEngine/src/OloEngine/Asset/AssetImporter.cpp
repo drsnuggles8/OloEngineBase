@@ -10,7 +10,8 @@
 
 #include <atomic>
 #include <memory>
-#include <mutex>
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 namespace OloEngine
 {
@@ -37,9 +38,9 @@ namespace OloEngine
     }
 
     // Use function-local static for mutex as well
-    static std::mutex& GetSerializersMutex()
+    static FMutex& GetSerializersMutex()
     {
-        static std::mutex s_SerializersMutex;
+        static FMutex s_SerializersMutex;
         return s_SerializersMutex;
     }
 
@@ -97,15 +98,8 @@ namespace OloEngine
             auto& mutex = GetSerializersMutex();
             auto& serializers = GetSerializers();
 
-            // Try to lock with a very short timeout - if this fails, we might be in trouble
-            if (!mutex.try_lock())
-            {
-                // Can't acquire lock quickly, might be in static destruction
-                return;
-            }
-
-            // Use RAII to ensure unlock
-            std::unique_lock<std::mutex> lock(mutex, std::adopt_lock);
+            // Acquire lock - TUniqueLock will handle RAII
+            TUniqueLock<FMutex> lock(mutex);
 
             // Final check: if we're in static destruction by now, just return
             if (g_IsInStaticDestruction.load(std::memory_order_acquire))
@@ -140,7 +134,7 @@ namespace OloEngine
         }
 
         {
-            std::scoped_lock lock(GetSerializersMutex());
+            TUniqueLock<FMutex> lock(GetSerializersMutex());
             auto& serializers = GetSerializers();
             auto it = serializers.find(metadata.Type);
             if (it == serializers.end())
@@ -175,7 +169,7 @@ namespace OloEngine
 
     bool AssetImporter::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset)
     {
-        std::scoped_lock lock(GetSerializersMutex());
+        TUniqueLock<FMutex> lock(GetSerializersMutex());
         auto& serializers = GetSerializers();
         auto it = serializers.find(metadata.Type);
         if (it == serializers.end())
@@ -189,7 +183,7 @@ namespace OloEngine
 
     bool AssetImporter::SupportsAsyncLoading(AssetType type)
     {
-        std::scoped_lock lock(GetSerializersMutex());
+        TUniqueLock<FMutex> lock(GetSerializersMutex());
         auto& serializers = GetSerializers();
         auto it = serializers.find(type);
         if (it == serializers.end())
@@ -202,7 +196,7 @@ namespace OloEngine
 
     bool AssetImporter::TryLoadRawData(const AssetMetadata& metadata, RawAssetData& outRawData)
     {
-        std::scoped_lock lock(GetSerializersMutex());
+        TUniqueLock<FMutex> lock(GetSerializersMutex());
         auto& serializers = GetSerializers();
         auto it = serializers.find(metadata.Type);
         if (it == serializers.end())
@@ -222,7 +216,7 @@ namespace OloEngine
 
     bool AssetImporter::FinalizeFromRawData(const AssetMetadata& metadata, RawAssetData& rawData, Ref<Asset>& outAsset)
     {
-        std::scoped_lock lock(GetSerializersMutex());
+        TUniqueLock<FMutex> lock(GetSerializersMutex());
         auto& serializers = GetSerializers();
         auto it = serializers.find(metadata.Type);
         if (it == serializers.end())
@@ -247,7 +241,7 @@ namespace OloEngine
 
     void AssetImporter::RegisterDependencies(const AssetMetadata& metadata)
     {
-        std::scoped_lock lock(GetSerializersMutex());
+        TUniqueLock<FMutex> lock(GetSerializersMutex());
         auto& serializers = GetSerializers();
         auto it = serializers.find(metadata.Type);
         if (it == serializers.end())
@@ -275,7 +269,7 @@ namespace OloEngine
 
         AssetType type = asset->GetAssetType();
         {
-            std::scoped_lock lock(GetSerializersMutex());
+            TUniqueLock<FMutex> lock(GetSerializersMutex());
             auto& serializers = GetSerializers();
             auto it = serializers.find(type);
             if (it == serializers.end())
@@ -290,7 +284,7 @@ namespace OloEngine
 
     Ref<Asset> AssetImporter::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo)
     {
-        std::scoped_lock lock(GetSerializersMutex());
+        TUniqueLock<FMutex> lock(GetSerializersMutex());
         auto& serializers = GetSerializers();
         auto it = serializers.find(assetInfo.Type);
         if (it == serializers.end())
@@ -304,7 +298,7 @@ namespace OloEngine
 
     Ref<Scene> AssetImporter::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& assetInfo)
     {
-        std::scoped_lock lock(GetSerializersMutex());
+        TUniqueLock<FMutex> lock(GetSerializersMutex());
         auto& serializers = GetSerializers();
         auto it = serializers.find(AssetType::Scene);
         if (it == serializers.end())

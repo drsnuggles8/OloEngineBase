@@ -7,13 +7,12 @@
 
 #include <atomic>
 #include <chrono>
-#include <deque>
 #include <functional>
 #include <optional>
 #include <unordered_map>
-#include <mutex>
 #include <vector>
-#include <future> // Still needed for CookMeshAsync return type and CookingRequest::m_Promise
+
+#include "OloEngine/Threading/Mutex.h"
 
 namespace OloEngine
 {
@@ -22,15 +21,9 @@ namespace OloEngine
     template<typename T>
     class Ref;
 
-    // Cooking request structure
-    struct CookingRequest
-    {
-        Ref<MeshColliderAsset> m_ColliderAsset;
-        EMeshColliderType m_Type;
-        bool m_InvalidateOld = false;
-        std::promise<ECookingResult> m_Promise;
-        std::chrono::steady_clock::time_point m_RequestTime;
-    };
+    // Callback type for async cooking completion
+    // The callback is always invoked on the game thread for thread safety
+    using CookingCallback = std::function<void(ECookingResult)>;
 
     class MeshColliderCache
     {
@@ -63,8 +56,13 @@ namespace OloEngine
         bool HasMeshData(Ref<MeshColliderAsset> colliderAsset) const;
 
         // Async cooking interface
-        std::future<ECookingResult> CookMeshAsync(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, bool invalidateOld = false);
-        void ProcessCookingRequests();
+        /// @brief Cook mesh asynchronously with callback notification
+        /// @param colliderAsset The mesh collider asset to cook
+        /// @param type The type of collider to cook (Convex or Triangle)
+        /// @param callback Callback invoked on game thread when cooking completes
+        /// @param invalidateOld Whether to invalidate existing cached data
+        void CookMeshWithCallback(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type,
+                                  CookingCallback callback, bool invalidateOld = false);
 
         // Cache management
         void InvalidateCache(Ref<MeshColliderAsset> colliderAsset);
@@ -126,8 +124,8 @@ namespace OloEngine
         MeshColliderCache& operator=(MeshColliderCache&&) = delete;
 
         // Thread safety
-        mutable std::mutex m_CacheMutex;
-        std::mutex m_CookingMutex;
+        mutable FMutex m_CacheMutex;
+        FMutex m_CookingMutex;
 
         // Cache storage
         std::unordered_map<AssetHandle, CachedColliderData> m_CachedData;
@@ -136,7 +134,6 @@ namespace OloEngine
 
         // Cooking system
         Ref<MeshCookingFactory> m_CookingFactory;
-        std::deque<CookingRequest> m_CookingQueue;
         std::atomic<u32> m_ActiveCookingTasks{ 0 }; // Tracks number of active cooking tasks
         std::atomic<u32> m_MaxConcurrentCooks = 4;
 

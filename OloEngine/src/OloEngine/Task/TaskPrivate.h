@@ -945,7 +945,7 @@ namespace OloEngine::Tasks
 
             // @brief Try to wait while processing named thread tasks
             //
-            // If called from a named thread (GameThread, RenderThread, RHIThread),
+            // If called from a named thread (GameThread, RenderThread),
             // this processes tasks from that thread's queue while waiting for the
             // task to complete. This helps prevent deadlocks when a named thread
             // waits on a task that might schedule work back to that same thread.

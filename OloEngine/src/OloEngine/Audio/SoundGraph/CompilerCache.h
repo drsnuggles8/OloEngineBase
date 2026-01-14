@@ -6,7 +6,8 @@
 
 #include <chrono>
 #include <memory>
-#include <mutex>
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -72,13 +73,13 @@ namespace OloEngine::Audio::SoundGraph
         bool SaveToDisk() const;
         void SetAutoSave(bool enabled)
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             m_AutoSave = enabled;
         }
 
         bool GetAutoSave() const
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             return m_AutoSave;
         }
 
@@ -90,7 +91,7 @@ namespace OloEngine::Audio::SoundGraph
         /// Statistics
         sizet GetCacheSize() const
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             return m_CompiledResults.size();
         }
         sizet GetTotalDiskUsage() const;
@@ -101,44 +102,44 @@ namespace OloEngine::Audio::SoundGraph
         void SetCacheDirectory(const std::string& directory);
         std::string GetCacheDirectory() const
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             return m_CacheDirectory;
         }
 
         void SetMaxCacheSize(sizet maxSize)
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             m_MaxCacheSize = maxSize;
         }
 
         sizet GetMaxCacheSize() const
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             return m_MaxCacheSize;
         }
 
         /// Initialization Status
         bool IsFullyInitialized() const
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             return m_DirectoryInitialized && m_DiskCacheLoaded;
         }
 
         bool IsDirectoryInitialized() const
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             return m_DirectoryInitialized;
         }
 
         bool IsDiskCacheLoaded() const
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             return m_DiskCacheLoaded;
         }
 
         std::string GetInitializationErrors() const
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             return m_InitializationErrors;
         }
 
@@ -164,7 +165,7 @@ namespace OloEngine::Audio::SoundGraph
         void ShutdownAsyncSaver();
 
       private:
-        mutable std::mutex m_Mutex;
+        mutable FMutex m_Mutex;
         std::unordered_map<std::string, std::shared_ptr<CompilationResult>> m_CompiledResults;
 
         // LRU tracking: front = oldest (LRU), back = newest (MRU)
@@ -186,7 +187,7 @@ namespace OloEngine::Audio::SoundGraph
 
         // Async save worker (using Task System)
         std::queue<SaveTask> m_SaveQueue;
-        std::mutex m_SaveQueueMutex;
+        FMutex m_SaveQueueMutex;
         std::atomic<bool> m_ShuttingDown{ false };
         std::atomic<u32> m_ActiveSaveTasks{ 0 };
 

@@ -3,9 +3,9 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Asset/AssetMetadata.h"
 #include "OloEngine/Asset/AssetSerializer.h"
+#include "OloEngine/Threading/Mutex.h"
 
 #include <queue>
-#include <mutex>
 #include <atomic>
 #include <unordered_map>
 #include <unordered_set>
@@ -141,19 +141,19 @@ namespace OloEngine
 
         // Ready assets queue (fully loaded assets ready for main thread)
         std::queue<EditorAssetLoadResponse> m_ReadyAssets;
-        mutable std::mutex m_ReadyAssetsMutex;
+        mutable FMutex m_ReadyAssetsMutex;
 
         // Pending raw assets (need GPU finalization on main thread)
         std::queue<PendingRawAsset> m_PendingRawAssets;
-        mutable std::mutex m_PendingRawAssetsMutex;
+        mutable FMutex m_PendingRawAssetsMutex;
 
         // Loaded assets tracking (for file change detection)
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;
-        std::mutex m_LoadedAssetsMutex;
+        FMutex m_LoadedAssetsMutex;
 
         // Pending assets tracking (to prevent duplicate loading)
         std::unordered_set<AssetHandle> m_PendingAssets;
-        std::mutex m_PendingAssetsMutex;
+        FMutex m_PendingAssetsMutex;
 
         // Performance tracking
         float m_AssetUpdatePerf = 0.0f;

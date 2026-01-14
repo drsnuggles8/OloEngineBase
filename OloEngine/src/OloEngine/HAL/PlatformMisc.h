@@ -328,81 +328,271 @@ namespace OloEngine
         }
     };
 
+    // Forward declare EThreadPriority - actual enum is in PlatformProcess.h
+    // We use the TPri_ prefixed enum values there to match UE5.7's naming
+    enum class EThreadPriority : u8;
+
     /**
-     * @class FPlatformAffinity
-     * @brief Platform-specific thread affinity masks for different thread types
+     * @enum EThreadCreateFlags
+     * @brief Flags for thread creation
      *
-     * Ported from UE5.7 HAL/PlatformAffinity.h
-     * This provides default affinity masks for various thread types in the engine.
+     * Defined here in PlatformMisc.h since it's included by other HAL headers
+     * that need to use these flags (RunnableThread.h, Thread.h, Fork.h).
      */
-    class FPlatformAffinity
+    enum class EThreadCreateFlags : i8
+    {
+        None = 0,
+        SMTExclusive = (1 << 0), // Request exclusive access to SMT core
+    };
+
+    OLO_FINLINE EThreadCreateFlags operator|(EThreadCreateFlags A, EThreadCreateFlags B)
+    {
+        return static_cast<EThreadCreateFlags>(static_cast<i8>(A) | static_cast<i8>(B));
+    }
+
+    OLO_FINLINE EThreadCreateFlags operator&(EThreadCreateFlags A, EThreadCreateFlags B)
+    {
+        return static_cast<EThreadCreateFlags>(static_cast<i8>(A) & static_cast<i8>(B));
+    }
+
+    /**
+     * @class FGenericPlatformAffinity
+     * @brief Generic platform affinity - base class providing default implementations
+     *
+     * Ported from UE5.7 GenericPlatform/GenericPlatformAffinity.h
+     *
+     * The generic implementation returns 0xFFFFFFFFFFFFFFFF (all cores) for all masks.
+     * Platform-specific subclasses can override to provide optimal core placement,
+     * especially on big.LITTLE architectures (iOS/Android).
+     *
+     * Thread Priority Methods (GetRenderingThreadPriority, etc.):
+     * - Return EThreadPriority values from PlatformProcess.h
+     * - Windows overrides elevate critical threads to TPri_AboveNormal
+     * - Task workers use TPri_SlightlyBelowNormal / TPri_BelowNormal
+     *
+     * Affinity Mask Methods (GetMainGameMask, etc.):
+     * - Return bitmasks indicating allowed CPU cores
+     * - Generic returns 0xFFFFFFFFFFFFFFFF (all cores)
+     * - Mobile platforms (iOS/Android) override for big.LITTLE optimization
+     */
+    class FGenericPlatformAffinity
     {
       public:
-        /**
-         * @brief Get the affinity mask for task graph worker threads
-         * @return Affinity mask for foreground task graph workers
-         */
-        static u64 GetTaskGraphThreadMask()
-        {
-            // By default, use all available cores
-            return FPlatformMisc::GetProcessorGroupDesc().ThreadAffinities[0];
-        }
-
-        /**
-         * @brief Get the affinity mask for background task graph workers
-         * @return Affinity mask for background task graph workers
-         */
-        static u64 GetTaskGraphBackgroundTaskMask()
-        {
-            // Background tasks can run on all cores by default
-            // Platforms may override to restrict to efficiency cores
-            return ~0ULL;
-        }
+        // =============================================================================
+        // Affinity Masks - Bitmasks indicating which CPU cores a thread can run on
+        // =============================================================================
 
         /**
          * @brief Get the affinity mask for the main game thread
-         * @return Affinity mask for the game thread
+         * @return Affinity mask (0xFFFF...F = any core)
          */
         static u64 GetMainGameMask()
         {
-            return FPlatformMisc::GetProcessorGroupDesc().ThreadAffinities[0];
+            return 0xFFFFFFFFFFFFFFFF;
         }
 
         /**
-         * @brief Get the affinity mask for the render thread
+         * @brief Get the affinity mask for the rendering thread
          * @return Affinity mask for the render thread
          */
         static u64 GetRenderingThreadMask()
         {
-            return FPlatformMisc::GetProcessorGroupDesc().ThreadAffinities[0];
+            return 0xFFFFFFFFFFFFFFFF;
         }
 
         /**
          * @brief Get the affinity mask for the RHI thread
          * @return Affinity mask for the RHI thread
+         *
+         * Note: OloEngine is OpenGL-only and doesn't use a separate RHI thread,
+         * but this is provided for API compatibility with UE patterns.
          */
         static u64 GetRHIThreadMask()
         {
-            return FPlatformMisc::GetProcessorGroupDesc().ThreadAffinities[0];
+            return 0xFFFFFFFFFFFFFFFF;
         }
 
         /**
-         * @brief Get the affinity mask for pool threads
-         * @return Affinity mask for thread pool threads
+         * @brief Get the affinity mask for the render heartbeat thread
+         * @return Affinity mask for the RT heartbeat (watchdog) thread
+         */
+        static u64 GetRTHeartBeatMask()
+        {
+            return 0xFFFFFFFFFFFFFFFF;
+        }
+
+        /**
+         * @brief Get the affinity mask for thread pool workers
+         * @return Affinity mask for generic pool threads
          */
         static u64 GetPoolThreadMask()
         {
-            return FPlatformMisc::GetProcessorGroupDesc().ThreadAffinities[0];
+            return 0xFFFFFFFFFFFFFFFF;
         }
 
         /**
-         * @brief Get no affinity (run on any core)
-         * @return Affinity mask meaning no restriction
+         * @brief Get the affinity mask for task graph foreground workers
+         * @return Affinity mask for task graph workers (normal/high priority)
+         */
+        static u64 GetTaskGraphThreadMask()
+        {
+            return 0xFFFFFFFFFFFFFFFF;
+        }
+
+        /**
+         * @brief Get the affinity mask for task graph background workers
+         * @return Affinity mask for background task graph workers
+         *
+         * On big.LITTLE platforms, this may return only efficiency cores.
+         */
+        static u64 GetTaskGraphBackgroundTaskMask()
+        {
+            return 0xFFFFFFFFFFFFFFFF;
+        }
+
+        /**
+         * @brief Get the affinity mask for high priority task graph tasks
+         * @return Affinity mask for high priority tasks
+         */
+        static u64 GetTaskGraphHighPriorityTaskMask()
+        {
+            return 0xFFFFFFFFFFFFFFFF;
+        }
+
+        /**
+         * @brief Get the affinity mask for the audio render thread
+         * @return Affinity mask for audio thread
+         */
+        static u64 GetAudioRenderThreadMask()
+        {
+            return 0xFFFFFFFFFFFFFFFF;
+        }
+
+        /**
+         * @brief Get the affinity mask for async loading threads
+         * @return Affinity mask for async loading
+         */
+        static u64 GetAsyncLoadingThreadMask()
+        {
+            return 0xFFFFFFFFFFFFFFFF;
+        }
+
+        /**
+         * @brief Get the "no affinity" mask - thread can run on any core
+         * @return Mask meaning no restriction (typically 0xFFFF...F or 0)
+         *
+         * Note: Different from UE5.7 which uses 0xFFFFFFFFFFFFFFFF.
+         * We use 0 as "no restriction" to match Windows' default behavior.
          */
         static u64 GetNoAffinityMask()
         {
-            return 0;
+            return 0xFFFFFFFFFFFFFFFF;
+        }
+
+        // =============================================================================
+        // Thread Priorities - OS-level scheduling priorities
+        // =============================================================================
+
+        /**
+         * @brief Get the priority for the rendering thread
+         * @return Thread priority for the render thread
+         */
+        static EThreadPriority GetRenderingThreadPriority()
+        {
+            return EThreadPriority::TPri_Normal;
+        }
+
+        /**
+         * @brief Get the flags for rendering thread creation
+         * @return Creation flags for the render thread
+         */
+        static EThreadCreateFlags GetRenderingThreadFlags()
+        {
+            return EThreadCreateFlags::None;
+        }
+
+        /**
+         * @brief Get the priority for the RHI thread
+         * @return Thread priority for the RHI thread
+         */
+        static EThreadPriority GetRHIThreadPriority()
+        {
+            return EThreadPriority::TPri_Normal;
+        }
+
+        /**
+         * @brief Get the flags for RHI thread creation
+         * @return Creation flags for the RHI thread
+         */
+        static EThreadCreateFlags GetRHIThreadFlags()
+        {
+            return EThreadCreateFlags::None;
+        }
+
+        /**
+         * @brief Get the priority for the game thread
+         * @return Thread priority for the game thread
+         */
+        static EThreadPriority GetGameThreadPriority()
+        {
+            return EThreadPriority::TPri_Normal;
+        }
+
+        /**
+         * @brief Get the priority for foreground task graph workers
+         * @return Thread priority for task workers
+         */
+        static EThreadPriority GetTaskThreadPriority()
+        {
+            return EThreadPriority::TPri_SlightlyBelowNormal;
+        }
+
+        /**
+         * @brief Get the priority for background task graph workers
+         * @return Thread priority for background workers
+         */
+        static EThreadPriority GetTaskBPThreadPriority()
+        {
+            return EThreadPriority::TPri_BelowNormal;
         }
     };
+
+    /**
+     * @class FWindowsPlatformAffinity
+     * @brief Windows-specific thread affinity settings
+     *
+     * Ported from UE5.7 Windows/WindowsPlatformAffinity.h
+     *
+     * On Windows, the scheduler is sophisticated enough that we typically
+     * don't need to pin threads to specific cores. Instead, we just elevate
+     * the priority of critical threads (game, render, RHI) to AboveNormal.
+     */
+    class FWindowsPlatformAffinity : public FGenericPlatformAffinity
+    {
+      public:
+        static EThreadPriority GetRenderingThreadPriority()
+        {
+            return EThreadPriority::TPri_AboveNormal;
+        }
+
+        static EThreadPriority GetRHIThreadPriority()
+        {
+            return EThreadPriority::TPri_AboveNormal;
+        }
+
+        static EThreadPriority GetGameThreadPriority()
+        {
+            return EThreadPriority::TPri_AboveNormal;
+        }
+    };
+
+    // =============================================================================
+    // Platform Selection - typedef the appropriate platform class
+    // =============================================================================
+#ifdef _WIN32
+    using FPlatformAffinity = FWindowsPlatformAffinity;
+#else
+    using FPlatformAffinity = FGenericPlatformAffinity;
+#endif
 
 } // namespace OloEngine

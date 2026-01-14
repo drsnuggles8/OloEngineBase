@@ -6,10 +6,11 @@
 #include "CommandPacket.h"
 #include <memory>
 #include <vector>
-#include <mutex>
 #include <atomic>
 #include <array>
 #include <thread>
+
+#include "OloEngine/Threading/Mutex.h"
 
 namespace OloEngine
 {
@@ -68,13 +69,11 @@ namespace OloEngine
         // Call at the end of each frame (in EndScene)
         static void ReleaseWorkerAllocators();
 
-        // Register current thread as a worker and get a dedicated allocator
-        // Combines RegisterWorkerThread() + GetWorkerAllocator()
-        // @return Pair of (workerIndex, allocator)
-        static std::pair<u32, CommandAllocator*> RegisterAndGetWorkerAllocator();
-
-        // Get worker index for the current thread (-1 if not registered)
-        static i32 GetCurrentWorkerIndex();
+        // Get a dedicated allocator for an explicit worker index (no thread ID lookup)
+        // Use this when the worker index is already known (e.g., from ParallelForWithTaskContext)
+        // @param workerIndex The worker index (typically from ParallelFor contextIndex)
+        // @return Pair of (workerIndex, allocator) - workerIndex is passed through unchanged
+        static std::pair<u32, CommandAllocator*> GetWorkerAllocatorByIndex(u32 workerIndex);
 
         // Create a command packet using the current allocator
         template<typename T>
@@ -90,7 +89,7 @@ namespace OloEngine
             CommandPacket* packet = allocator->CreateCommandPacket(commandData, metadata);
             if (packet)
             {
-                std::scoped_lock<std::mutex> lock(s_StatsMutex);
+                TUniqueLock<FMutex> lock(s_StatsMutex);
                 s_Stats.ActivePacketCount++;
                 s_Stats.FramePacketCount++;
                 s_Stats.TotalAllocations++;
@@ -111,9 +110,9 @@ namespace OloEngine
 
         static std::vector<std::unique_ptr<CommandAllocator>> s_AllocatorPool;
         static std::unordered_map<std::thread::id, CommandAllocator*> s_ThreadAllocators;
-        static std::mutex s_PoolMutex;
-        static std::mutex s_ThreadMapMutex;
-        static std::mutex s_StatsMutex;
+        static FMutex s_PoolMutex;
+        static FMutex s_ThreadMapMutex;
+        static FMutex s_StatsMutex;
         static Statistics s_Stats;
         static bool s_Initialized;
 
@@ -123,10 +122,5 @@ namespace OloEngine
 
         // Cache-line-aligned per-worker allocator slots
         static std::array<WorkerAllocatorSlot, MAX_ALLOCATOR_WORKERS> s_WorkerAllocators;
-
-        // Thread ID to worker index mapping for parallel submission
-        static std::unordered_map<std::thread::id, u32> s_ThreadToWorkerIndex;
-        static std::mutex s_WorkerMapMutex;
-        static std::atomic<u32> s_NextWorkerIndex;
     };
 } // namespace OloEngine

@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Threading/UniqueLock.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -291,7 +292,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_Config.EnableSorting || m_IsSorted || m_CommandCount <= 1)
             return;
@@ -449,7 +450,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!target || !source || !target->CanBatchWith(*source))
             return false;
@@ -589,7 +590,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_Config.EnableBatching || m_IsBatched || m_CommandCount <= 1)
             return;
@@ -653,7 +654,7 @@ namespace OloEngine
         // Take a snapshot of the head pointer under lock
         CommandPacket const* current;
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             // Reset execution statistics
             m_Stats.DrawCalls = 0;
             m_Stats.StateChanges = 0;
@@ -713,7 +714,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         // Reset parallel command array with sufficient capacity
         m_ParallelCommands.clear();
@@ -736,43 +737,18 @@ namespace OloEngine
         m_IsBatched = false;
     }
 
-    u32 CommandBucket::RegisterWorkerThread()
+    void CommandBucket::UseWorkerIndex(u32 workerIndex)
     {
-        std::thread::id threadId = std::this_thread::get_id();
+        // Optimized path: directly use the provided worker index without thread ID lookup.
+        // This is called when the worker index is already known (e.g., from ParallelFor contextIndex).
+        // No mutex needed, no map lookup - just validate the index is in range.
+        OLO_CORE_ASSERT(workerIndex < MAX_RENDER_WORKERS,
+                        "CommandBucket::UseWorkerIndex: Invalid worker index {}!", workerIndex);
 
-        std::lock_guard<std::mutex> lock(m_ThreadMapMutex);
-
-        auto it = m_ThreadToWorkerIndex.find(threadId);
-        if (it != m_ThreadToWorkerIndex.end())
-        {
-            return it->second;
-        }
-
-        // Check bounds before allocating
-        u32 currentIndex = m_NextWorkerIndex.load(std::memory_order_relaxed);
-        if (currentIndex >= MAX_RENDER_WORKERS)
-        {
-            OLO_CORE_ERROR("CommandBucket: Too many worker threads! Max is {}", MAX_RENDER_WORKERS);
-            return MAX_RENDER_WORKERS - 1; // Return last valid index as fallback
-        }
-
-        u32 workerIndex = m_NextWorkerIndex.fetch_add(1, std::memory_order_relaxed);
-        m_ThreadToWorkerIndex[threadId] = workerIndex;
-        return workerIndex;
-    }
-
-    i32 CommandBucket::GetCurrentWorkerIndex() const
-    {
-        std::thread::id threadId = std::this_thread::get_id();
-
-        std::lock_guard<std::mutex> lock(m_ThreadMapMutex);
-
-        auto it = m_ThreadToWorkerIndex.find(threadId);
-        if (it != m_ThreadToWorkerIndex.end())
-        {
-            return static_cast<i32>(it->second);
-        }
-        return -1;
+        // Verify that PrepareForParallelSubmission has been called and parallel submission is active.
+        // TLS slots are initialized there; this function is just a lightweight index validation.
+        OLO_CORE_ASSERT(m_ParallelSubmissionActive,
+                        "CommandBucket::UseWorkerIndex: PrepareForParallelSubmission must be called first!");
     }
 
     u32 CommandBucket::ClaimBatch()
@@ -784,7 +760,7 @@ namespace OloEngine
         u32 requiredCapacity = batchStart + TLS_BATCH_SIZE;
         if (requiredCapacity > m_ParallelCommands.size())
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             if (requiredCapacity > m_ParallelCommands.size())
             {
                 // Double the capacity or grow to required size
@@ -834,7 +810,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_ParallelSubmissionActive)
         {

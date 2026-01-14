@@ -108,7 +108,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> Lock(m_Mutex);
 
         std::string key = GenerateCacheKey(sourcePath, compilerVersion);
         auto it = m_CompiledResults.find(key);
@@ -126,7 +126,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> Lock(m_Mutex);
 
         std::string key = GenerateCacheKey(sourcePath, compilerVersion);
         auto it = m_CompiledResults.find(key);
@@ -163,7 +163,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> Lock(m_Mutex);
 
         std::string key = GenerateCacheKey(sourcePath, result.m_CompilerVersion);
 
@@ -237,7 +237,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> Lock(m_Mutex);
 
         // Invalidate all versions of this source file
         for (auto& [key, resultPtr] : m_CompiledResults)
@@ -253,7 +253,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> Lock(m_Mutex);
 
         std::string key = GenerateCacheKey(sourcePath, compilerVersion);
         auto it = m_CompiledResults.find(key);
@@ -271,7 +271,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> Lock(m_Mutex);
 
         // Always clear in-memory cache
         m_CompiledResults.clear();
@@ -399,7 +399,7 @@ namespace OloEngine::Audio::SoundGraph
             return true; // No cache directory is fine
         }
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> Lock(m_Mutex);
 
         try
         {
@@ -444,7 +444,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> Lock(m_Mutex);
 
         try
         {
@@ -499,7 +499,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> Lock(m_Mutex);
 
         std::vector<std::string> invalidKeys;
 
@@ -541,7 +541,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> Lock(m_Mutex);
 
         auto threshold = std::chrono::system_clock::now() - maxAge;
         std::vector<std::string> oldKeys;
@@ -616,7 +616,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> Lock(m_Mutex);
 
         OLO_CORE_INFO("CompilerCache Statistics:");
         OLO_CORE_INFO("  Entries: {}/{}", m_CompiledResults.size(), m_MaxCacheSize);
@@ -630,7 +630,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
 
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> Lock(m_Mutex);
 
             if (m_CacheDirectory != directory)
             {
@@ -984,11 +984,11 @@ namespace OloEngine::Audio::SoundGraph
     namespace CompilerUtilities
     {
         static OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache> s_GlobalCompilerCache;
-        static std::mutex s_GlobalCacheMutex;
+        static FMutex s_GlobalCacheMutex;
 
         OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache> GetGlobalCompilerCache()
         {
-            std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
+            TUniqueLock<FMutex> Lock(s_GlobalCacheMutex);
 
             if (!s_GlobalCompilerCache)
             {
@@ -1033,7 +1033,7 @@ namespace OloEngine::Audio::SoundGraph
 
         void SetGlobalCompilerCache(OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache> cache)
         {
-            std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
+            TUniqueLock<FMutex> Lock(s_GlobalCacheMutex);
             s_GlobalCompilerCache = cache;
         }
 
@@ -1049,7 +1049,7 @@ namespace OloEngine::Audio::SoundGraph
         {
             OLO_PROFILE_FUNCTION();
 
-            std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
+            TUniqueLock<FMutex> Lock(s_GlobalCacheMutex);
 
             if (s_GlobalCompilerCache)
             {
@@ -1283,7 +1283,7 @@ namespace OloEngine::Audio::SoundGraph
 
         // Check if any tasks were left in the queue (shouldn't happen with Task System)
         {
-            std::lock_guard<std::mutex> lock(m_SaveQueueMutex);
+            TUniqueLock<FMutex> Lock(m_SaveQueueMutex);
             if (!m_SaveQueue.empty())
             {
                 OLO_CORE_WARN("CompilerCache: {} save tasks were not processed during shutdown",

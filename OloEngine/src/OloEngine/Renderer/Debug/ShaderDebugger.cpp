@@ -2,6 +2,7 @@
 #include "ShaderDebugger.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <spirv_cross/spirv_cross.hpp>
 #include <spirv_cross/spirv_glsl.hpp>
@@ -51,7 +52,7 @@ namespace OloEngine
 
         OLO_CORE_INFO("Shutting down Shader Debugger...");
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
         m_Shaders.clear();
         m_PendingCompilations.clear();
 
@@ -67,7 +68,7 @@ namespace OloEngine
             return;
         }
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         const u32 rendererID = shader->GetRendererID();
         const std::string& name = shader->GetName();
@@ -109,7 +110,7 @@ namespace OloEngine
             return;
         }
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         OLO_CORE_INFO("ShaderDebugger: Manually registering shader '{0}' with ID {1}", name, rendererID);
 
@@ -147,7 +148,7 @@ namespace OloEngine
         if (!m_IsInitialized)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
         {
@@ -170,7 +171,7 @@ namespace OloEngine
         if (!m_IsInitialized)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         PendingCompilation pending;
         pending.m_Name = name;
@@ -197,7 +198,7 @@ namespace OloEngine
         if (!m_IsInitialized)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         OLO_CORE_INFO("ShaderDebugger: Compilation ended for ID {0}, Success: {1}, Time: {2:.2f}ms",
                       rendererID, success, compileTimeMs);
@@ -246,7 +247,7 @@ namespace OloEngine
         if (!m_IsInitialized)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
@@ -261,7 +262,7 @@ namespace OloEngine
         if (!m_IsInitialized)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
@@ -294,7 +295,7 @@ namespace OloEngine
         if (!m_IsInitialized)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         // First, update active time for all currently active shaders and mark them inactive
         for (auto& [id, shaderInfo] : m_Shaders)
@@ -324,7 +325,7 @@ namespace OloEngine
         if (!m_IsInitialized)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
@@ -359,7 +360,7 @@ namespace OloEngine
         if (!m_IsInitialized || spirvData.empty())
             return;
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         auto it = m_Shaders.find(rendererID);
         if (it == m_Shaders.end())
@@ -482,7 +483,7 @@ namespace OloEngine
         if (!m_IsInitialized)
             return;
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
@@ -539,7 +540,7 @@ namespace OloEngine
 
     const ShaderDebugger::ShaderInfo* ShaderDebugger::GetShaderInfo(u32 rendererID) const
     {
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         auto it = m_Shaders.find(rendererID);
         return (it != m_Shaders.end()) ? &it->second : nullptr;
@@ -688,7 +689,7 @@ namespace OloEngine
     // compilation statistics, performance metrics, and error logs.
     bool ShaderDebugger::ExportReport(const std::string& filePath) const
     {
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         try
         {
@@ -742,7 +743,7 @@ namespace OloEngine
 
     void ShaderDebugger::UpdateResourceBinding(u32 rendererID, const std::string& resourceName, ShaderResourceType type, u32 bindingPoint, bool isBound)
     {
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
@@ -777,7 +778,7 @@ namespace OloEngine
 
     void ShaderDebugger::ClearResourceBindings(u32 rendererID)
     {
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
 
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
@@ -833,7 +834,7 @@ namespace OloEngine
             bool hasShaderToRender = false;
 
             {
-                std::lock_guard<std::mutex> lock(m_ShaderMutex);
+                TUniqueLock<FMutex> lock(m_ShaderMutex);
                 auto it = m_Shaders.find(m_SelectedShaderID);
                 if (it != m_Shaders.end())
                 {
@@ -883,7 +884,7 @@ namespace OloEngine
         // Shader list
         ImGui::BeginChild("ShaderList", ImVec2(0, -30), true);
 
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        TUniqueLock<FMutex> lock(m_ShaderMutex);
         for (const auto& [id, info] : m_Shaders)
         {
             // Apply filters

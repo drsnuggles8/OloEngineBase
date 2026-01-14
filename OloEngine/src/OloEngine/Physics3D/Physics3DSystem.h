@@ -4,6 +4,7 @@
 #include "PhysicsSettings.h"
 #include "PhysicsLayer.h"
 #include "JoltLayerInterface.h"
+#include "JoltJobSystemAdapter.h"
 #include <stdexcept>
 #include <cassert>
 
@@ -22,7 +23,6 @@ namespace OloEngine
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/TempAllocator.h>
-#include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -32,8 +32,10 @@ namespace OloEngine
 
 #include <memory>
 #include <atomic>
-#include <mutex>
 #include <queue>
+
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 // Disable common warnings triggered by Jolt
 JPH_SUPPRESS_WARNINGS
@@ -102,14 +104,14 @@ namespace OloEngine
       private:
         void EnqueueEvent(const ActivationEvent& event)
         {
-            std::scoped_lock lock(m_QueueMutex);
+            TUniqueLock<FMutex> lock(m_QueueMutex);
             m_EventQueue.push(event);
             m_QueueSize.fetch_add(1, std::memory_order_relaxed);
         }
 
         bool TryDequeueEvent(ActivationEvent& outEvent)
         {
-            std::scoped_lock lock(m_QueueMutex);
+            TUniqueLock<FMutex> lock(m_QueueMutex);
             if (m_EventQueue.empty())
                 return false;
 
@@ -119,7 +121,7 @@ namespace OloEngine
             return true;
         }
 
-        mutable std::mutex m_QueueMutex;
+        mutable FMutex m_QueueMutex;
         std::queue<ActivationEvent> m_EventQueue;
         std::atomic<sizet> m_QueueSize{ 0 };
     };
@@ -146,7 +148,7 @@ namespace OloEngine
         // Singleton creation and destruction methods
         static void CreateInstance()
         {
-            std::lock_guard<std::mutex> lock(s_InstanceMutex);
+            TUniqueLock<FMutex> lock(s_InstanceMutex);
             if (s_Instance != nullptr)
             {
                 throw std::runtime_error("Physics3DSystem: Instance already exists - cannot create multiple instances");
@@ -156,7 +158,7 @@ namespace OloEngine
 
         static void DestroyInstance()
         {
-            std::lock_guard<std::mutex> lock(s_InstanceMutex);
+            TUniqueLock<FMutex> lock(s_InstanceMutex);
             if (s_Instance == nullptr)
             {
                 throw std::runtime_error("Physics3DSystem: No instance to destroy - already destroyed or never created");
@@ -238,7 +240,7 @@ namespace OloEngine
         inline static OloBPLayerInterfaceImpl* s_BroadPhaseLayerInterface = nullptr;
 
         // Static mutex to protect singleton instance assignments
-        inline static std::mutex s_InstanceMutex;
+        inline static FMutex s_InstanceMutex;
 
         // ====================================================================
         // Interfaces & Mappers
@@ -258,8 +260,8 @@ namespace OloEngine
         // A temp allocator
         std::unique_ptr<JPH::TempAllocatorImpl> m_TempAllocator;
 
-        // Job system that will execute physics jobs
-        std::unique_ptr<JPH::JobSystemThreadPool> m_JobSystem;
+        // Job system adapter that wraps FScheduler
+        std::unique_ptr<JoltJobSystemAdapter> m_JobSystem;
 
         // ====================================================================
         // Listeners & Flags

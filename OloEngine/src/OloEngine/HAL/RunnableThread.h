@@ -31,25 +31,7 @@
 
 namespace OloEngine
 {
-    /**
-     * @enum EThreadCreateFlags
-     * @brief Flags for thread creation
-     */
-    enum class EThreadCreateFlags : i8
-    {
-        None = 0,
-        SMTExclusive = (1 << 0), // Request exclusive access to SMT core
-    };
-
-    OLO_FINLINE EThreadCreateFlags operator|(EThreadCreateFlags A, EThreadCreateFlags B)
-    {
-        return static_cast<EThreadCreateFlags>(static_cast<i8>(A) | static_cast<i8>(B));
-    }
-
-    OLO_FINLINE EThreadCreateFlags operator&(EThreadCreateFlags A, EThreadCreateFlags B)
-    {
-        return static_cast<EThreadCreateFlags>(static_cast<i8>(A) & static_cast<i8>(B));
-    }
+    // EThreadCreateFlags is defined in PlatformMisc.h
 
     /**
      * @class FRunnableThread

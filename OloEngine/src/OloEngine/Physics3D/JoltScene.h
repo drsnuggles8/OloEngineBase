@@ -14,7 +14,7 @@
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/TempAllocator.h>
-#include <Jolt/Core/JobSystemThreadPool.h>
+#include "JoltJobSystemAdapter.h"
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyType.h>
@@ -196,7 +196,7 @@ namespace OloEngine
 
         // Jolt physics system
         std::unique_ptr<JPH::TempAllocator> m_TempAllocator;
-        std::unique_ptr<JPH::JobSystemThreadPool> m_JobSystem;
+        std::unique_ptr<JoltJobSystemAdapter> m_JobSystem;
         std::unique_ptr<JPH::PhysicsSystem> m_JoltSystem;
 
         // Layer interfaces

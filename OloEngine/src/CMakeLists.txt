@@ -138,8 +138,6 @@
 		"OloEngine/Core/Ref.h"
 		"OloEngine/Core/TaskTag.cpp"
 		"OloEngine/Core/TaskTag.h"
-		"OloEngine/Core/Thread.cpp"
-		"OloEngine/Core/Thread.h"
 		"OloEngine/Core/Timer.h"
 		"OloEngine/Core/Timestep.h"
 		"OloEngine/Core/UUID.cpp"
@@ -434,6 +432,8 @@
 		"OloEngine/Physics3D/MeshColliderCache.cpp"
 		"OloEngine/Physics3D/JoltCaptureManager.h"
 		"OloEngine/Physics3D/JoltCaptureManager.cpp"
+		"OloEngine/Physics3D/JoltJobSystemAdapter.h"
+		"OloEngine/Physics3D/JoltJobSystemAdapter.cpp"
 
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/Entity.cpp"

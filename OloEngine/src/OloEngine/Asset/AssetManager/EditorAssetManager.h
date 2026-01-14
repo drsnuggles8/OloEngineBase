@@ -9,8 +9,9 @@
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Task/NamedThreads.h"
+#include "OloEngine/Threading/SharedMutex.h"
 
-#include <shared_mutex>
 #include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
@@ -244,10 +245,10 @@ namespace OloEngine
                 auto handle = metadata.Handle;
                 auto type = metadata.Type;
                 auto path = metadata.FilePath;
-                Application::Get().SubmitToMainThread([handle, type, path]() mutable
-                                                      {
+                Tasks::EnqueueGameThreadTask([handle, type, path]() mutable
+                                             {
                     AssetReloadedEvent evt(handle, type, path);
-                    Application::Get().OnEvent(evt); });
+                    Application::Get().OnEvent(evt); }, "AssetReloadedEvent");
             }
 
             return asset;
@@ -362,9 +363,9 @@ namespace OloEngine
         Ref<EditorAssetSystem> m_AssetThread;
 
         // Thread synchronization
-        mutable std::shared_mutex m_AssetsMutex;
-        mutable std::shared_mutex m_RegistryMutex;
-        mutable std::shared_mutex m_DependenciesMutex;
+        mutable FSharedMutex m_AssetsMutex;
+        mutable FSharedMutex m_RegistryMutex;
+        mutable FSharedMutex m_DependenciesMutex;
 
 #if OLO_ASYNC_ASSETS
         // File watching control (using Task System instead of dedicated thread)

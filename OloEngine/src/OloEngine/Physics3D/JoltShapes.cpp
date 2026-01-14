@@ -40,12 +40,12 @@ namespace OloEngine
     using ShapeUtils::ShapeTypeToString;
 
     std::atomic<bool> JoltShapes::s_Initialized = false;
-    std::mutex JoltShapes::s_InitializationMutex;
+    FMutex JoltShapes::s_InitializationMutex;
     std::unordered_map<std::string, JPH::Ref<JPH::Shape>> JoltShapes::s_ShapeCache;
-    std::shared_mutex JoltShapes::s_ShapeCacheMutex;
+    FSharedMutex JoltShapes::s_ShapeCacheMutex;
     std::atomic<bool> JoltShapes::s_PersistentCacheEnabled = true;
     std::filesystem::path JoltShapes::s_PersistentCacheDirectory;
-    std::shared_mutex JoltShapes::s_PersistentCacheDirectoryMutex;
+    FSharedMutex JoltShapes::s_PersistentCacheDirectoryMutex;
 
     void JoltShapes::Initialize()
     {
@@ -61,7 +61,7 @@ namespace OloEngine
             return;
 
         // Double-checked locking: acquire initialization mutex
-        std::lock_guard<std::mutex> lock(s_InitializationMutex);
+        TUniqueLock<FMutex> lock(s_InitializationMutex);
 
         // Second check: ensure only one thread performs initialization
         if (s_Initialized.load(std::memory_order_relaxed))
@@ -72,7 +72,7 @@ namespace OloEngine
 
         OLO_CORE_INFO("Initializing JoltShapes system");
         {
-            std::unique_lock<std::shared_mutex> shapeCacheLock(s_ShapeCacheMutex);
+            TUniqueLock<FSharedMutex> shapeCacheLock(s_ShapeCacheMutex);
             s_ShapeCache.clear();
         }
 
@@ -118,13 +118,13 @@ namespace OloEngine
 
     void JoltShapes::SetPersistentCacheDirectory(const std::filesystem::path& directory)
     {
-        std::unique_lock<std::shared_mutex> lock(s_PersistentCacheDirectoryMutex);
+        TUniqueLock<FSharedMutex> lock(s_PersistentCacheDirectoryMutex);
         s_PersistentCacheDirectory = directory;
     }
 
     std::filesystem::path JoltShapes::GetPersistentCacheDirectory()
     {
-        std::shared_lock<std::shared_mutex> lock(s_PersistentCacheDirectoryMutex);
+        TSharedLock<FSharedMutex> lock(s_PersistentCacheDirectoryMutex);
         return s_PersistentCacheDirectory;
     }
 
@@ -418,7 +418,7 @@ namespace OloEngine
     {
         // First try to find with shared lock (read-only)
         {
-            std::shared_lock<std::shared_mutex> readLock(s_ShapeCacheMutex);
+            TSharedLock<FSharedMutex> readLock(s_ShapeCacheMutex);
             auto it = s_ShapeCache.find(cacheKey);
             if (it != s_ShapeCache.end())
             {
@@ -431,7 +431,7 @@ namespace OloEngine
         if (shape)
         {
             // Insert with unique lock (write access)
-            std::unique_lock<std::shared_mutex> writeLock(s_ShapeCacheMutex);
+            TUniqueLock<FSharedMutex> writeLock(s_ShapeCacheMutex);
             // Check again in case another thread inserted while we were creating
             auto it = s_ShapeCache.find(cacheKey);
             if (it != s_ShapeCache.end())
@@ -445,7 +445,7 @@ namespace OloEngine
 
     void JoltShapes::ClearShapeCache()
     {
-        std::unique_lock<std::shared_mutex> lock(s_ShapeCacheMutex);
+        TUniqueLock<FSharedMutex> lock(s_ShapeCacheMutex);
         s_ShapeCache.clear();
     }
 
@@ -999,7 +999,7 @@ namespace OloEngine
     {
         // First check in-memory cache with shared lock
         {
-            std::shared_lock<std::shared_mutex> readLock(s_ShapeCacheMutex);
+            TSharedLock<FSharedMutex> readLock(s_ShapeCacheMutex);
             auto it = s_ShapeCache.find(cacheKey);
             if (it != s_ShapeCache.end())
             {
@@ -1015,7 +1015,7 @@ namespace OloEngine
             if (persistentShape)
             {
                 // Insert loaded shape with unique lock
-                std::unique_lock<std::shared_mutex> writeLock(s_ShapeCacheMutex);
+                TUniqueLock<FSharedMutex> writeLock(s_ShapeCacheMutex);
                 // Check again in case another thread inserted while we were loading
                 auto it = s_ShapeCache.find(cacheKey);
                 if (it != s_ShapeCache.end())
@@ -1033,7 +1033,7 @@ namespace OloEngine
         {
             // Insert with unique lock
             {
-                std::unique_lock<std::shared_mutex> writeLock(s_ShapeCacheMutex);
+                TUniqueLock<FSharedMutex> writeLock(s_ShapeCacheMutex);
                 // Check again in case another thread inserted while we were creating
                 auto it = s_ShapeCache.find(cacheKey);
                 if (it != s_ShapeCache.end())

@@ -2,6 +2,7 @@
 #include "DebugUtils.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <algorithm>
 #include <atomic>
@@ -29,7 +30,7 @@ namespace OloEngine
             return;
         }
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         // Double-check after acquiring lock
         if (m_IsInitialized.load())
@@ -64,7 +65,7 @@ namespace OloEngine
 
         m_IsShutdown = true; // Set shutdown flag first
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         m_Allocations.clear();
         m_TypeUsage.fill(0);
@@ -80,7 +81,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         // Clear all tracking data
         m_Allocations.clear();
         m_TypeUsage.fill(0);
@@ -115,7 +116,7 @@ namespace OloEngine
     }
     void RendererMemoryTracker::DebugDumpTypeUsage(const std::string& context)
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         sizet total = 0;
         sizet nonZero = 0;
@@ -150,7 +151,7 @@ namespace OloEngine
             return;
         }
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         AllocationInfo info;
         info.m_Address = address;
@@ -188,14 +189,23 @@ namespace OloEngine
         if (!address || m_IsShutdown)
             return;
 
-        // Try to acquire the mutex with a timeout to avoid deadlock during shutdown
-        std::unique_lock<std::mutex> lock(m_Mutex, std::try_to_lock);
-        if (!lock.owns_lock())
+        // Try to acquire the mutex to avoid deadlock during shutdown
+        if (!m_Mutex.TryLock())
         {
             // If we can't acquire the lock, we might be in shutdown - just return
             OLO_CORE_WARN("RendererMemoryTracker: Could not acquire lock for deallocation, possibly during shutdown");
             return;
         }
+
+        // Scope guard to ensure unlock on all exit paths
+        struct FScopedUnlock
+        {
+            FMutex& Mutex;
+            ~FScopedUnlock()
+            {
+                Mutex.Unlock();
+            }
+        } ScopedUnlock{ m_Mutex };
 
         // Double-check shutdown state after acquiring lock
         if (m_IsShutdown)
@@ -232,7 +242,7 @@ namespace OloEngine
         if (currentTime - m_LastUpdateTime < m_RefreshInterval)
             return;
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         sizet totalMemory = GetTotalMemoryUsageUnlocked();
         sizet gpuMemory = 0;
@@ -321,7 +331,7 @@ namespace OloEngine
     }
     void RendererMemoryTracker::RenderOverviewTab()
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         // Calculate total memory usage inline (avoid double locking)
         sizet totalMemory = 0;
@@ -388,7 +398,7 @@ namespace OloEngine
 
     void RendererMemoryTracker::RenderDetailedTab()
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         // Filter controls
         static i32 s_TypeFilter = -1; // -1 means show all
         static bool s_ShowGPUOnly = false;
@@ -516,7 +526,7 @@ namespace OloEngine
 
     void RendererMemoryTracker::RenderLeakDetectionTab()
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         ImGui::Text("Leak Detection Settings:");
         f32 threshold = static_cast<f32>(m_LeakDetectionThreshold);
@@ -602,7 +612,7 @@ namespace OloEngine
     }
     void RendererMemoryTracker::RenderPoolStatsTab()
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         ImGui::Text("Memory Pool Statistics");
         ImGui::Separator();
@@ -699,13 +709,13 @@ namespace OloEngine
 
     sizet RendererMemoryTracker::GetMemoryUsage(ResourceType type) const
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_TypeUsage[static_cast<sizet>(type)];
     }
 
     sizet RendererMemoryTracker::GetTotalMemoryUsage() const
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         return GetTotalMemoryUsageUnlocked();
     }
 
@@ -720,13 +730,13 @@ namespace OloEngine
     }
     u32 RendererMemoryTracker::GetAllocationCount(ResourceType type) const
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_TypeCounts[static_cast<sizet>(type)];
     }
 
     std::vector<RendererMemoryTracker::LeakInfo> RendererMemoryTracker::DetectLeaks() const
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         std::vector<LeakInfo> leaks;
         f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
 
@@ -816,7 +826,7 @@ namespace OloEngine
             std::ofstream file(filePath);
             if (!file.is_open())
                 return false;
-            std::lock_guard<std::mutex> lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             // Calculate total memory usage inline (avoid double locking)
             sizet totalMemoryUsage = 0;
             for (sizet i = 0; i < static_cast<sizet>(ResourceType::COUNT); ++i)

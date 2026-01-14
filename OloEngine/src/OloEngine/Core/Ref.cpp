@@ -2,8 +2,9 @@
 #include "Ref.h"
 
 #include <unordered_set>
-#include <mutex>
 #include <atomic>
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 namespace OloEngine
 {
@@ -11,7 +12,7 @@ namespace OloEngine
     struct LiveReferencesData
     {
         std::unordered_set<void*> references;
-        std::mutex mutex;
+        FMutex mutex;
         std::atomic<bool> isValid{ true };
 
         ~LiveReferencesData()
@@ -55,7 +56,7 @@ namespace OloEngine
                 return;
             }
 
-            std::scoped_lock<std::mutex> lock(data.mutex);
+            TUniqueLock<FMutex> lock(data.mutex);
             OLO_CORE_ASSERT(instance);
 
             // Double-check after acquiring the lock
@@ -78,7 +79,7 @@ namespace OloEngine
                 return;
             }
 
-            std::scoped_lock<std::mutex> lock(data.mutex);
+            TUniqueLock<FMutex> lock(data.mutex);
             OLO_CORE_ASSERT(instance);
 
             // Double-check after acquiring the lock
@@ -105,7 +106,7 @@ namespace OloEngine
                 return false;
             }
 
-            std::scoped_lock<std::mutex> lock(data.mutex);
+            TUniqueLock<FMutex> lock(data.mutex);
             OLO_CORE_ASSERT(instance);
 
             // Double-check after acquiring the lock
