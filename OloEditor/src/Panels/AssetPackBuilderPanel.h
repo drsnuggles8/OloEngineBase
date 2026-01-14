@@ -91,7 +91,6 @@ namespace OloEngine
         std::jthread m_BuildThread;
 
         // Results
-        mutable FMutex m_ResultMutex; // Protects m_LastBuildResult and m_HasBuildResult
         AssetPackBuilder::BuildResult m_LastBuildResult;
         std::atomic<bool> m_HasBuildResult{ false };
 

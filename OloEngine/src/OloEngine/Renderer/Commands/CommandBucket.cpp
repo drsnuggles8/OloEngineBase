@@ -745,8 +745,10 @@ namespace OloEngine
         OLO_CORE_ASSERT(workerIndex < MAX_RENDER_WORKERS,
                         "CommandBucket::UseWorkerIndex: Invalid worker index {}!", workerIndex);
 
-        // Ensure TLS slot is initialized for this worker
-        // (PrepareForParallelSubmission should have already done this, but be defensive)
+        // Verify that PrepareForParallelSubmission has been called and parallel submission is active.
+        // TLS slots are initialized there; this function is just a lightweight index validation.
+        OLO_CORE_ASSERT(m_ParallelSubmissionActive,
+                        "CommandBucket::UseWorkerIndex: PrepareForParallelSubmission must be called first!");
     }
 
     u32 CommandBucket::ClaimBatch()

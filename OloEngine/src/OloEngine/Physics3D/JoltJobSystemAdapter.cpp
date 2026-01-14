@@ -15,10 +15,7 @@ namespace OloEngine
         OLO_CORE_INFO("JoltJobSystemAdapter initialized - MaxJobs: {0}, MaxBarriers: {1}", inMaxJobs, inMaxBarriers);
     }
 
-    JoltJobSystemAdapter::~JoltJobSystemAdapter()
-    {
-        // Jobs are freed automatically by the free list destructor
-    }
+    JoltJobSystemAdapter::~JoltJobSystemAdapter() = default;
 
     i32 JoltJobSystemAdapter::GetMaxConcurrency() const
     {

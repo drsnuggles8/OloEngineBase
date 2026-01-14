@@ -157,17 +157,24 @@ namespace OloEngine
         bool Deserialize(const std::filesystem::path& filepath);
 
         /**
-         * @brief Iterator support for range-based loops
+         * @brief Iterate over all assets with a callback while holding the lock
+         *
+         * This is the thread-safe way to iterate over assets. The callback is invoked
+         * for each asset while the shared lock is held, preventing data races.
+         *
+         * @param callback Function to call for each asset. Return false to stop iteration early.
          */
-        auto begin() const
+        template<typename Func>
+        void ForEachAsset(Func&& callback) const
         {
             TSharedLock<FSharedMutex> lock(m_Mutex);
-            return m_AssetMetadata.begin();
-        }
-        auto end() const
-        {
-            TSharedLock<FSharedMutex> lock(m_Mutex);
-            return m_AssetMetadata.end();
+            for (const auto& [handle, metadata] : m_AssetMetadata)
+            {
+                if (!callback(handle, metadata))
+                {
+                    break;
+                }
+            }
         }
 
         /**

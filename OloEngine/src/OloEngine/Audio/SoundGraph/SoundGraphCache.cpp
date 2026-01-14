@@ -50,14 +50,14 @@ namespace OloEngine::Audio::SoundGraph
     bool SoundGraphCache::Has(const std::string& sourcePath) const
     {
         OLO_PROFILE_FUNCTION();
-        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> lock(m_Mutex);
         auto it = m_CacheEntries.find(sourcePath);
         return it != m_CacheEntries.end() && it->second.m_IsValid;
     }
 
     Ref<SoundGraph> SoundGraphCache::Get(const std::string& sourcePath)
     {
-        TDynamicUniqueLock<FMutex> Lock(m_Mutex);
+        TDynamicUniqueLock<FMutex> lock(m_Mutex);
 
         auto it = m_CacheEntries.find(sourcePath);
         if (it == m_CacheEntries.end() || !it->second.m_IsValid)

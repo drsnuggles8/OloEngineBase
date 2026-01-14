@@ -194,9 +194,16 @@ namespace OloEngine
         {
             if (this != &other)
             {
-                // Thread-safe assignment with deadlock avoidance
-                TUniqueLock<FMutex> lock1(m_CacheMutex);
-                TUniqueLock<FMutex> lock2(other.m_CacheMutex);
+                // Thread-safe assignment with deadlock avoidance using address-based ordering
+                // Always lock the mutex at the lower address first to prevent ABBA deadlocks
+                FMutex* first = &m_CacheMutex;
+                FMutex* second = &other.m_CacheMutex;
+                if (second < first)
+                {
+                    std::swap(first, second);
+                }
+                TUniqueLock<FMutex> lock1(*first);
+                TUniqueLock<FMutex> lock2(*second);
                 m_Skeleton = other.m_Skeleton;
                 m_TagEntityCache = other.m_TagEntityCache;
                 m_CacheValid = other.m_CacheValid;
@@ -222,9 +229,16 @@ namespace OloEngine
         {
             if (this != &other)
             {
-                // Lock both mutexes to ensure thread safety during move
-                TUniqueLock<FMutex> lock1(m_CacheMutex);
-                TUniqueLock<FMutex> lock2(other.m_CacheMutex);
+                // Thread-safe move with deadlock avoidance using address-based ordering
+                // Always lock the mutex at the lower address first to prevent ABBA deadlocks
+                FMutex* first = &m_CacheMutex;
+                FMutex* second = &other.m_CacheMutex;
+                if (second < first)
+                {
+                    std::swap(first, second);
+                }
+                TUniqueLock<FMutex> lock1(*first);
+                TUniqueLock<FMutex> lock2(*second);
                 m_Skeleton = std::move(other.m_Skeleton);
                 m_TagEntityCache = std::move(other.m_TagEntityCache);
                 m_CacheValid = other.m_CacheValid;
