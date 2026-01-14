@@ -744,7 +744,7 @@ namespace OloEngine
         // No mutex needed, no map lookup - just validate the index is in range.
         OLO_CORE_ASSERT(workerIndex < MAX_RENDER_WORKERS,
                         "CommandBucket::UseWorkerIndex: Invalid worker index {}!", workerIndex);
-        
+
         // Ensure TLS slot is initialized for this worker
         // (PrepareForParallelSubmission should have already done this, but be defensive)
     }

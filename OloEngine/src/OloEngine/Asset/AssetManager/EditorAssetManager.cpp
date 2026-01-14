@@ -382,7 +382,7 @@ namespace OloEngine
         // Notify listeners via engine event system (on main thread)
         {
             Tasks::EnqueueGameThreadTask([assetHandle, type, path]() mutable
-                                                  {
+                                         {
                 AssetReloadedEvent evt(assetHandle, type, path);
                 Application::Get().OnEvent(evt); }, "AssetReloadedEvent");
         }
@@ -405,7 +405,8 @@ namespace OloEngine
             {
                 ReloadData(assetHandle);
                 m_ActiveReloadTasks.fetch_sub(1, std::memory_order_relaxed);
-            }, "AssetReloadAsync");
+            },
+            "AssetReloadAsync");
 #else
         // Synchronous fallback when async assets are disabled
         ReloadData(assetHandle);

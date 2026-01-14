@@ -238,4 +238,3 @@ namespace OloEngine::Audio::SoundGraph
     };
 
 } // namespace OloEngine::Audio::SoundGraph
-

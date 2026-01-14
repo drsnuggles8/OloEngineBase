@@ -137,16 +137,15 @@ namespace OloEngine
         return it != m_CachedData.end() && it->second.m_IsValid;
     }
 
-    void MeshColliderCache::CookMeshWithCallback(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, 
-                                                  CookingCallback callback, bool invalidateOld)
+    void MeshColliderCache::CookMeshWithCallback(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type,
+                                                 CookingCallback callback, bool invalidateOld)
     {
         if (!colliderAsset || !m_IsInitialized.load(std::memory_order_acquire))
         {
             if (callback)
             {
-                Tasks::EnqueueGameThreadTask([callback]() {
-                    callback(ECookingResult::Failed);
-                }, "CookMeshCallback_Failed");
+                Tasks::EnqueueGameThreadTask([callback]()
+                                             { callback(ECookingResult::Failed); }, "CookMeshCallback_Failed");
             }
             return;
         }
@@ -155,9 +154,8 @@ namespace OloEngine
         m_ActiveCookingTasks.fetch_add(1, std::memory_order_relaxed);
 
         // Launch cooking task directly without going through the queue
-        Tasks::Launch("MeshColliderCooking", [this, asset = colliderAsset, meshType = type, 
-                                               cb = std::move(callback), invalidate = invalidateOld]()
-        {
+        Tasks::Launch("MeshColliderCooking", [this, asset = colliderAsset, meshType = type, cb = std::move(callback), invalidate = invalidateOld]()
+                      {
             ECookingResult result = m_CookingFactory->CookMeshType(asset, meshType, invalidate);
 
             // If cooking succeeded, update the cache entry with the new data
@@ -209,8 +207,7 @@ namespace OloEngine
                 Tasks::EnqueueGameThreadTask([cb, result]() {
                     cb(result);
                 }, "CookMeshCallback");
-            }
-        }, Tasks::ETaskPriority::BackgroundNormal);
+            } }, Tasks::ETaskPriority::BackgroundNormal);
     }
 
     CachedColliderData MeshColliderCache::LoadFromCache(Ref<MeshColliderAsset> colliderAsset)

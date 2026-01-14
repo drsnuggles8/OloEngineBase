@@ -35,7 +35,7 @@ namespace OloEngine::Audio::SoundGraph
     SoundGraphCache::~SoundGraphCache()
     {
         OLO_PROFILE_FUNCTION();
-        
+
         // Wait for any active load tasks to complete
         // This prevents accessing destroyed cache during in-flight loads
         while (m_ActiveLoadTasks.load(std::memory_order_acquire) > 0)
@@ -349,10 +349,10 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphCache::LoadAsync(const std::string& sourcePath, LoadCallback callback)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         // Increment active task counter before launching
         m_ActiveLoadTasks.fetch_add(1, std::memory_order_relaxed);
-        
+
         // Capture 'this' and necessary data for the task
         // Using a weak reference pattern would be ideal, but for now we rely on
         // the destructor waiting for active tasks to complete
@@ -619,7 +619,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphCache::LoadGraphInternal(const std::string& sourcePath, LoadCallback callback)
     {
         OLO_PROFILE_FUNCTION();
-        
+
         // Load and compile the sound graph
         Ref<SoundGraph> graph = nullptr;
 
@@ -633,9 +633,8 @@ namespace OloEngine::Audio::SoundGraph
                 if (callback)
                 {
                     // Invoke callback on game thread for thread safety
-                    Tasks::EnqueueGameThreadTask([cb = callback, path = sourcePath]() {
-                        cb(path, nullptr);
-                    }, "SoundGraphLoadCallback");
+                    Tasks::EnqueueGameThreadTask([cb = callback, path = sourcePath]()
+                                                 { cb(path, nullptr); }, "SoundGraphLoadCallback");
                 }
                 return;
             }
@@ -667,9 +666,8 @@ namespace OloEngine::Audio::SoundGraph
                     OLO_CORE_ERROR("SoundGraphCache::LoadGraphInternal - Failed to construct prototype from asset '{}'", sourcePath);
                     if (callback)
                     {
-                        Tasks::EnqueueGameThreadTask([cb = callback, path = sourcePath]() {
-                            cb(path, nullptr);
-                        }, "SoundGraphLoadCallback");
+                        Tasks::EnqueueGameThreadTask([cb = callback, path = sourcePath]()
+                                                     { cb(path, nullptr); }, "SoundGraphLoadCallback");
                     }
                     return;
                 }
@@ -686,9 +684,8 @@ namespace OloEngine::Audio::SoundGraph
                 OLO_CORE_ERROR("SoundGraphCache::LoadGraphInternal - Failed to create SoundGraph instance from prototype '{}'", sourcePath);
                 if (callback)
                 {
-                    Tasks::EnqueueGameThreadTask([cb = callback, path = sourcePath]() {
-                        cb(path, nullptr);
-                    }, "SoundGraphLoadCallback");
+                    Tasks::EnqueueGameThreadTask([cb = callback, path = sourcePath]()
+                                                 { cb(path, nullptr); }, "SoundGraphLoadCallback");
                 }
                 return;
             }
@@ -700,9 +697,8 @@ namespace OloEngine::Audio::SoundGraph
             OLO_CORE_ERROR("SoundGraphCache::LoadGraphInternal - Exception during graph loading: {}", e.what());
             if (callback)
             {
-                Tasks::EnqueueGameThreadTask([cb = callback, path = sourcePath]() {
-                    cb(path, nullptr);
-                }, "SoundGraphLoadCallback");
+                Tasks::EnqueueGameThreadTask([cb = callback, path = sourcePath]()
+                                             { cb(path, nullptr); }, "SoundGraphLoadCallback");
             }
             return;
         }
@@ -755,9 +751,8 @@ namespace OloEngine::Audio::SoundGraph
         // Invoke callback on game thread for thread safety
         if (callback)
         {
-            Tasks::EnqueueGameThreadTask([cb = callback, path = sourcePath, g = graph]() {
-                cb(path, g);
-            }, "SoundGraphLoadCallback");
+            Tasks::EnqueueGameThreadTask([cb = callback, path = sourcePath, g = graph]()
+                                         { cb(path, g); }, "SoundGraphLoadCallback");
         }
     }
 

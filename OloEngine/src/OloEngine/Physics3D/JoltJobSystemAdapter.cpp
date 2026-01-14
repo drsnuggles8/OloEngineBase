@@ -28,12 +28,12 @@ namespace OloEngine
     }
 
     JPH::JobSystem::JobHandle JoltJobSystemAdapter::CreateJob(const char* inName, JPH::ColorArg inColor,
-                                                                const JPH::JobSystem::JobFunction& inJobFunction,
-                                                                u32 inNumDependencies)
+                                                              const JPH::JobSystem::JobFunction& inJobFunction,
+                                                              u32 inNumDependencies)
     {
         // Allocate a job from the free list (returns index)
         u32 index = m_Jobs.ConstructObject(inName, inColor, this, inJobFunction, inNumDependencies);
-        
+
         // Get pointer to the job from index
         JPH::JobSystem::Job* job = &m_Jobs.Get(index);
 

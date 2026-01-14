@@ -61,7 +61,7 @@ namespace OloEngine
         /// @param type The type of collider to cook (Convex or Triangle)
         /// @param callback Callback invoked on game thread when cooking completes
         /// @param invalidateOld Whether to invalidate existing cached data
-        void CookMeshWithCallback(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, 
+        void CookMeshWithCallback(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type,
                                   CookingCallback callback, bool invalidateOld = false);
 
         // Cache management

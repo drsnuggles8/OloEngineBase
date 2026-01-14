@@ -52,7 +52,7 @@ namespace OloEngine
             // Dispatch async reload to the main thread to avoid blocking
             // This ensures thread-safe reload and proper synchronization
             Tasks::EnqueueGameThreadTask([selfHandle, dependencyHandle = handle, animationSource, mesh]()
-                                                  {
+                                         {
             try
             {
                 // Deregister existing dependencies before reload

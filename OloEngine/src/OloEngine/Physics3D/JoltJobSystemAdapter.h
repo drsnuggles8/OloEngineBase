@@ -15,7 +15,7 @@ namespace OloEngine
     /// leaving only job queueing to be implemented.
     class JoltJobSystemAdapter final : public JPH::JobSystemWithBarrier
     {
-    public:
+      public:
         JPH_OVERRIDE_NEW_DELETE
 
         /// Constructor
@@ -29,16 +29,16 @@ namespace OloEngine
         // JobSystem interface
         virtual i32 GetMaxConcurrency() const override;
         virtual JPH::JobSystem::JobHandle CreateJob(const char* inName, JPH::ColorArg inColor,
-                                                     const JPH::JobSystem::JobFunction& inJobFunction,
-                                                     u32 inNumDependencies = 0) override;
+                                                    const JPH::JobSystem::JobFunction& inJobFunction,
+                                                    u32 inNumDependencies = 0) override;
 
-    protected:
+      protected:
         // JobSystem interface - protected methods
         virtual void QueueJob(JPH::JobSystem::Job* inJob) override;
         virtual void QueueJobs(JPH::JobSystem::Job** inJobs, u32 inNumJobs) override;
         virtual void FreeJob(JPH::JobSystem::Job* inJob) override;
 
-    private:
+      private:
         /// Fixed-size free list for job allocation (using Jolt's implementation)
         using FAvailableJobs = JPH::FixedSizeFreeList<JPH::JobSystem::Job>;
         FAvailableJobs m_Jobs;

@@ -246,7 +246,7 @@ namespace OloEngine
                 auto type = metadata.Type;
                 auto path = metadata.FilePath;
                 Tasks::EnqueueGameThreadTask([handle, type, path]() mutable
-                                                      {
+                                             {
                     AssetReloadedEvent evt(handle, type, path);
                     Application::Get().OnEvent(evt); }, "AssetReloadedEvent");
             }
