@@ -291,7 +291,7 @@ if (imguizmo_ADDED)
 	file(GLOB IMGUIZMO_SOURCES ${imguizmo_SOURCE_DIR}/*.cpp)
 	file(GLOB IMGUIZMO_HEADERS ${imguizmo_SOURCE_DIR}/*.h)  
 	add_library(imguizmo STATIC ${IMGUIZMO_SOURCES} ${IMGUIZMO_HEADERS})
-	target_include_directories(imguizmo PUBLIC ${imgui_SOURCE_DIR})
+	target_include_directories(imguizmo PUBLIC ${imguizmo_SOURCE_DIR} ${imgui_SOURCE_DIR})
 	set_target_properties(imguizmo	PROPERTIES
 		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
 		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"

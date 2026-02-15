@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 
 namespace OloEngine
 {
@@ -58,8 +59,36 @@ namespace OloEngine
         rendererAPI.SetCullFace(GL_BACK);
         rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
+        // Capture hooks — zero overhead when not capturing (branch prediction)
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        const bool capturing = captureManager.IsCapturing();
+
+        if (capturing)
+            captureManager.OnPreSort(m_CommandBucket);
+
         m_CommandBucket.SortCommands();
+
+        if (capturing)
+            captureManager.OnPostSort(m_CommandBucket);
+
+        // Batching (uses sorted order)
+        // m_CommandBucket.BatchCommands(*m_Allocator);
+
+        if (capturing)
+            captureManager.OnPostBatch(m_CommandBucket);
+
         m_CommandBucket.Execute(rendererAPI);
+
+        if (capturing)
+        {
+            static u32 s_FrameCounter = 0;
+            captureManager.OnFrameEnd(
+                s_FrameCounter++,
+                m_CommandBucket.GetLastSortTimeMs(),
+                m_CommandBucket.GetLastBatchTimeMs(),
+                m_CommandBucket.GetLastExecuteTimeMs()
+            );
+        }
 
         m_Target->Unbind();
     }

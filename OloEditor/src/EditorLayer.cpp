@@ -7,6 +7,8 @@
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
@@ -360,6 +362,7 @@ namespace OloEngine
         {
             ImGui::MenuItem("Shader Debugger", nullptr, &m_ShowShaderDebugger);
             ImGui::MenuItem("GPU Resource Inspector", nullptr, &m_ShowGPUResourceInspector);
+            ImGui::MenuItem("Command Bucket Inspector", nullptr, &m_ShowCommandBucketInspector);
 
             ImGui::EndMenu();
         }
@@ -701,6 +704,12 @@ namespace OloEngine
         if (m_ShowGPUResourceInspector)
         {
             GPUResourceInspector::GetInstance().RenderDebugView(&m_ShowGPUResourceInspector, "GPU Resource Inspector");
+        }
+
+        if (m_ShowCommandBucketInspector)
+        {
+            CommandPacketDebugger::GetInstance().RenderDebugView(
+                Renderer3D::GetCommandBucket(), &m_ShowCommandBucketInspector, "Command Bucket Inspector");
         }
 #endif
     }

@@ -128,6 +128,7 @@ namespace OloEngine
         // Debug windows
         bool m_ShowShaderDebugger = false;
         bool m_ShowGPUResourceInspector = false;
+        bool m_ShowCommandBucketInspector = false;
         bool m_ShowAssetPackBuilder = false;
 
         // Asset Pack Build Management

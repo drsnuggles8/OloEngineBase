@@ -4,6 +4,7 @@
 #include "OloEngine/Memory/Platform.h"
 #include "CommandPacket.h"
 #include "CommandAllocator.h"
+#include <chrono>
 #include <vector>
 #include <unordered_map>
 #include <atomic>
@@ -213,6 +214,11 @@ namespace OloEngine
             return m_Allocator;
         }
 
+        // Timing accessors (populated during SortCommands/BatchCommands/Execute)
+        f64 GetLastSortTimeMs() const { return m_LastSortTimeMs; }
+        f64 GetLastBatchTimeMs() const { return m_LastBatchTimeMs; }
+        f64 GetLastExecuteTimeMs() const { return m_LastExecuteTimeMs; }
+
       private:
         // Transform buffer for instanced rendering
         class InstancedTransformBuffer
@@ -310,6 +316,11 @@ namespace OloEngine
 
         // Allocator for command memory (must be set before use)
         CommandAllocator* m_Allocator = nullptr;
+
+        // Timing data
+        f64 m_LastSortTimeMs = 0.0;
+        f64 m_LastBatchTimeMs = 0.0;
+        f64 m_LastExecuteTimeMs = 0.0;
 
         mutable FMutex m_Mutex;
 
