@@ -3,11 +3,13 @@
 #include "FrameDataBuffer.h"
 #include "RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/Debug/GPUTimerQueryPool.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Threading/UniqueLock.h"
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
 
 namespace OloEngine
@@ -293,9 +295,21 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         TUniqueLock<FMutex> lock(m_Mutex);
+        SortCommandsInternal();
+    }
+
+    void CommandBucket::SortCommandsInternal()
+    {
+        // Internal sort implementation — caller must hold m_Mutex
+        OLO_PROFILE_FUNCTION();
 
         if (!m_Config.EnableSorting || m_IsSorted || m_CommandCount <= 1)
+        {
+            m_LastSortTimeMs = 0.0;
             return;
+        }
+
+        auto sortStart = std::chrono::high_resolution_clock::now();
 
         // Build a vector of command pointers for sorting
         m_SortedCommands.clear();
@@ -375,6 +389,9 @@ namespace OloEngine
         }
 
         m_IsSorted = true;
+
+        auto sortEnd = std::chrono::high_resolution_clock::now();
+        m_LastSortTimeMs = std::chrono::duration<f64, std::milli>(sortEnd - sortStart).count();
     }
 
     CommandPacket* CommandBucket::ConvertToInstanced(CommandPacket* meshPacket, CommandAllocator& allocator)
@@ -450,7 +467,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        TUniqueLock<FMutex> lock(m_Mutex);
+        // Caller must hold m_Mutex
 
         if (!target || !source || !target->CanBatchWith(*source))
             return false;
@@ -593,11 +610,16 @@ namespace OloEngine
         TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_Config.EnableBatching || m_IsBatched || m_CommandCount <= 1)
+        {
+            m_LastBatchTimeMs = 0.0;
             return;
+        }
 
         // Make sure commands are sorted first for optimal batching
         if (!m_IsSorted)
-            SortCommands();
+            SortCommandsInternal();
+
+        auto batchStart = std::chrono::high_resolution_clock::now();
 
         // Start with the first command
         CommandPacket* current = m_Head;
@@ -645,11 +667,16 @@ namespace OloEngine
         }
 
         m_IsBatched = true;
+
+        auto batchEnd = std::chrono::high_resolution_clock::now();
+        m_LastBatchTimeMs = std::chrono::duration<f64, std::milli>(batchEnd - batchStart).count();
     }
 
     void CommandBucket::Execute(RendererAPI& rendererAPI)
     {
         OLO_PROFILE_FUNCTION();
+
+        auto execStart = std::chrono::high_resolution_clock::now();
 
         // Take a snapshot of the head pointer under lock
         CommandPacket const* current;
@@ -679,6 +706,74 @@ namespace OloEngine
 
             current->Execute(rendererAPI);
             current = current->GetNext();
+        }
+
+        auto execEnd = std::chrono::high_resolution_clock::now();
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
+        }
+    }
+
+    void CommandBucket::ExecuteWithGPUTiming(RendererAPI& rendererAPI)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& gpuTimer = GPUTimerQueryPool::GetInstance();
+
+        // If not initialized, lazily initialize
+        if (!gpuTimer.IsInitialized())
+            gpuTimer.Initialize();
+
+        // Begin frame — returns true if previous frame's results are ready
+        gpuTimer.BeginFrame();
+
+        auto execStart = std::chrono::high_resolution_clock::now();
+
+        CommandPacket const* current;
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_Stats.DrawCalls = 0;
+            m_Stats.StateChanges = 0;
+            current = m_Head;
+        }
+
+        u32 cmdIndex = 0;
+        while (current)
+        {
+            if (CommandType type = current->GetCommandType();
+                type == CommandType::DrawMesh ||
+                type == CommandType::DrawMeshInstanced ||
+                type == CommandType::DrawQuad)
+            {
+                m_Stats.DrawCalls++;
+            }
+            else if (type != CommandType::Invalid)
+            {
+                m_Stats.StateChanges++;
+            }
+
+            if (cmdIndex < gpuTimer.GetMaxQueries())
+            {
+                gpuTimer.BeginQuery(cmdIndex);
+                current->Execute(rendererAPI);
+                gpuTimer.EndQuery(cmdIndex);
+            }
+            else
+            {
+                current->Execute(rendererAPI);
+            }
+
+            current = current->GetNext();
+            cmdIndex++;
+        }
+
+        gpuTimer.EndFrame();
+
+        auto execEnd = std::chrono::high_resolution_clock::now();
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
         }
     }
 

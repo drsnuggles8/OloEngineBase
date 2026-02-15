@@ -140,7 +140,7 @@ function(olo_set_common_include_directories target_name)
         ${CMAKE_SOURCE_DIR}/OloEngine/vendor/filewatch-src
         ${CMAKE_SOURCE_DIR}/OloEngine/vendor/glm-src
         ${CMAKE_SOURCE_DIR}/OloEngine/vendor/imgui-src
-        ${CMAKE_SOURCE_DIR}/OloEngine/vendor/imguizmo-src
+        ${imguizmo_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/OloEngine/vendor/sol2-src/include
         ${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
     )

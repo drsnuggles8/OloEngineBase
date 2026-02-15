@@ -1,791 +1,1059 @@
+#include "OloEnginePCH.h"
 #include "CommandPacketDebugger.h"
-#include "DebugUtils.h"
+#include "FrameCaptureManager.h"
 #include "OloEngine/Core/Log.h"
-#include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <iomanip>
+#include <set>
 #include <sstream>
+#include <cmath>
 
 namespace OloEngine
 {
+    namespace
+    {
+        std::string EscapeCsvField(const std::string& field)
+        {
+            if (field.find_first_of(",\"\n") == std::string::npos)
+                return field;
+            std::string escaped = "\"";
+            for (char c : field)
+            {
+                if (c == '"')
+                    escaped += "\"\"";
+                else
+                    escaped += c;
+            }
+            escaped += '"';
+            return escaped;
+        }
+
+        const PODRenderState* GetRenderStateFromCommand(const CapturedCommandData& cmd)
+        {
+            switch (cmd.GetCommandType())
+            {
+                case CommandType::DrawMesh:
+                    if (const auto* c = cmd.GetCommandData<DrawMeshCommand>())
+                        return &c->renderState;
+                    break;
+                case CommandType::DrawMeshInstanced:
+                    if (const auto* c = cmd.GetCommandData<DrawMeshInstancedCommand>())
+                        return &c->renderState;
+                    break;
+                case CommandType::DrawSkybox:
+                    if (const auto* c = cmd.GetCommandData<DrawSkyboxCommand>())
+                        return &c->renderState;
+                    break;
+                case CommandType::DrawInfiniteGrid:
+                    if (const auto* c = cmd.GetCommandData<DrawInfiniteGridCommand>())
+                        return &c->renderState;
+                    break;
+                case CommandType::DrawQuad:
+                    if (const auto* c = cmd.GetCommandData<DrawQuadCommand>())
+                        return &c->renderState;
+                    break;
+                default:
+                    break;
+            }
+            return nullptr;
+        }
+    } // anonymous namespace
+
+    CommandPacketDebugger& CommandPacketDebugger::GetInstance()
+    {
+        static CommandPacketDebugger instance;
+        return instance;
+    }
+
+    // ========================================================================
+    // Main entry point
+    // ========================================================================
+
     void CommandPacketDebugger::RenderDebugView(const CommandBucket* bucket, bool* open, const char* title)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!bucket)
+        if (open && !*open)
+            return;
+
+        ImGui::SetNextWindowSize(ImVec2(900, 700), ImGuiCond_FirstUseEver);
+        if (!ImGui::Begin(title, open, ImGuiWindowFlags_MenuBar))
         {
-            if (open && *open)
-            {
-                ImGui::Begin(title, open);
-                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "No command bucket available!");
-                if (ImGui::Button("Close"))
-                    *open = false;
-                ImGui::End();
-            }
+            ImGui::End();
             return;
         }
-        // Debug: Check what data we actually have
-        const auto& sortedCommands = bucket->GetSortedCommands();
-        sizet commandCount = bucket->GetCommandCount();
-        bool isSorted = bucket->IsSorted();
-        CommandPacket* head = bucket->GetCommandHead();
 
-        if (!open || *open)
+        // Menu bar
+        if (ImGui::BeginMenuBar())
         {
-            ImGui::Begin(title, open, ImGuiWindowFlags_MenuBar);
+            if (ImGui::BeginMenu("Export"))
+            {
+                auto& cm = FrameCaptureManager::GetInstance();
+                auto selectedFrame = cm.GetSelectedFrame();
+                u32 frameNum = selectedFrame ? selectedFrame->FrameNumber : 0;
 
-            // Debug info section
-            ImGui::Text("Debug Info: Total Commands: %zu, Sorted Commands: %zu, Is Sorted: %s",
-                        commandCount, sortedCommands.size(), isSorted ? "Yes" : "No");
-            ImGui::Text("Command Head: %s", head ? "Valid" : "Null");
+                if (ImGui::MenuItem("Export to CSV"))
+                    ExportToCSV(GenerateExportFilename("csv", frameNum));
+                if (ImGui::MenuItem("Export to Markdown (LLM Analysis)"))
+                    ExportToMarkdown(GenerateExportFilename("md", frameNum));
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenuBar();
+        }
+
+        // Recording toolbar (always visible)
+        RenderRecordingToolbar();
+        ImGui::Separator();
+
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        auto selectedFrame = captureManager.GetSelectedFrame();
+        const CapturedFrameData* selectedFramePtr = selectedFrame ? &*selectedFrame : nullptr;
+
+        if (captureManager.GetCapturedFrameCount() > 0)
+        {
+            // Frame selector
+            RenderFrameSelector();
             ImGui::Separator();
 
-            AnalyzeDrawKeys(bucket);
-            UpdateFrameStats();
-
-            // Menu bar with configuration options
-            if (ImGui::BeginMenuBar())
+            // Tabs for analysis views
+            if (ImGui::BeginTabBar("AnalysisTabs"))
             {
-                if (ImGui::BeginMenu("View"))
+                if (ImGui::BeginTabItem("Commands"))
                 {
-                    ImGui::MenuItem("Memory Stats", nullptr, &m_ShowMemoryStats);
-                    ImGui::MenuItem("Performance Stats", nullptr, &m_ShowPerformanceStats);
-                    ImGui::MenuItem("Command List", nullptr, &m_ShowCommandList);
-                    ImGui::MenuItem("Draw Key Analysis", nullptr, &m_ShowDrawKeyAnalysis);
-                    ImGui::EndMenu();
+                    RenderCommandList(selectedFramePtr, bucket);
+                    ImGui::EndTabItem();
                 }
 
-                if (ImGui::BeginMenu("Options"))
+                if (ImGui::BeginTabItem("Sort Analysis"))
                 {
-                    ImGui::MenuItem("Auto Refresh", nullptr, &m_AutoRefresh);
-                    ImGui::SliderFloat("Refresh Rate", &m_RefreshRate, 1.0f, 120.0f, "%.1f Hz");
-
-                    ImGui::Separator();
-                    if (ImGui::Button("Export to CSV"))
-                    {
-                        ExportToCSV(bucket, "command_packets_debug.csv");
-                    }
-
-                    ImGui::EndMenu();
+                    RenderSortAnalysis(selectedFramePtr);
+                    ImGui::EndTabItem();
                 }
-                ImGui::EndMenuBar();
-            }
-            // Update frame stats if auto-refresh is enabled
-            if (m_AutoRefresh)
-            {
-                static f32 s_LastUpdate = 0.0f;
-                f32 currentTime = (f32)DebugUtils::GetCurrentTimeSeconds();
-                if (currentTime - s_LastUpdate >= (1.0f / m_RefreshRate))
+
+                if (ImGui::BeginTabItem("State Changes"))
                 {
-                    UpdateFrameStats();
-                    s_LastUpdate = currentTime;
+                    RenderStateChanges(selectedFramePtr);
+                    ImGui::EndTabItem();
                 }
-            }
 
-            // Analyze current frame data
-            AnalyzeDrawKeys(bucket);
-
-            // Render different sections based on configuration
-            if (m_ShowMemoryStats)
-            {
-                if (ImGui::CollapsingHeader("Memory Usage", ImGuiTreeNodeFlags_DefaultOpen))
+                if (ImGui::BeginTabItem("Batching"))
                 {
-                    RenderMemoryStats();
+                    RenderBatchingAnalysis(selectedFramePtr);
+                    ImGui::EndTabItem();
                 }
-            }
 
-            if (m_ShowPerformanceStats)
-            {
-                if (ImGui::CollapsingHeader("Performance Metrics", ImGuiTreeNodeFlags_DefaultOpen))
+                if (ImGui::BeginTabItem("Timeline"))
                 {
-                    RenderPerformanceStats();
+                    RenderTimeline(selectedFramePtr);
+                    ImGui::EndTabItem();
                 }
+
+                ImGui::EndTabBar();
             }
-
-            if (m_ShowDrawKeyAnalysis)
-            {
-                if (ImGui::CollapsingHeader("Draw Key Analysis", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    RenderDrawKeyAnalysis(bucket);
-                }
-            }
-
-            if (m_ShowCommandList)
-            {
-                if (ImGui::CollapsingHeader("Command Packets", ImGuiTreeNodeFlags_DefaultOpen))
-                {
-                    RenderCommandPacketList(bucket);
-                }
-            }
-
-            ImGui::End();
-        }
-    }
-    void CommandPacketDebugger::UpdateFrameStats()
-    {
-        OLO_PROFILE_FUNCTION();
-
-        // Initialize history arrays if needed
-        if (m_PacketCountHistory.empty())
-        {
-            m_PacketCountHistory.resize(OLO_HISTORY_SIZE, 0.0f);
-            m_SortingTimeHistory.resize(OLO_HISTORY_SIZE, 0.0f);
-            m_ExecutionTimeHistory.resize(OLO_HISTORY_SIZE, 0.0f);
-            m_MemoryUsageHistory.resize(OLO_HISTORY_SIZE, 0.0f);
-        }
-
-        // Update history arrays with current frame data
-        m_PacketCountHistory[m_HistoryIndex] = (f32)m_CurrentFrameStats.m_TotalPackets;
-        m_SortingTimeHistory[m_HistoryIndex] = m_CurrentFrameStats.m_SortingTimeMs;
-        m_ExecutionTimeHistory[m_HistoryIndex] = m_CurrentFrameStats.m_ExecutionTimeMs;
-        m_MemoryUsageHistory[m_HistoryIndex] = (f32)m_MemoryStats.m_CommandPacketMemory / 1024.0f; // Convert to KB for better scale
-
-        m_HistoryIndex = (m_HistoryIndex + 1) % OLO_HISTORY_SIZE;
-
-        // Move current stats to previous for comparison
-        m_PreviousFrameStats = m_CurrentFrameStats;
-
-        OLO_CORE_TRACE("CommandPacketDebugger: Updated frame stats - Packets: {}, Sorting: {:.3f}ms, Memory: {}KB",
-                       m_CurrentFrameStats.m_TotalPackets, m_CurrentFrameStats.m_SortingTimeMs,
-                       m_MemoryStats.m_CommandPacketMemory / 1024);
-    }
-    void CommandPacketDebugger::RenderMemoryStats()
-    {
-        OLO_PROFILE_FUNCTION();
-        ImGui::Text("Command Packet Memory: %s", DebugUtils::FormatMemorySize(m_MemoryStats.m_CommandPacketMemory).c_str());
-        ImGui::Text("Metadata Memory: %s", DebugUtils::FormatMemorySize(m_MemoryStats.m_MetadataMemory).c_str());
-        ImGui::Text("Allocator Memory: %s", DebugUtils::FormatMemorySize(m_MemoryStats.m_AllocatorMemory).c_str());
-
-        ImGui::Separator();
-        ImGui::Text("Allocations this frame: %u", m_MemoryStats.m_AllocationCount);
-        ImGui::Text("Deallocations this frame: %u", m_MemoryStats.m_DeallocationCount);
-
-        // Memory usage graph with unique ID
-        if (!m_MemoryUsageHistory.empty())
-        {
-            ImGui::PushID("MemoryUsageGraph");
-            ImGui::PlotLines("##MemoryUsage", m_MemoryUsageHistory.data(),
-                             (i32)m_MemoryUsageHistory.size(), m_HistoryIndex,
-                             "Memory Usage", 0.0f, FLT_MAX, ImVec2(0, 80));
-            ImGui::PopID();
-        }
-    }
-    void CommandPacketDebugger::RenderPerformanceStats()
-    {
-        OLO_PROFILE_FUNCTION();
-
-        ImGui::PushID("PerformanceStats");
-
-        ImGui::Text("Total Packets: %u", m_CurrentFrameStats.m_TotalPackets);
-        ImGui::Text("Sorted Packets: %u", m_CurrentFrameStats.m_SortedPackets);
-        ImGui::Text("Static Packets: %u", m_CurrentFrameStats.m_StaticPackets);
-        ImGui::Text("Dynamic Packets: %u", m_CurrentFrameStats.m_DynamicPackets);
-        ImGui::Text("State Changes: %u", m_CurrentFrameStats.m_StateChanges);
-
-        ImGui::Separator();
-        ImGui::Text("Sorting Time: %.3f ms", m_CurrentFrameStats.m_SortingTimeMs);
-        ImGui::Text("Execution Time: %.3f ms", m_CurrentFrameStats.m_ExecutionTimeMs);
-
-        // Explain the sorting time vs sorted packets discrepancy
-        if (m_CurrentFrameStats.m_SortedPackets == 0 && m_CurrentFrameStats.m_SortingTimeMs > 0.0f)
-        {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.3f, 1.0f), "(*)");
-            if (ImGui::IsItemHovered())
-            {
-                ImGui::SetTooltip("Sorting time represents estimated overhead even when no packets are sorted.\n"
-                                  "This includes bucket preparation, traversal, and cleanup time.");
-            }
-        }
-
-        ImGui::Separator();
-
-        // Performance graphs with proper initialization
-        const u32 historySize = static_cast<u32>(m_PacketCountHistory.size());
-        if (historySize > 0)
-        {
-            f32 minPackets = *std::min_element(m_PacketCountHistory.begin(), m_PacketCountHistory.end());
-            f32 maxPackets = *std::max_element(m_PacketCountHistory.begin(), m_PacketCountHistory.end());
-            f32 minSortTime = *std::min_element(m_SortingTimeHistory.begin(), m_SortingTimeHistory.end());
-            f32 maxSortTime = *std::max_element(m_SortingTimeHistory.begin(), m_SortingTimeHistory.end());
-
-            if (maxPackets - minPackets < 1.0f)
-                maxPackets = minPackets + 10.0f;
-            if (maxSortTime - minSortTime < 0.1f)
-                maxSortTime = minSortTime + 1.0f;
-
-            ImGui::Text("Packet Count History:");
-            ImGui::PushID("PacketCountGraph");
-            ImGui::PlotLines("##PacketCount", m_PacketCountHistory.data(),
-                             static_cast<i32>(historySize), static_cast<i32>(m_HistoryIndex),
-                             nullptr, minPackets, maxPackets, ImVec2(0, 80));
-            ImGui::PopID();
-
-            ImGui::Text("Sorting Time History (ms):");
-            ImGui::PushID("SortingTimeGraph");
-            ImGui::PlotLines("##SortingTime", m_SortingTimeHistory.data(),
-                             static_cast<i32>(historySize), static_cast<i32>(m_HistoryIndex),
-                             nullptr, minSortTime, maxSortTime, ImVec2(0, 80));
-            ImGui::PopID();
         }
         else
         {
-            ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.3f, 1.0f), "Collecting performance data...");
+            // No captures — show live view
+            RenderLiveView(bucket);
         }
 
-        ImGui::PopID();
+        ImGui::End();
     }
 
-    void CommandPacketDebugger::RenderCommandPacketList(const CommandBucket* bucket)
+    // ========================================================================
+    // Recording Toolbar
+    // ========================================================================
+
+    void CommandPacketDebugger::RenderRecordingToolbar()
     {
-        OLO_PROFILE_FUNCTION();
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        CaptureState state = captureManager.GetState();
+
+        // Capture single frame
+        if (ImGui::Button("Capture Frame"))
+        {
+            captureManager.CaptureNextFrame();
+        }
+        ImGui::SameLine();
+
+        // Start/Stop recording
+        if (state == CaptureState::Recording)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+            if (ImGui::Button("Stop Recording"))
+                captureManager.StopRecording();
+            ImGui::PopStyleColor();
+
+            // Pulsing red indicator
+            ImGui::SameLine();
+            f32 pulse = (std::sin(static_cast<f32>(ImGui::GetTime()) * 4.0f) + 1.0f) * 0.5f;
+            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 0.5f + pulse * 0.5f), "REC");
+        }
+        else
+        {
+            if (ImGui::Button("Start Recording"))
+                captureManager.StartRecording();
+        }
+
+        ImGui::SameLine();
+        ImGui::Text("|");
+        ImGui::SameLine();
+
+        // Frame count
+        ImGui::Text("Captured: %zu", captureManager.GetCapturedFrameCount());
+        ImGui::SameLine();
+
+        // Max frames config
+        i32 maxFrames = static_cast<i32>(captureManager.GetMaxCapturedFrames());
+        ImGui::SetNextItemWidth(100.0f);
+        if (ImGui::SliderInt("Max", &maxFrames, 1, 300))
+            captureManager.SetMaxCapturedFrames(static_cast<u32>(maxFrames));
+
+        ImGui::SameLine();
+        if (ImGui::Button("Clear"))
+        {
+            captureManager.ClearCaptures();
+            m_SelectedCommandIndex = -1;
+        }
+
+        // Status text
+        if (state == CaptureState::CaptureNextFrame)
+        {
+            ImGui::SameLine();
+            ImGui::TextColored(DebugUtils::Colors::Warning, "Capturing next frame...");
+        }
+    }
+
+    // ========================================================================
+    // Frame Selector
+    // ========================================================================
+
+    void CommandPacketDebugger::RenderFrameSelector()
+    {
+        auto& captureManager = FrameCaptureManager::GetInstance();
+
+        // Refresh cached frames only when generation changes
+        u64 currentGen = captureManager.GetCaptureGeneration();
+        if (currentGen != m_CachedGeneration)
+        {
+            m_CachedFrames = captureManager.GetCapturedFramesCopy();
+            m_CachedFrameCount = m_CachedFrames.size();
+            m_CachedGeneration = currentGen;
+        }
+
+        i32 selectedIdx = captureManager.GetSelectedFrameIndex();
+
+        ImGui::Text("Frames:");
+        ImGui::SameLine();
+
+        // Horizontal scrolling frame list
+        ImGui::BeginChild("FrameList", ImVec2(0, 120), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+
+        for (i32 i = 0; i < static_cast<i32>(m_CachedFrames.size()); ++i)
+        {
+            const auto& frame = m_CachedFrames[i];
+            bool isSelected = (i == selectedIdx);
+
+            ImGui::PushID(i);
+            char label[64];
+            snprintf(label, sizeof(label), "#%u\n%u cmds\n%.2fms",
+                     frame.FrameNumber,
+                     frame.Stats.TotalCommands,
+                     frame.Stats.TotalFrameTimeMs);
+
+            if (isSelected)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.5f, 0.8f, 1.0f));
+
+            if (ImGui::Button(label, ImVec2(80, 65)))
+            {
+                captureManager.SetSelectedFrameIndex(i);
+                m_SelectedCommandIndex = -1;
+            }
+
+            if (isSelected)
+                ImGui::PopStyleColor();
+
+            ImGui::SameLine();
+            ImGui::PopID();
+        }
+
+        ImGui::EndChild();
+    }
+
+    // ========================================================================
+    // Command List Tab
+    // ========================================================================
+
+    void CommandPacketDebugger::RenderCommandList(const CapturedFrameData* frame, const CommandBucket* liveBucket)
+    {
+        if (!frame)
+        {
+            ImGui::TextColored(DebugUtils::Colors::Warning, "No frame selected.");
+            return;
+        }
+
+        // View mode selector
+        ImGui::Text("View:");
+        ImGui::SameLine();
+        i32 viewMode = static_cast<i32>(m_CommandViewMode);
+        ImGui::RadioButton("Pre-Sort", &viewMode, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("Post-Sort", &viewMode, 1);
+        ImGui::SameLine();
+        ImGui::RadioButton("Post-Batch", &viewMode, 2);
+        m_CommandViewMode = static_cast<CommandViewMode>(viewMode);
 
         // Filter controls
-        ImGui::Checkbox("Filter by Type", &m_FilterByType);
+        ImGui::SameLine();
+        ImGui::Text("|");
+        ImGui::SameLine();
+        ImGui::Checkbox("Filter Type", &m_FilterByType);
         if (m_FilterByType)
         {
             ImGui::SameLine();
-            const char* typeNames[] = { "Draw", "Clear", "State", "Compute", "Other" };
-            ImGui::Combo("Type", &m_TypeFilter, typeNames, IM_ARRAYSIZE(typeNames));
-        }
-
-        ImGui::Checkbox("Filter by Static", &m_FilterByStatic);
-        if (m_FilterByStatic)
-        {
-            ImGui::SameLine();
-            ImGui::Checkbox("Show Static Only", &m_StaticFilter);
+            const char* typeNames[] = { "Draw", "Clear", "State", "Other" };
+            ImGui::SetNextItemWidth(80.0f);
+            ImGui::Combo("##TypeFilter", &m_TypeFilter, typeNames, IM_ARRAYSIZE(typeNames));
         }
 
         ImGui::Separator();
 
-        // Command packet table
-        if (ImGui::BeginTable("CommandPackets", 6, ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg))
+        // Select the command list based on view mode
+        const std::vector<CapturedCommandData>* commands = nullptr;
+        switch (m_CommandViewMode)
         {
-            ImGui::TableSetupColumn("Index", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn("Draw Key", ImGuiTableColumnFlags_WidthFixed, 120.0f);
-            ImGui::TableSetupColumn("Static", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            case CommandViewMode::PreSort:
+                commands = &frame->PreSortCommands;
+                break;
+            case CommandViewMode::PostSort:
+                commands = &frame->PostSortCommands;
+                break;
+            case CommandViewMode::PostBatch:
+                commands = &frame->PostBatchCommands;
+                break;
+            default:
+                commands = &frame->PostSortCommands;
+                break;
+        }
+
+        if (!commands || commands->empty())
+        {
+            ImGui::TextColored(DebugUtils::Colors::Warning, "No commands in this view.");
+            return;
+        }
+
+        // Summary
+        ImGui::Text("Commands: %zu | Draw: %u | State: %u | Sort: %.3fms | Execute: %.3fms",
+                    commands->size(), frame->Stats.DrawCalls, frame->Stats.StateChanges,
+                    frame->Stats.SortTimeMs, frame->Stats.ExecuteTimeMs);
+        ImGui::Separator();
+
+        // Split: command table on left, detail on right
+        f32 availWidth = ImGui::GetContentRegionAvail().x;
+        f32 listWidth = availWidth * 0.55f;
+
+        // Left panel: command table
+        ImGui::BeginChild("CmdList", ImVec2(listWidth, 0), ImGuiChildFlags_Borders);
+
+        if (ImGui::BeginTable("Commands", 6,
+                              ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders))
+        {
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 40.0f);
+            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+            ImGui::TableSetupColumn("DrawKey", ImGuiTableColumnFlags_WidthFixed, 140.0f);
+            ImGui::TableSetupColumn("Shader", ImGuiTableColumnFlags_WidthFixed, 55.0f);
+            ImGui::TableSetupColumn("Material", ImGuiTableColumnFlags_WidthFixed, 60.0f);
             ImGui::TableSetupColumn("Debug Name", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("Group ID", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableHeadersRow(); // Get actual command packets from bucket
-            std::vector<CommandPacket*> commands;
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableHeadersRow();
 
-            // Try sorted commands first
-            const auto& sortedCommands = bucket->GetSortedCommands();
-            if (!sortedCommands.empty())
+            for (i32 i = 0; i < static_cast<i32>(commands->size()); ++i)
             {
-                commands = sortedCommands;
-            }
-            else
-            {
-                // Fall back to traversing the linked list
-                CommandPacket* current = bucket->GetCommandHead();
-                while (current)
-                {
-                    commands.push_back(current);
-                    current = current->GetNext();
-                }
-            }
+                const auto& cmd = (*commands)[i];
 
-            for (i32 i = 0; i < static_cast<i32>(commands.size()); ++i)
-            {
-                const CommandPacket* packet = commands[i];
-                if (!packet)
-                    continue;
-
-                const auto& metadata = packet->GetMetadata();
-                CommandType commandType = packet->GetCommandType();
-
-                // Apply filtering
-                bool passesFilter = true;
-
+                // Apply filter
                 if (m_FilterByType)
                 {
-                    bool matchesTypeFilter = false;
+                    bool pass = false;
                     switch (m_TypeFilter)
                     {
-                        case 0: // Draw
-                            matchesTypeFilter = (commandType == CommandType::DrawMesh ||
-                                                 commandType == CommandType::DrawMeshInstanced ||
-                                                 commandType == CommandType::DrawQuad ||
-                                                 commandType == CommandType::DrawIndexed ||
-                                                 commandType == CommandType::DrawArrays);
+                        case 0:
+                            pass = cmd.IsDrawCommand();
                             break;
-                        case 1: // Clear
-                            matchesTypeFilter = (commandType == CommandType::Clear ||
-                                                 commandType == CommandType::ClearStencil);
+                        case 1:
+                            pass = (cmd.GetCommandType() == CommandType::Clear || cmd.GetCommandType() == CommandType::ClearStencil);
                             break;
-                        case 2: // State
-                            matchesTypeFilter = (commandType == CommandType::SetViewport ||
-                                                 commandType == CommandType::SetClearColor ||
-                                                 commandType == CommandType::SetBlendState ||
-                                                 commandType == CommandType::SetDepthTest);
+                        case 2:
+                            pass = cmd.IsStateCommand();
                             break;
-                        case 3: // Compute
-                            // No compute commands yet
-                            matchesTypeFilter = false;
-                            break;
-                        case 4: // Other
-                            matchesTypeFilter = !((commandType == CommandType::DrawMesh ||
-                                                   commandType == CommandType::DrawMeshInstanced ||
-                                                   commandType == CommandType::DrawQuad ||
-                                                   commandType == CommandType::DrawIndexed ||
-                                                   commandType == CommandType::DrawArrays ||
-                                                   commandType == CommandType::Clear ||
-                                                   commandType == CommandType::ClearStencil ||
-                                                   commandType == CommandType::SetViewport ||
-                                                   commandType == CommandType::SetClearColor ||
-                                                   commandType == CommandType::SetBlendState ||
-                                                   commandType == CommandType::SetDepthTest));
+                        case 3:
+                            pass = !cmd.IsDrawCommand() && !cmd.IsStateCommand();
                             break;
                     }
-                    passesFilter = passesFilter && matchesTypeFilter;
+                    if (!pass)
+                        continue;
                 }
-
-                if (m_FilterByStatic)
-                {
-                    passesFilter = passesFilter && (metadata.m_IsStatic == m_StaticFilter);
-                }
-
-                if (!passesFilter)
-                    continue;
 
                 ImGui::TableNextRow();
 
+                // Index
                 ImGui::TableSetColumnIndex(0);
-                bool isSelected = (m_SelectedPacketIndex == i);
+                bool selected = (m_SelectedCommandIndex == i);
                 ImGui::PushID(i);
-                if (ImGui::Selectable("##packetRow", isSelected, ImGuiSelectableFlags_SpanAllColumns))
-                {
-                    m_SelectedPacketIndex = i;
-                    m_SelectedPacket = packet; // Store the actual packet pointer
-                }
+                if (ImGui::Selectable("##row", selected, ImGuiSelectableFlags_SpanAllColumns))
+                    m_SelectedCommandIndex = i;
                 ImGui::SameLine();
                 ImGui::Text("%d", i);
                 ImGui::PopID();
+
+                // Type (color-coded)
                 ImGui::TableSetColumnIndex(1);
-                ImGui::TextColored(GetColorForPacketType(packet), "%s", packet->GetCommandTypeString());
+                ImGui::TextColored(GetColorForCommandType(cmd.GetCommandType()), "%s", cmd.GetCommandTypeString());
 
+                // DrawKey
                 ImGui::TableSetColumnIndex(2);
-                const DrawKey& drawKey = metadata.m_SortKey;
-                ImGui::Text("0x%016llX", drawKey.GetKey());
+                ImGui::Text("0x%016llX", cmd.GetSortKey().GetKey());
 
+                // Shader ID
                 ImGui::TableSetColumnIndex(3);
-                ImGui::Text("%s", metadata.m_IsStatic ? "Yes" : "No");
+                ImGui::Text("%u", cmd.GetSortKey().GetShaderID());
 
+                // Material ID
                 ImGui::TableSetColumnIndex(4);
-                ImGui::Text("%s", metadata.m_DebugName ? metadata.m_DebugName : "Unknown");
+                ImGui::Text("%u", cmd.GetSortKey().GetMaterialID());
 
+                // Debug Name
                 ImGui::TableSetColumnIndex(5);
-                ImGui::Text("%u", metadata.m_GroupID);
+                ImGui::Text("%s", cmd.GetDebugName().empty() ? "-" : cmd.GetDebugName().c_str());
             }
 
             ImGui::EndTable();
-        } // Selected packet details
-        if (m_SelectedPacketIndex >= 0 && m_SelectedPacket)
-        {
-            const auto& metadata = m_SelectedPacket->GetMetadata();
-            const DrawKey& drawKey = metadata.m_SortKey;
+        }
 
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+
+        // Right panel: detail view
+        ImGui::BeginChild("CmdDetail", ImVec2(0, 0), ImGuiChildFlags_Borders);
+
+        if (m_SelectedCommandIndex >= 0 && m_SelectedCommandIndex < static_cast<i32>(commands->size()))
+        {
+            RenderCommandDetail((*commands)[m_SelectedCommandIndex]);
+        }
+        else
+        {
+            ImGui::TextColored(DebugUtils::Colors::Disabled, "Select a command to see details.");
+        }
+
+        ImGui::EndChild();
+    }
+
+    // ========================================================================
+    // Command Detail Panel
+    // ========================================================================
+
+    void CommandPacketDebugger::RenderCommandDetail(const CapturedCommandData& cmd)
+    {
+        ImGui::TextColored(GetColorForCommandType(cmd.GetCommandType()), "%s", cmd.GetCommandTypeString());
+        ImGui::Separator();
+
+        // DrawKey breakdown
+        if (ImGui::CollapsingHeader("Draw Key", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            const DrawKey& key = cmd.GetSortKey();
+            ImGui::Text("Raw: 0x%016llX", key.GetKey());
+            ImGui::Text("Viewport: %u", key.GetViewportID());
+            ImGui::Text("View Layer: %s", ToString(key.GetViewLayer()));
+            ImGui::Text("Render Mode: %s", ToString(key.GetRenderMode()));
+            ImGui::Text("Shader ID: %u", key.GetShaderID());
+            ImGui::Text("Material ID: %u", key.GetMaterialID());
+            ImGui::Text("Depth: %u", key.GetDepth());
+        }
+
+        // Metadata
+        if (ImGui::CollapsingHeader("Metadata", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Text("Original Index: %u", cmd.GetOriginalIndex());
+            ImGui::Text("Group ID: %u", cmd.GetGroupID());
+            ImGui::Text("Execution Order: %u", cmd.GetExecutionOrder());
+            ImGui::Text("Static: %s", cmd.IsStatic() ? "Yes" : "No");
+            ImGui::Text("Depends on Previous: %s", cmd.DependsOnPrevious() ? "Yes" : "No");
+            ImGui::Text("Debug Name: %s", cmd.GetDebugName().empty() ? "None" : cmd.GetDebugName().c_str());
+            if (cmd.GetGpuTimeMs() > 0.0)
+                ImGui::Text("GPU Time: %.4f ms", cmd.GetGpuTimeMs());
+        }
+
+        // Command-specific detail
+        if (cmd.GetCommandType() == CommandType::DrawMesh)
+        {
+            if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
+            {
+                if (ImGui::CollapsingHeader("Draw Mesh", ImGuiTreeNodeFlags_DefaultOpen))
+                    RenderDrawMeshDetail(*meshCmd);
+            }
+        }
+        else if (cmd.GetCommandType() == CommandType::DrawMeshInstanced)
+        {
+            if (const auto* meshCmd = cmd.GetCommandData<DrawMeshInstancedCommand>())
+            {
+                if (ImGui::CollapsingHeader("Draw Mesh Instanced", ImGuiTreeNodeFlags_DefaultOpen))
+                    RenderDrawMeshInstancedDetail(*meshCmd);
+            }
+        }
+
+        // Render state for commands that have one
+        const PODRenderState* state = GetRenderStateFromCommand(cmd);
+        if (state && ImGui::CollapsingHeader("Render State"))
+            RenderPODRenderStateDetail(*state);
+    }
+
+    void CommandPacketDebugger::RenderDrawMeshDetail(const DrawMeshCommand& cmd)
+    {
+        ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
+        ImGui::Text("VAO: %u", cmd.vertexArrayID);
+        ImGui::Text("Index Count: %u", cmd.indexCount);
+        ImGui::Text("Entity ID: %d", cmd.entityID);
+        ImGui::Text("Shader: %u (handle: %llu)", cmd.shaderRendererID, static_cast<u64>(cmd.shaderHandle));
+
+        ImGui::Separator();
+        ImGui::Text("Transform:");
+        const auto& t = cmd.transform;
+        for (int row = 0; row < 4; ++row)
+            ImGui::Text("  [%.2f, %.2f, %.2f, %.2f]", t[row][0], t[row][1], t[row][2], t[row][3]);
+
+        ImGui::Separator();
+        if (cmd.enablePBR)
+        {
+            ImGui::Text("PBR Material:");
+            ImGui::Text("  Base Color: (%.2f, %.2f, %.2f, %.2f)", cmd.baseColorFactor.r, cmd.baseColorFactor.g, cmd.baseColorFactor.b, cmd.baseColorFactor.a);
+            ImGui::Text("  Metallic: %.2f", cmd.metallicFactor);
+            ImGui::Text("  Roughness: %.2f", cmd.roughnessFactor);
+            ImGui::Text("  Normal Scale: %.2f", cmd.normalScale);
+            ImGui::Text("  Occlusion: %.2f", cmd.occlusionStrength);
+            ImGui::Text("  IBL: %s", cmd.enableIBL ? "Yes" : "No");
+            ImGui::Text("  Textures: albedo=%u, metallicRough=%u, normal=%u, ao=%u, emissive=%u",
+                        cmd.albedoMapID, cmd.metallicRoughnessMapID, cmd.normalMapID, cmd.aoMapID, cmd.emissiveMapID);
+        }
+        else
+        {
+            ImGui::Text("Legacy Material:");
+            ImGui::Text("  Ambient: (%.2f, %.2f, %.2f)", cmd.ambient.r, cmd.ambient.g, cmd.ambient.b);
+            ImGui::Text("  Diffuse: (%.2f, %.2f, %.2f)", cmd.diffuse.r, cmd.diffuse.g, cmd.diffuse.b);
+            ImGui::Text("  Specular: (%.2f, %.2f, %.2f)", cmd.specular.r, cmd.specular.g, cmd.specular.b);
+            ImGui::Text("  Shininess: %.1f", cmd.shininess);
+            ImGui::Text("  Textures: diffuse=%u, specular=%u", cmd.diffuseMapID, cmd.specularMapID);
+        }
+
+        if (cmd.isAnimatedMesh)
+        {
             ImGui::Separator();
-            ImGui::Text("Selected Packet Details:");
-            ImGui::Indent();
-            ImGui::Text("Index: %d", m_SelectedPacketIndex);
-            ImGui::Text("Command Type: %s", m_SelectedPacket->GetCommandTypeString());
-            ImGui::Text("Static: %s", metadata.m_IsStatic ? "Yes" : "No");
-            ImGui::Text("Group ID: %u", metadata.m_GroupID);
-            ImGui::Text("Execution Order: %u", metadata.m_ExecutionOrder);
-            ImGui::Text("Debug Name: %s", metadata.m_DebugName ? metadata.m_DebugName : "None");
-
-            ImGui::Text("Draw Key Breakdown:");
-            ImGui::Indent();
-            ImGui::Text("Raw Key: 0x%016llX", drawKey.GetKey());
-            ImGui::Text("Viewport ID: %u", drawKey.GetViewportID());
-            ImGui::Text("View Layer: %s", ToString(drawKey.GetViewLayer()));
-            ImGui::Text("Render Mode: %s", ToString(drawKey.GetRenderMode()));
-            ImGui::Text("Material ID: %u", drawKey.GetMaterialID());
-            ImGui::Text("Shader ID: %u", drawKey.GetShaderID());
-            ImGui::Text("Depth: %u", drawKey.GetDepth());
-            ImGui::Unindent();
-            ImGui::Unindent();
+            ImGui::Text("Animation: boneOffset=%u, boneCount=%u, worker=%u", cmd.boneBufferOffset, cmd.boneCount, cmd.workerIndex);
         }
     }
 
-    void CommandPacketDebugger::RenderDrawKeyAnalysis(const CommandBucket* bucket)
+    void CommandPacketDebugger::RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd)
     {
-        OLO_PROFILE_FUNCTION();
-        (void)bucket; // Suppress warning - bucket parameter used for future functionality
+        ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
+        ImGui::Text("VAO: %u", cmd.vertexArrayID);
+        ImGui::Text("Index Count: %u", cmd.indexCount);
+        ImGui::Text("Instance Count: %u", cmd.instanceCount);
+        ImGui::Text("Transform Buffer: offset=%u, count=%u", cmd.transformBufferOffset, cmd.transformCount);
+        ImGui::Text("Shader: %u (handle: %llu)", cmd.shaderRendererID, static_cast<u64>(cmd.shaderHandle));
+    }
 
-        ImGui::Text("Draw Key Distribution Analysis");
-
-        // Show command count first
-        const auto& commands = bucket->GetSortedCommands();
-        ImGui::Text("Total Commands: %zu", commands.size());
-
-        ImGui::Separator();
-
-        // Render histograms for different components
-        if (!m_DrawKeyStats.m_LayerDistribution.empty())
+    void CommandPacketDebugger::RenderPODRenderStateDetail(const PODRenderState& state)
+    {
+        if (ImGui::TreeNode("Blend"))
         {
-            ImGui::Text("Layer Distribution (%zu layers):", m_DrawKeyStats.m_LayerDistribution.size());
-            RenderDrawKeyHistogram(m_DrawKeyStats.m_LayerDistribution, "Layer Distribution");
-        }
-        else
-        {
-            ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.3f, 1.0f), "No layer data available");
-        }
-        if (!m_DrawKeyStats.m_MaterialDistribution.empty())
-        {
-            ImGui::Text("Material Distribution (%zu materials):", m_DrawKeyStats.m_MaterialDistribution.size());
-            RenderDrawKeyHistogram(m_DrawKeyStats.m_MaterialDistribution, "Material Distribution");
-
-            // Show additional info about material ID 0
-            if (m_DrawKeyStats.m_MaterialZeroCount > 0)
+            ImGui::Text("Enabled: %s", state.blendEnabled ? "Yes" : "No");
+            if (state.blendEnabled)
             {
-                ImGui::Text("Commands using default material (ID 0): %u", m_DrawKeyStats.m_MaterialZeroCount);
+                ImGui::Text("Src Factor: 0x%X", state.blendSrcFactor);
+                ImGui::Text("Dst Factor: 0x%X", state.blendDstFactor);
+                ImGui::Text("Equation: 0x%X", state.blendEquation);
             }
+            ImGui::TreePop();
         }
-        else
+        if (ImGui::TreeNode("Depth"))
         {
-            ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.3f, 1.0f), "No material data available");
-            ImGui::Text("This usually means commands are using material ID 0 (default material)");
+            ImGui::Text("Test: %s", state.depthTestEnabled ? "Yes" : "No");
+            ImGui::Text("Write: %s", state.depthWriteMask ? "Yes" : "No");
+            ImGui::Text("Function: 0x%X", state.depthFunction);
+            ImGui::TreePop();
         }
-
-        if (!m_DrawKeyStats.m_DepthDistribution.empty())
+        if (ImGui::TreeNode("Stencil"))
         {
-            ImGui::Text("Depth Distribution (%zu depths):", m_DrawKeyStats.m_DepthDistribution.size());
-            RenderDrawKeyHistogram(m_DrawKeyStats.m_DepthDistribution, "Depth Distribution");
-        }
-
-        if (!m_DrawKeyStats.m_TranslucencyDistribution.empty())
-        {
-            ImGui::Text("Translucency Distribution (%zu types):", m_DrawKeyStats.m_TranslucencyDistribution.size());
-            RenderDrawKeyHistogram(m_DrawKeyStats.m_TranslucencyDistribution, "Translucency Distribution");
-        }
-
-        // Sorting efficiency analysis
-        ImGui::Separator();
-        ImGui::Text("Sorting Efficiency:");
-
-        // Calculate actual sorting efficiency based on available data
-        u32 totalCommands = 0;
-        for (const auto& [id, count] : m_DrawKeyStats.m_MaterialDistribution)
-            totalCommands += count;
-
-        if (totalCommands > 1)
-        {
-            // Calculate consecutive same materials percentage
-            u32 consecutiveMaterials = 0;
-            if (!m_DrawKeyStats.m_MaterialDistribution.empty())
+            ImGui::Text("Enabled: %s", state.stencilEnabled ? "Yes" : "No");
+            if (state.stencilEnabled)
             {
-                // Estimate based on distribution variance - higher variance = more sorting
-                f32 avgMaterialBatchSize = static_cast<f32>(totalCommands) / m_DrawKeyStats.m_MaterialDistribution.size();
-                consecutiveMaterials = static_cast<u32>(std::min(95.0f, avgMaterialBatchSize * 10.0f));
+                ImGui::Text("Function: 0x%X, Ref: %d, Mask: 0x%X", state.stencilFunction, state.stencilReference, state.stencilReadMask);
+                ImGui::Text("Fail: 0x%X, DepthFail: 0x%X, Pass: 0x%X", state.stencilFail, state.stencilDepthFail, state.stencilDepthPass);
             }
-
-            // Calculate consecutive same layers percentage
-            u32 consecutiveLayers = 0;
-            if (!m_DrawKeyStats.m_LayerDistribution.empty())
-            {
-                f32 avgLayerBatchSize = static_cast<f32>(totalCommands) / m_DrawKeyStats.m_LayerDistribution.size();
-                consecutiveLayers = static_cast<u32>(std::min(95.0f, avgLayerBatchSize * 15.0f));
-            }
-
-            // Depth sorting effectiveness (based on depth distribution)
-            u32 depthEffectiveness = 0;
-            if (!m_DrawKeyStats.m_DepthDistribution.empty())
-            {
-                // More depth buckets generally indicate better depth sorting
-                depthEffectiveness = static_cast<u32>(std::min(95.0f,
-                                                               static_cast<f32>(m_DrawKeyStats.m_DepthDistribution.size()) * 5.0f));
-            }
-
-            ImGui::Text("- Consecutive same materials: %u%%", consecutiveMaterials);
-            ImGui::Text("- Consecutive same layers: %u%%", consecutiveLayers);
-            ImGui::Text("- Depth sorting effectiveness: %u%%", depthEffectiveness);
+            ImGui::TreePop();
         }
-        else
+        if (ImGui::TreeNode("Culling"))
         {
-            ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.3f, 1.0f), "Insufficient data for sorting analysis");
+            ImGui::Text("Enabled: %s", state.cullingEnabled ? "Yes" : "No");
+            ImGui::Text("Face: 0x%X", state.cullFace);
+            ImGui::TreePop();
+        }
+        if (ImGui::TreeNode("Polygon"))
+        {
+            ImGui::Text("Mode: 0x%X (Face: 0x%X)", state.polygonMode, state.polygonFace);
+            ImGui::Text("Offset: %s (factor=%.2f, units=%.2f)", state.polygonOffsetEnabled ? "Yes" : "No", state.polygonOffsetFactor, state.polygonOffsetUnits);
+            ImGui::Text("Line Width: %.1f", state.lineWidth);
+            ImGui::TreePop();
+        }
+        if (ImGui::TreeNode("Scissor"))
+        {
+            ImGui::Text("Enabled: %s", state.scissorEnabled ? "Yes" : "No");
+            if (state.scissorEnabled)
+                ImGui::Text("Rect: (%d, %d, %d, %d)", state.scissorX, state.scissorY, state.scissorWidth, state.scissorHeight);
+            ImGui::TreePop();
+        }
+        if (ImGui::TreeNode("Other"))
+        {
+            ImGui::Text("Color Mask: R=%s G=%s B=%s A=%s",
+                        state.colorMaskR ? "Y" : "N", state.colorMaskG ? "Y" : "N",
+                        state.colorMaskB ? "Y" : "N", state.colorMaskA ? "Y" : "N");
+            ImGui::Text("Multisampling: %s", state.multisamplingEnabled ? "Yes" : "No");
+            ImGui::TreePop();
         }
     }
 
-    void CommandPacketDebugger::AnalyzeDrawKeys(const CommandBucket* bucket)
+    // ========================================================================
+    // Sort Analysis Tab
+    // ========================================================================
+
+    void CommandPacketDebugger::RenderSortAnalysis(const CapturedFrameData* frame)
     {
-        OLO_PROFILE_FUNCTION();
+        if (!frame)
+        {
+            ImGui::TextColored(DebugUtils::Colors::Warning, "No frame selected.");
+            return;
+        }
+
+        const auto& pre = frame->PreSortCommands;
+        const auto& post = frame->PostSortCommands;
+
+        if (pre.empty() || post.empty())
+        {
+            ImGui::TextColored(DebugUtils::Colors::Warning, "Insufficient data for sort analysis.");
+            return;
+        }
+
+        ImGui::Text("Sort Time: %.3f ms | Commands: %zu -> %zu",
+                    frame->Stats.SortTimeMs, pre.size(), post.size());
+        ImGui::Separator();
+
+        // Sort displacement metric
+        f64 totalDisplacement = 0.0;
+        u32 maxDisplacement = 0;
+
+        for (u32 postIdx = 0; postIdx < static_cast<u32>(post.size()); ++postIdx)
+        {
+            u32 origIdx = post[postIdx].GetOriginalIndex();
+            u32 displacement = (origIdx > postIdx) ? origIdx - postIdx : postIdx - origIdx;
+            totalDisplacement += displacement;
+            maxDisplacement = std::max(maxDisplacement, displacement);
+        }
+
+        f64 avgDisplacement = post.empty() ? 0.0 : totalDisplacement / post.size();
+        ImGui::Text("Avg Sort Displacement: %.1f positions", avgDisplacement);
+        ImGui::Text("Max Sort Displacement: %u positions", maxDisplacement);
+        ImGui::Separator();
+
+        // Side-by-side view
+        f32 halfWidth = ImGui::GetContentRegionAvail().x * 0.5f - 5.0f;
+
+        // Pre-sort column
+        ImGui::BeginChild("PreSort", ImVec2(halfWidth, 0), ImGuiChildFlags_Borders);
+        ImGui::TextColored(DebugUtils::Colors::Info, "Pre-Sort (Submission Order)");
+        ImGui::Separator();
+
+        for (u32 i = 0; i < static_cast<u32>(pre.size()); ++i)
+        {
+            const auto& cmd = pre[i];
+            ImGui::TextColored(GetColorForCommandType(cmd.GetCommandType()),
+                               "%3u: %s [S=%u M=%u D=%u]", i, cmd.GetCommandTypeString(),
+                               cmd.GetSortKey().GetShaderID(), cmd.GetSortKey().GetMaterialID(), cmd.GetSortKey().GetDepth());
+        }
+
+        ImGui::EndChild();
+        ImGui::SameLine();
+
+        // Post-sort column
+        ImGui::BeginChild("PostSort", ImVec2(halfWidth, 0), ImGuiChildFlags_Borders);
+        ImGui::TextColored(DebugUtils::Colors::Info, "Post-Sort (Execution Order)");
+        ImGui::Separator();
+
+        for (u32 i = 0; i < static_cast<u32>(post.size()); ++i)
+        {
+            const auto& cmd = post[i];
+            ImGui::TextColored(GetColorForCommandType(cmd.GetCommandType()),
+                               "%3u: %s [S=%u M=%u D=%u]", i, cmd.GetCommandTypeString(),
+                               cmd.GetSortKey().GetShaderID(), cmd.GetSortKey().GetMaterialID(), cmd.GetSortKey().GetDepth());
+        }
+
+        ImGui::EndChild();
+    }
+
+    // ========================================================================
+    // State Change Delta Tab
+    // ========================================================================
+
+    void CommandPacketDebugger::RenderStateChanges(const CapturedFrameData* frame)
+    {
+        if (!frame)
+        {
+            ImGui::TextColored(DebugUtils::Colors::Warning, "No frame selected.");
+            return;
+        }
+
+        // Use post-sort or post-batch
+        const auto& commands = !frame->PostBatchCommands.empty() ? frame->PostBatchCommands : frame->PostSortCommands;
+
+        if (commands.size() < 2)
+        {
+            ImGui::TextColored(DebugUtils::Colors::Warning, "Need at least 2 commands for delta analysis.");
+            return;
+        }
+
+        // Analyze consecutive commands
+        u32 shaderChanges = 0;
+        u32 materialChanges = 0;
+        u32 blendChanges = 0;
+        u32 depthChanges = 0;
+        u32 polygonChanges = 0;
+
+        struct StateChangeEntry
+        {
+            u32 fromIndex;
+            u32 toIndex;
+            std::string description;
+        };
+        std::vector<StateChangeEntry> changeLog;
+
+        for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
+        {
+            const auto& prev = commands[i - 1];
+            const auto& curr = commands[i];
+
+            // Shader change (from DrawKey)
+            if (prev.GetSortKey().GetShaderID() != curr.GetSortKey().GetShaderID())
+            {
+                shaderChanges++;
+                changeLog.push_back({ i - 1, i,
+                                      "Shader: " + std::to_string(prev.GetSortKey().GetShaderID()) + " -> " + std::to_string(curr.GetSortKey().GetShaderID()) });
+            }
+
+            // Material change (from DrawKey)
+            if (prev.GetSortKey().GetMaterialID() != curr.GetSortKey().GetMaterialID())
+            {
+                materialChanges++;
+            }
+
+            // Compare PODRenderState if both are DrawMesh commands
+            if (prev.GetCommandType() == CommandType::DrawMesh && curr.GetCommandType() == CommandType::DrawMesh)
+            {
+                const auto* prevCmd = prev.GetCommandData<DrawMeshCommand>();
+                const auto* currCmd = curr.GetCommandData<DrawMeshCommand>();
+                if (prevCmd && currCmd)
+                {
+                    if (prevCmd->renderState.blendEnabled != currCmd->renderState.blendEnabled ||
+                        prevCmd->renderState.blendSrcFactor != currCmd->renderState.blendSrcFactor ||
+                        prevCmd->renderState.blendDstFactor != currCmd->renderState.blendDstFactor)
+                    {
+                        blendChanges++;
+                    }
+                    if (prevCmd->renderState.depthTestEnabled != currCmd->renderState.depthTestEnabled ||
+                        prevCmd->renderState.depthFunction != currCmd->renderState.depthFunction)
+                    {
+                        depthChanges++;
+                    }
+                    if (prevCmd->renderState.polygonMode != currCmd->renderState.polygonMode ||
+                        prevCmd->renderState.cullingEnabled != currCmd->renderState.cullingEnabled)
+                    {
+                        polygonChanges++;
+                    }
+                }
+            }
+        }
+
+        u32 totalRenderStateChanges = blendChanges + depthChanges + polygonChanges;
+
+        // Summary
+        ImGui::Text("State Change Summary (%zu commands):", commands.size());
+        ImGui::Separator();
+        ImGui::Text("Shader Binds: %u", shaderChanges);
+        ImGui::Text("Material Changes: %u", materialChanges);
+        ImGui::Text("Blend State Changes: %u", blendChanges);
+        ImGui::Text("Depth State Changes: %u", depthChanges);
+        ImGui::Text("Polygon State Changes: %u", polygonChanges);
+        ImGui::Text("Total Render State Changes: %u", totalRenderStateChanges);
+
+        // Efficiency metric
+        if (commands.size() > 1)
+        {
+            f32 efficiency = 1.0f - (static_cast<f32>(shaderChanges) / static_cast<f32>(commands.size() - 1));
+            ImVec4 color = DebugUtils::GetPerformanceColor((1.0f - efficiency) * 100.0f, 70.0f, 40.0f);
+            ImGui::TextColored(color, "Shader Coherence: %.1f%%", efficiency * 100.0f);
+        }
+
+        ImGui::Separator();
+
+        // Change log (scrollable)
+        if (!changeLog.empty())
+        {
+            ImGui::Text("Change Log:");
+            ImGui::BeginChild("ChangeLog", ImVec2(0, 200), ImGuiChildFlags_Borders);
+            for (const auto& entry : changeLog)
+            {
+                ImGui::Text("[%u -> %u] %s", entry.fromIndex, entry.toIndex, entry.description.c_str());
+            }
+            ImGui::EndChild();
+        }
+    }
+
+    // ========================================================================
+    // Batching Analysis Tab
+    // ========================================================================
+
+    void CommandPacketDebugger::RenderBatchingAnalysis(const CapturedFrameData* frame)
+    {
+        if (!frame)
+        {
+            ImGui::TextColored(DebugUtils::Colors::Warning, "No frame selected.");
+            return;
+        }
+
+        const auto& preBatch = frame->PostSortCommands;
+        const auto& postBatch = frame->PostBatchCommands;
+
+        ImGui::Text("Batching Analysis");
+        ImGui::Separator();
+
+        if (postBatch.empty())
+        {
+            ImGui::TextColored(DebugUtils::Colors::Warning, "No post-batch data (batching may be disabled).");
+            ImGui::Text("Pre-batch commands: %zu", preBatch.size());
+
+            // Show missed batch opportunities
+            if (preBatch.size() >= 2)
+            {
+                u32 missedBatches = 0;
+                for (u32 i = 1; i < static_cast<u32>(preBatch.size()); ++i)
+                {
+                    const auto& prev = preBatch[i - 1];
+                    const auto& curr = preBatch[i];
+                    if (prev.GetCommandType() == CommandType::DrawMesh &&
+                        curr.GetCommandType() == CommandType::DrawMesh &&
+                        prev.GetSortKey().GetShaderID() == curr.GetSortKey().GetShaderID() &&
+                        prev.GetSortKey().GetMaterialID() == curr.GetSortKey().GetMaterialID())
+                    {
+                        missedBatches++;
+                    }
+                }
+                ImGui::Text("Potential batch merges (same shader+material): %u", missedBatches);
+            }
+            return;
+        }
+
+        i32 merged = static_cast<i32>(preBatch.size()) - static_cast<i32>(postBatch.size());
+        ImGui::Text("Pre-batch: %zu commands", preBatch.size());
+        ImGui::Text("Post-batch: %zu commands", postBatch.size());
+        ImGui::Text("Merged: %d commands", merged > 0 ? merged : 0);
+
+        if (!preBatch.empty())
+        {
+            f32 ratio = static_cast<f32>(postBatch.size()) / static_cast<f32>(preBatch.size());
+            ImGui::Text("Batch Ratio: %.1f%%", ratio * 100.0f);
+        }
+
+        ImGui::Separator();
+
+        // Show instanced commands in post-batch
+        u32 instancedCount = 0;
+        u32 totalInstances = 0;
+        for (const auto& cmd : postBatch)
+        {
+            if (cmd.GetCommandType() == CommandType::DrawMeshInstanced)
+            {
+                instancedCount++;
+                if (const auto* instCmd = cmd.GetCommandData<DrawMeshInstancedCommand>())
+                    totalInstances += instCmd->instanceCount;
+            }
+        }
+
+        if (instancedCount > 0)
+        {
+            ImGui::Text("Instanced Draw Calls: %u", instancedCount);
+            ImGui::Text("Total Instances: %u", totalInstances);
+            ImGui::Text("Avg Instances/Call: %.1f", instancedCount > 0 ? static_cast<f32>(totalInstances) / instancedCount : 0.0f);
+        }
+    }
+
+    // ========================================================================
+    // Timeline Tab
+    // ========================================================================
+
+    void CommandPacketDebugger::RenderTimeline(const CapturedFrameData* frame)
+    {
+        if (!frame)
+        {
+            ImGui::TextColored(DebugUtils::Colors::Warning, "No frame selected.");
+            return;
+        }
+
+        const auto& commands = !frame->PostBatchCommands.empty() ? frame->PostBatchCommands : frame->PostSortCommands;
+
+        if (commands.empty())
+        {
+            ImGui::TextColored(DebugUtils::Colors::Warning, "No commands to display.");
+            return;
+        }
+
+        ImGui::Text("Frame #%u Timeline (%zu commands)", frame->FrameNumber, commands.size());
+        ImGui::Separator();
+
+        // Check if GPU timing data is available
+        bool hasGpuTiming = false;
+        f64 totalGpuTime = 0.0;
+        for (const auto& cmd : commands)
+        {
+            if (cmd.GetGpuTimeMs() > 0.0)
+            {
+                hasGpuTiming = true;
+                totalGpuTime += cmd.GetGpuTimeMs();
+            }
+        }
+
+        if (hasGpuTiming)
+            ImGui::Text("Total GPU Time: %.3f ms", totalGpuTime);
+        else
+            ImGui::TextColored(DebugUtils::Colors::Disabled, "No GPU timing data (enable GPU timer capture)");
+
+        ImGui::Separator();
+
+        // Timeline rendering using ImGui drawing
+        ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+        ImVec2 canvasSize = ImGui::GetContentRegionAvail();
+        canvasSize.y = std::max(canvasSize.y, 120.0f);
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->AddRectFilled(canvasPos, ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y),
+                                IM_COL32(30, 30, 30, 255));
+
+        f32 barHeight = 20.0f;
+        f32 padding = 2.0f;
+        f32 totalWidth = canvasSize.x - padding * 2.0f;
+
+        // Calculate bar widths
+        f32 uniformWidth = totalWidth / static_cast<f32>(commands.size());
+
+        f32 xOffset = canvasPos.x + padding;
+        f32 yOffset = canvasPos.y + padding;
+
+        for (u32 i = 0; i < static_cast<u32>(commands.size()); ++i)
+        {
+            const auto& cmd = commands[i];
+
+            f32 barWidth = hasGpuTiming && totalGpuTime > 0.0
+                               ? static_cast<f32>(cmd.GetGpuTimeMs() / totalGpuTime) * totalWidth
+                               : uniformWidth;
+
+            barWidth = std::max(barWidth, 1.0f);
+
+            ImVec4 color = GetColorForCommandType(cmd.GetCommandType());
+            ImU32 col = ImGui::GetColorU32(color);
+
+            f32 x0 = xOffset;
+            f32 y0 = yOffset;
+            f32 x1 = xOffset + barWidth - 1.0f;
+            f32 y1 = yOffset + barHeight;
+
+            drawList->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
+
+            // Highlight selected
+            if (i == static_cast<u32>(m_SelectedCommandIndex))
+            {
+                drawList->AddRect(ImVec2(x0 - 1, y0 - 1), ImVec2(x1 + 1, y1 + 1), IM_COL32(255, 255, 255, 255), 0.0f, 0, 2.0f);
+            }
+
+            // Hover tooltip and click to select
+            ImGui::SetCursorScreenPos(ImVec2(x0, y0));
+            char tlId[16];
+            snprintf(tlId, sizeof(tlId), "##tl%u", i);
+            ImGui::InvisibleButton(tlId, ImVec2(barWidth, barHeight));
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::BeginTooltip();
+                ImGui::Text("#%u: %s", i, cmd.GetCommandTypeString());
+                ImGui::Text("Shader: %u, Material: %u", cmd.GetSortKey().GetShaderID(), cmd.GetSortKey().GetMaterialID());
+                if (cmd.GetGpuTimeMs() > 0.0)
+                    ImGui::Text("GPU: %.4f ms", cmd.GetGpuTimeMs());
+                ImGui::EndTooltip();
+            }
+            if (ImGui::IsItemClicked())
+                m_SelectedCommandIndex = static_cast<i32>(i);
+
+            xOffset += barWidth;
+        }
+
+        // Legend below timeline
+        ImGui::SetCursorScreenPos(ImVec2(canvasPos.x, canvasPos.y + barHeight + padding * 3));
+        ImGui::Dummy(ImVec2(canvasSize.x, barHeight + padding * 4));
+
+        ImGui::Text("Legend:");
+        ImGui::SameLine();
+        ImGui::TextColored(GetColorForCommandType(CommandType::DrawMesh), "Draw");
+        ImGui::SameLine();
+        ImGui::TextColored(GetColorForCommandType(CommandType::Clear), "Clear");
+        ImGui::SameLine();
+        ImGui::TextColored(GetColorForCommandType(CommandType::SetViewport), "State");
+        ImGui::SameLine();
+        ImGui::TextColored(GetColorForCommandType(CommandType::BindTexture), "Bind");
+    }
+
+    // ========================================================================
+    // Live View (fallback when no captures exist)
+    // ========================================================================
+
+    void CommandPacketDebugger::RenderLiveView(const CommandBucket* bucket)
+    {
+        ImGui::TextColored(DebugUtils::Colors::Info,
+                           "No captured frames. Use the toolbar above to capture frames for analysis.");
+        ImGui::Separator();
 
         if (!bucket)
         {
-            OLO_CORE_WARN("CommandPacketDebugger::AnalyzeDrawKeys: Null bucket provided!");
+            ImGui::TextColored(DebugUtils::Colors::Warning, "No command bucket available.");
             return;
         }
 
-        // Debug the bucket state in detail
-        CommandPacket* head = bucket->GetCommandHead();
-        const auto& sortedCommands = bucket->GetSortedCommands();
+        sizet cmdCount = bucket->GetCommandCount();
+        bool isSorted = bucket->IsSorted();
 
-        // Reset analysis data
-        m_DrawKeyStats.Reset();
+        ImGui::Text("Live Bucket: %zu commands, Sorted: %s", cmdCount, isSorted ? "Yes" : "No");
+        ImGui::Text("Last Sort: %.3f ms | Last Execute: %.3f ms",
+                    bucket->GetLastSortTimeMs(), bucket->GetLastExecuteTimeMs());
 
-        // Get the actual command packets from the bucket
-        std::vector<CommandPacket*> commands;
-
-        // Try sorted commands first
-        if (!sortedCommands.empty())
-        {
-            commands = sortedCommands;
-        }
-        else
-        {
-            // Fall back to traversing the linked list if no sorted commands
-            OLO_CORE_TRACE("[CommandPacketDebugger] No sorted commands, traversing linked list...");
-            CommandPacket* current = head;
-            sizet traversalCount = 0;
-            while (current)
-            {
-                commands.push_back(current);
-                OLO_CORE_TRACE("[CommandPacketDebugger]   - Found command {} with type: {}",
-                               traversalCount, static_cast<int>(current->GetCommandType()));
-                current = current->GetNext();
-                traversalCount++;
-
-                // Safety check to prevent infinite loops
-                if (traversalCount > 10000)
-                {
-                    OLO_CORE_ERROR("[CommandPacketDebugger] Traversal safety limit reached! Possible infinite loop.");
-                    break;
-                }
-            }
-        }
-        // Update current frame stats
-        m_CurrentFrameStats.m_TotalPackets = static_cast<u32>(commands.size());
-
-        // Add basic timing simulation since we don't have real timing data yet
-        // TODO: Replace with actual timing from CommandBucket when available
-        if (!commands.empty())
-        {
-            // Simulate some sorting time based on command count (microseconds to milliseconds)
-            m_CurrentFrameStats.m_SortingTimeMs = static_cast<f32>(commands.size()) * 0.01f;
-
-            // Simulate execution time based on command types (rough estimate)
-            f32 estimatedExecutionTime = 0.0f;
-            for (const auto* packet : commands)
-            {
-                if (!packet)
-                    continue;
-
-                CommandType type = packet->GetCommandType();
-                switch (type)
-                {
-                    case CommandType::DrawMesh:
-                    case CommandType::DrawMeshInstanced:
-                        estimatedExecutionTime += 0.1f; // 0.1ms per draw call
-                        break;
-                    case CommandType::Clear:
-                    case CommandType::SetViewport:
-                        estimatedExecutionTime += 0.01f; // 0.01ms per state change
-                        break;
-                    default:
-                        estimatedExecutionTime += 0.05f; // 0.05ms for other commands
-                        break;
-                }
-            }
-            m_CurrentFrameStats.m_ExecutionTimeMs = estimatedExecutionTime;
-        }
-        else
-        {
-            m_CurrentFrameStats.m_SortingTimeMs = 0.0f;
-            m_CurrentFrameStats.m_ExecutionTimeMs = 0.0f;
-        }
-        u32 staticCount = 0;
-        u32 dynamicCount = 0;
-        u32 materialZeroCount = 0; // Track commands with material ID 0
-        std::unordered_map<u32, u32> layerCounts;
-        std::unordered_map<u32, u32> materialCounts;
-        std::unordered_map<u32, u32> depthCounts;
-        std::unordered_map<u32, u32> translucencyCounts;
-
-        // Analyze each command packet
-        for (const auto* packet : commands)
-        {
-            if (!packet)
-                continue;
-
-            const auto& metadata = packet->GetMetadata();
-
-            // Count static vs dynamic
-            if (metadata.m_IsStatic)
-                staticCount++;
-            else
-                dynamicCount++;
-
-            // Count by layer
-            u32 layer = static_cast<u32>(metadata.m_SortKey.GetViewLayer());
-            layerCounts[layer]++;
-            // Count by material (include material ID 0 in a separate count)
-            u32 materialId = metadata.m_SortKey.GetMaterialID();
-            if (materialId == 0)
-            {
-                materialZeroCount++;
-            }
-
-            // Count all materials (including 0) for the distribution histogram
-            materialCounts[materialId]++;
-
-            // Count by depth (group into ranges for better visualization)
-            u32 depth = metadata.m_SortKey.GetDepth();
-            u32 depthRange = depth / 1000; // Group depths into ranges of 1000
-            depthCounts[depthRange]++;
-
-            // Count by render mode (translucency info)
-            u32 renderMode = static_cast<u32>(metadata.m_SortKey.GetRenderMode());
-            translucencyCounts[renderMode]++;
-        }
-
-        m_CurrentFrameStats.m_StaticPackets = staticCount;
-        m_CurrentFrameStats.m_DynamicPackets = dynamicCount;
-
-        // Update distributions for histograms
-        m_DrawKeyStats.m_LayerDistribution = layerCounts;
-        m_DrawKeyStats.m_MaterialDistribution = materialCounts;
-        m_DrawKeyStats.m_DepthDistribution = depthCounts;
-        m_DrawKeyStats.m_TranslucencyDistribution = translucencyCounts;
-
-        // Store the material zero count for display
-        m_DrawKeyStats.m_MaterialZeroCount = materialZeroCount;
-        // Calculate memory usage - this is an approximation
-        sizet totalMemory = commands.size() * sizeof(CommandPacket);
-        m_MemoryStats.m_CommandPacketMemory = totalMemory;
-        m_MemoryStats.m_MetadataMemory = commands.size() * sizeof(PacketMetadata);
-        m_MemoryStats.m_AllocationCount = static_cast<u32>(commands.size());
-        // Get allocator memory usage from the bucket
-        if (auto* allocator = bucket->GetAllocator())
-        {
-            // Get actual allocator memory usage
-            m_MemoryStats.m_AllocatorMemory = allocator->GetTotalAllocated();
-        }
-        else
-        {
-            // Estimate allocator memory as roughly 150% of packet memory for overhead
-            m_MemoryStats.m_AllocatorMemory = totalMemory + (totalMemory / 2);
-        }
-
-        // Calculate state changes by analyzing render state differences between commands
-        u32 stateChanges = 0;
-        const CommandPacket* previousPacket = nullptr;
-
-        for (const auto* packet : commands)
-        {
-            if (!packet)
-                continue;
-
-            // Check for state changes by comparing render states
-            if (previousPacket)
-            {
-                // For draw commands, check if render state differs
-                if (packet->GetCommandType() == CommandType::DrawMesh ||
-                    packet->GetCommandType() == CommandType::DrawMeshInstanced)
-                {
-                    const auto* currentCmd = packet->GetCommandData<DrawMeshCommand>();
-                    const auto* prevCmd = previousPacket->GetCommandData<DrawMeshCommand>();
-
-                    if (currentCmd && prevCmd)
-                    {
-                        // Compare render states - each different state is a state change
-                        const auto& current = currentCmd->renderState;
-                        const auto& previous = prevCmd->renderState;
-
-                        // Check various state categories
-                        if (current.polygonMode != previous.polygonMode)
-                            stateChanges++;
-                        if (current.lineWidth != previous.lineWidth)
-                            stateChanges++;
-                        if (current.blendEnabled != previous.blendEnabled)
-                            stateChanges++;
-                        if (current.blendSrcFactor != previous.blendSrcFactor)
-                            stateChanges++;
-                        if (current.blendDstFactor != previous.blendDstFactor)
-                            stateChanges++;
-                        if (current.polygonOffsetEnabled != previous.polygonOffsetEnabled)
-                            stateChanges++;
-                        if (current.polygonOffsetFactor != previous.polygonOffsetFactor)
-                            stateChanges++;
-                        if (current.polygonOffsetUnits != previous.polygonOffsetUnits)
-                            stateChanges++;
-                    }
-                }
-
-                // Also count command type changes as state changes
-                if (packet->GetCommandType() != previousPacket->GetCommandType())
-                {
-                    stateChanges++;
-                }
-            }
-
-            previousPacket = packet;
-        }
-
-        m_CurrentFrameStats.m_StateChanges = stateChanges;
-
-        OLO_CORE_TRACE("CommandPacketDebugger: Static: {}, Dynamic: {}, Memory: {} bytes",
-                       staticCount, dynamicCount, totalMemory);
-    }
-    void CommandPacketDebugger::RenderDrawKeyHistogram(const std::unordered_map<u32, u32>& distribution, const char* label)
-    {
-        if (distribution.empty())
-        {
-            ImGui::TextColored(ImVec4(0.8f, 0.4f, 0.4f, 1.0f), "%s: No data", label);
-            return;
-        }
-
-        ImGui::Text("%s:", label);
-
-        // Convert to vectors for plotting
-        std::vector<f32> values;
-        std::vector<std::string> labels;
-
-        for (const auto& [key, count] : distribution)
-        {
-            labels.push_back(std::to_string(key));
-            values.push_back((f32)count);
-        }
-
-        if (!values.empty())
-        {
-            // Calculate max value for better scaling
-            f32 maxValue = *std::max_element(values.begin(), values.end());
-
-            // Show a text summary first
-            ImGui::Indent();
-            ImGui::Text("Keys: %zu, Max Count: %.0f", values.size(), maxValue);
-
-            // Show individual counts if there are few enough items
-            if (distribution.size() <= 8)
-            {
-                for (const auto& [key, count] : distribution)
-                {
-                    ImGui::Text("  %u: %u", key, count);
-                }
-            }
-            // Show the histogram with unique ID based on label
-            std::string histogramId = std::string("##histogram_") + label;
-            ImGui::PlotHistogram(histogramId.c_str(), values.data(), (i32)values.size(),
-                                 0, nullptr, 0.0f, maxValue * 1.1f, ImVec2(300, 80));
-            ImGui::Unindent();
-        }
-        ImGui::Spacing();
+        auto stats = bucket->GetStatistics();
+        ImGui::Text("Draw Calls: %u | State Changes: %u | Batched: %u",
+                    stats.DrawCalls, stats.StateChanges, stats.BatchedCommands);
     }
 
-    ImVec4 CommandPacketDebugger::GetColorForPacketType(const CommandPacket* packet) const
+    // ========================================================================
+    // Helpers
+    // ========================================================================
+
+    ImVec4 CommandPacketDebugger::GetColorForCommandType(CommandType type)
     {
-        if (!packet)
-            return ImVec4(0.8f, 0.8f, 0.8f, 1.0f); // Gray for unknown
-
-        CommandType type = packet->GetCommandType();
-
         switch (type)
         {
             case CommandType::DrawMesh:
@@ -793,11 +1061,19 @@ namespace OloEngine
             case CommandType::DrawQuad:
             case CommandType::DrawIndexed:
             case CommandType::DrawArrays:
-                return ImVec4(0.3f, 0.8f, 0.3f, 1.0f); // Green for draw commands
+            case CommandType::DrawLines:
+            case CommandType::DrawSkybox:
+            case CommandType::DrawInfiniteGrid:
+            case CommandType::DrawIndexedInstanced:
+                return ImVec4(0.3f, 0.8f, 0.3f, 1.0f); // Green
 
             case CommandType::Clear:
             case CommandType::ClearStencil:
-                return ImVec4(0.8f, 0.3f, 0.3f, 1.0f); // Red for clear commands
+                return ImVec4(0.8f, 0.3f, 0.3f, 1.0f); // Red
+
+            case CommandType::BindTexture:
+            case CommandType::BindDefaultFramebuffer:
+                return ImVec4(0.8f, 0.8f, 0.3f, 1.0f); // Yellow
 
             case CommandType::SetViewport:
             case CommandType::SetClearColor:
@@ -805,30 +1081,48 @@ namespace OloEngine
             case CommandType::SetDepthTest:
             case CommandType::SetDepthMask:
             case CommandType::SetDepthFunc:
-                return ImVec4(0.3f, 0.3f, 0.8f, 1.0f); // Blue for state commands
-
-            case CommandType::BindTexture:
-            case CommandType::BindDefaultFramebuffer:
-                return ImVec4(0.8f, 0.8f, 0.3f, 1.0f); // Yellow for binding commands
+            case CommandType::SetStencilTest:
+            case CommandType::SetCulling:
+            case CommandType::SetPolygonMode:
+                return ImVec4(0.3f, 0.3f, 0.8f, 1.0f); // Blue
 
             default:
-                return ImVec4(0.8f, 0.5f, 0.3f, 1.0f); // Orange for other commands
+                return ImVec4(0.8f, 0.5f, 0.3f, 1.0f); // Orange
         }
     }
-    std::string CommandPacketDebugger::GetPacketTypeString(const CommandPacket* packet) const
-    {
-        if (!packet)
-            return "Unknown";
 
-        return std::string(packet->GetCommandTypeString());
+    // ========================================================================
+    // CSV Export
+    // ========================================================================
+
+    std::string CommandPacketDebugger::GenerateExportFilename(const char* extension, u32 frameNumber)
+    {
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::tm tm{};
+#if defined(_WIN32)
+        localtime_s(&tm, &time);
+#else
+        localtime_r(&time, &tm);
+#endif
+
+        std::ostringstream oss;
+        oss << "cmd_bucket_frame" << frameNumber
+            << "_" << std::put_time(&tm, "%Y%m%d_%H%M%S")
+            << "." << extension;
+        return oss.str();
     }
-    bool CommandPacketDebugger::ExportToCSV(const CommandBucket* bucket, const std::string& outputPath) const
+
+    bool CommandPacketDebugger::ExportToCSV(const std::string& outputPath) const
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!bucket)
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        auto selectedFrame = captureManager.GetSelectedFrame();
+
+        if (!selectedFrame)
         {
-            OLO_CORE_ERROR("Cannot export CSV: bucket is null");
+            OLO_CORE_ERROR("Cannot export CSV: no frame selected");
             return false;
         }
 
@@ -838,40 +1132,393 @@ namespace OloEngine
             if (!file.is_open())
                 return false;
 
-            // CSV header
-            file << "Index,Type,DrawKey,ViewportID,ViewLayer,RenderMode,MaterialID,ShaderID,Depth,Static,GroupID,DebugName\n";
+            file << "Index,Type,DrawKey,ViewportID,ViewLayer,RenderMode,MaterialID,ShaderID,Depth,Static,GroupID,DebugName,GpuTimeMs\n";
 
-            const auto& commands = bucket->GetSortedCommands();
+            const auto& commands = !selectedFrame->PostSortCommands.empty() ? selectedFrame->PostSortCommands : selectedFrame->PreSortCommands;
+
             for (sizet i = 0; i < commands.size(); ++i)
             {
-                const CommandPacket* packet = commands[i];
-                if (!packet)
-                    continue;
-
-                const auto& metadata = packet->GetMetadata();
-                const DrawKey& drawKey = metadata.m_SortKey;
+                const auto& cmd = commands[i];
+                const DrawKey& key = cmd.GetSortKey();
 
                 file << i << ","
-                     << packet->GetCommandTypeString() << ","
-                     << "0x" << std::hex << drawKey.GetKey() << std::dec << ","
-                     << drawKey.GetViewportID() << ","
-                     << ToString(drawKey.GetViewLayer()) << ","
-                     << ToString(drawKey.GetRenderMode()) << ","
-                     << drawKey.GetMaterialID() << ","
-                     << drawKey.GetShaderID() << ","
-                     << drawKey.GetDepth() << ","
-                     << (metadata.m_IsStatic ? "true" : "false") << ","
-                     << metadata.m_GroupID << ","
-                     << (metadata.m_DebugName ? metadata.m_DebugName : "Unknown") << "\n";
+                     << EscapeCsvField(cmd.GetCommandTypeString()) << ","
+                     << "0x" << std::hex << key.GetKey() << std::dec << ","
+                     << key.GetViewportID() << ","
+                     << EscapeCsvField(ToString(key.GetViewLayer())) << ","
+                     << EscapeCsvField(ToString(key.GetRenderMode())) << ","
+                     << key.GetMaterialID() << ","
+                     << key.GetShaderID() << ","
+                     << key.GetDepth() << ","
+                     << (cmd.IsStatic() ? "true" : "false") << ","
+                     << cmd.GetGroupID() << ","
+                     << EscapeCsvField(cmd.GetDebugName().empty() ? std::string("None") : cmd.GetDebugName()) << ","
+                     << cmd.GetGpuTimeMs() << "\n";
             }
 
             file.close();
-            OLO_CORE_INFO("Command packet data exported to: {0}", outputPath);
+            OLO_CORE_INFO("Command packet data exported to: {}", outputPath);
             return true;
         }
         catch (const std::exception& e)
         {
-            OLO_CORE_ERROR("Failed to export command packet data: {0}", e.what());
+            OLO_CORE_ERROR("Failed to export command packet data: {}", e.what());
+            return false;
+        }
+    }
+
+    // ========================================================================
+    // Markdown / LLM Analysis Export
+    // ========================================================================
+
+    bool CommandPacketDebugger::ExportToMarkdown(const std::string& outputPath) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        auto selectedFrame = captureManager.GetSelectedFrame();
+
+        if (!selectedFrame)
+        {
+            OLO_CORE_ERROR("Cannot export Markdown: no frame selected");
+            return false;
+        }
+
+        const auto* frame = &*selectedFrame;
+
+        try
+        {
+            std::ofstream file(outputPath);
+            if (!file.is_open())
+                return false;
+
+            // Header
+            file << "# Command Bucket Frame Capture Report\n\n";
+            file << "## Frame Info\n\n";
+            file << "- **Frame Number:** " << frame->FrameNumber << "\n";
+            file << "- **Timestamp:** " << std::fixed << std::setprecision(3) << frame->TimestampSeconds << "s\n";
+            file << "- **Total Commands (pre-sort):** " << frame->PreSortCommands.size() << "\n";
+            file << "- **Total Commands (post-sort):** " << frame->PostSortCommands.size() << "\n";
+            file << "- **Total Commands (post-batch):** " << frame->PostBatchCommands.size() << "\n";
+            if (!frame->Notes.empty())
+                file << "- **Notes:** " << frame->Notes << "\n";
+            file << "\n";
+
+            // Pipeline statistics
+            file << "## Pipeline Statistics\n\n";
+            file << "| Metric | Value |\n";
+            file << "|--------|-------|\n";
+            file << "| Sort Time | " << std::fixed << std::setprecision(3) << frame->Stats.SortTimeMs << " ms |\n";
+            file << "| Batch Time | " << frame->Stats.BatchTimeMs << " ms |\n";
+            file << "| Execute Time | " << frame->Stats.ExecuteTimeMs << " ms |\n";
+            file << "| Total Frame Time | " << frame->Stats.TotalFrameTimeMs << " ms |\n";
+            file << "| Draw Calls | " << frame->Stats.DrawCalls << " |\n";
+            file << "| State Changes | " << frame->Stats.StateChanges << " |\n";
+            file << "| Shader Binds | " << frame->Stats.ShaderBinds << " |\n";
+            file << "| Texture Binds | " << frame->Stats.TextureBinds << " |\n";
+            file << "| Batched Commands | " << frame->Stats.BatchedCommands << " |\n";
+            file << "\n";
+
+            // Command list (post-sort is the most useful for analysis)
+            const auto& commands = !frame->PostSortCommands.empty() ? frame->PostSortCommands : frame->PreSortCommands;
+
+            file << "## Command List (Post-Sort Order)\n\n";
+            file << "| # | Type | ShaderID | MaterialID | Depth | ViewLayer | RenderMode | Static | DebugName | GpuTimeMs |\n";
+            file << "|---|------|----------|------------|-------|-----------|------------|--------|-----------|----------|\n";
+
+            for (sizet i = 0; i < commands.size(); ++i)
+            {
+                const auto& cmd = commands[i];
+                const DrawKey& key = cmd.GetSortKey();
+
+                file << "| " << i
+                     << " | " << cmd.GetCommandTypeString()
+                     << " | " << key.GetShaderID()
+                     << " | " << key.GetMaterialID()
+                     << " | " << key.GetDepth()
+                     << " | " << ToString(key.GetViewLayer())
+                     << " | " << ToString(key.GetRenderMode())
+                     << " | " << (cmd.IsStatic() ? "Yes" : "No")
+                     << " | " << (cmd.GetDebugName().empty() ? "-" : cmd.GetDebugName())
+                     << " | " << std::fixed << std::setprecision(4) << cmd.GetGpuTimeMs()
+                     << " |\n";
+            }
+            file << "\n";
+
+            // Sort analysis
+            file << "## Sort Analysis\n\n";
+            if (!frame->PreSortCommands.empty() && !frame->PostSortCommands.empty())
+            {
+                const auto& pre = frame->PreSortCommands;
+                const auto& post = frame->PostSortCommands;
+
+                f64 totalDisplacement = 0.0;
+                u32 maxDisplacement = 0;
+                u32 movedCount = 0;
+
+                for (u32 postIdx = 0; postIdx < static_cast<u32>(post.size()); ++postIdx)
+                {
+                    u32 origIdx = post[postIdx].GetOriginalIndex();
+                    u32 displacement = (origIdx > postIdx) ? origIdx - postIdx : postIdx - origIdx;
+                    totalDisplacement += displacement;
+                    maxDisplacement = std::max(maxDisplacement, displacement);
+                    if (displacement > 0)
+                        movedCount++;
+                }
+
+                f64 avgDisplacement = post.empty() ? 0.0 : totalDisplacement / post.size();
+                file << "- **Commands moved:** " << movedCount << "/" << post.size() << "\n";
+                file << "- **Average displacement:** " << std::fixed << std::setprecision(1) << avgDisplacement << " positions\n";
+                file << "- **Max displacement:** " << maxDisplacement << " positions\n\n";
+            }
+            else
+            {
+                file << "Insufficient data for sort analysis.\n\n";
+            }
+
+            // State change analysis
+            file << "## State Change Analysis\n\n";
+            if (commands.size() >= 2)
+            {
+                u32 shaderChanges = 0;
+                u32 materialChanges = 0;
+                u32 blendChanges = 0;
+                u32 depthChanges = 0;
+
+                for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
+                {
+                    const auto& prev = commands[i - 1];
+                    const auto& curr = commands[i];
+
+                    if (prev.GetSortKey().GetShaderID() != curr.GetSortKey().GetShaderID())
+                        shaderChanges++;
+                    if (prev.GetSortKey().GetMaterialID() != curr.GetSortKey().GetMaterialID())
+                        materialChanges++;
+
+                    if (prev.GetCommandType() == CommandType::DrawMesh && curr.GetCommandType() == CommandType::DrawMesh)
+                    {
+                        const auto* prevCmd = prev.GetCommandData<DrawMeshCommand>();
+                        const auto* currCmd = curr.GetCommandData<DrawMeshCommand>();
+                        if (prevCmd && currCmd)
+                        {
+                            if (prevCmd->renderState.blendEnabled != currCmd->renderState.blendEnabled ||
+                                prevCmd->renderState.blendSrcFactor != currCmd->renderState.blendSrcFactor)
+                                blendChanges++;
+                            if (prevCmd->renderState.depthTestEnabled != currCmd->renderState.depthTestEnabled ||
+                                prevCmd->renderState.depthFunction != currCmd->renderState.depthFunction)
+                                depthChanges++;
+                        }
+                    }
+                }
+
+                f32 shaderCoherence = 1.0f - (static_cast<f32>(shaderChanges) / static_cast<f32>(commands.size() - 1));
+
+                file << "| Metric | Count |\n";
+                file << "|--------|-------|\n";
+                file << "| Shader Changes | " << shaderChanges << " |\n";
+                file << "| Material Changes | " << materialChanges << " |\n";
+                file << "| Blend State Changes | " << blendChanges << " |\n";
+                file << "| Depth State Changes | " << depthChanges << " |\n";
+                file << "| **Shader Coherence** | **" << std::fixed << std::setprecision(1) << (shaderCoherence * 100.0f) << "%** |\n\n";
+            }
+
+            // Batching analysis
+            file << "## Batching Analysis\n\n";
+            if (!frame->PostBatchCommands.empty())
+            {
+                i32 merged = static_cast<i32>(frame->PostSortCommands.size()) - static_cast<i32>(frame->PostBatchCommands.size());
+                f32 batchRatio = frame->PostSortCommands.empty() ? 1.0f
+                                                                 : static_cast<f32>(frame->PostBatchCommands.size()) / static_cast<f32>(frame->PostSortCommands.size());
+
+                file << "- **Pre-batch commands:** " << frame->PostSortCommands.size() << "\n";
+                file << "- **Post-batch commands:** " << frame->PostBatchCommands.size() << "\n";
+                file << "- **Merged:** " << (merged > 0 ? merged : 0) << " commands\n";
+                file << "- **Batch ratio:** " << std::fixed << std::setprecision(1) << (batchRatio * 100.0f) << "%\n\n";
+            }
+            else
+            {
+                file << "No post-batch data available (batching may be disabled).\n\n";
+
+                // Count potential batch merges
+                u32 potentialMerges = 0;
+                for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
+                {
+                    const auto& prev = commands[i - 1];
+                    const auto& curr = commands[i];
+                    if (prev.GetCommandType() == CommandType::DrawMesh &&
+                        curr.GetCommandType() == CommandType::DrawMesh &&
+                        prev.GetSortKey().GetShaderID() == curr.GetSortKey().GetShaderID() &&
+                        prev.GetSortKey().GetMaterialID() == curr.GetSortKey().GetMaterialID())
+                    {
+                        potentialMerges++;
+                    }
+                }
+                if (potentialMerges > 0)
+                    file << "- **Potential batch merges** (same shader+material): " << potentialMerges << "\n\n";
+            }
+
+            // Draw command material summary
+            file << "## Draw Command Details\n\n";
+            u32 drawIdx = 0;
+            for (const auto& cmd : commands)
+            {
+                if (cmd.GetCommandType() == CommandType::DrawMesh)
+                {
+                    if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
+                    {
+                        file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
+                        file << "- Shader: " << meshCmd->shaderRendererID << " (handle: " << static_cast<u64>(meshCmd->shaderHandle) << ")\n";
+                        file << "- VAO: " << meshCmd->vertexArrayID << ", Index Count: " << meshCmd->indexCount << "\n";
+                        file << "- Entity ID: " << meshCmd->entityID << "\n";
+                        if (meshCmd->enablePBR)
+                        {
+                            file << "- PBR Material: baseColor=(" << meshCmd->baseColorFactor.r << "," << meshCmd->baseColorFactor.g << "," << meshCmd->baseColorFactor.b << ")"
+                                 << " metallic=" << meshCmd->metallicFactor << " roughness=" << meshCmd->roughnessFactor << "\n";
+                            file << "- Textures: albedo=" << meshCmd->albedoMapID << " metallicRough=" << meshCmd->metallicRoughnessMapID
+                                 << " normal=" << meshCmd->normalMapID << " ao=" << meshCmd->aoMapID << " emissive=" << meshCmd->emissiveMapID << "\n";
+                        }
+                        file << "- Depth: write=" << (meshCmd->renderState.depthWriteMask ? "yes" : "no")
+                             << " test=" << (meshCmd->renderState.depthTestEnabled ? "yes" : "no") << "\n";
+                        file << "- Blend: " << (meshCmd->renderState.blendEnabled ? "enabled" : "disabled") << "\n";
+                        if (meshCmd->isAnimatedMesh)
+                            file << "- Animated: boneOffset=" << meshCmd->boneBufferOffset << " boneCount=" << meshCmd->boneCount << "\n";
+                        file << "\n";
+                    }
+                }
+                else if (cmd.GetCommandType() == CommandType::DrawMeshInstanced)
+                {
+                    if (const auto* instCmd = cmd.GetCommandData<DrawMeshInstancedCommand>())
+                    {
+                        file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
+                        file << "- Instances: " << instCmd->instanceCount << "\n";
+                        file << "- Shader: " << instCmd->shaderRendererID << "\n";
+                        file << "- VAO: " << instCmd->vertexArrayID << ", Index Count: " << instCmd->indexCount << "\n\n";
+                    }
+                }
+            }
+
+            // GPU timing section
+            bool hasGpuTiming = false;
+            f64 totalGpuTime = 0.0;
+            for (const auto& cmd : commands)
+            {
+                if (cmd.GetGpuTimeMs() > 0.0)
+                {
+                    hasGpuTiming = true;
+                    totalGpuTime += cmd.GetGpuTimeMs();
+                }
+            }
+
+            if (hasGpuTiming)
+            {
+                file << "## GPU Timing\n\n";
+                file << "- **Total GPU Time:** " << std::fixed << std::setprecision(3) << totalGpuTime << " ms\n\n";
+
+                file << "| # | Type | GPU Time (ms) | % of Total |\n";
+                file << "|---|------|--------------|------------|\n";
+                for (sizet i = 0; i < commands.size(); ++i)
+                {
+                    const auto& cmd = commands[i];
+                    if (cmd.GetGpuTimeMs() > 0.0)
+                    {
+                        f64 pct = (totalGpuTime > 0.0) ? (cmd.GetGpuTimeMs() / totalGpuTime * 100.0) : 0.0;
+                        file << "| " << i << " | " << cmd.GetCommandTypeString()
+                             << " | " << std::fixed << std::setprecision(4) << cmd.GetGpuTimeMs()
+                             << " | " << std::setprecision(1) << pct << "% |\n";
+                    }
+                }
+                file << "\n";
+            }
+
+            // Auto-generated optimization suggestions
+            file << "## Optimization Suggestions\n\n";
+            file << "The following are auto-detected observations. An LLM or engineer should review these in context.\n\n";
+
+            bool hasSuggestions = false;
+
+            // High shader change ratio
+            if (commands.size() >= 2)
+            {
+                u32 shaderChanges = 0;
+                for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
+                {
+                    if (commands[i - 1].GetSortKey().GetShaderID() != commands[i].GetSortKey().GetShaderID())
+                        shaderChanges++;
+                }
+                f32 changeRatio = static_cast<f32>(shaderChanges) / static_cast<f32>(commands.size() - 1);
+                if (changeRatio > 0.5f)
+                {
+                    file << "- **High shader change frequency** (" << std::fixed << std::setprecision(0) << (changeRatio * 100.0f) << "%): "
+                         << "Consider grouping objects by shader/material to reduce GPU pipeline flushes.\n";
+                    hasSuggestions = true;
+                }
+            }
+
+            // Many unique materials with same shader
+            {
+                std::unordered_map<u32, std::set<u32>> shaderToMaterials;
+                for (const auto& cmd : commands)
+                {
+                    if (cmd.IsDrawCommand())
+                        shaderToMaterials[cmd.GetSortKey().GetShaderID()].insert(cmd.GetSortKey().GetMaterialID());
+                }
+                for (const auto& [shaderId, materials] : shaderToMaterials)
+                {
+                    if (materials.size() > 10)
+                    {
+                        file << "- **Shader " << shaderId << " has " << materials.size() << " distinct materials**: "
+                             << "Consider using texture atlases or material instancing to reduce bind calls.\n";
+                        hasSuggestions = true;
+                    }
+                }
+            }
+
+            // Low batch merge rate
+            if (!frame->PostBatchCommands.empty() && !frame->PostSortCommands.empty())
+            {
+                f32 batchRatio = static_cast<f32>(frame->PostBatchCommands.size()) / static_cast<f32>(frame->PostSortCommands.size());
+                if (batchRatio > 0.95f && frame->PostSortCommands.size() > 10)
+                {
+                    file << "- **Low batch merge rate** (" << std::fixed << std::setprecision(1) << ((1.0f - batchRatio) * 100.0f) << "% merged): "
+                         << "Check if meshes with the same shader/material could share vertex buffers for instancing.\n";
+                    hasSuggestions = true;
+                }
+            }
+
+            // Many small draw calls
+            {
+                u32 smallDraws = 0;
+                for (const auto& cmd : commands)
+                {
+                    if (cmd.GetCommandType() == CommandType::DrawMesh)
+                    {
+                        if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
+                        {
+                            if (meshCmd->indexCount < 100)
+                                smallDraws++;
+                        }
+                    }
+                }
+                if (smallDraws > 5)
+                {
+                    file << "- **" << smallDraws << " draw calls with <100 indices**: "
+                         << "Consider merging small meshes or using instanced rendering.\n";
+                    hasSuggestions = true;
+                }
+            }
+
+            if (!hasSuggestions)
+                file << "No obvious optimization issues detected.\n";
+
+            file << "\n---\n*Generated by OloEngine Command Bucket Inspector*\n";
+
+            file.close();
+            OLO_CORE_INFO("Command packet analysis exported to: {}", outputPath);
+            return true;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("Failed to export Markdown analysis: {}", e.what());
             return false;
         }
     }

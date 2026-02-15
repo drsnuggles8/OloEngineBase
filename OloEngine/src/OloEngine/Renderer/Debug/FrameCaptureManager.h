@@ -1,0 +1,102 @@
+#pragma once
+
+#include "OloEngine/Core/Base.h"
+#include "CapturedFrameData.h"
+#include "OloEngine/Threading/Mutex.h"
+
+#include <atomic>
+#include <deque>
+#include <optional>
+
+namespace OloEngine
+{
+    class CommandBucket;
+
+    // Recording state machine
+    enum class CaptureState : u8
+    {
+        Idle = 0,         // Not capturing
+        CaptureNextFrame, // Will capture the next frame, then return to Idle
+        Recording         // Continuously capturing until stopped
+    };
+
+    // Manages frame capture/recording for the command bucket visualization tool
+    class FrameCaptureManager
+    {
+      public:
+        static FrameCaptureManager& GetInstance();
+
+        // State machine control
+        void CaptureNextFrame();
+        void StartRecording();
+        void StopRecording();
+        CaptureState GetState() const
+        {
+            return m_State.load(std::memory_order_acquire);
+        }
+        bool IsCapturing() const
+        {
+            return m_State.load(std::memory_order_acquire) != CaptureState::Idle;
+        }
+
+        // Configuration
+        void SetMaxCapturedFrames(u32 maxFrames)
+        {
+            m_MaxCapturedFrames.store(maxFrames, std::memory_order_release);
+        }
+        u32 GetMaxCapturedFrames() const
+        {
+            return m_MaxCapturedFrames.load(std::memory_order_acquire);
+        }
+
+        // Capture hooks — called from SceneRenderPass::Execute()
+        void OnPreSort(const CommandBucket& bucket);
+        void OnPostSort(const CommandBucket& bucket);
+        void OnPostBatch(const CommandBucket& bucket);
+        void OnFrameEnd(u32 frameNumber, f64 sortTimeMs, f64 batchTimeMs, f64 executeTimeMs);
+
+        // Access captured data (thread-safe copies for UI consumption)
+        std::deque<CapturedFrameData> GetCapturedFramesCopy() const;
+        sizet GetCapturedFrameCount() const;
+        u64 GetCaptureGeneration() const
+        {
+            return m_CaptureGeneration.load(std::memory_order_acquire);
+        }
+        void ClearCaptures();
+
+        // Selection
+        void SetSelectedFrameIndex(i32 index)
+        {
+            m_SelectedFrameIndex.store(index, std::memory_order_release);
+        }
+        i32 GetSelectedFrameIndex() const
+        {
+            return m_SelectedFrameIndex.load(std::memory_order_acquire);
+        }
+        std::optional<CapturedFrameData> GetSelectedFrame() const;
+
+      private:
+        FrameCaptureManager() = default;
+        ~FrameCaptureManager() = default;
+        FrameCaptureManager(const FrameCaptureManager&) = delete;
+        FrameCaptureManager& operator=(const FrameCaptureManager&) = delete;
+
+        // Deep-copy all commands from a bucket into a vector
+        void DeepCopyCommands(const CommandBucket& bucket, std::vector<CapturedCommandData>& outCommands, bool useSortedOrder);
+
+        std::atomic<CaptureState> m_State = CaptureState::Idle;
+        std::atomic<u32> m_MaxCapturedFrames = 60;
+        std::atomic<i32> m_SelectedFrameIndex = -1;
+        std::atomic<u64> m_CaptureGeneration = 0;
+
+        // In-progress frame being built during capture hooks
+        CapturedFrameData m_PendingFrame;
+        bool m_HasPendingPreSort = false;
+        bool m_HasPendingPostSort = false;
+        bool m_HasPendingPostBatch = false;
+
+        std::deque<CapturedFrameData> m_CapturedFrames;
+
+        mutable FMutex m_Mutex;
+    };
+} // namespace OloEngine

@@ -23,7 +23,7 @@ class Sandbox3D : public OloEngine::Layer
 {
   public:
     Sandbox3D();
-    ~Sandbox3D() final = default;
+    ~Sandbox3D() override = default;
 
     void OnAttach() override;
     void OnDetach() override;
@@ -240,7 +240,7 @@ class Sandbox3D : public OloEngine::Layer
     bool m_RenderGraphDebuggerOpen = false;
 
     // Debugging Tools
-    OloEngine::CommandPacketDebugger m_CommandPacketDebugger;
+    OloEngine::CommandPacketDebugger& m_CommandPacketDebugger = OloEngine::CommandPacketDebugger::GetInstance();
     OloEngine::RendererMemoryTracker& m_MemoryTracker = OloEngine::RendererMemoryTracker::GetInstance();
     OloEngine::RendererProfiler& m_RendererProfiler = OloEngine::RendererProfiler::GetInstance();
     OloEngine::GPUResourceInspector& m_GPUResourceInspector = OloEngine::GPUResourceInspector::GetInstance();

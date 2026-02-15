@@ -117,6 +117,9 @@ namespace OloEngine
 
         void Execute(RendererAPI& rendererAPI);
 
+        // Execute with per-command GPU timing (used during capture)
+        void ExecuteWithGPUTiming(RendererAPI& rendererAPI);
+
         // Clear the bucket (doesn't free memory, just resets)
         void Clear();
 
@@ -213,6 +216,20 @@ namespace OloEngine
             return m_Allocator;
         }
 
+        // Timing accessors (populated during SortCommands/BatchCommands/Execute)
+        f64 GetLastSortTimeMs() const
+        {
+            return m_LastSortTimeMs;
+        }
+        f64 GetLastBatchTimeMs() const
+        {
+            return m_LastBatchTimeMs;
+        }
+        f64 GetLastExecuteTimeMs() const
+        {
+            return m_LastExecuteTimeMs;
+        }
+
       private:
         // Transform buffer for instanced rendering
         class InstancedTransformBuffer
@@ -286,6 +303,9 @@ namespace OloEngine
         // Convert a DrawMeshCommand to DrawMeshInstancedCommand for batching
         CommandPacket* ConvertToInstanced(CommandPacket* meshPacket, CommandAllocator& allocator);
 
+        // Internal sort implementation — caller must hold m_Mutex
+        void SortCommandsInternal();
+
         // Head of the linked list of commands
         CommandPacket* m_Head = nullptr;
 
@@ -310,6 +330,11 @@ namespace OloEngine
 
         // Allocator for command memory (must be set before use)
         CommandAllocator* m_Allocator = nullptr;
+
+        // Timing data
+        f64 m_LastSortTimeMs = 0.0;
+        f64 m_LastBatchTimeMs = 0.0;
+        f64 m_LastExecuteTimeMs = 0.0;
 
         mutable FMutex m_Mutex;
 

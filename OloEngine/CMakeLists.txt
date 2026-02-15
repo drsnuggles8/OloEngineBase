@@ -78,7 +78,7 @@ target_include_directories(OloEngine PUBLIC
 	vendor/imgui-src
 	vendor/imgui-src/backends
 	vendor/imgui-src/examples
-	vendor/imguizmo-src
+	${imguizmo_SOURCE_DIR}
 	vendor/spdlog-src/include
 	vendor/tracy-src/public
 	vendor/sol2-src/include

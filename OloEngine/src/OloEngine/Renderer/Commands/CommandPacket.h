@@ -180,19 +180,7 @@ namespace OloEngine
         // For debugging - get the command type as a string
         const char* GetCommandTypeString() const
         {
-            switch (m_CommandType)
-            {
-                case CommandType::Clear:
-                    return "Clear";
-                case CommandType::DrawMesh:
-                    return "DrawMesh";
-                case CommandType::DrawMeshInstanced:
-                    return "DrawMeshInstanced";
-                case CommandType::DrawQuad:
-                    return "DrawQuad";
-                default:
-                    return "Unknown";
-            }
+            return CommandTypeToString(m_CommandType);
         }
 
         // Setters for command properties when working with raw data
