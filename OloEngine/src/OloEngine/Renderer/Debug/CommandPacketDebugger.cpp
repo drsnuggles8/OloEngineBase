@@ -236,12 +236,13 @@ namespace OloEngine
     {
         auto& captureManager = FrameCaptureManager::GetInstance();
 
-        // Refresh cached frames only when count changes
-        sizet currentCount = captureManager.GetCapturedFrameCount();
-        if (currentCount != m_CachedFrameCount)
+        // Refresh cached frames only when generation changes
+        u64 currentGen = captureManager.GetCaptureGeneration();
+        if (currentGen != m_CachedGeneration)
         {
             m_CachedFrames = captureManager.GetCapturedFramesCopy();
-            m_CachedFrameCount = currentCount;
+            m_CachedFrameCount = m_CachedFrames.size();
+            m_CachedGeneration = currentGen;
         }
 
         i32 selectedIdx = captureManager.GetSelectedFrameIndex();
@@ -800,7 +801,7 @@ namespace OloEngine
         if (commands.size() > 1)
         {
             f32 efficiency = 1.0f - (static_cast<f32>(shaderChanges) / static_cast<f32>(commands.size() - 1));
-            ImVec4 color = DebugUtils::GetPerformanceColor(efficiency * 100.0f, 70.0f, 40.0f);
+            ImVec4 color = DebugUtils::GetPerformanceColor((1.0f - efficiency) * 100.0f, 70.0f, 40.0f);
             ImGui::TextColored(color, "Shader Coherence: %.1f%%", efficiency * 100.0f);
         }
 

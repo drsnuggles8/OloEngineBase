@@ -42,11 +42,11 @@ namespace OloEngine
         // Configuration
         void SetMaxCapturedFrames(u32 maxFrames)
         {
-            m_MaxCapturedFrames = maxFrames;
+            m_MaxCapturedFrames.store(maxFrames, std::memory_order_release);
         }
         u32 GetMaxCapturedFrames() const
         {
-            return m_MaxCapturedFrames;
+            return m_MaxCapturedFrames.load(std::memory_order_acquire);
         }
 
         // Capture hooks — called from SceneRenderPass::Execute()
@@ -58,6 +58,10 @@ namespace OloEngine
         // Access captured data (thread-safe copies for UI consumption)
         std::deque<CapturedFrameData> GetCapturedFramesCopy() const;
         sizet GetCapturedFrameCount() const;
+        u64 GetCaptureGeneration() const
+        {
+            return m_CaptureGeneration.load(std::memory_order_acquire);
+        }
         void ClearCaptures();
 
         // Selection
@@ -81,8 +85,9 @@ namespace OloEngine
         void DeepCopyCommands(const CommandBucket& bucket, std::vector<CapturedCommandData>& outCommands, bool useSortedOrder);
 
         std::atomic<CaptureState> m_State = CaptureState::Idle;
-        u32 m_MaxCapturedFrames = 60;
+        std::atomic<u32> m_MaxCapturedFrames = 60;
         std::atomic<i32> m_SelectedFrameIndex = -1;
+        std::atomic<u64> m_CaptureGeneration = 0;
 
         // In-progress frame being built during capture hooks
         CapturedFrameData m_PendingFrame;

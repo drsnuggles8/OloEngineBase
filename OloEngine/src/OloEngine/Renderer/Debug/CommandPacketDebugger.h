@@ -84,5 +84,6 @@ namespace OloEngine
         // Cached frame data for RenderFrameSelector (avoids per-frame deep copy)
         std::deque<CapturedFrameData> m_CachedFrames;
         sizet m_CachedFrameCount = 0;
+        u64 m_CachedGeneration = 0;
     };
 } // namespace OloEngine

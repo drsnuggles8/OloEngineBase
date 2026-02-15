@@ -73,6 +73,7 @@ namespace OloEngine
     {
         TUniqueLock<FMutex> lock(m_Mutex);
         m_CapturedFrames.clear();
+        m_CaptureGeneration.fetch_add(1, std::memory_order_release);
     }
 
     void FrameCaptureManager::OnPreSort(const CommandBucket& bucket)
@@ -170,12 +171,12 @@ namespace OloEngine
             m_CapturedFrames.push_back(std::move(m_PendingFrame));
 
             // Trim to max
-            while (m_CapturedFrames.size() > m_MaxCapturedFrames)
+            while (m_CapturedFrames.size() > m_MaxCapturedFrames.load(std::memory_order_relaxed))
             {
                 m_CapturedFrames.pop_front();
                 i32 sel = m_SelectedFrameIndex.load(std::memory_order_relaxed);
                 if (sel > 0)
-                    m_SelectedFrameIndex.store(sel - 1, std::memory_order_relaxed);
+                    m_SelectedFrameIndex.fetch_sub(1, std::memory_order_relaxed);
             }
 
             // Auto-select the latest frame if nothing is selected
@@ -183,6 +184,8 @@ namespace OloEngine
             {
                 m_SelectedFrameIndex.store(static_cast<i32>(m_CapturedFrames.size()) - 1, std::memory_order_relaxed);
             }
+
+            m_CaptureGeneration.fetch_add(1, std::memory_order_release);
         }
 
         // State machine transition
