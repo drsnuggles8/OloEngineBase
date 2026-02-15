@@ -533,6 +533,486 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
+    // UI Components //////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    // --- UICanvasComponent ---
+
+    static i32 UICanvasComponent_GetSortOrder(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UICanvasComponent>().m_SortOrder;
+    }
+
+    static void UICanvasComponent_SetSortOrder(UUID entityID, i32 sortOrder)
+    {
+        GetEntity(entityID).GetComponent<UICanvasComponent>().m_SortOrder = sortOrder;
+    }
+
+    // --- UIRectTransformComponent ---
+
+    static void UIRectTransformComponent_GetAnchorMin(UUID entityID, glm::vec2* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchorMin;
+    }
+
+    static void UIRectTransformComponent_SetAnchorMin(UUID entityID, glm::vec2 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchorMin = *v;
+    }
+
+    static void UIRectTransformComponent_GetAnchorMax(UUID entityID, glm::vec2* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchorMax;
+    }
+
+    static void UIRectTransformComponent_SetAnchorMax(UUID entityID, glm::vec2 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchorMax = *v;
+    }
+
+    static void UIRectTransformComponent_GetAnchoredPosition(UUID entityID, glm::vec2* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchoredPosition;
+    }
+
+    static void UIRectTransformComponent_SetAnchoredPosition(UUID entityID, glm::vec2 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_AnchoredPosition = *v;
+    }
+
+    static void UIRectTransformComponent_GetSizeDelta(UUID entityID, glm::vec2* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_SizeDelta;
+    }
+
+    static void UIRectTransformComponent_SetSizeDelta(UUID entityID, glm::vec2 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_SizeDelta = *v;
+    }
+
+    static void UIRectTransformComponent_GetPivot(UUID entityID, glm::vec2* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Pivot;
+    }
+
+    static void UIRectTransformComponent_SetPivot(UUID entityID, glm::vec2 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Pivot = *v;
+    }
+
+    static f32 UIRectTransformComponent_GetRotation(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Rotation;
+    }
+
+    static void UIRectTransformComponent_SetRotation(UUID entityID, f32 rotation)
+    {
+        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Rotation = rotation;
+    }
+
+    static void UIRectTransformComponent_GetScale(UUID entityID, glm::vec2* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Scale;
+    }
+
+    static void UIRectTransformComponent_SetScale(UUID entityID, glm::vec2 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIRectTransformComponent>().m_Scale = *v;
+    }
+
+    // --- UIImageComponent ---
+
+    static void UIImageComponent_GetColor(UUID entityID, glm::vec4* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIImageComponent>().m_Color;
+    }
+
+    static void UIImageComponent_SetColor(UUID entityID, glm::vec4 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIImageComponent>().m_Color = *v;
+    }
+
+    // --- UIPanelComponent ---
+
+    static void UIPanelComponent_GetBackgroundColor(UUID entityID, glm::vec4* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIPanelComponent>().m_BackgroundColor;
+    }
+
+    static void UIPanelComponent_SetBackgroundColor(UUID entityID, glm::vec4 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIPanelComponent>().m_BackgroundColor = *v;
+    }
+
+    // --- UITextComponent ---
+
+    static MonoString* UITextComponent_GetText(UUID entityID)
+    {
+        auto const& tc = GetEntity(entityID).GetComponent<UITextComponent>();
+        return ScriptEngine::CreateString(tc.m_Text.c_str());
+    }
+
+    static void UITextComponent_SetText(UUID entityID, MonoString* text)
+    {
+        GetEntity(entityID).GetComponent<UITextComponent>().m_Text = Utils::MonoStringToString(text);
+    }
+
+    static f32 UITextComponent_GetFontSize(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UITextComponent>().m_FontSize;
+    }
+
+    static void UITextComponent_SetFontSize(UUID entityID, f32 fontSize)
+    {
+        GetEntity(entityID).GetComponent<UITextComponent>().m_FontSize = fontSize;
+    }
+
+    static void UITextComponent_GetColor(UUID entityID, glm::vec4* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UITextComponent>().m_Color;
+    }
+
+    static void UITextComponent_SetColor(UUID entityID, glm::vec4 const* v)
+    {
+        GetEntity(entityID).GetComponent<UITextComponent>().m_Color = *v;
+    }
+
+    static f32 UITextComponent_GetKerning(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UITextComponent>().m_Kerning;
+    }
+
+    static void UITextComponent_SetKerning(UUID entityID, f32 kerning)
+    {
+        GetEntity(entityID).GetComponent<UITextComponent>().m_Kerning = kerning;
+    }
+
+    static f32 UITextComponent_GetLineSpacing(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UITextComponent>().m_LineSpacing;
+    }
+
+    static void UITextComponent_SetLineSpacing(UUID entityID, f32 lineSpacing)
+    {
+        GetEntity(entityID).GetComponent<UITextComponent>().m_LineSpacing = lineSpacing;
+    }
+
+    // --- UIButtonComponent ---
+
+    static void UIButtonComponent_GetNormalColor(UUID entityID, glm::vec4* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIButtonComponent>().m_NormalColor;
+    }
+
+    static void UIButtonComponent_SetNormalColor(UUID entityID, glm::vec4 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIButtonComponent>().m_NormalColor = *v;
+    }
+
+    static void UIButtonComponent_GetHoveredColor(UUID entityID, glm::vec4* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIButtonComponent>().m_HoveredColor;
+    }
+
+    static void UIButtonComponent_SetHoveredColor(UUID entityID, glm::vec4 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIButtonComponent>().m_HoveredColor = *v;
+    }
+
+    static void UIButtonComponent_GetPressedColor(UUID entityID, glm::vec4* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIButtonComponent>().m_PressedColor;
+    }
+
+    static void UIButtonComponent_SetPressedColor(UUID entityID, glm::vec4 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIButtonComponent>().m_PressedColor = *v;
+    }
+
+    static void UIButtonComponent_GetDisabledColor(UUID entityID, glm::vec4* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIButtonComponent>().m_DisabledColor;
+    }
+
+    static void UIButtonComponent_SetDisabledColor(UUID entityID, glm::vec4 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIButtonComponent>().m_DisabledColor = *v;
+    }
+
+    static void UIButtonComponent_GetInteractable(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIButtonComponent>().m_Interactable;
+    }
+
+    static void UIButtonComponent_SetInteractable(UUID entityID, bool const* v)
+    {
+        GetEntity(entityID).GetComponent<UIButtonComponent>().m_Interactable = *v;
+    }
+
+    static i32 UIButtonComponent_GetState(UUID entityID)
+    {
+        return static_cast<i32>(GetEntity(entityID).GetComponent<UIButtonComponent>().m_State);
+    }
+
+    // --- UISliderComponent ---
+
+    static f32 UISliderComponent_GetValue(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UISliderComponent>().m_Value;
+    }
+
+    static void UISliderComponent_SetValue(UUID entityID, f32 value)
+    {
+        GetEntity(entityID).GetComponent<UISliderComponent>().m_Value = value;
+    }
+
+    static f32 UISliderComponent_GetMinValue(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UISliderComponent>().m_MinValue;
+    }
+
+    static void UISliderComponent_SetMinValue(UUID entityID, f32 minValue)
+    {
+        GetEntity(entityID).GetComponent<UISliderComponent>().m_MinValue = minValue;
+    }
+
+    static f32 UISliderComponent_GetMaxValue(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UISliderComponent>().m_MaxValue;
+    }
+
+    static void UISliderComponent_SetMaxValue(UUID entityID, f32 maxValue)
+    {
+        GetEntity(entityID).GetComponent<UISliderComponent>().m_MaxValue = maxValue;
+    }
+
+    static void UISliderComponent_GetInteractable(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UISliderComponent>().m_Interactable;
+    }
+
+    static void UISliderComponent_SetInteractable(UUID entityID, bool const* v)
+    {
+        GetEntity(entityID).GetComponent<UISliderComponent>().m_Interactable = *v;
+    }
+
+    // --- UICheckboxComponent ---
+
+    static void UICheckboxComponent_GetIsChecked(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UICheckboxComponent>().m_IsChecked;
+    }
+
+    static void UICheckboxComponent_SetIsChecked(UUID entityID, bool const* v)
+    {
+        GetEntity(entityID).GetComponent<UICheckboxComponent>().m_IsChecked = *v;
+    }
+
+    static void UICheckboxComponent_GetInteractable(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UICheckboxComponent>().m_Interactable;
+    }
+
+    static void UICheckboxComponent_SetInteractable(UUID entityID, bool const* v)
+    {
+        GetEntity(entityID).GetComponent<UICheckboxComponent>().m_Interactable = *v;
+    }
+
+    // --- UIProgressBarComponent ---
+
+    static f32 UIProgressBarComponent_GetValue(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_Value;
+    }
+
+    static void UIProgressBarComponent_SetValue(UUID entityID, f32 value)
+    {
+        GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_Value = value;
+    }
+
+    static f32 UIProgressBarComponent_GetMinValue(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_MinValue;
+    }
+
+    static void UIProgressBarComponent_SetMinValue(UUID entityID, f32 minValue)
+    {
+        GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_MinValue = minValue;
+    }
+
+    static f32 UIProgressBarComponent_GetMaxValue(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_MaxValue;
+    }
+
+    static void UIProgressBarComponent_SetMaxValue(UUID entityID, f32 maxValue)
+    {
+        GetEntity(entityID).GetComponent<UIProgressBarComponent>().m_MaxValue = maxValue;
+    }
+
+    // --- UIInputFieldComponent ---
+
+    static MonoString* UIInputFieldComponent_GetText(UUID entityID)
+    {
+        auto const& tc = GetEntity(entityID).GetComponent<UIInputFieldComponent>();
+        return ScriptEngine::CreateString(tc.m_Text.c_str());
+    }
+
+    static void UIInputFieldComponent_SetText(UUID entityID, MonoString* text)
+    {
+        GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_Text = Utils::MonoStringToString(text);
+    }
+
+    static MonoString* UIInputFieldComponent_GetPlaceholder(UUID entityID)
+    {
+        auto const& tc = GetEntity(entityID).GetComponent<UIInputFieldComponent>();
+        return ScriptEngine::CreateString(tc.m_Placeholder.c_str());
+    }
+
+    static void UIInputFieldComponent_SetPlaceholder(UUID entityID, MonoString* placeholder)
+    {
+        GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_Placeholder = Utils::MonoStringToString(placeholder);
+    }
+
+    static f32 UIInputFieldComponent_GetFontSize(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_FontSize;
+    }
+
+    static void UIInputFieldComponent_SetFontSize(UUID entityID, f32 fontSize)
+    {
+        GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_FontSize = fontSize;
+    }
+
+    static void UIInputFieldComponent_GetTextColor(UUID entityID, glm::vec4* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_TextColor;
+    }
+
+    static void UIInputFieldComponent_SetTextColor(UUID entityID, glm::vec4 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_TextColor = *v;
+    }
+
+    static void UIInputFieldComponent_GetInteractable(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_Interactable;
+    }
+
+    static void UIInputFieldComponent_SetInteractable(UUID entityID, bool const* v)
+    {
+        GetEntity(entityID).GetComponent<UIInputFieldComponent>().m_Interactable = *v;
+    }
+
+    // --- UIScrollViewComponent ---
+
+    static void UIScrollViewComponent_GetScrollPosition(UUID entityID, glm::vec2* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ScrollPosition;
+    }
+
+    static void UIScrollViewComponent_SetScrollPosition(UUID entityID, glm::vec2 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ScrollPosition = *v;
+    }
+
+    static void UIScrollViewComponent_GetContentSize(UUID entityID, glm::vec2* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ContentSize;
+    }
+
+    static void UIScrollViewComponent_SetContentSize(UUID entityID, glm::vec2 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ContentSize = *v;
+    }
+
+    static f32 UIScrollViewComponent_GetScrollSpeed(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ScrollSpeed;
+    }
+
+    static void UIScrollViewComponent_SetScrollSpeed(UUID entityID, f32 scrollSpeed)
+    {
+        GetEntity(entityID).GetComponent<UIScrollViewComponent>().m_ScrollSpeed = scrollSpeed;
+    }
+
+    // --- UIDropdownComponent ---
+
+    static i32 UIDropdownComponent_GetSelectedIndex(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UIDropdownComponent>().m_SelectedIndex;
+    }
+
+    static void UIDropdownComponent_SetSelectedIndex(UUID entityID, i32 selectedIndex)
+    {
+        GetEntity(entityID).GetComponent<UIDropdownComponent>().m_SelectedIndex = selectedIndex;
+    }
+
+    static void UIDropdownComponent_GetInteractable(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIDropdownComponent>().m_Interactable;
+    }
+
+    static void UIDropdownComponent_SetInteractable(UUID entityID, bool const* v)
+    {
+        GetEntity(entityID).GetComponent<UIDropdownComponent>().m_Interactable = *v;
+    }
+
+    // --- UIGridLayoutComponent ---
+
+    static void UIGridLayoutComponent_GetCellSize(UUID entityID, glm::vec2* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_CellSize;
+    }
+
+    static void UIGridLayoutComponent_SetCellSize(UUID entityID, glm::vec2 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_CellSize = *v;
+    }
+
+    static void UIGridLayoutComponent_GetSpacing(UUID entityID, glm::vec2* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_Spacing;
+    }
+
+    static void UIGridLayoutComponent_SetSpacing(UUID entityID, glm::vec2 const* v)
+    {
+        GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_Spacing = *v;
+    }
+
+    static i32 UIGridLayoutComponent_GetConstraintCount(UUID entityID)
+    {
+        return GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_ConstraintCount;
+    }
+
+    static void UIGridLayoutComponent_SetConstraintCount(UUID entityID, i32 constraintCount)
+    {
+        GetEntity(entityID).GetComponent<UIGridLayoutComponent>().m_ConstraintCount = constraintCount;
+    }
+
+    // --- UIToggleComponent ---
+
+    static void UIToggleComponent_GetIsOn(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIToggleComponent>().m_IsOn;
+    }
+
+    static void UIToggleComponent_SetIsOn(UUID entityID, bool const* v)
+    {
+        GetEntity(entityID).GetComponent<UIToggleComponent>().m_IsOn = *v;
+    }
+
+    static void UIToggleComponent_GetInteractable(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<UIToggleComponent>().m_Interactable;
+    }
+
+    static void UIToggleComponent_SetInteractable(UUID entityID, bool const* v)
+    {
+        GetEntity(entityID).GetComponent<UIToggleComponent>().m_Interactable = *v;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -641,6 +1121,112 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_Pause);
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_UnPause);
         OLO_ADD_INTERNAL_CALL(AudioSourceComponent_Stop);
+
+        ///////////////////////////////////////////////////////////////
+        // UI Components //////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(UICanvasComponent_GetSortOrder);
+        OLO_ADD_INTERNAL_CALL(UICanvasComponent_SetSortOrder);
+
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetAnchorMin);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetAnchorMin);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetAnchorMax);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetAnchorMax);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetAnchoredPosition);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetAnchoredPosition);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetSizeDelta);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetSizeDelta);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetPivot);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetPivot);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetRotation);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetRotation);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_GetScale);
+        OLO_ADD_INTERNAL_CALL(UIRectTransformComponent_SetScale);
+
+        OLO_ADD_INTERNAL_CALL(UIImageComponent_GetColor);
+        OLO_ADD_INTERNAL_CALL(UIImageComponent_SetColor);
+
+        OLO_ADD_INTERNAL_CALL(UIPanelComponent_GetBackgroundColor);
+        OLO_ADD_INTERNAL_CALL(UIPanelComponent_SetBackgroundColor);
+
+        OLO_ADD_INTERNAL_CALL(UITextComponent_GetText);
+        OLO_ADD_INTERNAL_CALL(UITextComponent_SetText);
+        OLO_ADD_INTERNAL_CALL(UITextComponent_GetFontSize);
+        OLO_ADD_INTERNAL_CALL(UITextComponent_SetFontSize);
+        OLO_ADD_INTERNAL_CALL(UITextComponent_GetColor);
+        OLO_ADD_INTERNAL_CALL(UITextComponent_SetColor);
+        OLO_ADD_INTERNAL_CALL(UITextComponent_GetKerning);
+        OLO_ADD_INTERNAL_CALL(UITextComponent_SetKerning);
+        OLO_ADD_INTERNAL_CALL(UITextComponent_GetLineSpacing);
+        OLO_ADD_INTERNAL_CALL(UITextComponent_SetLineSpacing);
+
+        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetNormalColor);
+        OLO_ADD_INTERNAL_CALL(UIButtonComponent_SetNormalColor);
+        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetHoveredColor);
+        OLO_ADD_INTERNAL_CALL(UIButtonComponent_SetHoveredColor);
+        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetPressedColor);
+        OLO_ADD_INTERNAL_CALL(UIButtonComponent_SetPressedColor);
+        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetDisabledColor);
+        OLO_ADD_INTERNAL_CALL(UIButtonComponent_SetDisabledColor);
+        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetInteractable);
+        OLO_ADD_INTERNAL_CALL(UIButtonComponent_SetInteractable);
+        OLO_ADD_INTERNAL_CALL(UIButtonComponent_GetState);
+
+        OLO_ADD_INTERNAL_CALL(UISliderComponent_GetValue);
+        OLO_ADD_INTERNAL_CALL(UISliderComponent_SetValue);
+        OLO_ADD_INTERNAL_CALL(UISliderComponent_GetMinValue);
+        OLO_ADD_INTERNAL_CALL(UISliderComponent_SetMinValue);
+        OLO_ADD_INTERNAL_CALL(UISliderComponent_GetMaxValue);
+        OLO_ADD_INTERNAL_CALL(UISliderComponent_SetMaxValue);
+        OLO_ADD_INTERNAL_CALL(UISliderComponent_GetInteractable);
+        OLO_ADD_INTERNAL_CALL(UISliderComponent_SetInteractable);
+
+        OLO_ADD_INTERNAL_CALL(UICheckboxComponent_GetIsChecked);
+        OLO_ADD_INTERNAL_CALL(UICheckboxComponent_SetIsChecked);
+        OLO_ADD_INTERNAL_CALL(UICheckboxComponent_GetInteractable);
+        OLO_ADD_INTERNAL_CALL(UICheckboxComponent_SetInteractable);
+
+        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_GetValue);
+        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_SetValue);
+        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_GetMinValue);
+        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_SetMinValue);
+        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_GetMaxValue);
+        OLO_ADD_INTERNAL_CALL(UIProgressBarComponent_SetMaxValue);
+
+        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_GetText);
+        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_SetText);
+        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_GetPlaceholder);
+        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_SetPlaceholder);
+        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_GetFontSize);
+        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_SetFontSize);
+        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_GetTextColor);
+        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_SetTextColor);
+        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_GetInteractable);
+        OLO_ADD_INTERNAL_CALL(UIInputFieldComponent_SetInteractable);
+
+        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_GetScrollPosition);
+        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_SetScrollPosition);
+        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_GetContentSize);
+        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_SetContentSize);
+        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_GetScrollSpeed);
+        OLO_ADD_INTERNAL_CALL(UIScrollViewComponent_SetScrollSpeed);
+
+        OLO_ADD_INTERNAL_CALL(UIDropdownComponent_GetSelectedIndex);
+        OLO_ADD_INTERNAL_CALL(UIDropdownComponent_SetSelectedIndex);
+        OLO_ADD_INTERNAL_CALL(UIDropdownComponent_GetInteractable);
+        OLO_ADD_INTERNAL_CALL(UIDropdownComponent_SetInteractable);
+
+        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_GetCellSize);
+        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_SetCellSize);
+        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_GetSpacing);
+        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_SetSpacing);
+        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_GetConstraintCount);
+        OLO_ADD_INTERNAL_CALL(UIGridLayoutComponent_SetConstraintCount);
+
+        OLO_ADD_INTERNAL_CALL(UIToggleComponent_GetIsOn);
+        OLO_ADD_INTERNAL_CALL(UIToggleComponent_SetIsOn);
+        OLO_ADD_INTERNAL_CALL(UIToggleComponent_GetInteractable);
+        OLO_ADD_INTERNAL_CALL(UIToggleComponent_SetInteractable);
     }
 
 } // namespace OloEngine

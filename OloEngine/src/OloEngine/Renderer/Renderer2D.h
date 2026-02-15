@@ -29,6 +29,7 @@ namespace OloEngine
         static void DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, f32 tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
         static void DrawQuad(const glm::mat4& transform, const glm::vec4& color, int entityID = -1);
         static void DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, f32 tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f), int entityID = -1);
+        static void DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, const glm::vec2& uvMin, const glm::vec2& uvMax, const glm::vec4& tintColor = glm::vec4(1.0f), int entityID = -1);
 
         static void DrawPolygon(const std::vector<glm::vec3>& vertices, const glm::vec4& color, int entityID);
 

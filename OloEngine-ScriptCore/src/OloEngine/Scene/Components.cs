@@ -381,4 +381,421 @@ namespace OloEngine
 			InternalCalls.AudioSource_Stop(Entity.ID);
 		}
 	}
+
+	// ── UI Components ────────────────────────────────────────────────────
+
+	public class UICanvasComponent : Component
+	{
+		public int SortOrder
+		{
+			get => InternalCalls.UICanvasComponent_GetSortOrder(Entity.ID);
+			set => InternalCalls.UICanvasComponent_SetSortOrder(Entity.ID, value);
+		}
+	}
+
+	public class UIRectTransformComponent : Component
+	{
+		public Vector2 AnchorMin
+		{
+			get
+			{
+				InternalCalls.UIRectTransformComponent_GetAnchorMin(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.UIRectTransformComponent_SetAnchorMin(Entity.ID, ref value);
+		}
+
+		public Vector2 AnchorMax
+		{
+			get
+			{
+				InternalCalls.UIRectTransformComponent_GetAnchorMax(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.UIRectTransformComponent_SetAnchorMax(Entity.ID, ref value);
+		}
+
+		public Vector2 AnchoredPosition
+		{
+			get
+			{
+				InternalCalls.UIRectTransformComponent_GetAnchoredPosition(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.UIRectTransformComponent_SetAnchoredPosition(Entity.ID, ref value);
+		}
+
+		public Vector2 SizeDelta
+		{
+			get
+			{
+				InternalCalls.UIRectTransformComponent_GetSizeDelta(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.UIRectTransformComponent_SetSizeDelta(Entity.ID, ref value);
+		}
+
+		public Vector2 Pivot
+		{
+			get
+			{
+				InternalCalls.UIRectTransformComponent_GetPivot(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.UIRectTransformComponent_SetPivot(Entity.ID, ref value);
+		}
+
+		public float Rotation
+		{
+			get => InternalCalls.UIRectTransformComponent_GetRotation(Entity.ID);
+			set => InternalCalls.UIRectTransformComponent_SetRotation(Entity.ID, value);
+		}
+
+		public Vector2 Scale
+		{
+			get
+			{
+				InternalCalls.UIRectTransformComponent_GetScale(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.UIRectTransformComponent_SetScale(Entity.ID, ref value);
+		}
+	}
+
+	public class UIImageComponent : Component
+	{
+		public Vector4 Color
+		{
+			get
+			{
+				InternalCalls.UIImageComponent_GetColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.UIImageComponent_SetColor(Entity.ID, ref value);
+		}
+	}
+
+	public class UIPanelComponent : Component
+	{
+		public Vector4 BackgroundColor
+		{
+			get
+			{
+				InternalCalls.UIPanelComponent_GetBackgroundColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.UIPanelComponent_SetBackgroundColor(Entity.ID, ref value);
+		}
+	}
+
+	public class UITextComponent : Component
+	{
+		public string Text
+		{
+			get => InternalCalls.UITextComponent_GetText(Entity.ID);
+			set => InternalCalls.UITextComponent_SetText(Entity.ID, value);
+		}
+
+		public float FontSize
+		{
+			get => InternalCalls.UITextComponent_GetFontSize(Entity.ID);
+			set => InternalCalls.UITextComponent_SetFontSize(Entity.ID, value);
+		}
+
+		public Vector4 Color
+		{
+			get
+			{
+				InternalCalls.UITextComponent_GetColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.UITextComponent_SetColor(Entity.ID, ref value);
+		}
+
+		public float Kerning
+		{
+			get => InternalCalls.UITextComponent_GetKerning(Entity.ID);
+			set => InternalCalls.UITextComponent_SetKerning(Entity.ID, value);
+		}
+
+		public float LineSpacing
+		{
+			get => InternalCalls.UITextComponent_GetLineSpacing(Entity.ID);
+			set => InternalCalls.UITextComponent_SetLineSpacing(Entity.ID, value);
+		}
+	}
+
+	public class UIButtonComponent : Component
+	{
+		public Vector4 NormalColor
+		{
+			get
+			{
+				InternalCalls.UIButtonComponent_GetNormalColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.UIButtonComponent_SetNormalColor(Entity.ID, ref value);
+		}
+
+		public Vector4 HoveredColor
+		{
+			get
+			{
+				InternalCalls.UIButtonComponent_GetHoveredColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.UIButtonComponent_SetHoveredColor(Entity.ID, ref value);
+		}
+
+		public Vector4 PressedColor
+		{
+			get
+			{
+				InternalCalls.UIButtonComponent_GetPressedColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.UIButtonComponent_SetPressedColor(Entity.ID, ref value);
+		}
+
+		public Vector4 DisabledColor
+		{
+			get
+			{
+				InternalCalls.UIButtonComponent_GetDisabledColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.UIButtonComponent_SetDisabledColor(Entity.ID, ref value);
+		}
+
+		public bool Interactable
+		{
+			get
+			{
+				InternalCalls.UIButtonComponent_GetInteractable(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.UIButtonComponent_SetInteractable(Entity.ID, ref value);
+		}
+
+		public int State
+		{
+			get => InternalCalls.UIButtonComponent_GetState(Entity.ID);
+		}
+	}
+
+	public class UISliderComponent : Component
+	{
+		public float Value
+		{
+			get => InternalCalls.UISliderComponent_GetValue(Entity.ID);
+			set => InternalCalls.UISliderComponent_SetValue(Entity.ID, value);
+		}
+
+		public float MinValue
+		{
+			get => InternalCalls.UISliderComponent_GetMinValue(Entity.ID);
+			set => InternalCalls.UISliderComponent_SetMinValue(Entity.ID, value);
+		}
+
+		public float MaxValue
+		{
+			get => InternalCalls.UISliderComponent_GetMaxValue(Entity.ID);
+			set => InternalCalls.UISliderComponent_SetMaxValue(Entity.ID, value);
+		}
+
+		public bool Interactable
+		{
+			get
+			{
+				InternalCalls.UISliderComponent_GetInteractable(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.UISliderComponent_SetInteractable(Entity.ID, ref value);
+		}
+	}
+
+	public class UICheckboxComponent : Component
+	{
+		public bool IsChecked
+		{
+			get
+			{
+				InternalCalls.UICheckboxComponent_GetIsChecked(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.UICheckboxComponent_SetIsChecked(Entity.ID, ref value);
+		}
+
+		public bool Interactable
+		{
+			get
+			{
+				InternalCalls.UICheckboxComponent_GetInteractable(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.UICheckboxComponent_SetInteractable(Entity.ID, ref value);
+		}
+	}
+
+	public class UIProgressBarComponent : Component
+	{
+		public float Value
+		{
+			get => InternalCalls.UIProgressBarComponent_GetValue(Entity.ID);
+			set => InternalCalls.UIProgressBarComponent_SetValue(Entity.ID, value);
+		}
+
+		public float MinValue
+		{
+			get => InternalCalls.UIProgressBarComponent_GetMinValue(Entity.ID);
+			set => InternalCalls.UIProgressBarComponent_SetMinValue(Entity.ID, value);
+		}
+
+		public float MaxValue
+		{
+			get => InternalCalls.UIProgressBarComponent_GetMaxValue(Entity.ID);
+			set => InternalCalls.UIProgressBarComponent_SetMaxValue(Entity.ID, value);
+		}
+	}
+
+	public class UIInputFieldComponent : Component
+	{
+		public string Text
+		{
+			get => InternalCalls.UIInputFieldComponent_GetText(Entity.ID);
+			set => InternalCalls.UIInputFieldComponent_SetText(Entity.ID, value);
+		}
+
+		public string Placeholder
+		{
+			get => InternalCalls.UIInputFieldComponent_GetPlaceholder(Entity.ID);
+			set => InternalCalls.UIInputFieldComponent_SetPlaceholder(Entity.ID, value);
+		}
+
+		public float FontSize
+		{
+			get => InternalCalls.UIInputFieldComponent_GetFontSize(Entity.ID);
+			set => InternalCalls.UIInputFieldComponent_SetFontSize(Entity.ID, value);
+		}
+
+		public Vector4 TextColor
+		{
+			get
+			{
+				InternalCalls.UIInputFieldComponent_GetTextColor(Entity.ID, out Vector4 v);
+				return v;
+			}
+			set => InternalCalls.UIInputFieldComponent_SetTextColor(Entity.ID, ref value);
+		}
+
+		public bool Interactable
+		{
+			get
+			{
+				InternalCalls.UIInputFieldComponent_GetInteractable(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.UIInputFieldComponent_SetInteractable(Entity.ID, ref value);
+		}
+	}
+
+	public class UIScrollViewComponent : Component
+	{
+		public Vector2 ScrollPosition
+		{
+			get
+			{
+				InternalCalls.UIScrollViewComponent_GetScrollPosition(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.UIScrollViewComponent_SetScrollPosition(Entity.ID, ref value);
+		}
+
+		public Vector2 ContentSize
+		{
+			get
+			{
+				InternalCalls.UIScrollViewComponent_GetContentSize(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.UIScrollViewComponent_SetContentSize(Entity.ID, ref value);
+		}
+
+		public float ScrollSpeed
+		{
+			get => InternalCalls.UIScrollViewComponent_GetScrollSpeed(Entity.ID);
+			set => InternalCalls.UIScrollViewComponent_SetScrollSpeed(Entity.ID, value);
+		}
+	}
+
+	public class UIDropdownComponent : Component
+	{
+		public int SelectedIndex
+		{
+			get => InternalCalls.UIDropdownComponent_GetSelectedIndex(Entity.ID);
+			set => InternalCalls.UIDropdownComponent_SetSelectedIndex(Entity.ID, value);
+		}
+
+		public bool Interactable
+		{
+			get
+			{
+				InternalCalls.UIDropdownComponent_GetInteractable(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.UIDropdownComponent_SetInteractable(Entity.ID, ref value);
+		}
+	}
+
+	public class UIGridLayoutComponent : Component
+	{
+		public Vector2 CellSize
+		{
+			get
+			{
+				InternalCalls.UIGridLayoutComponent_GetCellSize(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.UIGridLayoutComponent_SetCellSize(Entity.ID, ref value);
+		}
+
+		public Vector2 Spacing
+		{
+			get
+			{
+				InternalCalls.UIGridLayoutComponent_GetSpacing(Entity.ID, out Vector2 v);
+				return v;
+			}
+			set => InternalCalls.UIGridLayoutComponent_SetSpacing(Entity.ID, ref value);
+		}
+
+		public int ConstraintCount
+		{
+			get => InternalCalls.UIGridLayoutComponent_GetConstraintCount(Entity.ID);
+			set => InternalCalls.UIGridLayoutComponent_SetConstraintCount(Entity.ID, value);
+		}
+	}
+
+	public class UIToggleComponent : Component
+	{
+		public bool IsOn
+		{
+			get
+			{
+				InternalCalls.UIToggleComponent_GetIsOn(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.UIToggleComponent_SetIsOn(Entity.ID, ref value);
+		}
+
+		public bool Interactable
+		{
+			get
+			{
+				InternalCalls.UIToggleComponent_GetInteractable(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.UIToggleComponent_SetInteractable(Entity.ID, ref value);
+		}
+	}
 }

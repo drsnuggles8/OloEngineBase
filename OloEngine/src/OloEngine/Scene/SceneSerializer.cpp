@@ -601,6 +601,250 @@ namespace OloEngine
             out << YAML::EndMap; // RelationshipComponent
         }
 
+        if (entity.HasComponent<UICanvasComponent>())
+        {
+            out << YAML::Key << "UICanvasComponent";
+            out << YAML::BeginMap; // UICanvasComponent
+
+            auto const& canvas = entity.GetComponent<UICanvasComponent>();
+            out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(canvas.m_RenderMode);
+            out << YAML::Key << "ScaleMode" << YAML::Value << static_cast<int>(canvas.m_ScaleMode);
+            out << YAML::Key << "SortOrder" << YAML::Value << canvas.m_SortOrder;
+            out << YAML::Key << "ReferenceResolution" << YAML::Value << canvas.m_ReferenceResolution;
+
+            out << YAML::EndMap; // UICanvasComponent
+        }
+
+        if (entity.HasComponent<UIRectTransformComponent>())
+        {
+            out << YAML::Key << "UIRectTransformComponent";
+            out << YAML::BeginMap; // UIRectTransformComponent
+
+            auto const& rt = entity.GetComponent<UIRectTransformComponent>();
+            out << YAML::Key << "AnchorMin" << YAML::Value << rt.m_AnchorMin;
+            out << YAML::Key << "AnchorMax" << YAML::Value << rt.m_AnchorMax;
+            out << YAML::Key << "AnchoredPosition" << YAML::Value << rt.m_AnchoredPosition;
+            out << YAML::Key << "SizeDelta" << YAML::Value << rt.m_SizeDelta;
+            out << YAML::Key << "Pivot" << YAML::Value << rt.m_Pivot;
+            out << YAML::Key << "Rotation" << YAML::Value << rt.m_Rotation;
+            out << YAML::Key << "Scale" << YAML::Value << rt.m_Scale;
+
+            out << YAML::EndMap; // UIRectTransformComponent
+        }
+
+        if (entity.HasComponent<UIImageComponent>())
+        {
+            out << YAML::Key << "UIImageComponent";
+            out << YAML::BeginMap; // UIImageComponent
+
+            auto const& image = entity.GetComponent<UIImageComponent>();
+            if (image.m_Texture)
+            {
+                out << YAML::Key << "TexturePath" << YAML::Value << image.m_Texture->GetPath();
+            }
+            out << YAML::Key << "Color" << YAML::Value << image.m_Color;
+            out << YAML::Key << "BorderInsets" << YAML::Value << image.m_BorderInsets;
+
+            out << YAML::EndMap; // UIImageComponent
+        }
+
+        if (entity.HasComponent<UIPanelComponent>())
+        {
+            out << YAML::Key << "UIPanelComponent";
+            out << YAML::BeginMap; // UIPanelComponent
+
+            auto const& panel = entity.GetComponent<UIPanelComponent>();
+            out << YAML::Key << "BackgroundColor" << YAML::Value << panel.m_BackgroundColor;
+            if (panel.m_BackgroundTexture)
+            {
+                out << YAML::Key << "BackgroundTexturePath" << YAML::Value << panel.m_BackgroundTexture->GetPath();
+            }
+
+            out << YAML::EndMap; // UIPanelComponent
+        }
+
+        if (entity.HasComponent<UITextComponent>())
+        {
+            out << YAML::Key << "UITextComponent";
+            out << YAML::BeginMap; // UITextComponent
+
+            auto const& text = entity.GetComponent<UITextComponent>();
+            out << YAML::Key << "Text" << YAML::Value << text.m_Text;
+            if (text.m_FontAsset)
+            {
+                out << YAML::Key << "FontPath" << YAML::Value << text.m_FontAsset->GetPath();
+            }
+            out << YAML::Key << "FontSize" << YAML::Value << text.m_FontSize;
+            out << YAML::Key << "Color" << YAML::Value << text.m_Color;
+            out << YAML::Key << "Alignment" << YAML::Value << static_cast<int>(text.m_Alignment);
+            out << YAML::Key << "Kerning" << YAML::Value << text.m_Kerning;
+            out << YAML::Key << "LineSpacing" << YAML::Value << text.m_LineSpacing;
+
+            out << YAML::EndMap; // UITextComponent
+        }
+
+        if (entity.HasComponent<UIButtonComponent>())
+        {
+            out << YAML::Key << "UIButtonComponent";
+            out << YAML::BeginMap; // UIButtonComponent
+
+            auto const& button = entity.GetComponent<UIButtonComponent>();
+            out << YAML::Key << "NormalColor" << YAML::Value << button.m_NormalColor;
+            out << YAML::Key << "HoveredColor" << YAML::Value << button.m_HoveredColor;
+            out << YAML::Key << "PressedColor" << YAML::Value << button.m_PressedColor;
+            out << YAML::Key << "DisabledColor" << YAML::Value << button.m_DisabledColor;
+            out << YAML::Key << "Interactable" << YAML::Value << button.m_Interactable;
+
+            out << YAML::EndMap; // UIButtonComponent
+        }
+
+        if (entity.HasComponent<UISliderComponent>())
+        {
+            out << YAML::Key << "UISliderComponent";
+            out << YAML::BeginMap; // UISliderComponent
+
+            auto const& slider = entity.GetComponent<UISliderComponent>();
+            out << YAML::Key << "Value" << YAML::Value << slider.m_Value;
+            out << YAML::Key << "MinValue" << YAML::Value << slider.m_MinValue;
+            out << YAML::Key << "MaxValue" << YAML::Value << slider.m_MaxValue;
+            out << YAML::Key << "Direction" << YAML::Value << static_cast<int>(slider.m_Direction);
+            out << YAML::Key << "BackgroundColor" << YAML::Value << slider.m_BackgroundColor;
+            out << YAML::Key << "FillColor" << YAML::Value << slider.m_FillColor;
+            out << YAML::Key << "HandleColor" << YAML::Value << slider.m_HandleColor;
+            out << YAML::Key << "Interactable" << YAML::Value << slider.m_Interactable;
+
+            out << YAML::EndMap; // UISliderComponent
+        }
+
+        if (entity.HasComponent<UICheckboxComponent>())
+        {
+            out << YAML::Key << "UICheckboxComponent";
+            out << YAML::BeginMap; // UICheckboxComponent
+
+            auto const& checkbox = entity.GetComponent<UICheckboxComponent>();
+            out << YAML::Key << "IsChecked" << YAML::Value << checkbox.m_IsChecked;
+            out << YAML::Key << "UncheckedColor" << YAML::Value << checkbox.m_UncheckedColor;
+            out << YAML::Key << "CheckedColor" << YAML::Value << checkbox.m_CheckedColor;
+            out << YAML::Key << "CheckmarkColor" << YAML::Value << checkbox.m_CheckmarkColor;
+            out << YAML::Key << "Interactable" << YAML::Value << checkbox.m_Interactable;
+
+            out << YAML::EndMap; // UICheckboxComponent
+        }
+
+        if (entity.HasComponent<UIProgressBarComponent>())
+        {
+            out << YAML::Key << "UIProgressBarComponent";
+            out << YAML::BeginMap; // UIProgressBarComponent
+
+            auto const& progress = entity.GetComponent<UIProgressBarComponent>();
+            out << YAML::Key << "Value" << YAML::Value << progress.m_Value;
+            out << YAML::Key << "MinValue" << YAML::Value << progress.m_MinValue;
+            out << YAML::Key << "MaxValue" << YAML::Value << progress.m_MaxValue;
+            out << YAML::Key << "FillMethod" << YAML::Value << static_cast<int>(progress.m_FillMethod);
+            out << YAML::Key << "BackgroundColor" << YAML::Value << progress.m_BackgroundColor;
+            out << YAML::Key << "FillColor" << YAML::Value << progress.m_FillColor;
+
+            out << YAML::EndMap; // UIProgressBarComponent
+        }
+
+        if (entity.HasComponent<UIInputFieldComponent>())
+        {
+            out << YAML::Key << "UIInputFieldComponent";
+            out << YAML::BeginMap; // UIInputFieldComponent
+
+            auto const& input = entity.GetComponent<UIInputFieldComponent>();
+            out << YAML::Key << "Text" << YAML::Value << input.m_Text;
+            out << YAML::Key << "Placeholder" << YAML::Value << input.m_Placeholder;
+            if (input.m_FontAsset)
+            {
+                out << YAML::Key << "FontPath" << YAML::Value << input.m_FontAsset->GetPath();
+            }
+            out << YAML::Key << "FontSize" << YAML::Value << input.m_FontSize;
+            out << YAML::Key << "TextColor" << YAML::Value << input.m_TextColor;
+            out << YAML::Key << "PlaceholderColor" << YAML::Value << input.m_PlaceholderColor;
+            out << YAML::Key << "BackgroundColor" << YAML::Value << input.m_BackgroundColor;
+            out << YAML::Key << "CharacterLimit" << YAML::Value << input.m_CharacterLimit;
+            out << YAML::Key << "Interactable" << YAML::Value << input.m_Interactable;
+
+            out << YAML::EndMap; // UIInputFieldComponent
+        }
+
+        if (entity.HasComponent<UIScrollViewComponent>())
+        {
+            out << YAML::Key << "UIScrollViewComponent";
+            out << YAML::BeginMap; // UIScrollViewComponent
+
+            auto const& scrollView = entity.GetComponent<UIScrollViewComponent>();
+            out << YAML::Key << "ScrollPosition" << YAML::Value << scrollView.m_ScrollPosition;
+            out << YAML::Key << "ContentSize" << YAML::Value << scrollView.m_ContentSize;
+            out << YAML::Key << "ScrollDirection" << YAML::Value << static_cast<int>(scrollView.m_ScrollDirection);
+            out << YAML::Key << "ScrollSpeed" << YAML::Value << scrollView.m_ScrollSpeed;
+            out << YAML::Key << "ShowHorizontalScrollbar" << YAML::Value << scrollView.m_ShowHorizontalScrollbar;
+            out << YAML::Key << "ShowVerticalScrollbar" << YAML::Value << scrollView.m_ShowVerticalScrollbar;
+            out << YAML::Key << "ScrollbarColor" << YAML::Value << scrollView.m_ScrollbarColor;
+            out << YAML::Key << "ScrollbarTrackColor" << YAML::Value << scrollView.m_ScrollbarTrackColor;
+
+            out << YAML::EndMap; // UIScrollViewComponent
+        }
+
+        if (entity.HasComponent<UIDropdownComponent>())
+        {
+            out << YAML::Key << "UIDropdownComponent";
+            out << YAML::BeginMap; // UIDropdownComponent
+
+            auto const& dropdown = entity.GetComponent<UIDropdownComponent>();
+            out << YAML::Key << "Options" << YAML::Value << YAML::BeginSeq;
+            for (const auto& option : dropdown.m_Options)
+            {
+                out << option.m_Label;
+            }
+            out << YAML::EndSeq;
+            out << YAML::Key << "SelectedIndex" << YAML::Value << dropdown.m_SelectedIndex;
+            out << YAML::Key << "BackgroundColor" << YAML::Value << dropdown.m_BackgroundColor;
+            out << YAML::Key << "HighlightColor" << YAML::Value << dropdown.m_HighlightColor;
+            out << YAML::Key << "TextColor" << YAML::Value << dropdown.m_TextColor;
+            if (dropdown.m_FontAsset)
+            {
+                out << YAML::Key << "FontPath" << YAML::Value << dropdown.m_FontAsset->GetPath();
+            }
+            out << YAML::Key << "FontSize" << YAML::Value << dropdown.m_FontSize;
+            out << YAML::Key << "ItemHeight" << YAML::Value << dropdown.m_ItemHeight;
+            out << YAML::Key << "Interactable" << YAML::Value << dropdown.m_Interactable;
+
+            out << YAML::EndMap; // UIDropdownComponent
+        }
+
+        if (entity.HasComponent<UIGridLayoutComponent>())
+        {
+            out << YAML::Key << "UIGridLayoutComponent";
+            out << YAML::BeginMap; // UIGridLayoutComponent
+
+            auto const& grid = entity.GetComponent<UIGridLayoutComponent>();
+            out << YAML::Key << "CellSize" << YAML::Value << grid.m_CellSize;
+            out << YAML::Key << "Spacing" << YAML::Value << grid.m_Spacing;
+            out << YAML::Key << "Padding" << YAML::Value << grid.m_Padding;
+            out << YAML::Key << "StartCorner" << YAML::Value << static_cast<int>(grid.m_StartCorner);
+            out << YAML::Key << "StartAxis" << YAML::Value << static_cast<int>(grid.m_StartAxis);
+            out << YAML::Key << "ConstraintCount" << YAML::Value << grid.m_ConstraintCount;
+
+            out << YAML::EndMap; // UIGridLayoutComponent
+        }
+
+        if (entity.HasComponent<UIToggleComponent>())
+        {
+            out << YAML::Key << "UIToggleComponent";
+            out << YAML::BeginMap; // UIToggleComponent
+
+            auto const& toggle = entity.GetComponent<UIToggleComponent>();
+            out << YAML::Key << "IsOn" << YAML::Value << toggle.m_IsOn;
+            out << YAML::Key << "OffColor" << YAML::Value << toggle.m_OffColor;
+            out << YAML::Key << "OnColor" << YAML::Value << toggle.m_OnColor;
+            out << YAML::Key << "KnobColor" << YAML::Value << toggle.m_KnobColor;
+            out << YAML::Key << "Interactable" << YAML::Value << toggle.m_Interactable;
+
+            out << YAML::EndMap; // UIToggleComponent
+        }
+
         if (entity.HasComponent<SubmeshComponent>())
         {
             out << YAML::Key << "SubmeshComponent";
@@ -1133,6 +1377,183 @@ namespace OloEngine
                             rel.m_Children.push_back(child.as<u64>());
                         }
                     }
+                }
+
+                if (auto uiCanvasComponent = entity["UICanvasComponent"]; uiCanvasComponent)
+                {
+                    auto& canvas = deserializedEntity.AddComponent<UICanvasComponent>();
+                    TrySetEnum(canvas.m_RenderMode, uiCanvasComponent["RenderMode"]);
+                    TrySetEnum(canvas.m_ScaleMode, uiCanvasComponent["ScaleMode"]);
+                    TrySet(canvas.m_SortOrder, uiCanvasComponent["SortOrder"]);
+                    TrySet(canvas.m_ReferenceResolution, uiCanvasComponent["ReferenceResolution"]);
+                }
+
+                if (auto uiRectTransformComponent = entity["UIRectTransformComponent"]; uiRectTransformComponent)
+                {
+                    auto& rt = deserializedEntity.AddComponent<UIRectTransformComponent>();
+                    TrySet(rt.m_AnchorMin, uiRectTransformComponent["AnchorMin"]);
+                    TrySet(rt.m_AnchorMax, uiRectTransformComponent["AnchorMax"]);
+                    TrySet(rt.m_AnchoredPosition, uiRectTransformComponent["AnchoredPosition"]);
+                    TrySet(rt.m_SizeDelta, uiRectTransformComponent["SizeDelta"]);
+                    TrySet(rt.m_Pivot, uiRectTransformComponent["Pivot"]);
+                    TrySet(rt.m_Rotation, uiRectTransformComponent["Rotation"]);
+                    TrySet(rt.m_Scale, uiRectTransformComponent["Scale"]);
+                }
+
+                if (auto uiImageComponent = entity["UIImageComponent"]; uiImageComponent)
+                {
+                    auto& image = deserializedEntity.AddComponent<UIImageComponent>();
+                    if (uiImageComponent["TexturePath"])
+                    {
+                        image.m_Texture = Texture2D::Create(uiImageComponent["TexturePath"].as<std::string>());
+                    }
+                    TrySet(image.m_Color, uiImageComponent["Color"]);
+                    TrySet(image.m_BorderInsets, uiImageComponent["BorderInsets"]);
+                }
+
+                if (auto uiPanelComponent = entity["UIPanelComponent"]; uiPanelComponent)
+                {
+                    auto& panel = deserializedEntity.AddComponent<UIPanelComponent>();
+                    TrySet(panel.m_BackgroundColor, uiPanelComponent["BackgroundColor"]);
+                    if (uiPanelComponent["BackgroundTexturePath"])
+                    {
+                        panel.m_BackgroundTexture = Texture2D::Create(uiPanelComponent["BackgroundTexturePath"].as<std::string>());
+                    }
+                }
+
+                if (auto uiTextComponent = entity["UITextComponent"]; uiTextComponent)
+                {
+                    auto& text = deserializedEntity.AddComponent<UITextComponent>();
+                    TrySet(text.m_Text, uiTextComponent["Text"]);
+                    if (uiTextComponent["FontPath"])
+                    {
+                        text.m_FontAsset = Font::Create(uiTextComponent["FontPath"].as<std::string>());
+                    }
+                    TrySet(text.m_FontSize, uiTextComponent["FontSize"]);
+                    TrySet(text.m_Color, uiTextComponent["Color"]);
+                    TrySetEnum(text.m_Alignment, uiTextComponent["Alignment"]);
+                    TrySet(text.m_Kerning, uiTextComponent["Kerning"]);
+                    TrySet(text.m_LineSpacing, uiTextComponent["LineSpacing"]);
+                }
+
+                if (auto uiButtonComponent = entity["UIButtonComponent"]; uiButtonComponent)
+                {
+                    auto& button = deserializedEntity.AddComponent<UIButtonComponent>();
+                    TrySet(button.m_NormalColor, uiButtonComponent["NormalColor"]);
+                    TrySet(button.m_HoveredColor, uiButtonComponent["HoveredColor"]);
+                    TrySet(button.m_PressedColor, uiButtonComponent["PressedColor"]);
+                    TrySet(button.m_DisabledColor, uiButtonComponent["DisabledColor"]);
+                    TrySet(button.m_Interactable, uiButtonComponent["Interactable"]);
+                }
+
+                if (auto uiSliderComponent = entity["UISliderComponent"]; uiSliderComponent)
+                {
+                    auto& slider = deserializedEntity.AddComponent<UISliderComponent>();
+                    TrySet(slider.m_Value, uiSliderComponent["Value"]);
+                    TrySet(slider.m_MinValue, uiSliderComponent["MinValue"]);
+                    TrySet(slider.m_MaxValue, uiSliderComponent["MaxValue"]);
+                    TrySetEnum(slider.m_Direction, uiSliderComponent["Direction"]);
+                    TrySet(slider.m_BackgroundColor, uiSliderComponent["BackgroundColor"]);
+                    TrySet(slider.m_FillColor, uiSliderComponent["FillColor"]);
+                    TrySet(slider.m_HandleColor, uiSliderComponent["HandleColor"]);
+                    TrySet(slider.m_Interactable, uiSliderComponent["Interactable"]);
+                }
+
+                if (auto uiCheckboxComponent = entity["UICheckboxComponent"]; uiCheckboxComponent)
+                {
+                    auto& checkbox = deserializedEntity.AddComponent<UICheckboxComponent>();
+                    TrySet(checkbox.m_IsChecked, uiCheckboxComponent["IsChecked"]);
+                    TrySet(checkbox.m_UncheckedColor, uiCheckboxComponent["UncheckedColor"]);
+                    TrySet(checkbox.m_CheckedColor, uiCheckboxComponent["CheckedColor"]);
+                    TrySet(checkbox.m_CheckmarkColor, uiCheckboxComponent["CheckmarkColor"]);
+                    TrySet(checkbox.m_Interactable, uiCheckboxComponent["Interactable"]);
+                }
+
+                if (auto uiProgressBarComponent = entity["UIProgressBarComponent"]; uiProgressBarComponent)
+                {
+                    auto& progress = deserializedEntity.AddComponent<UIProgressBarComponent>();
+                    TrySet(progress.m_Value, uiProgressBarComponent["Value"]);
+                    TrySet(progress.m_MinValue, uiProgressBarComponent["MinValue"]);
+                    TrySet(progress.m_MaxValue, uiProgressBarComponent["MaxValue"]);
+                    TrySetEnum(progress.m_FillMethod, uiProgressBarComponent["FillMethod"]);
+                    TrySet(progress.m_BackgroundColor, uiProgressBarComponent["BackgroundColor"]);
+                    TrySet(progress.m_FillColor, uiProgressBarComponent["FillColor"]);
+                }
+
+                if (auto uiInputFieldComponent = entity["UIInputFieldComponent"]; uiInputFieldComponent)
+                {
+                    auto& input = deserializedEntity.AddComponent<UIInputFieldComponent>();
+                    TrySet(input.m_Text, uiInputFieldComponent["Text"]);
+                    TrySet(input.m_Placeholder, uiInputFieldComponent["Placeholder"]);
+                    if (uiInputFieldComponent["FontPath"])
+                    {
+                        input.m_FontAsset = Font::Create(uiInputFieldComponent["FontPath"].as<std::string>());
+                    }
+                    TrySet(input.m_FontSize, uiInputFieldComponent["FontSize"]);
+                    TrySet(input.m_TextColor, uiInputFieldComponent["TextColor"]);
+                    TrySet(input.m_PlaceholderColor, uiInputFieldComponent["PlaceholderColor"]);
+                    TrySet(input.m_BackgroundColor, uiInputFieldComponent["BackgroundColor"]);
+                    TrySet(input.m_CharacterLimit, uiInputFieldComponent["CharacterLimit"]);
+                    TrySet(input.m_Interactable, uiInputFieldComponent["Interactable"]);
+                }
+
+                if (auto uiScrollViewComponent = entity["UIScrollViewComponent"]; uiScrollViewComponent)
+                {
+                    auto& scrollView = deserializedEntity.AddComponent<UIScrollViewComponent>();
+                    TrySet(scrollView.m_ScrollPosition, uiScrollViewComponent["ScrollPosition"]);
+                    TrySet(scrollView.m_ContentSize, uiScrollViewComponent["ContentSize"]);
+                    TrySetEnum(scrollView.m_ScrollDirection, uiScrollViewComponent["ScrollDirection"]);
+                    TrySet(scrollView.m_ScrollSpeed, uiScrollViewComponent["ScrollSpeed"]);
+                    TrySet(scrollView.m_ShowHorizontalScrollbar, uiScrollViewComponent["ShowHorizontalScrollbar"]);
+                    TrySet(scrollView.m_ShowVerticalScrollbar, uiScrollViewComponent["ShowVerticalScrollbar"]);
+                    TrySet(scrollView.m_ScrollbarColor, uiScrollViewComponent["ScrollbarColor"]);
+                    TrySet(scrollView.m_ScrollbarTrackColor, uiScrollViewComponent["ScrollbarTrackColor"]);
+                }
+
+                if (auto uiDropdownComponent = entity["UIDropdownComponent"]; uiDropdownComponent)
+                {
+                    auto& dropdown = deserializedEntity.AddComponent<UIDropdownComponent>();
+                    if (uiDropdownComponent["Options"])
+                    {
+                        for (const auto& optionNode : uiDropdownComponent["Options"])
+                        {
+                            UIDropdownOption option;
+                            option.m_Label = optionNode.as<std::string>("");
+                            dropdown.m_Options.push_back(option);
+                        }
+                    }
+                    TrySet(dropdown.m_SelectedIndex, uiDropdownComponent["SelectedIndex"]);
+                    TrySet(dropdown.m_BackgroundColor, uiDropdownComponent["BackgroundColor"]);
+                    TrySet(dropdown.m_HighlightColor, uiDropdownComponent["HighlightColor"]);
+                    TrySet(dropdown.m_TextColor, uiDropdownComponent["TextColor"]);
+                    if (uiDropdownComponent["FontPath"])
+                    {
+                        dropdown.m_FontAsset = Font::Create(uiDropdownComponent["FontPath"].as<std::string>());
+                    }
+                    TrySet(dropdown.m_FontSize, uiDropdownComponent["FontSize"]);
+                    TrySet(dropdown.m_ItemHeight, uiDropdownComponent["ItemHeight"]);
+                    TrySet(dropdown.m_Interactable, uiDropdownComponent["Interactable"]);
+                }
+
+                if (auto uiGridLayoutComponent = entity["UIGridLayoutComponent"]; uiGridLayoutComponent)
+                {
+                    auto& grid = deserializedEntity.AddComponent<UIGridLayoutComponent>();
+                    TrySet(grid.m_CellSize, uiGridLayoutComponent["CellSize"]);
+                    TrySet(grid.m_Spacing, uiGridLayoutComponent["Spacing"]);
+                    TrySet(grid.m_Padding, uiGridLayoutComponent["Padding"]);
+                    TrySetEnum(grid.m_StartCorner, uiGridLayoutComponent["StartCorner"]);
+                    TrySetEnum(grid.m_StartAxis, uiGridLayoutComponent["StartAxis"]);
+                    TrySet(grid.m_ConstraintCount, uiGridLayoutComponent["ConstraintCount"]);
+                }
+
+                if (auto uiToggleComponent = entity["UIToggleComponent"]; uiToggleComponent)
+                {
+                    auto& toggle = deserializedEntity.AddComponent<UIToggleComponent>();
+                    TrySet(toggle.m_IsOn, uiToggleComponent["IsOn"]);
+                    TrySet(toggle.m_OffColor, uiToggleComponent["OffColor"]);
+                    TrySet(toggle.m_OnColor, uiToggleComponent["OnColor"]);
+                    TrySet(toggle.m_KnobColor, uiToggleComponent["KnobColor"]);
+                    TrySet(toggle.m_Interactable, uiToggleComponent["Interactable"]);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
@@ -1726,6 +2147,183 @@ namespace OloEngine
                             rel.m_Children.push_back(child.as<u64>());
                         }
                     }
+                }
+
+                if (auto uiCanvasComponent = entity["UICanvasComponent"]; uiCanvasComponent)
+                {
+                    auto& canvas = deserializedEntity.AddComponent<UICanvasComponent>();
+                    TrySetEnum(canvas.m_RenderMode, uiCanvasComponent["RenderMode"]);
+                    TrySetEnum(canvas.m_ScaleMode, uiCanvasComponent["ScaleMode"]);
+                    TrySet(canvas.m_SortOrder, uiCanvasComponent["SortOrder"]);
+                    TrySet(canvas.m_ReferenceResolution, uiCanvasComponent["ReferenceResolution"]);
+                }
+
+                if (auto uiRectTransformComponent = entity["UIRectTransformComponent"]; uiRectTransformComponent)
+                {
+                    auto& rt = deserializedEntity.AddComponent<UIRectTransformComponent>();
+                    TrySet(rt.m_AnchorMin, uiRectTransformComponent["AnchorMin"]);
+                    TrySet(rt.m_AnchorMax, uiRectTransformComponent["AnchorMax"]);
+                    TrySet(rt.m_AnchoredPosition, uiRectTransformComponent["AnchoredPosition"]);
+                    TrySet(rt.m_SizeDelta, uiRectTransformComponent["SizeDelta"]);
+                    TrySet(rt.m_Pivot, uiRectTransformComponent["Pivot"]);
+                    TrySet(rt.m_Rotation, uiRectTransformComponent["Rotation"]);
+                    TrySet(rt.m_Scale, uiRectTransformComponent["Scale"]);
+                }
+
+                if (auto uiImageComponent = entity["UIImageComponent"]; uiImageComponent)
+                {
+                    auto& image = deserializedEntity.AddComponent<UIImageComponent>();
+                    if (uiImageComponent["TexturePath"])
+                    {
+                        image.m_Texture = Texture2D::Create(uiImageComponent["TexturePath"].as<std::string>());
+                    }
+                    TrySet(image.m_Color, uiImageComponent["Color"]);
+                    TrySet(image.m_BorderInsets, uiImageComponent["BorderInsets"]);
+                }
+
+                if (auto uiPanelComponent = entity["UIPanelComponent"]; uiPanelComponent)
+                {
+                    auto& panel = deserializedEntity.AddComponent<UIPanelComponent>();
+                    TrySet(panel.m_BackgroundColor, uiPanelComponent["BackgroundColor"]);
+                    if (uiPanelComponent["BackgroundTexturePath"])
+                    {
+                        panel.m_BackgroundTexture = Texture2D::Create(uiPanelComponent["BackgroundTexturePath"].as<std::string>());
+                    }
+                }
+
+                if (auto uiTextComponent = entity["UITextComponent"]; uiTextComponent)
+                {
+                    auto& text = deserializedEntity.AddComponent<UITextComponent>();
+                    TrySet(text.m_Text, uiTextComponent["Text"]);
+                    if (uiTextComponent["FontPath"])
+                    {
+                        text.m_FontAsset = Font::Create(uiTextComponent["FontPath"].as<std::string>());
+                    }
+                    TrySet(text.m_FontSize, uiTextComponent["FontSize"]);
+                    TrySet(text.m_Color, uiTextComponent["Color"]);
+                    TrySetEnum(text.m_Alignment, uiTextComponent["Alignment"]);
+                    TrySet(text.m_Kerning, uiTextComponent["Kerning"]);
+                    TrySet(text.m_LineSpacing, uiTextComponent["LineSpacing"]);
+                }
+
+                if (auto uiButtonComponent = entity["UIButtonComponent"]; uiButtonComponent)
+                {
+                    auto& button = deserializedEntity.AddComponent<UIButtonComponent>();
+                    TrySet(button.m_NormalColor, uiButtonComponent["NormalColor"]);
+                    TrySet(button.m_HoveredColor, uiButtonComponent["HoveredColor"]);
+                    TrySet(button.m_PressedColor, uiButtonComponent["PressedColor"]);
+                    TrySet(button.m_DisabledColor, uiButtonComponent["DisabledColor"]);
+                    TrySet(button.m_Interactable, uiButtonComponent["Interactable"]);
+                }
+
+                if (auto uiSliderComponent = entity["UISliderComponent"]; uiSliderComponent)
+                {
+                    auto& slider = deserializedEntity.AddComponent<UISliderComponent>();
+                    TrySet(slider.m_Value, uiSliderComponent["Value"]);
+                    TrySet(slider.m_MinValue, uiSliderComponent["MinValue"]);
+                    TrySet(slider.m_MaxValue, uiSliderComponent["MaxValue"]);
+                    TrySetEnum(slider.m_Direction, uiSliderComponent["Direction"]);
+                    TrySet(slider.m_BackgroundColor, uiSliderComponent["BackgroundColor"]);
+                    TrySet(slider.m_FillColor, uiSliderComponent["FillColor"]);
+                    TrySet(slider.m_HandleColor, uiSliderComponent["HandleColor"]);
+                    TrySet(slider.m_Interactable, uiSliderComponent["Interactable"]);
+                }
+
+                if (auto uiCheckboxComponent = entity["UICheckboxComponent"]; uiCheckboxComponent)
+                {
+                    auto& checkbox = deserializedEntity.AddComponent<UICheckboxComponent>();
+                    TrySet(checkbox.m_IsChecked, uiCheckboxComponent["IsChecked"]);
+                    TrySet(checkbox.m_UncheckedColor, uiCheckboxComponent["UncheckedColor"]);
+                    TrySet(checkbox.m_CheckedColor, uiCheckboxComponent["CheckedColor"]);
+                    TrySet(checkbox.m_CheckmarkColor, uiCheckboxComponent["CheckmarkColor"]);
+                    TrySet(checkbox.m_Interactable, uiCheckboxComponent["Interactable"]);
+                }
+
+                if (auto uiProgressBarComponent = entity["UIProgressBarComponent"]; uiProgressBarComponent)
+                {
+                    auto& progress = deserializedEntity.AddComponent<UIProgressBarComponent>();
+                    TrySet(progress.m_Value, uiProgressBarComponent["Value"]);
+                    TrySet(progress.m_MinValue, uiProgressBarComponent["MinValue"]);
+                    TrySet(progress.m_MaxValue, uiProgressBarComponent["MaxValue"]);
+                    TrySetEnum(progress.m_FillMethod, uiProgressBarComponent["FillMethod"]);
+                    TrySet(progress.m_BackgroundColor, uiProgressBarComponent["BackgroundColor"]);
+                    TrySet(progress.m_FillColor, uiProgressBarComponent["FillColor"]);
+                }
+
+                if (auto uiInputFieldComponent = entity["UIInputFieldComponent"]; uiInputFieldComponent)
+                {
+                    auto& input = deserializedEntity.AddComponent<UIInputFieldComponent>();
+                    TrySet(input.m_Text, uiInputFieldComponent["Text"]);
+                    TrySet(input.m_Placeholder, uiInputFieldComponent["Placeholder"]);
+                    if (uiInputFieldComponent["FontPath"])
+                    {
+                        input.m_FontAsset = Font::Create(uiInputFieldComponent["FontPath"].as<std::string>());
+                    }
+                    TrySet(input.m_FontSize, uiInputFieldComponent["FontSize"]);
+                    TrySet(input.m_TextColor, uiInputFieldComponent["TextColor"]);
+                    TrySet(input.m_PlaceholderColor, uiInputFieldComponent["PlaceholderColor"]);
+                    TrySet(input.m_BackgroundColor, uiInputFieldComponent["BackgroundColor"]);
+                    TrySet(input.m_CharacterLimit, uiInputFieldComponent["CharacterLimit"]);
+                    TrySet(input.m_Interactable, uiInputFieldComponent["Interactable"]);
+                }
+
+                if (auto uiScrollViewComponent = entity["UIScrollViewComponent"]; uiScrollViewComponent)
+                {
+                    auto& scrollView = deserializedEntity.AddComponent<UIScrollViewComponent>();
+                    TrySet(scrollView.m_ScrollPosition, uiScrollViewComponent["ScrollPosition"]);
+                    TrySet(scrollView.m_ContentSize, uiScrollViewComponent["ContentSize"]);
+                    TrySetEnum(scrollView.m_ScrollDirection, uiScrollViewComponent["ScrollDirection"]);
+                    TrySet(scrollView.m_ScrollSpeed, uiScrollViewComponent["ScrollSpeed"]);
+                    TrySet(scrollView.m_ShowHorizontalScrollbar, uiScrollViewComponent["ShowHorizontalScrollbar"]);
+                    TrySet(scrollView.m_ShowVerticalScrollbar, uiScrollViewComponent["ShowVerticalScrollbar"]);
+                    TrySet(scrollView.m_ScrollbarColor, uiScrollViewComponent["ScrollbarColor"]);
+                    TrySet(scrollView.m_ScrollbarTrackColor, uiScrollViewComponent["ScrollbarTrackColor"]);
+                }
+
+                if (auto uiDropdownComponent = entity["UIDropdownComponent"]; uiDropdownComponent)
+                {
+                    auto& dropdown = deserializedEntity.AddComponent<UIDropdownComponent>();
+                    if (uiDropdownComponent["Options"])
+                    {
+                        for (const auto& optionNode : uiDropdownComponent["Options"])
+                        {
+                            UIDropdownOption option;
+                            option.m_Label = optionNode.as<std::string>("");
+                            dropdown.m_Options.push_back(option);
+                        }
+                    }
+                    TrySet(dropdown.m_SelectedIndex, uiDropdownComponent["SelectedIndex"]);
+                    TrySet(dropdown.m_BackgroundColor, uiDropdownComponent["BackgroundColor"]);
+                    TrySet(dropdown.m_HighlightColor, uiDropdownComponent["HighlightColor"]);
+                    TrySet(dropdown.m_TextColor, uiDropdownComponent["TextColor"]);
+                    if (uiDropdownComponent["FontPath"])
+                    {
+                        dropdown.m_FontAsset = Font::Create(uiDropdownComponent["FontPath"].as<std::string>());
+                    }
+                    TrySet(dropdown.m_FontSize, uiDropdownComponent["FontSize"]);
+                    TrySet(dropdown.m_ItemHeight, uiDropdownComponent["ItemHeight"]);
+                    TrySet(dropdown.m_Interactable, uiDropdownComponent["Interactable"]);
+                }
+
+                if (auto uiGridLayoutComponent = entity["UIGridLayoutComponent"]; uiGridLayoutComponent)
+                {
+                    auto& grid = deserializedEntity.AddComponent<UIGridLayoutComponent>();
+                    TrySet(grid.m_CellSize, uiGridLayoutComponent["CellSize"]);
+                    TrySet(grid.m_Spacing, uiGridLayoutComponent["Spacing"]);
+                    TrySet(grid.m_Padding, uiGridLayoutComponent["Padding"]);
+                    TrySetEnum(grid.m_StartCorner, uiGridLayoutComponent["StartCorner"]);
+                    TrySetEnum(grid.m_StartAxis, uiGridLayoutComponent["StartAxis"]);
+                    TrySet(grid.m_ConstraintCount, uiGridLayoutComponent["ConstraintCount"]);
+                }
+
+                if (auto uiToggleComponent = entity["UIToggleComponent"]; uiToggleComponent)
+                {
+                    auto& toggle = deserializedEntity.AddComponent<UIToggleComponent>();
+                    TrySet(toggle.m_IsOn, uiToggleComponent["IsOn"]);
+                    TrySet(toggle.m_OffColor, uiToggleComponent["OffColor"]);
+                    TrySet(toggle.m_OnColor, uiToggleComponent["OnColor"]);
+                    TrySet(toggle.m_KnobColor, uiToggleComponent["KnobColor"]);
+                    TrySet(toggle.m_Interactable, uiToggleComponent["Interactable"]);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)

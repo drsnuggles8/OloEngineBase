@@ -263,19 +263,22 @@ namespace OloEngine
 template<typename OStream, glm::length_t L, typename T, glm::qualifier Q>
 inline OStream& operator<<(OStream& os, const glm::vec<L, T, Q>& vector)
 {
-    return os << glm::to_string(vector);
+    os << glm::to_string(vector);
+    return os;
 }
 
 template<typename OStream, glm::length_t C, glm::length_t R, typename T, glm::qualifier Q>
 inline OStream& operator<<(OStream& os, const glm::mat<C, R, T, Q>& matrix)
 {
-    return os << glm::to_string(matrix);
+    os << glm::to_string(matrix);
+    return os;
 }
 
 template<typename OStream, typename T, glm::qualifier Q>
 inline OStream& operator<<(OStream& os, glm::qua<T, Q> quaternion)
 {
-    return os << glm::to_string(quaternion);
+    os << glm::to_string(quaternion);
+    return os;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

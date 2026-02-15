@@ -560,6 +560,61 @@ namespace OloEngine
         ++s_Data.Stats.QuadCount;
     }
 
+    void Renderer2D::DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, const glm::vec2& uvMin, const glm::vec2& uvMax, const glm::vec4& tintColor, const int entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        constexpr sizet quadVertexCount = 4;
+        const glm::vec2 textureCoords[] = {
+            { uvMin.x, uvMin.y },
+            { uvMax.x, uvMin.y },
+            { uvMax.x, uvMax.y },
+            { uvMin.x, uvMax.y }
+        };
+
+        if (s_Data.QuadIndexCount >= Renderer2DData::MaxIndices)
+        {
+            NextBatch();
+        }
+
+        f32 textureIndex = 0.0f;
+        for (u32 i = 1; i < s_Data.TextureSlotIndex; ++i)
+        {
+            if (*s_Data.TextureSlots[i] == *texture)
+            {
+                textureIndex = static_cast<f32>(i);
+                break;
+            }
+        }
+
+        if (const f64 epsilon = 1e-5; std::abs(textureIndex - 0.0f) < epsilon)
+        {
+            if (s_Data.TextureSlotIndex >= Renderer2DData::MaxTextureSlots)
+            {
+                NextBatch();
+            }
+
+            textureIndex = static_cast<f32>(s_Data.TextureSlotIndex);
+            s_Data.TextureSlots[s_Data.TextureSlotIndex] = texture;
+            ++s_Data.TextureSlotIndex;
+        }
+
+        for (sizet i = 0; i < quadVertexCount; ++i)
+        {
+            s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[i];
+            s_Data.QuadVertexBufferPtr->Color = tintColor;
+            s_Data.QuadVertexBufferPtr->TexCoord = textureCoords[i];
+            s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
+            s_Data.QuadVertexBufferPtr->TilingFactor = 1.0f;
+            s_Data.QuadVertexBufferPtr->EntityID = entityID;
+            ++s_Data.QuadVertexBufferPtr;
+        }
+
+        s_Data.QuadIndexCount += 6;
+
+        ++s_Data.Stats.QuadCount;
+    }
+
     void Renderer2D::DrawPolygon(const std::vector<glm::vec3>& vertices, const glm::vec4& color, int entityID)
     {
         OLO_PROFILE_FUNCTION();
