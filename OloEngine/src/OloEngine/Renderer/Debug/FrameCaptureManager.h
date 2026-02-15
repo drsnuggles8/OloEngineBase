@@ -4,6 +4,7 @@
 #include "CapturedFrameData.h"
 #include "OloEngine/Threading/Mutex.h"
 
+#include <atomic>
 #include <deque>
 
 namespace OloEngine
@@ -30,11 +31,11 @@ namespace OloEngine
         void StopRecording();
         CaptureState GetState() const
         {
-            return m_State;
+            return m_State.load(std::memory_order_acquire);
         }
         bool IsCapturing() const
         {
-            return m_State != CaptureState::Idle;
+            return m_State.load(std::memory_order_acquire) != CaptureState::Idle;
         }
 
         // Configuration
@@ -55,10 +56,6 @@ namespace OloEngine
 
         // Access captured data (thread-safe copies for UI consumption)
         std::deque<CapturedFrameData> GetCapturedFramesCopy() const;
-        const std::deque<CapturedFrameData>& GetCapturedFrames() const
-        {
-            return m_CapturedFrames;
-        }
         sizet GetCapturedFrameCount() const;
         void ClearCaptures();
 
@@ -82,7 +79,7 @@ namespace OloEngine
         // Deep-copy all commands from a bucket into a vector
         void DeepCopyCommands(const CommandBucket& bucket, std::vector<CapturedCommandData>& outCommands, bool useSortedOrder);
 
-        CaptureState m_State = CaptureState::Idle;
+        std::atomic<CaptureState> m_State = CaptureState::Idle;
         u32 m_MaxCapturedFrames = 60;
         i32 m_SelectedFrameIndex = -1;
 

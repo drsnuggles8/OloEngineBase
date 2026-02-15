@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "CommandPacketDebugger.h"
+#include "FrameCaptureManager.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 
@@ -233,7 +234,7 @@ namespace OloEngine
     void CommandPacketDebugger::RenderFrameSelector()
     {
         auto& captureManager = FrameCaptureManager::GetInstance();
-        const auto& frames = captureManager.GetCapturedFrames();
+        const auto frames = captureManager.GetCapturedFramesCopy();
         i32 selectedIdx = captureManager.GetSelectedFrameIndex();
 
         ImGui::Text("Frames:");

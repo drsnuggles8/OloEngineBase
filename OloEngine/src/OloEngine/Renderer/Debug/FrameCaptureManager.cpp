@@ -18,9 +18,9 @@ namespace OloEngine
     void FrameCaptureManager::CaptureNextFrame()
     {
         OLO_PROFILE_FUNCTION();
-        if (m_State == CaptureState::Idle)
+        auto expected = CaptureState::Idle;
+        if (m_State.compare_exchange_strong(expected, CaptureState::CaptureNextFrame, std::memory_order_acq_rel))
         {
-            m_State = CaptureState::CaptureNextFrame;
             m_PendingFrame = CapturedFrameData{};
             m_HasPendingPreSort = false;
             m_HasPendingPostSort = false;
@@ -30,9 +30,9 @@ namespace OloEngine
 
     void FrameCaptureManager::StartRecording()
     {
-        if (m_State == CaptureState::Idle)
+        auto expected = CaptureState::Idle;
+        if (m_State.compare_exchange_strong(expected, CaptureState::Recording, std::memory_order_acq_rel))
         {
-            m_State = CaptureState::Recording;
             m_PendingFrame = CapturedFrameData{};
             m_HasPendingPreSort = false;
             m_HasPendingPostSort = false;
@@ -42,10 +42,8 @@ namespace OloEngine
 
     void FrameCaptureManager::StopRecording()
     {
-        if (m_State == CaptureState::Recording)
-        {
-            m_State = CaptureState::Idle;
-        }
+        auto expected = CaptureState::Recording;
+        m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
     }
 
     const CapturedFrameData* FrameCaptureManager::GetSelectedFrame() const
@@ -185,10 +183,8 @@ namespace OloEngine
         }
 
         // State machine transition
-        if (m_State == CaptureState::CaptureNextFrame)
-        {
-            m_State = CaptureState::Idle;
-        }
+        auto expected = CaptureState::CaptureNextFrame;
+        m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
 
         // Re-init pending frame for the next capture
         m_PendingFrame = CapturedFrameData{};

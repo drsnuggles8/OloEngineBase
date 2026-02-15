@@ -5,7 +5,6 @@
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 #include "CapturedFrameData.h"
-#include "FrameCaptureManager.h"
 #include "DebugUtils.h"
 
 #include <imgui.h>

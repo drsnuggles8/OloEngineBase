@@ -130,10 +130,42 @@ namespace OloEngine
             return m_CommandType == CommandType::DrawMesh || m_CommandType == CommandType::DrawMeshInstanced || m_CommandType == CommandType::DrawQuad || m_CommandType == CommandType::DrawIndexed || m_CommandType == CommandType::DrawArrays || m_CommandType == CommandType::DrawLines || m_CommandType == CommandType::DrawSkybox || m_CommandType == CommandType::DrawInfiniteGrid || m_CommandType == CommandType::DrawIndexedInstanced;
         }
 
-        // Check if this is a state command
+        // Check if this is a render-state command (explicit whitelist)
         bool IsStateCommand() const
         {
-            return !IsDrawCommand() && m_CommandType != CommandType::Invalid && m_CommandType != CommandType::Clear && m_CommandType != CommandType::ClearStencil;
+            switch (m_CommandType)
+            {
+                case CommandType::SetViewport:
+                case CommandType::SetClearColor:
+                case CommandType::SetBlendState:
+                case CommandType::SetBlendFunc:
+                case CommandType::SetBlendEquation:
+                case CommandType::SetDepthTest:
+                case CommandType::SetDepthMask:
+                case CommandType::SetDepthFunc:
+                case CommandType::SetStencilTest:
+                case CommandType::SetStencilFunc:
+                case CommandType::SetStencilMask:
+                case CommandType::SetStencilOp:
+                case CommandType::SetCulling:
+                case CommandType::SetCullFace:
+                case CommandType::SetLineWidth:
+                case CommandType::SetPolygonMode:
+                case CommandType::SetPolygonOffset:
+                case CommandType::SetScissorTest:
+                case CommandType::SetScissorBox:
+                case CommandType::SetColorMask:
+                case CommandType::SetMultisampling:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // Check if this is a bind/resource command
+        bool IsBindCommand() const
+        {
+            return m_CommandType == CommandType::BindTexture || m_CommandType == CommandType::BindDefaultFramebuffer || m_CommandType == CommandType::SetShaderResource;
         }
 
       private:
