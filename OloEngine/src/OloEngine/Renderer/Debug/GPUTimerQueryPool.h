@@ -64,7 +64,7 @@ namespace OloEngine
 
       private:
         GPUTimerQueryPool() = default;
-        ~GPUTimerQueryPool() = default;
+        ~GPUTimerQueryPool();
         GPUTimerQueryPool(const GPUTimerQueryPool&) = delete;
         GPUTimerQueryPool& operator=(const GPUTimerQueryPool&) = delete;
 

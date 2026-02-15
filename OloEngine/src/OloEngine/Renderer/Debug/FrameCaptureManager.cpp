@@ -3,6 +3,7 @@
 #include "GPUTimerQueryPool.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <chrono>
 
@@ -16,6 +17,7 @@ namespace OloEngine
 
     void FrameCaptureManager::CaptureNextFrame()
     {
+        OLO_PROFILE_FUNCTION();
         if (m_State == CaptureState::Idle)
         {
             m_State = CaptureState::CaptureNextFrame;
@@ -55,8 +57,27 @@ namespace OloEngine
         return nullptr;
     }
 
+    std::deque<CapturedFrameData> FrameCaptureManager::GetCapturedFramesCopy() const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        return m_CapturedFrames;
+    }
+
+    sizet FrameCaptureManager::GetCapturedFrameCount() const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        return m_CapturedFrames.size();
+    }
+
+    void FrameCaptureManager::ClearCaptures()
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        m_CapturedFrames.clear();
+    }
+
     void FrameCaptureManager::OnPreSort(const CommandBucket& bucket)
     {
+        OLO_PROFILE_FUNCTION();
         if (!IsCapturing())
             return;
 
@@ -67,6 +88,7 @@ namespace OloEngine
 
     void FrameCaptureManager::OnPostSort(const CommandBucket& bucket)
     {
+        OLO_PROFILE_FUNCTION();
         if (!IsCapturing())
             return;
 
@@ -77,6 +99,7 @@ namespace OloEngine
 
     void FrameCaptureManager::OnPostBatch(const CommandBucket& bucket)
     {
+        OLO_PROFILE_FUNCTION();
         if (!IsCapturing())
             return;
 
@@ -87,6 +110,7 @@ namespace OloEngine
 
     void FrameCaptureManager::OnFrameEnd(u32 frameNumber, f64 sortTimeMs, f64 batchTimeMs, f64 executeTimeMs)
     {
+        OLO_PROFILE_FUNCTION();
         if (!IsCapturing())
             return;
 
@@ -140,21 +164,24 @@ namespace OloEngine
             m_PendingFrame.Stats.BatchedCommands = diff > 0 ? static_cast<u32>(diff) : 0;
         }
 
-        // Push the completed frame
-        m_CapturedFrames.push_back(std::move(m_PendingFrame));
-
-        // Trim to max
-        while (m_CapturedFrames.size() > m_MaxCapturedFrames)
+        // Push the completed frame (lock protects concurrent UI reads)
         {
-            m_CapturedFrames.pop_front();
-            if (m_SelectedFrameIndex > 0)
-                m_SelectedFrameIndex--;
-        }
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_CapturedFrames.push_back(std::move(m_PendingFrame));
 
-        // Auto-select the latest frame if nothing is selected
-        if (m_SelectedFrameIndex < 0)
-        {
-            m_SelectedFrameIndex = static_cast<i32>(m_CapturedFrames.size()) - 1;
+            // Trim to max
+            while (m_CapturedFrames.size() > m_MaxCapturedFrames)
+            {
+                m_CapturedFrames.pop_front();
+                if (m_SelectedFrameIndex > 0)
+                    m_SelectedFrameIndex--;
+            }
+
+            // Auto-select the latest frame if nothing is selected
+            if (m_SelectedFrameIndex < 0)
+            {
+                m_SelectedFrameIndex = static_cast<i32>(m_CapturedFrames.size()) - 1;
+            }
         }
 
         // State machine transition
@@ -174,6 +201,7 @@ namespace OloEngine
                                                std::vector<CapturedCommandData>& outCommands,
                                                bool useSortedOrder)
     {
+        OLO_PROFILE_FUNCTION();
         outCommands.clear();
 
         if (useSortedOrder)
@@ -204,6 +232,7 @@ namespace OloEngine
         else
         {
             // Traverse linked list (submission order)
+            outCommands.reserve(bucket.GetCommandCount());
             u32 index = 0;
             CommandPacket* current = bucket.GetCommandHead();
             while (current)

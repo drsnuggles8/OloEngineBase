@@ -2,10 +2,9 @@
 
 #include "OloEngine/Core/Base.h"
 #include "CapturedFrameData.h"
+#include "OloEngine/Threading/Mutex.h"
 
-#include <chrono>
 #include <deque>
-#include <string>
 
 namespace OloEngine
 {
@@ -54,19 +53,14 @@ namespace OloEngine
         void OnPostBatch(const CommandBucket& bucket);
         void OnFrameEnd(u32 frameNumber, f64 sortTimeMs, f64 batchTimeMs, f64 executeTimeMs);
 
-        // Access captured data
+        // Access captured data (thread-safe copies for UI consumption)
+        std::deque<CapturedFrameData> GetCapturedFramesCopy() const;
         const std::deque<CapturedFrameData>& GetCapturedFrames() const
         {
             return m_CapturedFrames;
         }
-        sizet GetCapturedFrameCount() const
-        {
-            return m_CapturedFrames.size();
-        }
-        void ClearCaptures()
-        {
-            m_CapturedFrames.clear();
-        }
+        sizet GetCapturedFrameCount() const;
+        void ClearCaptures();
 
         // Selection
         void SetSelectedFrameIndex(i32 index)
@@ -99,5 +93,7 @@ namespace OloEngine
         bool m_HasPendingPostBatch = false;
 
         std::deque<CapturedFrameData> m_CapturedFrames;
+
+        mutable FMutex m_Mutex;
     };
 } // namespace OloEngine

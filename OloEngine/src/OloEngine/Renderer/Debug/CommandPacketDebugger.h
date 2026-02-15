@@ -59,17 +59,23 @@ namespace OloEngine
 
         // Helpers
         static ImVec4 GetColorForCommandType(CommandType type);
-        static const char* GetCommandTypeString(CommandType type);
 
         // Render state detail for DrawMeshCommand
         void RenderPODRenderStateDetail(const PODRenderState& state);
         void RenderDrawMeshDetail(const DrawMeshCommand& cmd);
         void RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd);
 
+        enum class CommandViewMode : i32
+        {
+            PreSort = 0,
+            PostSort = 1,
+            PostBatch = 2
+        };
+
         // UI state
         i32 m_SelectedTab = 0;
         i32 m_SelectedCommandIndex = -1;
-        i32 m_CommandViewMode = 1; // 0=PreSort, 1=PostSort, 2=PostBatch
+        CommandViewMode m_CommandViewMode = CommandViewMode::PostSort;
         bool m_FilterByType = false;
         i32 m_TypeFilter = 0;
         bool m_FilterByStatic = false;

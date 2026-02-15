@@ -9,6 +9,7 @@
 #include "OloEngine/Threading/UniqueLock.h"
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
 
 namespace OloEngine
@@ -293,15 +294,22 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto sortStart = std::chrono::high_resolution_clock::now();
-
         TUniqueLock<FMutex> lock(m_Mutex);
+        SortCommandsInternal();
+    }
+
+    void CommandBucket::SortCommandsInternal()
+    {
+        // Internal sort implementation — caller must hold m_Mutex
+        OLO_PROFILE_FUNCTION();
 
         if (!m_Config.EnableSorting || m_IsSorted || m_CommandCount <= 1)
         {
             m_LastSortTimeMs = 0.0;
             return;
         }
+
+        auto sortStart = std::chrono::high_resolution_clock::now();
 
         // Build a vector of command pointers for sorting
         m_SortedCommands.clear();
@@ -459,7 +467,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        TUniqueLock<FMutex> lock(m_Mutex);
+        // Caller must hold m_Mutex
 
         if (!target || !source || !target->CanBatchWith(*source))
             return false;
@@ -599,8 +607,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto batchStart = std::chrono::high_resolution_clock::now();
-
         TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_Config.EnableBatching || m_IsBatched || m_CommandCount <= 1)
@@ -611,7 +617,9 @@ namespace OloEngine
 
         // Make sure commands are sorted first for optimal batching
         if (!m_IsSorted)
-            SortCommands();
+            SortCommandsInternal();
+
+        auto batchStart = std::chrono::high_resolution_clock::now();
 
         // Start with the first command
         CommandPacket* current = m_Head;
@@ -701,7 +709,10 @@ namespace OloEngine
         }
 
         auto execEnd = std::chrono::high_resolution_clock::now();
-        m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
+        }
     }
 
     void CommandBucket::ExecuteWithGPUTiming(RendererAPI& rendererAPI)
@@ -760,7 +771,10 @@ namespace OloEngine
         gpuTimer.EndFrame();
 
         auto execEnd = std::chrono::high_resolution_clock::now();
-        m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
+        }
     }
 
     void CommandBucket::Clear()

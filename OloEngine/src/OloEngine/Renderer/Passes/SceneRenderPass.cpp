@@ -59,7 +59,7 @@ namespace OloEngine
         rendererAPI.SetCullFace(GL_BACK);
         rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-        // Capture hooks — zero overhead when not capturing (branch prediction)
+        // Capture hooks — minimal overhead when not capturing (helped by branch prediction)
         auto& captureManager = FrameCaptureManager::GetInstance();
         const bool capturing = captureManager.IsCapturing();
 
@@ -74,19 +74,22 @@ namespace OloEngine
         // Batching (uses sorted order)
         // m_CommandBucket.BatchCommands(*m_Allocator);
 
-        if (capturing)
-            captureManager.OnPostBatch(m_CommandBucket);
+        // TODO: Re-enable OnPostBatch when BatchCommands is active
+        // if (capturing)
+        //     captureManager.OnPostBatch(m_CommandBucket);
 
         if (capturing)
             m_CommandBucket.ExecuteWithGPUTiming(rendererAPI);
         else
             m_CommandBucket.Execute(rendererAPI);
 
+        static u32 s_FrameCounter = 0;
+        s_FrameCounter++;
+
         if (capturing)
         {
-            static u32 s_FrameCounter = 0;
             captureManager.OnFrameEnd(
-                s_FrameCounter++,
+                s_FrameCounter,
                 m_CommandBucket.GetLastSortTimeMs(),
                 m_CommandBucket.GetLastBatchTimeMs(),
                 m_CommandBucket.GetLastExecuteTimeMs());

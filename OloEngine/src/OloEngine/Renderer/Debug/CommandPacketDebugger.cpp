@@ -13,6 +13,55 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        std::string EscapeCsvField(const std::string& field)
+        {
+            if (field.find_first_of(",\"\n") == std::string::npos)
+                return field;
+            std::string escaped = "\"";
+            for (char c : field)
+            {
+                if (c == '"')
+                    escaped += "\"\"";
+                else
+                    escaped += c;
+            }
+            escaped += '"';
+            return escaped;
+        }
+
+        const PODRenderState* GetRenderStateFromCommand(const CapturedCommandData& cmd)
+        {
+            switch (cmd.GetCommandType())
+            {
+                case CommandType::DrawMesh:
+                    if (const auto* c = cmd.GetCommandData<DrawMeshCommand>())
+                        return &c->renderState;
+                    break;
+                case CommandType::DrawMeshInstanced:
+                    if (const auto* c = cmd.GetCommandData<DrawMeshInstancedCommand>())
+                        return &c->renderState;
+                    break;
+                case CommandType::DrawSkybox:
+                    if (const auto* c = cmd.GetCommandData<DrawSkyboxCommand>())
+                        return &c->renderState;
+                    break;
+                case CommandType::DrawInfiniteGrid:
+                    if (const auto* c = cmd.GetCommandData<DrawInfiniteGridCommand>())
+                        return &c->renderState;
+                    break;
+                case CommandType::DrawQuad:
+                    if (const auto* c = cmd.GetCommandData<DrawQuadCommand>())
+                        return &c->renderState;
+                    break;
+                default:
+                    break;
+            }
+            return nullptr;
+        }
+    } // anonymous namespace
+
     CommandPacketDebugger& CommandPacketDebugger::GetInstance()
     {
         static CommandPacketDebugger instance;
@@ -239,11 +288,13 @@ namespace OloEngine
         // View mode selector
         ImGui::Text("View:");
         ImGui::SameLine();
-        ImGui::RadioButton("Pre-Sort", &m_CommandViewMode, 0);
+        i32 viewMode = static_cast<i32>(m_CommandViewMode);
+        ImGui::RadioButton("Pre-Sort", &viewMode, 0);
         ImGui::SameLine();
-        ImGui::RadioButton("Post-Sort", &m_CommandViewMode, 1);
+        ImGui::RadioButton("Post-Sort", &viewMode, 1);
         ImGui::SameLine();
-        ImGui::RadioButton("Post-Batch", &m_CommandViewMode, 2);
+        ImGui::RadioButton("Post-Batch", &viewMode, 2);
+        m_CommandViewMode = static_cast<CommandViewMode>(viewMode);
 
         // Filter controls
         ImGui::SameLine();
@@ -264,13 +315,13 @@ namespace OloEngine
         const std::vector<CapturedCommandData>* commands = nullptr;
         switch (m_CommandViewMode)
         {
-            case 0:
+            case CommandViewMode::PreSort:
                 commands = &frame->PreSortCommands;
                 break;
-            case 1:
+            case CommandViewMode::PostSort:
                 commands = &frame->PostSortCommands;
                 break;
-            case 2:
+            case CommandViewMode::PostBatch:
                 commands = &frame->PostBatchCommands;
                 break;
             default:
@@ -445,42 +496,9 @@ namespace OloEngine
         }
 
         // Render state for commands that have one
-        if (cmd.GetCommandType() == CommandType::DrawMesh ||
-            cmd.GetCommandType() == CommandType::DrawMeshInstanced ||
-            cmd.GetCommandType() == CommandType::DrawSkybox ||
-            cmd.GetCommandType() == CommandType::DrawInfiniteGrid ||
-            cmd.GetCommandType() == CommandType::DrawQuad)
-        {
-            const PODRenderState* state = nullptr;
-            if (cmd.GetCommandType() == CommandType::DrawMesh)
-            {
-                if (const auto* c = cmd.GetCommandData<DrawMeshCommand>())
-                    state = &c->renderState;
-            }
-            else if (cmd.GetCommandType() == CommandType::DrawMeshInstanced)
-            {
-                if (const auto* c = cmd.GetCommandData<DrawMeshInstancedCommand>())
-                    state = &c->renderState;
-            }
-            else if (cmd.GetCommandType() == CommandType::DrawSkybox)
-            {
-                if (const auto* c = cmd.GetCommandData<DrawSkyboxCommand>())
-                    state = &c->renderState;
-            }
-            else if (cmd.GetCommandType() == CommandType::DrawInfiniteGrid)
-            {
-                if (const auto* c = cmd.GetCommandData<DrawInfiniteGridCommand>())
-                    state = &c->renderState;
-            }
-            else if (cmd.GetCommandType() == CommandType::DrawQuad)
-            {
-                if (const auto* c = cmd.GetCommandData<DrawQuadCommand>())
-                    state = &c->renderState;
-            }
-
-            if (state && ImGui::CollapsingHeader("Render State"))
-                RenderPODRenderStateDetail(*state);
-        }
+        const PODRenderState* state = GetRenderStateFromCommand(cmd);
+        if (state && ImGui::CollapsingHeader("Render State"))
+            RenderPODRenderStateDetail(*state);
     }
 
     void CommandPacketDebugger::RenderDrawMeshDetail(const DrawMeshCommand& cmd)
@@ -958,7 +976,9 @@ namespace OloEngine
 
             // Hover tooltip and click to select
             ImGui::SetCursorScreenPos(ImVec2(x0, y0));
-            ImGui::InvisibleButton(("##tl" + std::to_string(i)).c_str(), ImVec2(barWidth, barHeight));
+            char tlId[16];
+            snprintf(tlId, sizeof(tlId), "##tl%u", i);
+            ImGui::InvisibleButton(tlId, ImVec2(barWidth, barHeight));
             if (ImGui::IsItemHovered())
             {
                 ImGui::BeginTooltip();
@@ -1060,52 +1080,7 @@ namespace OloEngine
         }
     }
 
-    const char* CommandPacketDebugger::GetCommandTypeString(CommandType type)
-    {
-        switch (type)
-        {
-            case CommandType::DrawMesh:
-                return "DrawMesh";
-            case CommandType::DrawMeshInstanced:
-                return "DrawMeshInstanced";
-            case CommandType::DrawQuad:
-                return "DrawQuad";
-            case CommandType::DrawIndexed:
-                return "DrawIndexed";
-            case CommandType::DrawArrays:
-                return "DrawArrays";
-            case CommandType::DrawLines:
-                return "DrawLines";
-            case CommandType::DrawSkybox:
-                return "DrawSkybox";
-            case CommandType::DrawInfiniteGrid:
-                return "DrawInfiniteGrid";
-            case CommandType::DrawIndexedInstanced:
-                return "DrawIndexedInstanced";
-            case CommandType::Clear:
-                return "Clear";
-            case CommandType::ClearStencil:
-                return "ClearStencil";
-            case CommandType::BindTexture:
-                return "BindTexture";
-            case CommandType::BindDefaultFramebuffer:
-                return "BindDefaultFB";
-            case CommandType::SetViewport:
-                return "SetViewport";
-            case CommandType::SetClearColor:
-                return "SetClearColor";
-            case CommandType::SetBlendState:
-                return "SetBlendState";
-            case CommandType::SetDepthTest:
-                return "SetDepthTest";
-            case CommandType::SetCulling:
-                return "SetCulling";
-            case CommandType::SetPolygonMode:
-                return "SetPolygonMode";
-            default:
-                return "Other";
-        }
-    }
+
 
     // ========================================================================
     // CSV Export
@@ -1116,7 +1091,11 @@ namespace OloEngine
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
         std::tm tm{};
+#if defined(_WIN32)
         localtime_s(&tm, &time);
+#else
+        localtime_r(&time, &tm);
+#endif
 
         std::ostringstream oss;
         oss << "cmd_bucket_frame" << frameNumber
@@ -1154,17 +1133,17 @@ namespace OloEngine
                 const DrawKey& key = cmd.GetSortKey();
 
                 file << i << ","
-                     << cmd.GetCommandTypeString() << ","
+                     << EscapeCsvField(cmd.GetCommandTypeString()) << ","
                      << "0x" << std::hex << key.GetKey() << std::dec << ","
                      << key.GetViewportID() << ","
-                     << ToString(key.GetViewLayer()) << ","
-                     << ToString(key.GetRenderMode()) << ","
+                     << EscapeCsvField(ToString(key.GetViewLayer())) << ","
+                     << EscapeCsvField(ToString(key.GetRenderMode())) << ","
                      << key.GetMaterialID() << ","
                      << key.GetShaderID() << ","
                      << key.GetDepth() << ","
                      << (cmd.IsStatic() ? "true" : "false") << ","
                      << cmd.GetGroupID() << ","
-                     << (cmd.GetDebugName().empty() ? "None" : cmd.GetDebugName()) << ","
+                     << EscapeCsvField(cmd.GetDebugName().empty() ? std::string("None") : cmd.GetDebugName()) << ","
                      << cmd.GetGpuTimeMs() << "\n";
             }
 

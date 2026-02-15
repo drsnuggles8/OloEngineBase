@@ -1858,11 +1858,7 @@ void Sandbox3D::RenderDebuggingTools()
         ImGui::SameLine();
         if (ImGui::Button("Export to CSV##CommandDebugger"))
         {
-            const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
-            if (commandBucket)
-            {
-                m_CommandPacketDebugger.ExportToCSV(commandBucket, "command_packets.csv");
-            }
+            m_CommandPacketDebugger.ExportToCSV("command_packets.csv");
         }
 
         if (m_ShowCommandPacketDebugger)

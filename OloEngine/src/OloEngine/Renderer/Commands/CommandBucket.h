@@ -4,7 +4,6 @@
 #include "OloEngine/Memory/Platform.h"
 #include "CommandPacket.h"
 #include "CommandAllocator.h"
-#include <chrono>
 #include <vector>
 #include <unordered_map>
 #include <atomic>
@@ -303,6 +302,9 @@ namespace OloEngine
 
         // Convert a DrawMeshCommand to DrawMeshInstancedCommand for batching
         CommandPacket* ConvertToInstanced(CommandPacket* meshPacket, CommandAllocator& allocator);
+
+        // Internal sort implementation — caller must hold m_Mutex
+        void SortCommandsInternal();
 
         // Head of the linked list of commands
         CommandPacket* m_Head = nullptr;

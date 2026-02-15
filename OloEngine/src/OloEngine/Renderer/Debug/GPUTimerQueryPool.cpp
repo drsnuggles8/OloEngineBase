@@ -12,8 +12,14 @@ namespace OloEngine
         return instance;
     }
 
+    GPUTimerQueryPool::~GPUTimerQueryPool()
+    {
+        OLO_CORE_ASSERT(!m_Initialized, "GPUTimerQueryPool::~GPUTimerQueryPool: Shutdown() was not called before destruction!");
+    }
+
     void GPUTimerQueryPool::Initialize(u32 maxQueries)
     {
+        OLO_PROFILE_FUNCTION();
         if (m_Initialized)
             return;
 
@@ -38,6 +44,7 @@ namespace OloEngine
 
     void GPUTimerQueryPool::Shutdown()
     {
+        OLO_PROFILE_FUNCTION();
         if (!m_Initialized)
             return;
 
@@ -59,6 +66,7 @@ namespace OloEngine
 
     bool GPUTimerQueryPool::BeginFrame()
     {
+        OLO_PROFILE_FUNCTION();
         if (!m_Initialized)
             return false;
 
@@ -75,6 +83,11 @@ namespace OloEngine
 
             for (u32 i = 0; i < m_ReadableQueryCount; ++i)
             {
+                GLint available = GL_FALSE;
+                glGetQueryObjectiv(m_QueryObjects[readBuffer][i], GL_QUERY_RESULT_AVAILABLE, &available);
+                if (!available)
+                    continue;
+
                 GLuint64 timeNs = 0;
                 glGetQueryObjectui64v(m_QueryObjects[readBuffer][i], GL_QUERY_RESULT, &timeNs);
                 m_Results[i] = static_cast<f64>(timeNs) / 1'000'000.0; // ns -> ms

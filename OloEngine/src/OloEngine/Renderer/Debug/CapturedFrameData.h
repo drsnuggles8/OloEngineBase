@@ -146,7 +146,11 @@ namespace OloEngine
         bool m_IsStatic = false;
         bool m_DependsOnPrevious = false;
         std::string m_DebugName;
-        f64 m_GpuTimeMs = 0.0; // Filled by GPU timer queries (Phase 4)
+        // GPU timing for this command (filled by GPU timer query readback).
+        // Note: GPU timing values come from the *previous* frame's queries due to
+        // double-buffered readback in GPUTimerQueryPool. They should be interpreted
+        // as approximate per-command GPU costs rather than exact current-frame timings.
+        f64 m_GpuTimeMs = 0.0;
     };
 
     // A fully captured frame with commands at different pipeline stages
