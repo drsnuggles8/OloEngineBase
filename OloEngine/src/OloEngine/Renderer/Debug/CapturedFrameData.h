@@ -28,20 +28,14 @@ namespace OloEngine
     // Deep-copy of a single command packet for post-hoc analysis
     class CapturedCommandData
     {
-    public:
+      public:
         CapturedCommandData() = default;
 
         CapturedCommandData(CommandType type, const void* rawData, sizet dataSize,
                             const DrawKey& sortKey, u32 groupID, u32 executionOrder,
                             bool isStatic, bool dependsOnPrevious, const char* debugName,
                             u32 originalIndex)
-            : m_CommandType(type)
-            , m_OriginalIndex(originalIndex)
-            , m_GroupID(groupID)
-            , m_ExecutionOrder(executionOrder)
-            , m_SortKey(sortKey)
-            , m_IsStatic(isStatic)
-            , m_DependsOnPrevious(dependsOnPrevious)
+            : m_CommandType(type), m_OriginalIndex(originalIndex), m_GroupID(groupID), m_ExecutionOrder(executionOrder), m_SortKey(sortKey), m_IsStatic(isStatic), m_DependsOnPrevious(dependsOnPrevious)
         {
             if (rawData && dataSize > 0)
             {
@@ -76,20 +70,56 @@ namespace OloEngine
             return nullptr;
         }
 
-        const void* GetRawData() const { return m_CommandData.empty() ? nullptr : m_CommandData.data(); }
-        sizet GetDataSize() const { return m_CommandData.size(); }
+        const void* GetRawData() const
+        {
+            return m_CommandData.empty() ? nullptr : m_CommandData.data();
+        }
+        sizet GetDataSize() const
+        {
+            return m_CommandData.size();
+        }
 
-        CommandType GetCommandType() const { return m_CommandType; }
-        u32 GetOriginalIndex() const { return m_OriginalIndex; }
-        const DrawKey& GetSortKey() const { return m_SortKey; }
-        u32 GetGroupID() const { return m_GroupID; }
-        u32 GetExecutionOrder() const { return m_ExecutionOrder; }
-        bool IsStatic() const { return m_IsStatic; }
-        bool DependsOnPrevious() const { return m_DependsOnPrevious; }
-        const std::string& GetDebugName() const { return m_DebugName; }
+        CommandType GetCommandType() const
+        {
+            return m_CommandType;
+        }
+        u32 GetOriginalIndex() const
+        {
+            return m_OriginalIndex;
+        }
+        const DrawKey& GetSortKey() const
+        {
+            return m_SortKey;
+        }
+        u32 GetGroupID() const
+        {
+            return m_GroupID;
+        }
+        u32 GetExecutionOrder() const
+        {
+            return m_ExecutionOrder;
+        }
+        bool IsStatic() const
+        {
+            return m_IsStatic;
+        }
+        bool DependsOnPrevious() const
+        {
+            return m_DependsOnPrevious;
+        }
+        const std::string& GetDebugName() const
+        {
+            return m_DebugName;
+        }
 
-        f64 GetGpuTimeMs() const { return m_GpuTimeMs; }
-        void SetGpuTimeMs(f64 timeMs) { m_GpuTimeMs = timeMs; }
+        f64 GetGpuTimeMs() const
+        {
+            return m_GpuTimeMs;
+        }
+        void SetGpuTimeMs(f64 timeMs)
+        {
+            m_GpuTimeMs = timeMs;
+        }
 
         // Get command type as human-readable string
         const char* GetCommandTypeString() const;
@@ -97,37 +127,26 @@ namespace OloEngine
         // Check if this is a draw command
         bool IsDrawCommand() const
         {
-            return m_CommandType == CommandType::DrawMesh
-                || m_CommandType == CommandType::DrawMeshInstanced
-                || m_CommandType == CommandType::DrawQuad
-                || m_CommandType == CommandType::DrawIndexed
-                || m_CommandType == CommandType::DrawArrays
-                || m_CommandType == CommandType::DrawLines
-                || m_CommandType == CommandType::DrawSkybox
-                || m_CommandType == CommandType::DrawInfiniteGrid
-                || m_CommandType == CommandType::DrawIndexedInstanced;
+            return m_CommandType == CommandType::DrawMesh || m_CommandType == CommandType::DrawMeshInstanced || m_CommandType == CommandType::DrawQuad || m_CommandType == CommandType::DrawIndexed || m_CommandType == CommandType::DrawArrays || m_CommandType == CommandType::DrawLines || m_CommandType == CommandType::DrawSkybox || m_CommandType == CommandType::DrawInfiniteGrid || m_CommandType == CommandType::DrawIndexedInstanced;
         }
 
         // Check if this is a state command
         bool IsStateCommand() const
         {
-            return !IsDrawCommand()
-                && m_CommandType != CommandType::Invalid
-                && m_CommandType != CommandType::Clear
-                && m_CommandType != CommandType::ClearStencil;
+            return !IsDrawCommand() && m_CommandType != CommandType::Invalid && m_CommandType != CommandType::Clear && m_CommandType != CommandType::ClearStencil;
         }
 
-    private:
+      private:
         CommandType m_CommandType = CommandType::Invalid;
-        std::vector<u8> m_CommandData;      // Deep-copied POD bytes
-        u32 m_OriginalIndex = 0;            // Position in original submission order
+        std::vector<u8> m_CommandData; // Deep-copied POD bytes
+        u32 m_OriginalIndex = 0;       // Position in original submission order
         u32 m_GroupID = 0;
         u32 m_ExecutionOrder = 0;
         DrawKey m_SortKey;
         bool m_IsStatic = false;
         bool m_DependsOnPrevious = false;
         std::string m_DebugName;
-        f64 m_GpuTimeMs = 0.0;             // Filled by GPU timer queries (Phase 4)
+        f64 m_GpuTimeMs = 0.0; // Filled by GPU timer queries (Phase 4)
     };
 
     // A fully captured frame with commands at different pipeline stages

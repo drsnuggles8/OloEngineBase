@@ -264,10 +264,18 @@ namespace OloEngine
         const std::vector<CapturedCommandData>* commands = nullptr;
         switch (m_CommandViewMode)
         {
-            case 0: commands = &frame->PreSortCommands; break;
-            case 1: commands = &frame->PostSortCommands; break;
-            case 2: commands = &frame->PostBatchCommands; break;
-            default: commands = &frame->PostSortCommands; break;
+            case 0:
+                commands = &frame->PreSortCommands;
+                break;
+            case 1:
+                commands = &frame->PostSortCommands;
+                break;
+            case 2:
+                commands = &frame->PostBatchCommands;
+                break;
+            default:
+                commands = &frame->PostSortCommands;
+                break;
         }
 
         if (!commands || commands->empty())
@@ -278,8 +286,8 @@ namespace OloEngine
 
         // Summary
         ImGui::Text("Commands: %zu | Draw: %u | State: %u | Sort: %.3fms | Execute: %.3fms",
-                     commands->size(), frame->Stats.DrawCalls, frame->Stats.StateChanges,
-                     frame->Stats.SortTimeMs, frame->Stats.ExecuteTimeMs);
+                    commands->size(), frame->Stats.DrawCalls, frame->Stats.StateChanges,
+                    frame->Stats.SortTimeMs, frame->Stats.ExecuteTimeMs);
         ImGui::Separator();
 
         // Split: command table on left, detail on right
@@ -290,7 +298,7 @@ namespace OloEngine
         ImGui::BeginChild("CmdList", ImVec2(listWidth, 0), ImGuiChildFlags_Borders);
 
         if (ImGui::BeginTable("Commands", 6,
-            ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders))
+                              ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders))
         {
             ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 40.0f);
             ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 110.0f);
@@ -311,10 +319,18 @@ namespace OloEngine
                     bool pass = false;
                     switch (m_TypeFilter)
                     {
-                        case 0: pass = cmd.IsDrawCommand(); break;
-                        case 1: pass = (cmd.GetCommandType() == CommandType::Clear || cmd.GetCommandType() == CommandType::ClearStencil); break;
-                        case 2: pass = cmd.IsStateCommand(); break;
-                        case 3: pass = !cmd.IsDrawCommand() && !cmd.IsStateCommand(); break;
+                        case 0:
+                            pass = cmd.IsDrawCommand();
+                            break;
+                        case 1:
+                            pass = (cmd.GetCommandType() == CommandType::Clear || cmd.GetCommandType() == CommandType::ClearStencil);
+                            break;
+                        case 2:
+                            pass = cmd.IsStateCommand();
+                            break;
+                        case 3:
+                            pass = !cmd.IsDrawCommand() && !cmd.IsStateCommand();
+                            break;
                     }
                     if (!pass)
                         continue;
@@ -603,7 +619,7 @@ namespace OloEngine
         }
 
         ImGui::Text("Sort Time: %.3f ms | Commands: %zu -> %zu",
-                     frame->Stats.SortTimeMs, pre.size(), post.size());
+                    frame->Stats.SortTimeMs, pre.size(), post.size());
         ImGui::Separator();
 
         // Sort displacement metric
@@ -635,8 +651,8 @@ namespace OloEngine
         {
             const auto& cmd = pre[i];
             ImGui::TextColored(GetColorForCommandType(cmd.GetCommandType()),
-                              "%3u: %s [S=%u M=%u D=%u]", i, cmd.GetCommandTypeString(),
-                              cmd.GetSortKey().GetShaderID(), cmd.GetSortKey().GetMaterialID(), cmd.GetSortKey().GetDepth());
+                               "%3u: %s [S=%u M=%u D=%u]", i, cmd.GetCommandTypeString(),
+                               cmd.GetSortKey().GetShaderID(), cmd.GetSortKey().GetMaterialID(), cmd.GetSortKey().GetDepth());
         }
 
         ImGui::EndChild();
@@ -651,8 +667,8 @@ namespace OloEngine
         {
             const auto& cmd = post[i];
             ImGui::TextColored(GetColorForCommandType(cmd.GetCommandType()),
-                              "%3u: %s [S=%u M=%u D=%u]", i, cmd.GetCommandTypeString(),
-                              cmd.GetSortKey().GetShaderID(), cmd.GetSortKey().GetMaterialID(), cmd.GetSortKey().GetDepth());
+                               "%3u: %s [S=%u M=%u D=%u]", i, cmd.GetCommandTypeString(),
+                               cmd.GetSortKey().GetShaderID(), cmd.GetSortKey().GetMaterialID(), cmd.GetSortKey().GetDepth());
         }
 
         ImGui::EndChild();
@@ -704,7 +720,7 @@ namespace OloEngine
             {
                 shaderChanges++;
                 changeLog.push_back({ i - 1, i,
-                    "Shader: " + std::to_string(prev.GetSortKey().GetShaderID()) + " -> " + std::to_string(curr.GetSortKey().GetShaderID()) });
+                                      "Shader: " + std::to_string(prev.GetSortKey().GetShaderID()) + " -> " + std::to_string(curr.GetSortKey().GetShaderID()) });
             }
 
             // Material change (from DrawKey)
@@ -919,8 +935,8 @@ namespace OloEngine
             const auto& cmd = commands[i];
 
             f32 barWidth = hasGpuTiming && totalGpuTime > 0.0
-                ? static_cast<f32>(cmd.GetGpuTimeMs() / totalGpuTime) * totalWidth
-                : uniformWidth;
+                               ? static_cast<f32>(cmd.GetGpuTimeMs() / totalGpuTime) * totalWidth
+                               : uniformWidth;
 
             barWidth = std::max(barWidth, 1.0f);
 
@@ -980,7 +996,7 @@ namespace OloEngine
     void CommandPacketDebugger::RenderLiveView(const CommandBucket* bucket)
     {
         ImGui::TextColored(DebugUtils::Colors::Info,
-            "No captured frames. Use the toolbar above to capture frames for analysis.");
+                           "No captured frames. Use the toolbar above to capture frames for analysis.");
         ImGui::Separator();
 
         if (!bucket)
@@ -994,11 +1010,11 @@ namespace OloEngine
 
         ImGui::Text("Live Bucket: %zu commands, Sorted: %s", cmdCount, isSorted ? "Yes" : "No");
         ImGui::Text("Last Sort: %.3f ms | Last Execute: %.3f ms",
-                     bucket->GetLastSortTimeMs(), bucket->GetLastExecuteTimeMs());
+                    bucket->GetLastSortTimeMs(), bucket->GetLastExecuteTimeMs());
 
         auto stats = bucket->GetStatistics();
         ImGui::Text("Draw Calls: %u | State Changes: %u | Batched: %u",
-                     stats.DrawCalls, stats.StateChanges, stats.BatchedCommands);
+                    stats.DrawCalls, stats.StateChanges, stats.BatchedCommands);
     }
 
     // ========================================================================
@@ -1048,26 +1064,46 @@ namespace OloEngine
     {
         switch (type)
         {
-            case CommandType::DrawMesh: return "DrawMesh";
-            case CommandType::DrawMeshInstanced: return "DrawMeshInstanced";
-            case CommandType::DrawQuad: return "DrawQuad";
-            case CommandType::DrawIndexed: return "DrawIndexed";
-            case CommandType::DrawArrays: return "DrawArrays";
-            case CommandType::DrawLines: return "DrawLines";
-            case CommandType::DrawSkybox: return "DrawSkybox";
-            case CommandType::DrawInfiniteGrid: return "DrawInfiniteGrid";
-            case CommandType::DrawIndexedInstanced: return "DrawIndexedInstanced";
-            case CommandType::Clear: return "Clear";
-            case CommandType::ClearStencil: return "ClearStencil";
-            case CommandType::BindTexture: return "BindTexture";
-            case CommandType::BindDefaultFramebuffer: return "BindDefaultFB";
-            case CommandType::SetViewport: return "SetViewport";
-            case CommandType::SetClearColor: return "SetClearColor";
-            case CommandType::SetBlendState: return "SetBlendState";
-            case CommandType::SetDepthTest: return "SetDepthTest";
-            case CommandType::SetCulling: return "SetCulling";
-            case CommandType::SetPolygonMode: return "SetPolygonMode";
-            default: return "Other";
+            case CommandType::DrawMesh:
+                return "DrawMesh";
+            case CommandType::DrawMeshInstanced:
+                return "DrawMeshInstanced";
+            case CommandType::DrawQuad:
+                return "DrawQuad";
+            case CommandType::DrawIndexed:
+                return "DrawIndexed";
+            case CommandType::DrawArrays:
+                return "DrawArrays";
+            case CommandType::DrawLines:
+                return "DrawLines";
+            case CommandType::DrawSkybox:
+                return "DrawSkybox";
+            case CommandType::DrawInfiniteGrid:
+                return "DrawInfiniteGrid";
+            case CommandType::DrawIndexedInstanced:
+                return "DrawIndexedInstanced";
+            case CommandType::Clear:
+                return "Clear";
+            case CommandType::ClearStencil:
+                return "ClearStencil";
+            case CommandType::BindTexture:
+                return "BindTexture";
+            case CommandType::BindDefaultFramebuffer:
+                return "BindDefaultFB";
+            case CommandType::SetViewport:
+                return "SetViewport";
+            case CommandType::SetClearColor:
+                return "SetClearColor";
+            case CommandType::SetBlendState:
+                return "SetBlendState";
+            case CommandType::SetDepthTest:
+                return "SetDepthTest";
+            case CommandType::SetCulling:
+                return "SetCulling";
+            case CommandType::SetPolygonMode:
+                return "SetPolygonMode";
+            default:
+                return "Other";
         }
     }
 
@@ -1302,7 +1338,7 @@ namespace OloEngine
             {
                 i32 merged = static_cast<i32>(frame->PostSortCommands.size()) - static_cast<i32>(frame->PostBatchCommands.size());
                 f32 batchRatio = frame->PostSortCommands.empty() ? 1.0f
-                    : static_cast<f32>(frame->PostBatchCommands.size()) / static_cast<f32>(frame->PostSortCommands.size());
+                                                                 : static_cast<f32>(frame->PostBatchCommands.size()) / static_cast<f32>(frame->PostSortCommands.size());
 
                 file << "- **Pre-batch commands:** " << frame->PostSortCommands.size() << "\n";
                 file << "- **Post-batch commands:** " << frame->PostBatchCommands.size() << "\n";

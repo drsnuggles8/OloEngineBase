@@ -89,8 +89,7 @@ namespace OloEngine
                 s_FrameCounter++,
                 m_CommandBucket.GetLastSortTimeMs(),
                 m_CommandBucket.GetLastBatchTimeMs(),
-                m_CommandBucket.GetLastExecuteTimeMs()
-            );
+                m_CommandBucket.GetLastExecuteTimeMs());
         }
 
         m_Target->Unbind();

@@ -102,8 +102,8 @@ namespace OloEngine
 
         // Count draw calls and state changes from post-batch (or post-sort) commands
         const auto& finalCommands = m_HasPendingPostBatch
-            ? m_PendingFrame.PostBatchCommands
-            : (m_HasPendingPostSort ? m_PendingFrame.PostSortCommands : m_PendingFrame.PreSortCommands);
+                                        ? m_PendingFrame.PostBatchCommands
+                                        : (m_HasPendingPostSort ? m_PendingFrame.PostSortCommands : m_PendingFrame.PreSortCommands);
 
         u32 drawCalls = 0;
         u32 stateChanges = 0;
@@ -124,8 +124,8 @@ namespace OloEngine
         {
             // Apply to post-sort commands (the execution order)
             auto& timedCommands = m_HasPendingPostBatch
-                ? m_PendingFrame.PostBatchCommands
-                : (m_HasPendingPostSort ? m_PendingFrame.PostSortCommands : m_PendingFrame.PreSortCommands);
+                                      ? m_PendingFrame.PostBatchCommands
+                                      : (m_HasPendingPostSort ? m_PendingFrame.PostSortCommands : m_PendingFrame.PreSortCommands);
 
             for (u32 i = 0; i < static_cast<u32>(timedCommands.size()) && i < gpuTimer.GetReadableQueryCount(); ++i)
             {
@@ -136,8 +136,7 @@ namespace OloEngine
         // Count batched commands (difference between post-sort and post-batch)
         if (m_HasPendingPostSort && m_HasPendingPostBatch)
         {
-            i32 diff = static_cast<i32>(m_PendingFrame.PostSortCommands.size())
-                     - static_cast<i32>(m_PendingFrame.PostBatchCommands.size());
+            i32 diff = static_cast<i32>(m_PendingFrame.PostSortCommands.size()) - static_cast<i32>(m_PendingFrame.PostBatchCommands.size());
             m_PendingFrame.Stats.BatchedCommands = diff > 0 ? static_cast<u32>(diff) : 0;
         }
 
@@ -172,8 +171,8 @@ namespace OloEngine
     }
 
     void FrameCaptureManager::DeepCopyCommands(const CommandBucket& bucket,
-                                                std::vector<CapturedCommandData>& outCommands,
-                                                bool useSortedOrder)
+                                               std::vector<CapturedCommandData>& outCommands,
+                                               bool useSortedOrder)
     {
         outCommands.clear();
 
@@ -199,8 +198,7 @@ namespace OloEngine
                     meta.m_IsStatic,
                     meta.m_DependsOnPrevious,
                     meta.m_DebugName,
-                    i
-                );
+                    i);
             }
         }
         else
@@ -221,8 +219,7 @@ namespace OloEngine
                     meta.m_IsStatic,
                     meta.m_DependsOnPrevious,
                     meta.m_DebugName,
-                    index++
-                );
+                    index++);
                 current = current->GetNext();
             }
         }

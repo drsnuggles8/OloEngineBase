@@ -22,7 +22,7 @@ namespace OloEngine
     // command ordering, state changes, batching, and GPU timing.
     class CommandPacketDebugger
     {
-    public:
+      public:
         static CommandPacketDebugger& GetInstance();
 
         // @brief Renders the full debug view
@@ -40,7 +40,7 @@ namespace OloEngine
         // @brief Generates a timestamped filename for exports
         static std::string GenerateExportFilename(const char* extension, u32 frameNumber);
 
-    private:
+      private:
         CommandPacketDebugger() = default;
         ~CommandPacketDebugger() = default;
         CommandPacketDebugger(const CommandPacketDebugger&) = delete;

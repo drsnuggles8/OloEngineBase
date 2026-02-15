@@ -218,9 +218,18 @@ namespace OloEngine
         }
 
         // Timing accessors (populated during SortCommands/BatchCommands/Execute)
-        f64 GetLastSortTimeMs() const { return m_LastSortTimeMs; }
-        f64 GetLastBatchTimeMs() const { return m_LastBatchTimeMs; }
-        f64 GetLastExecuteTimeMs() const { return m_LastExecuteTimeMs; }
+        f64 GetLastSortTimeMs() const
+        {
+            return m_LastSortTimeMs;
+        }
+        f64 GetLastBatchTimeMs() const
+        {
+            return m_LastBatchTimeMs;
+        }
+        f64 GetLastExecuteTimeMs() const
+        {
+            return m_LastExecuteTimeMs;
+        }
 
       private:
         // Transform buffer for instanced rendering

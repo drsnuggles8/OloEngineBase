@@ -13,7 +13,7 @@ namespace OloEngine
     /// Only active during capture — zero overhead when idle.
     class GPUTimerQueryPool
     {
-    public:
+      public:
         static GPUTimerQueryPool& GetInstance();
 
         /// @brief Allocate query objects. Call once after GL context is valid.
@@ -40,17 +40,29 @@ namespace OloEngine
         f64 GetQueryResultMs(u32 commandIndex) const;
 
         /// @brief Number of queries issued in the previous (now-readable) frame.
-        u32 GetReadableQueryCount() const { return m_ReadableQueryCount; }
+        u32 GetReadableQueryCount() const
+        {
+            return m_ReadableQueryCount;
+        }
 
         /// @brief Whether the pool has been initialized.
-        bool IsInitialized() const { return m_Initialized; }
+        bool IsInitialized() const
+        {
+            return m_Initialized;
+        }
 
         /// @brief Whether timing is currently active (between BeginFrame/EndFrame).
-        bool IsActive() const { return m_Active; }
+        bool IsActive() const
+        {
+            return m_Active;
+        }
 
-        u32 GetMaxQueries() const { return m_MaxQueries; }
+        u32 GetMaxQueries() const
+        {
+            return m_MaxQueries;
+        }
 
-    private:
+      private:
         GPUTimerQueryPool() = default;
         ~GPUTimerQueryPool() = default;
         GPUTimerQueryPool(const GPUTimerQueryPool&) = delete;
@@ -61,11 +73,11 @@ namespace OloEngine
         std::vector<f64> m_Results;         // Readback results in ms
 
         u32 m_MaxQueries = 0;
-        u32 m_WriteBuffer = 0;          // Buffer currently being written to
-        u32 m_WriteQueryCount = 0;      // Queries issued this frame
-        u32 m_ReadableQueryCount = 0;   // Queries from previous frame available for read
+        u32 m_WriteBuffer = 0;        // Buffer currently being written to
+        u32 m_WriteQueryCount = 0;    // Queries issued this frame
+        u32 m_ReadableQueryCount = 0; // Queries from previous frame available for read
         bool m_Initialized = false;
         bool m_Active = false;
-        bool m_FirstFrame = true;       // Skip readback on very first frame
+        bool m_FirstFrame = true; // Skip readback on very first frame
     };
 } // namespace OloEngine
