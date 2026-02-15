@@ -93,8 +93,8 @@ namespace OloEngine
             if (ImGui::BeginMenu("Export"))
             {
                 auto& cm = FrameCaptureManager::GetInstance();
-                const auto* frame = cm.GetSelectedFrame();
-                u32 frameNum = frame ? frame->FrameNumber : 0;
+                auto selectedFrame = cm.GetSelectedFrame();
+                u32 frameNum = selectedFrame ? selectedFrame->FrameNumber : 0;
 
                 if (ImGui::MenuItem("Export to CSV"))
                     ExportToCSV(GenerateExportFilename("csv", frameNum));
@@ -110,7 +110,8 @@ namespace OloEngine
         ImGui::Separator();
 
         auto& captureManager = FrameCaptureManager::GetInstance();
-        const CapturedFrameData* selectedFrame = captureManager.GetSelectedFrame();
+        auto selectedFrame = captureManager.GetSelectedFrame();
+        const CapturedFrameData* selectedFramePtr = selectedFrame ? &*selectedFrame : nullptr;
 
         if (captureManager.GetCapturedFrameCount() > 0)
         {
@@ -123,31 +124,31 @@ namespace OloEngine
             {
                 if (ImGui::BeginTabItem("Commands"))
                 {
-                    RenderCommandList(selectedFrame, bucket);
+                    RenderCommandList(selectedFramePtr, bucket);
                     ImGui::EndTabItem();
                 }
 
                 if (ImGui::BeginTabItem("Sort Analysis"))
                 {
-                    RenderSortAnalysis(selectedFrame);
+                    RenderSortAnalysis(selectedFramePtr);
                     ImGui::EndTabItem();
                 }
 
                 if (ImGui::BeginTabItem("State Changes"))
                 {
-                    RenderStateChanges(selectedFrame);
+                    RenderStateChanges(selectedFramePtr);
                     ImGui::EndTabItem();
                 }
 
                 if (ImGui::BeginTabItem("Batching"))
                 {
-                    RenderBatchingAnalysis(selectedFrame);
+                    RenderBatchingAnalysis(selectedFramePtr);
                     ImGui::EndTabItem();
                 }
 
                 if (ImGui::BeginTabItem("Timeline"))
                 {
-                    RenderTimeline(selectedFrame);
+                    RenderTimeline(selectedFramePtr);
                     ImGui::EndTabItem();
                 }
 
@@ -234,7 +235,15 @@ namespace OloEngine
     void CommandPacketDebugger::RenderFrameSelector()
     {
         auto& captureManager = FrameCaptureManager::GetInstance();
-        const auto frames = captureManager.GetCapturedFramesCopy();
+
+        // Refresh cached frames only when count changes
+        sizet currentCount = captureManager.GetCapturedFrameCount();
+        if (currentCount != m_CachedFrameCount)
+        {
+            m_CachedFrames = captureManager.GetCapturedFramesCopy();
+            m_CachedFrameCount = currentCount;
+        }
+
         i32 selectedIdx = captureManager.GetSelectedFrameIndex();
 
         ImGui::Text("Frames:");
@@ -243,9 +252,9 @@ namespace OloEngine
         // Horizontal scrolling frame list
         ImGui::BeginChild("FrameList", ImVec2(0, 120), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
 
-        for (i32 i = 0; i < static_cast<i32>(frames.size()); ++i)
+        for (i32 i = 0; i < static_cast<i32>(m_CachedFrames.size()); ++i)
         {
-            const auto& frame = frames[i];
+            const auto& frame = m_CachedFrames[i];
             bool isSelected = (i == selectedIdx);
 
             ImGui::PushID(i);
@@ -1108,9 +1117,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto& captureManager = FrameCaptureManager::GetInstance();
-        const auto* frame = captureManager.GetSelectedFrame();
+        auto selectedFrame = captureManager.GetSelectedFrame();
 
-        if (!frame)
+        if (!selectedFrame)
         {
             OLO_CORE_ERROR("Cannot export CSV: no frame selected");
             return false;
@@ -1124,7 +1133,7 @@ namespace OloEngine
 
             file << "Index,Type,DrawKey,ViewportID,ViewLayer,RenderMode,MaterialID,ShaderID,Depth,Static,GroupID,DebugName,GpuTimeMs\n";
 
-            const auto& commands = !frame->PostSortCommands.empty() ? frame->PostSortCommands : frame->PreSortCommands;
+            const auto& commands = !selectedFrame->PostSortCommands.empty() ? selectedFrame->PostSortCommands : selectedFrame->PreSortCommands;
 
             for (sizet i = 0; i < commands.size(); ++i)
             {
@@ -1166,13 +1175,15 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto& captureManager = FrameCaptureManager::GetInstance();
-        const auto* frame = captureManager.GetSelectedFrame();
+        auto selectedFrame = captureManager.GetSelectedFrame();
 
-        if (!frame)
+        if (!selectedFrame)
         {
             OLO_CORE_ERROR("Cannot export Markdown: no frame selected");
             return false;
         }
+
+        const auto* frame = &*selectedFrame;
 
         try
         {

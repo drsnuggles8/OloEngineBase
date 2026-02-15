@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <deque>
+#include <optional>
 
 namespace OloEngine
 {
@@ -62,13 +63,13 @@ namespace OloEngine
         // Selection
         void SetSelectedFrameIndex(i32 index)
         {
-            m_SelectedFrameIndex = index;
+            m_SelectedFrameIndex.store(index, std::memory_order_release);
         }
         i32 GetSelectedFrameIndex() const
         {
-            return m_SelectedFrameIndex;
+            return m_SelectedFrameIndex.load(std::memory_order_acquire);
         }
-        const CapturedFrameData* GetSelectedFrame() const;
+        std::optional<CapturedFrameData> GetSelectedFrame() const;
 
       private:
         FrameCaptureManager() = default;
@@ -81,7 +82,7 @@ namespace OloEngine
 
         std::atomic<CaptureState> m_State = CaptureState::Idle;
         u32 m_MaxCapturedFrames = 60;
-        i32 m_SelectedFrameIndex = -1;
+        std::atomic<i32> m_SelectedFrameIndex = -1;
 
         // In-progress frame being built during capture hooks
         CapturedFrameData m_PendingFrame;

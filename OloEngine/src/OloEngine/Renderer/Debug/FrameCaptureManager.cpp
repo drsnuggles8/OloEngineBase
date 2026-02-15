@@ -46,13 +46,15 @@ namespace OloEngine
         m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
     }
 
-    const CapturedFrameData* FrameCaptureManager::GetSelectedFrame() const
+    std::optional<CapturedFrameData> FrameCaptureManager::GetSelectedFrame() const
     {
-        if (m_SelectedFrameIndex >= 0 && m_SelectedFrameIndex < static_cast<i32>(m_CapturedFrames.size()))
+        TUniqueLock<FMutex> lock(m_Mutex);
+        i32 idx = m_SelectedFrameIndex.load(std::memory_order_acquire);
+        if (idx >= 0 && idx < static_cast<i32>(m_CapturedFrames.size()))
         {
-            return &m_CapturedFrames[m_SelectedFrameIndex];
+            return m_CapturedFrames[idx];
         }
-        return nullptr;
+        return std::nullopt;
     }
 
     std::deque<CapturedFrameData> FrameCaptureManager::GetCapturedFramesCopy() const
@@ -171,14 +173,15 @@ namespace OloEngine
             while (m_CapturedFrames.size() > m_MaxCapturedFrames)
             {
                 m_CapturedFrames.pop_front();
-                if (m_SelectedFrameIndex > 0)
-                    m_SelectedFrameIndex--;
+                i32 sel = m_SelectedFrameIndex.load(std::memory_order_relaxed);
+                if (sel > 0)
+                    m_SelectedFrameIndex.store(sel - 1, std::memory_order_relaxed);
             }
 
             // Auto-select the latest frame if nothing is selected
-            if (m_SelectedFrameIndex < 0)
+            if (m_SelectedFrameIndex.load(std::memory_order_relaxed) < 0)
             {
-                m_SelectedFrameIndex = static_cast<i32>(m_CapturedFrames.size()) - 1;
+                m_SelectedFrameIndex.store(static_cast<i32>(m_CapturedFrames.size()) - 1, std::memory_order_relaxed);
             }
         }
 
