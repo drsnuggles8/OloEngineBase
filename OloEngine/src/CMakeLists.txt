@@ -368,6 +368,8 @@
 		"OloEngine/Renderer/Debug/CommandPacketDebugger.cpp"
 		"OloEngine/Renderer/Debug/FrameCaptureManager.h"
 		"OloEngine/Renderer/Debug/FrameCaptureManager.cpp"
+		"OloEngine/Renderer/Debug/GPUTimerQueryPool.h"
+		"OloEngine/Renderer/Debug/GPUTimerQueryPool.cpp"
 		"OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 		"OloEngine/Renderer/Debug/RendererMemoryTracker.cpp"
 		"OloEngine/Renderer/Debug/RendererProfiler.h"

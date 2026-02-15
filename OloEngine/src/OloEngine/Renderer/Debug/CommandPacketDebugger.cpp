@@ -4,8 +4,10 @@
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <iomanip>
+#include <set>
 #include <sstream>
 #include <cmath>
 
@@ -40,8 +42,14 @@ namespace OloEngine
         {
             if (ImGui::BeginMenu("Export"))
             {
+                auto& cm = FrameCaptureManager::GetInstance();
+                const auto* frame = cm.GetSelectedFrame();
+                u32 frameNum = frame ? frame->FrameNumber : 0;
+
                 if (ImGui::MenuItem("Export to CSV"))
-                    ExportToCSV("command_bucket_capture.csv");
+                    ExportToCSV(GenerateExportFilename("csv", frameNum));
+                if (ImGui::MenuItem("Export to Markdown (LLM Analysis)"))
+                    ExportToMarkdown(GenerateExportFilename("md", frameNum));
                 ImGui::EndMenu();
             }
             ImGui::EndMenuBar();
@@ -183,7 +191,7 @@ namespace OloEngine
         ImGui::SameLine();
 
         // Horizontal scrolling frame list
-        ImGui::BeginChild("FrameList", ImVec2(0, 50), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+        ImGui::BeginChild("FrameList", ImVec2(0, 120), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
 
         for (i32 i = 0; i < static_cast<i32>(frames.size()); ++i)
         {
@@ -200,7 +208,7 @@ namespace OloEngine
             if (isSelected)
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.5f, 0.8f, 1.0f));
 
-            if (ImGui::Button(label, ImVec2(80, 40)))
+            if (ImGui::Button(label, ImVec2(80, 65)))
             {
                 captureManager.SetSelectedFrameIndex(i);
                 m_SelectedCommandIndex = -1;
@@ -1067,6 +1075,20 @@ namespace OloEngine
     // CSV Export
     // ========================================================================
 
+    std::string CommandPacketDebugger::GenerateExportFilename(const char* extension, u32 frameNumber)
+    {
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::tm tm{};
+        localtime_s(&tm, &time);
+
+        std::ostringstream oss;
+        oss << "cmd_bucket_frame" << frameNumber
+            << "_" << std::put_time(&tm, "%Y%m%d_%H%M%S")
+            << "." << extension;
+        return oss.str();
+    }
+
     bool CommandPacketDebugger::ExportToCSV(const std::string& outputPath) const
     {
         OLO_PROFILE_FUNCTION();
@@ -1117,6 +1139,360 @@ namespace OloEngine
         catch (const std::exception& e)
         {
             OLO_CORE_ERROR("Failed to export command packet data: {}", e.what());
+            return false;
+        }
+    }
+
+    // ========================================================================
+    // Markdown / LLM Analysis Export
+    // ========================================================================
+
+    bool CommandPacketDebugger::ExportToMarkdown(const std::string& outputPath) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& captureManager = FrameCaptureManager::GetInstance();
+        const auto* frame = captureManager.GetSelectedFrame();
+
+        if (!frame)
+        {
+            OLO_CORE_ERROR("Cannot export Markdown: no frame selected");
+            return false;
+        }
+
+        try
+        {
+            std::ofstream file(outputPath);
+            if (!file.is_open())
+                return false;
+
+            // Header
+            file << "# Command Bucket Frame Capture Report\n\n";
+            file << "## Frame Info\n\n";
+            file << "- **Frame Number:** " << frame->FrameNumber << "\n";
+            file << "- **Timestamp:** " << std::fixed << std::setprecision(3) << frame->TimestampSeconds << "s\n";
+            file << "- **Total Commands (pre-sort):** " << frame->PreSortCommands.size() << "\n";
+            file << "- **Total Commands (post-sort):** " << frame->PostSortCommands.size() << "\n";
+            file << "- **Total Commands (post-batch):** " << frame->PostBatchCommands.size() << "\n";
+            if (!frame->Notes.empty())
+                file << "- **Notes:** " << frame->Notes << "\n";
+            file << "\n";
+
+            // Pipeline statistics
+            file << "## Pipeline Statistics\n\n";
+            file << "| Metric | Value |\n";
+            file << "|--------|-------|\n";
+            file << "| Sort Time | " << std::fixed << std::setprecision(3) << frame->Stats.SortTimeMs << " ms |\n";
+            file << "| Batch Time | " << frame->Stats.BatchTimeMs << " ms |\n";
+            file << "| Execute Time | " << frame->Stats.ExecuteTimeMs << " ms |\n";
+            file << "| Total Frame Time | " << frame->Stats.TotalFrameTimeMs << " ms |\n";
+            file << "| Draw Calls | " << frame->Stats.DrawCalls << " |\n";
+            file << "| State Changes | " << frame->Stats.StateChanges << " |\n";
+            file << "| Shader Binds | " << frame->Stats.ShaderBinds << " |\n";
+            file << "| Texture Binds | " << frame->Stats.TextureBinds << " |\n";
+            file << "| Batched Commands | " << frame->Stats.BatchedCommands << " |\n";
+            file << "\n";
+
+            // Command list (post-sort is the most useful for analysis)
+            const auto& commands = !frame->PostSortCommands.empty() ? frame->PostSortCommands : frame->PreSortCommands;
+
+            file << "## Command List (Post-Sort Order)\n\n";
+            file << "| # | Type | ShaderID | MaterialID | Depth | ViewLayer | RenderMode | Static | DebugName | GpuTimeMs |\n";
+            file << "|---|------|----------|------------|-------|-----------|------------|--------|-----------|----------|\n";
+
+            for (sizet i = 0; i < commands.size(); ++i)
+            {
+                const auto& cmd = commands[i];
+                const DrawKey& key = cmd.GetSortKey();
+
+                file << "| " << i
+                     << " | " << cmd.GetCommandTypeString()
+                     << " | " << key.GetShaderID()
+                     << " | " << key.GetMaterialID()
+                     << " | " << key.GetDepth()
+                     << " | " << ToString(key.GetViewLayer())
+                     << " | " << ToString(key.GetRenderMode())
+                     << " | " << (cmd.IsStatic() ? "Yes" : "No")
+                     << " | " << (cmd.GetDebugName().empty() ? "-" : cmd.GetDebugName())
+                     << " | " << std::fixed << std::setprecision(4) << cmd.GetGpuTimeMs()
+                     << " |\n";
+            }
+            file << "\n";
+
+            // Sort analysis
+            file << "## Sort Analysis\n\n";
+            if (!frame->PreSortCommands.empty() && !frame->PostSortCommands.empty())
+            {
+                const auto& pre = frame->PreSortCommands;
+                const auto& post = frame->PostSortCommands;
+
+                f64 totalDisplacement = 0.0;
+                u32 maxDisplacement = 0;
+                u32 movedCount = 0;
+
+                for (u32 postIdx = 0; postIdx < static_cast<u32>(post.size()); ++postIdx)
+                {
+                    u32 origIdx = post[postIdx].GetOriginalIndex();
+                    u32 displacement = (origIdx > postIdx) ? origIdx - postIdx : postIdx - origIdx;
+                    totalDisplacement += displacement;
+                    maxDisplacement = std::max(maxDisplacement, displacement);
+                    if (displacement > 0)
+                        movedCount++;
+                }
+
+                f64 avgDisplacement = post.empty() ? 0.0 : totalDisplacement / post.size();
+                file << "- **Commands moved:** " << movedCount << "/" << post.size() << "\n";
+                file << "- **Average displacement:** " << std::fixed << std::setprecision(1) << avgDisplacement << " positions\n";
+                file << "- **Max displacement:** " << maxDisplacement << " positions\n\n";
+            }
+            else
+            {
+                file << "Insufficient data for sort analysis.\n\n";
+            }
+
+            // State change analysis
+            file << "## State Change Analysis\n\n";
+            if (commands.size() >= 2)
+            {
+                u32 shaderChanges = 0;
+                u32 materialChanges = 0;
+                u32 blendChanges = 0;
+                u32 depthChanges = 0;
+
+                for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
+                {
+                    const auto& prev = commands[i - 1];
+                    const auto& curr = commands[i];
+
+                    if (prev.GetSortKey().GetShaderID() != curr.GetSortKey().GetShaderID())
+                        shaderChanges++;
+                    if (prev.GetSortKey().GetMaterialID() != curr.GetSortKey().GetMaterialID())
+                        materialChanges++;
+
+                    if (prev.GetCommandType() == CommandType::DrawMesh && curr.GetCommandType() == CommandType::DrawMesh)
+                    {
+                        const auto* prevCmd = prev.GetCommandData<DrawMeshCommand>();
+                        const auto* currCmd = curr.GetCommandData<DrawMeshCommand>();
+                        if (prevCmd && currCmd)
+                        {
+                            if (prevCmd->renderState.blendEnabled != currCmd->renderState.blendEnabled ||
+                                prevCmd->renderState.blendSrcFactor != currCmd->renderState.blendSrcFactor)
+                                blendChanges++;
+                            if (prevCmd->renderState.depthTestEnabled != currCmd->renderState.depthTestEnabled ||
+                                prevCmd->renderState.depthFunction != currCmd->renderState.depthFunction)
+                                depthChanges++;
+                        }
+                    }
+                }
+
+                f32 shaderCoherence = 1.0f - (static_cast<f32>(shaderChanges) / static_cast<f32>(commands.size() - 1));
+
+                file << "| Metric | Count |\n";
+                file << "|--------|-------|\n";
+                file << "| Shader Changes | " << shaderChanges << " |\n";
+                file << "| Material Changes | " << materialChanges << " |\n";
+                file << "| Blend State Changes | " << blendChanges << " |\n";
+                file << "| Depth State Changes | " << depthChanges << " |\n";
+                file << "| **Shader Coherence** | **" << std::fixed << std::setprecision(1) << (shaderCoherence * 100.0f) << "%** |\n\n";
+            }
+
+            // Batching analysis
+            file << "## Batching Analysis\n\n";
+            if (!frame->PostBatchCommands.empty())
+            {
+                i32 merged = static_cast<i32>(frame->PostSortCommands.size()) - static_cast<i32>(frame->PostBatchCommands.size());
+                f32 batchRatio = frame->PostSortCommands.empty() ? 1.0f
+                    : static_cast<f32>(frame->PostBatchCommands.size()) / static_cast<f32>(frame->PostSortCommands.size());
+
+                file << "- **Pre-batch commands:** " << frame->PostSortCommands.size() << "\n";
+                file << "- **Post-batch commands:** " << frame->PostBatchCommands.size() << "\n";
+                file << "- **Merged:** " << (merged > 0 ? merged : 0) << " commands\n";
+                file << "- **Batch ratio:** " << std::fixed << std::setprecision(1) << (batchRatio * 100.0f) << "%\n\n";
+            }
+            else
+            {
+                file << "No post-batch data available (batching may be disabled).\n\n";
+
+                // Count potential batch merges
+                u32 potentialMerges = 0;
+                for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
+                {
+                    const auto& prev = commands[i - 1];
+                    const auto& curr = commands[i];
+                    if (prev.GetCommandType() == CommandType::DrawMesh &&
+                        curr.GetCommandType() == CommandType::DrawMesh &&
+                        prev.GetSortKey().GetShaderID() == curr.GetSortKey().GetShaderID() &&
+                        prev.GetSortKey().GetMaterialID() == curr.GetSortKey().GetMaterialID())
+                    {
+                        potentialMerges++;
+                    }
+                }
+                if (potentialMerges > 0)
+                    file << "- **Potential batch merges** (same shader+material): " << potentialMerges << "\n\n";
+            }
+
+            // Draw command material summary
+            file << "## Draw Command Details\n\n";
+            u32 drawIdx = 0;
+            for (const auto& cmd : commands)
+            {
+                if (cmd.GetCommandType() == CommandType::DrawMesh)
+                {
+                    if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
+                    {
+                        file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
+                        file << "- Shader: " << meshCmd->shaderRendererID << " (handle: " << static_cast<u64>(meshCmd->shaderHandle) << ")\n";
+                        file << "- VAO: " << meshCmd->vertexArrayID << ", Index Count: " << meshCmd->indexCount << "\n";
+                        file << "- Entity ID: " << meshCmd->entityID << "\n";
+                        if (meshCmd->enablePBR)
+                        {
+                            file << "- PBR Material: baseColor=(" << meshCmd->baseColorFactor.r << "," << meshCmd->baseColorFactor.g << "," << meshCmd->baseColorFactor.b << ")"
+                                 << " metallic=" << meshCmd->metallicFactor << " roughness=" << meshCmd->roughnessFactor << "\n";
+                            file << "- Textures: albedo=" << meshCmd->albedoMapID << " metallicRough=" << meshCmd->metallicRoughnessMapID
+                                 << " normal=" << meshCmd->normalMapID << " ao=" << meshCmd->aoMapID << " emissive=" << meshCmd->emissiveMapID << "\n";
+                        }
+                        file << "- Depth: write=" << (meshCmd->renderState.depthWriteMask ? "yes" : "no")
+                             << " test=" << (meshCmd->renderState.depthTestEnabled ? "yes" : "no") << "\n";
+                        file << "- Blend: " << (meshCmd->renderState.blendEnabled ? "enabled" : "disabled") << "\n";
+                        if (meshCmd->isAnimatedMesh)
+                            file << "- Animated: boneOffset=" << meshCmd->boneBufferOffset << " boneCount=" << meshCmd->boneCount << "\n";
+                        file << "\n";
+                    }
+                }
+                else if (cmd.GetCommandType() == CommandType::DrawMeshInstanced)
+                {
+                    if (const auto* instCmd = cmd.GetCommandData<DrawMeshInstancedCommand>())
+                    {
+                        file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
+                        file << "- Instances: " << instCmd->instanceCount << "\n";
+                        file << "- Shader: " << instCmd->shaderRendererID << "\n";
+                        file << "- VAO: " << instCmd->vertexArrayID << ", Index Count: " << instCmd->indexCount << "\n\n";
+                    }
+                }
+            }
+
+            // GPU timing section
+            bool hasGpuTiming = false;
+            f64 totalGpuTime = 0.0;
+            for (const auto& cmd : commands)
+            {
+                if (cmd.GetGpuTimeMs() > 0.0)
+                {
+                    hasGpuTiming = true;
+                    totalGpuTime += cmd.GetGpuTimeMs();
+                }
+            }
+
+            if (hasGpuTiming)
+            {
+                file << "## GPU Timing\n\n";
+                file << "- **Total GPU Time:** " << std::fixed << std::setprecision(3) << totalGpuTime << " ms\n\n";
+
+                file << "| # | Type | GPU Time (ms) | % of Total |\n";
+                file << "|---|------|--------------|------------|\n";
+                for (sizet i = 0; i < commands.size(); ++i)
+                {
+                    const auto& cmd = commands[i];
+                    if (cmd.GetGpuTimeMs() > 0.0)
+                    {
+                        f64 pct = (totalGpuTime > 0.0) ? (cmd.GetGpuTimeMs() / totalGpuTime * 100.0) : 0.0;
+                        file << "| " << i << " | " << cmd.GetCommandTypeString()
+                             << " | " << std::fixed << std::setprecision(4) << cmd.GetGpuTimeMs()
+                             << " | " << std::setprecision(1) << pct << "% |\n";
+                    }
+                }
+                file << "\n";
+            }
+
+            // Auto-generated optimization suggestions
+            file << "## Optimization Suggestions\n\n";
+            file << "The following are auto-detected observations. An LLM or engineer should review these in context.\n\n";
+
+            bool hasSuggestions = false;
+
+            // High shader change ratio
+            if (commands.size() >= 2)
+            {
+                u32 shaderChanges = 0;
+                for (u32 i = 1; i < static_cast<u32>(commands.size()); ++i)
+                {
+                    if (commands[i - 1].GetSortKey().GetShaderID() != commands[i].GetSortKey().GetShaderID())
+                        shaderChanges++;
+                }
+                f32 changeRatio = static_cast<f32>(shaderChanges) / static_cast<f32>(commands.size() - 1);
+                if (changeRatio > 0.5f)
+                {
+                    file << "- **High shader change frequency** (" << std::fixed << std::setprecision(0) << (changeRatio * 100.0f) << "%): "
+                         << "Consider grouping objects by shader/material to reduce GPU pipeline flushes.\n";
+                    hasSuggestions = true;
+                }
+            }
+
+            // Many unique materials with same shader
+            {
+                std::unordered_map<u32, std::set<u32>> shaderToMaterials;
+                for (const auto& cmd : commands)
+                {
+                    if (cmd.IsDrawCommand())
+                        shaderToMaterials[cmd.GetSortKey().GetShaderID()].insert(cmd.GetSortKey().GetMaterialID());
+                }
+                for (const auto& [shaderId, materials] : shaderToMaterials)
+                {
+                    if (materials.size() > 10)
+                    {
+                        file << "- **Shader " << shaderId << " has " << materials.size() << " distinct materials**: "
+                             << "Consider using texture atlases or material instancing to reduce bind calls.\n";
+                        hasSuggestions = true;
+                    }
+                }
+            }
+
+            // Low batch merge rate
+            if (!frame->PostBatchCommands.empty() && !frame->PostSortCommands.empty())
+            {
+                f32 batchRatio = static_cast<f32>(frame->PostBatchCommands.size()) / static_cast<f32>(frame->PostSortCommands.size());
+                if (batchRatio > 0.95f && frame->PostSortCommands.size() > 10)
+                {
+                    file << "- **Low batch merge rate** (" << std::fixed << std::setprecision(1) << ((1.0f - batchRatio) * 100.0f) << "% merged): "
+                         << "Check if meshes with the same shader/material could share vertex buffers for instancing.\n";
+                    hasSuggestions = true;
+                }
+            }
+
+            // Many small draw calls
+            {
+                u32 smallDraws = 0;
+                for (const auto& cmd : commands)
+                {
+                    if (cmd.GetCommandType() == CommandType::DrawMesh)
+                    {
+                        if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
+                        {
+                            if (meshCmd->indexCount < 100)
+                                smallDraws++;
+                        }
+                    }
+                }
+                if (smallDraws > 5)
+                {
+                    file << "- **" << smallDraws << " draw calls with <100 indices**: "
+                         << "Consider merging small meshes or using instanced rendering.\n";
+                    hasSuggestions = true;
+                }
+            }
+
+            if (!hasSuggestions)
+                file << "No obvious optimization issues detected.\n";
+
+            file << "\n---\n*Generated by OloEngine Command Bucket Inspector*\n";
+
+            file.close();
+            OLO_CORE_INFO("Command packet analysis exported to: {}", outputPath);
+            return true;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("Failed to export Markdown analysis: {}", e.what());
             return false;
         }
     }

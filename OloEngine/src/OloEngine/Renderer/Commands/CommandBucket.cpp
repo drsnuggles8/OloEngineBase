@@ -3,6 +3,7 @@
 #include "FrameDataBuffer.h"
 #include "RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/Debug/GPUTimerQueryPool.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Threading/UniqueLock.h"
@@ -698,6 +699,65 @@ namespace OloEngine
             current->Execute(rendererAPI);
             current = current->GetNext();
         }
+
+        auto execEnd = std::chrono::high_resolution_clock::now();
+        m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
+    }
+
+    void CommandBucket::ExecuteWithGPUTiming(RendererAPI& rendererAPI)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& gpuTimer = GPUTimerQueryPool::GetInstance();
+
+        // If not initialized, lazily initialize
+        if (!gpuTimer.IsInitialized())
+            gpuTimer.Initialize();
+
+        // Begin frame — returns true if previous frame's results are ready
+        gpuTimer.BeginFrame();
+
+        auto execStart = std::chrono::high_resolution_clock::now();
+
+        CommandPacket const* current;
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_Stats.DrawCalls = 0;
+            m_Stats.StateChanges = 0;
+            current = m_Head;
+        }
+
+        u32 cmdIndex = 0;
+        while (current)
+        {
+            if (CommandType type = current->GetCommandType();
+                type == CommandType::DrawMesh ||
+                type == CommandType::DrawMeshInstanced ||
+                type == CommandType::DrawQuad)
+            {
+                m_Stats.DrawCalls++;
+            }
+            else if (type != CommandType::Invalid)
+            {
+                m_Stats.StateChanges++;
+            }
+
+            if (cmdIndex < gpuTimer.GetMaxQueries())
+            {
+                gpuTimer.BeginQuery(cmdIndex);
+                current->Execute(rendererAPI);
+                gpuTimer.EndQuery(cmdIndex);
+            }
+            else
+            {
+                current->Execute(rendererAPI);
+            }
+
+            current = current->GetNext();
+            cmdIndex++;
+        }
+
+        gpuTimer.EndFrame();
 
         auto execEnd = std::chrono::high_resolution_clock::now();
         m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();

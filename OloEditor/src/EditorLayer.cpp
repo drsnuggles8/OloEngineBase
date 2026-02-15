@@ -8,7 +8,8 @@
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
-#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
@@ -363,6 +364,8 @@ namespace OloEngine
             ImGui::MenuItem("Shader Debugger", nullptr, &m_ShowShaderDebugger);
             ImGui::MenuItem("GPU Resource Inspector", nullptr, &m_ShowGPUResourceInspector);
             ImGui::MenuItem("Command Bucket Inspector", nullptr, &m_ShowCommandBucketInspector);
+            ImGui::MenuItem("Renderer Profiler", nullptr, &m_ShowRendererProfiler);
+            ImGui::MenuItem("Render Graph Debugger", nullptr, &m_ShowRenderGraphDebugger);
 
             ImGui::EndMenu();
         }
@@ -710,6 +713,17 @@ namespace OloEngine
         {
             CommandPacketDebugger::GetInstance().RenderDebugView(
                 Renderer3D::GetCommandBucket(), &m_ShowCommandBucketInspector, "Command Bucket Inspector");
+        }
+
+        if (m_ShowRendererProfiler)
+        {
+            RendererProfiler::GetInstance().RenderUI(&m_ShowRendererProfiler);
+        }
+
+        if (m_ShowRenderGraphDebugger)
+        {
+            static RenderGraphDebugger s_RenderGraphDebugger;
+            s_RenderGraphDebugger.RenderDebugView(Renderer3D::GetRenderGraph(), &m_ShowRenderGraphDebugger, "Render Graph Debugger");
         }
 #endif
     }

@@ -53,6 +53,10 @@ OloEngine/vendor/*
 # Log files
 **.log
 **.tlog
+
+# Debug export files (Command Bucket Inspector)
+**/cmd_bucket_*.csv
+**/cmd_bucket_*.md
 /OloEditor/imgui.ini
 out/build/x64-Debug/VSInheritEnvironments.txt
 .gitignore

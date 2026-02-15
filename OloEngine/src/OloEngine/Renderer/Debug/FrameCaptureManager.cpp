@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "FrameCaptureManager.h"
+#include "GPUTimerQueryPool.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 
@@ -115,6 +116,22 @@ namespace OloEngine
         }
         m_PendingFrame.Stats.DrawCalls = drawCalls;
         m_PendingFrame.Stats.StateChanges = stateChanges;
+
+        // Populate GPU timing from the previous frame's readback
+        // (GPU timer uses double-buffered queries; results lag by one frame)
+        auto& gpuTimer = GPUTimerQueryPool::GetInstance();
+        if (gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
+        {
+            // Apply to post-sort commands (the execution order)
+            auto& timedCommands = m_HasPendingPostBatch
+                ? m_PendingFrame.PostBatchCommands
+                : (m_HasPendingPostSort ? m_PendingFrame.PostSortCommands : m_PendingFrame.PreSortCommands);
+
+            for (u32 i = 0; i < static_cast<u32>(timedCommands.size()) && i < gpuTimer.GetReadableQueryCount(); ++i)
+            {
+                timedCommands[i].SetGpuTimeMs(gpuTimer.GetQueryResultMs(i));
+            }
+        }
 
         // Count batched commands (difference between post-sort and post-batch)
         if (m_HasPendingPostSort && m_HasPendingPostBatch)

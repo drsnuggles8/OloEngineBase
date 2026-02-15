@@ -118,6 +118,9 @@ namespace OloEngine
 
         void Execute(RendererAPI& rendererAPI);
 
+        // Execute with per-command GPU timing (used during capture)
+        void ExecuteWithGPUTiming(RendererAPI& rendererAPI);
+
         // Clear the bucket (doesn't free memory, just resets)
         void Clear();
 

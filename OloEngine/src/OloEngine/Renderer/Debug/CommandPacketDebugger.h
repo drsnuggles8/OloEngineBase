@@ -34,6 +34,12 @@ namespace OloEngine
         // @brief Exports captured frame data to CSV
         bool ExportToCSV(const std::string& outputPath) const;
 
+        // @brief Exports captured frame data to Markdown for LLM analysis
+        bool ExportToMarkdown(const std::string& outputPath) const;
+
+        // @brief Generates a timestamped filename for exports
+        static std::string GenerateExportFilename(const char* extension, u32 frameNumber);
+
     private:
         CommandPacketDebugger() = default;
         ~CommandPacketDebugger() = default;

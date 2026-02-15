@@ -77,7 +77,10 @@ namespace OloEngine
         if (capturing)
             captureManager.OnPostBatch(m_CommandBucket);
 
-        m_CommandBucket.Execute(rendererAPI);
+        if (capturing)
+            m_CommandBucket.ExecuteWithGPUTiming(rendererAPI);
+        else
+            m_CommandBucket.Execute(rendererAPI);
 
         if (capturing)
         {
