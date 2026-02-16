@@ -8,6 +8,7 @@ namespace OloEngine
 {
     static bool PointInRect(const glm::vec2& point, const glm::vec2& rectPos, const glm::vec2& rectSize)
     {
+        OLO_PROFILE_FUNCTION();
         return point.x >= rectPos.x && point.x <= rectPos.x + rectSize.x &&
                point.y >= rectPos.y && point.y <= rectPos.y + rectSize.y;
     }
