@@ -29,6 +29,8 @@ namespace OloEngine
     class AnimationGraphAsset;
     class SoundGraphAsset;
 
+    class ParticleSystemAsset;
+
     struct AssetSerializationInfo
     {
         u64 Offset = 0;
@@ -327,6 +329,20 @@ namespace OloEngine
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+    };
+
+    class ParticleSystemAssetSerializer : public AssetSerializer
+    {
+      public:
+        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
+      private:
+        std::string SerializeToYAML(const Ref<ParticleSystemAsset>& particleAsset) const;
+        [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<ParticleSystemAsset>& particleAsset) const;
     };
 
 } // namespace OloEngine

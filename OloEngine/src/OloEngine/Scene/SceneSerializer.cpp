@@ -874,6 +874,24 @@ namespace OloEngine
             out << YAML::Key << "InitialColor" << YAML::Value << emitter.InitialColor;
             out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(emitter.Shape.index());
 
+            // Emission shape parameters
+            if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
+                out << YAML::Key << "EmissionSphereRadius" << YAML::Value << sphere->Radius;
+            if (auto* box = std::get_if<EmitBox>(&emitter.Shape))
+                out << YAML::Key << "EmissionBoxHalfExtents" << YAML::Value << box->HalfExtents;
+            if (auto* cone = std::get_if<EmitCone>(&emitter.Shape))
+            {
+                out << YAML::Key << "EmissionConeAngle" << YAML::Value << cone->Angle;
+                out << YAML::Key << "EmissionConeRadius" << YAML::Value << cone->Radius;
+            }
+            if (auto* ring = std::get_if<EmitRing>(&emitter.Shape))
+            {
+                out << YAML::Key << "EmissionRingInnerRadius" << YAML::Value << ring->InnerRadius;
+                out << YAML::Key << "EmissionRingOuterRadius" << YAML::Value << ring->OuterRadius;
+            }
+            if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
+                out << YAML::Key << "EmissionEdgeLength" << YAML::Value << edge->Length;
+
             // Modules
             out << YAML::Key << "GravityEnabled" << YAML::Value << sys.GravityModule.Enabled;
             out << YAML::Key << "Gravity" << YAML::Value << sys.GravityModule.Gravity;
@@ -921,6 +939,9 @@ namespace OloEngine
             out << YAML::Key << "LODDistance1" << YAML::Value << sys.LODDistance1;
             out << YAML::Key << "LODDistance2" << YAML::Value << sys.LODDistance2;
             out << YAML::Key << "LODMaxDistance" << YAML::Value << sys.LODMaxDistance;
+
+            // Warm-up
+            out << YAML::Key << "WarmUpTime" << YAML::Value << sys.WarmUpTime;
 
             out << YAML::EndMap; // ParticleSystemComponent
         }
@@ -1661,6 +1682,53 @@ namespace OloEngine
                     TrySet(emitter.InitialRotation, particleComponent["InitialRotation"]);
                     TrySet(emitter.RotationVariance, particleComponent["RotationVariance"]);
                     TrySet(emitter.InitialColor, particleComponent["InitialColor"]);
+                    // Emission shape deserialization
+                    if (auto shapeType = particleComponent["EmissionShapeType"]; shapeType)
+                    {
+                        switch (shapeType.as<int>())
+                        {
+                            case 0: emitter.Shape = EmitPoint{}; break;
+                            case 1:
+                            {
+                                EmitSphere s;
+                                TrySet(s.Radius, particleComponent["EmissionSphereRadius"]);
+                                emitter.Shape = s;
+                                break;
+                            }
+                            case 2:
+                            {
+                                EmitBox b;
+                                TrySet(b.HalfExtents, particleComponent["EmissionBoxHalfExtents"]);
+                                emitter.Shape = b;
+                                break;
+                            }
+                            case 3:
+                            {
+                                EmitCone c;
+                                TrySet(c.Angle, particleComponent["EmissionConeAngle"]);
+                                TrySet(c.Radius, particleComponent["EmissionConeRadius"]);
+                                emitter.Shape = c;
+                                break;
+                            }
+                            case 4:
+                            {
+                                EmitRing r;
+                                TrySet(r.InnerRadius, particleComponent["EmissionRingInnerRadius"]);
+                                TrySet(r.OuterRadius, particleComponent["EmissionRingOuterRadius"]);
+                                emitter.Shape = r;
+                                break;
+                            }
+                            case 5:
+                            {
+                                EmitEdge e;
+                                TrySet(e.Length, particleComponent["EmissionEdgeLength"]);
+                                emitter.Shape = e;
+                                break;
+                            }
+                            default: break;
+                        }
+                    }
+
 
                     TrySet(sys.GravityModule.Enabled, particleComponent["GravityEnabled"]);
                     TrySet(sys.GravityModule.Gravity, particleComponent["Gravity"]);
@@ -1711,6 +1779,7 @@ namespace OloEngine
                     TrySet(sys.LODDistance1, particleComponent["LODDistance1"]);
                     TrySet(sys.LODDistance2, particleComponent["LODDistance2"]);
                     TrySet(sys.LODMaxDistance, particleComponent["LODMaxDistance"]);
+                    TrySet(sys.WarmUpTime, particleComponent["WarmUpTime"]);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
@@ -2508,6 +2577,53 @@ namespace OloEngine
                     TrySet(emitter.InitialRotation, particleComponent["InitialRotation"]);
                     TrySet(emitter.RotationVariance, particleComponent["RotationVariance"]);
                     TrySet(emitter.InitialColor, particleComponent["InitialColor"]);
+                    // Emission shape deserialization
+                    if (auto shapeType = particleComponent["EmissionShapeType"]; shapeType)
+                    {
+                        switch (shapeType.as<int>())
+                        {
+                            case 0: emitter.Shape = EmitPoint{}; break;
+                            case 1:
+                            {
+                                EmitSphere s;
+                                TrySet(s.Radius, particleComponent["EmissionSphereRadius"]);
+                                emitter.Shape = s;
+                                break;
+                            }
+                            case 2:
+                            {
+                                EmitBox b;
+                                TrySet(b.HalfExtents, particleComponent["EmissionBoxHalfExtents"]);
+                                emitter.Shape = b;
+                                break;
+                            }
+                            case 3:
+                            {
+                                EmitCone c;
+                                TrySet(c.Angle, particleComponent["EmissionConeAngle"]);
+                                TrySet(c.Radius, particleComponent["EmissionConeRadius"]);
+                                emitter.Shape = c;
+                                break;
+                            }
+                            case 4:
+                            {
+                                EmitRing r;
+                                TrySet(r.InnerRadius, particleComponent["EmissionRingInnerRadius"]);
+                                TrySet(r.OuterRadius, particleComponent["EmissionRingOuterRadius"]);
+                                emitter.Shape = r;
+                                break;
+                            }
+                            case 5:
+                            {
+                                EmitEdge e;
+                                TrySet(e.Length, particleComponent["EmissionEdgeLength"]);
+                                emitter.Shape = e;
+                                break;
+                            }
+                            default: break;
+                        }
+                    }
+
 
                     TrySet(sys.GravityModule.Enabled, particleComponent["GravityEnabled"]);
                     TrySet(sys.GravityModule.Gravity, particleComponent["Gravity"]);
@@ -2558,6 +2674,7 @@ namespace OloEngine
                     TrySet(sys.LODDistance1, particleComponent["LODDistance1"]);
                     TrySet(sys.LODDistance2, particleComponent["LODDistance2"]);
                     TrySet(sys.LODMaxDistance, particleComponent["LODMaxDistance"]);
+                    TrySet(sys.WarmUpTime, particleComponent["WarmUpTime"]);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)

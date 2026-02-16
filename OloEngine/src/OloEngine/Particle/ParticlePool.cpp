@@ -84,5 +84,10 @@ namespace OloEngine
         std::swap(Rotations[a], Rotations[b]);
         std::swap(Lifetimes[a], Lifetimes[b]);
         std::swap(MaxLifetimes[a], MaxLifetimes[b]);
+
+        if (OnSwapCallback)
+        {
+            OnSwapCallback(a, b);
+        }
     }
 }

@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <functional>
 #include <glm/glm.hpp>
 #include <vector>
 
@@ -37,6 +38,10 @@ namespace OloEngine
         std::vector<f32> Rotations;
         std::vector<f32> Lifetimes;     // Remaining lifetime
         std::vector<f32> MaxLifetimes;  // Initial lifetime (for age calculation)
+
+        // Optional callback invoked when particles are swapped during Kill/UpdateLifetimes
+        // Use to keep external SOA data synchronized (e.g., trail data)
+        std::function<void(u32, u32)> OnSwapCallback;
 
     private:
         void SwapParticles(u32 a, u32 b);

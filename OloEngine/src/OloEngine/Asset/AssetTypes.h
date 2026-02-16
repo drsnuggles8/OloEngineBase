@@ -32,6 +32,7 @@ namespace OloEngine
         Model = 21,
         Environment = 22,
         SoundGraph = 23,
+        ParticleSystem = 24,
     };
 
     enum class AssetFlag : u16
@@ -142,6 +143,8 @@ namespace OloEngine
                     return "Environment";
                 case AssetType::SoundGraph:
                     return "SoundGraph";
+                case AssetType::ParticleSystem:
+                    return "ParticleSystem";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -205,6 +208,8 @@ namespace OloEngine
                 return AssetType::Environment;
             if (assetType == "SoundGraph")
                 return AssetType::SoundGraph;
+            if (assetType == "ParticleSystem")
+                return AssetType::ParticleSystem;
 
             return AssetType::None;
         }

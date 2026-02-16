@@ -1643,6 +1643,7 @@ namespace OloEngine
             ImGui::Checkbox("Looping", &sys.Looping);
             ImGui::DragFloat("Duration", &sys.Duration, 0.1f, 0.1f, 100.0f);
             ImGui::DragFloat("Playback Speed", &sys.PlaybackSpeed, 0.01f, 0.0f, 10.0f);
+            ImGui::DragFloat("Warm Up Time", &sys.WarmUpTime, 0.1f, 0.0f, 10.0f);
 
             int maxP = static_cast<int>(sys.GetMaxParticles());
             if (ImGui::DragInt("Max Particles", &maxP, 10, 1, 100000))

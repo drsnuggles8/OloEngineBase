@@ -23,7 +23,7 @@ namespace OloEngine
         void Resize(u32 maxParticles, u32 maxTrailPoints);
 
         // Record a new trail point for particle at index
-        void RecordPoint(u32 particleIndex, const glm::vec3& position, f32 width, const glm::vec4& color);
+        void RecordPoint(u32 particleIndex, const glm::vec3& position, f32 width, const glm::vec4& color, f32 minVertexDistance = 0.1f);
 
         // Swap trail data when pool kills a particle (swap-to-back)
         void SwapParticles(u32 a, u32 b);

@@ -418,12 +418,25 @@ namespace OloEngine
 
         // Update particle systems
         {
+            // Quick camera position lookup for LOD
+            glm::vec3 camPos(0.0f);
+            for (const auto camView = m_Registry.view<TransformComponent, CameraComponent>(); const auto camEntity : camView)
+            {
+                const auto& [camTransform, cam] = camView.get<TransformComponent, CameraComponent>(camEntity);
+                if (cam.Primary)
+                {
+                    camPos = camTransform.Translation;
+                    break;
+                }
+            }
+
             for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
             {
                 auto& transform = view.get<TransformComponent>(entity);
                 auto& psc = view.get<ParticleSystemComponent>(entity);
                 // Provide Jolt scene for raycast collision
                 psc.System.SetJoltScene(m_JoltScene.get());
+                psc.System.UpdateLOD(camPos, transform.Translation);
                 psc.System.Update(ts, transform.Translation);
             }
         }
@@ -573,10 +586,12 @@ namespace OloEngine
     {
         // Update particle systems so they preview in the editor
         {
+            const glm::vec3 camPos = camera.GetPosition();
             for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
             {
                 auto& transform = view.get<TransformComponent>(entity);
                 auto& psc = view.get<ParticleSystemComponent>(entity);
+                psc.System.UpdateLOD(camPos, transform.Translation);
                 psc.System.Update(ts, transform.Translation);
             }
         }

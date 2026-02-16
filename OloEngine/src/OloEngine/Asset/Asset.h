@@ -136,6 +136,7 @@ namespace OloEngine
         friend class AnimationAssetSerializer;
         friend class AnimationGraphAssetSerializer;
         friend class SoundGraphSerializer;
+        friend class ParticleSystemAssetSerializer;
 
         bool IsValid() const
         {

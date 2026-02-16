@@ -7,12 +7,36 @@ namespace OloEngine
         : m_Pool(maxParticles)
     {
         m_TrailData.Resize(maxParticles, TrailModule.MaxTrailPoints);
+
+        // Wire up swap callback so trail data stays in sync when particles die
+        m_Pool.OnSwapCallback = [this](u32 a, u32 b) { m_TrailData.SwapParticles(a, b); };
     }
 
     void ParticleSystem::SetMaxParticles(u32 maxParticles)
     {
         m_Pool.Resize(maxParticles);
         m_TrailData.Resize(maxParticles, TrailModule.MaxTrailPoints);
+    }
+
+    void ParticleSystem::UpdateLOD(const glm::vec3& cameraPosition, const glm::vec3& emitterPosition)
+    {
+        f32 dist = glm::length(cameraPosition - emitterPosition);
+        if (dist >= LODMaxDistance)
+        {
+            m_LODSpawnRateMultiplier = 0.0f;
+        }
+        else if (dist >= LODDistance2)
+        {
+            m_LODSpawnRateMultiplier = 0.25f;
+        }
+        else if (dist >= LODDistance1)
+        {
+            m_LODSpawnRateMultiplier = 0.5f;
+        }
+        else
+        {
+            m_LODSpawnRateMultiplier = 1.0f;
+        }
     }
 
     void ParticleSystem::Update(f32 dt, const glm::vec3& emitterPosition)
@@ -23,6 +47,22 @@ namespace OloEngine
         {
             return;
         }
+
+        // Warm-up: pre-simulate on first update to avoid empty systems
+        if (!m_HasWarmedUp && WarmUpTime > 0.0f)
+        {
+            m_HasWarmedUp = true;
+            constexpr f32 warmUpStep = 1.0f / 60.0f;
+            f32 remaining = WarmUpTime;
+            while (remaining > 0.0f)
+            {
+                f32 step = std::min(remaining, warmUpStep);
+                Update(step, emitterPosition);
+                remaining -= step;
+            }
+            return; // The recursive calls already advanced the system
+        }
+        m_HasWarmedUp = true;
 
         f32 scaledDt = dt * PlaybackSpeed;
         m_Time += scaledDt;
@@ -119,15 +159,14 @@ namespace OloEngine
             count = m_Pool.GetAliveCount();
             for (u32 i = 0; i < count; ++i)
             {
-                m_TrailData.RecordPoint(i, m_Pool.Positions[i], m_Pool.Sizes[i], m_Pool.Colors[i]);
+                m_TrailData.RecordPoint(i, m_Pool.Positions[i], m_Pool.Sizes[i], m_Pool.Colors[i], TrailModule.MinVertexDistance);
             }
             m_TrailData.AgePoints(scaledDt, TrailModule.TrailLifetime);
         }
 
-        // 6. Kill expired particles (collect death triggers before killing)
+        // 6. Collect death triggers before killing expired particles
         if (SubEmitterModule.Enabled)
         {
-            // Check for dying particles before UpdateLifetimes kills them
             count = m_Pool.GetAliveCount();
             for (u32 i = 0; i < count; ++i)
             {
@@ -148,12 +187,69 @@ namespace OloEngine
             }
         }
 
+        // Kill expired particles (OnSwapCallback keeps trail data in sync)
         m_Pool.UpdateLifetimes(scaledDt);
+
+        // 7. Spawn particles from sub-emitter triggers
+        ProcessSubEmitterTriggers();
+    }
+
+    void ParticleSystem::ProcessSubEmitterTriggers()
+    {
+        if (!SubEmitterModule.Enabled || m_PendingTriggers.empty())
+        {
+            return;
+        }
+
+        auto& rng = RandomUtils::GetGlobalRandom();
+
+        for (const auto& trigger : m_PendingTriggers)
+        {
+            for (const auto& entry : SubEmitterModule.Entries)
+            {
+                if (entry.Trigger != trigger.Event)
+                {
+                    continue;
+                }
+
+                u32 firstSlot = m_Pool.GetAliveCount();
+                u32 emitted = m_Pool.Emit(entry.EmitCount);
+
+                for (u32 i = 0; i < emitted; ++i)
+                {
+                    u32 idx = firstSlot + i;
+                    m_Pool.Positions[idx] = trigger.Position;
+
+                    // Random direction + inherited velocity
+                    glm::vec3 dir = glm::normalize(glm::vec3(
+                        rng.GetFloat32InRange(-1.0f, 1.0f),
+                        rng.GetFloat32InRange(-1.0f, 1.0f),
+                        rng.GetFloat32InRange(-1.0f, 1.0f)
+                    ));
+                    f32 speed = Emitter.InitialSpeed + rng.GetFloat32InRange(-Emitter.SpeedVariance, Emitter.SpeedVariance);
+                    m_Pool.Velocities[idx] = dir * std::max(speed, 0.0f) + trigger.Velocity;
+
+                    m_Pool.Colors[idx] = Emitter.InitialColor;
+                    m_Pool.Sizes[idx] = Emitter.InitialSize + rng.GetFloat32InRange(-Emitter.SizeVariance, Emitter.SizeVariance);
+                    m_Pool.Rotations[idx] = Emitter.InitialRotation + rng.GetFloat32InRange(-Emitter.RotationVariance, Emitter.RotationVariance);
+
+                    f32 lifetime = rng.GetFloat32InRange(Emitter.LifetimeMin, Emitter.LifetimeMax);
+                    m_Pool.Lifetimes[idx] = lifetime;
+                    m_Pool.MaxLifetimes[idx] = lifetime;
+
+                    if (TrailModule.Enabled)
+                    {
+                        m_TrailData.ClearTrail(idx);
+                    }
+                }
+            }
+        }
     }
 
     void ParticleSystem::Reset()
     {
         m_Time = 0.0f;
+        m_HasWarmedUp = false;
         m_Pool.Resize(m_Pool.GetMaxParticles());
         m_TrailData.Resize(m_Pool.GetMaxParticles(), TrailModule.MaxTrailPoints);
         m_PendingTriggers.clear();

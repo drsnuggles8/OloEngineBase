@@ -14,7 +14,7 @@ namespace OloEngine
         }
     }
 
-    void ParticleTrailData::RecordPoint(u32 particleIndex, const glm::vec3& position, f32 width, const glm::vec4& color)
+    void ParticleTrailData::RecordPoint(u32 particleIndex, const glm::vec3& position, f32 width, const glm::vec4& color, f32 minVertexDistance)
     {
         auto& trail = m_Trails[particleIndex];
 
@@ -22,7 +22,8 @@ namespace OloEngine
         if (!trail.empty())
         {
             glm::vec3 diff = position - trail.front().Position;
-            if (glm::dot(diff, diff) < 0.0001f) // Basically same position
+            f32 minDistSq = minVertexDistance * minVertexDistance;
+            if (glm::dot(diff, diff) < minDistSq)
             {
                 return;
             }

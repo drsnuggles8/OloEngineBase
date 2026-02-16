@@ -26,6 +26,9 @@ namespace OloEngine
         void Update(f32 dt, const glm::vec3& emitterPosition);
         void Reset();
 
+        // Compute LOD spawn rate multiplier based on camera distance to emitter
+        void UpdateLOD(const glm::vec3& cameraPosition, const glm::vec3& emitterPosition);
+
         [[nodiscard]] u32 GetAliveCount() const { return m_Pool.GetAliveCount(); }
         [[nodiscard]] u32 GetMaxParticles() const { return m_Pool.GetMaxParticles(); }
         void SetMaxParticles(u32 maxParticles);
@@ -47,6 +50,7 @@ namespace OloEngine
         bool Looping = true;
         f32 Duration = 5.0f;
         f32 PlaybackSpeed = 1.0f;
+        f32 WarmUpTime = 0.0f; // Pre-simulate this many seconds on first play
         ParticleSpace SimulationSpace = ParticleSpace::World;
 
         // LOD settings
@@ -77,5 +81,8 @@ namespace OloEngine
         JoltScene* m_JoltScene = nullptr;
         f32 m_Time = 0.0f;
         f32 m_LODSpawnRateMultiplier = 1.0f;
+        bool m_HasWarmedUp = false;
+
+        void ProcessSubEmitterTriggers();
     };
 }

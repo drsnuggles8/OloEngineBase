@@ -29,6 +29,7 @@
 #include "OloEngine/Animation/AnimationAsset.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
 #include "OloEngine/Core/YAMLConverters.h"
+#include "OloEngine/Particle/ParticleSystemAsset.h"
 #include <yaml-cpp/yaml.h>
 #include <stb_image/stb_image.h>
 #include <fstream>
@@ -2752,6 +2753,267 @@ namespace OloEngine
         OLO_CORE_TRACE("SoundGraphSerializer::DeserializeFromAssetPack - Deserialized SoundGraph '{}' from pack, Handle: {}",
                        soundGraphAsset->GetName(), assetInfo.Handle);
         return soundGraphAsset;
+    }
+
+    // ============================================================
+    // ParticleSystemAssetSerializer
+    // ============================================================
+
+    namespace
+    {
+        template<typename T>
+        void TrySetPS(T& target, const YAML::Node& node)
+        {
+            if (node)
+                target = node.as<T>();
+        }
+    }
+
+    void ParticleSystemAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    {
+        OLO_PROFILE_FUNCTION();
+        auto particleAsset = asset.As<ParticleSystemAsset>();
+        std::string yamlString = SerializeToYAML(particleAsset);
+        std::ofstream fout(Project::GetAssetDirectory() / metadata.FilePath);
+        fout << yamlString;
+    }
+
+    bool ParticleSystemAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
+    {
+        OLO_PROFILE_FUNCTION();
+        auto path = Project::GetAssetDirectory() / metadata.FilePath;
+        if (!std::filesystem::exists(path))
+            return false;
+        std::ifstream file(path);
+        if (!file.is_open())
+            return false;
+        std::stringstream ss;
+        ss << file.rdbuf();
+        auto particleAsset = Ref<ParticleSystemAsset>::Create();
+        if (!DeserializeFromYAML(ss.str(), particleAsset))
+            return false;
+        particleAsset->SetHandle(metadata.Handle);
+        asset = particleAsset;
+        return true;
+    }
+
+    bool ParticleSystemAssetSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+    {
+        OLO_PROFILE_FUNCTION();
+        auto particleAsset = AssetManager::GetAsset<ParticleSystemAsset>(handle);
+        if (!particleAsset)
+            return false;
+        std::string yamlString = SerializeToYAML(particleAsset);
+        outInfo.Offset = stream.GetStreamPosition();
+        stream.WriteString(yamlString);
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        return true;
+    }
+
+    Ref<Asset> ParticleSystemAssetSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+    {
+        OLO_PROFILE_FUNCTION();
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+        std::string yamlString;
+        stream.ReadString(yamlString);
+        auto particleAsset = Ref<ParticleSystemAsset>::Create();
+        if (!DeserializeFromYAML(yamlString, particleAsset))
+            return nullptr;
+        particleAsset->SetHandle(assetInfo.Handle);
+        return particleAsset;
+    }
+
+    std::string ParticleSystemAssetSerializer::SerializeToYAML(const Ref<ParticleSystemAsset>& particleAsset) const
+    {
+        const auto& sys = particleAsset->System;
+        const auto& emitter = sys.Emitter;
+
+        YAML::Emitter out;
+        out << YAML::BeginMap;
+        out << YAML::Key << "ParticleSystem" << YAML::Value;
+        out << YAML::BeginMap;
+
+        out << YAML::Key << "MaxParticles" << YAML::Value << sys.GetMaxParticles();
+        out << YAML::Key << "Playing" << YAML::Value << sys.Playing;
+        out << YAML::Key << "Looping" << YAML::Value << sys.Looping;
+        out << YAML::Key << "Duration" << YAML::Value << sys.Duration;
+        out << YAML::Key << "PlaybackSpeed" << YAML::Value << sys.PlaybackSpeed;
+        out << YAML::Key << "WarmUpTime" << YAML::Value << sys.WarmUpTime;
+        out << YAML::Key << "SimulationSpace" << YAML::Value << static_cast<int>(sys.SimulationSpace);
+
+        // Emitter
+        out << YAML::Key << "RateOverTime" << YAML::Value << emitter.RateOverTime;
+        out << YAML::Key << "InitialSpeed" << YAML::Value << emitter.InitialSpeed;
+        out << YAML::Key << "SpeedVariance" << YAML::Value << emitter.SpeedVariance;
+        out << YAML::Key << "LifetimeMin" << YAML::Value << emitter.LifetimeMin;
+        out << YAML::Key << "LifetimeMax" << YAML::Value << emitter.LifetimeMax;
+        out << YAML::Key << "InitialSize" << YAML::Value << emitter.InitialSize;
+        out << YAML::Key << "SizeVariance" << YAML::Value << emitter.SizeVariance;
+        out << YAML::Key << "InitialRotation" << YAML::Value << emitter.InitialRotation;
+        out << YAML::Key << "RotationVariance" << YAML::Value << emitter.RotationVariance;
+        out << YAML::Key << "InitialColor" << YAML::Value << emitter.InitialColor;
+        out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(emitter.Shape.index());
+
+        if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
+            out << YAML::Key << "EmissionSphereRadius" << YAML::Value << sphere->Radius;
+        if (auto* box = std::get_if<EmitBox>(&emitter.Shape))
+            out << YAML::Key << "EmissionBoxHalfExtents" << YAML::Value << box->HalfExtents;
+        if (auto* cone = std::get_if<EmitCone>(&emitter.Shape))
+        {
+            out << YAML::Key << "EmissionConeAngle" << YAML::Value << cone->Angle;
+            out << YAML::Key << "EmissionConeRadius" << YAML::Value << cone->Radius;
+        }
+        if (auto* ring = std::get_if<EmitRing>(&emitter.Shape))
+        {
+            out << YAML::Key << "EmissionRingInnerRadius" << YAML::Value << ring->InnerRadius;
+            out << YAML::Key << "EmissionRingOuterRadius" << YAML::Value << ring->OuterRadius;
+        }
+        if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
+            out << YAML::Key << "EmissionEdgeLength" << YAML::Value << edge->Length;
+
+        // Modules
+        out << YAML::Key << "GravityEnabled" << YAML::Value << sys.GravityModule.Enabled;
+        out << YAML::Key << "Gravity" << YAML::Value << sys.GravityModule.Gravity;
+        out << YAML::Key << "DragEnabled" << YAML::Value << sys.DragModule.Enabled;
+        out << YAML::Key << "DragCoefficient" << YAML::Value << sys.DragModule.DragCoefficient;
+        out << YAML::Key << "ColorOverLifetimeEnabled" << YAML::Value << sys.ColorModule.Enabled;
+        out << YAML::Key << "SizeOverLifetimeEnabled" << YAML::Value << sys.SizeModule.Enabled;
+        out << YAML::Key << "RotationOverLifetimeEnabled" << YAML::Value << sys.RotationModule.Enabled;
+        out << YAML::Key << "AngularVelocity" << YAML::Value << sys.RotationModule.AngularVelocity;
+        out << YAML::Key << "NoiseEnabled" << YAML::Value << sys.NoiseModule.Enabled;
+        out << YAML::Key << "NoiseStrength" << YAML::Value << sys.NoiseModule.Strength;
+        out << YAML::Key << "NoiseFrequency" << YAML::Value << sys.NoiseModule.Frequency;
+
+        // Phase 2 modules
+        out << YAML::Key << "CollisionEnabled" << YAML::Value << sys.CollisionModule.Enabled;
+        out << YAML::Key << "CollisionMode" << YAML::Value << static_cast<int>(sys.CollisionModule.Mode);
+        out << YAML::Key << "CollisionPlaneNormal" << YAML::Value << sys.CollisionModule.PlaneNormal;
+        out << YAML::Key << "CollisionPlaneOffset" << YAML::Value << sys.CollisionModule.PlaneOffset;
+        out << YAML::Key << "CollisionBounce" << YAML::Value << sys.CollisionModule.Bounce;
+        out << YAML::Key << "CollisionLifetimeLoss" << YAML::Value << sys.CollisionModule.LifetimeLoss;
+        out << YAML::Key << "CollisionKillOnCollide" << YAML::Value << sys.CollisionModule.KillOnCollide;
+        out << YAML::Key << "ForceFieldEnabled" << YAML::Value << sys.ForceFieldModule.Enabled;
+        out << YAML::Key << "ForceFieldType" << YAML::Value << static_cast<int>(sys.ForceFieldModule.Type);
+        out << YAML::Key << "ForceFieldPosition" << YAML::Value << sys.ForceFieldModule.Position;
+        out << YAML::Key << "ForceFieldStrength" << YAML::Value << sys.ForceFieldModule.Strength;
+        out << YAML::Key << "ForceFieldRadius" << YAML::Value << sys.ForceFieldModule.Radius;
+        out << YAML::Key << "ForceFieldAxis" << YAML::Value << sys.ForceFieldModule.Axis;
+        out << YAML::Key << "TrailEnabled" << YAML::Value << sys.TrailModule.Enabled;
+        out << YAML::Key << "TrailMaxPoints" << YAML::Value << sys.TrailModule.MaxTrailPoints;
+        out << YAML::Key << "TrailLifetime" << YAML::Value << sys.TrailModule.TrailLifetime;
+        out << YAML::Key << "TrailMinVertexDistance" << YAML::Value << sys.TrailModule.MinVertexDistance;
+        out << YAML::Key << "TrailWidthStart" << YAML::Value << sys.TrailModule.WidthStart;
+        out << YAML::Key << "TrailWidthEnd" << YAML::Value << sys.TrailModule.WidthEnd;
+        out << YAML::Key << "TrailColorStart" << YAML::Value << sys.TrailModule.ColorStart;
+        out << YAML::Key << "TrailColorEnd" << YAML::Value << sys.TrailModule.ColorEnd;
+        out << YAML::Key << "SubEmitterEnabled" << YAML::Value << sys.SubEmitterModule.Enabled;
+        out << YAML::Key << "LODDistance1" << YAML::Value << sys.LODDistance1;
+        out << YAML::Key << "LODDistance2" << YAML::Value << sys.LODDistance2;
+        out << YAML::Key << "LODMaxDistance" << YAML::Value << sys.LODMaxDistance;
+
+        out << YAML::EndMap;
+        out << YAML::EndMap;
+        return std::string(out.c_str());
+    }
+
+    bool ParticleSystemAssetSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<ParticleSystemAsset>& particleAsset) const
+    {
+        try
+        {
+            YAML::Node data = YAML::Load(yamlString);
+            if (!data["ParticleSystem"])
+                return false;
+
+            auto ps = data["ParticleSystem"];
+            auto& sys = particleAsset->System;
+            auto& emitter = sys.Emitter;
+
+            if (ps["MaxParticles"])
+                sys.SetMaxParticles(ps["MaxParticles"].as<u32>());
+            TrySetPS(sys.Playing, ps["Playing"]);
+            TrySetPS(sys.Looping, ps["Looping"]);
+            TrySetPS(sys.Duration, ps["Duration"]);
+            TrySetPS(sys.PlaybackSpeed, ps["PlaybackSpeed"]);
+            TrySetPS(sys.WarmUpTime, ps["WarmUpTime"]);
+            if (ps["SimulationSpace"])
+                sys.SimulationSpace = static_cast<ParticleSpace>(ps["SimulationSpace"].as<int>());
+
+            TrySetPS(emitter.RateOverTime, ps["RateOverTime"]);
+            TrySetPS(emitter.InitialSpeed, ps["InitialSpeed"]);
+            TrySetPS(emitter.SpeedVariance, ps["SpeedVariance"]);
+            TrySetPS(emitter.LifetimeMin, ps["LifetimeMin"]);
+            TrySetPS(emitter.LifetimeMax, ps["LifetimeMax"]);
+            TrySetPS(emitter.InitialSize, ps["InitialSize"]);
+            TrySetPS(emitter.SizeVariance, ps["SizeVariance"]);
+            TrySetPS(emitter.InitialRotation, ps["InitialRotation"]);
+            TrySetPS(emitter.RotationVariance, ps["RotationVariance"]);
+            TrySetPS(emitter.InitialColor, ps["InitialColor"]);
+
+            if (auto shapeType = ps["EmissionShapeType"]; shapeType)
+            {
+                switch (shapeType.as<int>())
+                {
+                    case 0: emitter.Shape = EmitPoint{}; break;
+                    case 1: { EmitSphere s; TrySetPS(s.Radius, ps["EmissionSphereRadius"]); emitter.Shape = s; break; }
+                    case 2: { EmitBox b; TrySetPS(b.HalfExtents, ps["EmissionBoxHalfExtents"]); emitter.Shape = b; break; }
+                    case 3: { EmitCone c; TrySetPS(c.Angle, ps["EmissionConeAngle"]); TrySetPS(c.Radius, ps["EmissionConeRadius"]); emitter.Shape = c; break; }
+                    case 4: { EmitRing r; TrySetPS(r.InnerRadius, ps["EmissionRingInnerRadius"]); TrySetPS(r.OuterRadius, ps["EmissionRingOuterRadius"]); emitter.Shape = r; break; }
+                    case 5: { EmitEdge e; TrySetPS(e.Length, ps["EmissionEdgeLength"]); emitter.Shape = e; break; }
+                    default: break;
+                }
+            }
+
+            TrySetPS(sys.GravityModule.Enabled, ps["GravityEnabled"]);
+            TrySetPS(sys.GravityModule.Gravity, ps["Gravity"]);
+            TrySetPS(sys.DragModule.Enabled, ps["DragEnabled"]);
+            TrySetPS(sys.DragModule.DragCoefficient, ps["DragCoefficient"]);
+            TrySetPS(sys.ColorModule.Enabled, ps["ColorOverLifetimeEnabled"]);
+            TrySetPS(sys.SizeModule.Enabled, ps["SizeOverLifetimeEnabled"]);
+            TrySetPS(sys.RotationModule.Enabled, ps["RotationOverLifetimeEnabled"]);
+            TrySetPS(sys.RotationModule.AngularVelocity, ps["AngularVelocity"]);
+            TrySetPS(sys.NoiseModule.Enabled, ps["NoiseEnabled"]);
+            TrySetPS(sys.NoiseModule.Strength, ps["NoiseStrength"]);
+            TrySetPS(sys.NoiseModule.Frequency, ps["NoiseFrequency"]);
+
+            TrySetPS(sys.CollisionModule.Enabled, ps["CollisionEnabled"]);
+            if (auto val = ps["CollisionMode"]; val)
+                sys.CollisionModule.Mode = static_cast<CollisionMode>(val.as<int>());
+            TrySetPS(sys.CollisionModule.PlaneNormal, ps["CollisionPlaneNormal"]);
+            TrySetPS(sys.CollisionModule.PlaneOffset, ps["CollisionPlaneOffset"]);
+            TrySetPS(sys.CollisionModule.Bounce, ps["CollisionBounce"]);
+            TrySetPS(sys.CollisionModule.LifetimeLoss, ps["CollisionLifetimeLoss"]);
+            TrySetPS(sys.CollisionModule.KillOnCollide, ps["CollisionKillOnCollide"]);
+
+            TrySetPS(sys.ForceFieldModule.Enabled, ps["ForceFieldEnabled"]);
+            if (auto val = ps["ForceFieldType"]; val)
+                sys.ForceFieldModule.Type = static_cast<ForceFieldType>(val.as<int>());
+            TrySetPS(sys.ForceFieldModule.Position, ps["ForceFieldPosition"]);
+            TrySetPS(sys.ForceFieldModule.Strength, ps["ForceFieldStrength"]);
+            TrySetPS(sys.ForceFieldModule.Radius, ps["ForceFieldRadius"]);
+            TrySetPS(sys.ForceFieldModule.Axis, ps["ForceFieldAxis"]);
+
+            TrySetPS(sys.TrailModule.Enabled, ps["TrailEnabled"]);
+            if (auto val = ps["TrailMaxPoints"]; val)
+                sys.TrailModule.MaxTrailPoints = val.as<u32>();
+            TrySetPS(sys.TrailModule.TrailLifetime, ps["TrailLifetime"]);
+            TrySetPS(sys.TrailModule.MinVertexDistance, ps["TrailMinVertexDistance"]);
+            TrySetPS(sys.TrailModule.WidthStart, ps["TrailWidthStart"]);
+            TrySetPS(sys.TrailModule.WidthEnd, ps["TrailWidthEnd"]);
+            TrySetPS(sys.TrailModule.ColorStart, ps["TrailColorStart"]);
+            TrySetPS(sys.TrailModule.ColorEnd, ps["TrailColorEnd"]);
+
+            TrySetPS(sys.SubEmitterModule.Enabled, ps["SubEmitterEnabled"]);
+            TrySetPS(sys.LODDistance1, ps["LODDistance1"]);
+            TrySetPS(sys.LODDistance2, ps["LODDistance2"]);
+            TrySetPS(sys.LODMaxDistance, ps["LODMaxDistance"]);
+
+            return true;
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("ParticleSystemAssetSerializer: Failed to deserialize - {}", e.what());
+            return false;
+        }
     }
 
 } // namespace OloEngine
