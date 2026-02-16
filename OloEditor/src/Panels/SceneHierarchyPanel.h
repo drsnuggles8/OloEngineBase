@@ -29,6 +29,9 @@ namespace OloEngine
         void DrawEntityNode(Entity entity);
         void DrawComponents(Entity entity);
 
+        Entity FindOrCreateCanvas();
+        Entity CreateUIWidget(const std::string& name);
+
       private:
         Ref<Scene> m_Context;
         Entity m_SelectionContext;

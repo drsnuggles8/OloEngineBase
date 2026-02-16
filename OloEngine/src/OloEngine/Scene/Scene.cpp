@@ -15,6 +15,11 @@
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/UI/UILayoutSystem.h"
+#include "OloEngine/UI/UIRenderer.h"
+#include "OloEngine/UI/UIInputSystem.h"
+#include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/MouseCodes.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -468,6 +473,17 @@ namespace OloEngine
 
             Renderer2D::EndScene();
         }
+
+        // Process UI input during runtime
+        {
+            const glm::vec2 mousePos = Input::GetMousePosition();
+            const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft);
+            const bool mousePressed = mouseDown && !m_PreviousMouseButtonDown;
+            m_PreviousMouseButtonDown = mouseDown;
+            UIInputSystem::ProcessInput(*this, mousePos, mouseDown, mousePressed);
+        }
+
+        RenderUIOverlay();
     }
 
     void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera const& camera)
@@ -541,6 +557,9 @@ namespace OloEngine
         {
             RenderScene(camera);
         }
+
+        // UI overlay renders on top of both 2D and 3D scenes
+        RenderUIOverlay();
     }
 
     void Scene::OnViewportResize(const u32 width, const u32 height)
@@ -831,6 +850,112 @@ namespace OloEngine
         }
 
         m_JoltScene->Shutdown();
+    }
+
+    void Scene::RenderUIOverlay()
+    {
+        OLO_PROFILE_FUNCTION();
+        if (m_ViewportWidth == 0 || m_ViewportHeight == 0)
+        {
+            return;
+        }
+
+        UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight);
+
+        glm::mat4 uiProjection = glm::ortho(0.0f, static_cast<f32>(m_ViewportWidth),
+                                            static_cast<f32>(m_ViewportHeight), 0.0f,
+                                            -1.0f, 1.0f);
+        UIRenderer::BeginScene(uiProjection);
+
+        // Build sorted draw order based on UICanvasComponent::m_SortOrder
+        auto resolvedView = GetAllEntitiesWith<UIResolvedRectComponent>();
+        std::vector<entt::entity> uiEntities;
+        for (const auto entity : resolvedView)
+        {
+            uiEntities.push_back(entity);
+        }
+        std::sort(uiEntities.begin(), uiEntities.end(),
+                  [this](entt::entity a, entt::entity b)
+                  {
+                      i32 sortA = 0;
+                      i32 sortB = 0;
+                      if (m_Registry.all_of<UICanvasComponent>(a))
+                      {
+                          sortA = m_Registry.get<UICanvasComponent>(a).m_SortOrder;
+                      }
+                      if (m_Registry.all_of<UICanvasComponent>(b))
+                      {
+                          sortB = m_Registry.get<UICanvasComponent>(b).m_SortOrder;
+                      }
+                      if (sortA != sortB)
+                      {
+                          return sortA < sortB;
+                      }
+                      return static_cast<u32>(a) < static_cast<u32>(b);
+                  });
+
+        for (const auto entity : uiEntities)
+        {
+            auto& resolved = m_Registry.get<UIResolvedRectComponent>(entity);
+            const int eid = static_cast<int>(entity);
+
+            if (m_Registry.all_of<UIPanelComponent>(entity))
+            {
+                UIRenderer::DrawPanel(resolved.m_Position, resolved.m_Size, m_Registry.get<UIPanelComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIButtonComponent>(entity))
+            {
+                UIRenderer::DrawButton(resolved.m_Position, resolved.m_Size, m_Registry.get<UIButtonComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIImageComponent>(entity))
+            {
+                UIRenderer::DrawImage(resolved.m_Position, resolved.m_Size, m_Registry.get<UIImageComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UITextComponent>(entity))
+            {
+                UIRenderer::DrawUIText(resolved.m_Position, resolved.m_Size, m_Registry.get<UITextComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UISliderComponent>(entity))
+            {
+                UIRenderer::DrawSlider(resolved.m_Position, resolved.m_Size, m_Registry.get<UISliderComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UICheckboxComponent>(entity))
+            {
+                UIRenderer::DrawCheckbox(resolved.m_Position, resolved.m_Size, m_Registry.get<UICheckboxComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIProgressBarComponent>(entity))
+            {
+                UIRenderer::DrawProgressBar(resolved.m_Position, resolved.m_Size, m_Registry.get<UIProgressBarComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIInputFieldComponent>(entity))
+            {
+                UIRenderer::DrawInputField(resolved.m_Position, resolved.m_Size, m_Registry.get<UIInputFieldComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIScrollViewComponent>(entity))
+            {
+                UIRenderer::DrawScrollView(resolved.m_Position, resolved.m_Size, m_Registry.get<UIScrollViewComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIDropdownComponent>(entity))
+            {
+                UIRenderer::DrawDropdown(resolved.m_Position, resolved.m_Size, m_Registry.get<UIDropdownComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIToggleComponent>(entity))
+            {
+                UIRenderer::DrawToggle(resolved.m_Position, resolved.m_Size, m_Registry.get<UIToggleComponent>(entity), eid);
+            }
+        }
+
+        UIRenderer::EndScene();
     }
 
     void Scene::RenderScene(EditorCamera const& camera)
@@ -1567,5 +1692,80 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::ConvexMeshCollider3DComponent
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::TriangleMeshCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::TriangleMeshCollider3DComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UICanvasComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UICanvasComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIRectTransformComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIRectTransformComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIResolvedRectComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIResolvedRectComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIImageComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIImageComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIPanelComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIPanelComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UITextComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UITextComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIButtonComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIButtonComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UISliderComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UISliderComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UICheckboxComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UICheckboxComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIProgressBarComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIProgressBarComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIInputFieldComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIInputFieldComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIScrollViewComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIScrollViewComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIDropdownComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIDropdownComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIGridLayoutComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIGridLayoutComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::UIToggleComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIToggleComponent& component)
 {
 }

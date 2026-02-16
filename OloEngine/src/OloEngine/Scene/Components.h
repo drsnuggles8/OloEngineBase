@@ -446,6 +446,290 @@ namespace OloEngine
         explicit RelationshipComponent(UUID parent) : m_ParentHandle(parent) {}
     };
 
+    // ── UI Components ────────────────────────────────────────────────────
+
+    enum class UICanvasRenderMode : u8
+    {
+        ScreenSpaceOverlay = 0,
+        WorldSpace
+    };
+
+    enum class UICanvasScaleMode : u8
+    {
+        ConstantPixelSize = 0,
+        ScaleWithScreenSize
+    };
+
+    struct UICanvasComponent
+    {
+        UICanvasRenderMode m_RenderMode = UICanvasRenderMode::ScreenSpaceOverlay;
+        UICanvasScaleMode m_ScaleMode = UICanvasScaleMode::ConstantPixelSize;
+        i32 m_SortOrder = 0;
+        glm::vec2 m_ReferenceResolution = { 1920.0f, 1080.0f };
+
+        UICanvasComponent() = default;
+        UICanvasComponent(const UICanvasComponent&) = default;
+    };
+
+    struct UIRectTransformComponent
+    {
+        glm::vec2 m_AnchorMin = { 0.5f, 0.5f };
+        glm::vec2 m_AnchorMax = { 0.5f, 0.5f };
+        glm::vec2 m_AnchoredPosition = { 0.0f, 0.0f };
+        glm::vec2 m_SizeDelta = { 100.0f, 100.0f };
+        glm::vec2 m_Pivot = { 0.5f, 0.5f };
+        f32 m_Rotation = 0.0f;
+        glm::vec2 m_Scale = { 1.0f, 1.0f };
+
+        UIRectTransformComponent() = default;
+        UIRectTransformComponent(const UIRectTransformComponent&) = default;
+    };
+
+    // Transient per-frame component — resolved screen-pixel rect, NOT serialized
+    struct UIResolvedRectComponent
+    {
+        glm::vec2 m_Position = { 0.0f, 0.0f }; // Top-left corner in pixels
+        glm::vec2 m_Size = { 0.0f, 0.0f };     // Width/height in pixels
+
+        UIResolvedRectComponent() = default;
+        UIResolvedRectComponent(const UIResolvedRectComponent&) = default;
+    };
+
+    enum class UITextAlignment : u8
+    {
+        TopLeft = 0,
+        TopCenter,
+        TopRight,
+        MiddleLeft,
+        MiddleCenter,
+        MiddleRight,
+        BottomLeft,
+        BottomCenter,
+        BottomRight
+    };
+
+    enum class UIButtonState : u8
+    {
+        Normal = 0,
+        Hovered,
+        Pressed,
+        Disabled
+    };
+
+    struct UIImageComponent
+    {
+        Ref<Texture2D> m_Texture = nullptr;
+        glm::vec4 m_Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        // 9-slice border insets (left, right, top, bottom) in pixels
+        glm::vec4 m_BorderInsets = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+        UIImageComponent() = default;
+        UIImageComponent(const UIImageComponent&) = default;
+    };
+
+    struct UIPanelComponent
+    {
+        glm::vec4 m_BackgroundColor = { 0.2f, 0.2f, 0.2f, 1.0f };
+        Ref<Texture2D> m_BackgroundTexture = nullptr;
+
+        UIPanelComponent() = default;
+        UIPanelComponent(const UIPanelComponent&) = default;
+    };
+
+    struct UITextComponent
+    {
+        std::string m_Text;
+        Ref<Font> m_FontAsset = Font::GetDefault();
+        f32 m_FontSize = 24.0f;
+        glm::vec4 m_Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        UITextAlignment m_Alignment = UITextAlignment::MiddleCenter;
+        f32 m_Kerning = 0.0f;
+        f32 m_LineSpacing = 0.0f;
+
+        UITextComponent() = default;
+        UITextComponent(const UITextComponent&) = default;
+    };
+
+    struct UIButtonComponent
+    {
+        glm::vec4 m_NormalColor = { 0.3f, 0.3f, 0.3f, 1.0f };
+        glm::vec4 m_HoveredColor = { 0.4f, 0.4f, 0.4f, 1.0f };
+        glm::vec4 m_PressedColor = { 0.2f, 0.2f, 0.2f, 1.0f };
+        glm::vec4 m_DisabledColor = { 0.15f, 0.15f, 0.15f, 0.5f };
+        bool m_Interactable = true;
+
+        // Runtime state — not serialized
+        UIButtonState m_State = UIButtonState::Normal;
+
+        UIButtonComponent() = default;
+        UIButtonComponent(const UIButtonComponent&) = default;
+    };
+
+    enum class UISliderDirection : u8
+    {
+        LeftToRight = 0,
+        RightToLeft,
+        TopToBottom,
+        BottomToTop
+    };
+
+    struct UISliderComponent
+    {
+        f32 m_Value = 0.0f;
+        f32 m_MinValue = 0.0f;
+        f32 m_MaxValue = 1.0f;
+        UISliderDirection m_Direction = UISliderDirection::LeftToRight;
+        glm::vec4 m_BackgroundColor = { 0.15f, 0.15f, 0.15f, 1.0f };
+        glm::vec4 m_FillColor = { 0.3f, 0.6f, 1.0f, 1.0f };
+        glm::vec4 m_HandleColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+        bool m_Interactable = true;
+
+        // Runtime state — not serialized
+        bool m_IsDragging = false;
+
+        UISliderComponent() = default;
+        UISliderComponent(const UISliderComponent&) = default;
+    };
+
+    struct UICheckboxComponent
+    {
+        bool m_IsChecked = false;
+        glm::vec4 m_UncheckedColor = { 0.2f, 0.2f, 0.2f, 1.0f };
+        glm::vec4 m_CheckedColor = { 0.3f, 0.6f, 1.0f, 1.0f };
+        glm::vec4 m_CheckmarkColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+        bool m_Interactable = true;
+
+        UICheckboxComponent() = default;
+        UICheckboxComponent(const UICheckboxComponent&) = default;
+    };
+
+    enum class UIFillMethod : u8
+    {
+        Horizontal = 0,
+        Vertical
+    };
+
+    struct UIProgressBarComponent
+    {
+        f32 m_Value = 0.0f;
+        f32 m_MinValue = 0.0f;
+        f32 m_MaxValue = 1.0f;
+        UIFillMethod m_FillMethod = UIFillMethod::Horizontal;
+        glm::vec4 m_BackgroundColor = { 0.15f, 0.15f, 0.15f, 1.0f };
+        glm::vec4 m_FillColor = { 0.3f, 0.8f, 0.3f, 1.0f };
+
+        UIProgressBarComponent() = default;
+        UIProgressBarComponent(const UIProgressBarComponent&) = default;
+    };
+
+    struct UIInputFieldComponent
+    {
+        std::string m_Text;
+        std::string m_Placeholder = "Enter text...";
+        Ref<Font> m_FontAsset = Font::GetDefault();
+        f32 m_FontSize = 24.0f;
+        glm::vec4 m_TextColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+        glm::vec4 m_PlaceholderColor = { 0.5f, 0.5f, 0.5f, 1.0f };
+        glm::vec4 m_BackgroundColor = { 0.15f, 0.15f, 0.15f, 1.0f };
+        i32 m_CharacterLimit = 0; // 0 = no limit
+        bool m_Interactable = true;
+
+        // Runtime state — not serialized
+        bool m_IsFocused = false;
+        i32 m_CursorPosition = 0;
+
+        UIInputFieldComponent() = default;
+        UIInputFieldComponent(const UIInputFieldComponent&) = default;
+    };
+
+    // --- Phase 4: Complex Widgets ---
+
+    enum class UIScrollDirection : u8
+    {
+        Vertical = 0,
+        Horizontal,
+        Both
+    };
+
+    struct UIScrollViewComponent
+    {
+        glm::vec2 m_ScrollPosition = { 0.0f, 0.0f };
+        glm::vec2 m_ContentSize = { 0.0f, 0.0f }; // total scrollable content area
+        UIScrollDirection m_ScrollDirection = UIScrollDirection::Vertical;
+        f32 m_ScrollSpeed = 20.0f;
+        bool m_ShowHorizontalScrollbar = false;
+        bool m_ShowVerticalScrollbar = true;
+        glm::vec4 m_ScrollbarColor = { 0.4f, 0.4f, 0.4f, 0.6f };
+        glm::vec4 m_ScrollbarTrackColor = { 0.15f, 0.15f, 0.15f, 0.3f };
+
+        UIScrollViewComponent() = default;
+        UIScrollViewComponent(const UIScrollViewComponent&) = default;
+    };
+
+    struct UIDropdownOption
+    {
+        std::string m_Label;
+    };
+
+    struct UIDropdownComponent
+    {
+        std::vector<UIDropdownOption> m_Options;
+        i32 m_SelectedIndex = -1;
+        glm::vec4 m_BackgroundColor = { 0.2f, 0.2f, 0.2f, 1.0f };
+        glm::vec4 m_HighlightColor = { 0.3f, 0.6f, 1.0f, 1.0f };
+        glm::vec4 m_TextColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+        Ref<Font> m_FontAsset = Font::GetDefault();
+        f32 m_FontSize = 24.0f;
+        f32 m_ItemHeight = 30.0f;
+        bool m_Interactable = true;
+
+        // Runtime state — not serialized
+        bool m_IsOpen = false;
+        i32 m_HoveredIndex = -1;
+
+        UIDropdownComponent() = default;
+        UIDropdownComponent(const UIDropdownComponent&) = default;
+    };
+
+    enum class UIGridLayoutStartCorner : u8
+    {
+        UpperLeft = 0,
+        UpperRight,
+        LowerLeft,
+        LowerRight
+    };
+
+    enum class UIGridLayoutAxis : u8
+    {
+        Horizontal = 0,
+        Vertical
+    };
+
+    struct UIGridLayoutComponent
+    {
+        glm::vec2 m_CellSize = { 100.0f, 100.0f };
+        glm::vec2 m_Spacing = { 5.0f, 5.0f };
+        glm::vec4 m_Padding = { 5.0f, 5.0f, 5.0f, 5.0f }; // left, right, top, bottom
+        UIGridLayoutStartCorner m_StartCorner = UIGridLayoutStartCorner::UpperLeft;
+        UIGridLayoutAxis m_StartAxis = UIGridLayoutAxis::Horizontal;
+        i32 m_ConstraintCount = 0; // 0 = flexible, >0 = fixed columns (Horizontal) or rows (Vertical)
+
+        UIGridLayoutComponent() = default;
+        UIGridLayoutComponent(const UIGridLayoutComponent&) = default;
+    };
+
+    struct UIToggleComponent
+    {
+        bool m_IsOn = false;
+        glm::vec4 m_OffColor = { 0.3f, 0.3f, 0.3f, 1.0f };
+        glm::vec4 m_OnColor = { 0.3f, 0.8f, 0.3f, 1.0f };
+        glm::vec4 m_KnobColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+        bool m_Interactable = true;
+
+        UIToggleComponent() = default;
+        UIToggleComponent(const UIToggleComponent&) = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -482,5 +766,19 @@ namespace OloEngine
         PointLightComponent,
         SpotLightComponent,
         EnvironmentMapComponent,
-        RelationshipComponent>;
+        RelationshipComponent,
+        UICanvasComponent,
+        UIRectTransformComponent,
+        UIImageComponent,
+        UIPanelComponent,
+        UITextComponent,
+        UIButtonComponent,
+        UISliderComponent,
+        UICheckboxComponent,
+        UIProgressBarComponent,
+        UIInputFieldComponent,
+        UIScrollViewComponent,
+        UIDropdownComponent,
+        UIGridLayoutComponent,
+        UIToggleComponent>;
 } // namespace OloEngine

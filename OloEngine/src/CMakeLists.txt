@@ -522,6 +522,12 @@
 		"OloEngine/Scripting/Lua/LuaScriptGlue.h"
 
 		"OloEngine/UI/UI.h"
+		"OloEngine/UI/UILayoutSystem.h"
+		"OloEngine/UI/UILayoutSystem.cpp"
+		"OloEngine/UI/UIRenderer.h"
+		"OloEngine/UI/UIRenderer.cpp"
+		"OloEngine/UI/UIInputSystem.h"
+		"OloEngine/UI/UIInputSystem.cpp"
 
 		"OloEngine/Utils/PlatformUtils.h"
 

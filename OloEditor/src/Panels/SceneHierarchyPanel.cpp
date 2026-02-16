@@ -49,6 +49,105 @@ namespace OloEngine
                     m_SelectionContext = m_Context->CreateEntity("Empty Entity");
                 }
 
+                if (ImGui::BeginMenu("Create UI"))
+                {
+                    if (ImGui::MenuItem("UI Canvas"))
+                    {
+                        auto canvas = m_Context->CreateEntity("UI Canvas");
+                        canvas.AddComponent<UICanvasComponent>();
+                        canvas.AddComponent<UIRectTransformComponent>();
+                        m_SelectionContext = canvas;
+                    }
+
+                    ImGui::Separator();
+
+                    if (ImGui::MenuItem("Panel"))
+                    {
+                        auto widget = CreateUIWidget("UI Panel");
+                        widget.AddComponent<UIPanelComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Text"))
+                    {
+                        auto widget = CreateUIWidget("UI Text");
+                        widget.AddComponent<UITextComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Image"))
+                    {
+                        auto widget = CreateUIWidget("UI Image");
+                        widget.AddComponent<UIImageComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Button"))
+                    {
+                        auto widget = CreateUIWidget("UI Button");
+                        widget.AddComponent<UIButtonComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Slider"))
+                    {
+                        auto widget = CreateUIWidget("UI Slider");
+                        widget.AddComponent<UISliderComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Checkbox"))
+                    {
+                        auto widget = CreateUIWidget("UI Checkbox");
+                        widget.AddComponent<UICheckboxComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Toggle"))
+                    {
+                        auto widget = CreateUIWidget("UI Toggle");
+                        widget.AddComponent<UIToggleComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Progress Bar"))
+                    {
+                        auto widget = CreateUIWidget("UI Progress Bar");
+                        widget.AddComponent<UIProgressBarComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Input Field"))
+                    {
+                        auto widget = CreateUIWidget("UI Input Field");
+                        widget.AddComponent<UIInputFieldComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Dropdown"))
+                    {
+                        auto widget = CreateUIWidget("UI Dropdown");
+                        widget.AddComponent<UIDropdownComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Scroll View"))
+                    {
+                        auto widget = CreateUIWidget("UI Scroll View");
+                        widget.AddComponent<UIScrollViewComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Grid Layout"))
+                    {
+                        auto widget = CreateUIWidget("UI Grid Layout");
+                        widget.AddComponent<UIGridLayoutComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    ImGui::EndMenu();
+                }
+
                 ImGui::EndPopup();
             }
         }
@@ -67,6 +166,33 @@ namespace OloEngine
     void SceneHierarchyPanel::SetSelectedEntity(const Entity entity)
     {
         m_SelectionContext = entity;
+    }
+
+    Entity SceneHierarchyPanel::FindOrCreateCanvas()
+    {
+        OLO_PROFILE_FUNCTION();
+        // Look for an existing canvas entity
+        auto view = m_Context->GetAllEntitiesWith<UICanvasComponent>();
+        if (auto it = view.begin(); it != view.end())
+        {
+            return Entity{ *it, m_Context.get() };
+        }
+
+        // None found — create a new canvas
+        auto canvas = m_Context->CreateEntity("UI Canvas");
+        canvas.AddComponent<UICanvasComponent>();
+        canvas.AddComponent<UIRectTransformComponent>();
+        return canvas;
+    }
+
+    Entity SceneHierarchyPanel::CreateUIWidget(const std::string& name)
+    {
+        OLO_PROFILE_FUNCTION();
+        Entity canvas = FindOrCreateCanvas();
+        auto widget = m_Context->CreateEntity(name);
+        widget.AddComponent<UIRectTransformComponent>();
+        widget.SetParent(canvas);
+        return widget;
     }
 
     void SceneHierarchyPanel::DrawEntityNode(Entity entity)
@@ -326,6 +452,24 @@ namespace OloEngine
             DisplayAddComponentEntry<AnimationStateComponent>("Animation State");
             DisplayAddComponentEntry<SkeletonComponent>("Skeleton");
             DisplayAddComponentEntry<SubmeshComponent>("Submesh");
+
+            ImGui::Separator();
+
+            // UI Components
+            DisplayAddComponentEntry<UICanvasComponent>("UI Canvas");
+            DisplayAddComponentEntry<UIRectTransformComponent>("UI Rect Transform");
+            DisplayAddComponentEntry<UIPanelComponent>("UI Panel");
+            DisplayAddComponentEntry<UIImageComponent>("UI Image");
+            DisplayAddComponentEntry<UITextComponent>("UI Text");
+            DisplayAddComponentEntry<UIButtonComponent>("UI Button");
+            DisplayAddComponentEntry<UISliderComponent>("UI Slider");
+            DisplayAddComponentEntry<UICheckboxComponent>("UI Checkbox");
+            DisplayAddComponentEntry<UIProgressBarComponent>("UI Progress Bar");
+            DisplayAddComponentEntry<UIInputFieldComponent>("UI Input Field");
+            DisplayAddComponentEntry<UIScrollViewComponent>("UI Scroll View");
+            DisplayAddComponentEntry<UIDropdownComponent>("UI Dropdown");
+            DisplayAddComponentEntry<UIGridLayoutComponent>("UI Grid Layout");
+            DisplayAddComponentEntry<UIToggleComponent>("UI Toggle");
 
             ImGui::EndPopup();
         }
@@ -1212,6 +1356,274 @@ namespace OloEngine
                 component.m_SubmeshIndex = static_cast<u32>(submeshIndex);
             ImGui::Checkbox("Visible##Submesh", &component.m_Visible);
             ImGui::Text("Bone Entities: %zu", component.m_BoneEntityIds.size()); });
+
+        // --- UI Components ---
+
+        DrawComponent<UICanvasComponent>("UI Canvas", entity, [](auto& component)
+                                         {
+            const char* renderModeStrings[] = { "Screen Space Overlay", "World Space" };
+            if (const char* current = renderModeStrings[static_cast<int>(component.m_RenderMode)]; ImGui::BeginCombo("Render Mode", current))
+            {
+                for (int i = 0; i < 2; ++i)
+                {
+                    const bool isSelected = (current == renderModeStrings[i]);
+                    if (ImGui::Selectable(renderModeStrings[i], isSelected))
+                        component.m_RenderMode = static_cast<UICanvasRenderMode>(i);
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            ImGui::DragInt("Sort Order", &component.m_SortOrder);
+
+            const char* scaleModeStrings[] = { "Constant Pixel Size", "Scale With Screen Size" };
+            if (const char* current = scaleModeStrings[static_cast<int>(component.m_ScaleMode)]; ImGui::BeginCombo("Scale Mode", current))
+            {
+                for (int i = 0; i < 2; ++i)
+                {
+                    const bool isSelected = (current == scaleModeStrings[i]);
+                    if (ImGui::Selectable(scaleModeStrings[i], isSelected))
+                        component.m_ScaleMode = static_cast<UICanvasScaleMode>(i);
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            ImGui::DragFloat2("Reference Resolution", glm::value_ptr(component.m_ReferenceResolution), 1.0f, 1.0f, 7680.0f); });
+
+        DrawComponent<UIRectTransformComponent>("UI Rect Transform", entity, [](auto& component)
+                                                {
+            ImGui::DragFloat2("Anchor Min", glm::value_ptr(component.m_AnchorMin), 0.01f, 0.0f, 1.0f);
+            ImGui::DragFloat2("Anchor Max", glm::value_ptr(component.m_AnchorMax), 0.01f, 0.0f, 1.0f);
+            ImGui::DragFloat2("Anchored Position", glm::value_ptr(component.m_AnchoredPosition));
+            ImGui::DragFloat2("Size Delta", glm::value_ptr(component.m_SizeDelta));
+            ImGui::DragFloat2("Pivot", glm::value_ptr(component.m_Pivot), 0.01f, 0.0f, 1.0f);
+            ImGui::DragFloat("Rotation", &component.m_Rotation, 0.1f);
+            ImGui::DragFloat2("Scale", glm::value_ptr(component.m_Scale), 0.01f, 0.01f, 10.0f); });
+
+        DrawComponent<UIPanelComponent>("UI Panel", entity, [](auto& component)
+                                        { ImGui::ColorEdit4("Background Color", glm::value_ptr(component.m_BackgroundColor)); });
+
+        DrawComponent<UIImageComponent>("UI Image", entity, [](auto& component)
+                                        {
+            ImGui::ColorEdit4("Color", glm::value_ptr(component.m_Color));
+            ImGui::DragFloat4("Border Insets (L,R,T,B)", glm::value_ptr(component.m_BorderInsets), 1.0f, 0.0f, 512.0f);
+
+            ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (auto const* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    auto const* path = static_cast<wchar_t const*>(payload->Data);
+                    std::filesystem::path texturePath(path);
+                    Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
+                    if (texture->IsLoaded())
+                        component.m_Texture = texture;
+                }
+                ImGui::EndDragDropTarget();
+            } });
+
+        DrawComponent<UITextComponent>("UI Text", entity, [](auto& component)
+                                       {
+            ImGui::InputTextMultiline("Text", &component.m_Text);
+            ImGui::DragFloat("Font Size", &component.m_FontSize, 0.5f, 1.0f, 200.0f);
+            ImGui::ColorEdit4("Color", glm::value_ptr(component.m_Color));
+
+            const char* alignmentStrings[] = { "Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right" };
+            if (const char* current = alignmentStrings[static_cast<int>(component.m_Alignment)]; ImGui::BeginCombo("Alignment", current))
+            {
+                for (int i = 0; i < 9; ++i)
+                {
+                    const bool isSelected = (current == alignmentStrings[i]);
+                    if (ImGui::Selectable(alignmentStrings[i], isSelected))
+                        component.m_Alignment = static_cast<UITextAlignment>(i);
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            ImGui::DragFloat("Kerning", &component.m_Kerning, 0.025f);
+            ImGui::DragFloat("Line Spacing", &component.m_LineSpacing, 0.025f); });
+
+        DrawComponent<UIButtonComponent>("UI Button", entity, [](auto& component)
+                                         {
+            ImGui::ColorEdit4("Normal Color", glm::value_ptr(component.m_NormalColor));
+            ImGui::ColorEdit4("Hovered Color", glm::value_ptr(component.m_HoveredColor));
+            ImGui::ColorEdit4("Pressed Color", glm::value_ptr(component.m_PressedColor));
+            ImGui::ColorEdit4("Disabled Color", glm::value_ptr(component.m_DisabledColor));
+            ImGui::Checkbox("Interactable", &component.m_Interactable); });
+
+        DrawComponent<UISliderComponent>("UI Slider", entity, [](auto& component)
+                                         {
+            ImGui::DragFloat("Value", &component.m_Value, 0.01f, component.m_MinValue, component.m_MaxValue);
+            ImGui::DragFloat("Min Value", &component.m_MinValue, 0.1f);
+            ImGui::DragFloat("Max Value", &component.m_MaxValue, 0.1f);
+
+            const char* directionStrings[] = { "Left To Right", "Right To Left", "Top To Bottom", "Bottom To Top" };
+            if (const char* current = directionStrings[static_cast<int>(component.m_Direction)]; ImGui::BeginCombo("Direction", current))
+            {
+                for (int i = 0; i < 4; ++i)
+                {
+                    const bool isSelected = (current == directionStrings[i]);
+                    if (ImGui::Selectable(directionStrings[i], isSelected))
+                        component.m_Direction = static_cast<UISliderDirection>(i);
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            ImGui::ColorEdit4("Background Color", glm::value_ptr(component.m_BackgroundColor));
+            ImGui::ColorEdit4("Fill Color", glm::value_ptr(component.m_FillColor));
+            ImGui::ColorEdit4("Handle Color", glm::value_ptr(component.m_HandleColor));
+            ImGui::Checkbox("Interactable", &component.m_Interactable); });
+
+        DrawComponent<UICheckboxComponent>("UI Checkbox", entity, [](auto& component)
+                                           {
+            ImGui::Checkbox("Is Checked", &component.m_IsChecked);
+            ImGui::ColorEdit4("Unchecked Color", glm::value_ptr(component.m_UncheckedColor));
+            ImGui::ColorEdit4("Checked Color", glm::value_ptr(component.m_CheckedColor));
+            ImGui::ColorEdit4("Checkmark Color", glm::value_ptr(component.m_CheckmarkColor));
+            ImGui::Checkbox("Interactable", &component.m_Interactable); });
+
+        DrawComponent<UIProgressBarComponent>("UI Progress Bar", entity, [](auto& component)
+                                              {
+            ImGui::DragFloat("Value", &component.m_Value, 0.01f, component.m_MinValue, component.m_MaxValue);
+            ImGui::DragFloat("Min Value", &component.m_MinValue, 0.1f);
+            ImGui::DragFloat("Max Value", &component.m_MaxValue, 0.1f);
+
+            const char* fillMethodStrings[] = { "Horizontal", "Vertical" };
+            if (const char* current = fillMethodStrings[static_cast<int>(component.m_FillMethod)]; ImGui::BeginCombo("Fill Method", current))
+            {
+                for (int i = 0; i < 2; ++i)
+                {
+                    const bool isSelected = (current == fillMethodStrings[i]);
+                    if (ImGui::Selectable(fillMethodStrings[i], isSelected))
+                        component.m_FillMethod = static_cast<UIFillMethod>(i);
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            ImGui::ColorEdit4("Background Color", glm::value_ptr(component.m_BackgroundColor));
+            ImGui::ColorEdit4("Fill Color", glm::value_ptr(component.m_FillColor)); });
+
+        DrawComponent<UIInputFieldComponent>("UI Input Field", entity, [](auto& component)
+                                             {
+            ImGui::InputText("Text", &component.m_Text);
+            ImGui::InputText("Placeholder", &component.m_Placeholder);
+            ImGui::DragFloat("Font Size", &component.m_FontSize, 0.5f, 1.0f, 200.0f);
+            ImGui::ColorEdit4("Text Color", glm::value_ptr(component.m_TextColor));
+            ImGui::ColorEdit4("Placeholder Color", glm::value_ptr(component.m_PlaceholderColor));
+            ImGui::ColorEdit4("Background Color", glm::value_ptr(component.m_BackgroundColor));
+            int charLimit = component.m_CharacterLimit;
+            if (ImGui::DragInt("Character Limit", &charLimit, 1, 0, 10000))
+                component.m_CharacterLimit = charLimit;
+            ImGui::Checkbox("Interactable", &component.m_Interactable); });
+
+        DrawComponent<UIScrollViewComponent>("UI Scroll View", entity, [](auto& component)
+                                             {
+            ImGui::DragFloat2("Scroll Position", glm::value_ptr(component.m_ScrollPosition));
+            ImGui::DragFloat2("Content Size", glm::value_ptr(component.m_ContentSize), 1.0f, 0.0f, 10000.0f);
+
+            const char* scrollDirStrings[] = { "Vertical", "Horizontal", "Both" };
+            if (const char* current = scrollDirStrings[static_cast<int>(component.m_ScrollDirection)]; ImGui::BeginCombo("Scroll Direction", current))
+            {
+                for (int i = 0; i < 3; ++i)
+                {
+                    const bool isSelected = (current == scrollDirStrings[i]);
+                    if (ImGui::Selectable(scrollDirStrings[i], isSelected))
+                        component.m_ScrollDirection = static_cast<UIScrollDirection>(i);
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            ImGui::DragFloat("Scroll Speed", &component.m_ScrollSpeed, 0.5f, 0.0f, 200.0f);
+            ImGui::Checkbox("Show Horizontal Scrollbar", &component.m_ShowHorizontalScrollbar);
+            ImGui::Checkbox("Show Vertical Scrollbar", &component.m_ShowVerticalScrollbar);
+            ImGui::ColorEdit4("Scrollbar Color", glm::value_ptr(component.m_ScrollbarColor));
+            ImGui::ColorEdit4("Scrollbar Track Color", glm::value_ptr(component.m_ScrollbarTrackColor)); });
+
+        DrawComponent<UIDropdownComponent>("UI Dropdown", entity, [](auto& component)
+                                           {
+            int selectedIndex = component.m_SelectedIndex;
+            if (ImGui::DragInt("Selected Index", &selectedIndex, 1, -1, static_cast<int>(component.m_Options.size()) - 1))
+                component.m_SelectedIndex = selectedIndex;
+
+            ImGui::Text("Options (%zu):", component.m_Options.size());
+            for (sizet i = 0; i < component.m_Options.size(); ++i)
+            {
+                ImGui::PushID(static_cast<int>(i));
+                ImGui::InputText("##option", &component.m_Options[i].m_Label);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("X"))
+                {
+                    const int removedIndex = static_cast<int>(i);
+                    component.m_Options.erase(component.m_Options.begin() + static_cast<std::ptrdiff_t>(i));
+                    if (component.m_SelectedIndex == removedIndex)
+                        component.m_SelectedIndex = -1;
+                    else if (component.m_SelectedIndex > removedIndex)
+                        component.m_SelectedIndex--;
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::PopID();
+            }
+            if (ImGui::SmallButton("Add Option"))
+            {
+                component.m_Options.push_back({ "New Option" });
+            }
+
+            ImGui::ColorEdit4("Background Color", glm::value_ptr(component.m_BackgroundColor));
+            ImGui::ColorEdit4("Highlight Color", glm::value_ptr(component.m_HighlightColor));
+            ImGui::ColorEdit4("Text Color", glm::value_ptr(component.m_TextColor));
+            ImGui::DragFloat("Font Size", &component.m_FontSize, 0.5f, 1.0f, 200.0f);
+            ImGui::DragFloat("Item Height", &component.m_ItemHeight, 0.5f, 10.0f, 200.0f);
+            ImGui::Checkbox("Interactable", &component.m_Interactable); });
+
+        DrawComponent<UIGridLayoutComponent>("UI Grid Layout", entity, [](auto& component)
+                                             {
+            ImGui::DragFloat2("Cell Size", glm::value_ptr(component.m_CellSize), 1.0f, 1.0f, 1000.0f);
+            ImGui::DragFloat2("Spacing", glm::value_ptr(component.m_Spacing), 0.5f, 0.0f, 100.0f);
+            ImGui::DragFloat4("Padding (L,R,T,B)", glm::value_ptr(component.m_Padding), 0.5f, 0.0f, 200.0f);
+
+            const char* startCornerStrings[] = { "Upper Left", "Upper Right", "Lower Left", "Lower Right" };
+            if (const char* current = startCornerStrings[static_cast<int>(component.m_StartCorner)]; ImGui::BeginCombo("Start Corner", current))
+            {
+                for (int i = 0; i < 4; ++i)
+                {
+                    const bool isSelected = (current == startCornerStrings[i]);
+                    if (ImGui::Selectable(startCornerStrings[i], isSelected))
+                        component.m_StartCorner = static_cast<UIGridLayoutStartCorner>(i);
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            const char* startAxisStrings[] = { "Horizontal", "Vertical" };
+            if (const char* current = startAxisStrings[static_cast<int>(component.m_StartAxis)]; ImGui::BeginCombo("Start Axis", current))
+            {
+                for (int i = 0; i < 2; ++i)
+                {
+                    const bool isSelected = (current == startAxisStrings[i]);
+                    if (ImGui::Selectable(startAxisStrings[i], isSelected))
+                        component.m_StartAxis = static_cast<UIGridLayoutAxis>(i);
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            int constraintCount = component.m_ConstraintCount;
+            if (ImGui::DragInt("Constraint Count", &constraintCount, 1, 0, 100))
+                component.m_ConstraintCount = constraintCount; });
+
+        DrawComponent<UIToggleComponent>("UI Toggle", entity, [](auto& component)
+                                         {
+            ImGui::Checkbox("Is On", &component.m_IsOn);
+            ImGui::ColorEdit4("Off Color", glm::value_ptr(component.m_OffColor));
+            ImGui::ColorEdit4("On Color", glm::value_ptr(component.m_OnColor));
+            ImGui::ColorEdit4("Knob Color", glm::value_ptr(component.m_KnobColor));
+            ImGui::Checkbox("Interactable", &component.m_Interactable); });
     }
 
     template<typename T>

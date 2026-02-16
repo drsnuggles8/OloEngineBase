@@ -63,6 +63,12 @@ CMake will also create the `build/` directory, which contains the Visual Studio 
 - **3D Audio System**: Miniaudio-based with spatial audio support
 - **Audio Components**: Source and listener components for ECS integration
 
+### UI System
+- **ECS-Based UI**: 14 widget component types (Canvas, RectTransform, Panel, Text, Image, Button, Slider, Checkbox, Toggle, Progress Bar, Input Field, Dropdown, Scroll View, Grid Layout)
+- **Anchor Layout**: RectTransform-style anchoring, pivot, and auto-layout via grid containers
+- **Editor Integration**: "Create UI" context menu, per-component property panels, editor-time preview in both 2D and 3D modes
+- **Scripting Support**: Full C# (Mono) and Lua (Sol2) bindings for all UI components
+
 ## Future Features
 - Procedural terrain and world generation
 - Advanced OpenGL (compute shaders, ARB)
