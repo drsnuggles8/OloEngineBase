@@ -1390,7 +1390,7 @@ namespace OloEngine
             ImGui::DragFloat2("Reference Resolution", glm::value_ptr(component.m_ReferenceResolution), 1.0f, 1.0f, 7680.0f); });
 
         DrawComponent<UIRectTransformComponent>("UI Rect Transform", entity, [](auto& component)
-                                                 {
+                                                {
             ImGui::DragFloat2("Anchor Min", glm::value_ptr(component.m_AnchorMin), 0.01f, 0.0f, 1.0f);
             ImGui::DragFloat2("Anchor Max", glm::value_ptr(component.m_AnchorMax), 0.01f, 0.0f, 1.0f);
             ImGui::DragFloat2("Anchored Position", glm::value_ptr(component.m_AnchoredPosition));
@@ -1400,11 +1400,10 @@ namespace OloEngine
             ImGui::DragFloat2("Scale", glm::value_ptr(component.m_Scale), 0.01f, 0.01f, 10.0f); });
 
         DrawComponent<UIPanelComponent>("UI Panel", entity, [](auto& component)
-                                         {
-            ImGui::ColorEdit4("Background Color", glm::value_ptr(component.m_BackgroundColor)); });
+                                        { ImGui::ColorEdit4("Background Color", glm::value_ptr(component.m_BackgroundColor)); });
 
         DrawComponent<UIImageComponent>("UI Image", entity, [](auto& component)
-                                         {
+                                        {
             ImGui::ColorEdit4("Color", glm::value_ptr(component.m_Color));
             ImGui::DragFloat4("Border Insets (L,R,T,B)", glm::value_ptr(component.m_BorderInsets), 1.0f, 0.0f, 512.0f);
 
@@ -1423,7 +1422,7 @@ namespace OloEngine
             } });
 
         DrawComponent<UITextComponent>("UI Text", entity, [](auto& component)
-                                        {
+                                       {
             ImGui::InputTextMultiline("Text", &component.m_Text);
             ImGui::DragFloat("Font Size", &component.m_FontSize, 0.5f, 1.0f, 200.0f);
             ImGui::ColorEdit4("Color", glm::value_ptr(component.m_Color));
@@ -1445,7 +1444,7 @@ namespace OloEngine
             ImGui::DragFloat("Line Spacing", &component.m_LineSpacing, 0.025f); });
 
         DrawComponent<UIButtonComponent>("UI Button", entity, [](auto& component)
-                                          {
+                                         {
             ImGui::ColorEdit4("Normal Color", glm::value_ptr(component.m_NormalColor));
             ImGui::ColorEdit4("Hovered Color", glm::value_ptr(component.m_HoveredColor));
             ImGui::ColorEdit4("Pressed Color", glm::value_ptr(component.m_PressedColor));
@@ -1453,7 +1452,7 @@ namespace OloEngine
             ImGui::Checkbox("Interactable", &component.m_Interactable); });
 
         DrawComponent<UISliderComponent>("UI Slider", entity, [](auto& component)
-                                          {
+                                         {
             ImGui::DragFloat("Value", &component.m_Value, 0.01f, component.m_MinValue, component.m_MaxValue);
             ImGui::DragFloat("Min Value", &component.m_MinValue, 0.1f);
             ImGui::DragFloat("Max Value", &component.m_MaxValue, 0.1f);
@@ -1477,7 +1476,7 @@ namespace OloEngine
             ImGui::Checkbox("Interactable", &component.m_Interactable); });
 
         DrawComponent<UICheckboxComponent>("UI Checkbox", entity, [](auto& component)
-                                            {
+                                           {
             ImGui::Checkbox("Is Checked", &component.m_IsChecked);
             ImGui::ColorEdit4("Unchecked Color", glm::value_ptr(component.m_UncheckedColor));
             ImGui::ColorEdit4("Checked Color", glm::value_ptr(component.m_CheckedColor));
@@ -1485,7 +1484,7 @@ namespace OloEngine
             ImGui::Checkbox("Interactable", &component.m_Interactable); });
 
         DrawComponent<UIProgressBarComponent>("UI Progress Bar", entity, [](auto& component)
-                                               {
+                                              {
             ImGui::DragFloat("Value", &component.m_Value, 0.01f, component.m_MinValue, component.m_MaxValue);
             ImGui::DragFloat("Min Value", &component.m_MinValue, 0.1f);
             ImGui::DragFloat("Max Value", &component.m_MaxValue, 0.1f);
@@ -1507,7 +1506,7 @@ namespace OloEngine
             ImGui::ColorEdit4("Fill Color", glm::value_ptr(component.m_FillColor)); });
 
         DrawComponent<UIInputFieldComponent>("UI Input Field", entity, [](auto& component)
-                                              {
+                                             {
             ImGui::InputText("Text", &component.m_Text);
             ImGui::InputText("Placeholder", &component.m_Placeholder);
             ImGui::DragFloat("Font Size", &component.m_FontSize, 0.5f, 1.0f, 200.0f);
@@ -1520,7 +1519,7 @@ namespace OloEngine
             ImGui::Checkbox("Interactable", &component.m_Interactable); });
 
         DrawComponent<UIScrollViewComponent>("UI Scroll View", entity, [](auto& component)
-                                              {
+                                             {
             ImGui::DragFloat2("Scroll Position", glm::value_ptr(component.m_ScrollPosition));
             ImGui::DragFloat2("Content Size", glm::value_ptr(component.m_ContentSize), 1.0f, 0.0f, 10000.0f);
 
@@ -1544,7 +1543,7 @@ namespace OloEngine
             ImGui::ColorEdit4("Scrollbar Track Color", glm::value_ptr(component.m_ScrollbarTrackColor)); });
 
         DrawComponent<UIDropdownComponent>("UI Dropdown", entity, [](auto& component)
-                                            {
+                                           {
             int selectedIndex = component.m_SelectedIndex;
             if (ImGui::DragInt("Selected Index", &selectedIndex, 1, -1, static_cast<int>(component.m_Options.size()) - 1))
                 component.m_SelectedIndex = selectedIndex;
@@ -1576,7 +1575,7 @@ namespace OloEngine
             ImGui::Checkbox("Interactable", &component.m_Interactable); });
 
         DrawComponent<UIGridLayoutComponent>("UI Grid Layout", entity, [](auto& component)
-                                              {
+                                             {
             ImGui::DragFloat2("Cell Size", glm::value_ptr(component.m_CellSize), 1.0f, 1.0f, 1000.0f);
             ImGui::DragFloat2("Spacing", glm::value_ptr(component.m_Spacing), 0.5f, 0.0f, 100.0f);
             ImGui::DragFloat4("Padding (L,R,T,B)", glm::value_ptr(component.m_Padding), 0.5f, 0.0f, 200.0f);
@@ -1612,7 +1611,7 @@ namespace OloEngine
                 component.m_ConstraintCount = constraintCount; });
 
         DrawComponent<UIToggleComponent>("UI Toggle", entity, [](auto& component)
-                                          {
+                                         {
             ImGui::Checkbox("Is On", &component.m_IsOn);
             ImGui::ColorEdit4("Off Color", glm::value_ptr(component.m_OffColor));
             ImGui::ColorEdit4("On Color", glm::value_ptr(component.m_OnColor));

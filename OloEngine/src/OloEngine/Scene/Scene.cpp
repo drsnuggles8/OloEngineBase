@@ -851,8 +851,8 @@ namespace OloEngine
         UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight);
 
         glm::mat4 uiProjection = glm::ortho(0.0f, static_cast<f32>(m_ViewportWidth),
-                                              static_cast<f32>(m_ViewportHeight), 0.0f,
-                                              -1.0f, 1.0f);
+                                            static_cast<f32>(m_ViewportHeight), 0.0f,
+                                            -1.0f, 1.0f);
         UIRenderer::BeginScene(uiProjection);
 
         auto resolvedView = GetAllEntitiesWith<UIResolvedRectComponent>();

@@ -14,8 +14,7 @@ namespace OloEngine
     static glm::mat4 MakeTransform(const glm::vec2& position, const glm::vec2& size)
     {
         const glm::vec3 center{ position.x + size.x * 0.5f, position.y + size.y * 0.5f, 0.0f };
-        return glm::translate(glm::mat4(1.0f), center)
-             * glm::scale(glm::mat4(1.0f), { size.x, size.y, 1.0f });
+        return glm::translate(glm::mat4(1.0f), center) * glm::scale(glm::mat4(1.0f), { size.x, size.y, 1.0f });
     }
 
     // Clip rect stack for scissor testing
@@ -248,8 +247,7 @@ namespace OloEngine
                 break;
         }
 
-        glm::mat4 transform = glm::translate(glm::mat4(1.0f), { textOrigin.x, textOrigin.y, 0.0f })
-                             * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
+        glm::mat4 transform = glm::translate(glm::mat4(1.0f), { textOrigin.x, textOrigin.y, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
 
         Renderer2D::TextParams params;
         params.Color = text.m_Color;
@@ -264,10 +262,18 @@ namespace OloEngine
         glm::vec4 color;
         switch (button.m_State)
         {
-            case UIButtonState::Hovered:  color = button.m_HoveredColor;  break;
-            case UIButtonState::Pressed:  color = button.m_PressedColor;  break;
-            case UIButtonState::Disabled: color = button.m_DisabledColor; break;
-            default:                      color = button.m_NormalColor;   break;
+            case UIButtonState::Hovered:
+                color = button.m_HoveredColor;
+                break;
+            case UIButtonState::Pressed:
+                color = button.m_PressedColor;
+                break;
+            case UIButtonState::Disabled:
+                color = button.m_DisabledColor;
+                break;
+            default:
+                color = button.m_NormalColor;
+                break;
         }
         DrawRect(position, size, color, entityID);
     }
@@ -386,8 +392,7 @@ namespace OloEngine
         const f32 scale = inputField.m_FontSize / 48.0f;
         const f32 padding = 4.0f;
         glm::vec2 textPos = { position.x + padding, position.y + size.y * 0.5f };
-        glm::mat4 transform = glm::translate(glm::mat4(1.0f), { textPos.x, textPos.y, 0.0f })
-                             * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
+        glm::mat4 transform = glm::translate(glm::mat4(1.0f), { textPos.x, textPos.y, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
 
         Renderer2D::TextParams params;
         if (inputField.m_Text.empty())
@@ -456,8 +461,7 @@ namespace OloEngine
         {
             const f32 scale = dropdown.m_FontSize / 48.0f;
             const f32 padding = 4.0f;
-            glm::mat4 transform = glm::translate(glm::mat4(1.0f), { position.x + padding, position.y + size.y * 0.5f, 0.0f })
-                                * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
+            glm::mat4 transform = glm::translate(glm::mat4(1.0f), { position.x + padding, position.y + size.y * 0.5f, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
             Renderer2D::TextParams params;
             params.Color = dropdown.m_TextColor;
             if (dropdown.m_FontAsset)
@@ -490,8 +494,7 @@ namespace OloEngine
 
                 const f32 scale = dropdown.m_FontSize / 48.0f;
                 const f32 padding = 4.0f;
-                glm::mat4 transform = glm::translate(glm::mat4(1.0f), { listPos.x + padding, itemY + dropdown.m_ItemHeight * 0.5f, 0.0f })
-                                    * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
+                glm::mat4 transform = glm::translate(glm::mat4(1.0f), { listPos.x + padding, itemY + dropdown.m_ItemHeight * 0.5f, 0.0f }) * glm::scale(glm::mat4(1.0f), { scale, scale, 1.0f });
                 Renderer2D::TextParams params;
                 params.Color = dropdown.m_TextColor;
                 if (dropdown.m_FontAsset)
@@ -512,8 +515,8 @@ namespace OloEngine
         const f32 knobSize = glm::min(size.x * 0.5f, size.y * 0.9f);
         const f32 knobY = position.y + (size.y - knobSize) * 0.5f;
         const f32 knobX = toggle.m_IsOn
-            ? position.x + size.x - knobSize - (size.y - knobSize) * 0.5f
-            : position.x + (size.y - knobSize) * 0.5f;
+                              ? position.x + size.x - knobSize - (size.y - knobSize) * 0.5f
+                              : position.x + (size.y - knobSize) * 0.5f;
 
         DrawRect({ knobX, knobY }, { knobSize, knobSize }, toggle.m_KnobColor, entityID);
     }
