@@ -16,37 +16,73 @@ namespace OloEngine
     void UIInputSystem::ProcessInput(Scene& scene, const glm::vec2& mousePos, bool mouseDown, bool mousePressed, f32 scrollDeltaX, f32 scrollDeltaY)
     {
         OLO_PROFILE_FUNCTION();
-        // Buttons
+
+        // Track whether a click has been consumed by a higher-priority widget.
+        // Processing order: Dropdowns (popups) > Sliders > Buttons > Checkboxes > Toggles > Input Fields.
+        // Scroll views and button hover state are always updated regardless of consumption.
+        bool consumed = false;
+
+        // Dropdowns (highest priority — open popups overlay other widgets)
         {
-            auto view = scene.GetAllEntitiesWith<UIButtonComponent, UIResolvedRectComponent>();
+            auto view = scene.GetAllEntitiesWith<UIDropdownComponent, UIResolvedRectComponent>();
             for (const auto entity : view)
             {
-                auto& button = view.get<UIButtonComponent>(entity);
+                auto& dropdown = view.get<UIDropdownComponent>(entity);
                 auto& resolved = view.get<UIResolvedRectComponent>(entity);
 
-                if (!button.m_Interactable)
+                if (!dropdown.m_Interactable)
                 {
-                    button.m_State = UIButtonState::Disabled;
+                    dropdown.m_IsOpen = false;
                     continue;
                 }
 
-                const bool hovered = PointInRect(mousePos, resolved.m_Position, resolved.m_Size);
-                if (hovered && mouseDown)
+                const bool hoveredMain = PointInRect(mousePos, resolved.m_Position, resolved.m_Size);
+
+                if (dropdown.m_IsOpen && !dropdown.m_Options.empty())
                 {
-                    button.m_State = UIButtonState::Pressed;
-                }
-                else if (hovered)
-                {
-                    button.m_State = UIButtonState::Hovered;
+                    const f32 itemHeight = glm::max(dropdown.m_ItemHeight, 1.0f);
+                    const f32 listHeight = static_cast<f32>(dropdown.m_Options.size()) * itemHeight;
+                    const glm::vec2 listPos = { resolved.m_Position.x, resolved.m_Position.y + resolved.m_Size.y };
+                    const bool hoveredList = PointInRect(mousePos, listPos, { resolved.m_Size.x, listHeight });
+
+                    if (hoveredList)
+                    {
+                        dropdown.m_HoveredIndex = static_cast<i32>((mousePos.y - listPos.y) / itemHeight);
+                    }
+                    else
+                    {
+                        dropdown.m_HoveredIndex = -1;
+                    }
+
+                    if (mousePressed)
+                    {
+                        if (hoveredList && dropdown.m_HoveredIndex >= 0 && dropdown.m_HoveredIndex < static_cast<i32>(dropdown.m_Options.size()))
+                        {
+                            dropdown.m_SelectedIndex = dropdown.m_HoveredIndex;
+                        }
+                        dropdown.m_IsOpen = false;
+                        consumed = true;
+                    }
+
+                    // An open popup consumes hover/click even without mousePressed
+                    if (hoveredList || hoveredMain)
+                    {
+                        consumed = true;
+                    }
                 }
                 else
                 {
-                    button.m_State = UIButtonState::Normal;
+                    dropdown.m_HoveredIndex = -1;
+                    if (!consumed && mousePressed && hoveredMain)
+                    {
+                        dropdown.m_IsOpen = true;
+                        consumed = true;
+                    }
                 }
             }
         }
 
-        // Sliders
+        // Sliders (drag state must always track mouseDown release, but new drags require unconsumed press)
         {
             auto view = scene.GetAllEntitiesWith<UISliderComponent, UIResolvedRectComponent>();
             for (const auto entity : view)
@@ -61,9 +97,10 @@ namespace OloEngine
 
                 const bool hovered = PointInRect(mousePos, resolved.m_Position, resolved.m_Size);
 
-                if (mousePressed && hovered)
+                if (!consumed && mousePressed && hovered)
                 {
                     slider.m_IsDragging = true;
+                    consumed = true;
                 }
 
                 if (!mouseDown)
@@ -88,9 +125,52 @@ namespace OloEngine
                         case UISliderDirection::BottomToTop:
                             normalizedValue = 1.0f - (mousePos.y - resolved.m_Position.y) / resolved.m_Size.y;
                             break;
+                        default:
+                            OLO_CORE_ASSERT(false, "Unknown UISliderDirection value");
+                            break;
                     }
                     normalizedValue = glm::clamp(normalizedValue, 0.0f, 1.0f);
                     slider.m_Value = slider.m_MinValue + normalizedValue * (slider.m_MaxValue - slider.m_MinValue);
+                }
+            }
+        }
+
+        // Buttons (hover state always updates; press consumption is gated)
+        {
+            auto view = scene.GetAllEntitiesWith<UIButtonComponent, UIResolvedRectComponent>();
+            for (const auto entity : view)
+            {
+                auto& button = view.get<UIButtonComponent>(entity);
+                auto& resolved = view.get<UIResolvedRectComponent>(entity);
+
+                if (!button.m_Interactable)
+                {
+                    button.m_State = UIButtonState::Disabled;
+                    continue;
+                }
+
+                const bool hovered = PointInRect(mousePos, resolved.m_Position, resolved.m_Size);
+                if (consumed)
+                {
+                    button.m_State = hovered ? UIButtonState::Normal : UIButtonState::Normal;
+                    continue;
+                }
+
+                if (hovered && mouseDown)
+                {
+                    button.m_State = UIButtonState::Pressed;
+                    if (mousePressed)
+                    {
+                        consumed = true;
+                    }
+                }
+                else if (hovered)
+                {
+                    button.m_State = UIButtonState::Hovered;
+                }
+                else
+                {
+                    button.m_State = UIButtonState::Normal;
                 }
             }
         }
@@ -108,14 +188,36 @@ namespace OloEngine
                     continue;
                 }
 
-                if (mousePressed && PointInRect(mousePos, resolved.m_Position, resolved.m_Size))
+                if (!consumed && mousePressed && PointInRect(mousePos, resolved.m_Position, resolved.m_Size))
                 {
                     checkbox.m_IsChecked = !checkbox.m_IsChecked;
+                    consumed = true;
                 }
             }
         }
 
-        // Input fields (focus management)
+        // Toggles
+        {
+            auto view = scene.GetAllEntitiesWith<UIToggleComponent, UIResolvedRectComponent>();
+            for (const auto entity : view)
+            {
+                auto& toggle = view.get<UIToggleComponent>(entity);
+                auto& resolved = view.get<UIResolvedRectComponent>(entity);
+
+                if (!toggle.m_Interactable)
+                {
+                    continue;
+                }
+
+                if (!consumed && mousePressed && PointInRect(mousePos, resolved.m_Position, resolved.m_Size))
+                {
+                    toggle.m_IsOn = !toggle.m_IsOn;
+                    consumed = true;
+                }
+            }
+        }
+
+        // Input fields (focus management — always updates focus state)
         {
             auto view = scene.GetAllEntitiesWith<UIInputFieldComponent, UIResolvedRectComponent>();
             for (const auto entity : view)
@@ -131,12 +233,23 @@ namespace OloEngine
 
                 if (mousePressed)
                 {
-                    inputField.m_IsFocused = PointInRect(mousePos, resolved.m_Position, resolved.m_Size);
+                    if (consumed)
+                    {
+                        inputField.m_IsFocused = false;
+                    }
+                    else
+                    {
+                        inputField.m_IsFocused = PointInRect(mousePos, resolved.m_Position, resolved.m_Size);
+                        if (inputField.m_IsFocused)
+                        {
+                            consumed = true;
+                        }
+                    }
                 }
             }
         }
 
-        // Scroll views
+        // Scroll views (always process — scroll is independent of click consumption)
         {
             auto view = scene.GetAllEntitiesWith<UIScrollViewComponent, UIResolvedRectComponent>();
             for (const auto entity : view)
@@ -164,81 +277,6 @@ namespace OloEngine
                     scrollView.m_ScrollPosition.x -= scrollDeltaX * scrollView.m_ScrollSpeed;
                     const f32 maxScrollX = glm::max(scrollView.m_ContentSize.x - resolved.m_Size.x, 0.0f);
                     scrollView.m_ScrollPosition.x = glm::clamp(scrollView.m_ScrollPosition.x, 0.0f, maxScrollX);
-                }
-            }
-        }
-
-        // Dropdowns
-        {
-            auto view = scene.GetAllEntitiesWith<UIDropdownComponent, UIResolvedRectComponent>();
-            for (const auto entity : view)
-            {
-                auto& dropdown = view.get<UIDropdownComponent>(entity);
-                auto& resolved = view.get<UIResolvedRectComponent>(entity);
-
-                if (!dropdown.m_Interactable)
-                {
-                    dropdown.m_IsOpen = false;
-                    continue;
-                }
-
-                // Hit test main button area
-                const bool hoveredMain = PointInRect(mousePos, resolved.m_Position, resolved.m_Size);
-
-                if (dropdown.m_IsOpen && !dropdown.m_Options.empty())
-                {
-                    // Hit test popup list
-                    const f32 itemHeight = glm::max(dropdown.m_ItemHeight, 1.0f);
-                    const f32 listHeight = static_cast<f32>(dropdown.m_Options.size()) * itemHeight;
-                    const glm::vec2 listPos = { resolved.m_Position.x, resolved.m_Position.y + resolved.m_Size.y };
-                    const bool hoveredList = PointInRect(mousePos, listPos, { resolved.m_Size.x, listHeight });
-
-                    // Update hovered index
-                    if (hoveredList)
-                    {
-                        dropdown.m_HoveredIndex = static_cast<i32>((mousePos.y - listPos.y) / itemHeight);
-                    }
-                    else
-                    {
-                        dropdown.m_HoveredIndex = -1;
-                    }
-
-                    if (mousePressed)
-                    {
-                        if (hoveredList && dropdown.m_HoveredIndex >= 0 && dropdown.m_HoveredIndex < static_cast<i32>(dropdown.m_Options.size()))
-                        {
-                            dropdown.m_SelectedIndex = dropdown.m_HoveredIndex;
-                        }
-                        dropdown.m_IsOpen = false;
-                    }
-                }
-                else
-                {
-                    dropdown.m_HoveredIndex = -1;
-                    if (mousePressed && hoveredMain)
-                    {
-                        dropdown.m_IsOpen = true;
-                    }
-                }
-            }
-        }
-
-        // Toggles
-        {
-            auto view = scene.GetAllEntitiesWith<UIToggleComponent, UIResolvedRectComponent>();
-            for (const auto entity : view)
-            {
-                auto& toggle = view.get<UIToggleComponent>(entity);
-                auto& resolved = view.get<UIResolvedRectComponent>(entity);
-
-                if (!toggle.m_Interactable)
-                {
-                    continue;
-                }
-
-                if (mousePressed && PointInRect(mousePos, resolved.m_Position, resolved.m_Size))
-                {
-                    toggle.m_IsOn = !toggle.m_IsOn;
                 }
             }
         }
