@@ -1,0 +1,38 @@
+Scene: particle_test
+Entities:
+  - Entity: 2499230237858324228
+    TagComponent:
+      Tag: particle
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleSystemComponent:
+      MaxParticles: 1000
+      Playing: true
+      Looping: true
+      Duration: 5
+      PlaybackSpeed: 1
+      SimulationSpace: 1
+      RateOverTime: 10
+      InitialSpeed: 5
+      SpeedVariance: 0
+      LifetimeMin: 1
+      LifetimeMax: 2
+      InitialSize: 1
+      SizeVariance: 0
+      InitialRotation: 0
+      RotationVariance: 0
+      InitialColor: [1, 1, 1, 1]
+      EmissionShapeType: 0
+      GravityEnabled: false
+      Gravity: [0, -9.81, 0]
+      DragEnabled: false
+      DragCoefficient: 0.1
+      ColorOverLifetimeEnabled: false
+      SizeOverLifetimeEnabled: false
+      RotationOverLifetimeEnabled: false
+      AngularVelocity: 0
+      NoiseEnabled: false
+      NoiseStrength: 1
+      NoiseFrequency: 1
