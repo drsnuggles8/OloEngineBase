@@ -9,6 +9,7 @@ namespace OloEngine
 {
     static void ResolveRect(Scene& scene, entt::entity entity, const glm::vec2& parentPos, const glm::vec2& parentSize)
     {
+        OLO_PROFILE_FUNCTION();
         if (!scene.GetAllEntitiesWith<UIRectTransformComponent>().contains(entity))
         {
             return;
@@ -66,12 +67,18 @@ namespace OloEngine
             i32 columns = grid.m_ConstraintCount;
             if (columns <= 0 && grid.m_StartAxis == UIGridLayoutAxis::Horizontal)
             {
-                columns = glm::max(1, static_cast<i32>((availableWidth + grid.m_Spacing.x) / (grid.m_CellSize.x + grid.m_Spacing.x)));
+                const f32 cellSpanX = grid.m_CellSize.x + grid.m_Spacing.x;
+                columns = (cellSpanX > 0.0f)
+                              ? glm::max(1, static_cast<i32>((availableWidth + grid.m_Spacing.x) / cellSpanX))
+                              : 1;
             }
             else if (columns <= 0)
             {
                 const f32 availableHeight = resolvedSize.y - grid.m_Padding.z - grid.m_Padding.w;
-                columns = glm::max(1, static_cast<i32>((availableHeight + grid.m_Spacing.y) / (grid.m_CellSize.y + grid.m_Spacing.y)));
+                const f32 cellSpanY = grid.m_CellSize.y + grid.m_Spacing.y;
+                columns = (cellSpanY > 0.0f)
+                              ? glm::max(1, static_cast<i32>((availableHeight + grid.m_Spacing.y) / cellSpanY))
+                              : 1;
             }
 
             for (sizet i = 0; i < children.size(); ++i)
@@ -146,7 +153,23 @@ namespace OloEngine
 
     void UILayoutSystem::ResolveLayout(Scene& scene, u32 viewportWidth, u32 viewportHeight)
     {
+        OLO_PROFILE_FUNCTION();
         const glm::vec2 viewport{ static_cast<f32>(viewportWidth), static_cast<f32>(viewportHeight) };
+
+        // Clear stale resolved rects so removed UIRectTransformComponents don't linger
+        {
+            auto resolvedView = scene.GetAllEntitiesWith<UIResolvedRectComponent>();
+            std::vector<entt::entity> toRemove;
+            for (const auto entity : resolvedView)
+            {
+                toRemove.push_back(entity);
+            }
+            for (const auto entity : toRemove)
+            {
+                Entity ent{ entity, &scene };
+                ent.RemoveComponent<UIResolvedRectComponent>();
+            }
+        }
 
         auto canvasView = scene.GetAllEntitiesWith<UICanvasComponent>();
         for (const auto entity : canvasView)
@@ -155,26 +178,29 @@ namespace OloEngine
             Entity canvasEntity{ entity, &scene };
 
             glm::vec2 canvasSize = viewport;
+            glm::vec2 canvasPos{ 0.0f, 0.0f };
 
             if (canvas.m_RenderMode == UICanvasRenderMode::ScreenSpaceOverlay &&
                 canvas.m_ScaleMode == UICanvasScaleMode::ScaleWithScreenSize)
             {
-                // Scale factor based on reference resolution
-                canvasSize = canvas.m_ReferenceResolution;
+                const glm::vec2 targetSize = canvas.m_ReferenceResolution;
+                if (targetSize.x > 0.0f && targetSize.y > 0.0f)
+                {
+                    const glm::vec2 scale = viewport / targetSize;
+                    const f32 scaleFactor = glm::min(scale.x, scale.y);
+                    canvasSize = targetSize * scaleFactor;
+                    canvasPos = (viewport - canvasSize) * 0.5f;
+                }
             }
 
-            // The canvas itself occupies [0,0] to canvasSize
-            const glm::vec2 canvasPos{ 0.0f, 0.0f };
-
-            // If canvas entity also has a rect transform, resolve it relative to itself
+            // Resolve the canvas entity and its children via a single tree walk
             if (canvasEntity.HasComponent<UIRectTransformComponent>())
             {
                 ResolveRect(scene, entity, canvasPos, canvasSize);
             }
-
-            // Resolve children
-            if (canvasEntity.HasComponent<RelationshipComponent>())
+            else if (canvasEntity.HasComponent<RelationshipComponent>())
             {
+                // Canvas has no rect transform: resolve children directly
                 const auto& children = canvasEntity.GetComponent<RelationshipComponent>().m_Children;
                 for (const UUID childUUID : children)
                 {

@@ -2,8 +2,6 @@
 
 #include "OloEngine/Core/Base.h"
 
-#include <glm/glm.hpp>
-
 namespace OloEngine
 {
     class Scene;

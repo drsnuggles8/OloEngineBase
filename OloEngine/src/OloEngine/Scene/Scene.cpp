@@ -18,6 +18,8 @@
 #include "OloEngine/UI/UILayoutSystem.h"
 #include "OloEngine/UI/UIRenderer.h"
 #include "OloEngine/UI/UIInputSystem.h"
+#include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/MouseCodes.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -472,6 +474,15 @@ namespace OloEngine
             Renderer2D::EndScene();
         }
 
+        // Process UI input during runtime
+        {
+            const glm::vec2 mousePos = Input::GetMousePosition();
+            const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft);
+            const bool mousePressed = mouseDown && !m_PreviousMouseButtonDown;
+            m_PreviousMouseButtonDown = mouseDown;
+            UIInputSystem::ProcessInput(*this, mousePos, mouseDown, mousePressed);
+        }
+
         RenderUIOverlay();
     }
 
@@ -843,6 +854,7 @@ namespace OloEngine
 
     void Scene::RenderUIOverlay()
     {
+        OLO_PROFILE_FUNCTION();
         if (m_ViewportWidth == 0 || m_ViewportHeight == 0)
         {
             return;
@@ -855,10 +867,36 @@ namespace OloEngine
                                             -1.0f, 1.0f);
         UIRenderer::BeginScene(uiProjection);
 
+        // Build sorted draw order based on UICanvasComponent::m_SortOrder
         auto resolvedView = GetAllEntitiesWith<UIResolvedRectComponent>();
+        std::vector<entt::entity> uiEntities;
         for (const auto entity : resolvedView)
         {
-            auto& resolved = resolvedView.get<UIResolvedRectComponent>(entity);
+            uiEntities.push_back(entity);
+        }
+        std::sort(uiEntities.begin(), uiEntities.end(),
+                  [this](entt::entity a, entt::entity b)
+                  {
+                      i32 sortA = 0;
+                      i32 sortB = 0;
+                      if (m_Registry.all_of<UICanvasComponent>(a))
+                      {
+                          sortA = m_Registry.get<UICanvasComponent>(a).m_SortOrder;
+                      }
+                      if (m_Registry.all_of<UICanvasComponent>(b))
+                      {
+                          sortB = m_Registry.get<UICanvasComponent>(b).m_SortOrder;
+                      }
+                      if (sortA != sortB)
+                      {
+                          return sortA < sortB;
+                      }
+                      return static_cast<u32>(a) < static_cast<u32>(b);
+                  });
+
+        for (const auto entity : uiEntities)
+        {
+            auto& resolved = m_Registry.get<UIResolvedRectComponent>(entity);
             const int eid = static_cast<int>(entity);
 
             if (m_Registry.all_of<UIPanelComponent>(entity))

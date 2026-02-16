@@ -14,6 +14,7 @@ namespace OloEngine
 
     void UIInputSystem::ProcessInput(Scene& scene, const glm::vec2& mousePos, bool mouseDown, bool mousePressed, f32 scrollDelta)
     {
+        OLO_PROFILE_FUNCTION();
         // Buttons
         {
             auto view = scene.GetAllEntitiesWith<UIButtonComponent, UIResolvedRectComponent>();
@@ -187,14 +188,15 @@ namespace OloEngine
                 if (dropdown.m_IsOpen && !dropdown.m_Options.empty())
                 {
                     // Hit test popup list
-                    const f32 listHeight = static_cast<f32>(dropdown.m_Options.size()) * dropdown.m_ItemHeight;
+                    const f32 itemHeight = glm::max(dropdown.m_ItemHeight, 1.0f);
+                    const f32 listHeight = static_cast<f32>(dropdown.m_Options.size()) * itemHeight;
                     const glm::vec2 listPos = { resolved.m_Position.x, resolved.m_Position.y + resolved.m_Size.y };
                     const bool hoveredList = PointInRect(mousePos, listPos, { resolved.m_Size.x, listHeight });
 
                     // Update hovered index
                     if (hoveredList)
                     {
-                        dropdown.m_HoveredIndex = static_cast<i32>((mousePos.y - listPos.y) / dropdown.m_ItemHeight);
+                        dropdown.m_HoveredIndex = static_cast<i32>((mousePos.y - listPos.y) / itemHeight);
                     }
                     else
                     {

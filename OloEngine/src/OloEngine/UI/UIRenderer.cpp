@@ -29,6 +29,7 @@ namespace OloEngine
 
     void UIRenderer::BeginScene(const glm::mat4& projection)
     {
+        OLO_PROFILE_FUNCTION();
         s_CurrentProjection = projection;
         // Extract viewport height from the ortho projection for scissor Y-flip
         // ortho(0, w, h, 0, -1, 1) => projection[1][1] = -2/h => h = -2/projection[1][1]
@@ -41,6 +42,7 @@ namespace OloEngine
 
     void UIRenderer::EndScene()
     {
+        OLO_PROFILE_FUNCTION();
         // Clear clip stack if any remain
         while (!s_ClipStack.empty())
         {
@@ -52,6 +54,7 @@ namespace OloEngine
 
     void UIRenderer::PushClipRect(const glm::vec2& position, const glm::vec2& size)
     {
+        OLO_PROFILE_FUNCTION();
         // Flush current batch before changing scissor state
         Renderer2D::EndScene();
 
@@ -85,6 +88,7 @@ namespace OloEngine
 
     void UIRenderer::PopClipRect()
     {
+        OLO_PROFILE_FUNCTION();
         // Flush current batch
         Renderer2D::EndScene();
 

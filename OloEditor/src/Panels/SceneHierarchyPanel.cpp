@@ -170,6 +170,7 @@ namespace OloEngine
 
     Entity SceneHierarchyPanel::FindOrCreateCanvas()
     {
+        OLO_PROFILE_FUNCTION();
         // Look for an existing canvas entity
         auto view = m_Context->GetAllEntitiesWith<UICanvasComponent>();
         if (auto it = view.begin(); it != view.end())
@@ -186,6 +187,7 @@ namespace OloEngine
 
     Entity SceneHierarchyPanel::CreateUIWidget(const std::string& name)
     {
+        OLO_PROFILE_FUNCTION();
         Entity canvas = FindOrCreateCanvas();
         auto widget = m_Context->CreateEntity(name);
         widget.AddComponent<UIRectTransformComponent>();
@@ -1556,7 +1558,12 @@ namespace OloEngine
                 ImGui::SameLine();
                 if (ImGui::SmallButton("X"))
                 {
+                    const int removedIndex = static_cast<int>(i);
                     component.m_Options.erase(component.m_Options.begin() + static_cast<std::ptrdiff_t>(i));
+                    if (component.m_SelectedIndex == removedIndex)
+                        component.m_SelectedIndex = -1;
+                    else if (component.m_SelectedIndex > removedIndex)
+                        component.m_SelectedIndex--;
                     ImGui::PopID();
                     break;
                 }
