@@ -18,6 +18,8 @@
 #include "OloEngine/UI/UILayoutSystem.h"
 #include "OloEngine/UI/UIRenderer.h"
 #include "OloEngine/UI/UIInputSystem.h"
+#include "OloEngine/Particle/ParticleRenderer.h"
+#include "OloEngine/Particle/TrailRenderer.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/MouseCodes.h"
 
@@ -414,6 +416,18 @@ namespace OloEngine
             }
         }
 
+        // Update particle systems
+        {
+            for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
+            {
+                auto& transform = view.get<TransformComponent>(entity);
+                auto& psc = view.get<ParticleSystemComponent>(entity);
+                // Provide Jolt scene for raycast collision
+                psc.System.SetJoltScene(m_JoltScene.get());
+                psc.System.Update(ts, transform.Translation);
+            }
+        }
+
         // Find the primary camera
         Camera const* mainCamera = nullptr;
         glm::mat4 cameraTransform;
@@ -468,6 +482,15 @@ namespace OloEngine
                     const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
 
                     Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
+                }
+            }
+
+            // Draw particles
+            {
+                for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+                {
+                    auto& psc = view.get<ParticleSystemComponent>(entity);
+                    ParticleRenderer::RenderParticles2D(psc.System.GetPool(), psc.Texture, static_cast<int>(entity));
                 }
             }
 
@@ -548,6 +571,16 @@ namespace OloEngine
 
     void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
     {
+        // Update particle systems so they preview in the editor
+        {
+            for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
+            {
+                auto& transform = view.get<TransformComponent>(entity);
+                auto& psc = view.get<ParticleSystemComponent>(entity);
+                psc.System.Update(ts, transform.Translation);
+            }
+        }
+
         // Render based on mode
         if (m_Is3DModeEnabled)
         {
@@ -991,6 +1024,15 @@ namespace OloEngine
             }
         }
 
+        // Draw particles
+        {
+            for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+            {
+                auto& psc = view.get<ParticleSystemComponent>(entity);
+                ParticleRenderer::RenderParticles2D(psc.System.GetPool(), psc.Texture, static_cast<int>(entity));
+            }
+        }
+
         Renderer2D::EndScene();
     }
 
@@ -1368,6 +1410,24 @@ namespace OloEngine
             }
         }
 
+        // Draw particles as 3D billboards
+        {
+            glm::vec3 camRight = camera.GetRightDirection();
+            glm::vec3 camUp = camera.GetUpDirection();
+            for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+            {
+                auto& psc = view.get<ParticleSystemComponent>(entity);
+                ParticleRenderer::RenderParticles3D(psc.System.GetPool(), camRight, camUp, psc.Texture);
+
+                // Render trails if enabled
+                if (psc.System.TrailModule.Enabled)
+                {
+                    TrailRenderer::RenderTrails3D(psc.System.GetPool(), psc.System.GetTrailData(),
+                                                  psc.System.TrailModule, camRight, camUp, psc.Texture);
+                }
+            }
+        }
+
         Renderer3D::EndScene();
     }
 
@@ -1570,6 +1630,24 @@ namespace OloEngine
             }
         }
 
+        // Draw particles as 3D billboards
+        {
+            glm::vec3 camRight = glm::normalize(glm::vec3(cameraTransform[0]));
+            glm::vec3 camUp = glm::normalize(glm::vec3(cameraTransform[1]));
+            for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+            {
+                auto& psc = view.get<ParticleSystemComponent>(entity);
+                ParticleRenderer::RenderParticles3D(psc.System.GetPool(), camRight, camUp, psc.Texture);
+
+                // Render trails if enabled
+                if (psc.System.TrailModule.Enabled)
+                {
+                    TrailRenderer::RenderTrails3D(psc.System.GetPool(), psc.System.GetTrailData(),
+                                                  psc.System.TrailModule, camRight, camUp, psc.Texture);
+                }
+            }
+        }
+
         Renderer3D::EndScene();
     }
 
@@ -1767,5 +1845,10 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::UIGridLayoutComponent>([[mayb
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::UIToggleComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIToggleComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::ParticleSystemComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ParticleSystemComponent& component)
 {
 }

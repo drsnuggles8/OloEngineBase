@@ -1012,6 +1012,38 @@ namespace OloEngine
         GetEntity(entityID).GetComponent<UIToggleComponent>().m_Interactable = *v;
     }
 
+    // --- ParticleSystemComponent ---
+
+    static void ParticleSystemComponent_GetPlaying(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Playing;
+    }
+
+    static void ParticleSystemComponent_SetPlaying(UUID entityID, bool const* v)
+    {
+        GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Playing = *v;
+    }
+
+    static void ParticleSystemComponent_GetLooping(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Looping;
+    }
+
+    static void ParticleSystemComponent_SetLooping(UUID entityID, bool const* v)
+    {
+        GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Looping = *v;
+    }
+
+    static void ParticleSystemComponent_GetEmissionRate(UUID entityID, f32* out)
+    {
+        *out = GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Emitter.RateOverTime;
+    }
+
+    static void ParticleSystemComponent_SetEmissionRate(UUID entityID, f32 const* v)
+    {
+        GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Emitter.RateOverTime = *v;
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1227,6 +1259,13 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(UIToggleComponent_SetIsOn);
         OLO_ADD_INTERNAL_CALL(UIToggleComponent_GetInteractable);
         OLO_ADD_INTERNAL_CALL(UIToggleComponent_SetInteractable);
+
+        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_GetPlaying);
+        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetPlaying);
+        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_GetLooping);
+        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetLooping);
+        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_GetEmissionRate);
+        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetEmissionRate);
     }
 
 } // namespace OloEngine

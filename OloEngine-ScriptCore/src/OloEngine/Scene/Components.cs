@@ -798,4 +798,37 @@ namespace OloEngine
 			set => InternalCalls.UIToggleComponent_SetInteractable(Entity.ID, ref value);
 		}
 	}
+
+	public class ParticleSystemComponent : Component
+	{
+		public bool Playing
+		{
+			get
+			{
+				InternalCalls.ParticleSystemComponent_GetPlaying(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.ParticleSystemComponent_SetPlaying(Entity.ID, ref value);
+		}
+
+		public bool Looping
+		{
+			get
+			{
+				InternalCalls.ParticleSystemComponent_GetLooping(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.ParticleSystemComponent_SetLooping(Entity.ID, ref value);
+		}
+
+		public float EmissionRate
+		{
+			get
+			{
+				InternalCalls.ParticleSystemComponent_GetEmissionRate(Entity.ID, out float v);
+				return v;
+			}
+			set => InternalCalls.ParticleSystemComponent_SetEmissionRate(Entity.ID, ref value);
+		}
+	}
 }

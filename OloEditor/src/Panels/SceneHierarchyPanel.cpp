@@ -448,6 +448,11 @@ namespace OloEngine
 
             ImGui::Separator();
 
+            // Particle System
+            DisplayAddComponentEntry<ParticleSystemComponent>("Particle System");
+
+            ImGui::Separator();
+
             // Animation Components
             DisplayAddComponentEntry<AnimationStateComponent>("Animation State");
             DisplayAddComponentEntry<SkeletonComponent>("Skeleton");
@@ -1624,6 +1629,196 @@ namespace OloEngine
             ImGui::ColorEdit4("On Color", glm::value_ptr(component.m_OnColor));
             ImGui::ColorEdit4("Knob Color", glm::value_ptr(component.m_KnobColor));
             ImGui::Checkbox("Interactable", &component.m_Interactable); });
+
+        DrawComponent<ParticleSystemComponent>("Particle System", entity, [](auto& component)
+                                               {
+            auto& sys = component.System;
+            auto& emitter = sys.Emitter;
+
+            // Playback
+            ImGui::Checkbox("Playing", &sys.Playing);
+            ImGui::SameLine();
+            if (ImGui::Button("Reset"))
+                sys.Reset();
+            ImGui::Checkbox("Looping", &sys.Looping);
+            ImGui::DragFloat("Duration", &sys.Duration, 0.1f, 0.1f, 100.0f);
+            ImGui::DragFloat("Playback Speed", &sys.PlaybackSpeed, 0.01f, 0.0f, 10.0f);
+
+            int maxP = static_cast<int>(sys.GetMaxParticles());
+            if (ImGui::DragInt("Max Particles", &maxP, 10, 1, 100000))
+                sys.SetMaxParticles(static_cast<u32>(maxP));
+            ImGui::Text("Alive: %u", sys.GetAliveCount());
+
+            const char* spaceItems[] = { "Local", "World" };
+            int spaceIdx = static_cast<int>(sys.SimulationSpace);
+            if (ImGui::Combo("Simulation Space", &spaceIdx, spaceItems, 2))
+                sys.SimulationSpace = static_cast<ParticleSpace>(spaceIdx);
+
+            // Emission
+            if (ImGui::CollapsingHeader("Emission", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                ImGui::DragFloat("Rate Over Time", &emitter.RateOverTime, 0.5f, 0.0f, 10000.0f);
+                ImGui::DragFloat("Initial Speed", &emitter.InitialSpeed, 0.1f, 0.0f, 100.0f);
+                ImGui::DragFloat("Speed Variance", &emitter.SpeedVariance, 0.1f, 0.0f, 50.0f);
+                ImGui::DragFloat("Lifetime Min", &emitter.LifetimeMin, 0.05f, 0.01f, 100.0f);
+                ImGui::DragFloat("Lifetime Max", &emitter.LifetimeMax, 0.05f, 0.01f, 100.0f);
+                ImGui::DragFloat("Initial Size", &emitter.InitialSize, 0.01f, 0.001f, 50.0f);
+                ImGui::DragFloat("Size Variance", &emitter.SizeVariance, 0.01f, 0.0f, 25.0f);
+                ImGui::DragFloat("Initial Rotation", &emitter.InitialRotation, 1.0f, -360.0f, 360.0f);
+                ImGui::DragFloat("Rotation Variance", &emitter.RotationVariance, 1.0f, 0.0f, 360.0f);
+                ImGui::ColorEdit4("Initial Color", glm::value_ptr(emitter.InitialColor));
+
+                const char* shapeItems[] = { "Point", "Sphere", "Box", "Cone", "Ring", "Edge" };
+                int shapeIdx = static_cast<int>(emitter.Shape.index());
+                if (ImGui::Combo("Emission Shape", &shapeIdx, shapeItems, 6))
+                {
+                    switch (shapeIdx)
+                    {
+                        case 0: emitter.Shape = EmitPoint{}; break;
+                        case 1: emitter.Shape = EmitSphere{}; break;
+                        case 2: emitter.Shape = EmitBox{}; break;
+                        case 3: emitter.Shape = EmitCone{}; break;
+                        case 4: emitter.Shape = EmitRing{}; break;
+                        case 5: emitter.Shape = EmitEdge{}; break;
+                    }
+                }
+                // Shape-specific parameters
+                if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
+                    ImGui::DragFloat("Sphere Radius", &sphere->Radius, 0.1f, 0.0f, 100.0f);
+                if (auto* box = std::get_if<EmitBox>(&emitter.Shape))
+                    ImGui::DragFloat3("Box Half Extents", glm::value_ptr(box->HalfExtents), 0.1f, 0.0f, 100.0f);
+                if (auto* cone = std::get_if<EmitCone>(&emitter.Shape))
+                {
+                    ImGui::DragFloat("Cone Angle", &cone->Angle, 1.0f, 0.0f, 90.0f);
+                    ImGui::DragFloat("Cone Radius", &cone->Radius, 0.1f, 0.0f, 100.0f);
+                }
+                if (auto* ring = std::get_if<EmitRing>(&emitter.Shape))
+                {
+                    ImGui::DragFloat("Inner Radius", &ring->InnerRadius, 0.1f, 0.0f, 100.0f);
+                    ImGui::DragFloat("Outer Radius", &ring->OuterRadius, 0.1f, 0.0f, 100.0f);
+                }
+                if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
+                    ImGui::DragFloat("Edge Length", &edge->Length, 0.1f, 0.0f, 100.0f);
+            }
+
+            // Texture
+            if (ImGui::CollapsingHeader("Rendering"))
+            {
+                ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    {
+                        auto* const path = static_cast<wchar_t*>(payload->Data);
+                        std::filesystem::path texturePath(path);
+                        Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
+                        if (texture->IsLoaded())
+                        {
+                            component.Texture = texture;
+                        }
+                        else
+                        {
+                            OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                if (component.Texture)
+                {
+                    ImGui::SameLine();
+                    ImGui::Text("%s", "Loaded");
+                    ImGui::SameLine();
+                    if (ImGui::Button("Clear Texture"))
+                        component.Texture = nullptr;
+                }
+            }
+
+            // Modules
+            if (ImGui::CollapsingHeader("Gravity"))
+            {
+                ImGui::Checkbox("Gravity Enabled", &sys.GravityModule.Enabled);
+                ImGui::DragFloat3("Gravity", glm::value_ptr(sys.GravityModule.Gravity), 0.1f);
+            }
+            if (ImGui::CollapsingHeader("Drag"))
+            {
+                ImGui::Checkbox("Drag Enabled", &sys.DragModule.Enabled);
+                ImGui::DragFloat("Drag Coefficient", &sys.DragModule.DragCoefficient, 0.01f, 0.0f, 10.0f);
+            }
+            if (ImGui::CollapsingHeader("Color Over Lifetime"))
+            {
+                ImGui::Checkbox("Color OL Enabled", &sys.ColorModule.Enabled);
+            }
+            if (ImGui::CollapsingHeader("Size Over Lifetime"))
+            {
+                ImGui::Checkbox("Size OL Enabled", &sys.SizeModule.Enabled);
+            }
+            if (ImGui::CollapsingHeader("Rotation Over Lifetime"))
+            {
+                ImGui::Checkbox("Rotation OL Enabled", &sys.RotationModule.Enabled);
+                ImGui::DragFloat("Angular Velocity", &sys.RotationModule.AngularVelocity, 1.0f, -1000.0f, 1000.0f);
+            }
+            if (ImGui::CollapsingHeader("Noise"))
+            {
+                ImGui::Checkbox("Noise Enabled", &sys.NoiseModule.Enabled);
+                ImGui::DragFloat("Noise Strength", &sys.NoiseModule.Strength, 0.1f, 0.0f, 100.0f);
+                ImGui::DragFloat("Noise Frequency", &sys.NoiseModule.Frequency, 0.1f, 0.0f, 100.0f);
+            }
+
+            // Phase 2 modules
+            if (ImGui::CollapsingHeader("Collision"))
+            {
+                ImGui::Checkbox("Collision Enabled", &sys.CollisionModule.Enabled);
+                const char* collisionModes[] = { "World Plane", "Scene Raycast" };
+                int modeIdx = static_cast<int>(sys.CollisionModule.Mode);
+                if (ImGui::Combo("Collision Mode", &modeIdx, collisionModes, 2))
+                    sys.CollisionModule.Mode = static_cast<CollisionMode>(modeIdx);
+                if (sys.CollisionModule.Mode == CollisionMode::WorldPlane)
+                {
+                    ImGui::DragFloat3("Plane Normal", glm::value_ptr(sys.CollisionModule.PlaneNormal), 0.01f, -1.0f, 1.0f);
+                    ImGui::DragFloat("Plane Offset", &sys.CollisionModule.PlaneOffset, 0.1f);
+                }
+                ImGui::DragFloat("Bounce", &sys.CollisionModule.Bounce, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Lifetime Loss", &sys.CollisionModule.LifetimeLoss, 0.01f, 0.0f, 1.0f);
+                ImGui::Checkbox("Kill On Collide", &sys.CollisionModule.KillOnCollide);
+            }
+            if (ImGui::CollapsingHeader("Force Field"))
+            {
+                ImGui::Checkbox("Force Field Enabled", &sys.ForceFieldModule.Enabled);
+                const char* ffTypes[] = { "Attraction", "Repulsion", "Vortex" };
+                int ffIdx = static_cast<int>(sys.ForceFieldModule.Type);
+                if (ImGui::Combo("Force Type", &ffIdx, ffTypes, 3))
+                    sys.ForceFieldModule.Type = static_cast<ForceFieldType>(ffIdx);
+                ImGui::DragFloat3("FF Position", glm::value_ptr(sys.ForceFieldModule.Position), 0.1f);
+                ImGui::DragFloat("FF Strength", &sys.ForceFieldModule.Strength, 0.1f, 0.0f, 1000.0f);
+                ImGui::DragFloat("FF Radius", &sys.ForceFieldModule.Radius, 0.1f, 0.01f, 1000.0f);
+                if (sys.ForceFieldModule.Type == ForceFieldType::Vortex)
+                    ImGui::DragFloat3("Vortex Axis", glm::value_ptr(sys.ForceFieldModule.Axis), 0.01f, -1.0f, 1.0f);
+            }
+            if (ImGui::CollapsingHeader("Trail"))
+            {
+                ImGui::Checkbox("Trail Enabled", &sys.TrailModule.Enabled);
+                int maxPts = static_cast<int>(sys.TrailModule.MaxTrailPoints);
+                if (ImGui::DragInt("Max Trail Points", &maxPts, 1, 2, 128))
+                    sys.TrailModule.MaxTrailPoints = static_cast<u32>(maxPts);
+                ImGui::DragFloat("Trail Lifetime", &sys.TrailModule.TrailLifetime, 0.01f, 0.01f, 10.0f);
+                ImGui::DragFloat("Min Vertex Distance", &sys.TrailModule.MinVertexDistance, 0.01f, 0.001f, 10.0f);
+                ImGui::DragFloat("Width Start", &sys.TrailModule.WidthStart, 0.01f, 0.001f, 10.0f);
+                ImGui::DragFloat("Width End", &sys.TrailModule.WidthEnd, 0.01f, 0.0f, 10.0f);
+                ImGui::ColorEdit4("Trail Color Start", glm::value_ptr(sys.TrailModule.ColorStart));
+                ImGui::ColorEdit4("Trail Color End", glm::value_ptr(sys.TrailModule.ColorEnd));
+            }
+            if (ImGui::CollapsingHeader("Sub-Emitter"))
+            {
+                ImGui::Checkbox("Sub-Emitter Enabled", &sys.SubEmitterModule.Enabled);
+                if (sys.SubEmitterModule.Enabled)
+                    ImGui::TextDisabled("Configure sub-emitter entries via scripting");
+            }
+            if (ImGui::CollapsingHeader("LOD"))
+            {
+                ImGui::DragFloat("LOD Distance 1", &sys.LODDistance1, 1.0f, 0.0f, 10000.0f);
+                ImGui::DragFloat("LOD Distance 2", &sys.LODDistance2, 1.0f, 0.0f, 10000.0f);
+                ImGui::DragFloat("LOD Max Distance", &sys.LODMaxDistance, 1.0f, 0.0f, 10000.0f);
+            } });
     }
 
     template<typename T>

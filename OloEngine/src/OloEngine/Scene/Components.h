@@ -9,6 +9,7 @@
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Particle/ParticleSystem.h"
 
 #include "box2d/box2d.h"
 
@@ -730,6 +731,17 @@ namespace OloEngine
         UIToggleComponent(const UIToggleComponent&) = default;
     };
 
+    // ── Particle System ──────────────────────────────────────────────────
+
+    struct ParticleSystemComponent
+    {
+        ParticleSystem System;
+        Ref<Texture2D> Texture = nullptr;
+
+        ParticleSystemComponent() = default;
+        ParticleSystemComponent(const ParticleSystemComponent&) = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -780,5 +792,6 @@ namespace OloEngine
         UIScrollViewComponent,
         UIDropdownComponent,
         UIGridLayoutComponent,
-        UIToggleComponent>;
+        UIToggleComponent,
+        ParticleSystemComponent>;
 } // namespace OloEngine
