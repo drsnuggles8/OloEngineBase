@@ -13,7 +13,7 @@ namespace OloEngine
                point.y >= rectPos.y && point.y <= rectPos.y + rectSize.y;
     }
 
-    void UIInputSystem::ProcessInput(Scene& scene, const glm::vec2& mousePos, bool mouseDown, bool mousePressed, f32 scrollDelta)
+    void UIInputSystem::ProcessInput(Scene& scene, const glm::vec2& mousePos, bool mouseDown, bool mousePressed, f32 scrollDeltaX, f32 scrollDeltaY)
     {
         OLO_PROFILE_FUNCTION();
         // Buttons
@@ -149,22 +149,21 @@ namespace OloEngine
                     continue;
                 }
 
-                if (scrollDelta != 0.0f)
+                if (scrollDeltaY != 0.0f &&
+                    (scrollView.m_ScrollDirection == UIScrollDirection::Vertical ||
+                     scrollView.m_ScrollDirection == UIScrollDirection::Both))
                 {
-                    if (scrollView.m_ScrollDirection == UIScrollDirection::Vertical ||
-                        scrollView.m_ScrollDirection == UIScrollDirection::Both)
-                    {
-                        scrollView.m_ScrollPosition.y -= scrollDelta * scrollView.m_ScrollSpeed;
-                        const f32 maxScrollY = glm::max(scrollView.m_ContentSize.y - resolved.m_Size.y, 0.0f);
-                        scrollView.m_ScrollPosition.y = glm::clamp(scrollView.m_ScrollPosition.y, 0.0f, maxScrollY);
-                    }
-                    if (scrollView.m_ScrollDirection == UIScrollDirection::Horizontal ||
-                        scrollView.m_ScrollDirection == UIScrollDirection::Both)
-                    {
-                        scrollView.m_ScrollPosition.x -= scrollDelta * scrollView.m_ScrollSpeed;
-                        const f32 maxScrollX = glm::max(scrollView.m_ContentSize.x - resolved.m_Size.x, 0.0f);
-                        scrollView.m_ScrollPosition.x = glm::clamp(scrollView.m_ScrollPosition.x, 0.0f, maxScrollX);
-                    }
+                    scrollView.m_ScrollPosition.y -= scrollDeltaY * scrollView.m_ScrollSpeed;
+                    const f32 maxScrollY = glm::max(scrollView.m_ContentSize.y - resolved.m_Size.y, 0.0f);
+                    scrollView.m_ScrollPosition.y = glm::clamp(scrollView.m_ScrollPosition.y, 0.0f, maxScrollY);
+                }
+                if (scrollDeltaX != 0.0f &&
+                    (scrollView.m_ScrollDirection == UIScrollDirection::Horizontal ||
+                     scrollView.m_ScrollDirection == UIScrollDirection::Both))
+                {
+                    scrollView.m_ScrollPosition.x -= scrollDeltaX * scrollView.m_ScrollSpeed;
+                    const f32 maxScrollX = glm::max(scrollView.m_ContentSize.x - resolved.m_Size.x, 0.0f);
+                    scrollView.m_ScrollPosition.x = glm::clamp(scrollView.m_ScrollPosition.x, 0.0f, maxScrollX);
                 }
             }
         }
@@ -209,16 +208,8 @@ namespace OloEngine
                         if (hoveredList && dropdown.m_HoveredIndex >= 0 && dropdown.m_HoveredIndex < static_cast<i32>(dropdown.m_Options.size()))
                         {
                             dropdown.m_SelectedIndex = dropdown.m_HoveredIndex;
-                            dropdown.m_IsOpen = false;
                         }
-                        else if (!hoveredMain)
-                        {
-                            dropdown.m_IsOpen = false;
-                        }
-                        else
-                        {
-                            dropdown.m_IsOpen = false; // Toggle close
-                        }
+                        dropdown.m_IsOpen = false;
                     }
                 }
                 else
