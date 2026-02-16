@@ -49,6 +49,105 @@ namespace OloEngine
                     m_SelectionContext = m_Context->CreateEntity("Empty Entity");
                 }
 
+                if (ImGui::BeginMenu("Create UI"))
+                {
+                    if (ImGui::MenuItem("UI Canvas"))
+                    {
+                        auto canvas = m_Context->CreateEntity("UI Canvas");
+                        canvas.AddComponent<UICanvasComponent>();
+                        canvas.AddComponent<UIRectTransformComponent>();
+                        m_SelectionContext = canvas;
+                    }
+
+                    ImGui::Separator();
+
+                    if (ImGui::MenuItem("Panel"))
+                    {
+                        auto widget = CreateUIWidget("UI Panel");
+                        widget.AddComponent<UIPanelComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Text"))
+                    {
+                        auto widget = CreateUIWidget("UI Text");
+                        widget.AddComponent<UITextComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Image"))
+                    {
+                        auto widget = CreateUIWidget("UI Image");
+                        widget.AddComponent<UIImageComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Button"))
+                    {
+                        auto widget = CreateUIWidget("UI Button");
+                        widget.AddComponent<UIButtonComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Slider"))
+                    {
+                        auto widget = CreateUIWidget("UI Slider");
+                        widget.AddComponent<UISliderComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Checkbox"))
+                    {
+                        auto widget = CreateUIWidget("UI Checkbox");
+                        widget.AddComponent<UICheckboxComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Toggle"))
+                    {
+                        auto widget = CreateUIWidget("UI Toggle");
+                        widget.AddComponent<UIToggleComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Progress Bar"))
+                    {
+                        auto widget = CreateUIWidget("UI Progress Bar");
+                        widget.AddComponent<UIProgressBarComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Input Field"))
+                    {
+                        auto widget = CreateUIWidget("UI Input Field");
+                        widget.AddComponent<UIInputFieldComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Dropdown"))
+                    {
+                        auto widget = CreateUIWidget("UI Dropdown");
+                        widget.AddComponent<UIDropdownComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Scroll View"))
+                    {
+                        auto widget = CreateUIWidget("UI Scroll View");
+                        widget.AddComponent<UIScrollViewComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    if (ImGui::MenuItem("Grid Layout"))
+                    {
+                        auto widget = CreateUIWidget("UI Grid Layout");
+                        widget.AddComponent<UIGridLayoutComponent>();
+                        m_SelectionContext = widget;
+                    }
+
+                    ImGui::EndMenu();
+                }
+
                 ImGui::EndPopup();
             }
         }
@@ -67,6 +166,31 @@ namespace OloEngine
     void SceneHierarchyPanel::SetSelectedEntity(const Entity entity)
     {
         m_SelectionContext = entity;
+    }
+
+    Entity SceneHierarchyPanel::FindOrCreateCanvas()
+    {
+        // Look for an existing canvas entity
+        auto view = m_Context->GetAllEntitiesWith<UICanvasComponent>();
+        if (auto it = view.begin(); it != view.end())
+        {
+            return Entity{ *it, m_Context.get() };
+        }
+
+        // None found — create a new canvas
+        auto canvas = m_Context->CreateEntity("UI Canvas");
+        canvas.AddComponent<UICanvasComponent>();
+        canvas.AddComponent<UIRectTransformComponent>();
+        return canvas;
+    }
+
+    Entity SceneHierarchyPanel::CreateUIWidget(const std::string& name)
+    {
+        Entity canvas = FindOrCreateCanvas();
+        auto widget = m_Context->CreateEntity(name);
+        widget.AddComponent<UIRectTransformComponent>();
+        widget.SetParent(canvas);
+        return widget;
     }
 
     void SceneHierarchyPanel::DrawEntityNode(Entity entity)

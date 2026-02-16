@@ -472,81 +472,7 @@ namespace OloEngine
             Renderer2D::EndScene();
         }
 
-        // UI render pass (screen-space overlay)
-        if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
-        {
-            UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight);
-
-            glm::mat4 uiProjection = glm::ortho(0.0f, static_cast<f32>(m_ViewportWidth),
-                                                  static_cast<f32>(m_ViewportHeight), 0.0f,
-                                                  -1.0f, 1.0f);
-            UIRenderer::BeginScene(uiProjection);
-
-            auto resolvedView = GetAllEntitiesWith<UIResolvedRectComponent>();
-            for (const auto entity : resolvedView)
-            {
-                auto& resolved = resolvedView.get<UIResolvedRectComponent>(entity);
-                const int eid = static_cast<int>(entity);
-
-                // Draw widget-specific visuals
-                if (m_Registry.all_of<UIPanelComponent>(entity))
-                {
-                    UIRenderer::DrawPanel(resolved.m_Position, resolved.m_Size, m_Registry.get<UIPanelComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIButtonComponent>(entity))
-                {
-                    UIRenderer::DrawButton(resolved.m_Position, resolved.m_Size, m_Registry.get<UIButtonComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIImageComponent>(entity))
-                {
-                    UIRenderer::DrawImage(resolved.m_Position, resolved.m_Size, m_Registry.get<UIImageComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UITextComponent>(entity))
-                {
-                    UIRenderer::DrawUIText(resolved.m_Position, resolved.m_Size, m_Registry.get<UITextComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UISliderComponent>(entity))
-                {
-                    UIRenderer::DrawSlider(resolved.m_Position, resolved.m_Size, m_Registry.get<UISliderComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UICheckboxComponent>(entity))
-                {
-                    UIRenderer::DrawCheckbox(resolved.m_Position, resolved.m_Size, m_Registry.get<UICheckboxComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIProgressBarComponent>(entity))
-                {
-                    UIRenderer::DrawProgressBar(resolved.m_Position, resolved.m_Size, m_Registry.get<UIProgressBarComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIInputFieldComponent>(entity))
-                {
-                    UIRenderer::DrawInputField(resolved.m_Position, resolved.m_Size, m_Registry.get<UIInputFieldComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIScrollViewComponent>(entity))
-                {
-                    UIRenderer::DrawScrollView(resolved.m_Position, resolved.m_Size, m_Registry.get<UIScrollViewComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIDropdownComponent>(entity))
-                {
-                    UIRenderer::DrawDropdown(resolved.m_Position, resolved.m_Size, m_Registry.get<UIDropdownComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIToggleComponent>(entity))
-                {
-                    UIRenderer::DrawToggle(resolved.m_Position, resolved.m_Size, m_Registry.get<UIToggleComponent>(entity), eid);
-                }
-            }
-
-            UIRenderer::EndScene();
-        }
+        RenderUIOverlay();
     }
 
     void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera const& camera)
@@ -620,6 +546,9 @@ namespace OloEngine
         {
             RenderScene(camera);
         }
+
+        // UI overlay renders on top of both 2D and 3D scenes
+        RenderUIOverlay();
     }
 
     void Scene::OnViewportResize(const u32 width, const u32 height)
@@ -912,6 +841,85 @@ namespace OloEngine
         m_JoltScene->Shutdown();
     }
 
+    void Scene::RenderUIOverlay()
+    {
+        if (m_ViewportWidth == 0 || m_ViewportHeight == 0)
+        {
+            return;
+        }
+
+        UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight);
+
+        glm::mat4 uiProjection = glm::ortho(0.0f, static_cast<f32>(m_ViewportWidth),
+                                              static_cast<f32>(m_ViewportHeight), 0.0f,
+                                              -1.0f, 1.0f);
+        UIRenderer::BeginScene(uiProjection);
+
+        auto resolvedView = GetAllEntitiesWith<UIResolvedRectComponent>();
+        for (const auto entity : resolvedView)
+        {
+            auto& resolved = resolvedView.get<UIResolvedRectComponent>(entity);
+            const int eid = static_cast<int>(entity);
+
+            if (m_Registry.all_of<UIPanelComponent>(entity))
+            {
+                UIRenderer::DrawPanel(resolved.m_Position, resolved.m_Size, m_Registry.get<UIPanelComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIButtonComponent>(entity))
+            {
+                UIRenderer::DrawButton(resolved.m_Position, resolved.m_Size, m_Registry.get<UIButtonComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIImageComponent>(entity))
+            {
+                UIRenderer::DrawImage(resolved.m_Position, resolved.m_Size, m_Registry.get<UIImageComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UITextComponent>(entity))
+            {
+                UIRenderer::DrawUIText(resolved.m_Position, resolved.m_Size, m_Registry.get<UITextComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UISliderComponent>(entity))
+            {
+                UIRenderer::DrawSlider(resolved.m_Position, resolved.m_Size, m_Registry.get<UISliderComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UICheckboxComponent>(entity))
+            {
+                UIRenderer::DrawCheckbox(resolved.m_Position, resolved.m_Size, m_Registry.get<UICheckboxComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIProgressBarComponent>(entity))
+            {
+                UIRenderer::DrawProgressBar(resolved.m_Position, resolved.m_Size, m_Registry.get<UIProgressBarComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIInputFieldComponent>(entity))
+            {
+                UIRenderer::DrawInputField(resolved.m_Position, resolved.m_Size, m_Registry.get<UIInputFieldComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIScrollViewComponent>(entity))
+            {
+                UIRenderer::DrawScrollView(resolved.m_Position, resolved.m_Size, m_Registry.get<UIScrollViewComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIDropdownComponent>(entity))
+            {
+                UIRenderer::DrawDropdown(resolved.m_Position, resolved.m_Size, m_Registry.get<UIDropdownComponent>(entity), eid);
+            }
+
+            if (m_Registry.all_of<UIToggleComponent>(entity))
+            {
+                UIRenderer::DrawToggle(resolved.m_Position, resolved.m_Size, m_Registry.get<UIToggleComponent>(entity), eid);
+            }
+        }
+
+        UIRenderer::EndScene();
+    }
+
     void Scene::RenderScene(EditorCamera const& camera)
     {
         Renderer2D::BeginScene(camera);
@@ -946,81 +954,6 @@ namespace OloEngine
         }
 
         Renderer2D::EndScene();
-
-        // UI render pass (screen-space overlay) — editor path
-        if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
-        {
-            UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight);
-
-            glm::mat4 uiProjection = glm::ortho(0.0f, static_cast<f32>(m_ViewportWidth),
-                                                  static_cast<f32>(m_ViewportHeight), 0.0f,
-                                                  -1.0f, 1.0f);
-            UIRenderer::BeginScene(uiProjection);
-
-            auto resolvedView = GetAllEntitiesWith<UIResolvedRectComponent>();
-            for (const auto entity : resolvedView)
-            {
-                auto& resolved = resolvedView.get<UIResolvedRectComponent>(entity);
-                const int eid = static_cast<int>(entity);
-
-                if (m_Registry.all_of<UIPanelComponent>(entity))
-                {
-                    UIRenderer::DrawPanel(resolved.m_Position, resolved.m_Size, m_Registry.get<UIPanelComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIButtonComponent>(entity))
-                {
-                    UIRenderer::DrawButton(resolved.m_Position, resolved.m_Size, m_Registry.get<UIButtonComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIImageComponent>(entity))
-                {
-                    UIRenderer::DrawImage(resolved.m_Position, resolved.m_Size, m_Registry.get<UIImageComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UITextComponent>(entity))
-                {
-                    UIRenderer::DrawUIText(resolved.m_Position, resolved.m_Size, m_Registry.get<UITextComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UISliderComponent>(entity))
-                {
-                    UIRenderer::DrawSlider(resolved.m_Position, resolved.m_Size, m_Registry.get<UISliderComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UICheckboxComponent>(entity))
-                {
-                    UIRenderer::DrawCheckbox(resolved.m_Position, resolved.m_Size, m_Registry.get<UICheckboxComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIProgressBarComponent>(entity))
-                {
-                    UIRenderer::DrawProgressBar(resolved.m_Position, resolved.m_Size, m_Registry.get<UIProgressBarComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIInputFieldComponent>(entity))
-                {
-                    UIRenderer::DrawInputField(resolved.m_Position, resolved.m_Size, m_Registry.get<UIInputFieldComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIScrollViewComponent>(entity))
-                {
-                    UIRenderer::DrawScrollView(resolved.m_Position, resolved.m_Size, m_Registry.get<UIScrollViewComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIDropdownComponent>(entity))
-                {
-                    UIRenderer::DrawDropdown(resolved.m_Position, resolved.m_Size, m_Registry.get<UIDropdownComponent>(entity), eid);
-                }
-
-                if (m_Registry.all_of<UIToggleComponent>(entity))
-                {
-                    UIRenderer::DrawToggle(resolved.m_Position, resolved.m_Size, m_Registry.get<UIToggleComponent>(entity), eid);
-                }
-            }
-
-            UIRenderer::EndScene();
-        }
     }
 
     // Static cached default material for 3D rendering
