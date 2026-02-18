@@ -178,6 +178,3 @@ UV sub-rects are computed per particle and passed to `Renderer2D::DrawQuad()` vi
 - `OloEngine/src/OloEngine/Scene/Scene.cpp` — Update + render particle systems (Local space offset, billboard rendering)
 - `OloEngine/src/OloEngine/Scene/SceneSerializer.cpp` — YAML serialization
 - `OloEditor/src/Panels/SceneHierarchyPanel.cpp` — Editor UI
-
-### Review document:
-- `docs/PARTICLE_SYSTEM_REVIEW.md` — Comprehensive design review with feature comparison table
