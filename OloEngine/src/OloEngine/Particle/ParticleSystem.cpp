@@ -66,6 +66,10 @@ namespace OloEngine
 
         f32 scaledDt = dt * PlaybackSpeed;
         m_Time += scaledDt;
+        m_EmitterPosition = emitterPosition;
+
+        // Determine emission position based on simulation space
+        glm::vec3 emitPos = (SimulationSpace == ParticleSpace::Local) ? glm::vec3(0.0f) : emitterPosition;
 
         // Check duration
         if (!Looping && m_Time >= Duration)
@@ -88,7 +92,7 @@ namespace OloEngine
         Emitter.RateOverTime *= m_LODSpawnRateMultiplier;
 
         u32 prevAlive = m_Pool.GetAliveCount();
-        Emitter.Update(scaledDt, m_Pool, emitterPosition);
+        Emitter.Update(scaledDt, m_Pool, emitPos);
         u32 newAlive = m_Pool.GetAliveCount();
 
         Emitter.RateOverTime = origRate;
@@ -121,10 +125,10 @@ namespace OloEngine
             }
         }
 
-        // 2. Apply Phase 1 modules (order matters)
+        // 2. Apply Phase 1 modules (order matters: base velocity first, then forces)
+        VelocityModule.Apply(scaledDt, m_Pool);
         GravityModule.Apply(scaledDt, m_Pool);
         DragModule.Apply(scaledDt, m_Pool);
-        VelocityModule.Apply(scaledDt, m_Pool);
         NoiseModule.Apply(scaledDt, m_Time, m_Pool);
         RotationModule.Apply(scaledDt, m_Pool);
         ColorModule.Apply(m_Pool);
@@ -227,10 +231,16 @@ namespace OloEngine
                         rng.GetFloat32InRange(-1.0f, 1.0f)
                     ));
                     f32 speed = Emitter.InitialSpeed + rng.GetFloat32InRange(-Emitter.SpeedVariance, Emitter.SpeedVariance);
-                    m_Pool.Velocities[idx] = dir * std::max(speed, 0.0f) + trigger.Velocity;
+                    glm::vec3 velocity = dir * std::max(speed, 0.0f) + trigger.Velocity;
+                    m_Pool.Velocities[idx] = velocity;
+                    m_Pool.InitialVelocities[idx] = velocity;
 
                     m_Pool.Colors[idx] = Emitter.InitialColor;
-                    m_Pool.Sizes[idx] = Emitter.InitialSize + rng.GetFloat32InRange(-Emitter.SizeVariance, Emitter.SizeVariance);
+                    m_Pool.InitialColors[idx] = Emitter.InitialColor;
+
+                    f32 size = Emitter.InitialSize + rng.GetFloat32InRange(-Emitter.SizeVariance, Emitter.SizeVariance);
+                    m_Pool.Sizes[idx] = size;
+                    m_Pool.InitialSizes[idx] = size;
                     m_Pool.Rotations[idx] = Emitter.InitialRotation + rng.GetFloat32InRange(-Emitter.RotationVariance, Emitter.RotationVariance);
 
                     f32 lifetime = rng.GetFloat32InRange(Emitter.LifetimeMin, Emitter.LifetimeMax);

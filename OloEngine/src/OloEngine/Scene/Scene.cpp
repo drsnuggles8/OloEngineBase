@@ -500,10 +500,25 @@ namespace OloEngine
 
             // Draw particles
             {
-                for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+                if (m_Is3DModeEnabled)
                 {
-                    auto& psc = view.get<ParticleSystemComponent>(entity);
-                    ParticleRenderer::RenderParticles2D(psc.System.GetPool(), psc.Texture, static_cast<int>(entity));
+                    glm::vec3 camRight = glm::normalize(glm::vec3(cameraTransform[0]));
+                    glm::vec3 camUp = glm::normalize(glm::vec3(cameraTransform[1]));
+                    for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+                    {
+                        auto& psc = view.get<ParticleSystemComponent>(entity);
+                        glm::vec3 offset = (psc.System.SimulationSpace == ParticleSpace::Local) ? psc.System.GetEmitterPosition() : glm::vec3(0.0f);
+                        ParticleRenderer::RenderParticlesBillboard(psc.System.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity));
+                    }
+                }
+                else
+                {
+                    for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+                    {
+                        auto& psc = view.get<ParticleSystemComponent>(entity);
+                        glm::vec3 offset = (psc.System.SimulationSpace == ParticleSpace::Local) ? psc.System.GetEmitterPosition() : glm::vec3(0.0f);
+                        ParticleRenderer::RenderParticles2D(psc.System.GetPool(), psc.Texture, offset, static_cast<int>(entity));
+                    }
                 }
             }
 
@@ -584,6 +599,7 @@ namespace OloEngine
 
     void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
     {
+
         // Update particle systems so they preview in the editor
         {
             const glm::vec3 camPos = camera.GetPosition();
@@ -1044,7 +1060,8 @@ namespace OloEngine
             for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
             {
                 auto& psc = view.get<ParticleSystemComponent>(entity);
-                ParticleRenderer::RenderParticles2D(psc.System.GetPool(), psc.Texture, static_cast<int>(entity));
+                glm::vec3 offset = (psc.System.SimulationSpace == ParticleSpace::Local) ? psc.System.GetEmitterPosition() : glm::vec3(0.0f);
+                ParticleRenderer::RenderParticles2D(psc.System.GetPool(), psc.Texture, offset, static_cast<int>(entity));
             }
         }
 
@@ -1425,16 +1442,13 @@ namespace OloEngine
             }
         }
 
-        // Draw particles as 3D billboards
+        // Render trails in 3D (line-based, works well in Renderer3D)
         {
             glm::vec3 camRight = camera.GetRightDirection();
             glm::vec3 camUp = camera.GetUpDirection();
             for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
             {
                 auto& psc = view.get<ParticleSystemComponent>(entity);
-                ParticleRenderer::RenderParticles3D(psc.System.GetPool(), camRight, camUp, psc.Texture);
-
-                // Render trails if enabled
                 if (psc.System.TrailModule.Enabled)
                 {
                     TrailRenderer::RenderTrails3D(psc.System.GetPool(), psc.System.GetTrailData(),
@@ -1444,6 +1458,20 @@ namespace OloEngine
         }
 
         Renderer3D::EndScene();
+
+        // Render particles as billboards via Renderer2D (unlit, reliable rendering)
+        {
+            Renderer2D::BeginScene(camera);
+            glm::vec3 camRight = camera.GetRightDirection();
+            glm::vec3 camUp = camera.GetUpDirection();
+            for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+            {
+                auto& psc = view.get<ParticleSystemComponent>(entity);
+                glm::vec3 offset = (psc.System.SimulationSpace == ParticleSpace::Local) ? psc.System.GetEmitterPosition() : glm::vec3(0.0f);
+                ParticleRenderer::RenderParticlesBillboard(psc.System.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity));
+            }
+            Renderer2D::EndScene();
+        }
     }
 
     void Scene::RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform)
@@ -1645,16 +1673,13 @@ namespace OloEngine
             }
         }
 
-        // Draw particles as 3D billboards
+        // Render trails in 3D (line-based, works well in Renderer3D)
         {
             glm::vec3 camRight = glm::normalize(glm::vec3(cameraTransform[0]));
             glm::vec3 camUp = glm::normalize(glm::vec3(cameraTransform[1]));
             for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
             {
                 auto& psc = view.get<ParticleSystemComponent>(entity);
-                ParticleRenderer::RenderParticles3D(psc.System.GetPool(), camRight, camUp, psc.Texture);
-
-                // Render trails if enabled
                 if (psc.System.TrailModule.Enabled)
                 {
                     TrailRenderer::RenderTrails3D(psc.System.GetPool(), psc.System.GetTrailData(),
@@ -1664,6 +1689,20 @@ namespace OloEngine
         }
 
         Renderer3D::EndScene();
+
+        // Render particles as billboards via Renderer2D (unlit, reliable rendering)
+        {
+            Renderer2D::BeginScene(camera, cameraTransform);
+            glm::vec3 camRight = glm::normalize(glm::vec3(cameraTransform[0]));
+            glm::vec3 camUp = glm::normalize(glm::vec3(cameraTransform[1]));
+            for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+            {
+                auto& psc = view.get<ParticleSystemComponent>(entity);
+                glm::vec3 offset = (psc.System.SimulationSpace == ParticleSpace::Local) ? psc.System.GetEmitterPosition() : glm::vec3(0.0f);
+                ParticleRenderer::RenderParticlesBillboard(psc.System.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity));
+            }
+            Renderer2D::EndScene();
+        }
     }
 
 } // namespace OloEngine

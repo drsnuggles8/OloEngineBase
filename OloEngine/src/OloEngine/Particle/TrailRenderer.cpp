@@ -17,19 +17,19 @@ namespace OloEngine
         for (u32 p = 0; p < particleCount; ++p)
         {
             const auto& trail = trailData.GetTrail(p);
-            if (trail.size() < 2)
+            if (trail.Count < 2)
             {
                 continue;
             }
 
             // Draw trail as connected line segments
-            for (sizet i = 0; i < trail.size() - 1; ++i)
+            for (u32 i = 0; i < trail.Count - 1; ++i)
             {
-                const auto& a = trail[i];
-                const auto& b = trail[i + 1];
+                const auto& a = trail.Get(i);
+                const auto& b = trail.Get(i + 1);
 
-                // Interpolate color based on age
-                f32 t = static_cast<f32>(i) / static_cast<f32>(trail.size() - 1);
+                // Interpolate color based on position in trail
+                f32 t = static_cast<f32>(i) / static_cast<f32>(trail.Count - 1);
                 glm::vec4 color = glm::mix(trailModule.ColorStart, trailModule.ColorEnd, t);
                 f32 width = glm::mix(trailModule.WidthStart, trailModule.WidthEnd, t);
 

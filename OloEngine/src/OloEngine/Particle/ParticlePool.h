@@ -39,6 +39,11 @@ namespace OloEngine
         std::vector<f32> Lifetimes;     // Remaining lifetime
         std::vector<f32> MaxLifetimes;  // Initial lifetime (for age calculation)
 
+        // Initial values stored at emission time — used by OverLifetime modules as base multiplier
+        std::vector<glm::vec4> InitialColors;
+        std::vector<f32> InitialSizes;
+        std::vector<glm::vec3> InitialVelocities;
+
         // Optional callback invoked when particles are swapped during Kill/UpdateLifetimes
         // Use to keep external SOA data synchronized (e.g., trail data)
         std::function<void(u32, u32)> OnSwapCallback;

@@ -7,7 +7,7 @@
 
 namespace OloEngine
 {
-    // Piecewise linear curve with up to 4 keys, for animating particle properties over lifetime
+    // Piecewise linear curve with up to 8 keys, for animating particle properties over lifetime
     struct ParticleCurve
     {
         struct Key
@@ -16,7 +16,7 @@ namespace OloEngine
             f32 Value = 0.0f;
         };
 
-        std::array<Key, 4> Keys{};
+        std::array<Key, 8> Keys{};
         u32 KeyCount = 0;
 
         ParticleCurve() = default;

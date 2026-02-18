@@ -66,10 +66,17 @@ namespace OloEngine
 
         glm::vec3 dir = SampleEmissionDirection(Shape);
         f32 speed = InitialSpeed + rng.GetFloat32InRange(-SpeedVariance, SpeedVariance);
-        pool.Velocities[index] = dir * std::max(speed, 0.0f);
+        glm::vec3 velocity = dir * std::max(speed, 0.0f);
+        pool.Velocities[index] = velocity;
+        pool.InitialVelocities[index] = velocity;
 
         pool.Colors[index] = InitialColor;
-        pool.Sizes[index] = InitialSize + rng.GetFloat32InRange(-SizeVariance, SizeVariance);
+        pool.InitialColors[index] = InitialColor;
+
+        f32 size = InitialSize + rng.GetFloat32InRange(-SizeVariance, SizeVariance);
+        pool.Sizes[index] = size;
+        pool.InitialSizes[index] = size;
+
         pool.Rotations[index] = InitialRotation + rng.GetFloat32InRange(-RotationVariance, RotationVariance);
 
         f32 lifetime = rng.GetFloat32InRange(LifetimeMin, LifetimeMax);

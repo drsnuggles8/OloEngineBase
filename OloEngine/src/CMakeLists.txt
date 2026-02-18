@@ -460,6 +460,8 @@
 		"OloEngine/Particle/SubEmitter.h"
 		"OloEngine/Particle/TrailRenderer.h"
 		"OloEngine/Particle/TrailRenderer.cpp"
+		"OloEngine/Particle/SimplexNoise.h"
+		"OloEngine/Particle/SimplexNoise.cpp"
 
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/Entity.cpp"

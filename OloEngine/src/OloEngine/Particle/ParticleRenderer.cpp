@@ -8,14 +8,14 @@
 
 namespace OloEngine
 {
-    void ParticleRenderer::RenderParticles2D(const ParticlePool& pool, const Ref<Texture2D>& texture, int entityID)
+    void ParticleRenderer::RenderParticles2D(const ParticlePool& pool, const Ref<Texture2D>& texture, const glm::vec3& worldOffset, int entityID)
     {
         OLO_PROFILE_FUNCTION();
 
         u32 count = pool.GetAliveCount();
         for (u32 i = 0; i < count; ++i)
         {
-            const auto& pos = pool.Positions[i];
+            const glm::vec3 pos = pool.Positions[i] + worldOffset;
             f32 size = pool.Sizes[i];
             f32 rotation = glm::radians(pool.Rotations[i]);
             const auto& color = pool.Colors[i];
@@ -43,14 +43,14 @@ namespace OloEngine
         }
     }
 
-    void ParticleRenderer::RenderParticlesBillboard(const ParticlePool& pool, const glm::vec3& cameraRight, const glm::vec3& cameraUp, const Ref<Texture2D>& texture, int entityID)
+    void ParticleRenderer::RenderParticlesBillboard(const ParticlePool& pool, const glm::vec3& cameraRight, const glm::vec3& cameraUp, const Ref<Texture2D>& texture, const glm::vec3& worldOffset, int entityID)
     {
         OLO_PROFILE_FUNCTION();
 
         u32 count = pool.GetAliveCount();
         for (u32 i = 0; i < count; ++i)
         {
-            const auto& pos = pool.Positions[i];
+            const glm::vec3 pos = pool.Positions[i] + worldOffset;
             f32 size = pool.Sizes[i];
             f32 rotation = glm::radians(pool.Rotations[i]);
             const auto& color = pool.Colors[i];
@@ -90,7 +90,7 @@ namespace OloEngine
         }
     }
 
-    void ParticleRenderer::RenderParticles3D(const ParticlePool& pool, const glm::vec3& cameraRight, const glm::vec3& cameraUp, const Ref<Texture2D>& texture)
+    void ParticleRenderer::RenderParticles3D(const ParticlePool& pool, const glm::vec3& cameraRight, const glm::vec3& cameraUp, const Ref<Texture2D>& texture, const glm::vec3& worldOffset, int entityID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -104,7 +104,7 @@ namespace OloEngine
 
         for (u32 i = 0; i < count; ++i)
         {
-            const auto& pos = pool.Positions[i];
+            const glm::vec3 pos = pool.Positions[i] + worldOffset;
             f32 size = pool.Sizes[i];
             f32 rotation = glm::radians(pool.Rotations[i]);
             const auto& color = pool.Colors[i];

@@ -9,8 +9,7 @@ namespace OloEngine
         m_Trails.resize(maxParticles);
         for (auto& trail : m_Trails)
         {
-            trail.clear();
-            trail.reserve(maxTrailPoints);
+            trail.Resize(maxTrailPoints);
         }
     }
 
@@ -19,9 +18,10 @@ namespace OloEngine
         auto& trail = m_Trails[particleIndex];
 
         // Check minimum distance from last recorded point
-        if (!trail.empty())
+        if (trail.Count > 0)
         {
-            glm::vec3 diff = position - trail.front().Position;
+            const glm::vec3& lastPos = trail.Get(0).Position;
+            glm::vec3 diff = position - lastPos;
             f32 minDistSq = minVertexDistance * minVertexDistance;
             if (glm::dot(diff, diff) < minDistSq)
             {
@@ -29,20 +29,13 @@ namespace OloEngine
             }
         }
 
-        // Insert at front (newest first)
         TrailPoint point;
         point.Position = position;
         point.Width = width;
         point.Color = color;
         point.Age = 0.0f;
 
-        trail.insert(trail.begin(), point);
-
-        // Trim to max trail points
-        if (trail.size() > m_MaxTrailPoints)
-        {
-            trail.resize(m_MaxTrailPoints);
-        }
+        trail.Push(point);
     }
 
     void ParticleTrailData::SwapParticles(u32 a, u32 b)
@@ -54,7 +47,7 @@ namespace OloEngine
     {
         if (particleIndex < m_Trails.size())
         {
-            m_Trails[particleIndex].clear();
+            m_Trails[particleIndex].Clear();
         }
     }
 
@@ -69,19 +62,20 @@ namespace OloEngine
 
         for (auto& trail : m_Trails)
         {
-            // Age all points and remove expired ones
-            for (auto it = trail.begin(); it != trail.end(); )
+            // Age all points from newest to oldest, trim expired from the end
+            u32 newCount = trail.Count;
+            for (u32 i = 0; i < newCount; ++i)
             {
-                it->Age += ageDelta;
-                if (it->Age >= 1.0f)
+                TrailPoint& pt = trail.Get(i);
+                pt.Age += ageDelta;
+                if (pt.Age >= 1.0f)
                 {
-                    it = trail.erase(it);
-                }
-                else
-                {
-                    ++it;
+                    // This point and all older points are expired
+                    newCount = i;
+                    break;
                 }
             }
+            trail.TrimToCount(newCount);
         }
     }
 }

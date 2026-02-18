@@ -20,6 +20,9 @@ namespace OloEngine
         Rotations.resize(maxParticles);
         Lifetimes.resize(maxParticles);
         MaxLifetimes.resize(maxParticles);
+        InitialColors.resize(maxParticles);
+        InitialSizes.resize(maxParticles);
+        InitialVelocities.resize(maxParticles);
     }
 
     u32 ParticlePool::Emit(u32 count)
@@ -84,6 +87,9 @@ namespace OloEngine
         std::swap(Rotations[a], Rotations[b]);
         std::swap(Lifetimes[a], Lifetimes[b]);
         std::swap(MaxLifetimes[a], MaxLifetimes[b]);
+        std::swap(InitialColors[a], InitialColors[b]);
+        std::swap(InitialSizes[a], InitialSizes[b]);
+        std::swap(InitialVelocities[a], InitialVelocities[b]);
 
         if (OnSwapCallback)
         {

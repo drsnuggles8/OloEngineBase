@@ -29,6 +29,9 @@ namespace OloEngine
         // Compute LOD spawn rate multiplier based on camera distance to emitter
         void UpdateLOD(const glm::vec3& cameraPosition, const glm::vec3& emitterPosition);
 
+        // Get the emitter world position (used for Local space rendering transform)
+        [[nodiscard]] const glm::vec3& GetEmitterPosition() const { return m_EmitterPosition; }
+
         [[nodiscard]] u32 GetAliveCount() const { return m_Pool.GetAliveCount(); }
         [[nodiscard]] u32 GetMaxParticles() const { return m_Pool.GetMaxParticles(); }
         void SetMaxParticles(u32 maxParticles);
@@ -79,6 +82,7 @@ namespace OloEngine
         ParticleTrailData m_TrailData;
         std::vector<SubEmitterTriggerInfo> m_PendingTriggers;
         JoltScene* m_JoltScene = nullptr;
+        glm::vec3 m_EmitterPosition{ 0.0f };
         f32 m_Time = 0.0f;
         f32 m_LODSpawnRateMultiplier = 1.0f;
         bool m_HasWarmedUp = false;

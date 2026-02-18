@@ -16,6 +16,62 @@ namespace OloEngine
         f32 Age = 0.0f; // 0 = newest, 1 = oldest
     };
 
+    // Fixed-size ring buffer for a single particle's trail points (O(1) insert and age)
+    struct TrailRingBuffer
+    {
+        std::vector<TrailPoint> Points;  // Fixed-size storage
+        u32 Head = 0;    // Index of the newest point
+        u32 Count = 0;   // Number of active points
+        u32 Capacity = 0;
+
+        void Resize(u32 maxPoints)
+        {
+            Capacity = maxPoints;
+            Points.resize(maxPoints);
+            Head = 0;
+            Count = 0;
+        }
+
+        void Clear()
+        {
+            Head = 0;
+            Count = 0;
+        }
+
+        // Push a new point to the front (newest). Returns index of the new point.
+        void Push(const TrailPoint& point)
+        {
+            if (Capacity == 0) { return; }
+            // Move head backwards (wrapping) to make room for new point
+            Head = (Head == 0) ? (Capacity - 1) : (Head - 1);
+            Points[Head] = point;
+            if (Count < Capacity)
+            {
+                ++Count;
+            }
+        }
+
+        // Get the i-th point (0 = newest, Count-1 = oldest)
+        [[nodiscard]] const TrailPoint& Get(u32 i) const
+        {
+            return Points[(Head + i) % Capacity];
+        }
+
+        [[nodiscard]] TrailPoint& Get(u32 i)
+        {
+            return Points[(Head + i) % Capacity];
+        }
+
+        // Remove oldest points (trim Count)
+        void TrimToCount(u32 newCount)
+        {
+            if (newCount < Count)
+            {
+                Count = newCount;
+            }
+        }
+    };
+
     // Per-particle trail data stored as SOA alongside ParticlePool
     class ParticleTrailData
     {
@@ -34,12 +90,12 @@ namespace OloEngine
         // Age all trail points by dt/lifetime
         void AgePoints(f32 dt, f32 trailLifetime);
 
-        // Get trail points for a particle (newest to oldest)
-        [[nodiscard]] const std::vector<TrailPoint>& GetTrail(u32 particleIndex) const { return m_Trails[particleIndex]; }
+        // Get trail ring buffer for a particle (iterate 0..Count-1 via Get())
+        [[nodiscard]] const TrailRingBuffer& GetTrail(u32 particleIndex) const { return m_Trails[particleIndex]; }
         [[nodiscard]] u32 GetMaxTrailPoints() const { return m_MaxTrailPoints; }
 
     private:
-        std::vector<std::vector<TrailPoint>> m_Trails; // [particle][point]
+        std::vector<TrailRingBuffer> m_Trails;
         u32 m_MaxTrailPoints = 16;
     };
 

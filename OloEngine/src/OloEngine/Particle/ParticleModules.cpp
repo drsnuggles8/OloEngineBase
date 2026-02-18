@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "ParticleModules.h"
 #include "OloEngine/Core/FastRandom.h"
+#include "OloEngine/Particle/SimplexNoise.h"
 
 #include <cmath>
 
@@ -17,7 +18,7 @@ namespace OloEngine
         for (u32 i = 0; i < count; ++i)
         {
             f32 age = pool.GetAge(i);
-            pool.Colors[i] = ColorCurve.Evaluate(age);
+            pool.Colors[i] = pool.InitialColors[i] * ColorCurve.Evaluate(age);
         }
     }
 
@@ -32,7 +33,7 @@ namespace OloEngine
         for (u32 i = 0; i < count; ++i)
         {
             f32 age = pool.GetAge(i);
-            pool.Sizes[i] = SizeCurve.Evaluate(age);
+            pool.Sizes[i] = pool.InitialSizes[i] * SizeCurve.Evaluate(age);
         }
     }
 
@@ -48,7 +49,10 @@ namespace OloEngine
         {
             f32 age = pool.GetAge(i);
             f32 speedMul = SpeedMultiplier * SpeedCurve.Evaluate(age);
-            pool.Velocities[i] = (pool.Velocities[i] + LinearVelocity * dt) * speedMul;
+
+            // Reconstruct velocity from initial velocity scaled by curve, plus additive linear drift
+            f32 elapsedTime = (pool.MaxLifetimes[i] - pool.Lifetimes[i]);
+            pool.Velocities[i] = pool.InitialVelocities[i] * speedMul + LinearVelocity * elapsedTime;
         }
     }
 
@@ -104,16 +108,16 @@ namespace OloEngine
             return;
         }
 
-        // Simple pseudo-noise: use sin-based displacement for Phase 1
-        // Phase 2 will replace with proper Simplex/Perlin noise
+        // Spatially-coherent Simplex noise evaluated at particle position
         u32 count = pool.GetAliveCount();
         for (u32 i = 0; i < count; ++i)
         {
-            f32 phase = static_cast<f32>(i) * 0.7f + time * Frequency;
+            const glm::vec3& pos = pool.Positions[i];
+            glm::vec3 samplePos = pos * Frequency + glm::vec3(time);
             glm::vec3 offset{
-                std::sin(phase) * Strength * dt,
-                std::cos(phase * 1.3f) * Strength * dt,
-                std::sin(phase * 0.8f) * Strength * dt
+                SimplexNoise3D(samplePos.x, samplePos.y, samplePos.z) * Strength * dt,
+                SimplexNoise3D(samplePos.x + 31.416f, samplePos.y + 47.853f, samplePos.z + 12.791f) * Strength * dt,
+                SimplexNoise3D(samplePos.x + 73.156f, samplePos.y + 89.213f, samplePos.z + 55.627f) * Strength * dt
             };
             pool.Velocities[i] += offset;
         }
