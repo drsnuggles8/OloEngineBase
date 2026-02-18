@@ -1,6 +1,9 @@
 #include "OloEnginePCH.h"
 #include "ParticleSystem.h"
 
+#include <algorithm>
+#include <numeric>
+
 namespace OloEngine
 {
     ParticleSystem::ParticleSystem(u32 maxParticles)
@@ -39,7 +42,7 @@ namespace OloEngine
         }
     }
 
-    void ParticleSystem::Update(f32 dt, const glm::vec3& emitterPosition)
+    void ParticleSystem::Update(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -57,7 +60,7 @@ namespace OloEngine
             while (remaining > 0.0f)
             {
                 f32 step = std::min(remaining, warmUpStep);
-                Update(step, emitterPosition);
+                Update(step, emitterPosition, parentVelocity);
                 remaining -= step;
             }
             return; // The recursive calls already advanced the system
@@ -67,6 +70,7 @@ namespace OloEngine
         f32 scaledDt = dt * PlaybackSpeed;
         m_Time += scaledDt;
         m_EmitterPosition = emitterPosition;
+        m_ParentVelocity = parentVelocity;
 
         // Determine emission position based on simulation space
         glm::vec3 emitPos = (SimulationSpace == ParticleSpace::Local) ? glm::vec3(0.0f) : emitterPosition;
@@ -97,6 +101,17 @@ namespace OloEngine
 
         Emitter.RateOverTime = origRate;
 
+        // Apply velocity inheritance: add parent entity velocity to newly spawned particles
+        if (VelocityInheritance != 0.0f && newAlive > prevAlive)
+        {
+            glm::vec3 inherited = m_ParentVelocity * VelocityInheritance;
+            for (u32 i = prevAlive; i < newAlive; ++i)
+            {
+                m_Pool.Velocities[i] += inherited;
+                m_Pool.InitialVelocities[i] += inherited;
+            }
+        }
+
         // Fire OnBirth sub-emitter triggers for newly spawned particles
         if (SubEmitterModule.Enabled && newAlive > prevAlive)
         {
@@ -110,6 +125,8 @@ namespace OloEngine
                         trigger.Position = m_Pool.Positions[i];
                         trigger.Velocity = entry.InheritVelocity ? m_Pool.Velocities[i] * entry.InheritVelocityScale : glm::vec3(0.0f);
                         trigger.Event = SubEmitterEvent::OnBirth;
+                        trigger.ChildSystemIndex = entry.ChildSystemIndex;
+                        trigger.EmitCount = entry.EmitCount;
                         m_PendingTriggers.push_back(trigger);
                     }
                 }
@@ -184,6 +201,8 @@ namespace OloEngine
                             trigger.Position = m_Pool.Positions[i];
                             trigger.Velocity = entry.InheritVelocity ? m_Pool.Velocities[i] * entry.InheritVelocityScale : glm::vec3(0.0f);
                             trigger.Event = SubEmitterEvent::OnDeath;
+                            trigger.ChildSystemIndex = entry.ChildSystemIndex;
+                            trigger.EmitCount = entry.EmitCount;
                             m_PendingTriggers.push_back(trigger);
                         }
                     }
@@ -205,55 +224,74 @@ namespace OloEngine
             return;
         }
 
+        // Triggers with ChildSystemIndex >= 0 are handled by Scene (emitted into child systems).
+        // Only triggers with ChildSystemIndex == -1 fall back to the legacy parent-pool behavior.
         auto& rng = RandomUtils::GetGlobalRandom();
 
         for (const auto& trigger : m_PendingTriggers)
         {
-            for (const auto& entry : SubEmitterModule.Entries)
+            // Skip triggers destined for child systems — Scene will process them
+            if (trigger.ChildSystemIndex >= 0)
             {
-                if (entry.Trigger != trigger.Event)
+                continue;
+            }
+
+            u32 firstSlot = m_Pool.GetAliveCount();
+            u32 emitted = m_Pool.Emit(trigger.EmitCount);
+
+            for (u32 i = 0; i < emitted; ++i)
+            {
+                u32 idx = firstSlot + i;
+                m_Pool.Positions[idx] = trigger.Position;
+
+                // Random direction + inherited velocity
+                glm::vec3 dir = glm::normalize(glm::vec3(
+                    rng.GetFloat32InRange(-1.0f, 1.0f),
+                    rng.GetFloat32InRange(-1.0f, 1.0f),
+                    rng.GetFloat32InRange(-1.0f, 1.0f)
+                ));
+                f32 speed = Emitter.InitialSpeed + rng.GetFloat32InRange(-Emitter.SpeedVariance, Emitter.SpeedVariance);
+                glm::vec3 velocity = dir * std::max(speed, 0.0f) + trigger.Velocity;
+                m_Pool.Velocities[idx] = velocity;
+                m_Pool.InitialVelocities[idx] = velocity;
+
+                m_Pool.Colors[idx] = Emitter.InitialColor;
+                m_Pool.InitialColors[idx] = Emitter.InitialColor;
+
+                f32 size = Emitter.InitialSize + rng.GetFloat32InRange(-Emitter.SizeVariance, Emitter.SizeVariance);
+                m_Pool.Sizes[idx] = size;
+                m_Pool.InitialSizes[idx] = size;
+                m_Pool.Rotations[idx] = Emitter.InitialRotation + rng.GetFloat32InRange(-Emitter.RotationVariance, Emitter.RotationVariance);
+
+                f32 lifetime = rng.GetFloat32InRange(Emitter.LifetimeMin, Emitter.LifetimeMax);
+                m_Pool.Lifetimes[idx] = lifetime;
+                m_Pool.MaxLifetimes[idx] = lifetime;
+
+                if (TrailModule.Enabled)
                 {
-                    continue;
-                }
-
-                u32 firstSlot = m_Pool.GetAliveCount();
-                u32 emitted = m_Pool.Emit(entry.EmitCount);
-
-                for (u32 i = 0; i < emitted; ++i)
-                {
-                    u32 idx = firstSlot + i;
-                    m_Pool.Positions[idx] = trigger.Position;
-
-                    // Random direction + inherited velocity
-                    glm::vec3 dir = glm::normalize(glm::vec3(
-                        rng.GetFloat32InRange(-1.0f, 1.0f),
-                        rng.GetFloat32InRange(-1.0f, 1.0f),
-                        rng.GetFloat32InRange(-1.0f, 1.0f)
-                    ));
-                    f32 speed = Emitter.InitialSpeed + rng.GetFloat32InRange(-Emitter.SpeedVariance, Emitter.SpeedVariance);
-                    glm::vec3 velocity = dir * std::max(speed, 0.0f) + trigger.Velocity;
-                    m_Pool.Velocities[idx] = velocity;
-                    m_Pool.InitialVelocities[idx] = velocity;
-
-                    m_Pool.Colors[idx] = Emitter.InitialColor;
-                    m_Pool.InitialColors[idx] = Emitter.InitialColor;
-
-                    f32 size = Emitter.InitialSize + rng.GetFloat32InRange(-Emitter.SizeVariance, Emitter.SizeVariance);
-                    m_Pool.Sizes[idx] = size;
-                    m_Pool.InitialSizes[idx] = size;
-                    m_Pool.Rotations[idx] = Emitter.InitialRotation + rng.GetFloat32InRange(-Emitter.RotationVariance, Emitter.RotationVariance);
-
-                    f32 lifetime = rng.GetFloat32InRange(Emitter.LifetimeMin, Emitter.LifetimeMax);
-                    m_Pool.Lifetimes[idx] = lifetime;
-                    m_Pool.MaxLifetimes[idx] = lifetime;
-
-                    if (TrailModule.Enabled)
-                    {
-                        m_TrailData.ClearTrail(idx);
-                    }
+                    m_TrailData.ClearTrail(idx);
                 }
             }
         }
+    }
+
+    void ParticleSystem::SortByDepth(const glm::vec3& cameraPosition)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        u32 count = m_Pool.GetAliveCount();
+        m_SortedIndices.resize(count);
+        std::iota(m_SortedIndices.begin(), m_SortedIndices.end(), 0u);
+
+        // Sort back-to-front (farthest first) for correct alpha blending
+        const auto& positions = m_Pool.Positions;
+        std::sort(m_SortedIndices.begin(), m_SortedIndices.end(),
+            [&positions, &cameraPosition](u32 a, u32 b)
+            {
+                f32 distA = glm::dot(positions[a] - cameraPosition, positions[a] - cameraPosition);
+                f32 distB = glm::dot(positions[b] - cameraPosition, positions[b] - cameraPosition);
+                return distA > distB; // Back-to-front
+            });
     }
 
     void ParticleSystem::Reset()

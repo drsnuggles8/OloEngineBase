@@ -1705,6 +1705,21 @@ namespace OloEngine
             // Texture
             if (ImGui::CollapsingHeader("Rendering"))
             {
+                // Blend mode
+                const char* blendModes[] = { "Alpha", "Additive", "Premultiplied Alpha" };
+                int blendIdx = static_cast<int>(sys.BlendMode);
+                if (ImGui::Combo("Blend Mode", &blendIdx, blendModes, 3))
+                    sys.BlendMode = static_cast<ParticleBlendMode>(blendIdx);
+
+                // Render mode
+                const char* renderModes[] = { "Billboard", "Stretched Billboard", "Mesh" };
+                int renderIdx = static_cast<int>(sys.RenderMode);
+                if (ImGui::Combo("Render Mode", &renderIdx, renderModes, 3))
+                    sys.RenderMode = static_cast<ParticleRenderMode>(renderIdx);
+
+                ImGui::Checkbox("Depth Sort", &sys.DepthSortEnabled);
+                ImGui::DragFloat("Velocity Inheritance", &sys.VelocityInheritance, 0.01f, 0.0f, 1.0f);
+
                 ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
                 if (ImGui::BeginDragDropTarget())
                 {
@@ -1731,6 +1746,30 @@ namespace OloEngine
                     ImGui::SameLine();
                     if (ImGui::Button("Clear Texture"))
                         component.Texture = nullptr;
+                }
+            }
+
+            // Texture Sheet Animation
+            if (ImGui::CollapsingHeader("Texture Sheet Animation"))
+            {
+                ImGui::Checkbox("Sheet Enabled", &sys.TextureSheetModule.Enabled);
+                if (sys.TextureSheetModule.Enabled)
+                {
+                    int gridX = static_cast<int>(sys.TextureSheetModule.GridX);
+                    int gridY = static_cast<int>(sys.TextureSheetModule.GridY);
+                    int totalFrames = static_cast<int>(sys.TextureSheetModule.TotalFrames);
+                    if (ImGui::DragInt("Grid X", &gridX, 1, 1, 64))
+                        sys.TextureSheetModule.GridX = static_cast<u32>(gridX);
+                    if (ImGui::DragInt("Grid Y", &gridY, 1, 1, 64))
+                        sys.TextureSheetModule.GridY = static_cast<u32>(gridY);
+                    if (ImGui::DragInt("Total Frames", &totalFrames, 1, 1, 4096))
+                        sys.TextureSheetModule.TotalFrames = static_cast<u32>(totalFrames);
+                    const char* sheetModes[] = { "Over Lifetime", "By Speed" };
+                    int sheetIdx = static_cast<int>(sys.TextureSheetModule.Mode);
+                    if (ImGui::Combo("Animation Mode", &sheetIdx, sheetModes, 2))
+                        sys.TextureSheetModule.Mode = static_cast<TextureSheetAnimMode>(sheetIdx);
+                    if (sys.TextureSheetModule.Mode == TextureSheetAnimMode::BySpeed)
+                        ImGui::DragFloat("Speed Range", &sys.TextureSheetModule.SpeedRange, 0.1f, 0.1f, 100.0f);
                 }
             }
 

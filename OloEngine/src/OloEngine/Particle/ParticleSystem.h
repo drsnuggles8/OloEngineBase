@@ -18,16 +18,37 @@ namespace OloEngine
         World = 1
     };
 
+    enum class ParticleBlendMode : u8
+    {
+        Alpha = 0,      // Standard alpha blending (requires depth sorting)
+        Additive,       // Additive blending — fire, sparks, glows (no sorting needed)
+        PremultipliedAlpha
+    };
+
+    enum class ParticleRenderMode : u8
+    {
+        Billboard = 0,  // Camera-facing quads
+        StretchedBillboard, // Stretched along velocity
+        Mesh            // User-specified mesh per particle
+    };
+
     class ParticleSystem
     {
     public:
         explicit ParticleSystem(u32 maxParticles = 1000);
 
-        void Update(f32 dt, const glm::vec3& emitterPosition);
+        void Update(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity = glm::vec3(0.0f));
         void Reset();
 
         // Compute LOD spawn rate multiplier based on camera distance to emitter
         void UpdateLOD(const glm::vec3& cameraPosition, const glm::vec3& emitterPosition);
+
+        // Sort alive particles back-to-front relative to camera for correct alpha blending.
+        // Populates an internal index array; retrieve with GetSortedIndices().
+        void SortByDepth(const glm::vec3& cameraPosition);
+
+        // Get depth-sorted index array (valid after SortByDepth(); size == GetAliveCount()).
+        [[nodiscard]] const std::vector<u32>& GetSortedIndices() const { return m_SortedIndices; }
 
         // Get the emitter world position (used for Local space rendering transform)
         [[nodiscard]] const glm::vec3& GetEmitterPosition() const { return m_EmitterPosition; }
@@ -56,6 +77,14 @@ namespace OloEngine
         f32 WarmUpTime = 0.0f; // Pre-simulate this many seconds on first play
         ParticleSpace SimulationSpace = ParticleSpace::World;
 
+        // Rendering settings
+        ParticleBlendMode BlendMode = ParticleBlendMode::Alpha;
+        ParticleRenderMode RenderMode = ParticleRenderMode::Billboard;
+        bool DepthSortEnabled = true; // Sort particles back-to-front (not needed for Additive)
+
+        // Velocity inheritance — adds parent entity velocity to spawned particles
+        f32 VelocityInheritance = 0.0f; // 0 = none, 1 = full parent velocity
+
         // LOD settings
         f32 LODDistance1 = 50.0f;  // Distance at which spawn rate drops to 50%
         f32 LODDistance2 = 100.0f; // Distance at which spawn rate drops to 25%
@@ -77,12 +106,17 @@ namespace OloEngine
         ModuleTrail TrailModule;
         ModuleSubEmitter SubEmitterModule;
 
+        // Phase 3 modules
+        ModuleTextureSheetAnimation TextureSheetModule;
+
     private:
         ParticlePool m_Pool;
         ParticleTrailData m_TrailData;
         std::vector<SubEmitterTriggerInfo> m_PendingTriggers;
+        std::vector<u32> m_SortedIndices;
         JoltScene* m_JoltScene = nullptr;
         glm::vec3 m_EmitterPosition{ 0.0f };
+        glm::vec3 m_ParentVelocity{ 0.0f };
         f32 m_Time = 0.0f;
         f32 m_LODSpawnRateMultiplier = 1.0f;
         bool m_HasWarmedUp = false;

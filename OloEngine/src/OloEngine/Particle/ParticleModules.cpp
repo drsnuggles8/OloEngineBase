@@ -122,4 +122,24 @@ namespace OloEngine
             pool.Velocities[i] += offset;
         }
     }
+
+    void ModuleTextureSheetAnimation::GetFrameUV(u32 frame, glm::vec2& uvMin, glm::vec2& uvMax) const
+    {
+        if (GridX == 0 || GridY == 0)
+        {
+            uvMin = { 0.0f, 0.0f };
+            uvMax = { 1.0f, 1.0f };
+            return;
+        }
+
+        frame = frame % (GridX * GridY);
+        u32 col = frame % GridX;
+        u32 row = frame / GridX;
+
+        f32 cellW = 1.0f / static_cast<f32>(GridX);
+        f32 cellH = 1.0f / static_cast<f32>(GridY);
+
+        uvMin = { col * cellW, row * cellH };
+        uvMax = { (col + 1) * cellW, (row + 1) * cellH };
+    }
 }

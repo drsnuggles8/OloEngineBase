@@ -943,6 +943,20 @@ namespace OloEngine
             // Warm-up
             out << YAML::Key << "WarmUpTime" << YAML::Value << sys.WarmUpTime;
 
+            // Rendering settings
+            out << YAML::Key << "BlendMode" << YAML::Value << static_cast<int>(sys.BlendMode);
+            out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(sys.RenderMode);
+            out << YAML::Key << "DepthSortEnabled" << YAML::Value << sys.DepthSortEnabled;
+            out << YAML::Key << "VelocityInheritance" << YAML::Value << sys.VelocityInheritance;
+
+            // Texture sheet animation
+            out << YAML::Key << "TextureSheetEnabled" << YAML::Value << sys.TextureSheetModule.Enabled;
+            out << YAML::Key << "TextureSheetGridX" << YAML::Value << sys.TextureSheetModule.GridX;
+            out << YAML::Key << "TextureSheetGridY" << YAML::Value << sys.TextureSheetModule.GridY;
+            out << YAML::Key << "TextureSheetTotalFrames" << YAML::Value << sys.TextureSheetModule.TotalFrames;
+            out << YAML::Key << "TextureSheetMode" << YAML::Value << static_cast<int>(sys.TextureSheetModule.Mode);
+            out << YAML::Key << "TextureSheetSpeedRange" << YAML::Value << sys.TextureSheetModule.SpeedRange;
+
             out << YAML::EndMap; // ParticleSystemComponent
         }
 
@@ -1780,6 +1794,23 @@ namespace OloEngine
                     TrySet(sys.LODDistance2, particleComponent["LODDistance2"]);
                     TrySet(sys.LODMaxDistance, particleComponent["LODMaxDistance"]);
                     TrySet(sys.WarmUpTime, particleComponent["WarmUpTime"]);
+
+                    // Rendering settings
+                    if (auto val = particleComponent["BlendMode"]; val)
+                        sys.BlendMode = static_cast<ParticleBlendMode>(val.as<int>());
+                    if (auto val = particleComponent["RenderMode"]; val)
+                        sys.RenderMode = static_cast<ParticleRenderMode>(val.as<int>());
+                    TrySet(sys.DepthSortEnabled, particleComponent["DepthSortEnabled"]);
+                    TrySet(sys.VelocityInheritance, particleComponent["VelocityInheritance"]);
+
+                    // Texture sheet animation
+                    TrySet(sys.TextureSheetModule.Enabled, particleComponent["TextureSheetEnabled"]);
+                    TrySet(sys.TextureSheetModule.GridX, particleComponent["TextureSheetGridX"]);
+                    TrySet(sys.TextureSheetModule.GridY, particleComponent["TextureSheetGridY"]);
+                    TrySet(sys.TextureSheetModule.TotalFrames, particleComponent["TextureSheetTotalFrames"]);
+                    if (auto val = particleComponent["TextureSheetMode"]; val)
+                        sys.TextureSheetModule.Mode = static_cast<TextureSheetAnimMode>(val.as<int>());
+                    TrySet(sys.TextureSheetModule.SpeedRange, particleComponent["TextureSheetSpeedRange"]);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
@@ -2675,6 +2706,23 @@ namespace OloEngine
                     TrySet(sys.LODDistance2, particleComponent["LODDistance2"]);
                     TrySet(sys.LODMaxDistance, particleComponent["LODMaxDistance"]);
                     TrySet(sys.WarmUpTime, particleComponent["WarmUpTime"]);
+
+                    // Rendering settings
+                    if (auto val = particleComponent["BlendMode"]; val)
+                        sys.BlendMode = static_cast<ParticleBlendMode>(val.as<int>());
+                    if (auto val = particleComponent["RenderMode"]; val)
+                        sys.RenderMode = static_cast<ParticleRenderMode>(val.as<int>());
+                    TrySet(sys.DepthSortEnabled, particleComponent["DepthSortEnabled"]);
+                    TrySet(sys.VelocityInheritance, particleComponent["VelocityInheritance"]);
+
+                    // Texture sheet animation
+                    TrySet(sys.TextureSheetModule.Enabled, particleComponent["TextureSheetEnabled"]);
+                    TrySet(sys.TextureSheetModule.GridX, particleComponent["TextureSheetGridX"]);
+                    TrySet(sys.TextureSheetModule.GridY, particleComponent["TextureSheetGridY"]);
+                    TrySet(sys.TextureSheetModule.TotalFrames, particleComponent["TextureSheetTotalFrames"]);
+                    if (auto val = particleComponent["TextureSheetMode"]; val)
+                        sys.TextureSheetModule.Mode = static_cast<TextureSheetAnimMode>(val.as<int>());
+                    TrySet(sys.TextureSheetModule.SpeedRange, particleComponent["TextureSheetSpeedRange"]);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)

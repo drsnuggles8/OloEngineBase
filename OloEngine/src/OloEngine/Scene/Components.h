@@ -738,6 +738,10 @@ namespace OloEngine
         ParticleSystem System;
         Ref<Texture2D> Texture = nullptr;
 
+        // Child particle systems for sub-emitters (each has independent settings)
+        std::vector<ParticleSystem> ChildSystems;
+        std::vector<Ref<Texture2D>> ChildTextures;
+
         ParticleSystemComponent() = default;
         ParticleSystemComponent(const ParticleSystemComponent&) = default;
     };

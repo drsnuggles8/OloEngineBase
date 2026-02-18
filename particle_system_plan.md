@@ -45,13 +45,13 @@ Bugs and improvements identified in `docs/PARTICLE_SYSTEM_REVIEW.md`:
 | 7 | **Increase curve key count** — 4 → 8 keys per ParticleCurve | ✅ Done |
 | 8 | **Add InitialColors/InitialSizes/InitialVelocities** to ParticlePool SOA arrays | ✅ Done |
 | 9 | Instanced particle rendering (Renderer3D batch draws) | ❌ Pending (Large — requires Renderer3D instancing support) |
-| 10 | Depth sorting (back-to-front for alpha blending) | ❌ Pending |
-| 11 | Blend mode support (Alpha, Additive, Premultiplied) | ❌ Pending |
-| 12 | Sprite sheet / texture atlas animation | ❌ Pending |
-| 13 | Trail rendering as triangle strips (instead of line segments) | ❌ Pending |
-| 14 | Sub-emitters as separate ParticleSystem instances | ❌ Pending (Large — architectural change) |
+| 10 | **Depth sorting** (back-to-front for alpha blending) | ✅ Done |
+| 11 | **Blend mode support** (Alpha, Additive, Premultiplied) | ✅ Done |
+| 12 | **Sprite sheet / texture atlas animation** | ✅ Done |
+| 13 | **Trail rendering as triangle strips** (camera-facing quad strips) | ✅ Done |
+| 14 | **Sub-emitters as separate ParticleSystem instances** | ✅ Done |
 | 15 | Mesh particle rendering | ❌ Pending |
-| 16 | Velocity inheritance from parent rigidbody | ❌ Pending |
+| 16 | **Velocity inheritance from parent** | ✅ Done |
 | 17 | Task system parallelization for module application | ❌ Pending |
 
 ---
@@ -75,12 +75,18 @@ ParticleSystemComponent (ECS)
         │     ├── SizeOverLifetime (initialSize × curve)
         │     ├── ForceFieldModule (attraction/repulsion/vortex)
         │     ├── CollisionModule (plane + Jolt raycasts)
-        │     └── SubEmitterModule (OnBirth/OnDeath triggers)
+        │     ├── SubEmitterModule (OnBirth/OnDeath triggers → child ParticleSystem instances)
+        │     └── TextureSheetAnimation (grid UV animation over lifetime or by speed)
         ├── ParticleTrailData (per-particle ring buffer trail history)
+        ├── Rendering Settings
+        │     ├── BlendMode (Alpha, Additive, PremultipliedAlpha)
+        │     ├── RenderMode (Billboard, StretchedBillboard, Mesh)
+        │     ├── DepthSortEnabled (back-to-front sorting for alpha)
+        │     └── VelocityInheritance (fraction of parent velocity added to emissions)
         └── ParticleRenderer
               ├── RenderParticles2D (flat quads via Renderer2D)
-              ├── RenderParticlesBillboard (camera-facing quads via Renderer2D)
-              └── RenderParticles3D (billboard quads via Renderer3D — unused, kept for future)
+              ├── RenderParticlesBillboard (camera-facing quads via Renderer2D, sorted + sprite sheet)
+              └── RenderParticlesStretched (velocity-aligned quads via Renderer2D)
 ```
 
 ---
@@ -110,7 +116,24 @@ Modules are applied in a specific order in `ParticleSystem::Update()`:
 Each particle's trail history is stored in a fixed-size ring buffer (`TrailRingBuffer`) instead of a `std::vector`. Insert and age operations are O(1). The ring buffer wraps around when full, naturally discarding the oldest points.
 
 ### 3D Particle Rendering
-Despite having a `RenderParticles3D()` method (via Renderer3D), particles are rendered using `RenderParticlesBillboard()` through Renderer2D's quad batching. This avoids per-particle draw calls and provides correct entity ID for mouse picking. The Renderer3D path exists for future instanced rendering.
+Particles are rendered using `Renderer2D`'s quad batching in all paths. Three render modes are supported:
+- **Billboard** — Camera-facing quads (`RenderParticlesBillboard`)
+- **StretchedBillboard** — Velocity-aligned quads (`RenderParticlesStretched`)
+- **Mesh** — Per-particle mesh instancing (placeholder, requires Renderer3D instancing)
+
+Depth sorting is enabled by default for alpha-blended particles. `SortByDepth(cameraPosition)` sorts particle indices back-to-front by squared distance. Additive particles skip sorting since they're order-independent.
+
+Blend modes (Alpha, Additive, PremultipliedAlpha) are set via `RenderCommand::SetBlendFunc()` before rendering each particle system, then restored to the default state after.
+
+### Sub-Emitter Architecture
+Sub-emitter entries reference child `ParticleSystem` instances stored on `ParticleSystemComponent::ChildSystems`. When triggers fire (OnBirth/OnDeath), `SubEmitterTriggerInfo` carries the `ChildSystemIndex`. Scene's `ProcessChildSubEmitters()` emits particles into the appropriate child system pool. Child systems have independent pools, settings, and textures. Legacy mode (`ChildSystemIndex == -1`) falls back to emitting into the parent pool.
+
+### Texture Sheet Animation
+`ModuleTextureSheetAnimation` divides a texture atlas into a grid (`GridX × GridY`). Each particle selects a frame based on either:
+- **OverLifetime**: `frame = age * TotalFrames` (normalized 0→1)
+- **BySpeed**: `frame = speed / SpeedRange * TotalFrames`
+
+UV sub-rects are computed per particle and passed to `Renderer2D::DrawQuad()` via `uvMin`/`uvMax` overloads.
 
 ---
 
@@ -118,18 +141,19 @@ Despite having a `RenderParticles3D()` method (via Renderer3D), particles are re
 
 ### High Priority
 1. **Instanced particle rendering** — Add `Renderer3D::DrawParticleBatch()` with instance buffer. Single draw call per texture batch. This is a Renderer3D feature that benefits the entire engine.
-2. **Depth sorting** — Sort alive particle indices by camera distance before rendering. Only needed for alpha-blended particles (additive doesn't need sorting).
-3. **Blend mode support** — Add `BlendMode` enum (Alpha, Additive, Premultiplied) to `ParticleSystemComponent`. Set GPU blend state before rendering each system.
 
 ### Medium Priority
-4. **Sprite sheet animation** — `ModuleTextureSheetAnimation` with grid dimensions, frame rate, UV computation per particle based on age.
-5. **Trail rendering as triangle strips** — Generate camera-facing quad strips from trail points with proper width interpolation and UV mapping.
-6. **Sub-emitters as separate systems** — Each sub-emitter entry references a separate `ParticleSystem` instance with independent settings. Parent collects trigger info, Scene spawns child systems.
+2. **Mesh particle rendering** — `RenderMode::Mesh` where each particle instances a user-specified mesh. Requires instanced rendering (item 1).
+3. **Task system parallelization** — Split particle ranges across workers for independent modules (Gravity, Drag, Noise).
 
-### Lower Priority
-7. **Mesh particle rendering** — `RenderMode::Mesh` where each particle instances a user-specified mesh.
-8. **Velocity inheritance** — Feed entity's rigidbody velocity into emitter for newly spawned particles.
-9. **Task system parallelization** — Split particle ranges across workers for independent modules (Gravity, Drag, Noise).
+### Completed
+- ✅ Depth sorting (back-to-front for alpha blending) — `ParticleSystem::SortByDepth()` sorts index array; renderer iterates in sorted order
+- ✅ Blend mode support — `ParticleBlendMode` enum (Alpha, Additive, PremultipliedAlpha); GL blend state set per system
+- ✅ Sprite sheet animation — `ModuleTextureSheetAnimation` with grid UVs, OverLifetime/BySpeed modes
+- ✅ Trail rendering as triangle strips — `TrailRenderer::RenderTrails()` generates camera-facing quad strips via `Renderer2D::DrawPolygon()`
+- ✅ Sub-emitters as separate systems — `ChildSystems` vector on `ParticleSystemComponent`; Scene manages child pools independently
+- ✅ Velocity inheritance — `VelocityInheritance` setting; parent velocity computed from position delta in Scene.cpp
+- ✅ Stretched billboard rendering — `RenderParticlesStretched()` with velocity-aligned quads
 
 ---
 
@@ -146,7 +170,7 @@ Despite having a `RenderParticles3D()` method (via Renderer3D), particles are re
 - `ParticleTrail.h/.cpp` — Ring buffer trail data per particle
 - `ParticleCollision.h/.cpp` — WorldPlane and Jolt raycast collision
 - `SubEmitter.h` — Sub-emitter event types and trigger info
-- `TrailRenderer.h/.cpp` — Trail line-segment rendering via Renderer3D
+- `TrailRenderer.h/.cpp` — Trail quad-strip rendering via Renderer2D (camera-facing ribbons)
 - `SimplexNoise.h/.cpp` — 3D Simplex noise for turbulence module
 
 ### Integration points:

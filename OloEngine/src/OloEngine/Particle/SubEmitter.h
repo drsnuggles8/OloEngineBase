@@ -23,6 +23,10 @@ namespace OloEngine
         u32 EmitCount = 5;     // Particles to emit from child system per trigger
         bool InheritVelocity = false;
         f32 InheritVelocityScale = 0.5f;
+
+        // Index into ParticleSystemComponent::ChildSystems for the child particle system.
+        // -1 means no child system assigned (falls back to parent pool behavior).
+        i32 ChildSystemIndex = -1;
     };
 
     struct ModuleSubEmitter
@@ -37,5 +41,7 @@ namespace OloEngine
         glm::vec3 Position{ 0.0f };
         glm::vec3 Velocity{ 0.0f };
         SubEmitterEvent Event = SubEmitterEvent::OnDeath;
+        i32 ChildSystemIndex = -1; // Which child system to emit from
+        u32 EmitCount = 5;         // How many particles to emit
     };
 }
