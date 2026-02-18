@@ -109,20 +109,66 @@ namespace OloEngine
         {
             using T = std::decay_t<decltype(s)>;
 
-            if constexpr (std::is_same_v<T, EmitCone>)
+            if constexpr (std::is_same_v<T, EmitPoint>)
+            {
+                // Random direction on unit sphere (uniform)
+                glm::vec3 dir;
+                f32 lenSq;
+                do
+                {
+                    dir = { rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f) };
+                    lenSq = glm::dot(dir, dir);
+                } while (lenSq < 0.0001f || lenSq > 1.0f);
+                return glm::normalize(dir);
+            }
+            else if constexpr (std::is_same_v<T, EmitSphere>)
+            {
+                // Radially outward from center (random direction on unit sphere)
+                glm::vec3 dir;
+                f32 lenSq;
+                do
+                {
+                    dir = { rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f) };
+                    lenSq = glm::dot(dir, dir);
+                } while (lenSq < 0.0001f || lenSq > 1.0f);
+                return glm::normalize(dir);
+            }
+            else if constexpr (std::is_same_v<T, EmitBox>)
+            {
+                // Random direction on unit sphere
+                glm::vec3 dir;
+                f32 lenSq;
+                do
+                {
+                    dir = { rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f) };
+                    lenSq = glm::dot(dir, dir);
+                } while (lenSq < 0.0001f || lenSq > 1.0f);
+                return glm::normalize(dir);
+            }
+            else if constexpr (std::is_same_v<T, EmitCone>)
             {
                 f32 angleRad = glm::radians(s.Angle);
                 f32 theta = rng.GetFloat32InRange(0.0f, glm::two_pi<f32>());
                 f32 phi = rng.GetFloat32InRange(0.0f, angleRad);
                 return glm::normalize(glm::vec3(
                     std::sin(phi) * std::cos(theta),
-                    std::sin(phi) * std::sin(theta),
-                    std::cos(phi)
+                    std::cos(phi),
+                    std::sin(phi) * std::sin(theta)
                 ));
+            }
+            else if constexpr (std::is_same_v<T, EmitRing>)
+            {
+                // Outward from center in XZ plane
+                f32 theta = rng.GetFloat32InRange(0.0f, glm::two_pi<f32>());
+                return glm::vec3(std::cos(theta), 0.0f, std::sin(theta));
+            }
+            else if constexpr (std::is_same_v<T, EmitEdge>)
+            {
+                // Emit upward (+Y) from edge
+                return glm::vec3(0.0f, 1.0f, 0.0f);
             }
             else
             {
-                // Default: emit upward (+Y)
                 return glm::vec3(0.0f, 1.0f, 0.0f);
             }
         }, shape);

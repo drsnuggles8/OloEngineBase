@@ -24,7 +24,7 @@ Entities:
       InitialRotation: 0
       RotationVariance: 0
       InitialColor: [1, 1, 1, 1]
-      EmissionShapeType: 0
+      EmissionShapeType: 1
       GravityEnabled: false
       Gravity: [0, -9.81, 0]
       DragEnabled: false

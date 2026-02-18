@@ -572,6 +572,18 @@ namespace OloEngine
             }
 
             // Always render 2D (sprites, circles, text overlay on top of 3D)
+            // In 3D mode, re-bind ScenePass FB so 2D overlays composit into the same target
+            if (m_Is3DModeEnabled)
+            {
+                if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+                {
+                    scenePass->GetTarget()->Bind();
+                }
+                RenderCommand::SetBlendState(true);
+                RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                RenderCommand::SetDepthTest(false);
+                RenderCommand::SetDepthMask(false);
+            }
             Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
             // Draw sprites
@@ -689,6 +701,14 @@ namespace OloEngine
             }
 
             Renderer2D::EndScene();
+
+            // Restore state after 2D overlay rendering in 3D mode
+            if (m_Is3DModeEnabled)
+            {
+                RenderCommand::SetDepthTest(true);
+                RenderCommand::SetDepthMask(true);
+                RenderCommand::BindDefaultFramebuffer();
+            }
         }
 
         // Process UI input during runtime
@@ -759,8 +779,15 @@ namespace OloEngine
             }
         }
 
-        // Render
-        RenderScene(camera);
+        // Render based on mode
+        if (m_Is3DModeEnabled)
+        {
+            RenderScene3D(camera);
+        }
+        else
+        {
+            RenderScene(camera);
+        }
     }
 
     void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
@@ -1628,6 +1655,17 @@ namespace OloEngine
 
         Renderer3D::EndScene();
 
+        // Re-bind ScenePass framebuffer so Renderer2D draws into the same target
+        // (FinalRenderPass leaves us on framebuffer 0 with blending disabled)
+        if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+        {
+            scenePass->GetTarget()->Bind();
+        }
+        RenderCommand::SetBlendState(true);
+        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetDepthTest(false); // Particles render on top of 3D scene
+        RenderCommand::SetDepthMask(false);
+
         // Render particles + trails via Renderer2D (billboards, quad-strip trails)
         {
             Renderer2D::BeginScene(camera);
@@ -1685,6 +1723,9 @@ namespace OloEngine
             }
             Renderer2D::EndScene();
         }
+        RenderCommand::SetDepthTest(true);
+        RenderCommand::SetDepthMask(true);
+        RenderCommand::BindDefaultFramebuffer(); // Unbind ScenePass so ImGui renders to default FB
     }
 
     void Scene::RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform)
@@ -1887,64 +1928,6 @@ namespace OloEngine
         }
 
         Renderer3D::EndScene();
-
-        // Render particles + trails via Renderer2D (billboards, quad-strip trails)
-        {
-            Renderer2D::BeginScene(camera, cameraTransform);
-            glm::vec3 camRight = glm::normalize(glm::vec3(cameraTransform[0]));
-            glm::vec3 camUp = glm::normalize(glm::vec3(cameraTransform[1]));
-            glm::vec3 camPos = glm::vec3(glm::inverse(cameraTransform)[3]);
-            for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
-            {
-                auto& psc = view.get<ParticleSystemComponent>(entity);
-                auto& sys = psc.System;
-                glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
-
-                const std::vector<u32>* sorted = nullptr;
-                if (sys.DepthSortEnabled && sys.BlendMode != ParticleBlendMode::Additive)
-                {
-                    sys.SortByDepth(camPos);
-                    sorted = &sys.GetSortedIndices();
-                }
-
-                const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
-
-                SetParticleBlendMode(sys.BlendMode);
-
-                if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
-                {
-                    ParticleRenderer::RenderParticlesStretched(sys.GetPool(), camRight, camUp, psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
-                }
-                else
-                {
-                    ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
-                }
-
-                // Render child systems
-                for (size_t c = 0; c < psc.ChildSystems.size(); ++c)
-                {
-                    auto& childSys = psc.ChildSystems[c];
-                    const std::vector<u32>* childSorted = nullptr;
-                    if (childSys.DepthSortEnabled && childSys.BlendMode != ParticleBlendMode::Additive)
-                    {
-                        childSys.SortByDepth(camPos);
-                        childSorted = &childSys.GetSortedIndices();
-                    }
-                    SetParticleBlendMode(childSys.BlendMode);
-                    Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
-                    ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
-                }
-
-                // Trail rendering as quad strips
-                if (sys.TrailModule.Enabled)
-                {
-                    TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
-                }
-
-                RestoreDefaultBlendMode();
-            }
-            Renderer2D::EndScene();
-        }
     }
 
 } // namespace OloEngine
