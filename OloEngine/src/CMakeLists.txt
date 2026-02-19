@@ -384,6 +384,8 @@
 		"OloEngine/Renderer/Passes/RenderPass.h"
 		"OloEngine/Renderer/Passes/FinalRenderPass.h"
 		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
+		"OloEngine/Renderer/Passes/ParticleRenderPass.h"
+		"OloEngine/Renderer/Passes/ParticleRenderPass.cpp"
 		"OloEngine/Renderer/Passes/SceneRenderPass.h"
 		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
 		"OloEngine/Renderer/Commands/CommandAllocator.cpp"

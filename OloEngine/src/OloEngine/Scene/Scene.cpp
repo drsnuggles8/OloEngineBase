@@ -619,65 +619,9 @@ namespace OloEngine
                 }
             }
 
-            // Draw particles
+            // Draw 2D particles (3D particles are rendered by ParticleRenderPass)
             {
-                if (m_Is3DModeEnabled)
-                {
-                    glm::vec3 camRight = glm::normalize(glm::vec3(cameraTransform[0]));
-                    glm::vec3 camUp = glm::normalize(glm::vec3(cameraTransform[1]));
-                    glm::vec3 camPos = glm::vec3(glm::inverse(cameraTransform)[3]);
-                    for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
-                    {
-                        auto& psc = view.get<ParticleSystemComponent>(entity);
-                        auto& sys = psc.System;
-                        glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
-
-                        // Depth sort if needed
-                        const std::vector<u32>* sorted = nullptr;
-                        if (sys.DepthSortEnabled && sys.BlendMode != ParticleBlendMode::Additive)
-                        {
-                            sys.SortByDepth(camPos);
-                            sorted = &sys.GetSortedIndices();
-                        }
-
-                        const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
-
-                        SetParticleBlendMode(sys.BlendMode);
-
-                        if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
-                        {
-                            ParticleRenderer::RenderParticlesStretched(sys.GetPool(), camRight, camUp, psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
-                        }
-                        else
-                        {
-                            ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
-                        }
-
-                        // Render child systems (sub-emitters)
-                        for (size_t c = 0; c < psc.ChildSystems.size(); ++c)
-                        {
-                            auto& childSys = psc.ChildSystems[c];
-                            const std::vector<u32>* childSorted = nullptr;
-                            if (childSys.DepthSortEnabled && childSys.BlendMode != ParticleBlendMode::Additive)
-                            {
-                                childSys.SortByDepth(camPos);
-                                childSorted = &childSys.GetSortedIndices();
-                            }
-                            SetParticleBlendMode(childSys.BlendMode);
-                            Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
-                            ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
-                        }
-
-                        // Trail rendering as quad strips
-                        if (sys.TrailModule.Enabled)
-                        {
-                            TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
-                        }
-
-                        RestoreDefaultBlendMode();
-                    }
-                }
-                else
+                if (!m_Is3DModeEnabled)
                 {
                     for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
                     {
@@ -1657,79 +1601,83 @@ namespace OloEngine
             }
         }
 
-        Renderer3D::EndScene();
-
-        // Re-bind ScenePass framebuffer so Renderer2D draws into the same target
-        // (FinalRenderPass leaves us on framebuffer 0 with blending disabled)
-        if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+        // Set particle render callback — executed by ParticleRenderPass during graph execution
+        if (auto particlePass = Renderer3D::GetParticlePass())
         {
-            scenePass->GetTarget()->Bind();
-        }
-        RenderCommand::SetBlendState(true);
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        RenderCommand::SetDepthTest(false); // Particles render on top of 3D scene
-        RenderCommand::SetDepthMask(false);
-
-        // Render particles + trails via Renderer2D (billboards, quad-strip trails)
-        {
-            Renderer2D::BeginScene(camera);
-            glm::vec3 camRight = camera.GetRightDirection();
-            glm::vec3 camUp = camera.GetUpDirection();
-            glm::vec3 camPos = camera.GetPosition();
-            for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+            particlePass->SetRenderCallback([this, &camera]()
             {
-                auto& psc = view.get<ParticleSystemComponent>(entity);
-                auto& sys = psc.System;
-                glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
+                Renderer2D::BeginScene(camera);
+                glm::vec3 camRight = camera.GetRightDirection();
+                glm::vec3 camUp = camera.GetUpDirection();
+                glm::vec3 camPos = camera.GetPosition();
 
-                const std::vector<u32>* sorted = nullptr;
-                if (sys.DepthSortEnabled && sys.BlendMode != ParticleBlendMode::Additive)
+                // Sort particle systems back-to-front for correct alpha blending
+                auto psView = m_Registry.view<TransformComponent, ParticleSystemComponent>();
+                std::vector<std::pair<f32, entt::entity>> sortedSystems;
+                sortedSystems.reserve(psView.size_hint());
+                for (auto entity : psView)
                 {
-                    sys.SortByDepth(camPos);
-                    sorted = &sys.GetSortedIndices();
+                    auto& tc = psView.get<TransformComponent>(entity);
+                    f32 dist = glm::length2(glm::vec3(tc.Translation) - camPos);
+                    sortedSystems.emplace_back(dist, entity);
                 }
+                std::sort(sortedSystems.begin(), sortedSystems.end(),
+                          [](const auto& a, const auto& b) { return a.first > b.first; });
 
-                const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
-
-                SetParticleBlendMode(sys.BlendMode);
-
-                if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
+                for (auto& [dist, entity] : sortedSystems)
                 {
-                    ParticleRenderer::RenderParticlesStretched(sys.GetPool(), camRight, camUp, psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
-                }
-                else
-                {
-                    ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
-                }
+                    auto& psc = psView.get<ParticleSystemComponent>(entity);
+                    auto& sys = psc.System;
+                    glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
 
-                // Render child systems
-                for (size_t c = 0; c < psc.ChildSystems.size(); ++c)
-                {
-                    auto& childSys = psc.ChildSystems[c];
-                    const std::vector<u32>* childSorted = nullptr;
-                    if (childSys.DepthSortEnabled && childSys.BlendMode != ParticleBlendMode::Additive)
+                    const std::vector<u32>* sorted = nullptr;
+                    if (sys.DepthSortEnabled && sys.BlendMode != ParticleBlendMode::Additive)
                     {
-                        childSys.SortByDepth(camPos);
-                        childSorted = &childSys.GetSortedIndices();
+                        sys.SortByDepth(camPos);
+                        sorted = &sys.GetSortedIndices();
                     }
-                    SetParticleBlendMode(childSys.BlendMode);
-                    Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
-                    ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
-                }
 
-                // Trail rendering as quad strips
-                if (sys.TrailModule.Enabled)
-                {
-                    TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
-                }
+                    const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
 
-                RestoreDefaultBlendMode();
-            }
-            Renderer2D::EndScene();
+                    SetParticleBlendMode(sys.BlendMode);
+
+                    if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
+                    {
+                        ParticleRenderer::RenderParticlesStretched(sys.GetPool(), camRight, camUp, psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
+                    }
+                    else
+                    {
+                        ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
+                    }
+
+                    // Render child systems
+                    for (size_t c = 0; c < psc.ChildSystems.size(); ++c)
+                    {
+                        auto& childSys = psc.ChildSystems[c];
+                        const std::vector<u32>* childSorted = nullptr;
+                        if (childSys.DepthSortEnabled && childSys.BlendMode != ParticleBlendMode::Additive)
+                        {
+                            childSys.SortByDepth(camPos);
+                            childSorted = &childSys.GetSortedIndices();
+                        }
+                        SetParticleBlendMode(childSys.BlendMode);
+                        Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
+                        ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
+                    }
+
+                    // Trail rendering
+                    if (sys.TrailModule.Enabled)
+                    {
+                        TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
+                    }
+
+                    RestoreDefaultBlendMode();
+                }
+                Renderer2D::EndScene();
+            });
         }
-        RenderCommand::SetDepthTest(true);
-        RenderCommand::SetDepthMask(true);
-        RenderCommand::BindDefaultFramebuffer(); // Unbind ScenePass so ImGui renders to default FB
+
+        Renderer3D::EndScene();
     }
 
     void Scene::RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform)
@@ -1929,6 +1877,82 @@ namespace OloEngine
                     }
                 }
             }
+        }
+
+        // Set particle render callback — executed by ParticleRenderPass during graph execution
+        if (auto particlePass = Renderer3D::GetParticlePass())
+        {
+            particlePass->SetRenderCallback([this, &camera, &cameraTransform]()
+            {
+                Renderer2D::BeginScene(camera, cameraTransform);
+                glm::vec3 camRight = glm::normalize(glm::vec3(cameraTransform[0]));
+                glm::vec3 camUp = glm::normalize(glm::vec3(cameraTransform[1]));
+                glm::vec3 camPos = glm::vec3(glm::inverse(cameraTransform)[3]);
+
+                // Sort particle systems back-to-front for correct alpha blending
+                auto psView = m_Registry.view<TransformComponent, ParticleSystemComponent>();
+                std::vector<std::pair<f32, entt::entity>> sortedSystems;
+                sortedSystems.reserve(psView.size_hint());
+                for (auto entity : psView)
+                {
+                    auto& tc = psView.get<TransformComponent>(entity);
+                    f32 dist = glm::length2(glm::vec3(tc.Translation) - camPos);
+                    sortedSystems.emplace_back(dist, entity);
+                }
+                std::sort(sortedSystems.begin(), sortedSystems.end(),
+                          [](const auto& a, const auto& b) { return a.first > b.first; });
+
+                for (auto& [dist, entity] : sortedSystems)
+                {
+                    auto& psc = psView.get<ParticleSystemComponent>(entity);
+                    auto& sys = psc.System;
+                    glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
+
+                    const std::vector<u32>* sorted = nullptr;
+                    if (sys.DepthSortEnabled && sys.BlendMode != ParticleBlendMode::Additive)
+                    {
+                        sys.SortByDepth(camPos);
+                        sorted = &sys.GetSortedIndices();
+                    }
+
+                    const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
+
+                    SetParticleBlendMode(sys.BlendMode);
+
+                    if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
+                    {
+                        ParticleRenderer::RenderParticlesStretched(sys.GetPool(), camRight, camUp, psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
+                    }
+                    else
+                    {
+                        ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
+                    }
+
+                    // Render child systems
+                    for (size_t c = 0; c < psc.ChildSystems.size(); ++c)
+                    {
+                        auto& childSys = psc.ChildSystems[c];
+                        const std::vector<u32>* childSorted = nullptr;
+                        if (childSys.DepthSortEnabled && childSys.BlendMode != ParticleBlendMode::Additive)
+                        {
+                            childSys.SortByDepth(camPos);
+                            childSorted = &childSys.GetSortedIndices();
+                        }
+                        SetParticleBlendMode(childSys.BlendMode);
+                        Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
+                        ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
+                    }
+
+                    // Trail rendering
+                    if (sys.TrailModule.Enabled)
+                    {
+                        TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
+                    }
+
+                    RestoreDefaultBlendMode();
+                }
+                Renderer2D::EndScene();
+            });
         }
 
         Renderer3D::EndScene();

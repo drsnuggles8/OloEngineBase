@@ -1,6 +1,7 @@
 # Particle System — Design Review & Issues
 
 > **Date**: February 2026
+> **Last updated**: February 2026 (ParticleRenderPass Phase A implemented)
 > **Scope**: Full review of the OloEngine particle system after Phase 1–3 implementation.
 > Covers design problems, bugs, missing features, and comparison to production engines.
 
@@ -10,9 +11,12 @@
 
 The particle system has a solid foundation: SOA pool with swap-to-back death, modular
 modifier pipeline, sub-emitters with independent child systems, ring-buffer trails, and
-comprehensive editor UI. However, **the 3D rendering integration has fundamental problems**
-that make particles unusable in real 3D scenes, and several bugs affect correctness when
-modules are combined. This document catalogues every issue found, ordered by severity.
+comprehensive editor UI. All simulation-side bugs have been fixed (velocity module, LOD,
+warm-up, emission rotation, force fields, sub-emitter collision events, curve evaluation,
+depth sorting). **Rendering architecture** has been improved: `ParticleRenderPass` (Phase
+A) integrates particles into the render graph with depth occlusion. The remaining gaps
+are rendering performance (instanced rendering, dedicated particle shader) and editor
+quality (curve editor UI, soft particles).
 
 ---
 
@@ -22,62 +26,21 @@ The particle system's 3D rendering integration has **fundamental architectural p
 not just minor state issues. Particles are rendered entirely outside the Renderer3D render
 graph, through the wrong renderer, with incorrect pipeline ordering.
 
-### 1.1 Particles render outside the render graph
+### ~~1.1 Particles render outside the render graph~~ ✅ FIXED
 
-**Files**: `Scene.cpp` — `RenderScene3D(EditorCamera)` (L1658-L1729),
-`RenderScene3D(Camera, mat4)` (L1731+), `OnUpdateRuntime` (L576-L700)
+> **Fixed**: Particles now render inside the render graph via `ParticleRenderPass`,
+> inserted between ScenePass and FinalPass. Particle rendering logic is set as a callback
+> before `Renderer3D::EndScene()`, which the graph executes in the correct order.
 
-**The render graph pipeline**:
-```
-Renderer3D::BeginScene()
-  ↓ Scene submits command packets (meshes, skybox, gizmos)
-Renderer3D::EndScene()
-  ↓ RenderGraph::Execute()
-      ↓ SceneRenderPass::Execute()  — binds ScenePass FB, sorts+executes commands, unbinds
-      ↓ FinalRenderPass::Execute()  — binds default FB (0), blits ScenePass color to screen
-  ↓ (GL is now on default framebuffer 0)
-```
+### ~~1.2 FinalPass blits to screen BEFORE particles are drawn~~ ✅ FIXED
 
-**After the render graph completes**, Scene.cpp manually:
-```cpp
-// Re-bind ScenePass FB (because FinalPass left us on FB 0)
-scenePass->GetTarget()->Bind();
-RenderCommand::SetDepthTest(false);
-RenderCommand::SetDepthMask(false);
+> **Fixed**: `ParticleRenderPass` executes between ScenePass and FinalPass. Particles
+> are drawn into the ScenePass framebuffer *before* FinalPass blits to screen.
+> Both editor (ImGui viewport) and standalone runtime paths display particles correctly.
 
-// Draw particles via Renderer2D into the ScenePass framebuffer
-Renderer2D::BeginScene(camera);
-// ... ParticleRenderer::RenderParticlesBillboard(), TrailRenderer, etc ...
-Renderer2D::EndScene();
+### 1.3 Particles still go through Renderer2D
 
-RenderCommand::SetDepthTest(true);
-RenderCommand::SetDepthMask(true);
-RenderCommand::BindDefaultFramebuffer();
-```
-
-Particles are **bolted on after the render graph has finished**. They are not a render
-pass. They don't participate in command sorting, profiling, or the render graph debugger.
-
-### 1.2 FinalPass blits to screen BEFORE particles are drawn
-
-`Renderer3D::EndScene()` calls `RGraph->Execute()`, which runs FinalRenderPass — this
-blits the ScenePass color attachment to the default framebuffer (the screen). **This
-happens before any particle is drawn.**
-
-Then particles are drawn into the ScenePass framebuffer after the blit.
-
-**Consequence in the editor**: Works by accident. The editor viewport (`EditorLayer.cpp`)
-reads the ScenePass texture directly via `ImGui::Image(scenePass->GetColorAttachment(0))`
-at the end of the frame — so it picks up the particles that were drawn after `EndScene`.
-
-**Consequence in standalone runtime** (no editor/ImGui): FinalPass already blitted the
-ScenePass to screen **without particles**. The particles drawn afterwards go into the
-ScenePass texture but are **never shown on screen**. Particles would be invisible in any
-non-editor runtime window.
-
-### 1.3 Particles go through Renderer2D (wrong renderer for 3D)
-
-All particle rendering — billboards, stretched billboards, trails — calls
+All particle rendering — billboards, stretched billboards, trails — still uses
 `Renderer2D::DrawQuad()` and `Renderer2D::DrawPolygon()`. This is a layer violation:
 
 - **Renderer2D has no concept of depth** — its shader doesn't read a depth buffer.
@@ -92,38 +55,17 @@ All particle rendering — billboards, stretched billboards, trails — calls
   binds). Calling `glBlendFunc()` between `DrawQuad()` calls inside an active batch may
   not take effect until the batch flushes (see §1.5).
 
-### 1.4 Particles ignore the 3D depth buffer
+### ~~1.4 Particles ignore the 3D depth buffer~~ ✅ FIXED
 
-Depth testing is explicitly **disabled** before particles render:
-```cpp
-RenderCommand::SetDepthTest(false);  // ← particles can't be occluded
-RenderCommand::SetDepthMask(false);
-```
+> **Fixed**: `ParticleRenderPass::Execute()` enables depth testing (`GL_LEQUAL`,
+> read-only via `SetDepthMask(false)`) so particles are correctly occluded by opaque
+> geometry. Depth writes remain disabled so particles don't occlude each other or later
+> transparent objects.
 
-Every particle renders on top of every mesh, regardless of 3D position. A particle behind
-a wall, inside a building, or underground is still visible.
+### 1.5 ~~Blend state changes during an active Renderer2D batch~~ ✅ FIXED
 
-**Note**: Even a quick fix of `SetDepthTest(true)` is not straightforward because:
-1. Particles are drawn after `Renderer3D::EndScene()`, which resets GL state.
-2. The ScenePass framebuffer's depth attachment still contains valid depth from the
-   opaque pass, so depth reads *would* work if re-enabled.
-3. But Renderer2D's shader hasn't been validated for correct depth output in this
-   configuration, and the per-particle transform matrices constructed in
-   `ParticleRenderer` must produce correct clip-space Z values.
-4. Even if depth reads work, particles still render after FinalPass — fixing the
-   display-order problem (§1.2) requires more than a state toggle.
-
-### 1.5 Blend state changes during an active Renderer2D batch
-
-**File**: `Scene.cpp` — multiple call sites.
-
-`SetParticleBlendMode()` calls `glBlendFunc()` between individual `Renderer2D::DrawQuad()`
-calls. If `Renderer2D` batches quads internally (which it does), `glBlendFunc()` only
-takes effect when the batch is actually flushed. Particles within the same batch that
-span a blend-mode change may render with the wrong blend mode.
-
-**Fix**: Call `Renderer2D::Flush()` (or `EndScene()` / `BeginScene()`) before changing
-blend state, or submit each blend mode group in its own batch.
+> **Fixed**: `SetParticleBlendMode()` now calls `Renderer2D::Flush()` before changing
+> GL blend state, ensuring queued quads render with the correct blend mode.
 
 ### 1.6 No soft particles (depth fade near surfaces)
 
@@ -134,152 +76,57 @@ depth buffer value at that pixel.
 **Requires**: A particle-specific fragment shader with a depth texture uniform. Cannot be
 done through Renderer2D's fixed shader.
 
-### 1.7 No inter-system depth sorting
+### ~~1.7 No inter-system depth sorting~~ ✅ FIXED
 
-Each `ParticleSystem` sorts its own particles back-to-front, but if two particle systems
-overlap spatially, there's no sorting between them. Alpha-blended particles from system A
-may incorrectly render over particles from system B.
+> **Fixed**: Particle systems are now sorted back-to-front by distance to camera before
+> rendering. Both editor and runtime render callbacks collect all `TransformComponent` +
+> `ParticleSystemComponent` entities, compute squared distance to camera position, and
+> render in farthest-first order. This ensures overlapping alpha-blended systems composite
+> correctly.
 
-**Fix (future)**: Collect all particles from all systems into a single sort pass before
-rendering, or at least sort systems by their emitter distance to camera.
+### ~~1.8 The proper fix: ParticleRenderPass~~ ✅ FIXED (Phase A)
 
-### 1.8 The proper fix: ParticleRenderPass
-
-The correct solution is to create a **`ParticleRenderPass`** that integrates into the
-existing render graph between SceneRenderPass and FinalRenderPass:
-
-```
-SceneRenderPass (opaque geometry, skybox, gizmos)
-      ↓ outputs: color + depth in ScenePass framebuffer
-ParticleRenderPass (translucent particles, trails)  ← NEW
-      ↓ reads ScenePass depth (for occlusion + soft particles)
-      ↓ writes color into ScenePass (or its own target)
-FinalRenderPass (blit to screen)
-```
-
-**What the ParticleRenderPass needs**:
-
-1. **Shared framebuffer access**: Render into the ScenePass framebuffer (or a separate
-   translucent target composited later). Must read the ScenePass depth attachment as a
-   texture for occlusion and soft-particle fade.
-
-2. **A dedicated particle billboard shader**:
-   - Vertex shader: constructs camera-facing billboard from per-particle attributes
-     (position, size, rotation, UV rect). No CPU matrix construction.
-   - Fragment shader: texture sampling, alpha blending, depth buffer read for
-     soft-particle fade, optional sprite sheet UV selection.
-
-3. **Instance buffer or SSBO for per-particle data**: Upload positions, sizes, colors,
-   rotations, UV rects for all particles of one texture in a single buffer. One instanced
-   draw call per texture batch instead of one `DrawQuad()` per particle.
-
-4. **Blend mode management**: Handle Alpha/Additive/Premultiplied blend modes as
-   render-pass state, not raw `glBlendFunc()` calls mid-batch.
-
-5. **Trail rendering via triangle strip**: One draw call per particle trail (or one
-   for all trails of a system) using a dynamic vertex buffer with position + width + UV.
-
-**Implementation phases**:
-
-- **Phase A (minimum viable)**: Create `ParticleRenderPass`, insert into render graph.
-  Render into ScenePass FB with depth test enabled (read-only). Still use per-particle
-  quads (no instancing yet). This fixes §1.1–§1.4 and §1.2 display ordering.
-
-- **Phase B (particle shader)**: Add a dedicated particle vertex/fragment shader.
-  Billboard construction in vertex shader. Depth texture read in fragment shader for
-  soft particles.
-
-- **Phase C (instanced rendering)**: Per-particle data via instance buffer. One draw
-  call per texture batch. This is the performance win.
+> **Fixed (Phase A)**: Created `ParticleRenderPass` class, inserted into the render graph
+> between ScenePass and FinalPass. Graph order: ScenePass → ParticlePass → FinalPass.
+> The pass renders into the ScenePass framebuffer with depth test enabled (read-only,
+> `GL_LEQUAL`, no depth write) so particles correctly occlude against opaque geometry.
+> Particle rendering moved from manual post-EndScene code into a render callback set
+> before `Renderer3D::EndScene()`. Both editor and runtime paths updated. Phases B
+> (dedicated particle shader) and C (instanced rendering) remain as future optimizations.
 
 ---
 
-## 2 — Bugs
+## 2 — Bugs (all fixed)
 
-### 2.1 VelocityOverLifetime overwrites physics forces
+### 2.1 ~~VelocityOverLifetime overwrites physics forces~~ ✅ FIXED
 
-**File**: `ParticleModules.cpp`, `ModuleVelocityOverLifetime::Apply()`
+> **Fixed**: `VelocityOverLifetime::Apply()` now preserves accumulated force contributions
+> (gravity, drag, noise) by computing `forceContribution = Velocities - InitialVelocities`
+> and applying the speed curve only to the initial component. Module execution order changed:
+> forces (Gravity → Drag → Noise) run first, then VelocityModule scales on top.
 
-```cpp
-pool.Velocities[i] = pool.InitialVelocities[i] * speedMul + LinearVelocity * elapsedTime;
-```
+### 2.2 ~~`OnCollision` sub-emitter event is defined but never fires~~ ✅ FIXED
 
-This **replaces** the velocity every frame. Even though VelocityOverLifetime runs first
-(before Gravity, Drag, Noise), the forces applied in frame N are discarded in frame N+1
-when the velocity is reconstructed from initial values. In practice:
+> **Fixed**: `ModuleCollision::Apply()` and `ApplyWithRaycasts()` now accept an optional
+> `std::vector<CollisionEvent>*` output parameter. When collisions occur, events are
+> recorded and converted to `SubEmitterTriggerInfo` entries with
+> `Event = SubEmitterEvent::OnCollision` in `ParticleSystem::UpdateInternal()`.
 
-- Gravity appears to work for one frame, then gets overwritten.
-- Drag has no cumulative effect.
-- Noise jitter is erased each frame.
+### 2.3 ~~LOD uses stepped thresholds instead of smooth interpolation~~ ✅ FIXED
 
-Users cannot meaningfully combine VelocityOverLifetime with any force-based module.
+> **Fixed**: `UpdateLOD()` now uses smooth linear falloff:
+> `multiplier = (LODMaxDistance - dist) / (LODMaxDistance - LODDistance1)`,
+> clamped to [0, 1]. `LODDistance2` is no longer used (could be removed from the struct).
 
-**Fix options**:
-1. Make VelocityOverLifetime additive: `Velocities[i] += delta` per frame instead of
-   absolute reconstruction.
-2. Separate "velocity damping curve" from "additive linear velocity" — apply the curve
-   as a multiplier on top of whatever the current velocity is (after forces), not as a
-   replacement.
-3. Skip force modules when VelocityOverLifetime is enabled (Unity's approach — velocity
-   curve overrides physics).
+### 2.4 ~~Emission rate temporarily mutated during Update~~ ✅ FIXED
 
-### 2.2 `OnCollision` sub-emitter event is defined but never fires
+> **Fixed**: `ParticleEmitter::Update()` now accepts a `rateMultiplier` parameter.
+> The LOD multiplier is passed through without mutating the public `RateOverTime` member.
 
-**File**: `SubEmitter.h`
+### 2.5 ~~Warm-up recursion depth~~ ✅ FIXED
 
-`SubEmitterEvent::OnCollision` exists in the enum, but `CollisionModule::Apply()` and
-`CollisionModule::ApplyWithRaycasts()` never create `SubEmitterTriggerInfo` entries.
-Collision events are silently dropped.
-
-**Fix**: In `CollisionModule`, when a particle bounces or is killed, check for
-`OnCollision` sub-emitter entries and push trigger info into the pending triggers list.
-
-### 2.3 LOD uses stepped thresholds instead of smooth interpolation
-
-**File**: `ParticleSystem.cpp`, `UpdateLOD()`
-
-```cpp
-if (dist >= LODMaxDistance)       m_LODSpawnRateMultiplier = 0.0f;
-else if (dist >= LODDistance2)    m_LODSpawnRateMultiplier = 0.25f;
-else if (dist >= LODDistance1)    m_LODSpawnRateMultiplier = 0.5f;
-else                              m_LODSpawnRateMultiplier = 1.0f;
-```
-
-Particles visibly pop in/out at the distance boundaries. Should use smooth linear or
-inverse-square falloff between the thresholds.
-
-### 2.4 Emission rate temporarily mutated during Update
-
-**File**: `ParticleSystem.cpp`, `Update()` (L97-L104)
-
-```cpp
-f32 origRate = Emitter.RateOverTime;
-Emitter.RateOverTime *= m_LODSpawnRateMultiplier;
-// ... emit ...
-Emitter.RateOverTime = origRate;
-```
-
-This mutates then restores a public member. If anything reads `RateOverTime` concurrently
-(e.g., editor UI refresh on another thread, or a script query), it sees the wrong value.
-The multiplier should be passed as a parameter or computed internally.
-
-### 2.5 Warm-up recursion depth
-
-**File**: `ParticleSystem.cpp`, `Update()`
-
-Warm-up calls `Update()` recursively in a loop:
-```cpp
-while (remaining > 0.0f)
-{
-    Update(step, emitterPosition, parentVelocity);
-    remaining -= step;
-}
-```
-
-With `WarmUpTime = 10.0f` and `warmUpStep = 1/60`, that's 600 recursive calls. Each call
-pushes a stack frame with several locals + profile markers. This is a stack overflow risk
-for large warm-up times and should be converted to an iterative approach (loop with an
-internal flag to distinguish warm-up ticks from real ticks).
+> **Fixed**: `Update()` now delegates to a private `UpdateInternal()` method. The warm-up
+> loop calls `UpdateInternal()` iteratively — no recursion, no stack growth risk.
 
 ---
 
@@ -320,66 +167,50 @@ With 10K particles, that's 10K trig calls + 10K matrix constructions per frame o
 CPU. GPU instancing would eliminate this entirely — upload raw per-particle data and let
 the vertex shader handle billboard construction.
 
-### 3.3 Trail rendering is O(particles × trail_points) separate draw calls
+### ~~3.3 Trail rendering is O(particles × trail_points) separate draw calls~~ ✅ FIXED
 
-**File**: `TrailRenderer.cpp`
+> **Fixed**: Trail segments now use `Renderer2D::DrawQuadVertices()` instead of
+> `DrawPolygon()`. This eliminates per-segment `std::vector` heap allocations, fixes a
+> `GL_TRIANGLE_FAN` correctness bug (multiple polygons in one batch created wrong
+> triangles), adds per-vertex color interpolation for smooth gradients (was averaged),
+> and uses the properly indexed quad batch path.
 
-Each trail *segment* is a separate `Renderer2D::DrawPolygon()` call. With 1000 particles,
-each having 16 trail points = 15 segments, that's **15,000 individual polygon calls per
-frame**. This will dominate frame time.
+### 3.4 ~~Only one force field per system~~ ✅ FIXED
 
-**Fix**: Submit each particle's entire trail as a single triangle strip or indexed triangle
-list. Better yet, batch all trails into a single draw call with a dynamic vertex buffer.
+> **Fixed**: `ForceFieldModule` replaced with `std::vector<ModuleForceField> ForceFields`.
+> `ParticleSystem::UpdateInternal()` iterates over all force fields. Editor UI supports
+> add/remove with per-field tree nodes. Serialization writes a YAML sequence with backward
+> compatibility for old single-field format.
 
-### 3.4 Only one force field per system
+### 3.5 ~~Emission direction ignores entity rotation~~ ✅ FIXED
 
-`ModuleForceField` is a single struct on `ParticleSystem`. Real effects need multiple
-force fields (wind zone + point attractor + vortex turbulence). Unity uses external
-ForceField components that affect any particle system in range.
+> **Fixed**: `ParticleSystem::Update()` accepts an `emitterRotation` quaternion parameter,
+> threaded through to `ParticleEmitter::InitializeParticle()`. Both the emission shape
+> position offset and direction are transformed by the entity's rotation. `Scene.cpp`
+> passes `glm::quat(transform.Rotation)` at both runtime and editor call sites.
 
-**Fix**: Change `ForceFieldModule` to a `std::vector<ModuleForceField>` or introduce
-an entity-based force field component that the particle update queries.
+### 3.6 ~~ParticleCurve find-segment is O(n) linear scan~~ ✅ FIXED
 
-### 3.5 Emission direction ignores entity rotation
+> **Fixed**: `ParticleCurve::Evaluate()` now uses binary search (O(log n)) to find the
+> segment containing `t`, instead of an O(n) linear scan.
 
-`SampleEmissionShape()` generates positions/directions in a fixed coordinate frame. The
-entity's `TransformComponent.Rotation` is never applied to the emission direction. A cone
-emitter always points along +Z regardless of entity orientation.
+### 3.7 ~~`std::sort` for depth sorting is not stable and allocates~~ ✅ FIXED
 
-**Fix**: In `ParticleEmitter::InitializeParticle()`, transform the sampled direction by
-the entity's rotation quaternion. The entity rotation needs to be passed through from
-`Scene.cpp` to the emitter.
-
-### 3.6 ParticleCurve find-segment is O(n) linear scan
-
-**File**: `ParticleCurve.h`, `Evaluate()`
-
-With 8 keys the loop is fine, but the access pattern (called per particle per frame per
-module) means it's executed hundreds of thousands of times. A binary search or precomputed
-LUT (sample curve into 256 values on change) would be faster for hot paths.
-
-### 3.7 `std::sort` for depth sorting is not stable and allocates
-
-**File**: `ParticleSystem.cpp`, `SortByDepth()`
-
-`std::sort` may allocate and is O(n log n). For particles that are mostly already sorted
-frame-to-frame, an **insertion sort** or `pdqsort` would be significantly faster due to
-adaptive behavior on nearly-sorted data. This is a well-known optimization in particle
-engines.
+> **Fixed**: `SortByDepth()` now precomputes squared distances into a cached
+> `m_SortDistances` vector and uses insertion sort (O(n) for nearly-sorted data) instead
+> of `std::sort`. No allocations in the hot path for frame-to-frame coherent data.
 
 ---
 
 ## 4 — Missing Features (Priority Order)
 
-### 4.1 HIGH — ParticleRenderPass (proper 3D integration)
-The entire rendering architecture needs to change. Particles must be a proper render pass
-in the Renderer3D render graph, not a post-hoc Renderer2D hack. See §1.8 for the full
-design. This is the **single biggest blocker** for the particle system.
+### ~~4.1 HIGH — ParticleRenderPass (proper 3D integration)~~ ✅ FIXED (Phase A)
 
-Phased approach:
-- **Phase A**: Create `ParticleRenderPass`, insert between ScenePass and FinalPass.
-  Render into ScenePass FB with depth reads. Still per-particle quads. Fixes depth
-  occlusion and display ordering.
+> **Fixed (Phase A)**: `ParticleRenderPass` created and integrated into the render graph.
+> Particles now render inside the render graph with depth testing against scene geometry.
+> Phases B (particle shader) and C (instanced rendering) remain as optimizations.
+
+Remaining phases:
 - **Phase B**: Dedicated particle billboard shader (vertex shader billboarding, fragment
   shader depth-fade for soft particles).
 - **Phase C**: Instance buffer for per-particle data. One draw call per texture batch.
@@ -391,11 +222,14 @@ buffer or SSBO. Part of Phase C of the ParticleRenderPass work (§4.1). Requires
 - A particle-specific vertex + fragment shader (billboard construction in vertex shader).
 - Dynamic instance buffer management (map/orphan pattern or persistent mapped buffer).
 
-### 4.3 HIGH — Curve editor UI
-`ParticleCurve` supports 8 keyframes, but the editor UI only has enable/disable
-checkboxes for ColorOverLifetime and SizeOverLifetime. No way to add/remove/move keys
-or see the curve shape. Without this, the curve system is effectively unusable from
-the editor.
+### ~~4.3 HIGH — Curve editor UI~~ ✅ FIXED
+
+> **Fixed**: Interactive ImGui curve editor widget implemented in `SceneHierarchyPanel.cpp`.
+> `DrawParticleCurveEditor()` renders a canvas with polyline curve visualization, draggable
+> key points, double-click to add keys (up to 8), right-click to remove (min 2).
+> `DrawParticleCurve4Editor()` shows a gradient preview bar and per-channel (R/G/B/A)
+> collapsible curve editors. Wired into Color Over Lifetime, Size Over Lifetime, and
+> a new Velocity Over Lifetime section with LinearVelocity + SpeedMultiplier + SpeedCurve.
 
 ### 4.4 MEDIUM — Soft particles
 Alpha-fade particles near opaque surfaces using depth buffer comparison. Requires depth
@@ -406,18 +240,23 @@ work (§4.1). See §1.6.
 `ParticleRenderMode::Mesh` is declared but not implemented. Each particle should instance
 a user-specified mesh (e.g., debris chunks, leaves). Requires instanced rendering (§4.2).
 
-### 4.6 MEDIUM — Task system parallelization
-Independent modules (Gravity, Drag, Noise, Rotation) can run in parallel across particle
-ranges. The engine already has a task system — split the alive range into chunks and
-dispatch per-module tasks.
+### ~~4.6 MEDIUM — Task system parallelization~~ ✅ FIXED
 
-### 4.7 MEDIUM — Multiple force fields
-Change `ModuleForceField` from a single instance to a collection, or introduce an
-entity-based `ForceFieldComponent` that the particle system queries at update time.
+> **Fixed**: `ParticleSystem::UpdateInternal()` now launches Color, Size, and Rotation
+> modules as concurrent tasks (via `Tasks::Launch()`) while the velocity chain
+> (Gravity→Drag→Noise→VelocityOverLifetime) runs on the calling thread. These three
+> modules are safe to run concurrently because they write to independent arrays
+> (Colors, Sizes, Rotations respectively). The parallel path activates when
+> `AliveCount >= 256` and at least one independent module is enabled; below that
+> threshold, sequential fallback avoids task launch overhead.
 
-### 4.8 MEDIUM — Emission direction from entity rotation
-Apply the entity's rotation to emission direction so cone/edge shapes orient with the
-entity. See §3.5.
+### 4.7 ~~MEDIUM — Multiple force fields~~ ✅ FIXED
+
+> See §3.4.
+
+### 4.8 ~~MEDIUM — Emission direction from entity rotation~~ ✅ FIXED
+
+> See §3.5.
 
 ### 4.9 LOW — GPU compute simulation
 Move position integration and module application to compute shaders. Requires SSBO and
@@ -432,17 +271,21 @@ the N brightest/nearest particles. Unity's Shuriken has this; useful for fire, e
 Let users define which per-particle attributes are passed to the shader (tangent, custom
 data, etc.). Enables advanced shader effects.
 
-### 4.12 LOW — OnCollision sub-emitter trigger
-Wire up the existing `SubEmitterEvent::OnCollision` enum to actually fire. See §2.2.
+### 4.12 ~~LOW — OnCollision sub-emitter trigger~~ ✅ FIXED
 
-### 4.13 LOW — Trail texture coordinate mapping
-Trails currently have no UVs — they render as solid colored quads via `DrawPolygon()`.
-Add UV coordinates along the trail length (0→1) so trail textures (flame streaks, etc.)
-work correctly.
+> See §2.2.
 
-### 4.14 LOW — Inter-system sorting
-Sort all particle systems (and ideally all translucent objects) by distance to camera
-before rendering to improve visual correctness of overlapping alpha-blended systems.
+### ~~4.13 LOW — Trail texture coordinate mapping~~ ✅ FIXED
+
+> **Fixed**: `TrailRenderer::RenderTrails()` now generates UV coordinates along the trail
+> length (U = 0→1 from head to tail, V = 0→1 across width). When a texture is provided,
+> `DrawQuadVertices()` with texture + per-vertex UVs is used; untextured trails fall back
+> to the color-only path. The particle texture is shared with trails (via `psc.Texture`).
+
+### ~~4.14 LOW — Inter-system sorting~~ ✅ FIXED
+
+> **Fixed**: Particle systems sorted back-to-front by emitter distance to camera before
+> rendering. See §1.7.
 
 ---
 
@@ -452,63 +295,73 @@ before rendering to improve visual correctness of overlapping alpha-blended syst
 |---|---|---|---|---|
 | CPU simulation | ✅ | ✅ | ✅ | — |
 | GPU simulation (compute) | ✅ (VFX Graph) | ✅ | ❌ | Blocked on SSBO/compute |
-| Depth buffer occlusion | ✅ | ✅ | ❌ | **Critical** — requires ParticleRenderPass in render graph |
+| Depth buffer occlusion | ✅ | ✅ | ✅ | Fixed — ParticleRenderPass with depth test |
 | Soft particles (depth fade) | ✅ | ✅ | ❌ | Need depth texture in particle shader |
 | Instanced rendering | ✅ | ✅ | ❌ | Planned (Phase 3 #9) |
-| Curve editor | ✅ (rich spline) | ✅ (graph editor) | ❌ | No UI at all for curves |
-| Multiple force fields | ✅ (external) | ✅ (modules) | ❌ (one per system) | Design limitation |
+| Curve editor | ✅ (rich spline) | ✅ (graph editor) | ✅ | Interactive curve editor with key add/remove/drag |
+| Multiple force fields | ✅ (external) | ✅ (modules) | ✅ | Fixed — `std::vector<ModuleForceField>` |
 | Mesh particles | ✅ | ✅ | ❌ (placeholder) | Needs instancing first |
 | Sub-emitters | ✅ | ✅ | ✅ | Working — separate child systems |
-| Trails | ✅ | ✅ | ✅ | Working — quad-strip, but slow (per-segment draw call) |
+| Trails | ✅ | ✅ | ✅ | Working — quad-strip via batched DrawQuadVertices with per-vertex color |
 | Emission shapes | ✅ (Mesh surface) | ✅ | Partial (6 shapes) | Missing: mesh surface emit |
-| Events/callbacks | OnCollision, OnTrigger | Full scripting | Partial (OnBirth/OnDeath) | OnCollision not wired |
+| Events/callbacks | OnCollision, OnTrigger | Full scripting | ✅ (OnBirth/OnDeath/OnCollision) | Fixed — OnCollision wired |
 | Particle lights | ✅ | ✅ | ❌ | Low priority |
 | Texture atlas / sprite sheet | ✅ | ✅ | ✅ | Working |
-| LOD | ✅ | ✅ | ✅ | Working (but stepped, not smooth) |
-| Warm-up | ✅ | ✅ | ✅ | Working (but recursive, stack risk) |
+| LOD | ✅ | ✅ | ✅ | Fixed — smooth linear falloff |
+| Warm-up | ✅ | ✅ | ✅ | Fixed — iterative, no stack risk |
 | Velocity inheritance | ✅ | ✅ | ✅ | Working |
 | Serialization | ✅ | ✅ | ✅ | YAML |
 | .particle asset files | ✅ (.prefab) | ✅ (.uasset) | ✅ | .oloparticle |
 
-**Overall assessment**: OloEngine's particle system is architecturally comparable to
-Unity's Shuriken circa 2015–2016 in terms of simulation. The SOA data layout, module
-pipeline, sub-emitters, and trail ring buffers are well-designed. The critical gap is
-rendering integration — particles are rendered outside the render graph through the
-wrong renderer (Renderer2D), after the final blit has already occurred. A new
-`ParticleRenderPass` integrated into the render graph is required. After that, instanced
-rendering and a particle-specific shader are needed for performance and visual quality.
+**Overall assessment**: The simulation layer is solid — all known bugs are fixed, modules
+compose correctly with forces, LOD is smooth, warm-up is safe, emission respects entity
+rotation, and multiple force fields are supported. **Depth occlusion is now fixed** —
+particles render inside the render graph via `ParticleRenderPass` with depth testing
+against scene geometry. The remaining gaps are **performance** (instanced rendering,
+particle shader) and **editor quality** (soft particles, trail optimization).
 
 ---
 
-## 6 — Recommended Fix Order
+## 6 — Recommended Fix Order (updated)
 
-### Rendering architecture overhaul (the real fix)
+### ~~Bug fixes & design improvements~~ ✅ ALL DONE
 
-1. **Create `ParticleRenderPass`** (§1.8, Phase A) — new render pass inserted into the
+- ~~**Fix blend state batching** (§1.5)~~ ✅
+- ~~**Fix VelocityOverLifetime vs forces** (§2.1)~~ ✅
+- ~~**Convert warm-up to iterative** (§2.5)~~ ✅
+- ~~**Smooth LOD interpolation** (§2.3)~~ ✅
+- ~~**Pass emission rate multiplier as parameter** (§2.4)~~ ✅
+- ~~**Wire OnCollision sub-emitter event** (§2.2)~~ ✅
+- ~~**Apply entity rotation to emission direction** (§3.5)~~ ✅
+- ~~**Multiple force fields** (§3.4)~~ ✅
+- ~~**Insertion sort for depth sorting** (§3.7)~~ ✅
+- ~~**Binary search for ParticleCurve** (§3.6)~~ ✅
+
+### ~~Remaining: Rendering architecture overhaul~~ ✅ DONE (Phase A)
+
+~~1. **Create `ParticleRenderPass`** (§1.8, Phase A) — new render pass inserted into the
    render graph between ScenePass and FinalPass. Renders into the ScenePass framebuffer
    with depth test enabled (read-only). This fixes:
    - §1.1 (particles outside render graph)
    - §1.2 (FinalPass blits before particles)
    - §1.4 (no depth occlusion)
    Must port existing `ParticleRenderer` logic into the new pass, still using per-particle
-   quads via Renderer2D initially. Can optimize to instanced rendering later.
+   quads via Renderer2D initially. Can optimize to instanced rendering later.~~ ✅
 
-2. **Fix blend state batching** (§1.5) — flush Renderer2D batch before blend mode changes.
+### Remaining: Editor + quality
 
-### Bug fixes (can be done in parallel)
+2. ~~**Add curve editor UI** (§4.3) — unblocks artist workflow.~~ ✅
+3. ~~**Optimize trail rendering** (§3.3) — batch into single draw call per particle.~~ ✅
+4. **Particle billboard shader** (§1.8, Phase B) — vertex-shader billboarding, soft
+   particle depth fade in fragment shader.
+5. **Instanced rendering** (§1.8, Phase C) — instance buffer, one draw call per texture.
 
-3. **Fix VelocityOverLifetime vs forces** (§2.1) — either make additive or skip forces
-   when VelocityOverLifetime is enabled.
-4. **Convert warm-up to iterative** (§2.5) — prevent stack overflow.
-5. **Smooth LOD interpolation** (§2.3) — remove popping.
-6. **Pass emission rate multiplier as parameter** (§2.4) — don't mutate public state.
-7. **Wire OnCollision sub-emitter event** (§2.2).
-8. **Apply entity rotation to emission direction** (§3.5).
+### Remaining: Future features
 
-### Editor + quality (after architecture is stable)
-
-9. **Add curve editor UI** (§4.3) — unblocks artist workflow.
-10. **Optimize trail rendering** (§3.3) — batch into single draw call per particle.
-11. **Particle billboard shader** (§1.8, Phase B) — vertex-shader billboarding, soft
-    particle depth fade in fragment shader.
-12. **Instanced rendering** (§1.8, Phase C) — instance buffer, one draw call per texture.
+6. **Mesh particles** (§4.5) — requires instanced rendering.
+7. ~~**Task system parallelization** (§4.6) — parallel module application.~~ ✅
+8. **GPU compute simulation** (§4.9) — requires SSBO/compute shader support.
+9. **Particle lights** (§4.10) — per-particle point lights.
+10. **Custom vertex streams** (§4.11) — advanced shader effects.
+11. ~~**Trail texture UVs** (§4.13) — UV mapping along trail length.~~ ✅
+12. ~~**Inter-system sorting** (§4.14) — sort systems by camera distance.~~ ✅

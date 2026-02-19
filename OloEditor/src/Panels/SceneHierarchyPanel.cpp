@@ -333,6 +333,227 @@ namespace OloEngine
         ImGui::PopID();
     }
 
+    // ── Curve editor widget for ParticleCurve ──────────────────────────────
+    static bool DrawParticleCurveEditor(const char* label, ParticleCurve& curve,
+                                        f32 valueMin = 0.0f, f32 valueMax = 1.0f)
+    {
+        bool modified = false;
+        ImGui::PushID(label);
+
+        const f32 canvasWidth = ImGui::GetContentRegionAvail().x;
+        constexpr f32 canvasHeight = 100.0f;
+        const ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+        const ImVec2 canvasSize(canvasWidth, canvasHeight);
+
+        ImGui::InvisibleButton("##curve_canvas", canvasSize);
+        const bool isHovered = ImGui::IsItemHovered();
+        const bool isActive  = ImGui::IsItemActive();
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImVec2 canvasEnd(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y);
+
+        // Background + border
+        drawList->AddRectFilled(canvasPos, canvasEnd, IM_COL32(30, 30, 30, 255));
+        drawList->AddRect(canvasPos, canvasEnd, IM_COL32(80, 80, 80, 255));
+
+        // Grid lines (quarters)
+        for (int i = 1; i < 4; ++i)
+        {
+            f32 x = canvasPos.x + canvasSize.x * (static_cast<f32>(i) / 4.0f);
+            f32 y = canvasPos.y + canvasSize.y * (static_cast<f32>(i) / 4.0f);
+            drawList->AddLine(ImVec2(x, canvasPos.y), ImVec2(x, canvasEnd.y), IM_COL32(50, 50, 50, 255));
+            drawList->AddLine(ImVec2(canvasPos.x, y), ImVec2(canvasEnd.x, y), IM_COL32(50, 50, 50, 255));
+        }
+
+        const f32 valueRange = valueMax - valueMin;
+        auto toScreen = [&](f32 time, f32 value) -> ImVec2
+        {
+            f32 ny = (valueRange > 0.0f) ? (value - valueMin) / valueRange : 0.5f;
+            return { canvasPos.x + time * canvasSize.x,
+                     canvasPos.y + (1.0f - ny) * canvasSize.y };
+        };
+        auto fromScreen = [&](ImVec2 screen) -> std::pair<f32, f32>
+        {
+            f32 t = (canvasSize.x > 0.0f) ? (screen.x - canvasPos.x) / canvasSize.x : 0.0f;
+            f32 ny = (canvasSize.y > 0.0f) ? 1.0f - (screen.y - canvasPos.y) / canvasSize.y : 0.0f;
+            return { std::clamp(t, 0.0f, 1.0f),
+                     std::clamp(valueMin + ny * valueRange, valueMin, valueMax) };
+        };
+
+        // Draw curve as polyline
+        if (curve.KeyCount > 0)
+        {
+            constexpr int numSegments = 128;
+            ImVec2 prev = toScreen(0.0f, curve.Evaluate(0.0f));
+            for (int s = 1; s <= numSegments; ++s)
+            {
+                f32 t = static_cast<f32>(s) / static_cast<f32>(numSegments);
+                ImVec2 cur = toScreen(t, curve.Evaluate(t));
+                drawList->AddLine(prev, cur, IM_COL32(220, 220, 80, 255), 1.5f);
+                prev = cur;
+            }
+        }
+
+        // Per-widget drag state stored via static + pointer guard
+        static int sDragKey = -1;
+        static const void* sDragOwner = nullptr;
+
+        constexpr f32 keyRadius = 5.0f;
+        const ImVec2 mousePos = ImGui::GetIO().MousePos;
+
+        // Draw key points and detect hover
+        int hoveredKey = -1;
+        for (u32 k = 0; k < curve.KeyCount; ++k)
+        {
+            ImVec2 ks = toScreen(curve.Keys[k].Time, curve.Keys[k].Value);
+            if (std::abs(mousePos.x - ks.x) <= keyRadius + 2.0f &&
+                std::abs(mousePos.y - ks.y) <= keyRadius + 2.0f)
+            {
+                hoveredKey = static_cast<int>(k);
+            }
+            ImU32 col = (hoveredKey == static_cast<int>(k))
+                            ? IM_COL32(255, 255, 100, 255)
+                            : IM_COL32(220, 220, 220, 255);
+            drawList->AddCircleFilled(ks, keyRadius, col);
+            drawList->AddCircle(ks, keyRadius, IM_COL32(100, 100, 100, 255));
+        }
+
+        // Start drag on left-click
+        if (isHovered && hoveredKey >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            sDragKey = hoveredKey;
+            sDragOwner = &curve;
+        }
+
+        // Drag
+        if (sDragKey >= 0 && sDragOwner == &curve && isActive)
+        {
+            auto [time, value] = fromScreen(mousePos);
+            auto dk = static_cast<u32>(sDragKey);
+            if (dk == 0)
+                time = 0.0f;
+            else if (dk == curve.KeyCount - 1)
+                time = 1.0f;
+            else
+                time = std::clamp(time,
+                                  curve.Keys[dk - 1].Time + 0.001f,
+                                  curve.Keys[dk + 1].Time - 0.001f);
+            curve.Keys[dk] = { time, value };
+            modified = true;
+        }
+
+        // Release drag
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && sDragOwner == &curve)
+        {
+            sDragKey = -1;
+            sDragOwner = nullptr;
+        }
+
+        // Right-click: remove key (keep at least 2)
+        if (isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && hoveredKey >= 0
+            && curve.KeyCount > 2)
+        {
+            auto rk = static_cast<u32>(hoveredKey);
+            for (u32 j = rk; j < curve.KeyCount - 1; ++j)
+                curve.Keys[j] = curve.Keys[j + 1];
+            curve.KeyCount--;
+            modified = true;
+        }
+
+        // Double-click on empty area: add key (max 8)
+        if (isHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
+            && hoveredKey < 0 && curve.KeyCount < 8)
+        {
+            auto [time, value] = fromScreen(mousePos);
+            u32 insertIdx = curve.KeyCount;
+            for (u32 k = 0; k < curve.KeyCount; ++k)
+            {
+                if (time < curve.Keys[k].Time)
+                {
+                    insertIdx = k;
+                    break;
+                }
+            }
+            for (u32 k = curve.KeyCount; k > insertIdx; --k)
+                curve.Keys[k] = curve.Keys[k - 1];
+            curve.Keys[insertIdx] = { time, value };
+            curve.KeyCount++;
+            modified = true;
+        }
+
+        // Value labels at corners
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.2f", valueMax);
+        drawList->AddText(ImVec2(canvasPos.x + 2, canvasPos.y + 1), IM_COL32(120, 120, 120, 255), buf);
+        snprintf(buf, sizeof(buf), "%.2f", valueMin);
+        drawList->AddText(ImVec2(canvasPos.x + 2, canvasEnd.y - ImGui::GetFontSize() - 1),
+                          IM_COL32(120, 120, 120, 255), buf);
+
+        ImGui::TextDisabled("%s  (dbl-click: add key, right-click: remove key)", label);
+
+        ImGui::PopID();
+        return modified;
+    }
+
+    // ── Gradient preview bar for ParticleCurve4 ────────────────────────────
+    static void DrawGradientBar(const ParticleCurve4& curve, f32 width, f32 height)
+    {
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        constexpr int segments = 64;
+        f32 segW = width / static_cast<f32>(segments);
+
+        for (int i = 0; i < segments; ++i)
+        {
+            f32 t0 = static_cast<f32>(i) / static_cast<f32>(segments);
+            f32 t1 = static_cast<f32>(i + 1) / static_cast<f32>(segments);
+            glm::vec4 c0 = curve.Evaluate(t0);
+            glm::vec4 c1 = curve.Evaluate(t1);
+            auto toCol = [](const glm::vec4& c) -> ImU32
+            {
+                return IM_COL32(static_cast<int>(std::clamp(c.r, 0.0f, 1.0f) * 255.0f),
+                                static_cast<int>(std::clamp(c.g, 0.0f, 1.0f) * 255.0f),
+                                static_cast<int>(std::clamp(c.b, 0.0f, 1.0f) * 255.0f),
+                                static_cast<int>(std::clamp(c.a, 0.0f, 1.0f) * 255.0f));
+            };
+            ImVec2 p0(pos.x + segW * static_cast<f32>(i), pos.y);
+            ImVec2 p1(pos.x + segW * static_cast<f32>(i + 1), pos.y + height);
+            drawList->AddRectFilledMultiColor(p0, p1, toCol(c0), toCol(c1), toCol(c1), toCol(c0));
+        }
+        drawList->AddRect(pos, ImVec2(pos.x + width, pos.y + height), IM_COL32(80, 80, 80, 255));
+        ImGui::Dummy(ImVec2(width, height));
+    }
+
+    // ── Combined color curve editor for ParticleCurve4 ─────────────────────
+    static bool DrawParticleCurve4Editor(const char* label, ParticleCurve4& curve)
+    {
+        bool modified = false;
+        ImGui::PushID(label);
+
+        // Gradient preview
+        DrawGradientBar(curve, ImGui::GetContentRegionAvail().x, 20.0f);
+
+        // Per-channel curve editors in tree nodes
+        struct ChannelInfo { const char* name; ParticleCurve* ch; ImU32 lineColor; };
+        ChannelInfo channels[] = {
+            { "Red",   &curve.R, IM_COL32(255, 80, 80, 255) },
+            { "Green", &curve.G, IM_COL32(80, 255, 80, 255) },
+            { "Blue",  &curve.B, IM_COL32(80, 130, 255, 255) },
+            { "Alpha", &curve.A, IM_COL32(200, 200, 200, 255) },
+        };
+        for (auto& [name, ch, lineColor] : channels)
+        {
+            if (ImGui::TreeNode(name))
+            {
+                modified |= DrawParticleCurveEditor(name, *ch, 0.0f, 1.0f);
+                ImGui::TreePop();
+            }
+        }
+
+        ImGui::PopID();
+        return modified;
+    }
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
@@ -1787,10 +2008,28 @@ namespace OloEngine
             if (ImGui::CollapsingHeader("Color Over Lifetime"))
             {
                 ImGui::Checkbox("Color OL Enabled", &sys.ColorModule.Enabled);
+                if (sys.ColorModule.Enabled)
+                {
+                    DrawParticleCurve4Editor("Color Curve", sys.ColorModule.ColorCurve);
+                }
             }
             if (ImGui::CollapsingHeader("Size Over Lifetime"))
             {
                 ImGui::Checkbox("Size OL Enabled", &sys.SizeModule.Enabled);
+                if (sys.SizeModule.Enabled)
+                {
+                    DrawParticleCurveEditor("Size Curve", sys.SizeModule.SizeCurve, 0.0f, 2.0f);
+                }
+            }
+            if (ImGui::CollapsingHeader("Velocity Over Lifetime"))
+            {
+                ImGui::Checkbox("Velocity OL Enabled", &sys.VelocityModule.Enabled);
+                if (sys.VelocityModule.Enabled)
+                {
+                    ImGui::DragFloat3("Linear Velocity", glm::value_ptr(sys.VelocityModule.LinearVelocity), 0.1f);
+                    ImGui::DragFloat("Speed Multiplier", &sys.VelocityModule.SpeedMultiplier, 0.01f, 0.0f, 10.0f);
+                    DrawParticleCurveEditor("Speed Curve", sys.VelocityModule.SpeedCurve, 0.0f, 2.0f);
+                }
             }
             if (ImGui::CollapsingHeader("Rotation Over Lifetime"))
             {

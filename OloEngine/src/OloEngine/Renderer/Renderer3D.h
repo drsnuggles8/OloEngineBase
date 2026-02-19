@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
@@ -472,6 +473,11 @@ namespace OloEngine
             return s_Data.ScenePass;
         }
 
+        static const Ref<ParticleRenderPass>& GetParticlePass()
+        {
+            return s_Data.ParticlePass;
+        }
+
         // Shader library access for PBR material shader selection
         static ShaderLibrary& GetShaderLibrary();
 
@@ -545,6 +551,7 @@ namespace OloEngine
 
             Ref<RenderGraph> RGraph;
             Ref<SceneRenderPass> ScenePass;
+            Ref<ParticleRenderPass> ParticlePass;
             Ref<FinalRenderPass> FinalPass;
 
             // Parallel submission state

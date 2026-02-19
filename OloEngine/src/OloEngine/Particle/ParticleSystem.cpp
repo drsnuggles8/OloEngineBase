@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "ParticleSystem.h"
+#include "OloEngine/Task/Task.h"
 
 #include <algorithm>
 #include <numeric>
@@ -139,15 +140,49 @@ namespace OloEngine
             }
         }
 
-        // 2. Apply Phase 1 modules (forces first, then velocity curve on top)
+        // 2. Apply modules — independent modules run concurrently with the velocity chain
+        // Color, Size, and Rotation only write Colors/Sizes/Rotations respectively,
+        // so they are safe to run in parallel with the velocity chain (Gravity→Drag→Noise→Velocity).
+        bool useParallelModules = m_Pool.GetAliveCount() >= 256
+                                  && (ColorModule.Enabled || SizeModule.Enabled || RotationModule.Enabled);
+
+        Tasks::TTask<void> colorTask;
+        Tasks::TTask<void> sizeTask;
+        Tasks::TTask<void> rotationTask;
+
+        if (useParallelModules)
+        {
+            if (ColorModule.Enabled)
+                colorTask = Tasks::Launch("ColorModule", [&]() { ColorModule.Apply(m_Pool); });
+            if (SizeModule.Enabled)
+                sizeTask = Tasks::Launch("SizeModule", [&]() { SizeModule.Apply(m_Pool); });
+            if (RotationModule.Enabled)
+                rotationTask = Tasks::Launch("RotModule", [&]() { RotationModule.Apply(scaledDt, m_Pool); });
+        }
+
+        // Velocity chain (must be sequential — all write Velocities)
         GravityModule.Apply(scaledDt, m_Pool);
         DragModule.Apply(scaledDt, m_Pool);
         NoiseModule.Apply(scaledDt, m_Time, m_Pool);
-        // VelocityModule runs after forces: scales initial component while preserving force effects
         VelocityModule.Apply(scaledDt, m_Pool);
-        RotationModule.Apply(scaledDt, m_Pool);
-        ColorModule.Apply(m_Pool);
-        SizeModule.Apply(m_Pool);
+
+        if (useParallelModules)
+        {
+            // Wait for independent modules to finish before proceeding
+            if (colorTask.IsValid())
+                colorTask.Wait();
+            if (sizeTask.IsValid())
+                sizeTask.Wait();
+            if (rotationTask.IsValid())
+                rotationTask.Wait();
+        }
+        else
+        {
+            // Single-threaded fallback for small particle counts
+            RotationModule.Apply(scaledDt, m_Pool);
+            ColorModule.Apply(m_Pool);
+            SizeModule.Apply(m_Pool);
+        }
 
         // 3. Apply Phase 2 modules
         for (auto& forceField : ForceFields)

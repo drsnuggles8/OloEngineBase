@@ -615,6 +615,78 @@ namespace OloEngine
         ++s_Data.Stats.QuadCount;
     }
 
+    void Renderer2D::DrawQuadVertices(const glm::vec3 positions[4], const glm::vec4 colors[4], const int entityID)
+    {
+        constexpr f32 textureIndex = 0.0f; // White Texture
+        constexpr glm::vec2 textureCoords[] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
+        constexpr f32 tilingFactor = 1.0f;
+
+        if (s_Data.QuadIndexCount >= Renderer2DData::MaxIndices)
+        {
+            NextBatch();
+        }
+
+        for (sizet i = 0; i < 4; ++i)
+        {
+            s_Data.QuadVertexBufferPtr->Position = glm::vec4(positions[i], 1.0f);
+            s_Data.QuadVertexBufferPtr->Color = colors[i];
+            s_Data.QuadVertexBufferPtr->TexCoord = textureCoords[i];
+            s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
+            s_Data.QuadVertexBufferPtr->TilingFactor = tilingFactor;
+            s_Data.QuadVertexBufferPtr->EntityID = entityID;
+            ++s_Data.QuadVertexBufferPtr;
+        }
+
+        s_Data.QuadIndexCount += 6;
+        ++s_Data.Stats.QuadCount;
+    }
+
+    void Renderer2D::DrawQuadVertices(const glm::vec3 positions[4], const glm::vec4 colors[4],
+                                      const glm::vec2 texCoords[4], const Ref<Texture2D>& texture, const int entityID)
+    {
+        if (s_Data.QuadIndexCount >= Renderer2DData::MaxIndices)
+        {
+            NextBatch();
+        }
+
+        f32 textureIndex = 0.0f;
+        for (u32 i = 1; i < s_Data.TextureSlotIndex; ++i)
+        {
+            if (*s_Data.TextureSlots[i] == *texture)
+            {
+                textureIndex = static_cast<f32>(i);
+                break;
+            }
+        }
+
+        if (textureIndex == 0.0f)
+        {
+            if (s_Data.TextureSlotIndex >= Renderer2DData::MaxTextureSlots)
+            {
+                NextBatch();
+            }
+            textureIndex = static_cast<f32>(s_Data.TextureSlotIndex);
+            s_Data.TextureSlots[s_Data.TextureSlotIndex] = texture;
+            ++s_Data.TextureSlotIndex;
+        }
+
+        constexpr f32 tilingFactor = 1.0f;
+
+        for (sizet i = 0; i < 4; ++i)
+        {
+            s_Data.QuadVertexBufferPtr->Position = glm::vec4(positions[i], 1.0f);
+            s_Data.QuadVertexBufferPtr->Color = colors[i];
+            s_Data.QuadVertexBufferPtr->TexCoord = texCoords[i];
+            s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
+            s_Data.QuadVertexBufferPtr->TilingFactor = tilingFactor;
+            s_Data.QuadVertexBufferPtr->EntityID = entityID;
+            ++s_Data.QuadVertexBufferPtr;
+        }
+
+        s_Data.QuadIndexCount += 6;
+        ++s_Data.Stats.QuadCount;
+    }
+
     void Renderer2D::DrawPolygon(const std::vector<glm::vec3>& vertices, const glm::vec4& color, int entityID)
     {
         OLO_PROFILE_FUNCTION();

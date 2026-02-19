@@ -23,9 +23,9 @@ namespace OloEngine
                 continue;
             }
 
-            // Render trail as connected quads (triangle strip emulated via quad pairs).
-            // For each segment between adjacent trail points, expand perpendicular to
-            // both the segment direction and the view direction to create a camera-facing ribbon.
+            // Render trail as connected quads via DrawQuadVertices.
+            // Each segment between adjacent trail points expands perpendicular to
+            // both the segment direction and the view direction for a camera-facing ribbon.
             for (u32 i = 0; i < trail.Count - 1; ++i)
             {
                 const auto& a = trail.Get(i);
@@ -37,7 +37,6 @@ namespace OloEngine
 
                 glm::vec4 colorA = glm::mix(trailModule.ColorStart, trailModule.ColorEnd, tA);
                 glm::vec4 colorB = glm::mix(trailModule.ColorStart, trailModule.ColorEnd, tB);
-                glm::vec4 avgColor = (colorA + colorB) * 0.5f;
 
                 f32 widthA = glm::mix(trailModule.WidthStart, trailModule.WidthEnd, tA);
                 f32 widthB = glm::mix(trailModule.WidthStart, trailModule.WidthEnd, tB);
@@ -59,20 +58,33 @@ namespace OloEngine
                 // Perpendicular to both segment and view — this is the ribbon expansion direction
                 glm::vec3 perp = glm::normalize(glm::cross(segDir, viewDir));
 
-                // Build a quad: 4 vertices forming a camera-facing ribbon segment.
-                // Use Renderer2D::DrawPolygon for the quad.
                 f32 halfA = widthA * 0.5f;
                 f32 halfB = widthB * 0.5f;
 
-                // Quad vertices: counterclockwise winding
-                std::vector<glm::vec3> vertices = {
+                // Quad vertices (counterclockwise): BL, BR, TR, TL
+                glm::vec3 positions[4] = {
                     posA - perp * halfA,  // bottom-left
                     posB - perp * halfB,  // bottom-right
                     posB + perp * halfB,  // top-right
                     posA + perp * halfA   // top-left
                 };
+                glm::vec4 colors[4] = { colorA, colorB, colorB, colorA };
 
-                Renderer2D::DrawPolygon(vertices, avgColor, entityID);
+                if (texture)
+                {
+                    // UV mapping: U along trail length (0 at head, 1 at tail), V across width
+                    glm::vec2 texCoords[4] = {
+                        { tA, 0.0f },  // BL
+                        { tB, 0.0f },  // BR
+                        { tB, 1.0f },  // TR
+                        { tA, 1.0f }   // TL
+                    };
+                    Renderer2D::DrawQuadVertices(positions, colors, texCoords, texture, entityID);
+                }
+                else
+                {
+                    Renderer2D::DrawQuadVertices(positions, colors, entityID);
+                }
             }
         }
     }
