@@ -50,9 +50,10 @@ namespace OloEngine
             f32 age = pool.GetAge(i);
             f32 speedMul = SpeedMultiplier * SpeedCurve.Evaluate(age);
 
-            // Reconstruct velocity from initial velocity scaled by curve, plus additive linear drift
-            f32 elapsedTime = (pool.MaxLifetimes[i] - pool.Lifetimes[i]);
-            pool.Velocities[i] = pool.InitialVelocities[i] * speedMul + LinearVelocity * elapsedTime;
+            // Scale the initial velocity component by the curve while preserving
+            // accumulated force contributions (gravity, drag, noise, etc.)
+            glm::vec3 forceContribution = pool.Velocities[i] - pool.InitialVelocities[i];
+            pool.Velocities[i] = pool.InitialVelocities[i] * speedMul + forceContribution + LinearVelocity * dt;
         }
     }
 

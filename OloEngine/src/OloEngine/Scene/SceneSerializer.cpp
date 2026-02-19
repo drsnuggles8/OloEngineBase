@@ -914,13 +914,20 @@ namespace OloEngine
             out << YAML::Key << "CollisionLifetimeLoss" << YAML::Value << sys.CollisionModule.LifetimeLoss;
             out << YAML::Key << "CollisionKillOnCollide" << YAML::Value << sys.CollisionModule.KillOnCollide;
 
-            // Phase 2: Force Field
-            out << YAML::Key << "ForceFieldEnabled" << YAML::Value << sys.ForceFieldModule.Enabled;
-            out << YAML::Key << "ForceFieldType" << YAML::Value << static_cast<int>(sys.ForceFieldModule.Type);
-            out << YAML::Key << "ForceFieldPosition" << YAML::Value << sys.ForceFieldModule.Position;
-            out << YAML::Key << "ForceFieldStrength" << YAML::Value << sys.ForceFieldModule.Strength;
-            out << YAML::Key << "ForceFieldRadius" << YAML::Value << sys.ForceFieldModule.Radius;
-            out << YAML::Key << "ForceFieldAxis" << YAML::Value << sys.ForceFieldModule.Axis;
+            // Phase 2: Force Fields (vector)
+            out << YAML::Key << "ForceFields" << YAML::Value << YAML::BeginSeq;
+            for (const auto& ff : sys.ForceFields)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Enabled" << YAML::Value << ff.Enabled;
+                out << YAML::Key << "Type" << YAML::Value << static_cast<int>(ff.Type);
+                out << YAML::Key << "Position" << YAML::Value << ff.Position;
+                out << YAML::Key << "Strength" << YAML::Value << ff.Strength;
+                out << YAML::Key << "Radius" << YAML::Value << ff.Radius;
+                out << YAML::Key << "Axis" << YAML::Value << ff.Axis;
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
 
             // Phase 2: Trail
             out << YAML::Key << "TrailEnabled" << YAML::Value << sys.TrailModule.Enabled;
@@ -1766,14 +1773,36 @@ namespace OloEngine
                     TrySet(sys.CollisionModule.LifetimeLoss, particleComponent["CollisionLifetimeLoss"]);
                     TrySet(sys.CollisionModule.KillOnCollide, particleComponent["CollisionKillOnCollide"]);
 
-                    // Phase 2: Force Field
-                    TrySet(sys.ForceFieldModule.Enabled, particleComponent["ForceFieldEnabled"]);
-                    if (auto val = particleComponent["ForceFieldType"]; val)
-                        sys.ForceFieldModule.Type = static_cast<ForceFieldType>(val.as<int>());
-                    TrySet(sys.ForceFieldModule.Position, particleComponent["ForceFieldPosition"]);
-                    TrySet(sys.ForceFieldModule.Strength, particleComponent["ForceFieldStrength"]);
-                    TrySet(sys.ForceFieldModule.Radius, particleComponent["ForceFieldRadius"]);
-                    TrySet(sys.ForceFieldModule.Axis, particleComponent["ForceFieldAxis"]);
+                    // Phase 2: Force Fields (vector, with backward compat for old single-field format)
+                    if (auto forceFieldsNode = particleComponent["ForceFields"]; forceFieldsNode && forceFieldsNode.IsSequence())
+                    {
+                        sys.ForceFields.clear();
+                        for (auto ffNode : forceFieldsNode)
+                        {
+                            ModuleForceField ff;
+                            TrySet(ff.Enabled, ffNode["Enabled"]);
+                            if (auto val = ffNode["Type"]; val)
+                                ff.Type = static_cast<ForceFieldType>(val.as<int>());
+                            TrySet(ff.Position, ffNode["Position"]);
+                            TrySet(ff.Strength, ffNode["Strength"]);
+                            TrySet(ff.Radius, ffNode["Radius"]);
+                            TrySet(ff.Axis, ffNode["Axis"]);
+                            sys.ForceFields.push_back(ff);
+                        }
+                    }
+                    else if (auto oldEnabled = particleComponent["ForceFieldEnabled"]; oldEnabled)
+                    {
+                        // Backward compatibility: old single force field format
+                        ModuleForceField ff;
+                        TrySet(ff.Enabled, oldEnabled);
+                        if (auto val = particleComponent["ForceFieldType"]; val)
+                            ff.Type = static_cast<ForceFieldType>(val.as<int>());
+                        TrySet(ff.Position, particleComponent["ForceFieldPosition"]);
+                        TrySet(ff.Strength, particleComponent["ForceFieldStrength"]);
+                        TrySet(ff.Radius, particleComponent["ForceFieldRadius"]);
+                        TrySet(ff.Axis, particleComponent["ForceFieldAxis"]);
+                        sys.ForceFields.push_back(ff);
+                    }
 
                     // Phase 2: Trail
                     TrySet(sys.TrailModule.Enabled, particleComponent["TrailEnabled"]);
@@ -2678,14 +2707,36 @@ namespace OloEngine
                     TrySet(sys.CollisionModule.LifetimeLoss, particleComponent["CollisionLifetimeLoss"]);
                     TrySet(sys.CollisionModule.KillOnCollide, particleComponent["CollisionKillOnCollide"]);
 
-                    // Phase 2: Force Field
-                    TrySet(sys.ForceFieldModule.Enabled, particleComponent["ForceFieldEnabled"]);
-                    if (auto val = particleComponent["ForceFieldType"]; val)
-                        sys.ForceFieldModule.Type = static_cast<ForceFieldType>(val.as<int>());
-                    TrySet(sys.ForceFieldModule.Position, particleComponent["ForceFieldPosition"]);
-                    TrySet(sys.ForceFieldModule.Strength, particleComponent["ForceFieldStrength"]);
-                    TrySet(sys.ForceFieldModule.Radius, particleComponent["ForceFieldRadius"]);
-                    TrySet(sys.ForceFieldModule.Axis, particleComponent["ForceFieldAxis"]);
+                    // Phase 2: Force Fields (vector, with backward compat for old single-field format)
+                    if (auto forceFieldsNode = particleComponent["ForceFields"]; forceFieldsNode && forceFieldsNode.IsSequence())
+                    {
+                        sys.ForceFields.clear();
+                        for (auto ffNode : forceFieldsNode)
+                        {
+                            ModuleForceField ff;
+                            TrySet(ff.Enabled, ffNode["Enabled"]);
+                            if (auto val = ffNode["Type"]; val)
+                                ff.Type = static_cast<ForceFieldType>(val.as<int>());
+                            TrySet(ff.Position, ffNode["Position"]);
+                            TrySet(ff.Strength, ffNode["Strength"]);
+                            TrySet(ff.Radius, ffNode["Radius"]);
+                            TrySet(ff.Axis, ffNode["Axis"]);
+                            sys.ForceFields.push_back(ff);
+                        }
+                    }
+                    else if (auto oldEnabled = particleComponent["ForceFieldEnabled"]; oldEnabled)
+                    {
+                        // Backward compatibility: old single force field format
+                        ModuleForceField ff;
+                        TrySet(ff.Enabled, oldEnabled);
+                        if (auto val = particleComponent["ForceFieldType"]; val)
+                            ff.Type = static_cast<ForceFieldType>(val.as<int>());
+                        TrySet(ff.Position, particleComponent["ForceFieldPosition"]);
+                        TrySet(ff.Strength, particleComponent["ForceFieldStrength"]);
+                        TrySet(ff.Radius, particleComponent["ForceFieldRadius"]);
+                        TrySet(ff.Axis, particleComponent["ForceFieldAxis"]);
+                        sys.ForceFields.push_back(ff);
+                    }
 
                     // Phase 2: Trail
                     TrySet(sys.TrailModule.Enabled, particleComponent["TrailEnabled"]);

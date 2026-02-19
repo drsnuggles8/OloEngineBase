@@ -52,22 +52,27 @@ namespace OloEngine
                 return Keys[KeyCount - 1].Value;
             }
 
-            // Find segment
-            for (u32 i = 0; i < KeyCount - 1; ++i)
+            // Binary search for the segment containing t
+            // Find first key with Time > t, then the segment is [i-1, i]
+            u32 lo = 0;
+            u32 hi = KeyCount;
+            while (lo < hi)
             {
-                if (t >= Keys[i].Time && t <= Keys[i + 1].Time)
-                {
-                    f32 segLen = Keys[i + 1].Time - Keys[i].Time;
-                    if (segLen <= 0.0f)
-                    {
-                        return Keys[i].Value;
-                    }
-                    f32 alpha = (t - Keys[i].Time) / segLen;
-                    return Keys[i].Value + alpha * (Keys[i + 1].Value - Keys[i].Value);
-                }
+                u32 mid = (lo + hi) / 2;
+                if (Keys[mid].Time <= t)
+                    lo = mid + 1;
+                else
+                    hi = mid;
             }
-
-            return Keys[KeyCount - 1].Value;
+            // lo is now the index of the first key with Time > t
+            u32 i = lo - 1;
+            f32 segLen = Keys[i + 1].Time - Keys[i].Time;
+            if (segLen <= 0.0f)
+            {
+                return Keys[i].Value;
+            }
+            f32 alpha = (t - Keys[i].Time) / segLen;
+            return Keys[i].Value + alpha * (Keys[i + 1].Value - Keys[i].Value);
         }
     };
 

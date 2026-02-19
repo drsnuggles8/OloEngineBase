@@ -9,6 +9,7 @@
 #include "OloEngine/Particle/SubEmitter.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 namespace OloEngine
 {
@@ -37,7 +38,7 @@ namespace OloEngine
     public:
         explicit ParticleSystem(u32 maxParticles = 1000);
 
-        void Update(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity = glm::vec3(0.0f));
+        void Update(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity = glm::vec3(0.0f), const glm::quat& emitterRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
         void Reset();
 
         // Compute LOD spawn rate multiplier based on camera distance to emitter
@@ -102,7 +103,7 @@ namespace OloEngine
 
         // Sub-systems (Phase 2)
         ModuleCollision CollisionModule;
-        ModuleForceField ForceFieldModule;
+        std::vector<ModuleForceField> ForceFields;
         ModuleTrail TrailModule;
         ModuleSubEmitter SubEmitterModule;
 
@@ -114,6 +115,7 @@ namespace OloEngine
         ParticleTrailData m_TrailData;
         std::vector<SubEmitterTriggerInfo> m_PendingTriggers;
         std::vector<u32> m_SortedIndices;
+        std::vector<f32> m_SortDistances;
         JoltScene* m_JoltScene = nullptr;
         glm::vec3 m_EmitterPosition{ 0.0f };
         glm::vec3 m_ParentVelocity{ 0.0f };
@@ -122,5 +124,6 @@ namespace OloEngine
         bool m_HasWarmedUp = false;
 
         void ProcessSubEmitterTriggers();
+        void UpdateInternal(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity, const glm::quat& emitterRotation);
     };
 }

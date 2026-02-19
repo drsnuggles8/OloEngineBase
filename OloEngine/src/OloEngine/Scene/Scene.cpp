@@ -384,6 +384,10 @@ namespace OloEngine
     // Helper to set GL blend state for particle rendering
     static void SetParticleBlendMode(ParticleBlendMode mode)
     {
+        // Flush any pending Renderer2D batch before changing GL blend state,
+        // otherwise queued quads may render with the wrong blend mode (§1.5)
+        Renderer2D::Flush();
+
         switch (mode)
         {
             case ParticleBlendMode::Alpha:
@@ -539,7 +543,7 @@ namespace OloEngine
                     parentVelocity = (transform.Translation - psc.System.GetEmitterPosition()) / static_cast<f32>(ts);
                 }
 
-                psc.System.Update(ts, transform.Translation, parentVelocity);
+                psc.System.Update(ts, transform.Translation, parentVelocity, glm::quat(transform.Rotation));
 
                 // Process sub-emitter triggers for child systems
                 ProcessChildSubEmitters(psc, ts, transform.Translation);
@@ -801,7 +805,7 @@ namespace OloEngine
                 auto& transform = view.get<TransformComponent>(entity);
                 auto& psc = view.get<ParticleSystemComponent>(entity);
                 psc.System.UpdateLOD(camPos, transform.Translation);
-                psc.System.Update(ts, transform.Translation);
+                psc.System.Update(ts, transform.Translation, glm::vec3(0.0f), glm::quat(transform.Rotation));
 
                 // Process sub-emitter triggers for child systems
                 ProcessChildSubEmitters(psc, ts, transform.Translation);

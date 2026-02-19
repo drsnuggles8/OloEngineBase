@@ -28,21 +28,18 @@ namespace OloEngine
         {
             m_LODSpawnRateMultiplier = 0.0f;
         }
-        else if (dist >= LODDistance2)
-        {
-            m_LODSpawnRateMultiplier = 0.25f;
-        }
-        else if (dist >= LODDistance1)
-        {
-            m_LODSpawnRateMultiplier = 0.5f;
-        }
-        else
+        else if (dist <= LODDistance1)
         {
             m_LODSpawnRateMultiplier = 1.0f;
         }
+        else
+        {
+            // Smooth linear falloff between LODDistance1 (full rate) and LODMaxDistance (zero)
+            m_LODSpawnRateMultiplier = (LODMaxDistance - dist) / (LODMaxDistance - LODDistance1);
+        }
     }
 
-    void ParticleSystem::Update(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity)
+    void ParticleSystem::Update(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity, const glm::quat& emitterRotation)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -51,7 +48,7 @@ namespace OloEngine
             return;
         }
 
-        // Warm-up: pre-simulate on first update to avoid empty systems
+        // Warm-up: pre-simulate iteratively to avoid stack overflow risk
         if (!m_HasWarmedUp && WarmUpTime > 0.0f)
         {
             m_HasWarmedUp = true;
@@ -60,13 +57,18 @@ namespace OloEngine
             while (remaining > 0.0f)
             {
                 f32 step = std::min(remaining, warmUpStep);
-                Update(step, emitterPosition, parentVelocity);
+                UpdateInternal(step, emitterPosition, parentVelocity, emitterRotation);
                 remaining -= step;
             }
-            return; // The recursive calls already advanced the system
+            return;
         }
         m_HasWarmedUp = true;
 
+        UpdateInternal(dt, emitterPosition, parentVelocity, emitterRotation);
+    }
+
+    void ParticleSystem::UpdateInternal(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity, const glm::quat& emitterRotation)
+    {
         f32 scaledDt = dt * PlaybackSpeed;
         m_Time += scaledDt;
         m_EmitterPosition = emitterPosition;
@@ -91,15 +93,10 @@ namespace OloEngine
         // Clear pending sub-emitter triggers from previous frame
         m_PendingTriggers.clear();
 
-        // 1. Emit new particles (with LOD rate multiplier)
-        f32 origRate = Emitter.RateOverTime;
-        Emitter.RateOverTime *= m_LODSpawnRateMultiplier;
-
+        // 1. Emit new particles (with LOD rate multiplier passed as parameter)
         u32 prevAlive = m_Pool.GetAliveCount();
-        Emitter.Update(scaledDt, m_Pool, emitPos);
+        Emitter.Update(scaledDt, m_Pool, emitPos, m_LODSpawnRateMultiplier, emitterRotation);
         u32 newAlive = m_Pool.GetAliveCount();
-
-        Emitter.RateOverTime = origRate;
 
         // Apply velocity inheritance: add parent entity velocity to newly spawned particles
         if (VelocityInheritance != 0.0f && newAlive > prevAlive)
@@ -142,28 +139,55 @@ namespace OloEngine
             }
         }
 
-        // 2. Apply Phase 1 modules (order matters: base velocity first, then forces)
-        VelocityModule.Apply(scaledDt, m_Pool);
+        // 2. Apply Phase 1 modules (forces first, then velocity curve on top)
         GravityModule.Apply(scaledDt, m_Pool);
         DragModule.Apply(scaledDt, m_Pool);
         NoiseModule.Apply(scaledDt, m_Time, m_Pool);
+        // VelocityModule runs after forces: scales initial component while preserving force effects
+        VelocityModule.Apply(scaledDt, m_Pool);
         RotationModule.Apply(scaledDt, m_Pool);
         ColorModule.Apply(m_Pool);
         SizeModule.Apply(m_Pool);
 
         // 3. Apply Phase 2 modules
-        ForceFieldModule.Apply(scaledDt, m_Pool);
+        for (auto& forceField : ForceFields)
+        {
+            forceField.Apply(scaledDt, m_Pool);
+        }
 
         // Collision: use raycasts if Jolt scene available and mode is SceneRaycast
+        std::vector<CollisionEvent> collisionEvents;
         if (CollisionModule.Enabled)
         {
+            auto* eventsPtr = SubEmitterModule.Enabled ? &collisionEvents : nullptr;
             if (CollisionModule.Mode == CollisionMode::SceneRaycast && m_JoltScene)
             {
-                CollisionModule.ApplyWithRaycasts(scaledDt, m_Pool, m_JoltScene);
+                CollisionModule.ApplyWithRaycasts(scaledDt, m_Pool, m_JoltScene, eventsPtr);
             }
             else
             {
-                CollisionModule.Apply(scaledDt, m_Pool);
+                CollisionModule.Apply(scaledDt, m_Pool, eventsPtr);
+            }
+
+            // Fire OnCollision sub-emitter triggers
+            if (SubEmitterModule.Enabled && !collisionEvents.empty())
+            {
+                for (const auto& entry : SubEmitterModule.Entries)
+                {
+                    if (entry.Trigger == SubEmitterEvent::OnCollision)
+                    {
+                        for (const auto& event : collisionEvents)
+                        {
+                            SubEmitterTriggerInfo trigger;
+                            trigger.Position = event.Position;
+                            trigger.Velocity = entry.InheritVelocity ? event.Velocity * entry.InheritVelocityScale : glm::vec3(0.0f);
+                            trigger.Event = SubEmitterEvent::OnCollision;
+                            trigger.ChildSystemIndex = entry.ChildSystemIndex;
+                            trigger.EmitCount = entry.EmitCount;
+                            m_PendingTriggers.push_back(trigger);
+                        }
+                    }
+                }
             }
         }
 
@@ -283,15 +307,27 @@ namespace OloEngine
         m_SortedIndices.resize(count);
         std::iota(m_SortedIndices.begin(), m_SortedIndices.end(), 0u);
 
-        // Sort back-to-front (farthest first) for correct alpha blending
-        const auto& positions = m_Pool.Positions;
-        std::sort(m_SortedIndices.begin(), m_SortedIndices.end(),
-            [&positions, &cameraPosition](u32 a, u32 b)
+        // Precompute squared distances to avoid recomputing in inner loop
+        m_SortDistances.resize(count);
+        for (u32 i = 0; i < count; ++i)
+        {
+            glm::vec3 diff = m_Pool.Positions[i] - cameraPosition;
+            m_SortDistances[i] = glm::dot(diff, diff);
+        }
+
+        // Insertion sort: O(n) for nearly-sorted data (particles move little between frames)
+        for (u32 i = 1; i < count; ++i)
+        {
+            u32 key = m_SortedIndices[i];
+            f32 keyDist = m_SortDistances[key];
+            u32 j = i;
+            while (j > 0 && m_SortDistances[m_SortedIndices[j - 1]] < keyDist) // Back-to-front
             {
-                f32 distA = glm::dot(positions[a] - cameraPosition, positions[a] - cameraPosition);
-                f32 distB = glm::dot(positions[b] - cameraPosition, positions[b] - cameraPosition);
-                return distA > distB; // Back-to-front
-            });
+                m_SortedIndices[j] = m_SortedIndices[j - 1];
+                --j;
+            }
+            m_SortedIndices[j] = key;
+        }
     }
 
     void ParticleSystem::Reset()

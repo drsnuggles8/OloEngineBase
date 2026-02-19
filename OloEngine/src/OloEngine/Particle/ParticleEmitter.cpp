@@ -3,7 +3,7 @@
 
 namespace OloEngine
 {
-    u32 ParticleEmitter::Update(f32 dt, ParticlePool& pool, const glm::vec3& emitterPosition)
+    u32 ParticleEmitter::Update(f32 dt, ParticlePool& pool, const glm::vec3& emitterPosition, f32 rateMultiplier, const glm::quat& emitterRotation)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -11,8 +11,8 @@ namespace OloEngine
         f32 prevLoopTime = m_LoopTime;
         m_LoopTime += dt;
 
-        // Rate-based emission
-        m_EmitAccumulator += RateOverTime * dt;
+        // Rate-based emission (apply LOD multiplier without mutating public RateOverTime)
+        m_EmitAccumulator += RateOverTime * rateMultiplier * dt;
         u32 rateCount = static_cast<u32>(m_EmitAccumulator);
         m_EmitAccumulator -= static_cast<f32>(rateCount);
 
@@ -22,7 +22,7 @@ namespace OloEngine
             u32 emitted = pool.Emit(rateCount);
             for (u32 i = 0; i < emitted; ++i)
             {
-                InitializeParticle(firstSlot + i, pool, emitterPosition);
+                InitializeParticle(firstSlot + i, pool, emitterPosition, emitterRotation);
             }
             totalEmitted += emitted;
         }
@@ -40,7 +40,7 @@ namespace OloEngine
                     u32 emitted = pool.Emit(burst.Count);
                     for (u32 i = 0; i < emitted; ++i)
                     {
-                        InitializeParticle(firstSlot + i, pool, emitterPosition);
+                        InitializeParticle(firstSlot + i, pool, emitterPosition, emitterRotation);
                     }
                     totalEmitted += emitted;
                 }
@@ -58,13 +58,14 @@ namespace OloEngine
         m_NextBurstIndex = 0;
     }
 
-    void ParticleEmitter::InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition)
+    void ParticleEmitter::InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation)
     {
         auto& rng = RandomUtils::GetGlobalRandom();
 
-        pool.Positions[index] = emitterPosition + SampleEmissionShape(Shape);
+        pool.Positions[index] = emitterPosition + emitterRotation * SampleEmissionShape(Shape);
 
-        glm::vec3 dir = SampleEmissionDirection(Shape);
+        // Apply entity rotation so emission shapes orient with the entity
+        glm::vec3 dir = emitterRotation * SampleEmissionDirection(Shape);
         f32 speed = InitialSpeed + rng.GetFloat32InRange(-SpeedVariance, SpeedVariance);
         glm::vec3 velocity = dir * std::max(speed, 0.0f);
         pool.Velocities[index] = velocity;

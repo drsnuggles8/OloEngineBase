@@ -1821,18 +1821,40 @@ namespace OloEngine
                 ImGui::DragFloat("Lifetime Loss", &sys.CollisionModule.LifetimeLoss, 0.01f, 0.0f, 1.0f);
                 ImGui::Checkbox("Kill On Collide", &sys.CollisionModule.KillOnCollide);
             }
-            if (ImGui::CollapsingHeader("Force Field"))
+            if (ImGui::CollapsingHeader("Force Fields"))
             {
-                ImGui::Checkbox("Force Field Enabled", &sys.ForceFieldModule.Enabled);
                 const char* ffTypes[] = { "Attraction", "Repulsion", "Vortex" };
-                int ffIdx = static_cast<int>(sys.ForceFieldModule.Type);
-                if (ImGui::Combo("Force Type", &ffIdx, ffTypes, 3))
-                    sys.ForceFieldModule.Type = static_cast<ForceFieldType>(ffIdx);
-                ImGui::DragFloat3("FF Position", glm::value_ptr(sys.ForceFieldModule.Position), 0.1f);
-                ImGui::DragFloat("FF Strength", &sys.ForceFieldModule.Strength, 0.1f, 0.0f, 1000.0f);
-                ImGui::DragFloat("FF Radius", &sys.ForceFieldModule.Radius, 0.1f, 0.01f, 1000.0f);
-                if (sys.ForceFieldModule.Type == ForceFieldType::Vortex)
-                    ImGui::DragFloat3("Vortex Axis", glm::value_ptr(sys.ForceFieldModule.Axis), 0.01f, -1.0f, 1.0f);
+                for (size_t fi = 0; fi < sys.ForceFields.size(); ++fi)
+                {
+                    auto& ff = sys.ForceFields[fi];
+                    ImGui::PushID(static_cast<int>(fi));
+                    std::string label = "Force Field " + std::to_string(fi);
+                    if (ImGui::TreeNode(label.c_str()))
+                    {
+                        ImGui::Checkbox("Enabled", &ff.Enabled);
+                        int ffIdx = static_cast<int>(ff.Type);
+                        if (ImGui::Combo("Force Type", &ffIdx, ffTypes, 3))
+                            ff.Type = static_cast<ForceFieldType>(ffIdx);
+                        ImGui::DragFloat3("Position", glm::value_ptr(ff.Position), 0.1f);
+                        ImGui::DragFloat("Strength", &ff.Strength, 0.1f, 0.0f, 1000.0f);
+                        ImGui::DragFloat("Radius", &ff.Radius, 0.1f, 0.01f, 1000.0f);
+                        if (ff.Type == ForceFieldType::Vortex)
+                            ImGui::DragFloat3("Vortex Axis", glm::value_ptr(ff.Axis), 0.01f, -1.0f, 1.0f);
+                        if (ImGui::Button("Remove"))
+                        {
+                            sys.ForceFields.erase(sys.ForceFields.begin() + static_cast<ptrdiff_t>(fi));
+                            ImGui::TreePop();
+                            ImGui::PopID();
+                            break;
+                        }
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+                if (ImGui::Button("Add Force Field"))
+                {
+                    sys.ForceFields.emplace_back();
+                }
             }
             if (ImGui::CollapsingHeader("Trail"))
             {

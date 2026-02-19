@@ -2892,12 +2892,19 @@ namespace OloEngine
         out << YAML::Key << "CollisionBounce" << YAML::Value << sys.CollisionModule.Bounce;
         out << YAML::Key << "CollisionLifetimeLoss" << YAML::Value << sys.CollisionModule.LifetimeLoss;
         out << YAML::Key << "CollisionKillOnCollide" << YAML::Value << sys.CollisionModule.KillOnCollide;
-        out << YAML::Key << "ForceFieldEnabled" << YAML::Value << sys.ForceFieldModule.Enabled;
-        out << YAML::Key << "ForceFieldType" << YAML::Value << static_cast<int>(sys.ForceFieldModule.Type);
-        out << YAML::Key << "ForceFieldPosition" << YAML::Value << sys.ForceFieldModule.Position;
-        out << YAML::Key << "ForceFieldStrength" << YAML::Value << sys.ForceFieldModule.Strength;
-        out << YAML::Key << "ForceFieldRadius" << YAML::Value << sys.ForceFieldModule.Radius;
-        out << YAML::Key << "ForceFieldAxis" << YAML::Value << sys.ForceFieldModule.Axis;
+        out << YAML::Key << "ForceFields" << YAML::Value << YAML::BeginSeq;
+        for (const auto& ff : sys.ForceFields)
+        {
+            out << YAML::BeginMap;
+            out << YAML::Key << "Enabled" << YAML::Value << ff.Enabled;
+            out << YAML::Key << "Type" << YAML::Value << static_cast<int>(ff.Type);
+            out << YAML::Key << "Position" << YAML::Value << ff.Position;
+            out << YAML::Key << "Strength" << YAML::Value << ff.Strength;
+            out << YAML::Key << "Radius" << YAML::Value << ff.Radius;
+            out << YAML::Key << "Axis" << YAML::Value << ff.Axis;
+            out << YAML::EndMap;
+        }
+        out << YAML::EndSeq;
         out << YAML::Key << "TrailEnabled" << YAML::Value << sys.TrailModule.Enabled;
         out << YAML::Key << "TrailMaxPoints" << YAML::Value << sys.TrailModule.MaxTrailPoints;
         out << YAML::Key << "TrailLifetime" << YAML::Value << sys.TrailModule.TrailLifetime;
@@ -2984,13 +2991,34 @@ namespace OloEngine
             TrySetPS(sys.CollisionModule.LifetimeLoss, ps["CollisionLifetimeLoss"]);
             TrySetPS(sys.CollisionModule.KillOnCollide, ps["CollisionKillOnCollide"]);
 
-            TrySetPS(sys.ForceFieldModule.Enabled, ps["ForceFieldEnabled"]);
-            if (auto val = ps["ForceFieldType"]; val)
-                sys.ForceFieldModule.Type = static_cast<ForceFieldType>(val.as<int>());
-            TrySetPS(sys.ForceFieldModule.Position, ps["ForceFieldPosition"]);
-            TrySetPS(sys.ForceFieldModule.Strength, ps["ForceFieldStrength"]);
-            TrySetPS(sys.ForceFieldModule.Radius, ps["ForceFieldRadius"]);
-            TrySetPS(sys.ForceFieldModule.Axis, ps["ForceFieldAxis"]);
+            if (auto forceFieldsNode = ps["ForceFields"]; forceFieldsNode && forceFieldsNode.IsSequence())
+            {
+                sys.ForceFields.clear();
+                for (auto ffNode : forceFieldsNode)
+                {
+                    ModuleForceField ff;
+                    TrySetPS(ff.Enabled, ffNode["Enabled"]);
+                    if (auto val = ffNode["Type"]; val)
+                        ff.Type = static_cast<ForceFieldType>(val.as<int>());
+                    TrySetPS(ff.Position, ffNode["Position"]);
+                    TrySetPS(ff.Strength, ffNode["Strength"]);
+                    TrySetPS(ff.Radius, ffNode["Radius"]);
+                    TrySetPS(ff.Axis, ffNode["Axis"]);
+                    sys.ForceFields.push_back(ff);
+                }
+            }
+            else if (auto oldEnabled = ps["ForceFieldEnabled"]; oldEnabled)
+            {
+                ModuleForceField ff;
+                TrySetPS(ff.Enabled, oldEnabled);
+                if (auto val = ps["ForceFieldType"]; val)
+                    ff.Type = static_cast<ForceFieldType>(val.as<int>());
+                TrySetPS(ff.Position, ps["ForceFieldPosition"]);
+                TrySetPS(ff.Strength, ps["ForceFieldStrength"]);
+                TrySetPS(ff.Radius, ps["ForceFieldRadius"]);
+                TrySetPS(ff.Axis, ps["ForceFieldAxis"]);
+                sys.ForceFields.push_back(ff);
+            }
 
             TrySetPS(sys.TrailModule.Enabled, ps["TrailEnabled"]);
             if (auto val = ps["TrailMaxPoints"]; val)

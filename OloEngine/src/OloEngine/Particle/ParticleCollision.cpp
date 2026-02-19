@@ -5,7 +5,7 @@
 
 namespace OloEngine
 {
-    void ModuleCollision::Apply(f32 dt, ParticlePool& pool) const
+    void ModuleCollision::Apply(f32 dt, ParticlePool& pool, std::vector<CollisionEvent>* outEvents) const
     {
         if (!Enabled || Mode != CollisionMode::WorldPlane)
         {
@@ -23,6 +23,12 @@ namespace OloEngine
 
             if (dist < 0.0f)
             {
+                // Record collision event before potential kill
+                if (outEvents)
+                {
+                    outEvents->push_back({ pool.Positions[i], pool.Velocities[i] });
+                }
+
                 if (KillOnCollide)
                 {
                     pool.Kill(i);
@@ -50,7 +56,7 @@ namespace OloEngine
         }
     }
 
-    void ModuleCollision::ApplyWithRaycasts(f32 dt, ParticlePool& pool, JoltScene* joltScene) const
+    void ModuleCollision::ApplyWithRaycasts(f32 dt, ParticlePool& pool, JoltScene* joltScene, std::vector<CollisionEvent>* outEvents) const
     {
         if (!Enabled || Mode != CollisionMode::SceneRaycast || !joltScene)
         {
@@ -82,6 +88,12 @@ namespace OloEngine
             SceneQueryHit hit;
             if (joltScene->CastRay(ray, hit) && hit.HasHit())
             {
+                // Record collision event before potential kill
+                if (outEvents)
+                {
+                    outEvents->push_back({ pool.Positions[i], pool.Velocities[i] });
+                }
+
                 if (KillOnCollide)
                 {
                     pool.Kill(i);

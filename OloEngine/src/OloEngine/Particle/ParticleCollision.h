@@ -4,11 +4,19 @@
 #include "OloEngine/Particle/ParticlePool.h"
 
 #include <glm/glm.hpp>
+#include <vector>
 
 namespace OloEngine
 {
     // Forward declaration — collision module can optionally use Jolt for scene raycasts
     class JoltScene;
+
+    // Collision event data for external consumption (sub-emitters, etc.)
+    struct CollisionEvent
+    {
+        glm::vec3 Position;
+        glm::vec3 Velocity;
+    };
 
     enum class CollisionMode : u8
     {
@@ -31,10 +39,10 @@ namespace OloEngine
         bool KillOnCollide = false;
 
         // Apply collision response to all alive particles
-        void Apply(f32 dt, ParticlePool& pool) const;
+        void Apply(f32 dt, ParticlePool& pool, std::vector<CollisionEvent>* outEvents = nullptr) const;
 
         // Apply with Jolt scene raycasts (more expensive)
-        void ApplyWithRaycasts(f32 dt, ParticlePool& pool, JoltScene* joltScene) const;
+        void ApplyWithRaycasts(f32 dt, ParticlePool& pool, JoltScene* joltScene, std::vector<CollisionEvent>* outEvents = nullptr) const;
     };
 
     enum class ForceFieldType : u8
