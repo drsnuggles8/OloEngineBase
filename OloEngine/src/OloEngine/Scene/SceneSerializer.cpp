@@ -9,6 +9,7 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
+#include "OloEngine/Particle/EmissionShapeUtils.h"
 
 #include <fstream>
 
@@ -891,6 +892,8 @@ namespace OloEngine
             }
             if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
                 out << YAML::Key << "EmissionEdgeLength" << YAML::Value << edge->Length;
+            if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
+                out << YAML::Key << "EmissionMeshPrimitive" << YAML::Value << mesh->PrimitiveType;
 
             // Modules
             out << YAML::Key << "GravityEnabled" << YAML::Value << sys.GravityModule.Enabled;
@@ -1748,6 +1751,15 @@ namespace OloEngine
                                 EmitEdge e;
                                 TrySet(e.Length, particleComponent["EmissionEdgeLength"]);
                                 emitter.Shape = e;
+                                break;
+                            }
+                            case 6:
+                            {
+                                EmitMesh m;
+                                i32 primType = 0;
+                                TrySet(primType, particleComponent["EmissionMeshPrimitive"]);
+                                BuildEmitMeshFromPrimitive(m, primType);
+                                emitter.Shape = std::move(m);
                                 break;
                             }
                             default:
@@ -2686,6 +2698,15 @@ namespace OloEngine
                                 EmitEdge e;
                                 TrySet(e.Length, particleComponent["EmissionEdgeLength"]);
                                 emitter.Shape = e;
+                                break;
+                            }
+                            case 6:
+                            {
+                                EmitMesh m;
+                                i32 primType = 0;
+                                TrySet(primType, particleComponent["EmissionMeshPrimitive"]);
+                                BuildEmitMeshFromPrimitive(m, primType);
+                                emitter.Shape = std::move(m);
                                 break;
                             }
                             default:

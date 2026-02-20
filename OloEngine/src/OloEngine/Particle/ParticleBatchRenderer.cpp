@@ -65,6 +65,21 @@ namespace OloEngine
         Ref<Shader> MeshParticleShader;
         Ref<UniformBuffer> MeshInstanceUBO;
 
+        // Trail rendering resources
+        static constexpr u32 MaxTrailQuads = 10000;
+        static constexpr u32 MaxTrailVertices = MaxTrailQuads * 4;
+        static constexpr u32 MaxTrailIndices = MaxTrailQuads * 6;
+
+        Ref<VertexArray> TrailVAO;
+        Ref<VertexBuffer> TrailVBO;
+        Ref<Shader> TrailShader;
+
+        TrailVertex* TrailVertexBase = nullptr;
+        TrailVertex* TrailVertexPtr = nullptr;
+        u32 TrailQuadCount = 0;
+
+        Ref<Texture2D> CurrentTrailTexture;
+
         ParticleBatchRenderer::Statistics Stats;
     };
 
@@ -125,6 +140,37 @@ namespace OloEngine
 
         // UBO for single mesh particle instance data (binding 3)
         s_Data.MeshInstanceUBO = UniformBuffer::Create(sizeof(MeshParticleInstance), 3);
+
+        // Trail rendering resources
+        s_Data.TrailVAO = VertexArray::Create();
+
+        s_Data.TrailVBO = VertexBuffer::Create(ParticleBatchData::MaxTrailVertices * sizeof(TrailVertex));
+        s_Data.TrailVBO->SetLayout({ { ShaderDataType::Float3, "a_Position" },
+                                     { ShaderDataType::Float4, "a_Color" },
+                                     { ShaderDataType::Float2, "a_TexCoord" },
+                                     { ShaderDataType::Int, "a_EntityID" } });
+        s_Data.TrailVAO->AddVertexBuffer(s_Data.TrailVBO);
+
+        // Pre-generate index buffer for trail quads (0-1-2, 2-3-0 pattern)
+        auto* trailIndices = new u32[ParticleBatchData::MaxTrailIndices];
+        for (u32 i = 0; i < ParticleBatchData::MaxTrailQuads; ++i)
+        {
+            u32 base = i * 4;
+            u32 idx = i * 6;
+            trailIndices[idx + 0] = base + 0;
+            trailIndices[idx + 1] = base + 1;
+            trailIndices[idx + 2] = base + 2;
+            trailIndices[idx + 3] = base + 2;
+            trailIndices[idx + 4] = base + 3;
+            trailIndices[idx + 5] = base + 0;
+        }
+        auto trailIBO = IndexBuffer::Create(trailIndices, ParticleBatchData::MaxTrailIndices);
+        s_Data.TrailVAO->SetIndexBuffer(trailIBO);
+        delete[] trailIndices;
+
+        s_Data.TrailVertexBase = new TrailVertex[ParticleBatchData::MaxTrailVertices];
+
+        s_Data.TrailShader = Shader::Create("assets/shaders/Particle_Trail.glsl");
     }
 
     void ParticleBatchRenderer::Shutdown()
@@ -134,6 +180,10 @@ namespace OloEngine
         delete[] s_Data.InstanceBase;
         s_Data.InstanceBase = nullptr;
         s_Data.InstancePtr = nullptr;
+
+        delete[] s_Data.TrailVertexBase;
+        s_Data.TrailVertexBase = nullptr;
+        s_Data.TrailVertexPtr = nullptr;
     }
 
     void ParticleBatchRenderer::BeginBatch(const EditorCamera& camera)
@@ -237,7 +287,13 @@ namespace OloEngine
             Flush();
         }
 
+        if (s_Data.TrailQuadCount > 0)
+        {
+            FlushTrails();
+        }
+
         s_Data.CurrentTexture = nullptr;
+        s_Data.CurrentTrailTexture = nullptr;
         s_Data.SoftParams = {};
     }
 
@@ -335,10 +391,94 @@ namespace OloEngine
         }
     }
 
+    void ParticleBatchRenderer::SubmitTrailQuad(const glm::vec3 positions[4],
+                                               const glm::vec4 colors[4],
+                                               const glm::vec2 texCoords[4],
+                                               int entityID)
+    {
+        if (s_Data.TrailQuadCount >= ParticleBatchData::MaxTrailQuads)
+        {
+            FlushTrails();
+            s_Data.TrailQuadCount = 0;
+            s_Data.TrailVertexPtr = s_Data.TrailVertexBase;
+        }
+
+        for (u32 i = 0; i < 4; ++i)
+        {
+            s_Data.TrailVertexPtr->Position = positions[i];
+            s_Data.TrailVertexPtr->Color = colors[i];
+            s_Data.TrailVertexPtr->TexCoord = texCoords[i];
+            s_Data.TrailVertexPtr->EntityID = entityID;
+            ++s_Data.TrailVertexPtr;
+        }
+
+        ++s_Data.TrailQuadCount;
+    }
+
+    void ParticleBatchRenderer::SetTrailTexture(const Ref<Texture2D>& texture)
+    {
+        const auto& newTex = texture ? texture : s_Data.WhiteTexture;
+
+        if (s_Data.CurrentTrailTexture && s_Data.CurrentTrailTexture != newTex && s_Data.TrailQuadCount > 0)
+        {
+            FlushTrails();
+            s_Data.TrailQuadCount = 0;
+            s_Data.TrailVertexPtr = s_Data.TrailVertexBase;
+        }
+
+        s_Data.CurrentTrailTexture = newTex;
+    }
+
+    void ParticleBatchRenderer::FlushTrails()
+    {
+        if (s_Data.TrailQuadCount == 0)
+        {
+            return;
+        }
+
+        // Upload trail vertex data
+        u32 dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.TrailVertexPtr) - reinterpret_cast<u8*>(s_Data.TrailVertexBase));
+        s_Data.TrailVBO->SetData({ s_Data.TrailVertexBase, dataSize });
+
+        // Populate ParticleParams UBO
+        bool hasTexture = (s_Data.CurrentTrailTexture && s_Data.CurrentTrailTexture != s_Data.WhiteTexture);
+        auto& params = s_Data.ParticleParamsBuffer;
+        params.CameraRight = s_Data.CameraRight;
+        params.CameraUp = s_Data.CameraUp;
+        params.HasTexture = hasTexture ? 1 : 0;
+        params.SoftParticlesEnabled = s_Data.SoftParams.Enabled ? 1 : 0;
+        params.SoftParticleDistance = s_Data.SoftParams.Distance;
+        params.NearClip = s_Data.SoftParams.NearClip;
+        params.FarClip = s_Data.SoftParams.FarClip;
+        params.ViewportSize = s_Data.SoftParams.ViewportSize;
+        s_Data.ParticleParamsUBO->SetData(&params, sizeof(params));
+
+        // Re-bind UBOs
+        s_Data.CameraUBO->Bind();
+        s_Data.ParticleParamsUBO->Bind();
+
+        // Bind trail shader
+        s_Data.TrailShader->Bind();
+
+        // Bind textures
+        RenderCommand::BindTexture(0, hasTexture ? s_Data.CurrentTrailTexture->GetRendererID() : s_Data.WhiteTexture->GetRendererID());
+        RenderCommand::BindTexture(1, s_Data.SoftParams.Enabled ? s_Data.SoftParams.DepthTextureID : s_Data.WhiteTexture->GetRendererID());
+
+        // Draw trail quads
+        u32 indexCount = s_Data.TrailQuadCount * 6;
+        RenderCommand::DrawIndexed(s_Data.TrailVAO, indexCount);
+
+        s_Data.Stats.DrawCalls++;
+        s_Data.Stats.InstanceCount += s_Data.TrailQuadCount;
+    }
+
     void ParticleBatchRenderer::StartNewBatch()
     {
         s_Data.InstanceCount = 0;
         s_Data.InstancePtr = s_Data.InstanceBase;
+
+        s_Data.TrailQuadCount = 0;
+        s_Data.TrailVertexPtr = s_Data.TrailVertexBase;
     }
 
     void ParticleBatchRenderer::ResetStats()

@@ -446,6 +446,7 @@
 		"OloEngine/Particle/ParticlePool.h"
 		"OloEngine/Particle/ParticlePool.cpp"
 		"OloEngine/Particle/EmissionShape.h"
+		"OloEngine/Particle/EmissionShapeUtils.h"
 		"OloEngine/Particle/ParticleEmitter.h"
 		"OloEngine/Particle/ParticleEmitter.cpp"
 		"OloEngine/Particle/ParticleCurve.h"

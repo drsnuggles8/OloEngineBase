@@ -29,6 +29,15 @@ namespace OloEngine
         glm::ivec4 IDs;  // 16 bytes (x = EntityID, yzw = padding)
     };
 
+    // Per-vertex data for trail quad rendering
+    struct TrailVertex
+    {
+        glm::vec3 Position;
+        glm::vec4 Color;
+        glm::vec2 TexCoord;
+        int EntityID;
+    };
+
     // Soft particle parameters for depth fade
     struct SoftParticleParams
     {
@@ -76,6 +85,18 @@ namespace OloEngine
                                         const MeshParticleInstance* instances,
                                         u32 instanceCount,
                                         const Ref<Texture2D>& texture);
+
+        // Submit a trail quad (4 vertices with positions, colors, UVs)
+        static void SubmitTrailQuad(const glm::vec3 positions[4],
+                                    const glm::vec4 colors[4],
+                                    const glm::vec2 texCoords[4],
+                                    int entityID);
+
+        // Set texture for trail rendering (call before SubmitTrailQuad)
+        static void SetTrailTexture(const Ref<Texture2D>& texture);
+
+        // Flush pending trail quads
+        static void FlushTrails();
 
         struct Statistics
         {

@@ -3,9 +3,11 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/FastRandom.h"
 
+#include <algorithm>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <variant>
+#include <vector>
 
 namespace OloEngine
 {
@@ -40,7 +42,64 @@ namespace OloEngine
         f32 Length = 1.0f;
     };
 
-    using EmissionShape = std::variant<EmitPoint, EmitSphere, EmitBox, EmitCone, EmitRing, EmitEdge>;
+    struct EmitMesh
+    {
+        struct Triangle
+        {
+            glm::vec3 V0, V1, V2;
+            glm::vec3 Normal;
+        };
+
+        std::vector<Triangle> Triangles;
+        std::vector<f32> CumulativeAreas;
+        f32 TotalArea = 0.0f;
+        i32 PrimitiveType = 0; // For serialization: index into primitive mesh list
+
+        bool IsValid() const { return !Triangles.empty(); }
+
+        void Build(const glm::vec3* positions, u32 vertexCount, const u32* indices, u32 indexCount)
+        {
+            Triangles.clear();
+            CumulativeAreas.clear();
+            TotalArea = 0.0f;
+
+            u32 triCount = indexCount / 3;
+            Triangles.reserve(triCount);
+            CumulativeAreas.reserve(triCount);
+
+            for (u32 i = 0; i < triCount; ++i)
+            {
+                u32 i0 = indices[i * 3 + 0];
+                u32 i1 = indices[i * 3 + 1];
+                u32 i2 = indices[i * 3 + 2];
+
+                if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+                {
+                    continue;
+                }
+
+                const glm::vec3& v0 = positions[i0];
+                const glm::vec3& v1 = positions[i1];
+                const glm::vec3& v2 = positions[i2];
+
+                glm::vec3 edge1 = v1 - v0;
+                glm::vec3 edge2 = v2 - v0;
+                glm::vec3 crossProd = glm::cross(edge1, edge2);
+                f32 area = glm::length(crossProd) * 0.5f;
+
+                if (area < 1e-8f)
+                {
+                    continue;
+                }
+
+                TotalArea += area;
+                Triangles.push_back({ v0, v1, v2, glm::normalize(crossProd) });
+                CumulativeAreas.push_back(TotalArea);
+            }
+        }
+    };
+
+    using EmissionShape = std::variant<EmitPoint, EmitSphere, EmitBox, EmitCone, EmitRing, EmitEdge, EmitMesh>;
 
     // Sample a position offset from the emission shape
     inline glm::vec3 SampleEmissionShape(const EmissionShape& shape)
@@ -94,6 +153,26 @@ namespace OloEngine
             {
                 f32 half = s.Length * 0.5f;
                 return { rng.GetFloat32InRange(-half, half), 0.0f, 0.0f };
+            }
+            else if constexpr (std::is_same_v<T, EmitMesh>)
+            {
+                if (!s.IsValid())
+                    return glm::vec3(0.0f);
+
+                // Weighted random triangle selection via CDF
+                f32 r = rng.GetFloat32InRange(0.0f, s.TotalArea);
+                auto it = std::lower_bound(s.CumulativeAreas.begin(), s.CumulativeAreas.end(), r);
+                u32 triIdx = static_cast<u32>(std::distance(s.CumulativeAreas.begin(), it));
+                if (triIdx >= static_cast<u32>(s.Triangles.size()))
+                    triIdx = static_cast<u32>(s.Triangles.size()) - 1;
+
+                const auto& tri = s.Triangles[triIdx];
+
+                // Uniform random point on triangle via barycentric coordinates
+                f32 r1 = rng.GetFloat32InRange(0.0f, 1.0f);
+                f32 r2 = rng.GetFloat32InRange(0.0f, 1.0f);
+                f32 sqrtR1 = std::sqrt(r1);
+                return (1.0f - sqrtR1) * tri.V0 + sqrtR1 * (1.0f - r2) * tri.V1 + sqrtR1 * r2 * tri.V2;
             }
             else
             {
@@ -167,6 +246,20 @@ namespace OloEngine
             {
                 // Emit upward (+Y) from edge
                 return glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+            else if constexpr (std::is_same_v<T, EmitMesh>)
+            {
+                if (!s.IsValid())
+                    return glm::vec3(0.0f, 1.0f, 0.0f);
+
+                // Pick a random triangle weighted by area and use its face normal
+                f32 r = rng.GetFloat32InRange(0.0f, s.TotalArea);
+                auto it = std::lower_bound(s.CumulativeAreas.begin(), s.CumulativeAreas.end(), r);
+                u32 triIdx = static_cast<u32>(std::distance(s.CumulativeAreas.begin(), it));
+                if (triIdx >= static_cast<u32>(s.Triangles.size()))
+                    triIdx = static_cast<u32>(s.Triangles.size()) - 1;
+
+                return s.Triangles[triIdx].Normal;
             }
             else
             {

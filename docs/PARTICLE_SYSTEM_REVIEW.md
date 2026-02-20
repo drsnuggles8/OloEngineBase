@@ -1,7 +1,7 @@
 # Particle System — Design Review & Issues
 
 > **Date**: February 2026
-> **Last updated**: February 2026 (Phase B instanced rendering + soft particles + mesh particles implemented)
+> **Last updated**: February 2026 (All incremental improvements complete: trail shader, mesh surface emission)
 > **Scope**: Full review of the OloEngine particle system after Phase 1–3 implementation.
 > Covers design problems, bugs, missing features, and comparison to production engines.
 
@@ -13,11 +13,15 @@ The particle system has a solid foundation: SOA pool with swap-to-back death, mo
 modifier pipeline, sub-emitters with independent child systems, ring-buffer trails, and
 comprehensive editor UI. All simulation-side bugs have been fixed (velocity module, LOD,
 warm-up, emission rotation, force fields, sub-emitter collision events, curve evaluation,
-depth sorting). **Rendering architecture** has been significantly improved:
-`ParticleRenderPass` (Phase A) integrates particles into the render graph with depth
-occlusion. **Phase B** (instanced billboard shader with GPU billboarding) is complete.
-**Soft particles** (depth-fade near opaque surfaces) are implemented using the scene
-depth buffer. **Mesh particles** (instanced mesh rendering via SSBO) are implemented.
+depth sorting). **Rendering architecture is fully complete**: `ParticleRenderPass`
+(Phase A) integrates particles into the render graph with depth occlusion. **Phase B**
+(instanced billboard shader with GPU billboarding) is complete. **Soft particles**
+(depth-fade near opaque surfaces) are implemented for all render modes. **Mesh particles**
+(instanced mesh rendering via UBO) are implemented. **Trail rendering** uses a dedicated
+`Particle_Trail.glsl` shader via `ParticleBatchRenderer`. **Stretched billboards** use
+the stretch branch in `Particle_Billboard.glsl`. **Mesh surface emission** supports
+emitting particles from primitive mesh surfaces using weighted random triangle sampling.
+All particle rendering uses dedicated shaders — no Renderer2D dependency remains.
 The remaining gaps are GPU compute simulation and minor editor polish.
 
 ---
@@ -40,26 +44,16 @@ graph, through the wrong renderer, with incorrect pipeline ordering.
 > are drawn into the ScenePass framebuffer *before* FinalPass blits to screen.
 > Both editor (ImGui viewport) and standalone runtime paths display particles correctly.
 
-### 1.3 Particles still go through Renderer2D
+### ~~1.3 Particles still go through Renderer2D~~ ✅ FIXED
 
-All particle rendering — billboards, stretched billboards, trails — still uses
-`Renderer2D::DrawQuad()` and `Renderer2D::DrawPolygon()`. This is a layer violation:
-
-> **Partially resolved**: Billboard and mesh particles now use dedicated shaders via
-> `ParticleBatchRenderer` with instanced rendering, soft particle support, and proper
-> depth buffer access. Stretched billboards and trails still use Renderer2D.
-
-- **Renderer2D has no concept of depth** — its shader doesn't read a depth buffer.
-  (**Billboards/meshes fixed** via dedicated shaders; stretched/trails still affected.)
-- **No custom shader support** — Renderer2D uses a fixed batch shader. You can't add
-  depth-fade (soft particles), per-particle lighting, or normal mapping.
-  (**Billboards/meshes fixed**; stretched/trails still affected.)
-- **No instanced rendering** — each particle is a separate `DrawQuad()` call into the
-  batch. The CPU computes a full 4×4 matrix per particle.
-  (**Billboards/meshes fixed** via instance VBO/SSBO; stretched/trails still affected.)
-- **State management conflicts** — Renderer2D manages its own GL state (blend, shader
-  binds). Calling `glBlendFunc()` between `DrawQuad()` calls inside an active batch may
-  not take effect until the batch flushes (see §1.5).
+> **Fixed**: All particle rendering now uses dedicated shaders via
+> `ParticleBatchRenderer`:
+> - Billboard: `Particle_Billboard.glsl` (instanced GPU billboarding)
+> - Stretched Billboard: `Particle_Billboard.glsl` (stretch branch via `SubmitStretched()`)
+> - Trail: `Particle_Trail.glsl` (batched quad-strip via `SubmitTrailQuad()`)
+> - Mesh: `Particle_Mesh.glsl` (UBO-based per-draw-call rendering)
+> All paths support soft particles and depth buffer access. No particle rendering
+> goes through Renderer2D.
 
 ### ~~1.4 Particles ignore the 3D depth buffer~~ ✅ FIXED
 
@@ -144,36 +138,30 @@ All particle rendering — billboards, stretched billboards, trails — still us
 
 ## 3 — Design Issues
 
-### ~~3.1 All rendering goes through Renderer2D~~ ✅ PARTIALLY FIXED
+### ~~3.1 All rendering goes through Renderer2D~~ ✅ FIXED
 
-Billboard and mesh particles now use dedicated shaders (`Particle_Billboard.glsl`,
-`Particle_Mesh.glsl`) via `ParticleBatchRenderer` with instanced rendering, depth buffer
-access, and soft particles. **Stretched billboards and trails still use Renderer2D** —
-`RenderParticlesStretched` and `TrailRenderer::RenderTrails` call `DrawQuad()` /
-`DrawPolygon()`.
+> **Fixed**: All particle rendering now uses dedicated shaders via `ParticleBatchRenderer`.
+> Billboard and stretched billboard particles use `Particle_Billboard.glsl` (GPU
+> billboarding with stretch branch). Trail particles use `Particle_Trail.glsl` (batched
+> quad-strip rendering). Mesh particles use `Particle_Mesh.glsl` (UBO-based instanced
+> rendering). All paths support soft particles and depth buffer access. No particle
+> rendering goes through Renderer2D.
 
-Remaining Renderer2D-dependent paths:
-- Stretched billboard particles (custom vertex positions via `DrawQuadVertices`)
-- Trail rendering (quad strips via `DrawQuadVertices`)
-- These still lack soft particle support and custom shader effects
+### ~~3.2 Per-particle CPU transform construction is expensive~~ ✅ FIXED
 
-### ~~3.2 Per-particle CPU transform construction is expensive~~ ✅ PARTIALLY FIXED
-
-> **Partially fixed**: Billboard particles now use `Particle_Billboard.glsl` with GPU
-> billboarding in the vertex shader. Per-particle data (position, size, rotation, color)
-> is uploaded via instance VBO — no CPU matrix construction or trig calls for billboards.
->
-> **Stretched billboard** particles still compute CPU-side vertex positions in
-> `RenderParticlesStretched()`, including trig calls for rotation. Migrating to a
-> dedicated stretched particle shader would eliminate this.
+> **Fixed**: All billboard particle rendering (standard and stretched) uses
+> `Particle_Billboard.glsl` with GPU billboarding in the vertex shader. Per-particle
+> data (position, size, rotation, color, stretch factor) is uploaded via instance VBO —
+> no CPU matrix construction or trig calls. Stretched billboards use
+> `ParticleBatchRenderer::SubmitStretched()` with the stretch branch in the shader.
 
 ### ~~3.3 Trail rendering is O(particles × trail_points) separate draw calls~~ ✅ FIXED
 
-> **Fixed**: Trail segments now use `Renderer2D::DrawQuadVertices()` instead of
-> `DrawPolygon()`. This eliminates per-segment `std::vector` heap allocations, fixes a
-> `GL_TRIANGLE_FAN` correctness bug (multiple polygons in one batch created wrong
-> triangles), adds per-vertex color interpolation for smooth gradients (was averaged),
-> and uses the properly indexed quad batch path.
+> **Fixed**: Trail rendering now uses dedicated `Particle_Trail.glsl` shader via
+> `ParticleBatchRenderer` with batched quad submission (`SubmitTrailQuad`). This
+> eliminates per-segment heap allocations, adds soft particle support via scene depth
+> texture, and provides per-vertex color interpolation for smooth gradients. Trail
+> quads are batched and flushed in a single draw call per texture batch.
 
 ### 3.4 ~~Only one force field per system~~ ✅ FIXED
 
@@ -307,8 +295,8 @@ data, etc.). Enables advanced shader effects.
 | Multiple force fields | ✅ (external) | ✅ (modules) | ✅ | Fixed — `std::vector<ModuleForceField>` |
 | Mesh particles | ✅ | ✅ | ✅ | Fixed — SSBO-based instanced mesh rendering |
 | Sub-emitters | ✅ | ✅ | ✅ | Working — separate child systems |
-| Trails | ✅ | ✅ | ✅ | Working — quad-strip via batched DrawQuadVertices with per-vertex color |
-| Emission shapes | ✅ (Mesh surface) | ✅ | Partial (6 shapes) | Missing: mesh surface emit |
+| Trails | ✅ | ✅ | ✅ | Fixed — dedicated Particle_Trail.glsl shader with soft particles |
+| Emission shapes | ✅ (Mesh surface) | ✅ | ✅ (7 shapes incl. mesh) | Fixed — Point, Sphere, Box, Cone, Ring, Edge, Mesh |
 | Events/callbacks | OnCollision, OnTrigger | Full scripting | ✅ (OnBirth/OnDeath/OnCollision) | Fixed — OnCollision wired |
 | Particle lights | ✅ | ✅ | ❌ | Low priority |
 | Texture atlas / sprite sheet | ✅ | ✅ | ✅ | Working |
@@ -320,12 +308,12 @@ data, etc.). Enables advanced shader effects.
 
 **Overall assessment**: The simulation layer is solid — all known bugs are fixed, modules
 compose correctly with forces, LOD is smooth, warm-up is safe, emission respects entity
-rotation, and multiple force fields are supported. **Rendering is now comprehensive** —
-particles render inside the render graph via `ParticleRenderPass` with depth testing,
-instanced billboard rendering (dedicated `Particle_Billboard.glsl` with GPU billboarding),
-soft particles (depth-fade), and mesh particles (SSBO-instanced via `Particle_Mesh.glsl`).
-The remaining gaps are **GPU compute simulation** and **minor polish** (particle lights,
-custom vertex streams).
+rotation, and multiple force fields are supported. **Rendering is fully complete** —
+all particle modes (billboard, stretched billboard, trail, mesh) render inside the render
+graph via `ParticleRenderPass` with dedicated shaders, depth testing, and soft particles.
+No particle rendering goes through Renderer2D. Emission supports 7 shapes including mesh
+surface emission. The remaining gaps are **GPU compute simulation** and **minor polish**
+(particle lights, custom vertex streams).
 
 ---
 
@@ -366,14 +354,14 @@ custom vertex streams).
 - ~~**Trail texture UVs** (§4.13)~~ ✅
 - ~~**Inter-system sorting** (§4.14)~~ ✅
 
-### Remaining: Incremental improvements
+### ~~Remaining: Incremental improvements~~ ✅ ALL DONE
 
-1. **Stretched billboard shader** (§3.1/§3.2) — migrate from Renderer2D to dedicated shader; adds soft particle support.
-2. **Trail shader** (§3.1) — migrate from Renderer2D to dedicated shader; adds soft particle support.
-3. **Mesh surface emission** (§5 comparison gap) — emit particles from mesh surface.
+- ~~**Stretched billboard shader** (§3.1/§3.2) — already uses `Particle_Billboard.glsl` with stretch branch via `ParticleBatchRenderer::SubmitStretched()`~~ ✅
+- ~~**Trail shader** (§3.1) — dedicated `Particle_Trail.glsl` shader via `ParticleBatchRenderer::SubmitTrailQuad()` with soft particle support~~ ✅
+- ~~**Mesh surface emission** (§5 comparison gap) — `EmitMesh` shape with weighted random triangle sampling from mesh surface; supports primitive meshes (Cube, Sphere, Cylinder, Torus, Icosphere, Cone)~~ ✅
 
 ### Remaining: Future features
 
-4. **GPU compute simulation** (§4.9) — requires SSBO/compute shader support.
-5. **Particle lights** (§4.10) — per-particle point lights.
-6. **Custom vertex streams** (§4.11) — advanced shader effects.
+1. **GPU compute simulation** (§4.9) — requires SSBO/compute shader support.
+2. **Particle lights** (§4.10) — per-particle point lights.
+3. **Custom vertex streams** (§4.11) — advanced shader effects.

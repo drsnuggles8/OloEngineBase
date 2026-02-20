@@ -12,10 +12,10 @@ namespace OloEngine
     class TrailRenderer
     {
       public:
-        // Render trails as camera-facing quad strips via Renderer2D
+        // Render trails as camera-facing quad strips via ParticleBatchRenderer
         // Generates quads expanded perpendicular to the camera and trail direction
         // for proper width tapering and visual quality.
-        // Call between Renderer2D::BeginScene and EndScene
+        // Call between ParticleBatchRenderer::BeginBatch and EndBatch
         static void RenderTrails(const ParticlePool& pool, const ParticleTrailData& trailData,
                                  const ModuleTrail& trailModule,
                                  const glm::vec3& cameraPosition,

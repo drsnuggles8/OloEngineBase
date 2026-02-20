@@ -1704,14 +1704,12 @@ namespace OloEngine
                         ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
                     }
 
-                    // Trail rendering — flush particles then use Renderer2D for trails
+                    // Trail rendering via dedicated trail shader in ParticleBatchRenderer
                     if (sys.TrailModule.Enabled)
                     {
-                        ParticleBatchRenderer::EndBatch();
-                        Renderer2D::BeginScene(camera);
+                        ParticleBatchRenderer::Flush();
                         TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
-                        Renderer2D::EndScene();
-                        ParticleBatchRenderer::BeginBatch(camera);
+                        ParticleBatchRenderer::FlushTrails();
                     }
 
                     RestoreDefaultBlendMode();
@@ -2024,14 +2022,12 @@ namespace OloEngine
                         ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
                     }
 
-                    // Trail rendering — flush particles then use Renderer2D for trails
+                    // Trail rendering via dedicated trail shader in ParticleBatchRenderer
                     if (sys.TrailModule.Enabled)
                     {
-                        ParticleBatchRenderer::EndBatch();
-                        Renderer2D::BeginScene(camera, cameraTransform);
+                        ParticleBatchRenderer::Flush();
                         TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
-                        Renderer2D::EndScene();
-                        ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
+                        ParticleBatchRenderer::FlushTrails();
                     }
 
                     RestoreDefaultBlendMode();

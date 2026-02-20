@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
+#include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <imgui.h>
@@ -1893,9 +1894,9 @@ namespace OloEngine
                 ImGui::DragFloat("Rotation Variance", &emitter.RotationVariance, 1.0f, 0.0f, 360.0f);
                 ImGui::ColorEdit4("Initial Color", glm::value_ptr(emitter.InitialColor));
 
-                const char* shapeItems[] = { "Point", "Sphere", "Box", "Cone", "Ring", "Edge" };
+                const char* shapeItems[] = { "Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Mesh" };
                 int shapeIdx = static_cast<int>(emitter.Shape.index());
-                if (ImGui::Combo("Emission Shape", &shapeIdx, shapeItems, 6))
+                if (ImGui::Combo("Emission Shape", &shapeIdx, shapeItems, 7))
                 {
                     switch (shapeIdx)
                     {
@@ -1905,6 +1906,13 @@ namespace OloEngine
                         case 3: emitter.Shape = EmitCone{}; break;
                         case 4: emitter.Shape = EmitRing{}; break;
                         case 5: emitter.Shape = EmitEdge{}; break;
+                        case 6:
+                        {
+                            EmitMesh m;
+                            BuildEmitMeshFromPrimitive(m, 0);
+                            emitter.Shape = std::move(m);
+                            break;
+                        }
                     }
                 }
                 // Shape-specific parameters
@@ -1924,6 +1932,15 @@ namespace OloEngine
                 }
                 if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
                     ImGui::DragFloat("Edge Length", &edge->Length, 0.1f, 0.0f, 100.0f);
+                if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
+                {
+                    int primIdx = mesh->PrimitiveType;
+                    if (ImGui::Combo("Mesh Primitive", &primIdx, EmitMeshPrimitiveNames, EmitMeshPrimitiveCount))
+                    {
+                        BuildEmitMeshFromPrimitive(*mesh, primIdx);
+                    }
+                    ImGui::Text("Triangles: %u", static_cast<u32>(mesh->Triangles.size()));
+                }
             }
 
             // Texture

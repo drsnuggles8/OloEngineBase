@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
 #include "TrailRenderer.h"
-#include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Particle/ParticleBatchRenderer.h"
 
 namespace OloEngine
 {
@@ -13,6 +13,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        ParticleBatchRenderer::SetTrailTexture(texture);
+
         u32 particleCount = pool.GetAliveCount();
 
         for (u32 p = 0; p < particleCount; ++p)
@@ -23,7 +25,7 @@ namespace OloEngine
                 continue;
             }
 
-            // Render trail as connected quads via DrawQuadVertices.
+            // Render trail as connected quads via SubmitTrailQuad.
             // Each segment between adjacent trail points expands perpendicular to
             // both the segment direction and the view direction for a camera-facing ribbon.
             for (u32 i = 0; i < trail.Count - 1; ++i)
@@ -70,21 +72,15 @@ namespace OloEngine
                 };
                 glm::vec4 colors[4] = { colorA, colorB, colorB, colorA };
 
-                if (texture)
-                {
-                    // UV mapping: U along trail length (0 at head, 1 at tail), V across width
-                    glm::vec2 texCoords[4] = {
-                        { tA, 0.0f }, // BL
-                        { tB, 0.0f }, // BR
-                        { tB, 1.0f }, // TR
-                        { tA, 1.0f }  // TL
-                    };
-                    Renderer2D::DrawQuadVertices(positions, colors, texCoords, texture, entityID);
-                }
-                else
-                {
-                    Renderer2D::DrawQuadVertices(positions, colors, entityID);
-                }
+                // UV mapping: U along trail length (0 at head, 1 at tail), V across width
+                glm::vec2 texCoords[4] = {
+                    { tA, 0.0f }, // BL
+                    { tB, 0.0f }, // BR
+                    { tB, 1.0f }, // TR
+                    { tA, 1.0f }  // TL
+                };
+
+                ParticleBatchRenderer::SubmitTrailQuad(positions, colors, texCoords, entityID);
             }
         }
     }
