@@ -38,6 +38,12 @@ namespace OloEngine
       public:
         explicit ParticleSystem(u32 maxParticles = 1000);
 
+        // Copy constructor: deep-copies all state but rewires OnSwapCallback to this instance
+        ParticleSystem(const ParticleSystem& other);
+        ParticleSystem& operator=(const ParticleSystem& other);
+        ParticleSystem(ParticleSystem&&) noexcept;
+        ParticleSystem& operator=(ParticleSystem&&) noexcept;
+
         void Update(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity = glm::vec3(0.0f), const glm::quat& emitterRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
         void Reset();
 
@@ -121,8 +127,7 @@ namespace OloEngine
         f32 VelocityInheritance = 0.0f; // 0 = none, 1 = full parent velocity
 
         // LOD settings
-        f32 LODDistance1 = 50.0f;    // Distance at which spawn rate drops to 50%
-        f32 LODDistance2 = 100.0f;   // Distance at which spawn rate drops to 25%
+        f32 LODDistance1 = 50.0f;    // Distance at which spawn rate starts to drop
         f32 LODMaxDistance = 200.0f; // Distance beyond which particles stop spawning
 
         // Sub-systems (Phase 1)

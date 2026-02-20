@@ -50,6 +50,58 @@ namespace OloEngine
         return value;
     }
 
+    static void SerializeCurve(YAML::Emitter& out, const std::string& name, const ParticleCurve& curve)
+    {
+        out << YAML::Key << name << YAML::Value << YAML::BeginMap;
+        out << YAML::Key << "KeyCount" << YAML::Value << curve.KeyCount;
+        out << YAML::Key << "Keys" << YAML::Value << YAML::BeginSeq;
+        for (u32 i = 0; i < curve.KeyCount; ++i)
+        {
+            out << YAML::BeginMap;
+            out << YAML::Key << "Time" << YAML::Value << curve.Keys[i].Time;
+            out << YAML::Key << "Value" << YAML::Value << curve.Keys[i].Value;
+            out << YAML::EndMap;
+        }
+        out << YAML::EndSeq;
+        out << YAML::EndMap;
+    }
+
+    static void DeserializeCurve(const YAML::Node& node, ParticleCurve& curve)
+    {
+        if (!node || !node.IsMap()) return;
+        if (auto kc = node["KeyCount"]; kc)
+            curve.KeyCount = kc.as<u32>();
+        if (auto keys = node["Keys"]; keys && keys.IsSequence())
+        {
+            u32 count = std::min(static_cast<u32>(keys.size()), static_cast<u32>(curve.Keys.size()));
+            curve.KeyCount = count;
+            for (u32 i = 0; i < count; ++i)
+            {
+                TrySet(curve.Keys[i].Time, keys[i]["Time"]);
+                TrySet(curve.Keys[i].Value, keys[i]["Value"]);
+            }
+        }
+    }
+
+    static void SerializeCurve4(YAML::Emitter& out, const std::string& name, const ParticleCurve4& curve)
+    {
+        out << YAML::Key << name << YAML::Value << YAML::BeginMap;
+        SerializeCurve(out, "R", curve.R);
+        SerializeCurve(out, "G", curve.G);
+        SerializeCurve(out, "B", curve.B);
+        SerializeCurve(out, "A", curve.A);
+        out << YAML::EndMap;
+    }
+
+    static void DeserializeCurve4(const YAML::Node& node, ParticleCurve4& curve)
+    {
+        if (!node || !node.IsMap()) return;
+        DeserializeCurve(node["R"], curve.R);
+        DeserializeCurve(node["G"], curve.G);
+        DeserializeCurve(node["B"], curve.B);
+        DeserializeCurve(node["A"], curve.A);
+    }
+
     static std::string RigidBody2DBodyTypeToString(const Rigidbody2DComponent::BodyType bodyType)
     {
         switch (bodyType)
@@ -873,7 +925,7 @@ namespace OloEngine
             out << YAML::Key << "InitialRotation" << YAML::Value << emitter.InitialRotation;
             out << YAML::Key << "RotationVariance" << YAML::Value << emitter.RotationVariance;
             out << YAML::Key << "InitialColor" << YAML::Value << emitter.InitialColor;
-            out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(emitter.Shape.index());
+            out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(GetEmissionShapeType(emitter.Shape));
 
             // Emission shape parameters
             if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
@@ -901,9 +953,15 @@ namespace OloEngine
             out << YAML::Key << "DragEnabled" << YAML::Value << sys.DragModule.Enabled;
             out << YAML::Key << "DragCoefficient" << YAML::Value << sys.DragModule.DragCoefficient;
             out << YAML::Key << "ColorOverLifetimeEnabled" << YAML::Value << sys.ColorModule.Enabled;
+            SerializeCurve4(out, "ColorCurve", sys.ColorModule.ColorCurve);
             out << YAML::Key << "SizeOverLifetimeEnabled" << YAML::Value << sys.SizeModule.Enabled;
+            SerializeCurve(out, "SizeCurve", sys.SizeModule.SizeCurve);
             out << YAML::Key << "RotationOverLifetimeEnabled" << YAML::Value << sys.RotationModule.Enabled;
             out << YAML::Key << "AngularVelocity" << YAML::Value << sys.RotationModule.AngularVelocity;
+            out << YAML::Key << "VelocityOverLifetimeEnabled" << YAML::Value << sys.VelocityModule.Enabled;
+            out << YAML::Key << "LinearVelocity" << YAML::Value << sys.VelocityModule.LinearVelocity;
+            out << YAML::Key << "SpeedMultiplier" << YAML::Value << sys.VelocityModule.SpeedMultiplier;
+            SerializeCurve(out, "SpeedCurve", sys.VelocityModule.SpeedCurve);
             out << YAML::Key << "NoiseEnabled" << YAML::Value << sys.NoiseModule.Enabled;
             out << YAML::Key << "NoiseStrength" << YAML::Value << sys.NoiseModule.Strength;
             out << YAML::Key << "NoiseFrequency" << YAML::Value << sys.NoiseModule.Frequency;
@@ -947,7 +1005,6 @@ namespace OloEngine
 
             // Phase 2: LOD
             out << YAML::Key << "LODDistance1" << YAML::Value << sys.LODDistance1;
-            out << YAML::Key << "LODDistance2" << YAML::Value << sys.LODDistance2;
             out << YAML::Key << "LODMaxDistance" << YAML::Value << sys.LODMaxDistance;
 
             // Warm-up
@@ -1711,26 +1768,26 @@ namespace OloEngine
                     // Emission shape deserialization
                     if (auto shapeType = particleComponent["EmissionShapeType"]; shapeType)
                     {
-                        switch (shapeType.as<int>())
+                        switch (static_cast<EmissionShapeType>(shapeType.as<int>()))
                         {
-                            case 0:
+                            case EmissionShapeType::Point:
                                 emitter.Shape = EmitPoint{};
                                 break;
-                            case 1:
+                            case EmissionShapeType::Sphere:
                             {
                                 EmitSphere s;
                                 TrySet(s.Radius, particleComponent["EmissionSphereRadius"]);
                                 emitter.Shape = s;
                                 break;
                             }
-                            case 2:
+                            case EmissionShapeType::Box:
                             {
                                 EmitBox b;
                                 TrySet(b.HalfExtents, particleComponent["EmissionBoxHalfExtents"]);
                                 emitter.Shape = b;
                                 break;
                             }
-                            case 3:
+                            case EmissionShapeType::Cone:
                             {
                                 EmitCone c;
                                 TrySet(c.Angle, particleComponent["EmissionConeAngle"]);
@@ -1738,7 +1795,7 @@ namespace OloEngine
                                 emitter.Shape = c;
                                 break;
                             }
-                            case 4:
+                            case EmissionShapeType::Ring:
                             {
                                 EmitRing r;
                                 TrySet(r.InnerRadius, particleComponent["EmissionRingInnerRadius"]);
@@ -1746,14 +1803,14 @@ namespace OloEngine
                                 emitter.Shape = r;
                                 break;
                             }
-                            case 5:
+                            case EmissionShapeType::Edge:
                             {
                                 EmitEdge e;
                                 TrySet(e.Length, particleComponent["EmissionEdgeLength"]);
                                 emitter.Shape = e;
                                 break;
                             }
-                            case 6:
+                            case EmissionShapeType::Mesh:
                             {
                                 EmitMesh m;
                                 i32 primType = 0;
@@ -1772,9 +1829,15 @@ namespace OloEngine
                     TrySet(sys.DragModule.Enabled, particleComponent["DragEnabled"]);
                     TrySet(sys.DragModule.DragCoefficient, particleComponent["DragCoefficient"]);
                     TrySet(sys.ColorModule.Enabled, particleComponent["ColorOverLifetimeEnabled"]);
+                    DeserializeCurve4(particleComponent["ColorCurve"], sys.ColorModule.ColorCurve);
                     TrySet(sys.SizeModule.Enabled, particleComponent["SizeOverLifetimeEnabled"]);
+                    DeserializeCurve(particleComponent["SizeCurve"], sys.SizeModule.SizeCurve);
                     TrySet(sys.RotationModule.Enabled, particleComponent["RotationOverLifetimeEnabled"]);
                     TrySet(sys.RotationModule.AngularVelocity, particleComponent["AngularVelocity"]);
+                    TrySet(sys.VelocityModule.Enabled, particleComponent["VelocityOverLifetimeEnabled"]);
+                    TrySet(sys.VelocityModule.LinearVelocity, particleComponent["LinearVelocity"]);
+                    TrySet(sys.VelocityModule.SpeedMultiplier, particleComponent["SpeedMultiplier"]);
+                    DeserializeCurve(particleComponent["SpeedCurve"], sys.VelocityModule.SpeedCurve);
                     TrySet(sys.NoiseModule.Enabled, particleComponent["NoiseEnabled"]);
                     TrySet(sys.NoiseModule.Strength, particleComponent["NoiseStrength"]);
                     TrySet(sys.NoiseModule.Frequency, particleComponent["NoiseFrequency"]);
@@ -1836,7 +1899,6 @@ namespace OloEngine
 
                     // Phase 2: LOD
                     TrySet(sys.LODDistance1, particleComponent["LODDistance1"]);
-                    TrySet(sys.LODDistance2, particleComponent["LODDistance2"]);
                     TrySet(sys.LODMaxDistance, particleComponent["LODMaxDistance"]);
                     TrySet(sys.WarmUpTime, particleComponent["WarmUpTime"]);
 
@@ -2658,26 +2720,26 @@ namespace OloEngine
                     // Emission shape deserialization
                     if (auto shapeType = particleComponent["EmissionShapeType"]; shapeType)
                     {
-                        switch (shapeType.as<int>())
+                        switch (static_cast<EmissionShapeType>(shapeType.as<int>()))
                         {
-                            case 0:
+                            case EmissionShapeType::Point:
                                 emitter.Shape = EmitPoint{};
                                 break;
-                            case 1:
+                            case EmissionShapeType::Sphere:
                             {
                                 EmitSphere s;
                                 TrySet(s.Radius, particleComponent["EmissionSphereRadius"]);
                                 emitter.Shape = s;
                                 break;
                             }
-                            case 2:
+                            case EmissionShapeType::Box:
                             {
                                 EmitBox b;
                                 TrySet(b.HalfExtents, particleComponent["EmissionBoxHalfExtents"]);
                                 emitter.Shape = b;
                                 break;
                             }
-                            case 3:
+                            case EmissionShapeType::Cone:
                             {
                                 EmitCone c;
                                 TrySet(c.Angle, particleComponent["EmissionConeAngle"]);
@@ -2685,7 +2747,7 @@ namespace OloEngine
                                 emitter.Shape = c;
                                 break;
                             }
-                            case 4:
+                            case EmissionShapeType::Ring:
                             {
                                 EmitRing r;
                                 TrySet(r.InnerRadius, particleComponent["EmissionRingInnerRadius"]);
@@ -2693,14 +2755,14 @@ namespace OloEngine
                                 emitter.Shape = r;
                                 break;
                             }
-                            case 5:
+                            case EmissionShapeType::Edge:
                             {
                                 EmitEdge e;
                                 TrySet(e.Length, particleComponent["EmissionEdgeLength"]);
                                 emitter.Shape = e;
                                 break;
                             }
-                            case 6:
+                            case EmissionShapeType::Mesh:
                             {
                                 EmitMesh m;
                                 i32 primType = 0;
@@ -2719,9 +2781,15 @@ namespace OloEngine
                     TrySet(sys.DragModule.Enabled, particleComponent["DragEnabled"]);
                     TrySet(sys.DragModule.DragCoefficient, particleComponent["DragCoefficient"]);
                     TrySet(sys.ColorModule.Enabled, particleComponent["ColorOverLifetimeEnabled"]);
+                    DeserializeCurve4(particleComponent["ColorCurve"], sys.ColorModule.ColorCurve);
                     TrySet(sys.SizeModule.Enabled, particleComponent["SizeOverLifetimeEnabled"]);
+                    DeserializeCurve(particleComponent["SizeCurve"], sys.SizeModule.SizeCurve);
                     TrySet(sys.RotationModule.Enabled, particleComponent["RotationOverLifetimeEnabled"]);
                     TrySet(sys.RotationModule.AngularVelocity, particleComponent["AngularVelocity"]);
+                    TrySet(sys.VelocityModule.Enabled, particleComponent["VelocityOverLifetimeEnabled"]);
+                    TrySet(sys.VelocityModule.LinearVelocity, particleComponent["LinearVelocity"]);
+                    TrySet(sys.VelocityModule.SpeedMultiplier, particleComponent["SpeedMultiplier"]);
+                    DeserializeCurve(particleComponent["SpeedCurve"], sys.VelocityModule.SpeedCurve);
                     TrySet(sys.NoiseModule.Enabled, particleComponent["NoiseEnabled"]);
                     TrySet(sys.NoiseModule.Strength, particleComponent["NoiseStrength"]);
                     TrySet(sys.NoiseModule.Frequency, particleComponent["NoiseFrequency"]);
@@ -2783,7 +2851,6 @@ namespace OloEngine
 
                     // Phase 2: LOD
                     TrySet(sys.LODDistance1, particleComponent["LODDistance1"]);
-                    TrySet(sys.LODDistance2, particleComponent["LODDistance2"]);
                     TrySet(sys.LODMaxDistance, particleComponent["LODMaxDistance"]);
                     TrySet(sys.WarmUpTime, particleComponent["WarmUpTime"]);
 

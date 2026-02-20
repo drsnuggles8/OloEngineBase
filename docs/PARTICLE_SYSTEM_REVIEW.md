@@ -122,7 +122,7 @@ graph, through the wrong renderer, with incorrect pipeline ordering.
 
 > **Fixed**: `UpdateLOD()` now uses smooth linear falloff:
 > `multiplier = (LODMaxDistance - dist) / (LODMaxDistance - LODDistance1)`,
-> clamped to [0, 1]. `LODDistance2` is no longer used (could be removed from the struct).
+> clamped to [0, 1]. `LODDistance2` has been removed; the LOD ramp is a smooth linear falloff from `LODDistance1` to `LODMaxDistance`.
 
 ### 2.4 ~~Emission rate temporarily mutated during Update~~ ✅ FIXED
 

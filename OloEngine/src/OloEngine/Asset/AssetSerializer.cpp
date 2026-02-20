@@ -2767,6 +2767,66 @@ namespace OloEngine
             if (node)
                 target = node.as<T>();
         }
+
+        void SerializeCurve(YAML::Emitter& out, const std::string& name, const ParticleCurve& curve)
+        {
+            out << YAML::Key << name << YAML::Value << YAML::BeginMap;
+            out << YAML::Key << "KeyCount" << YAML::Value << curve.KeyCount;
+            out << YAML::Key << "Keys" << YAML::Value << YAML::BeginSeq;
+            for (u32 i = 0; i < curve.KeyCount; ++i)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Time" << YAML::Value << curve.Keys[i].Time;
+                out << YAML::Key << "Value" << YAML::Value << curve.Keys[i].Value;
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+            out << YAML::EndMap;
+        }
+
+        void DeserializeCurve(const YAML::Node& node, ParticleCurve& curve)
+        {
+            if (!node || !node.IsMap())
+            {
+                return;
+            }
+            if (auto kc = node["KeyCount"]; kc)
+            {
+                curve.KeyCount = kc.as<u32>();
+            }
+            if (auto keys = node["Keys"]; keys && keys.IsSequence())
+            {
+                u32 count = std::min(static_cast<u32>(keys.size()), static_cast<u32>(curve.Keys.size()));
+                curve.KeyCount = count;
+                for (u32 i = 0; i < count; ++i)
+                {
+                    TrySetPS(curve.Keys[i].Time, keys[i]["Time"]);
+                    TrySetPS(curve.Keys[i].Value, keys[i]["Value"]);
+                }
+            }
+        }
+
+        void SerializeCurve4(YAML::Emitter& out, const std::string& name, const ParticleCurve4& curve)
+        {
+            out << YAML::Key << name << YAML::Value << YAML::BeginMap;
+            SerializeCurve(out, "R", curve.R);
+            SerializeCurve(out, "G", curve.G);
+            SerializeCurve(out, "B", curve.B);
+            SerializeCurve(out, "A", curve.A);
+            out << YAML::EndMap;
+        }
+
+        void DeserializeCurve4(const YAML::Node& node, ParticleCurve4& curve)
+        {
+            if (!node || !node.IsMap())
+            {
+                return;
+            }
+            DeserializeCurve(node["R"], curve.R);
+            DeserializeCurve(node["G"], curve.G);
+            DeserializeCurve(node["B"], curve.B);
+            DeserializeCurve(node["A"], curve.A);
+        }
     } // namespace
 
     void ParticleSystemAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
@@ -2865,7 +2925,7 @@ namespace OloEngine
         }
         out << YAML::EndSeq;
 
-        out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(emitter.Shape.index());
+        out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(GetEmissionShapeType(emitter.Shape));
 
         if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
             out << YAML::Key << "EmissionSphereRadius" << YAML::Value << sphere->Radius;
@@ -2890,7 +2950,13 @@ namespace OloEngine
         out << YAML::Key << "DragEnabled" << YAML::Value << sys.DragModule.Enabled;
         out << YAML::Key << "DragCoefficient" << YAML::Value << sys.DragModule.DragCoefficient;
         out << YAML::Key << "ColorOverLifetimeEnabled" << YAML::Value << sys.ColorModule.Enabled;
+        SerializeCurve4(out, "ColorCurve", sys.ColorModule.ColorCurve);
         out << YAML::Key << "SizeOverLifetimeEnabled" << YAML::Value << sys.SizeModule.Enabled;
+        SerializeCurve(out, "SizeCurve", sys.SizeModule.SizeCurve);
+        out << YAML::Key << "VelocityOverLifetimeEnabled" << YAML::Value << sys.VelocityModule.Enabled;
+        out << YAML::Key << "LinearVelocity" << YAML::Value << sys.VelocityModule.LinearVelocity;
+        out << YAML::Key << "SpeedMultiplier" << YAML::Value << sys.VelocityModule.SpeedMultiplier;
+        SerializeCurve(out, "SpeedCurve", sys.VelocityModule.SpeedCurve);
         out << YAML::Key << "RotationOverLifetimeEnabled" << YAML::Value << sys.RotationModule.Enabled;
         out << YAML::Key << "AngularVelocity" << YAML::Value << sys.RotationModule.AngularVelocity;
         out << YAML::Key << "NoiseEnabled" << YAML::Value << sys.NoiseModule.Enabled;
@@ -2928,8 +2994,23 @@ namespace OloEngine
         out << YAML::Key << "TrailColorEnd" << YAML::Value << sys.TrailModule.ColorEnd;
         out << YAML::Key << "SubEmitterEnabled" << YAML::Value << sys.SubEmitterModule.Enabled;
         out << YAML::Key << "LODDistance1" << YAML::Value << sys.LODDistance1;
-        out << YAML::Key << "LODDistance2" << YAML::Value << sys.LODDistance2;
         out << YAML::Key << "LODMaxDistance" << YAML::Value << sys.LODMaxDistance;
+
+        // Rendering settings
+        out << YAML::Key << "BlendMode" << YAML::Value << static_cast<int>(sys.BlendMode);
+        out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(sys.RenderMode);
+        out << YAML::Key << "DepthSortEnabled" << YAML::Value << sys.DepthSortEnabled;
+        out << YAML::Key << "SoftParticlesEnabled" << YAML::Value << sys.SoftParticlesEnabled;
+        out << YAML::Key << "SoftParticleDistance" << YAML::Value << sys.SoftParticleDistance;
+        out << YAML::Key << "VelocityInheritance" << YAML::Value << sys.VelocityInheritance;
+
+        // Texture sheet animation
+        out << YAML::Key << "TextureSheetEnabled" << YAML::Value << sys.TextureSheetModule.Enabled;
+        out << YAML::Key << "TextureSheetGridX" << YAML::Value << sys.TextureSheetModule.GridX;
+        out << YAML::Key << "TextureSheetGridY" << YAML::Value << sys.TextureSheetModule.GridY;
+        out << YAML::Key << "TextureSheetTotalFrames" << YAML::Value << sys.TextureSheetModule.TotalFrames;
+        out << YAML::Key << "TextureSheetMode" << YAML::Value << static_cast<int>(sys.TextureSheetModule.Mode);
+        out << YAML::Key << "TextureSheetSpeedRange" << YAML::Value << sys.TextureSheetModule.SpeedRange;
 
         out << YAML::EndMap;
         out << YAML::EndMap;
@@ -2985,26 +3066,26 @@ namespace OloEngine
 
             if (auto shapeType = ps["EmissionShapeType"]; shapeType)
             {
-                switch (shapeType.as<int>())
+                switch (static_cast<EmissionShapeType>(shapeType.as<int>()))
                 {
-                    case 0:
+                    case EmissionShapeType::Point:
                         emitter.Shape = EmitPoint{};
                         break;
-                    case 1:
+                    case EmissionShapeType::Sphere:
                     {
                         EmitSphere s;
                         TrySetPS(s.Radius, ps["EmissionSphereRadius"]);
                         emitter.Shape = s;
                         break;
                     }
-                    case 2:
+                    case EmissionShapeType::Box:
                     {
                         EmitBox b;
                         TrySetPS(b.HalfExtents, ps["EmissionBoxHalfExtents"]);
                         emitter.Shape = b;
                         break;
                     }
-                    case 3:
+                    case EmissionShapeType::Cone:
                     {
                         EmitCone c;
                         TrySetPS(c.Angle, ps["EmissionConeAngle"]);
@@ -3012,7 +3093,7 @@ namespace OloEngine
                         emitter.Shape = c;
                         break;
                     }
-                    case 4:
+                    case EmissionShapeType::Ring:
                     {
                         EmitRing r;
                         TrySetPS(r.InnerRadius, ps["EmissionRingInnerRadius"]);
@@ -3020,7 +3101,7 @@ namespace OloEngine
                         emitter.Shape = r;
                         break;
                     }
-                    case 5:
+                    case EmissionShapeType::Edge:
                     {
                         EmitEdge e;
                         TrySetPS(e.Length, ps["EmissionEdgeLength"]);
@@ -3037,7 +3118,13 @@ namespace OloEngine
             TrySetPS(sys.DragModule.Enabled, ps["DragEnabled"]);
             TrySetPS(sys.DragModule.DragCoefficient, ps["DragCoefficient"]);
             TrySetPS(sys.ColorModule.Enabled, ps["ColorOverLifetimeEnabled"]);
+            DeserializeCurve4(ps["ColorCurve"], sys.ColorModule.ColorCurve);
             TrySetPS(sys.SizeModule.Enabled, ps["SizeOverLifetimeEnabled"]);
+            DeserializeCurve(ps["SizeCurve"], sys.SizeModule.SizeCurve);
+            TrySetPS(sys.VelocityModule.Enabled, ps["VelocityOverLifetimeEnabled"]);
+            TrySetPS(sys.VelocityModule.LinearVelocity, ps["LinearVelocity"]);
+            TrySetPS(sys.VelocityModule.SpeedMultiplier, ps["SpeedMultiplier"]);
+            DeserializeCurve(ps["SpeedCurve"], sys.VelocityModule.SpeedCurve);
             TrySetPS(sys.RotationModule.Enabled, ps["RotationOverLifetimeEnabled"]);
             TrySetPS(sys.RotationModule.AngularVelocity, ps["AngularVelocity"]);
             TrySetPS(sys.NoiseModule.Enabled, ps["NoiseEnabled"]);
@@ -3094,8 +3181,26 @@ namespace OloEngine
 
             TrySetPS(sys.SubEmitterModule.Enabled, ps["SubEmitterEnabled"]);
             TrySetPS(sys.LODDistance1, ps["LODDistance1"]);
-            TrySetPS(sys.LODDistance2, ps["LODDistance2"]);
             TrySetPS(sys.LODMaxDistance, ps["LODMaxDistance"]);
+
+            // Rendering settings
+            if (auto val = ps["BlendMode"]; val)
+                sys.BlendMode = static_cast<ParticleBlendMode>(val.as<int>());
+            if (auto val = ps["RenderMode"]; val)
+                sys.RenderMode = static_cast<ParticleRenderMode>(val.as<int>());
+            TrySetPS(sys.DepthSortEnabled, ps["DepthSortEnabled"]);
+            TrySetPS(sys.SoftParticlesEnabled, ps["SoftParticlesEnabled"]);
+            TrySetPS(sys.SoftParticleDistance, ps["SoftParticleDistance"]);
+            TrySetPS(sys.VelocityInheritance, ps["VelocityInheritance"]);
+
+            // Texture sheet animation
+            TrySetPS(sys.TextureSheetModule.Enabled, ps["TextureSheetEnabled"]);
+            TrySetPS(sys.TextureSheetModule.GridX, ps["TextureSheetGridX"]);
+            TrySetPS(sys.TextureSheetModule.GridY, ps["TextureSheetGridY"]);
+            TrySetPS(sys.TextureSheetModule.TotalFrames, ps["TextureSheetTotalFrames"]);
+            if (auto val = ps["TextureSheetMode"]; val)
+                sys.TextureSheetModule.Mode = static_cast<TextureSheetAnimMode>(val.as<int>());
+            TrySetPS(sys.TextureSheetModule.SpeedRange, ps["TextureSheetSpeedRange"]);
 
             return true;
         }

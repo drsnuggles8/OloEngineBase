@@ -22,7 +22,7 @@ namespace OloEngine
         auto& trail = m_Trails[particleIndex];
 
         // Check minimum distance from last recorded point
-        if (trail.Count > 0)
+        if (trail.m_Count > 0)
         {
             const glm::vec3& lastPos = trail.Get(0).Position;
             glm::vec3 diff = position - lastPos;
@@ -73,7 +73,7 @@ namespace OloEngine
         for (auto& trail : m_Trails)
         {
             // Age all points from newest to oldest, trim expired from the end
-            u32 newCount = trail.Count;
+            u32 newCount = trail.m_Count;
             for (u32 i = 0; i < newCount; ++i)
             {
                 TrailPoint& pt = trail.Get(i);

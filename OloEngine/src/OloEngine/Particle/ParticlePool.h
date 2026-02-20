@@ -39,22 +39,22 @@ namespace OloEngine
         }
 
         // SOA arrays — public for direct module access (performance critical)
-        std::vector<glm::vec3> Positions;
-        std::vector<glm::vec3> Velocities;
-        std::vector<glm::vec4> Colors;
-        std::vector<f32> Sizes;
-        std::vector<f32> Rotations;
-        std::vector<f32> Lifetimes;    // Remaining lifetime
-        std::vector<f32> MaxLifetimes; // Initial lifetime (for age calculation)
+        std::vector<glm::vec3> m_Positions;
+        std::vector<glm::vec3> m_Velocities;
+        std::vector<glm::vec4> m_Colors;
+        std::vector<f32> m_Sizes;
+        std::vector<f32> m_Rotations;
+        std::vector<f32> m_Lifetimes;    // Remaining lifetime
+        std::vector<f32> m_MaxLifetimes; // Initial lifetime (for age calculation)
 
         // Initial values stored at emission time — used by OverLifetime modules as base multiplier
-        std::vector<glm::vec4> InitialColors;
-        std::vector<f32> InitialSizes;
-        std::vector<glm::vec3> InitialVelocities;
+        std::vector<glm::vec4> m_InitialColors;
+        std::vector<f32> m_InitialSizes;
+        std::vector<glm::vec3> m_InitialVelocities;
 
         // Optional callback invoked when particles are swapped during Kill/UpdateLifetimes
         // Use to keep external SOA data synchronized (e.g., trail data)
-        std::function<void(u32, u32)> OnSwapCallback;
+        std::function<void(u32, u32)> m_OnSwapCallback;
 
       private:
         void SwapParticles(u32 a, u32 b);

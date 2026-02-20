@@ -19,60 +19,60 @@ namespace OloEngine
     // Fixed-size ring buffer for a single particle's trail points (O(1) insert and age)
     struct TrailRingBuffer
     {
-        std::vector<TrailPoint> Points; // Fixed-size storage
-        u32 Head = 0;                   // Index of the newest point
-        u32 Count = 0;                  // Number of active points
-        u32 Capacity = 0;
+        std::vector<TrailPoint> m_Points; // Fixed-size storage
+        u32 m_Head = 0;                   // Index of the newest point
+        u32 m_Count = 0;                  // Number of active points
+        u32 m_Capacity = 0;
 
         void Resize(u32 maxPoints)
         {
-            Capacity = maxPoints;
-            Points.resize(maxPoints);
-            Head = 0;
-            Count = 0;
+            m_Capacity = maxPoints;
+            m_Points.resize(maxPoints);
+            m_Head = 0;
+            m_Count = 0;
         }
 
         void Clear()
         {
-            Head = 0;
-            Count = 0;
+            m_Head = 0;
+            m_Count = 0;
         }
 
         // Push a new point to the front (newest). Returns index of the new point.
         void Push(const TrailPoint& point)
         {
-            if (Capacity == 0)
+            if (m_Capacity == 0)
             {
                 return;
             }
             // Move head backwards (wrapping) to make room for new point
-            Head = (Head == 0) ? (Capacity - 1) : (Head - 1);
-            Points[Head] = point;
-            if (Count < Capacity)
+            m_Head = (m_Head == 0) ? (m_Capacity - 1) : (m_Head - 1);
+            m_Points[m_Head] = point;
+            if (m_Count < m_Capacity)
             {
-                ++Count;
+                ++m_Count;
             }
         }
 
-        // Get the i-th point (0 = newest, Count-1 = oldest)
+        // Get the i-th point (0 = newest, m_Count-1 = oldest)
         [[nodiscard]] const TrailPoint& Get(u32 i) const
         {
-            OLO_CORE_ASSERT(Capacity > 0 && i < Count, "TrailRingBuffer::Get out of range");
-            return Points[(Head + i) % Capacity];
+            OLO_CORE_ASSERT(m_Capacity > 0 && i < m_Count, "TrailRingBuffer::Get out of range");
+            return m_Points[(m_Head + i) % m_Capacity];
         }
 
         [[nodiscard]] TrailPoint& Get(u32 i)
         {
-            OLO_CORE_ASSERT(Capacity > 0 && i < Count, "TrailRingBuffer::Get out of range");
-            return Points[(Head + i) % Capacity];
+            OLO_CORE_ASSERT(m_Capacity > 0 && i < m_Count, "TrailRingBuffer::Get out of range");
+            return m_Points[(m_Head + i) % m_Capacity];
         }
 
-        // Remove oldest points (trim Count)
+        // Remove oldest points (trim m_Count)
         void TrimToCount(u32 newCount)
         {
-            if (newCount < Count)
+            if (newCount < m_Count)
             {
-                Count = newCount;
+                m_Count = newCount;
             }
         }
     };
@@ -95,7 +95,7 @@ namespace OloEngine
         // Age all trail points by dt/lifetime
         void AgePoints(f32 dt, f32 trailLifetime);
 
-        // Get trail ring buffer for a particle (iterate 0..Count-1 via Get())
+        // Get trail ring buffer for a particle (iterate 0..m_Count-1 via Get())
         [[nodiscard]] const TrailRingBuffer& GetTrail(u32 particleIndex) const
         {
             return m_Trails[particleIndex];

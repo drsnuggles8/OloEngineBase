@@ -62,26 +62,26 @@ namespace OloEngine
     {
         auto& rng = RandomUtils::GetGlobalRandom();
 
-        pool.Positions[index] = emitterPosition + emitterRotation * SampleEmissionShape(Shape);
+        pool.m_Positions[index] = emitterPosition + emitterRotation * SampleEmissionShape(Shape);
 
         // Apply entity rotation so emission shapes orient with the entity
         glm::vec3 dir = emitterRotation * SampleEmissionDirection(Shape);
         f32 speed = InitialSpeed + rng.GetFloat32InRange(-SpeedVariance, SpeedVariance);
         glm::vec3 velocity = dir * std::max(speed, 0.0f);
-        pool.Velocities[index] = velocity;
-        pool.InitialVelocities[index] = velocity;
+        pool.m_Velocities[index] = velocity;
+        pool.m_InitialVelocities[index] = velocity;
 
-        pool.Colors[index] = InitialColor;
-        pool.InitialColors[index] = InitialColor;
+        pool.m_Colors[index] = InitialColor;
+        pool.m_InitialColors[index] = InitialColor;
 
         f32 size = std::max(InitialSize + rng.GetFloat32InRange(-SizeVariance, SizeVariance), 0.0f);
-        pool.Sizes[index] = size;
-        pool.InitialSizes[index] = size;
+        pool.m_Sizes[index] = size;
+        pool.m_InitialSizes[index] = size;
 
-        pool.Rotations[index] = InitialRotation + rng.GetFloat32InRange(-RotationVariance, RotationVariance);
+        pool.m_Rotations[index] = InitialRotation + rng.GetFloat32InRange(-RotationVariance, RotationVariance);
 
         f32 lifetime = rng.GetFloat32InRange(LifetimeMin, LifetimeMax);
-        pool.Lifetimes[index] = lifetime;
-        pool.MaxLifetimes[index] = lifetime;
+        pool.m_Lifetimes[index] = lifetime;
+        pool.m_MaxLifetimes[index] = lifetime;
     }
 } // namespace OloEngine

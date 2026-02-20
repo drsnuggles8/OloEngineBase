@@ -13,8 +13,208 @@ namespace OloEngine
         m_TrailData.Resize(maxParticles, TrailModule.MaxTrailPoints);
 
         // Wire up swap callback so trail data stays in sync when particles die
-        m_Pool.OnSwapCallback = [this](u32 a, u32 b)
+        m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
         { m_TrailData.SwapParticles(a, b); };
+    }
+
+    ParticleSystem::ParticleSystem(const ParticleSystem& other)
+        : m_Pool(other.m_Pool)
+        , m_TrailData(other.m_TrailData)
+        , m_PendingTriggers(other.m_PendingTriggers)
+        , m_SortedIndices(other.m_SortedIndices)
+        , m_SortDistances(other.m_SortDistances)
+        , m_JoltScene(other.m_JoltScene)
+        , m_EmitterPosition(other.m_EmitterPosition)
+        , m_ParentVelocity(other.m_ParentVelocity)
+        , m_Time(other.m_Time)
+        , m_LODSpawnRateMultiplier(other.m_LODSpawnRateMultiplier)
+        , m_HasWarmedUp(other.m_HasWarmedUp)
+        , Playing(other.Playing)
+        , Looping(other.Looping)
+        , Duration(other.Duration)
+        , PlaybackSpeed(other.PlaybackSpeed)
+        , WarmUpTime(other.WarmUpTime)
+        , SimulationSpace(other.SimulationSpace)
+        , BlendMode(other.BlendMode)
+        , RenderMode(other.RenderMode)
+        , DepthSortEnabled(other.DepthSortEnabled)
+        , SoftParticlesEnabled(other.SoftParticlesEnabled)
+        , SoftParticleDistance(other.SoftParticleDistance)
+        , VelocityInheritance(other.VelocityInheritance)
+        , LODDistance1(other.LODDistance1)
+        , LODMaxDistance(other.LODMaxDistance)
+        , Emitter(other.Emitter)
+        , ColorModule(other.ColorModule)
+        , SizeModule(other.SizeModule)
+        , VelocityModule(other.VelocityModule)
+        , RotationModule(other.RotationModule)
+        , GravityModule(other.GravityModule)
+        , DragModule(other.DragModule)
+        , NoiseModule(other.NoiseModule)
+        , CollisionModule(other.CollisionModule)
+        , ForceFields(other.ForceFields)
+        , TrailModule(other.TrailModule)
+        , SubEmitterModule(other.SubEmitterModule)
+        , TextureSheetModule(other.TextureSheetModule)
+    {
+        // Rewire callback to THIS instance's trail data
+        m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
+        { m_TrailData.SwapParticles(a, b); };
+    }
+
+    ParticleSystem& ParticleSystem::operator=(const ParticleSystem& other)
+    {
+        if (this == &other)
+        {
+            return *this;
+        }
+
+        // Copy all public settings
+        Playing = other.Playing;
+        Looping = other.Looping;
+        Duration = other.Duration;
+        PlaybackSpeed = other.PlaybackSpeed;
+        WarmUpTime = other.WarmUpTime;
+        SimulationSpace = other.SimulationSpace;
+        BlendMode = other.BlendMode;
+        RenderMode = other.RenderMode;
+        DepthSortEnabled = other.DepthSortEnabled;
+        SoftParticlesEnabled = other.SoftParticlesEnabled;
+        SoftParticleDistance = other.SoftParticleDistance;
+        VelocityInheritance = other.VelocityInheritance;
+        LODDistance1 = other.LODDistance1;
+        LODMaxDistance = other.LODMaxDistance;
+        Emitter = other.Emitter;
+        ColorModule = other.ColorModule;
+        SizeModule = other.SizeModule;
+        VelocityModule = other.VelocityModule;
+        RotationModule = other.RotationModule;
+        GravityModule = other.GravityModule;
+        DragModule = other.DragModule;
+        NoiseModule = other.NoiseModule;
+        CollisionModule = other.CollisionModule;
+        ForceFields = other.ForceFields;
+        TrailModule = other.TrailModule;
+        SubEmitterModule = other.SubEmitterModule;
+        TextureSheetModule = other.TextureSheetModule;
+
+        // Copy private state
+        m_Pool = other.m_Pool;
+        m_TrailData = other.m_TrailData;
+        m_PendingTriggers = other.m_PendingTriggers;
+        m_SortedIndices = other.m_SortedIndices;
+        m_SortDistances = other.m_SortDistances;
+        m_JoltScene = other.m_JoltScene;
+        m_EmitterPosition = other.m_EmitterPosition;
+        m_ParentVelocity = other.m_ParentVelocity;
+        m_Time = other.m_Time;
+        m_LODSpawnRateMultiplier = other.m_LODSpawnRateMultiplier;
+        m_HasWarmedUp = other.m_HasWarmedUp;
+
+        // Rewire callback to THIS instance
+        m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
+        { m_TrailData.SwapParticles(a, b); };
+
+        return *this;
+    }
+
+    ParticleSystem::ParticleSystem(ParticleSystem&& other) noexcept
+        : m_Pool(std::move(other.m_Pool))
+        , m_TrailData(std::move(other.m_TrailData))
+        , m_PendingTriggers(std::move(other.m_PendingTriggers))
+        , m_SortedIndices(std::move(other.m_SortedIndices))
+        , m_SortDistances(std::move(other.m_SortDistances))
+        , m_JoltScene(other.m_JoltScene)
+        , m_EmitterPosition(other.m_EmitterPosition)
+        , m_ParentVelocity(other.m_ParentVelocity)
+        , m_Time(other.m_Time)
+        , m_LODSpawnRateMultiplier(other.m_LODSpawnRateMultiplier)
+        , m_HasWarmedUp(other.m_HasWarmedUp)
+        , Playing(other.Playing)
+        , Looping(other.Looping)
+        , Duration(other.Duration)
+        , PlaybackSpeed(other.PlaybackSpeed)
+        , WarmUpTime(other.WarmUpTime)
+        , SimulationSpace(other.SimulationSpace)
+        , BlendMode(other.BlendMode)
+        , RenderMode(other.RenderMode)
+        , DepthSortEnabled(other.DepthSortEnabled)
+        , SoftParticlesEnabled(other.SoftParticlesEnabled)
+        , SoftParticleDistance(other.SoftParticleDistance)
+        , VelocityInheritance(other.VelocityInheritance)
+        , LODDistance1(other.LODDistance1)
+        , LODMaxDistance(other.LODMaxDistance)
+        , Emitter(std::move(other.Emitter))
+        , ColorModule(other.ColorModule)
+        , SizeModule(other.SizeModule)
+        , VelocityModule(other.VelocityModule)
+        , RotationModule(other.RotationModule)
+        , GravityModule(other.GravityModule)
+        , DragModule(other.DragModule)
+        , NoiseModule(other.NoiseModule)
+        , CollisionModule(other.CollisionModule)
+        , ForceFields(std::move(other.ForceFields))
+        , TrailModule(other.TrailModule)
+        , SubEmitterModule(std::move(other.SubEmitterModule))
+        , TextureSheetModule(other.TextureSheetModule)
+    {
+        // Rewire callback to THIS instance
+        m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
+        { m_TrailData.SwapParticles(a, b); };
+    }
+
+    ParticleSystem& ParticleSystem::operator=(ParticleSystem&& other) noexcept
+    {
+        if (this == &other)
+        {
+            return *this;
+        }
+
+        Playing = other.Playing;
+        Looping = other.Looping;
+        Duration = other.Duration;
+        PlaybackSpeed = other.PlaybackSpeed;
+        WarmUpTime = other.WarmUpTime;
+        SimulationSpace = other.SimulationSpace;
+        BlendMode = other.BlendMode;
+        RenderMode = other.RenderMode;
+        DepthSortEnabled = other.DepthSortEnabled;
+        SoftParticlesEnabled = other.SoftParticlesEnabled;
+        SoftParticleDistance = other.SoftParticleDistance;
+        VelocityInheritance = other.VelocityInheritance;
+        LODDistance1 = other.LODDistance1;
+        LODMaxDistance = other.LODMaxDistance;
+        Emitter = std::move(other.Emitter);
+        ColorModule = other.ColorModule;
+        SizeModule = other.SizeModule;
+        VelocityModule = other.VelocityModule;
+        RotationModule = other.RotationModule;
+        GravityModule = other.GravityModule;
+        DragModule = other.DragModule;
+        NoiseModule = other.NoiseModule;
+        CollisionModule = other.CollisionModule;
+        ForceFields = std::move(other.ForceFields);
+        TrailModule = other.TrailModule;
+        SubEmitterModule = std::move(other.SubEmitterModule);
+        TextureSheetModule = other.TextureSheetModule;
+
+        m_Pool = std::move(other.m_Pool);
+        m_TrailData = std::move(other.m_TrailData);
+        m_PendingTriggers = std::move(other.m_PendingTriggers);
+        m_SortedIndices = std::move(other.m_SortedIndices);
+        m_SortDistances = std::move(other.m_SortDistances);
+        m_JoltScene = other.m_JoltScene;
+        m_EmitterPosition = other.m_EmitterPosition;
+        m_ParentVelocity = other.m_ParentVelocity;
+        m_Time = other.m_Time;
+        m_LODSpawnRateMultiplier = other.m_LODSpawnRateMultiplier;
+        m_HasWarmedUp = other.m_HasWarmedUp;
+
+        // Rewire callback to THIS instance
+        m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
+        { m_TrailData.SwapParticles(a, b); };
+
+        return *this;
     }
 
     void ParticleSystem::SetMaxParticles(u32 maxParticles)
@@ -108,8 +308,8 @@ namespace OloEngine
             glm::vec3 inherited = m_ParentVelocity * VelocityInheritance;
             for (u32 i = prevAlive; i < newAlive; ++i)
             {
-                m_Pool.Velocities[i] += inherited;
-                m_Pool.InitialVelocities[i] += inherited;
+                m_Pool.m_Velocities[i] += inherited;
+                m_Pool.m_InitialVelocities[i] += inherited;
             }
         }
 
@@ -123,8 +323,8 @@ namespace OloEngine
                     for (u32 i = prevAlive; i < newAlive; ++i)
                     {
                         SubEmitterTriggerInfo trigger;
-                        trigger.Position = m_Pool.Positions[i];
-                        trigger.Velocity = entry.InheritVelocity ? m_Pool.Velocities[i] * entry.InheritVelocityScale : glm::vec3(0.0f);
+                        trigger.Position = m_Pool.m_Positions[i];
+                        trigger.Velocity = entry.InheritVelocity ? m_Pool.m_Velocities[i] * entry.InheritVelocityScale : glm::vec3(0.0f);
                         trigger.Event = SubEmitterEvent::OnBirth;
                         trigger.ChildSystemIndex = entry.ChildSystemIndex;
                         trigger.EmitCount = entry.EmitCount;
@@ -144,7 +344,7 @@ namespace OloEngine
         }
 
         // 2. Apply modules — independent modules run concurrently with the velocity chain
-        // Color, Size, and Rotation only write Colors/Sizes/Rotations respectively,
+        // Color, Size, and Rotation only write m_Colors/m_Sizes/m_Rotations respectively,
         // so they are safe to run in parallel with the velocity chain (Gravity→Drag→Noise→Velocity).
         bool useParallelModules = m_Pool.GetAliveCount() >= 256 && (ColorModule.Enabled || SizeModule.Enabled || RotationModule.Enabled);
 
@@ -165,7 +365,7 @@ namespace OloEngine
                                              { RotationModule.Apply(scaledDt, m_Pool); });
         }
 
-        // Velocity chain (must be sequential — all write Velocities)
+        // Velocity chain (must be sequential — all write m_Velocities)
         GravityModule.Apply(scaledDt, m_Pool);
         DragModule.Apply(scaledDt, m_Pool);
         NoiseModule.Apply(scaledDt, m_Time, m_Pool);
@@ -235,7 +435,7 @@ namespace OloEngine
         u32 count = m_Pool.GetAliveCount();
         for (u32 i = 0; i < count; ++i)
         {
-            m_Pool.Positions[i] += m_Pool.Velocities[i] * scaledDt;
+            m_Pool.m_Positions[i] += m_Pool.m_Velocities[i] * scaledDt;
         }
 
         // 5. Record trail points after position integration
@@ -244,7 +444,7 @@ namespace OloEngine
             count = m_Pool.GetAliveCount();
             for (u32 i = 0; i < count; ++i)
             {
-                m_TrailData.RecordPoint(i, m_Pool.Positions[i], m_Pool.Sizes[i], m_Pool.Colors[i], TrailModule.MinVertexDistance);
+                m_TrailData.RecordPoint(i, m_Pool.m_Positions[i], m_Pool.m_Sizes[i], m_Pool.m_Colors[i], TrailModule.MinVertexDistance);
             }
             m_TrailData.AgePoints(scaledDt, TrailModule.TrailLifetime);
         }
@@ -255,15 +455,15 @@ namespace OloEngine
             count = m_Pool.GetAliveCount();
             for (u32 i = 0; i < count; ++i)
             {
-                if (m_Pool.Lifetimes[i] - scaledDt <= 0.0f)
+                if (m_Pool.m_Lifetimes[i] - scaledDt <= 0.0f)
                 {
                     for (const auto& entry : SubEmitterModule.Entries)
                     {
                         if (entry.Trigger == SubEmitterEvent::OnDeath)
                         {
                             SubEmitterTriggerInfo trigger;
-                            trigger.Position = m_Pool.Positions[i];
-                            trigger.Velocity = entry.InheritVelocity ? m_Pool.Velocities[i] * entry.InheritVelocityScale : glm::vec3(0.0f);
+                            trigger.Position = m_Pool.m_Positions[i];
+                            trigger.Velocity = entry.InheritVelocity ? m_Pool.m_Velocities[i] * entry.InheritVelocityScale : glm::vec3(0.0f);
                             trigger.Event = SubEmitterEvent::OnDeath;
                             trigger.ChildSystemIndex = entry.ChildSystemIndex;
                             trigger.EmitCount = entry.EmitCount;
@@ -274,7 +474,7 @@ namespace OloEngine
             }
         }
 
-        // Kill expired particles (OnSwapCallback keeps trail data in sync)
+        // Kill expired particles (m_OnSwapCallback keeps trail data in sync)
         m_Pool.UpdateLifetimes(scaledDt);
 
         // 7. Spawn particles from sub-emitter triggers
@@ -306,7 +506,7 @@ namespace OloEngine
             for (u32 i = 0; i < emitted; ++i)
             {
                 u32 idx = firstSlot + i;
-                m_Pool.Positions[idx] = trigger.Position;
+                m_Pool.m_Positions[idx] = trigger.Position;
 
                 // Random direction + inherited velocity
                 glm::vec3 dir = glm::normalize(glm::vec3(
@@ -315,20 +515,20 @@ namespace OloEngine
                     rng.GetFloat32InRange(-1.0f, 1.0f)));
                 f32 speed = Emitter.InitialSpeed + rng.GetFloat32InRange(-Emitter.SpeedVariance, Emitter.SpeedVariance);
                 glm::vec3 velocity = dir * std::max(speed, 0.0f) + trigger.Velocity;
-                m_Pool.Velocities[idx] = velocity;
-                m_Pool.InitialVelocities[idx] = velocity;
+                m_Pool.m_Velocities[idx] = velocity;
+                m_Pool.m_InitialVelocities[idx] = velocity;
 
-                m_Pool.Colors[idx] = Emitter.InitialColor;
-                m_Pool.InitialColors[idx] = Emitter.InitialColor;
+                m_Pool.m_Colors[idx] = Emitter.InitialColor;
+                m_Pool.m_InitialColors[idx] = Emitter.InitialColor;
 
                 f32 size = Emitter.InitialSize + rng.GetFloat32InRange(-Emitter.SizeVariance, Emitter.SizeVariance);
-                m_Pool.Sizes[idx] = size;
-                m_Pool.InitialSizes[idx] = size;
-                m_Pool.Rotations[idx] = Emitter.InitialRotation + rng.GetFloat32InRange(-Emitter.RotationVariance, Emitter.RotationVariance);
+                m_Pool.m_Sizes[idx] = size;
+                m_Pool.m_InitialSizes[idx] = size;
+                m_Pool.m_Rotations[idx] = Emitter.InitialRotation + rng.GetFloat32InRange(-Emitter.RotationVariance, Emitter.RotationVariance);
 
                 f32 lifetime = rng.GetFloat32InRange(Emitter.LifetimeMin, Emitter.LifetimeMax);
-                m_Pool.Lifetimes[idx] = lifetime;
-                m_Pool.MaxLifetimes[idx] = lifetime;
+                m_Pool.m_Lifetimes[idx] = lifetime;
+                m_Pool.m_MaxLifetimes[idx] = lifetime;
 
                 if (TrailModule.Enabled)
                 {
@@ -350,7 +550,7 @@ namespace OloEngine
         m_SortDistances.resize(count);
         for (u32 i = 0; i < count; ++i)
         {
-            glm::vec3 diff = m_Pool.Positions[i] - cameraPosition;
+            glm::vec3 diff = m_Pool.m_Positions[i] - cameraPosition;
             m_SortDistances[i] = glm::dot(diff, diff);
         }
 

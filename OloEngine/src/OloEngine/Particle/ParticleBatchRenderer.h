@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 
 #include <glm/glm.hpp>
+#include <span>
 
 namespace OloEngine
 {
@@ -82,14 +83,13 @@ namespace OloEngine
 
         // Render mesh particles (standalone call, not part of billboard batching)
         static void RenderMeshParticles(const Ref<Mesh>& mesh,
-                                        const MeshParticleInstance* instances,
-                                        u32 instanceCount,
+                                        std::span<const MeshParticleInstance> instances,
                                         const Ref<Texture2D>& texture);
 
         // Submit a trail quad (4 vertices with positions, colors, UVs)
-        static void SubmitTrailQuad(const glm::vec3 positions[4],
-                                    const glm::vec4 colors[4],
-                                    const glm::vec2 texCoords[4],
+        static void SubmitTrailQuad(std::span<const glm::vec3, 4> positions,
+                                    std::span<const glm::vec4, 4> colors,
+                                    std::span<const glm::vec2, 4> texCoords,
                                     int entityID);
 
         // Set texture for trail rendering (call before SubmitTrailQuad)

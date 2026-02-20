@@ -23,7 +23,7 @@ namespace OloEngine
         }
         else // BySpeed
         {
-            f32 speed = glm::length(pool.Velocities[index]);
+            f32 speed = glm::length(pool.m_Velocities[index]);
             f32 t = std::min(speed / std::max(sheet.SpeedRange, 0.001f), 1.0f);
             return static_cast<u32>(t * static_cast<f32>(sheet.TotalFrames - 1) + 0.5f);
         }
@@ -43,10 +43,10 @@ namespace OloEngine
         for (u32 iter = 0; iter < count; ++iter)
         {
             u32 i = useSorted ? (*sortedIndices)[iter] : iter;
-            const glm::vec3 pos = pool.Positions[i] + worldOffset;
-            f32 size = pool.Sizes[i];
-            f32 rotation = glm::radians(pool.Rotations[i]);
-            const auto& color = pool.Colors[i];
+            const glm::vec3 pos = pool.m_Positions[i] + worldOffset;
+            f32 size = pool.m_Sizes[i];
+            f32 rotation = glm::radians(pool.m_Rotations[i]);
+            const auto& color = pool.m_Colors[i];
 
             if (useSpriteSheet)
             {
@@ -86,10 +86,10 @@ namespace OloEngine
         for (u32 iter = 0; iter < count; ++iter)
         {
             u32 i = useSorted ? (*sortedIndices)[iter] : iter;
-            const glm::vec3 pos = pool.Positions[i] + worldOffset;
-            f32 size = pool.Sizes[i];
-            f32 rotation = glm::radians(pool.Rotations[i]);
-            const auto& color = pool.Colors[i];
+            const glm::vec3 pos = pool.m_Positions[i] + worldOffset;
+            f32 size = pool.m_Sizes[i];
+            f32 rotation = glm::radians(pool.m_Rotations[i]);
+            const auto& color = pool.m_Colors[i];
 
             glm::vec4 uvRect = s_DefaultUV;
             if (useSpriteSheet)
@@ -123,10 +123,10 @@ namespace OloEngine
         for (u32 iter = 0; iter < count; ++iter)
         {
             u32 i = useSorted ? (*sortedIndices)[iter] : iter;
-            const glm::vec3 pos = pool.Positions[i] + worldOffset;
-            f32 size = pool.Sizes[i];
-            const auto& color = pool.Colors[i];
-            const glm::vec3& vel = pool.Velocities[i];
+            const glm::vec3 pos = pool.m_Positions[i] + worldOffset;
+            f32 size = pool.m_Sizes[i];
+            const auto& color = pool.m_Colors[i];
+            const glm::vec3& vel = pool.m_Velocities[i];
 
             glm::vec4 uvRect = s_DefaultUV;
             if (useSpriteSheet)
@@ -170,10 +170,10 @@ namespace OloEngine
         for (u32 iter = 0; iter < count; ++iter)
         {
             u32 i = useSorted ? (*sortedIndices)[iter] : iter;
-            const glm::vec3 pos = pool.Positions[i] + worldOffset;
-            f32 size = pool.Sizes[i];
-            f32 rotation = glm::radians(pool.Rotations[i]);
-            const auto& color = pool.Colors[i];
+            const glm::vec3 pos = pool.m_Positions[i] + worldOffset;
+            f32 size = pool.m_Sizes[i];
+            f32 rotation = glm::radians(pool.m_Rotations[i]);
+            const auto& color = pool.m_Colors[i];
 
             // Build model matrix: translate * rotate * scale
             glm::mat4 model = glm::translate(glm::mat4(1.0f), pos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 1.0f, 0.0f }) * glm::scale(glm::mat4(1.0f), glm::vec3(size));
@@ -184,6 +184,6 @@ namespace OloEngine
             inst.IDs = glm::ivec4(entityID, 0, 0, 0);
         }
 
-        ParticleBatchRenderer::RenderMeshParticles(mesh, s_Instances.data(), count, texture);
+        ParticleBatchRenderer::RenderMeshParticles(mesh, std::span{s_Instances.data(), count}, texture);
     }
 } // namespace OloEngine

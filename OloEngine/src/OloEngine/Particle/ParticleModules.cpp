@@ -18,7 +18,7 @@ namespace OloEngine
         for (u32 i = 0; i < count; ++i)
         {
             f32 age = pool.GetAge(i);
-            pool.Colors[i] = pool.InitialColors[i] * ColorCurve.Evaluate(age);
+            pool.m_Colors[i] = pool.m_InitialColors[i] * ColorCurve.Evaluate(age);
         }
     }
 
@@ -33,7 +33,7 @@ namespace OloEngine
         for (u32 i = 0; i < count; ++i)
         {
             f32 age = pool.GetAge(i);
-            pool.Sizes[i] = pool.InitialSizes[i] * SizeCurve.Evaluate(age);
+            pool.m_Sizes[i] = pool.m_InitialSizes[i] * SizeCurve.Evaluate(age);
         }
     }
 
@@ -52,8 +52,8 @@ namespace OloEngine
 
             // Scale the initial velocity component by the curve while preserving
             // accumulated force contributions (gravity, drag, noise, etc.)
-            glm::vec3 forceContribution = pool.Velocities[i] - pool.InitialVelocities[i];
-            pool.Velocities[i] = pool.InitialVelocities[i] * speedMul + forceContribution + LinearVelocity * dt;
+            glm::vec3 forceContribution = pool.m_Velocities[i] - pool.m_InitialVelocities[i];
+            pool.m_Velocities[i] = pool.m_InitialVelocities[i] * speedMul + forceContribution + LinearVelocity * dt;
         }
     }
 
@@ -68,7 +68,7 @@ namespace OloEngine
         f32 delta = AngularVelocity * dt;
         for (u32 i = 0; i < count; ++i)
         {
-            pool.Rotations[i] += delta;
+            pool.m_Rotations[i] += delta;
         }
     }
 
@@ -83,7 +83,7 @@ namespace OloEngine
         glm::vec3 dv = Gravity * dt;
         for (u32 i = 0; i < count; ++i)
         {
-            pool.Velocities[i] += dv;
+            pool.m_Velocities[i] += dv;
         }
     }
 
@@ -98,7 +98,7 @@ namespace OloEngine
         f32 factor = std::exp(-DragCoefficient * dt);
         for (u32 i = 0; i < count; ++i)
         {
-            pool.Velocities[i] *= factor;
+            pool.m_Velocities[i] *= factor;
         }
     }
 
@@ -113,14 +113,14 @@ namespace OloEngine
         u32 count = pool.GetAliveCount();
         for (u32 i = 0; i < count; ++i)
         {
-            const glm::vec3& pos = pool.Positions[i];
+            const glm::vec3& pos = pool.m_Positions[i];
             glm::vec3 samplePos = pos * Frequency + glm::vec3(time);
             glm::vec3 offset{
                 SimplexNoise3D(samplePos.x, samplePos.y, samplePos.z) * Strength * dt,
                 SimplexNoise3D(samplePos.x + 31.416f, samplePos.y + 47.853f, samplePos.z + 12.791f) * Strength * dt,
                 SimplexNoise3D(samplePos.x + 73.156f, samplePos.y + 89.213f, samplePos.z + 55.627f) * Strength * dt
             };
-            pool.Velocities[i] += offset;
+            pool.m_Velocities[i] += offset;
         }
     }
 

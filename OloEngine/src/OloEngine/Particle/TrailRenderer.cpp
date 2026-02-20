@@ -20,7 +20,7 @@ namespace OloEngine
         for (u32 p = 0; p < particleCount; ++p)
         {
             const auto& trail = trailData.GetTrail(p);
-            if (trail.Count < 2)
+            if (trail.m_Count < 2)
             {
                 continue;
             }
@@ -28,14 +28,14 @@ namespace OloEngine
             // Render trail as connected quads via SubmitTrailQuad.
             // Each segment between adjacent trail points expands perpendicular to
             // both the segment direction and the view direction for a camera-facing ribbon.
-            for (u32 i = 0; i < trail.Count - 1; ++i)
+            for (u32 i = 0; i < trail.m_Count - 1; ++i)
             {
                 const auto& a = trail.Get(i);
                 const auto& b = trail.Get(i + 1);
 
                 // Interpolate color and width based on position in trail
-                f32 tA = static_cast<f32>(i) / static_cast<f32>(trail.Count - 1);
-                f32 tB = static_cast<f32>(i + 1) / static_cast<f32>(trail.Count - 1);
+                f32 tA = static_cast<f32>(i) / static_cast<f32>(trail.m_Count - 1);
+                f32 tB = static_cast<f32>(i + 1) / static_cast<f32>(trail.m_Count - 1);
 
                 glm::vec4 colorA = glm::mix(trailModule.ColorStart, trailModule.ColorEnd, tA);
                 glm::vec4 colorB = glm::mix(trailModule.ColorStart, trailModule.ColorEnd, tB);

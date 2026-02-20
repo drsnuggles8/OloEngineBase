@@ -345,7 +345,7 @@ namespace OloEngine
             for (u32 i = 0; i < emitted; ++i)
             {
                 u32 idx = firstSlot + i;
-                childPool.Positions[idx] = trigger.Position;
+                childPool.m_Positions[idx] = trigger.Position;
 
                 glm::vec3 dir = glm::normalize(glm::vec3(
                     rng.GetFloat32InRange(-1.0f, 1.0f),
@@ -353,20 +353,20 @@ namespace OloEngine
                     rng.GetFloat32InRange(-1.0f, 1.0f)));
                 f32 speed = childEmitter.InitialSpeed + rng.GetFloat32InRange(-childEmitter.SpeedVariance, childEmitter.SpeedVariance);
                 glm::vec3 velocity = dir * std::max(speed, 0.0f) + trigger.Velocity;
-                childPool.Velocities[idx] = velocity;
-                childPool.InitialVelocities[idx] = velocity;
+                childPool.m_Velocities[idx] = velocity;
+                childPool.m_InitialVelocities[idx] = velocity;
 
-                childPool.Colors[idx] = childEmitter.InitialColor;
-                childPool.InitialColors[idx] = childEmitter.InitialColor;
+                childPool.m_Colors[idx] = childEmitter.InitialColor;
+                childPool.m_InitialColors[idx] = childEmitter.InitialColor;
 
                 f32 size = childEmitter.InitialSize + rng.GetFloat32InRange(-childEmitter.SizeVariance, childEmitter.SizeVariance);
-                childPool.Sizes[idx] = size;
-                childPool.InitialSizes[idx] = size;
-                childPool.Rotations[idx] = childEmitter.InitialRotation + rng.GetFloat32InRange(-childEmitter.RotationVariance, childEmitter.RotationVariance);
+                childPool.m_Sizes[idx] = size;
+                childPool.m_InitialSizes[idx] = size;
+                childPool.m_Rotations[idx] = childEmitter.InitialRotation + rng.GetFloat32InRange(-childEmitter.RotationVariance, childEmitter.RotationVariance);
 
                 f32 lifetime = rng.GetFloat32InRange(childEmitter.LifetimeMin, childEmitter.LifetimeMax);
-                childPool.Lifetimes[idx] = lifetime;
-                childPool.MaxLifetimes[idx] = lifetime;
+                childPool.m_Lifetimes[idx] = lifetime;
+                childPool.m_MaxLifetimes[idx] = lifetime;
             }
         }
 

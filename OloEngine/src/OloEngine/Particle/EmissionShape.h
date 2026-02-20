@@ -11,6 +11,18 @@
 
 namespace OloEngine
 {
+    // Explicit enum for emission shape serialization (decoupled from variant index order)
+    enum class EmissionShapeType : i32
+    {
+        Point = 0,
+        Sphere = 1,
+        Box = 2,
+        Cone = 3,
+        Ring = 4,
+        Edge = 5,
+        Mesh = 6,
+    };
+
     struct EmitPoint
     {
     };
@@ -108,6 +120,21 @@ namespace OloEngine
     };
 
     using EmissionShape = std::variant<EmitPoint, EmitSphere, EmitBox, EmitCone, EmitRing, EmitEdge, EmitMesh>;
+
+    // Convert EmissionShape variant to EmissionShapeType enum (for serialization)
+    inline EmissionShapeType GetEmissionShapeType(const EmissionShape& shape)
+    {
+        return std::visit([](auto&& s) -> EmissionShapeType
+                          {
+            using T = std::decay_t<decltype(s)>;
+            if constexpr (std::is_same_v<T, EmitPoint>)   return EmissionShapeType::Point;
+            if constexpr (std::is_same_v<T, EmitSphere>)  return EmissionShapeType::Sphere;
+            if constexpr (std::is_same_v<T, EmitBox>)     return EmissionShapeType::Box;
+            if constexpr (std::is_same_v<T, EmitCone>)    return EmissionShapeType::Cone;
+            if constexpr (std::is_same_v<T, EmitRing>)    return EmissionShapeType::Ring;
+            if constexpr (std::is_same_v<T, EmitEdge>)    return EmissionShapeType::Edge;
+            if constexpr (std::is_same_v<T, EmitMesh>)    return EmissionShapeType::Mesh; }, shape);
+    }
 
     // Sample a position offset from the emission shape
     inline glm::vec3 SampleEmissionShape(const EmissionShape& shape)

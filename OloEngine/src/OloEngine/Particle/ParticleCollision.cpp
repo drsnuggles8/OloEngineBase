@@ -19,14 +19,14 @@ namespace OloEngine
         while (i < count)
         {
             // Signed distance from particle to plane
-            f32 dist = glm::dot(pool.Positions[i], PlaneNormal) - PlaneOffset;
+            f32 dist = glm::dot(pool.m_Positions[i], PlaneNormal) - PlaneOffset;
 
             if (dist < 0.0f)
             {
                 // Record collision event before potential kill
                 if (outEvents)
                 {
-                    outEvents->push_back({ pool.Positions[i], pool.Velocities[i] });
+                    outEvents->push_back({ pool.m_Positions[i], pool.m_Velocities[i] });
                 }
 
                 if (KillOnCollide)
@@ -37,19 +37,19 @@ namespace OloEngine
                 }
 
                 // Push particle back to plane surface
-                pool.Positions[i] -= PlaneNormal * dist;
+                pool.m_Positions[i] -= PlaneNormal * dist;
 
                 // Reflect velocity
-                f32 velDotN = glm::dot(pool.Velocities[i], PlaneNormal);
+                f32 velDotN = glm::dot(pool.m_Velocities[i], PlaneNormal);
                 if (velDotN < 0.0f)
                 {
-                    pool.Velocities[i] -= PlaneNormal * velDotN * (1.0f + Bounce);
+                    pool.m_Velocities[i] -= PlaneNormal * velDotN * (1.0f + Bounce);
                 }
 
                 // Apply lifetime loss
                 if (LifetimeLoss > 0.0f)
                 {
-                    pool.Lifetimes[i] -= pool.Lifetimes[i] * LifetimeLoss;
+                    pool.m_Lifetimes[i] -= pool.m_Lifetimes[i] * LifetimeLoss;
                 }
             }
             ++i;
@@ -69,7 +69,7 @@ namespace OloEngine
         u32 i = 0;
         while (i < count)
         {
-            glm::vec3 velocity = pool.Velocities[i];
+            glm::vec3 velocity = pool.m_Velocities[i];
             f32 speed = glm::length(velocity);
             if (speed < 0.001f)
             {
@@ -81,7 +81,7 @@ namespace OloEngine
             f32 travelDist = speed * dt;
 
             RayCastInfo ray;
-            ray.m_Origin = pool.Positions[i];
+            ray.m_Origin = pool.m_Positions[i];
             ray.m_Direction = dir;
             ray.m_MaxDistance = travelDist;
 
@@ -91,7 +91,7 @@ namespace OloEngine
                 // Record collision event before potential kill
                 if (outEvents)
                 {
-                    outEvents->push_back({ pool.Positions[i], pool.Velocities[i] });
+                    outEvents->push_back({ pool.m_Positions[i], pool.m_Velocities[i] });
                 }
 
                 if (KillOnCollide)
@@ -102,18 +102,18 @@ namespace OloEngine
                 }
 
                 // Move to hit point
-                pool.Positions[i] = hit.m_Position + hit.m_Normal * 0.01f;
+                pool.m_Positions[i] = hit.m_Position + hit.m_Normal * 0.01f;
 
                 // Reflect velocity off hit normal
-                f32 velDotN = glm::dot(pool.Velocities[i], hit.m_Normal);
+                f32 velDotN = glm::dot(pool.m_Velocities[i], hit.m_Normal);
                 if (velDotN < 0.0f)
                 {
-                    pool.Velocities[i] -= hit.m_Normal * velDotN * (1.0f + Bounce);
+                    pool.m_Velocities[i] -= hit.m_Normal * velDotN * (1.0f + Bounce);
                 }
 
                 if (LifetimeLoss > 0.0f)
                 {
-                    pool.Lifetimes[i] -= pool.Lifetimes[i] * LifetimeLoss;
+                    pool.m_Lifetimes[i] -= pool.m_Lifetimes[i] * LifetimeLoss;
                 }
             }
             ++i;
@@ -132,7 +132,7 @@ namespace OloEngine
         u32 count = pool.GetAliveCount();
         for (u32 i = 0; i < count; ++i)
         {
-            glm::vec3 toCenter = Position - pool.Positions[i];
+            glm::vec3 toCenter = Position - pool.m_Positions[i];
             f32 dist = glm::length(toCenter);
             if (dist < 0.001f)
             {
@@ -156,11 +156,11 @@ namespace OloEngine
             switch (Type)
             {
                 case ForceFieldType::Attraction:
-                    pool.Velocities[i] += dirToCenter * Strength * falloff * dt;
+                    pool.m_Velocities[i] += dirToCenter * Strength * falloff * dt;
                     break;
 
                 case ForceFieldType::Repulsion:
-                    pool.Velocities[i] -= dirToCenter * Strength * falloff * dt;
+                    pool.m_Velocities[i] -= dirToCenter * Strength * falloff * dt;
                     break;
 
                 case ForceFieldType::Vortex:
@@ -171,7 +171,7 @@ namespace OloEngine
                     if (tangentLen > 0.001f)
                     {
                         tangent /= tangentLen;
-                        pool.Velocities[i] += tangent * Strength * falloff * dt;
+                        pool.m_Velocities[i] += tangent * Strength * falloff * dt;
                     }
                     break;
                 }

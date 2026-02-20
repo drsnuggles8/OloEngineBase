@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <memory>
 
 namespace OloEngine
 {
@@ -20,7 +21,7 @@ namespace OloEngine
         Ref<VertexBuffer> InstanceVBO; // Per-instance data
         Ref<Shader> ParticleShader;
 
-        ParticleInstance* InstanceBase = nullptr;
+        std::unique_ptr<ParticleInstance[]> InstanceBase;
         ParticleInstance* InstancePtr = nullptr;
         u32 InstanceCount = 0;
 
@@ -74,7 +75,7 @@ namespace OloEngine
         Ref<VertexBuffer> TrailVBO;
         Ref<Shader> TrailShader;
 
-        TrailVertex* TrailVertexBase = nullptr;
+        std::unique_ptr<TrailVertex[]> TrailVertexBase;
         TrailVertex* TrailVertexPtr = nullptr;
         u32 TrailQuadCount = 0;
 
@@ -119,7 +120,7 @@ namespace OloEngine
         s_Data.VAO->AddInstanceBuffer(s_Data.InstanceVBO);
 
         // CPU-side staging buffer
-        s_Data.InstanceBase = new ParticleInstance[ParticleBatchData::MaxInstances];
+        s_Data.InstanceBase = std::make_unique<ParticleInstance[]>(ParticleBatchData::MaxInstances);
 
         // White texture for untextured particles
         s_Data.WhiteTexture = Texture2D::Create(TextureSpecification());
@@ -152,7 +153,7 @@ namespace OloEngine
         s_Data.TrailVAO->AddVertexBuffer(s_Data.TrailVBO);
 
         // Pre-generate index buffer for trail quads (0-1-2, 2-3-0 pattern)
-        auto* trailIndices = new u32[ParticleBatchData::MaxTrailIndices];
+        auto trailIndices = std::make_unique<u32[]>(ParticleBatchData::MaxTrailIndices);
         for (u32 i = 0; i < ParticleBatchData::MaxTrailQuads; ++i)
         {
             u32 base = i * 4;
@@ -164,11 +165,10 @@ namespace OloEngine
             trailIndices[idx + 4] = base + 3;
             trailIndices[idx + 5] = base + 0;
         }
-        auto trailIBO = IndexBuffer::Create(trailIndices, ParticleBatchData::MaxTrailIndices);
+        auto trailIBO = IndexBuffer::Create(trailIndices.get(), ParticleBatchData::MaxTrailIndices);
         s_Data.TrailVAO->SetIndexBuffer(trailIBO);
-        delete[] trailIndices;
 
-        s_Data.TrailVertexBase = new TrailVertex[ParticleBatchData::MaxTrailVertices];
+        s_Data.TrailVertexBase = std::make_unique<TrailVertex[]>(ParticleBatchData::MaxTrailVertices);
 
         s_Data.TrailShader = Shader::Create("assets/shaders/Particle_Trail.glsl");
     }
@@ -177,12 +177,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        delete[] s_Data.InstanceBase;
-        s_Data.InstanceBase = nullptr;
+        s_Data.InstanceBase.reset();
         s_Data.InstancePtr = nullptr;
 
-        delete[] s_Data.TrailVertexBase;
-        s_Data.TrailVertexBase = nullptr;
+        s_Data.TrailVertexBase.reset();
         s_Data.TrailVertexPtr = nullptr;
     }
 
@@ -201,7 +199,7 @@ namespace OloEngine
 
         // Reset trail state for the new frame
         s_Data.TrailQuadCount = 0;
-        s_Data.TrailVertexPtr = s_Data.TrailVertexBase;
+        s_Data.TrailVertexPtr = s_Data.TrailVertexBase.get();
     }
 
     void ParticleBatchRenderer::BeginBatch(const Camera& camera, const glm::mat4& cameraTransform)
@@ -220,7 +218,7 @@ namespace OloEngine
 
         // Reset trail state for the new frame
         s_Data.TrailQuadCount = 0;
-        s_Data.TrailVertexPtr = s_Data.TrailVertexBase;
+        s_Data.TrailVertexPtr = s_Data.TrailVertexBase.get();
     }
 
     void ParticleBatchRenderer::SetSoftParticleParams(const SoftParticleParams& params)
@@ -286,6 +284,32 @@ namespace OloEngine
         s_Data.CurrentTexture = newTex;
     }
 
+    // Upload shared particle params UBO and rebind camera + params UBOs
+    static void UploadParticleParams(bool hasTexture)
+    {
+        auto& params = s_Data.ParticleParamsBuffer;
+        params.CameraRight = s_Data.CameraRight;
+        params.CameraUp = s_Data.CameraUp;
+        params.HasTexture = hasTexture ? 1 : 0;
+        params.SoftParticlesEnabled = s_Data.SoftParams.Enabled ? 1 : 0;
+        params.SoftParticleDistance = s_Data.SoftParams.Distance;
+        params.NearClip = s_Data.SoftParams.NearClip;
+        params.FarClip = s_Data.SoftParams.FarClip;
+        params.ViewportSize = s_Data.SoftParams.ViewportSize;
+        s_Data.ParticleParamsUBO->SetData(&params, sizeof(params));
+
+        // Re-bind UBOs (ScenePass CommandDispatch may overwrite binding points)
+        s_Data.CameraUBO->Bind();
+        s_Data.ParticleParamsUBO->Bind();
+    }
+
+    // Bind textures for particle rendering (slot 0 = diffuse, slot 1 = depth for soft particles)
+    static void BindParticleTextures(bool hasTexture, u32 textureID)
+    {
+        RenderCommand::BindTexture(0, hasTexture ? textureID : s_Data.WhiteTexture->GetRendererID());
+        RenderCommand::BindTexture(1, s_Data.SoftParams.Enabled ? s_Data.SoftParams.DepthTextureID : s_Data.WhiteTexture->GetRendererID());
+    }
+
     void ParticleBatchRenderer::EndBatch()
     {
         OLO_PROFILE_FUNCTION();
@@ -316,31 +340,17 @@ namespace OloEngine
 
         // Upload instance data to GPU
         u32 dataSize = s_Data.InstanceCount * sizeof(ParticleInstance);
-        s_Data.InstanceVBO->SetData({ s_Data.InstanceBase, dataSize });
+        s_Data.InstanceVBO->SetData({ s_Data.InstanceBase.get(), dataSize });
 
         // Populate ParticleParams UBO
         bool hasTexture = (s_Data.CurrentTexture && s_Data.CurrentTexture != s_Data.WhiteTexture);
-        auto& params = s_Data.ParticleParamsBuffer;
-        params.CameraRight = s_Data.CameraRight;
-        params.CameraUp = s_Data.CameraUp;
-        params.HasTexture = hasTexture ? 1 : 0;
-        params.SoftParticlesEnabled = s_Data.SoftParams.Enabled ? 1 : 0;
-        params.SoftParticleDistance = s_Data.SoftParams.Distance;
-        params.NearClip = s_Data.SoftParams.NearClip;
-        params.FarClip = s_Data.SoftParams.FarClip;
-        params.ViewportSize = s_Data.SoftParams.ViewportSize;
-        s_Data.ParticleParamsUBO->SetData(&params, sizeof(params));
-
-        // Re-bind particle UBOs (ScenePass CommandDispatch overwrites binding points 0/2)
-        s_Data.CameraUBO->Bind();
-        s_Data.ParticleParamsUBO->Bind();
+        UploadParticleParams(hasTexture);
 
         // Bind shader
         s_Data.ParticleShader->Bind();
 
-        // Bind textures — always bind both slots to avoid "required buffer is missing"
-        RenderCommand::BindTexture(0, hasTexture ? s_Data.CurrentTexture->GetRendererID() : s_Data.WhiteTexture->GetRendererID());
-        RenderCommand::BindTexture(1, s_Data.SoftParams.Enabled ? s_Data.SoftParams.DepthTextureID : s_Data.WhiteTexture->GetRendererID());
+        // Bind textures
+        BindParticleTextures(hasTexture, hasTexture ? s_Data.CurrentTexture->GetRendererID() : 0);
 
         // Instanced draw call
         RenderCommand::DrawIndexedInstanced(s_Data.VAO, 6, s_Data.InstanceCount);
@@ -350,11 +360,10 @@ namespace OloEngine
     }
 
     void ParticleBatchRenderer::RenderMeshParticles(const Ref<Mesh>& mesh,
-                                                    const MeshParticleInstance* instances,
-                                                    u32 instanceCount,
+                                                    std::span<const MeshParticleInstance> instances,
                                                     const Ref<Texture2D>& texture)
     {
-        if (!mesh || !mesh->IsValid() || instanceCount == 0 || !instances)
+        if (!mesh || !mesh->IsValid() || instances.empty())
         {
             return;
         }
@@ -363,28 +372,16 @@ namespace OloEngine
 
         // Populate ParticleParams UBO (reuse the same UBO at binding 2)
         bool hasTexture = (texture != nullptr);
-        auto& params = s_Data.ParticleParamsBuffer;
-        params.CameraRight = s_Data.CameraRight;
-        params.CameraUp = s_Data.CameraUp;
-        params.HasTexture = hasTexture ? 1 : 0;
-        params.SoftParticlesEnabled = s_Data.SoftParams.Enabled ? 1 : 0;
-        params.SoftParticleDistance = s_Data.SoftParams.Distance;
-        params.NearClip = s_Data.SoftParams.NearClip;
-        params.FarClip = s_Data.SoftParams.FarClip;
-        params.ViewportSize = s_Data.SoftParams.ViewportSize;
-        s_Data.ParticleParamsUBO->SetData(&params, sizeof(params));
+        UploadParticleParams(hasTexture);
 
-        // Re-bind particle UBOs (ScenePass CommandDispatch overwrites binding points 0/2/3)
-        s_Data.CameraUBO->Bind();
-        s_Data.ParticleParamsUBO->Bind();
+        // Re-bind mesh instance UBO (ScenePass CommandDispatch may overwrite binding 3)
         s_Data.MeshInstanceUBO->Bind();
 
         // Bind mesh shader
         s_Data.MeshParticleShader->Bind();
 
-        // Bind textures — always bind both slots to avoid "required buffer is missing"
-        RenderCommand::BindTexture(0, hasTexture ? texture->GetRendererID() : s_Data.WhiteTexture->GetRendererID());
-        RenderCommand::BindTexture(1, s_Data.SoftParams.Enabled ? s_Data.SoftParams.DepthTextureID : s_Data.WhiteTexture->GetRendererID());
+        // Bind textures
+        BindParticleTextures(hasTexture, hasTexture ? texture->GetRendererID() : 0);
 
         auto vao = mesh->GetVertexArray();
         u32 indexCount = mesh->GetIndexCount();
@@ -393,7 +390,7 @@ namespace OloEngine
         // gl_InstanceIndex is not supported in the engine's shader cross-compilation
         // pipeline (spirv-cross outputs gl_InstanceID which shaderc rejects), so we
         // pass a single instance per UBO and draw without instancing.
-        for (u32 i = 0; i < instanceCount; ++i)
+        for (u32 i = 0; i < instances.size(); ++i)
         {
             s_Data.MeshInstanceUBO->SetData(&instances[i], sizeof(MeshParticleInstance));
             RenderCommand::DrawIndexed(vao, indexCount);
@@ -403,16 +400,16 @@ namespace OloEngine
         }
     }
 
-    void ParticleBatchRenderer::SubmitTrailQuad(const glm::vec3 positions[4],
-                                                const glm::vec4 colors[4],
-                                                const glm::vec2 texCoords[4],
+    void ParticleBatchRenderer::SubmitTrailQuad(std::span<const glm::vec3, 4> positions,
+                                                std::span<const glm::vec4, 4> colors,
+                                                std::span<const glm::vec2, 4> texCoords,
                                                 int entityID)
     {
         if (s_Data.TrailQuadCount >= ParticleBatchData::MaxTrailQuads)
         {
             FlushTrails();
             s_Data.TrailQuadCount = 0;
-            s_Data.TrailVertexPtr = s_Data.TrailVertexBase;
+            s_Data.TrailVertexPtr = s_Data.TrailVertexBase.get();
         }
 
         for (u32 i = 0; i < 4; ++i)
@@ -435,7 +432,7 @@ namespace OloEngine
         {
             FlushTrails();
             s_Data.TrailQuadCount = 0;
-            s_Data.TrailVertexPtr = s_Data.TrailVertexBase;
+            s_Data.TrailVertexPtr = s_Data.TrailVertexBase.get();
         }
 
         s_Data.CurrentTrailTexture = newTex;
@@ -451,32 +448,18 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Upload trail vertex data
-        u32 dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.TrailVertexPtr) - reinterpret_cast<u8*>(s_Data.TrailVertexBase));
-        s_Data.TrailVBO->SetData({ s_Data.TrailVertexBase, dataSize });
+        u32 dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.TrailVertexPtr) - reinterpret_cast<u8*>(s_Data.TrailVertexBase.get()));
+        s_Data.TrailVBO->SetData({ s_Data.TrailVertexBase.get(), dataSize });
 
         // Populate ParticleParams UBO
         bool hasTexture = (s_Data.CurrentTrailTexture && s_Data.CurrentTrailTexture != s_Data.WhiteTexture);
-        auto& params = s_Data.ParticleParamsBuffer;
-        params.CameraRight = s_Data.CameraRight;
-        params.CameraUp = s_Data.CameraUp;
-        params.HasTexture = hasTexture ? 1 : 0;
-        params.SoftParticlesEnabled = s_Data.SoftParams.Enabled ? 1 : 0;
-        params.SoftParticleDistance = s_Data.SoftParams.Distance;
-        params.NearClip = s_Data.SoftParams.NearClip;
-        params.FarClip = s_Data.SoftParams.FarClip;
-        params.ViewportSize = s_Data.SoftParams.ViewportSize;
-        s_Data.ParticleParamsUBO->SetData(&params, sizeof(params));
-
-        // Re-bind UBOs
-        s_Data.CameraUBO->Bind();
-        s_Data.ParticleParamsUBO->Bind();
+        UploadParticleParams(hasTexture);
 
         // Bind trail shader
         s_Data.TrailShader->Bind();
 
         // Bind textures
-        RenderCommand::BindTexture(0, hasTexture ? s_Data.CurrentTrailTexture->GetRendererID() : s_Data.WhiteTexture->GetRendererID());
-        RenderCommand::BindTexture(1, s_Data.SoftParams.Enabled ? s_Data.SoftParams.DepthTextureID : s_Data.WhiteTexture->GetRendererID());
+        BindParticleTextures(hasTexture, hasTexture ? s_Data.CurrentTrailTexture->GetRendererID() : 0);
 
         // Draw trail quads
         u32 indexCount = s_Data.TrailQuadCount * 6;
@@ -489,7 +472,7 @@ namespace OloEngine
     void ParticleBatchRenderer::StartNewBatch()
     {
         s_Data.InstanceCount = 0;
-        s_Data.InstancePtr = s_Data.InstanceBase;
+        s_Data.InstancePtr = s_Data.InstanceBase.get();
     }
 
     void ParticleBatchRenderer::ResetStats()

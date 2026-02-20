@@ -15,16 +15,16 @@ namespace OloEngine
         m_MaxParticles = maxParticles;
         m_AliveCount = 0;
 
-        Positions.resize(maxParticles);
-        Velocities.resize(maxParticles);
-        Colors.resize(maxParticles);
-        Sizes.resize(maxParticles);
-        Rotations.resize(maxParticles);
-        Lifetimes.resize(maxParticles);
-        MaxLifetimes.resize(maxParticles);
-        InitialColors.resize(maxParticles);
-        InitialSizes.resize(maxParticles);
-        InitialVelocities.resize(maxParticles);
+        m_Positions.resize(maxParticles);
+        m_Velocities.resize(maxParticles);
+        m_Colors.resize(maxParticles);
+        m_Sizes.resize(maxParticles);
+        m_Rotations.resize(maxParticles);
+        m_Lifetimes.resize(maxParticles);
+        m_MaxLifetimes.resize(maxParticles);
+        m_InitialColors.resize(maxParticles);
+        m_InitialSizes.resize(maxParticles);
+        m_InitialVelocities.resize(maxParticles);
     }
 
     u32 ParticlePool::Emit(u32 count)
@@ -62,8 +62,8 @@ namespace OloEngine
         u32 i = 0;
         while (i < m_AliveCount)
         {
-            Lifetimes[i] -= dt;
-            if (Lifetimes[i] <= 0.0f)
+            m_Lifetimes[i] -= dt;
+            if (m_Lifetimes[i] <= 0.0f)
             {
                 Kill(i);
                 // Don't increment — the swapped-in particle now occupies index i
@@ -78,31 +78,31 @@ namespace OloEngine
     f32 ParticlePool::GetAge(u32 index) const
     {
         OLO_CORE_ASSERT(index < m_AliveCount, "ParticlePool::GetAge index out of range!");
-        if (MaxLifetimes[index] <= 0.0f)
+        if (m_MaxLifetimes[index] <= 0.0f)
         {
             return 1.0f;
         }
-        return 1.0f - (Lifetimes[index] / MaxLifetimes[index]);
+        return 1.0f - (m_Lifetimes[index] / m_MaxLifetimes[index]);
     }
 
     void ParticlePool::SwapParticles(u32 a, u32 b)
     {
         OLO_PROFILE_FUNCTION();
 
-        std::swap(Positions[a], Positions[b]);
-        std::swap(Velocities[a], Velocities[b]);
-        std::swap(Colors[a], Colors[b]);
-        std::swap(Sizes[a], Sizes[b]);
-        std::swap(Rotations[a], Rotations[b]);
-        std::swap(Lifetimes[a], Lifetimes[b]);
-        std::swap(MaxLifetimes[a], MaxLifetimes[b]);
-        std::swap(InitialColors[a], InitialColors[b]);
-        std::swap(InitialSizes[a], InitialSizes[b]);
-        std::swap(InitialVelocities[a], InitialVelocities[b]);
+        std::swap(m_Positions[a], m_Positions[b]);
+        std::swap(m_Velocities[a], m_Velocities[b]);
+        std::swap(m_Colors[a], m_Colors[b]);
+        std::swap(m_Sizes[a], m_Sizes[b]);
+        std::swap(m_Rotations[a], m_Rotations[b]);
+        std::swap(m_Lifetimes[a], m_Lifetimes[b]);
+        std::swap(m_MaxLifetimes[a], m_MaxLifetimes[b]);
+        std::swap(m_InitialColors[a], m_InitialColors[b]);
+        std::swap(m_InitialSizes[a], m_InitialSizes[b]);
+        std::swap(m_InitialVelocities[a], m_InitialVelocities[b]);
 
-        if (OnSwapCallback)
+        if (m_OnSwapCallback)
         {
-            OnSwapCallback(a, b);
+            m_OnSwapCallback(a, b);
         }
     }
 } // namespace OloEngine

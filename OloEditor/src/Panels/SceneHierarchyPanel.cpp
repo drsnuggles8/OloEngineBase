@@ -1895,24 +1895,25 @@ namespace OloEngine
                 ImGui::ColorEdit4("Initial Color", glm::value_ptr(emitter.InitialColor));
 
                 const char* shapeItems[] = { "Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Mesh" };
-                int shapeIdx = static_cast<int>(emitter.Shape.index());
+                int shapeIdx = static_cast<int>(GetEmissionShapeType(emitter.Shape));
                 if (ImGui::Combo("Emission Shape", &shapeIdx, shapeItems, 7))
                 {
-                    switch (shapeIdx)
+                    switch (static_cast<EmissionShapeType>(shapeIdx))
                     {
-                        case 0: emitter.Shape = EmitPoint{}; break;
-                        case 1: emitter.Shape = EmitSphere{}; break;
-                        case 2: emitter.Shape = EmitBox{}; break;
-                        case 3: emitter.Shape = EmitCone{}; break;
-                        case 4: emitter.Shape = EmitRing{}; break;
-                        case 5: emitter.Shape = EmitEdge{}; break;
-                        case 6:
+                        case EmissionShapeType::Point:  emitter.Shape = EmitPoint{}; break;
+                        case EmissionShapeType::Sphere: emitter.Shape = EmitSphere{}; break;
+                        case EmissionShapeType::Box:    emitter.Shape = EmitBox{}; break;
+                        case EmissionShapeType::Cone:   emitter.Shape = EmitCone{}; break;
+                        case EmissionShapeType::Ring:   emitter.Shape = EmitRing{}; break;
+                        case EmissionShapeType::Edge:   emitter.Shape = EmitEdge{}; break;
+                        case EmissionShapeType::Mesh:
                         {
                             EmitMesh m;
                             BuildEmitMeshFromPrimitive(m, 0);
                             emitter.Shape = std::move(m);
                             break;
                         }
+                        default: break;
                     }
                 }
                 // Shape-specific parameters
@@ -2152,7 +2153,6 @@ namespace OloEngine
             if (ImGui::CollapsingHeader("LOD"))
             {
                 ImGui::DragFloat("LOD Distance 1", &sys.LODDistance1, 1.0f, 0.0f, 10000.0f);
-                ImGui::DragFloat("LOD Distance 2", &sys.LODDistance2, 1.0f, 0.0f, 10000.0f);
                 ImGui::DragFloat("LOD Max Distance", &sys.LODMaxDistance, 1.0f, 0.0f, 10000.0f);
             } });
     }
