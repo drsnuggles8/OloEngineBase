@@ -347,7 +347,7 @@ namespace OloEngine
 
         ImGui::InvisibleButton("##curve_canvas", canvasSize);
         const bool isHovered = ImGui::IsItemHovered();
-        const bool isActive  = ImGui::IsItemActive();
+        const bool isActive = ImGui::IsItemActive();
 
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         const ImVec2 canvasEnd(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y);
@@ -450,8 +450,7 @@ namespace OloEngine
         }
 
         // Right-click: remove key (keep at least 2)
-        if (isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && hoveredKey >= 0
-            && curve.KeyCount > 2)
+        if (isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && hoveredKey >= 0 && curve.KeyCount > 2)
         {
             auto rk = static_cast<u32>(hoveredKey);
             for (u32 j = rk; j < curve.KeyCount - 1; ++j)
@@ -461,8 +460,7 @@ namespace OloEngine
         }
 
         // Double-click on empty area: add key (max 8)
-        if (isHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
-            && hoveredKey < 0 && curve.KeyCount < 8)
+        if (isHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hoveredKey < 0 && curve.KeyCount < 8)
         {
             auto [time, value] = fromScreen(mousePos);
             u32 insertIdx = curve.KeyCount;
@@ -534,11 +532,16 @@ namespace OloEngine
         DrawGradientBar(curve, ImGui::GetContentRegionAvail().x, 20.0f);
 
         // Per-channel curve editors in tree nodes
-        struct ChannelInfo { const char* name; ParticleCurve* ch; ImU32 lineColor; };
+        struct ChannelInfo
+        {
+            const char* name;
+            ParticleCurve* ch;
+            ImU32 lineColor;
+        };
         ChannelInfo channels[] = {
-            { "Red",   &curve.R, IM_COL32(255, 80, 80, 255) },
+            { "Red", &curve.R, IM_COL32(255, 80, 80, 255) },
             { "Green", &curve.G, IM_COL32(80, 255, 80, 255) },
-            { "Blue",  &curve.B, IM_COL32(80, 130, 255, 255) },
+            { "Blue", &curve.B, IM_COL32(80, 130, 255, 255) },
             { "Alpha", &curve.A, IM_COL32(200, 200, 200, 255) },
         };
         for (auto& [name, ch, lineColor] : channels)
@@ -1941,6 +1944,13 @@ namespace OloEngine
                 ImGui::Checkbox("Depth Sort", &sys.DepthSortEnabled);
                 ImGui::DragFloat("Velocity Inheritance", &sys.VelocityInheritance, 0.01f, 0.0f, 1.0f);
 
+                // Soft particles
+                ImGui::Checkbox("Soft Particles", &sys.SoftParticlesEnabled);
+                if (sys.SoftParticlesEnabled)
+                {
+                    ImGui::DragFloat("Soft Distance", &sys.SoftParticleDistance, 0.1f, 0.01f, 50.0f);
+                }
+
                 ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
                 if (ImGui::BeginDragDropTarget())
                 {
@@ -1967,6 +1977,14 @@ namespace OloEngine
                     ImGui::SameLine();
                     if (ImGui::Button("Clear Texture"))
                         component.Texture = nullptr;
+                }
+
+                // Mesh selection (shown when render mode is Mesh)
+                if (sys.RenderMode == ParticleRenderMode::Mesh)
+                {
+                    ImGui::Text("Particle Mesh: %s", component.ParticleMesh ? "Assigned" : "None");
+                    if (component.ParticleMesh && ImGui::Button("Clear Mesh"))
+                        component.ParticleMesh = nullptr;
                 }
             }
 

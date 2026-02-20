@@ -9,7 +9,9 @@
 
 namespace OloEngine
 {
-    struct EmitPoint {};
+    struct EmitPoint
+    {
+    };
 
     struct EmitSphere
     {
@@ -23,7 +25,7 @@ namespace OloEngine
 
     struct EmitCone
     {
-        f32 Angle = 25.0f;  // degrees
+        f32 Angle = 25.0f; // degrees
         f32 Radius = 0.5f;
     };
 
@@ -46,7 +48,7 @@ namespace OloEngine
         auto& rng = RandomUtils::GetGlobalRandom();
 
         return std::visit([&](auto&& s) -> glm::vec3
-        {
+                          {
             using T = std::decay_t<decltype(s)>;
 
             if constexpr (std::is_same_v<T, EmitPoint>)
@@ -96,8 +98,7 @@ namespace OloEngine
             else
             {
                 return glm::vec3(0.0f);
-            }
-        }, shape);
+            } }, shape);
     }
 
     // Get a direction from the emission shape for velocity initialization
@@ -106,7 +107,7 @@ namespace OloEngine
         auto& rng = RandomUtils::GetGlobalRandom();
 
         return std::visit([&](auto&& s) -> glm::vec3
-        {
+                          {
             using T = std::decay_t<decltype(s)>;
 
             if constexpr (std::is_same_v<T, EmitPoint>)
@@ -170,7 +171,6 @@ namespace OloEngine
             else
             {
                 return glm::vec3(0.0f, 1.0f, 0.0f);
-            }
-        }, shape);
+            } }, shape);
     }
-}
+} // namespace OloEngine

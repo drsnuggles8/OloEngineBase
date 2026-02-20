@@ -170,6 +170,6 @@ namespace OloEngine
                                           "initialColor", &ParticleEmitter::InitialColor);
 
         lua.new_usertype<ParticleSystemComponent>("ParticleSystemComponent",
-                                                   "system", &ParticleSystemComponent::System);
+                                                  "system", &ParticleSystemComponent::System);
     }
 } // namespace OloEngine

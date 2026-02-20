@@ -78,4 +78,4 @@ namespace OloEngine
             trail.TrimToCount(newCount);
         }
     }
-}
+} // namespace OloEngine

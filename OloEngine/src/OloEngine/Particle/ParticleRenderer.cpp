@@ -54,9 +54,7 @@ namespace OloEngine
                 glm::vec2 uvMin, uvMax;
                 spriteSheet->GetFrameUV(frame, uvMin, uvMax);
 
-                glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos)
-                    * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 0.0f, 1.0f })
-                    * glm::scale(glm::mat4(1.0f), { size, size, 1.0f });
+                glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 0.0f, 1.0f }) * glm::scale(glm::mat4(1.0f), { size, size, 1.0f });
                 Renderer2D::DrawQuad(transform, texture, uvMin, uvMax, color, entityID);
             }
             else if (texture)
@@ -142,4 +140,50 @@ namespace OloEngine
             ParticleBatchRenderer::SubmitStretched(pos, size, vel, lengthScale, color, uvRect, entityID);
         }
     }
-}
+
+    void ParticleRenderer::RenderParticlesMesh(const ParticlePool& pool,
+                                               const Ref<Mesh>& mesh,
+                                               const Ref<Texture2D>& texture,
+                                               const glm::vec3& worldOffset,
+                                               int entityID,
+                                               const std::vector<u32>* sortedIndices)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!mesh || !mesh->IsValid())
+        {
+            return;
+        }
+
+        u32 count = pool.GetAliveCount();
+        if (count == 0)
+        {
+            return;
+        }
+
+        bool useSorted = sortedIndices && sortedIndices->size() == count;
+
+        // Build instance data on stack (up to a reasonable limit)
+        static thread_local std::vector<MeshParticleInstance> s_Instances;
+        s_Instances.resize(count);
+
+        for (u32 iter = 0; iter < count; ++iter)
+        {
+            u32 i = useSorted ? (*sortedIndices)[iter] : iter;
+            const glm::vec3 pos = pool.Positions[i] + worldOffset;
+            f32 size = pool.Sizes[i];
+            f32 rotation = glm::radians(pool.Rotations[i]);
+            const auto& color = pool.Colors[i];
+
+            // Build model matrix: translate * rotate * scale
+            glm::mat4 model = glm::translate(glm::mat4(1.0f), pos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 1.0f, 0.0f }) * glm::scale(glm::mat4(1.0f), glm::vec3(size));
+
+            auto& inst = s_Instances[iter];
+            inst.Model = model;
+            inst.Color = color;
+            inst.IDs = glm::ivec4(entityID, 0, 0, 0);
+        }
+
+        ParticleBatchRenderer::RenderMeshParticles(mesh, s_Instances.data(), count, texture);
+    }
+} // namespace OloEngine

@@ -9,6 +9,7 @@
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Particle/ParticleSystem.h"
 
 #include "box2d/box2d.h"
@@ -737,6 +738,7 @@ namespace OloEngine
     {
         ParticleSystem System;
         Ref<Texture2D> Texture = nullptr;
+        Ref<Mesh> ParticleMesh = nullptr; // Mesh for ParticleRenderMode::Mesh
 
         // Child particle systems for sub-emitters (each has independent settings)
         std::vector<ParticleSystem> ChildSystems;

@@ -11,7 +11,7 @@ namespace OloEngine
 {
     class TrailRenderer
     {
-    public:
+      public:
         // Render trails as camera-facing quad strips via Renderer2D
         // Generates quads expanded perpendicular to the camera and trail direction
         // for proper width tapering and visual quality.
@@ -23,4 +23,4 @@ namespace OloEngine
                                  const glm::vec3& worldOffset = glm::vec3(0.0f),
                                  int entityID = -1);
     };
-}
+} // namespace OloEngine

@@ -2767,7 +2767,7 @@ namespace OloEngine
             if (node)
                 target = node.as<T>();
         }
-    }
+    } // namespace
 
     void ParticleSystemAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
@@ -2960,13 +2960,48 @@ namespace OloEngine
             {
                 switch (shapeType.as<int>())
                 {
-                    case 0: emitter.Shape = EmitPoint{}; break;
-                    case 1: { EmitSphere s; TrySetPS(s.Radius, ps["EmissionSphereRadius"]); emitter.Shape = s; break; }
-                    case 2: { EmitBox b; TrySetPS(b.HalfExtents, ps["EmissionBoxHalfExtents"]); emitter.Shape = b; break; }
-                    case 3: { EmitCone c; TrySetPS(c.Angle, ps["EmissionConeAngle"]); TrySetPS(c.Radius, ps["EmissionConeRadius"]); emitter.Shape = c; break; }
-                    case 4: { EmitRing r; TrySetPS(r.InnerRadius, ps["EmissionRingInnerRadius"]); TrySetPS(r.OuterRadius, ps["EmissionRingOuterRadius"]); emitter.Shape = r; break; }
-                    case 5: { EmitEdge e; TrySetPS(e.Length, ps["EmissionEdgeLength"]); emitter.Shape = e; break; }
-                    default: break;
+                    case 0:
+                        emitter.Shape = EmitPoint{};
+                        break;
+                    case 1:
+                    {
+                        EmitSphere s;
+                        TrySetPS(s.Radius, ps["EmissionSphereRadius"]);
+                        emitter.Shape = s;
+                        break;
+                    }
+                    case 2:
+                    {
+                        EmitBox b;
+                        TrySetPS(b.HalfExtents, ps["EmissionBoxHalfExtents"]);
+                        emitter.Shape = b;
+                        break;
+                    }
+                    case 3:
+                    {
+                        EmitCone c;
+                        TrySetPS(c.Angle, ps["EmissionConeAngle"]);
+                        TrySetPS(c.Radius, ps["EmissionConeRadius"]);
+                        emitter.Shape = c;
+                        break;
+                    }
+                    case 4:
+                    {
+                        EmitRing r;
+                        TrySetPS(r.InnerRadius, ps["EmissionRingInnerRadius"]);
+                        TrySetPS(r.OuterRadius, ps["EmissionRingOuterRadius"]);
+                        emitter.Shape = r;
+                        break;
+                    }
+                    case 5:
+                    {
+                        EmitEdge e;
+                        TrySetPS(e.Length, ps["EmissionEdgeLength"]);
+                        emitter.Shape = e;
+                        break;
+                    }
+                    default:
+                        break;
                 }
             }
 

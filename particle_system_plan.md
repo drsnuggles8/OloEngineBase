@@ -1,7 +1,7 @@
 # Plan: Particle System for OloEngine
 
 ## TL;DR
-Full-featured particle system for OloEngine. Phase 1 delivers CPU-simulated particles with modular emitters, lifetime modifiers, billboard/2D rendering, editor UI, serialization, and script bindings. Phase 2 adds trails/ribbons, sub-emitters, collision, LOD, warm-up, and particle system assets. Phase 3 (from design review) addresses correctness bugs, visual quality, and performance. Phase 4 (from second design review, Feb 2026) focused on **proper 3D rendering integration** — a `ParticleRenderPass` in the render graph with depth occlusion, plus all bug fixes and design improvements. Remaining work: instanced rendering, dedicated particle shader, curve editor UI, soft particles. SOA data layout with swap-to-back death enables efficient particle counts.
+Full-featured particle system for OloEngine. Phase 1 delivers CPU-simulated particles with modular emitters, lifetime modifiers, billboard/2D rendering, editor UI, serialization, and script bindings. Phase 2 adds trails/ribbons, sub-emitters, collision, LOD, warm-up, and particle system assets. Phase 3 (from design review) addresses correctness bugs, visual quality, and performance. Phase 4 (from second design review, Feb 2026) focused on **proper 3D rendering integration** — a `ParticleRenderPass` in the render graph with depth occlusion, plus all bug fixes and design improvements. Phase 4 also added **instanced billboard rendering** (dedicated `Particle_Billboard.glsl` with GPU billboarding), **soft particles** (depth-fade near surfaces), and **mesh particles** (SSBO-instanced via `Particle_Mesh.glsl`). Remaining work: GPU compute simulation, particle lights, custom vertex streams. SOA data layout with swap-to-back death enables efficient particle counts.
 
 Full issue list: `docs/PARTICLE_SYSTEM_REVIEW.md`
 
@@ -33,7 +33,7 @@ Advanced features implemented:
 - Warm-up (pre-simulation on first play)
 - Particle system asset (.oloparticle files via AssetManager)
 
-### Phase 3 — Design Review Fixes (COMPLETE except 3 deferred items)
+### Phase 3 — Design Review Fixes (COMPLETE)
 Bugs and improvements identified in first review:
 
 | # | Item | Status |
@@ -46,22 +46,22 @@ Bugs and improvements identified in first review:
 | 6 | **Pass entity ID in 3D render path** — signatures updated, billboard path already passes ID | ✅ Done |
 | 7 | **Increase curve key count** — 4 → 8 keys per ParticleCurve | ✅ Done |
 | 8 | **Add InitialColors/InitialSizes/InitialVelocities** to ParticlePool SOA arrays | ✅ Done |
-| 9 | Instanced particle rendering (Renderer3D batch draws) | ❌ Deferred to Phase 4 |
+| 9 | Instanced particle rendering (Renderer3D batch draws) | ✅ Done (Phase 4) |
 | 10 | **Depth sorting** (back-to-front for alpha blending) | ✅ Done |
 | 11 | **Blend mode support** (Alpha, Additive, Premultiplied) | ✅ Done |
 | 12 | **Sprite sheet / texture atlas animation** | ✅ Done |
 | 13 | **Trail rendering as triangle strips** (camera-facing quad strips) | ✅ Done |
 | 14 | **Sub-emitters as separate ParticleSystem instances** | ✅ Done |
-| 15 | Mesh particle rendering | ❌ Deferred to Phase 4 |
+| 15 | Mesh particle rendering | ✅ Done (Phase 4) |
 | 16 | **Velocity inheritance from parent** | ✅ Done |
-| 17 | Task system parallelization for module application | ❌ Deferred to Phase 4 |
+| 17 | Task system parallelization for module application | ✅ Done (Phase 4) |
 
-### Phase 4 — Rendering Integration & Bug Fixes (IN PROGRESS)
+### Phase 4 — Rendering Integration & Bug Fixes (COMPLETE)
 Issues identified in second design review (`docs/PARTICLE_SYSTEM_REVIEW.md`):
 
 | # | Item | Priority | Status |
 |---|------|----------|--------|
-| 18 | **Create ParticleRenderPass** — new render pass in the render graph between ScenePass and FinalPass. Renders particles with depth test (read-only) into ScenePass FB. Fixes: particles outside render graph (§1.1), FinalPass-before-particles ordering bug (§1.2), depth occlusion (§1.4). Phase A complete; Phases B (particle shader) and C (instancing) remain. | 🔴 Critical | ✅ Done (Phase A) |
+| 18 | **Create ParticleRenderPass** — new render pass in the render graph between ScenePass and FinalPass. Renders particles with depth test (read-only) into ScenePass FB. Fixes: particles outside render graph (§1.1), FinalPass-before-particles ordering bug (§1.2), depth occlusion (§1.4). Phase A + Phase B complete. | 🔴 Critical | ✅ Done |
 | 19 | **Fix blend state during Renderer2D batch** — flush batch before calling `SetParticleBlendMode()` to ensure GL state actually applies | 🔴 Critical | ✅ Done |
 | 20 | **Fix VelocityOverLifetime overwriting forces** — preserves force contributions (gravity, drag, noise); module reordered after forces | 🔴 High | ✅ Done |
 | 21 | **Convert warm-up from recursion to iteration** — `Update()` → `UpdateInternal()` split; iterative loop | 🟡 High | ✅ Done |
@@ -72,13 +72,13 @@ Issues identified in second design review (`docs/PARTICLE_SYSTEM_REVIEW.md`):
 | 26 | **Curve editor UI** — Interactive ImGui curve editor with key add/remove/drag, gradient preview for color curves, wired into Color/Size/Velocity Over Lifetime sections | 🟡 Medium | ✅ Done |
 | 27 | **Optimize trail rendering** — trail segments now use `DrawQuadVertices()` with per-vertex color; eliminates per-segment vector allocation and fixes `GL_TRIANGLE_FAN` batch bug | 🟡 Medium | ✅ Done |
 | 28 | **Multiple force fields** — `std::vector<ModuleForceField> ForceFields` with editor add/remove UI | 🟢 Low | ✅ Done |
-| 29 | **Soft particles (depth fade)** — alpha-fade near opaque surfaces using scene depth texture | 🟢 Low | ❌ Pending (needs particle shader, Phase B) |
+| 29 | **Soft particles (depth fade)** — alpha-fade near opaque surfaces using scene depth texture | 🟢 Low | ✅ Done |
 | 30 | **Inter-system depth sorting** — particle systems sorted back-to-front by emitter distance to camera before rendering | 🟢 Low | ✅ Done |
 | 31 | **Trail UV coordinates** — UV mapping along trail length (U=0→1 head to tail, V=0→1 across width); textured trails use `DrawQuadVertices` with texture | 🟢 Low | ✅ Done |
 | 32 | **ParticleCurve Evaluate() optimization** — binary search replacing O(n) linear scan | 🟢 Low | ✅ Done |
 | 33 | **Adaptive sort for depth sorting** — insertion sort with precomputed distances replacing `std::sort` | 🟢 Low | ✅ Done |
-| 9 | Instanced particle rendering (from Phase 3) | 🟡 Medium | ❌ Pending (requires particle shader, Phase C) |
-| 15 | Mesh particle rendering (from Phase 3) | 🟡 Medium | ❌ Pending (requires instancing) |
+| 9 | Instanced particle rendering (from Phase 3) | 🟡 Medium | ✅ Done |
+| 15 | Mesh particle rendering (from Phase 3) | 🟡 Medium | ✅ Done |
 | 17 | Task system parallelization — Color, Size, Rotation modules launched as concurrent tasks alongside velocity chain; threshold >= 256 particles | 🟡 Medium | ✅ Done |
 
 ---

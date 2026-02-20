@@ -96,4 +96,4 @@ namespace OloEngine
             OnSwapCallback(a, b);
         }
     }
-}
+} // namespace OloEngine

@@ -34,8 +34,8 @@ namespace OloEngine
         f32 PlaneOffset = 0.0f; // distance from origin along normal
 
         // Bounce/kill settings
-        f32 Bounce = 0.5f;        // Velocity multiplier on bounce (0 = no bounce, 1 = perfect elastic)
-        f32 LifetimeLoss = 0.0f;  // Fraction of remaining lifetime lost on collision
+        f32 Bounce = 0.5f;       // Velocity multiplier on bounce (0 = no bounce, 1 = perfect elastic)
+        f32 LifetimeLoss = 0.0f; // Fraction of remaining lifetime lost on collision
         bool KillOnCollide = false;
 
         // Apply collision response to all alive particles
@@ -56,11 +56,11 @@ namespace OloEngine
     {
         bool Enabled = false;
         ForceFieldType Type = ForceFieldType::Attraction;
-        glm::vec3 Position{ 0.0f };      // World-space center of force field
+        glm::vec3 Position{ 0.0f }; // World-space center of force field
         f32 Strength = 10.0f;
-        f32 Radius = 10.0f;              // Falloff radius (0 = infinite range)
+        f32 Radius = 10.0f;                 // Falloff radius (0 = infinite range)
         glm::vec3 Axis{ 0.0f, 1.0f, 0.0f }; // For vortex: spin axis
 
         void Apply(f32 dt, ParticlePool& pool) const;
     };
-}
+} // namespace OloEngine

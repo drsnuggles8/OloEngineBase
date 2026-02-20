@@ -13,16 +13,16 @@ namespace OloEngine
 {
     struct BurstEntry
     {
-        f32 Time = 0.0f;    // Time offset within loop
+        f32 Time = 0.0f; // Time offset within loop
         u32 Count = 10;
         f32 Probability = 1.0f; // 0..1
     };
 
     class ParticleEmitter
     {
-    public:
+      public:
         // Emission settings
-        f32 RateOverTime = 10.0f;  // Particles per second
+        f32 RateOverTime = 10.0f; // Particles per second
         f32 InitialSpeed = { 5.0f };
         f32 SpeedVariance = 0.0f;
         f32 LifetimeMin = 1.0f;
@@ -42,11 +42,11 @@ namespace OloEngine
 
         void Reset();
 
-    private:
+      private:
         void InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation);
 
         f32 m_EmitAccumulator = 0.0f;
         f32 m_LoopTime = 0.0f;
         u32 m_NextBurstIndex = 0;
     };
-}
+} // namespace OloEngine

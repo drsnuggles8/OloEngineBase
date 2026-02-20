@@ -21,21 +21,21 @@ namespace OloEngine
 
     enum class ParticleBlendMode : u8
     {
-        Alpha = 0,      // Standard alpha blending (requires depth sorting)
-        Additive,       // Additive blending — fire, sparks, glows (no sorting needed)
+        Alpha = 0, // Standard alpha blending (requires depth sorting)
+        Additive,  // Additive blending — fire, sparks, glows (no sorting needed)
         PremultipliedAlpha
     };
 
     enum class ParticleRenderMode : u8
     {
-        Billboard = 0,  // Camera-facing quads
+        Billboard = 0,      // Camera-facing quads
         StretchedBillboard, // Stretched along velocity
-        Mesh            // User-specified mesh per particle
+        Mesh                // User-specified mesh per particle
     };
 
     class ParticleSystem
     {
-    public:
+      public:
         explicit ParticleSystem(u32 maxParticles = 1000);
 
         void Update(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity = glm::vec3(0.0f), const glm::quat& emitterRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
@@ -49,26 +49,56 @@ namespace OloEngine
         void SortByDepth(const glm::vec3& cameraPosition);
 
         // Get depth-sorted index array (valid after SortByDepth(); size == GetAliveCount()).
-        [[nodiscard]] const std::vector<u32>& GetSortedIndices() const { return m_SortedIndices; }
+        [[nodiscard]] const std::vector<u32>& GetSortedIndices() const
+        {
+            return m_SortedIndices;
+        }
 
         // Get the emitter world position (used for Local space rendering transform)
-        [[nodiscard]] const glm::vec3& GetEmitterPosition() const { return m_EmitterPosition; }
+        [[nodiscard]] const glm::vec3& GetEmitterPosition() const
+        {
+            return m_EmitterPosition;
+        }
 
-        [[nodiscard]] u32 GetAliveCount() const { return m_Pool.GetAliveCount(); }
-        [[nodiscard]] u32 GetMaxParticles() const { return m_Pool.GetMaxParticles(); }
+        [[nodiscard]] u32 GetAliveCount() const
+        {
+            return m_Pool.GetAliveCount();
+        }
+        [[nodiscard]] u32 GetMaxParticles() const
+        {
+            return m_Pool.GetMaxParticles();
+        }
         void SetMaxParticles(u32 maxParticles);
 
-        [[nodiscard]] const ParticlePool& GetPool() const { return m_Pool; }
-        [[nodiscard]] ParticlePool& GetPool() { return m_Pool; }
+        [[nodiscard]] const ParticlePool& GetPool() const
+        {
+            return m_Pool;
+        }
+        [[nodiscard]] ParticlePool& GetPool()
+        {
+            return m_Pool;
+        }
 
-        [[nodiscard]] const ParticleTrailData& GetTrailData() const { return m_TrailData; }
+        [[nodiscard]] const ParticleTrailData& GetTrailData() const
+        {
+            return m_TrailData;
+        }
 
         // Collect sub-emitter triggers that fired this frame
-        [[nodiscard]] const std::vector<SubEmitterTriggerInfo>& GetPendingTriggers() const { return m_PendingTriggers; }
-        void ClearPendingTriggers() { m_PendingTriggers.clear(); }
+        [[nodiscard]] const std::vector<SubEmitterTriggerInfo>& GetPendingTriggers() const
+        {
+            return m_PendingTriggers;
+        }
+        void ClearPendingTriggers()
+        {
+            m_PendingTriggers.clear();
+        }
 
         // Set Jolt scene for raycast collision (optional, set by Scene during runtime)
-        void SetJoltScene(JoltScene* scene) { m_JoltScene = scene; }
+        void SetJoltScene(JoltScene* scene)
+        {
+            m_JoltScene = scene;
+        }
 
         // Public settings
         bool Playing = true;
@@ -83,12 +113,16 @@ namespace OloEngine
         ParticleRenderMode RenderMode = ParticleRenderMode::Billboard;
         bool DepthSortEnabled = true; // Sort particles back-to-front (not needed for Additive)
 
+        // Soft particles — alpha-fade near opaque surfaces using scene depth buffer
+        bool SoftParticlesEnabled = false;
+        f32 SoftParticleDistance = 1.0f; // Distance over which particles fade (world units)
+
         // Velocity inheritance — adds parent entity velocity to spawned particles
         f32 VelocityInheritance = 0.0f; // 0 = none, 1 = full parent velocity
 
         // LOD settings
-        f32 LODDistance1 = 50.0f;  // Distance at which spawn rate drops to 50%
-        f32 LODDistance2 = 100.0f; // Distance at which spawn rate drops to 25%
+        f32 LODDistance1 = 50.0f;    // Distance at which spawn rate drops to 50%
+        f32 LODDistance2 = 100.0f;   // Distance at which spawn rate drops to 25%
         f32 LODMaxDistance = 200.0f; // Distance beyond which particles stop spawning
 
         // Sub-systems (Phase 1)
@@ -110,7 +144,7 @@ namespace OloEngine
         // Phase 3 modules
         ModuleTextureSheetAnimation TextureSheetModule;
 
-    private:
+      private:
         ParticlePool m_Pool;
         ParticleTrailData m_TrailData;
         std::vector<SubEmitterTriggerInfo> m_PendingTriggers;
@@ -126,4 +160,4 @@ namespace OloEngine
         void ProcessSubEmitterTriggers();
         void UpdateInternal(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity, const glm::quat& emitterRotation);
     };
-}
+} // namespace OloEngine

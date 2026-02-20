@@ -84,4 +84,4 @@ namespace OloEngine
         pool.Lifetimes[index] = lifetime;
         pool.MaxLifetimes[index] = lifetime;
     }
-}
+} // namespace OloEngine

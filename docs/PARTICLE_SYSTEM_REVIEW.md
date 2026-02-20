@@ -1,7 +1,7 @@
 # Particle System — Design Review & Issues
 
 > **Date**: February 2026
-> **Last updated**: February 2026 (ParticleRenderPass Phase A implemented)
+> **Last updated**: February 2026 (Phase B instanced rendering + soft particles + mesh particles implemented)
 > **Scope**: Full review of the OloEngine particle system after Phase 1–3 implementation.
 > Covers design problems, bugs, missing features, and comparison to production engines.
 
@@ -13,10 +13,12 @@ The particle system has a solid foundation: SOA pool with swap-to-back death, mo
 modifier pipeline, sub-emitters with independent child systems, ring-buffer trails, and
 comprehensive editor UI. All simulation-side bugs have been fixed (velocity module, LOD,
 warm-up, emission rotation, force fields, sub-emitter collision events, curve evaluation,
-depth sorting). **Rendering architecture** has been improved: `ParticleRenderPass` (Phase
-A) integrates particles into the render graph with depth occlusion. The remaining gaps
-are rendering performance (instanced rendering, dedicated particle shader) and editor
-quality (curve editor UI, soft particles).
+depth sorting). **Rendering architecture** has been significantly improved:
+`ParticleRenderPass` (Phase A) integrates particles into the render graph with depth
+occlusion. **Phase B** (instanced billboard shader with GPU billboarding) is complete.
+**Soft particles** (depth-fade near opaque surfaces) are implemented using the scene
+depth buffer. **Mesh particles** (instanced mesh rendering via SSBO) are implemented.
+The remaining gaps are GPU compute simulation and minor editor polish.
 
 ---
 
@@ -43,14 +45,18 @@ graph, through the wrong renderer, with incorrect pipeline ordering.
 All particle rendering — billboards, stretched billboards, trails — still uses
 `Renderer2D::DrawQuad()` and `Renderer2D::DrawPolygon()`. This is a layer violation:
 
+> **Partially resolved**: Billboard and mesh particles now use dedicated shaders via
+> `ParticleBatchRenderer` with instanced rendering, soft particle support, and proper
+> depth buffer access. Stretched billboards and trails still use Renderer2D.
+
 - **Renderer2D has no concept of depth** — its shader doesn't read a depth buffer.
-  Enabling `SetDepthTest(true)` before Renderer2D calls would require Renderer2D's
-  vertex shader to output correct clip-space Z values (it does, since it applies the VP
-  matrix, but this was never the intended path and has not been validated).
+  (**Billboards/meshes fixed** via dedicated shaders; stretched/trails still affected.)
 - **No custom shader support** — Renderer2D uses a fixed batch shader. You can't add
   depth-fade (soft particles), per-particle lighting, or normal mapping.
+  (**Billboards/meshes fixed**; stretched/trails still affected.)
 - **No instanced rendering** — each particle is a separate `DrawQuad()` call into the
   batch. The CPU computes a full 4×4 matrix per particle.
+  (**Billboards/meshes fixed** via instance VBO/SSBO; stretched/trails still affected.)
 - **State management conflicts** — Renderer2D manages its own GL state (blend, shader
   binds). Calling `glBlendFunc()` between `DrawQuad()` calls inside an active batch may
   not take effect until the batch flushes (see §1.5).
@@ -67,14 +73,16 @@ All particle rendering — billboards, stretched billboards, trails — still us
 > **Fixed**: `SetParticleBlendMode()` now calls `Renderer2D::Flush()` before changing
 > GL blend state, ensuring queued quads render with the correct blend mode.
 
-### 1.6 No soft particles (depth fade near surfaces)
+### ~~1.6 No soft particles (depth fade near surfaces)~~ ✅ FIXED
 
-When particles intersect opaque geometry they produce hard, ugly edges. Production engines
-fade the particle alpha based on the distance between the particle's depth and the scene
-depth buffer value at that pixel.
-
-**Requires**: A particle-specific fragment shader with a depth texture uniform. Cannot be
-done through Renderer2D's fixed shader.
+> **Fixed**: Both `Particle_Billboard.glsl` and `Particle_Mesh.glsl` fragment shaders
+> sample the scene depth texture (`u_DepthTexture`), linearize both scene and fragment
+> depths using near/far clip planes, and compute alpha fade:
+> `fade = clamp((linearScene - linearFrag) / softDistance, 0, 1)`. Controlled per-system
+> via `ParticleSystem::SoftParticlesEnabled` and `SoftParticleDistance`. The scene depth
+> attachment is bound as a texture during the particle pass via
+> `ParticleBatchRenderer::SetSoftParticleParams()`. Editor UI provides checkbox + distance
+> slider; values are serialized to scene YAML.
 
 ### ~~1.7 No inter-system depth sorting~~ ✅ FIXED
 
@@ -84,15 +92,19 @@ done through Renderer2D's fixed shader.
 > render in farthest-first order. This ensures overlapping alpha-blended systems composite
 > correctly.
 
-### ~~1.8 The proper fix: ParticleRenderPass~~ ✅ FIXED (Phase A)
+### ~~1.8 The proper fix: ParticleRenderPass~~ ✅ FIXED (Phases A + B complete)
 
 > **Fixed (Phase A)**: Created `ParticleRenderPass` class, inserted into the render graph
 > between ScenePass and FinalPass. Graph order: ScenePass → ParticlePass → FinalPass.
 > The pass renders into the ScenePass framebuffer with depth test enabled (read-only,
 > `GL_LEQUAL`, no depth write) so particles correctly occlude against opaque geometry.
 > Particle rendering moved from manual post-EndScene code into a render callback set
-> before `Renderer3D::EndScene()`. Both editor and runtime paths updated. Phases B
-> (dedicated particle shader) and C (instanced rendering) remain as future optimizations.
+> before `Renderer3D::EndScene()`. Both editor and runtime paths updated.
+>
+> **Fixed (Phase B)**: Dedicated `Particle_Billboard.glsl` shader with GPU billboarding
+> in the vertex shader. Instance VBO with per-vertex attribute divisor for efficient
+> instanced billboard rendering via `ParticleBatchRenderer`. Also added
+> `Particle_Mesh.glsl` with SSBO-based instanced mesh rendering for mesh particles.
 
 ---
 
@@ -132,24 +144,18 @@ done through Renderer2D's fixed shader.
 
 ## 3 — Design Issues
 
-### 3.1 All rendering goes through Renderer2D
+### ~~3.1 All rendering goes through Renderer2D~~ ✅ PARTIALLY FIXED
 
-**Every** render path — `RenderParticles2D`, `RenderParticlesBillboard`,
-`RenderParticlesStretched`, `TrailRenderer::RenderTrails` — uses `Renderer2D::DrawQuad()`
-or `Renderer2D::DrawPolygon()`.
+Billboard and mesh particles now use dedicated shaders (`Particle_Billboard.glsl`,
+`Particle_Mesh.glsl`) via `ParticleBatchRenderer` with instanced rendering, depth buffer
+access, and soft particles. **Stretched billboards and trails still use Renderer2D** —
+`RenderParticlesStretched` and `TrailRenderer::RenderTrails` call `DrawQuad()` /
+`DrawPolygon()`.
 
-This couples particles to the 2D batch pipeline, which:
-- Has no concept of depth or lighting.
-- Doesn't support custom shaders (needed for soft particles, lit particles, distortion).
-- Cannot do instanced rendering (each quad goes through the normal batch path).
-- Means particles and 3D geometry live in completely separate pipelines.
-
-Long-term, particles need their own render pass within `Renderer3D` with a dedicated
-particle shader that supports:
-- Reading the scene depth buffer (for depth test + soft particles).
-- Per-particle instance data (position, size, color, rotation, UV rect) via SSBO or
-  instance buffer — one draw call per texture.
-- Optional lighting (normal-mapped particles, lit smoke).
+Remaining Renderer2D-dependent paths:
+- Stretched billboard particles (custom vertex positions via `DrawQuadVertices`)
+- Trail rendering (quad strips via `DrawQuadVertices`)
+- These still lack soft particle support and custom shader effects
 
 ### 3.2 Per-particle CPU transform construction is expensive
 
@@ -208,19 +214,19 @@ the vertex shader handle billboard construction.
 
 > **Fixed (Phase A)**: `ParticleRenderPass` created and integrated into the render graph.
 > Particles now render inside the render graph with depth testing against scene geometry.
-> Phases B (particle shader) and C (instanced rendering) remain as optimizations.
+>
+> **Fixed (Phase B)**: Dedicated `Particle_Billboard.glsl` shader with GPU billboarding
+> in vertex shader and depth-fade soft particles in fragment shader. Instance VBO for
+> instanced billboard rendering. `Particle_Mesh.glsl` for SSBO-based mesh instancing.
+> All phases complete.
 
-Remaining phases:
-- **Phase B**: Dedicated particle billboard shader (vertex shader billboarding, fragment
-  shader depth-fade for soft particles).
-- **Phase C**: Instance buffer for per-particle data. One draw call per texture batch.
+### ~~4.2 HIGH — Instanced particle rendering~~ ✅ FIXED
 
-### 4.2 HIGH — Instanced particle rendering
-Replace per-particle `Renderer2D::DrawQuad()` with a single instanced draw call per
-texture batch. Upload per-particle data (pos, size, color, rotation, UV) to an instance
-buffer or SSBO. Part of Phase C of the ParticleRenderPass work (§4.1). Requires:
-- A particle-specific vertex + fragment shader (billboard construction in vertex shader).
-- Dynamic instance buffer management (map/orphan pattern or persistent mapped buffer).
+> **Fixed**: `ParticleBatchRenderer` uploads per-particle data to an instance VBO
+> (billboards) or SSBO (meshes) and issues a single instanced draw call per texture batch.
+> Billboard particles use per-vertex attribute divisors; mesh particles use
+> `gl_InstanceID` into an SSBO. Dedicated shaders: `Particle_Billboard.glsl` (GPU
+> billboarding) and `Particle_Mesh.glsl` (SSBO-instanced meshes).
 
 ### ~~4.3 HIGH — Curve editor UI~~ ✅ FIXED
 
@@ -231,14 +237,19 @@ buffer or SSBO. Part of Phase C of the ParticleRenderPass work (§4.1). Requires
 > collapsible curve editors. Wired into Color Over Lifetime, Size Over Lifetime, and
 > a new Velocity Over Lifetime section with LinearVelocity + SpeedMultiplier + SpeedCurve.
 
-### 4.4 MEDIUM — Soft particles
-Alpha-fade particles near opaque surfaces using depth buffer comparison. Requires depth
-texture access in the particle fragment shader. Part of Phase B of the ParticleRenderPass
-work (§4.1). See §1.6.
+### ~~4.4 MEDIUM — Soft particles~~ ✅ FIXED
 
-### 4.5 MEDIUM — Mesh particles
-`ParticleRenderMode::Mesh` is declared but not implemented. Each particle should instance
-a user-specified mesh (e.g., debris chunks, leaves). Requires instanced rendering (§4.2).
+> **Fixed**: See §1.6. Both billboard and mesh particle shaders sample the scene depth
+> texture and fade alpha based on the linear depth difference. Controlled per-system via
+> `SoftParticlesEnabled` / `SoftParticleDistance`.
+
+### ~~4.5 MEDIUM — Mesh particles~~ ✅ FIXED
+
+> **Fixed**: `ParticleRenderMode::Mesh` fully implemented. `ParticleBatchRenderer::
+> RenderMeshParticles()` uploads per-instance data (model matrix, color, entity ID) to
+> an SSBO and draws the user-specified mesh with instanced rendering. Dedicated
+> `Particle_Mesh.glsl` shader reads SSBO via `gl_InstanceID`. `ParticleSystemComponent`
+> holds `Ref<Mesh> ParticleMesh`; editor UI shows mesh assignment status.
 
 ### ~~4.6 MEDIUM — Task system parallelization~~ ✅ FIXED
 
@@ -296,11 +307,11 @@ data, etc.). Enables advanced shader effects.
 | CPU simulation | ✅ | ✅ | ✅ | — |
 | GPU simulation (compute) | ✅ (VFX Graph) | ✅ | ❌ | Blocked on SSBO/compute |
 | Depth buffer occlusion | ✅ | ✅ | ✅ | Fixed — ParticleRenderPass with depth test |
-| Soft particles (depth fade) | ✅ | ✅ | ❌ | Need depth texture in particle shader |
-| Instanced rendering | ✅ | ✅ | ❌ | Planned (Phase 3 #9) |
+| Soft particles (depth fade) | ✅ | ✅ | ✅ | Fixed — depth texture comparison in particle fragment shaders |
+| Instanced rendering | ✅ | ✅ | ✅ | Fixed — instance VBO (billboards) + SSBO (meshes) |
 | Curve editor | ✅ (rich spline) | ✅ (graph editor) | ✅ | Interactive curve editor with key add/remove/drag |
 | Multiple force fields | ✅ (external) | ✅ (modules) | ✅ | Fixed — `std::vector<ModuleForceField>` |
-| Mesh particles | ✅ | ✅ | ❌ (placeholder) | Needs instancing first |
+| Mesh particles | ✅ | ✅ | ✅ | Fixed — SSBO-based instanced mesh rendering |
 | Sub-emitters | ✅ | ✅ | ✅ | Working — separate child systems |
 | Trails | ✅ | ✅ | ✅ | Working — quad-strip via batched DrawQuadVertices with per-vertex color |
 | Emission shapes | ✅ (Mesh surface) | ✅ | Partial (6 shapes) | Missing: mesh surface emit |
@@ -315,10 +326,12 @@ data, etc.). Enables advanced shader effects.
 
 **Overall assessment**: The simulation layer is solid — all known bugs are fixed, modules
 compose correctly with forces, LOD is smooth, warm-up is safe, emission respects entity
-rotation, and multiple force fields are supported. **Depth occlusion is now fixed** —
-particles render inside the render graph via `ParticleRenderPass` with depth testing
-against scene geometry. The remaining gaps are **performance** (instanced rendering,
-particle shader) and **editor quality** (soft particles, trail optimization).
+rotation, and multiple force fields are supported. **Rendering is now comprehensive** —
+particles render inside the render graph via `ParticleRenderPass` with depth testing,
+instanced billboard rendering (dedicated `Particle_Billboard.glsl` with GPU billboarding),
+soft particles (depth-fade), and mesh particles (SSBO-instanced via `Particle_Mesh.glsl`).
+The remaining gaps are **GPU compute simulation** and **minor polish** (particle lights,
+custom vertex streams).
 
 ---
 
@@ -337,7 +350,7 @@ particle shader) and **editor quality** (soft particles, trail optimization).
 - ~~**Insertion sort for depth sorting** (§3.7)~~ ✅
 - ~~**Binary search for ParticleCurve** (§3.6)~~ ✅
 
-### ~~Remaining: Rendering architecture overhaul~~ ✅ DONE (Phase A)
+### ~~Remaining: Rendering architecture overhaul~~ ✅ DONE (Phases A + B)
 
 ~~1. **Create `ParticleRenderPass`** (§1.8, Phase A) — new render pass inserted into the
    render graph between ScenePass and FinalPass. Renders into the ScenePass framebuffer
@@ -352,13 +365,13 @@ particle shader) and **editor quality** (soft particles, trail optimization).
 
 2. ~~**Add curve editor UI** (§4.3) — unblocks artist workflow.~~ ✅
 3. ~~**Optimize trail rendering** (§3.3) — batch into single draw call per particle.~~ ✅
-4. **Particle billboard shader** (§1.8, Phase B) — vertex-shader billboarding, soft
-   particle depth fade in fragment shader.
-5. **Instanced rendering** (§1.8, Phase C) — instance buffer, one draw call per texture.
+4. ~~**Particle billboard shader** (§1.8, Phase B) — vertex-shader billboarding, soft
+   particle depth fade in fragment shader.~~ ✅
+5. ~~**Instanced rendering** (§1.8, Phase B) — instance buffer, one draw call per texture.~~ ✅
 
 ### Remaining: Future features
 
-6. **Mesh particles** (§4.5) — requires instanced rendering.
+6. ~~**Mesh particles** (§4.5) — requires instanced rendering.~~ ✅
 7. ~~**Task system parallelization** (§4.6) — parallel module application.~~ ✅
 8. **GPU compute simulation** (§4.9) — requires SSBO/compute shader support.
 9. **Particle lights** (§4.10) — per-particle point lights.

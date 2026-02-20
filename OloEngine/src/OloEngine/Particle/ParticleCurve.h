@@ -12,7 +12,7 @@ namespace OloEngine
     {
         struct Key
         {
-            f32 Time = 0.0f;   // Normalized 0..1
+            f32 Time = 0.0f; // Normalized 0..1
             f32 Value = 0.0f;
         };
 
@@ -101,4 +101,4 @@ namespace OloEngine
             return { R.Evaluate(t), G.Evaluate(t), B.Evaluate(t), A.Evaluate(t) };
         }
     };
-}
+} // namespace OloEngine

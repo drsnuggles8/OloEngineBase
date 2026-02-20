@@ -63,10 +63,10 @@ namespace OloEngine
 
                 // Quad vertices (counterclockwise): BL, BR, TR, TL
                 glm::vec3 positions[4] = {
-                    posA - perp * halfA,  // bottom-left
-                    posB - perp * halfB,  // bottom-right
-                    posB + perp * halfB,  // top-right
-                    posA + perp * halfA   // top-left
+                    posA - perp * halfA, // bottom-left
+                    posB - perp * halfB, // bottom-right
+                    posB + perp * halfB, // top-right
+                    posA + perp * halfA  // top-left
                 };
                 glm::vec4 colors[4] = { colorA, colorB, colorB, colorA };
 
@@ -74,10 +74,10 @@ namespace OloEngine
                 {
                     // UV mapping: U along trail length (0 at head, 1 at tail), V across width
                     glm::vec2 texCoords[4] = {
-                        { tA, 0.0f },  // BL
-                        { tB, 0.0f },  // BR
-                        { tB, 1.0f },  // TR
-                        { tA, 1.0f }   // TL
+                        { tA, 0.0f }, // BL
+                        { tB, 0.0f }, // BR
+                        { tB, 1.0f }, // TR
+                        { tA, 1.0f }  // TL
                     };
                     Renderer2D::DrawQuadVertices(positions, colors, texCoords, texture, entityID);
                 }
@@ -88,4 +88,4 @@ namespace OloEngine
             }
         }
     }
-}
+} // namespace OloEngine

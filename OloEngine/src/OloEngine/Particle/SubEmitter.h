@@ -20,7 +20,7 @@ namespace OloEngine
     struct SubEmitterEntry
     {
         SubEmitterEvent Trigger = SubEmitterEvent::OnDeath;
-        u32 EmitCount = 5;     // Particles to emit from child system per trigger
+        u32 EmitCount = 5; // Particles to emit from child system per trigger
         bool InheritVelocity = false;
         f32 InheritVelocityScale = 0.5f;
 
@@ -44,4 +44,4 @@ namespace OloEngine
         i32 ChildSystemIndex = -1; // Which child system to emit from
         u32 EmitCount = 5;         // How many particles to emit
     };
-}
+} // namespace OloEngine

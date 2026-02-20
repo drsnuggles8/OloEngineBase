@@ -4,6 +4,7 @@
 #include "OloEngine/Particle/ParticlePool.h"
 #include "OloEngine/Particle/ParticleModules.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/Mesh.h"
 
 #include <glm/glm.hpp>
 #include <vector>
@@ -12,7 +13,7 @@ namespace OloEngine
 {
     class ParticleRenderer
     {
-    public:
+      public:
         // Render all alive particles as 2D camera-facing quads via Renderer2D
         // Call between Renderer2D::BeginScene and EndScene
         // worldOffset is added to each particle position (used for Local simulation space)
@@ -46,8 +47,17 @@ namespace OloEngine
                                              const std::vector<u32>* sortedIndices = nullptr,
                                              const ModuleTextureSheetAnimation* spriteSheet = nullptr);
 
-    private:
+        // Render particles as instanced meshes
+        // Uses SSBO-based instanced rendering via ParticleBatchRenderer
+        static void RenderParticlesMesh(const ParticlePool& pool,
+                                        const Ref<Mesh>& mesh,
+                                        const Ref<Texture2D>& texture,
+                                        const glm::vec3& worldOffset = glm::vec3(0.0f),
+                                        int entityID = -1,
+                                        const std::vector<u32>* sortedIndices = nullptr);
+
+      private:
         // Compute sprite sheet frame for a particle based on age or speed
         static u32 ComputeFrame(const ParticlePool& pool, u32 index, const ModuleTextureSheetAnimation& sheet);
     };
-}
+} // namespace OloEngine

@@ -7,12 +7,18 @@ namespace OloEngine
 {
     class ParticleSystemAsset : public Asset
     {
-    public:
+      public:
         ParticleSystemAsset() = default;
 
-        static AssetType GetStaticType() { return AssetType::ParticleSystem; }
-        virtual AssetType GetAssetType() const override { return GetStaticType(); }
+        static AssetType GetStaticType()
+        {
+            return AssetType::ParticleSystem;
+        }
+        virtual AssetType GetAssetType() const override
+        {
+            return GetStaticType();
+        }
 
         ParticleSystem System;
     };
-}
+} // namespace OloEngine

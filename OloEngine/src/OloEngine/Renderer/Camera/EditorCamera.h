@@ -66,6 +66,15 @@ namespace OloEngine
             return m_Yaw;
         }
 
+        [[nodiscard("Store this!")]] f32 GetNearClip() const
+        {
+            return m_NearClip;
+        }
+        [[nodiscard("Store this!")]] f32 GetFarClip() const
+        {
+            return m_FarClip;
+        }
+
         [[nodiscard("Store this!")]] glm::vec3 GetUpDirection() const;
         [[nodiscard("Store this!")]] glm::vec3 GetRightDirection() const;
         [[nodiscard("Store this!")]] glm::vec3 GetForwardDirection() const;

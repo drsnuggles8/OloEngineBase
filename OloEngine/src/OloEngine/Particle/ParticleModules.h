@@ -72,15 +72,15 @@ namespace OloEngine
 
     enum class TextureSheetAnimMode : u8
     {
-        OverLifetime = 0,  // Frame index driven by particle age
-        BySpeed            // Frame index driven by particle speed
+        OverLifetime = 0, // Frame index driven by particle age
+        BySpeed           // Frame index driven by particle speed
     };
 
     struct ModuleTextureSheetAnimation
     {
         bool Enabled = false;
-        u32 GridX = 1;    // Columns
-        u32 GridY = 1;    // Rows
+        u32 GridX = 1;       // Columns
+        u32 GridY = 1;       // Rows
         u32 TotalFrames = 1; // May be less than GridX * GridY
         TextureSheetAnimMode Mode = TextureSheetAnimMode::OverLifetime;
         f32 SpeedRange = 10.0f; // Speed at which last frame is reached (BySpeed mode)
@@ -88,4 +88,4 @@ namespace OloEngine
         // Compute the UV min/max for a given frame index
         void GetFrameUV(u32 frame, glm::vec2& uvMin, glm::vec2& uvMax) const;
     };
-}
+} // namespace OloEngine

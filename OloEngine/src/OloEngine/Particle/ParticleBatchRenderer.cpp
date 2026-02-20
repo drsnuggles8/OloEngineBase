@@ -16,8 +16,8 @@ namespace OloEngine
         static constexpr u32 MaxInstances = 10000;
 
         Ref<VertexArray> VAO;
-        Ref<VertexBuffer> QuadVBO;      // Unit quad vertices (per-vertex)
-        Ref<VertexBuffer> InstanceVBO;   // Per-instance data
+        Ref<VertexBuffer> QuadVBO;     // Unit quad vertices (per-vertex)
+        Ref<VertexBuffer> InstanceVBO; // Per-instance data
         Ref<Shader> ParticleShader;
 
         ParticleInstance* InstanceBase = nullptr;
@@ -38,6 +38,33 @@ namespace OloEngine
         glm::vec3 CameraRight{};
         glm::vec3 CameraUp{};
 
+        // Particle params UBO (binding 2, std140 layout)
+        // Must match the ParticleParams uniform block in the shaders
+        struct ParticleParamsData
+        {
+            glm::vec3 CameraRight{};         // offset 0  (align 16)
+            f32 _pad0{};                     // offset 12
+            glm::vec3 CameraUp{};            // offset 16 (align 16)
+            i32 HasTexture = 0;              // offset 28
+            i32 SoftParticlesEnabled = 0;    // offset 32
+            f32 SoftParticleDistance = 1.0f; // offset 36
+            f32 NearClip = 0.1f;             // offset 40
+            f32 FarClip = 1000.0f;           // offset 44
+            glm::vec2 ViewportSize{};        // offset 48 (align 8)
+            f32 _pad1[2]{};                  // offset 56 (pad to 64)
+        };
+        static_assert(sizeof(ParticleParamsData) == 64, "ParticleParamsData must be 64 bytes for std140");
+
+        Ref<UniformBuffer> ParticleParamsUBO;
+        ParticleParamsData ParticleParamsBuffer;
+
+        // Soft particle state
+        SoftParticleParams SoftParams;
+
+        // Mesh particle resources
+        Ref<Shader> MeshParticleShader;
+        Ref<UniformBuffer> MeshInstanceUBO;
+
         ParticleBatchRenderer::Statistics Stats;
     };
 
@@ -51,16 +78,14 @@ namespace OloEngine
 
         // Unit quad: 4 vertices with 2D positions (centered at origin, size 1x1)
         f32 quadVertices[] = {
-            -0.5f, -0.5f,  // bottom-left
-             0.5f, -0.5f,  // bottom-right
-             0.5f,  0.5f,  // top-right
-            -0.5f,  0.5f   // top-left
+            -0.5f, -0.5f, // bottom-left
+            0.5f, -0.5f,  // bottom-right
+            0.5f, 0.5f,   // top-right
+            -0.5f, 0.5f   // top-left
         };
 
         s_Data.QuadVBO = VertexBuffer::Create(quadVertices, sizeof(quadVertices));
-        s_Data.QuadVBO->SetLayout({
-            { ShaderDataType::Float2, "a_QuadPos" }
-        });
+        s_Data.QuadVBO->SetLayout({ { ShaderDataType::Float2, "a_QuadPos" } });
         s_Data.VAO->AddVertexBuffer(s_Data.QuadVBO);
 
         // Index buffer for the unit quad (two triangles)
@@ -70,14 +95,12 @@ namespace OloEngine
 
         // Instance buffer (dynamic, per-instance data)
         s_Data.InstanceVBO = VertexBuffer::Create(ParticleBatchData::MaxInstances * sizeof(ParticleInstance));
-        s_Data.InstanceVBO->SetLayout({
-            { ShaderDataType::Float4, "a_PositionSize" },
-            { ShaderDataType::Float4, "a_Color" },
-            { ShaderDataType::Float4, "a_UVRect" },
-            { ShaderDataType::Float4, "a_VelocityRotation" },
-            { ShaderDataType::Float,  "a_StretchFactor" },
-            { ShaderDataType::Int,    "a_EntityID" }
-        });
+        s_Data.InstanceVBO->SetLayout({ { ShaderDataType::Float4, "a_PositionSize" },
+                                        { ShaderDataType::Float4, "a_Color" },
+                                        { ShaderDataType::Float4, "a_UVRect" },
+                                        { ShaderDataType::Float4, "a_VelocityRotation" },
+                                        { ShaderDataType::Float, "a_StretchFactor" },
+                                        { ShaderDataType::Int, "a_EntityID" } });
         s_Data.VAO->AddInstanceBuffer(s_Data.InstanceVBO);
 
         // CPU-side staging buffer
@@ -93,6 +116,15 @@ namespace OloEngine
 
         // Camera UBO (binding 0, shared with other renderers)
         s_Data.CameraUBO = UniformBuffer::Create(sizeof(ParticleBatchData::CameraData), 0);
+
+        // Particle params UBO (binding 2)
+        s_Data.ParticleParamsUBO = UniformBuffer::Create(sizeof(ParticleBatchData::ParticleParamsData), 2);
+
+        // Mesh particle resources
+        s_Data.MeshParticleShader = Shader::Create("assets/shaders/Particle_Mesh.glsl");
+
+        // UBO for single mesh particle instance data (binding 3)
+        s_Data.MeshInstanceUBO = UniformBuffer::Create(sizeof(MeshParticleInstance), 3);
     }
 
     void ParticleBatchRenderer::Shutdown()
@@ -133,9 +165,14 @@ namespace OloEngine
         StartNewBatch();
     }
 
+    void ParticleBatchRenderer::SetSoftParticleParams(const SoftParticleParams& params)
+    {
+        s_Data.SoftParams = params;
+    }
+
     void ParticleBatchRenderer::Submit(const glm::vec3& position, f32 size, f32 rotation,
-                                        const glm::vec4& color, const glm::vec4& uvRect,
-                                        int entityID)
+                                       const glm::vec4& color, const glm::vec4& uvRect,
+                                       int entityID)
     {
         if (s_Data.InstanceCount >= ParticleBatchData::MaxInstances)
         {
@@ -156,9 +193,9 @@ namespace OloEngine
     }
 
     void ParticleBatchRenderer::SubmitStretched(const glm::vec3& position, f32 size,
-                                                 const glm::vec3& velocity, f32 stretchFactor,
-                                                 const glm::vec4& color, const glm::vec4& uvRect,
-                                                 int entityID)
+                                                const glm::vec3& velocity, f32 stretchFactor,
+                                                const glm::vec4& color, const glm::vec4& uvRect,
+                                                int entityID)
     {
         if (s_Data.InstanceCount >= ParticleBatchData::MaxInstances)
         {
@@ -201,6 +238,7 @@ namespace OloEngine
         }
 
         s_Data.CurrentTexture = nullptr;
+        s_Data.SoftParams = {};
     }
 
     void ParticleBatchRenderer::Flush()
@@ -214,24 +252,87 @@ namespace OloEngine
         u32 dataSize = s_Data.InstanceCount * sizeof(ParticleInstance);
         s_Data.InstanceVBO->SetData({ s_Data.InstanceBase, dataSize });
 
-        // Bind shader and set uniforms
-        s_Data.ParticleShader->Bind();
-        s_Data.ParticleShader->SetFloat3("u_CameraRight", s_Data.CameraRight);
-        s_Data.ParticleShader->SetFloat3("u_CameraUp", s_Data.CameraUp);
-
-        // Bind texture
+        // Populate ParticleParams UBO
         bool hasTexture = (s_Data.CurrentTexture && s_Data.CurrentTexture != s_Data.WhiteTexture);
-        s_Data.ParticleShader->SetInt("u_HasTexture", hasTexture ? 1 : 0);
-        if (hasTexture)
-        {
-            RenderCommand::BindTexture(0, s_Data.CurrentTexture->GetRendererID());
-        }
+        auto& params = s_Data.ParticleParamsBuffer;
+        params.CameraRight = s_Data.CameraRight;
+        params.CameraUp = s_Data.CameraUp;
+        params.HasTexture = hasTexture ? 1 : 0;
+        params.SoftParticlesEnabled = s_Data.SoftParams.Enabled ? 1 : 0;
+        params.SoftParticleDistance = s_Data.SoftParams.Distance;
+        params.NearClip = s_Data.SoftParams.NearClip;
+        params.FarClip = s_Data.SoftParams.FarClip;
+        params.ViewportSize = s_Data.SoftParams.ViewportSize;
+        s_Data.ParticleParamsUBO->SetData(&params, sizeof(params));
+
+        // Re-bind particle UBOs (ScenePass CommandDispatch overwrites binding points 0/2)
+        s_Data.CameraUBO->Bind();
+        s_Data.ParticleParamsUBO->Bind();
+
+        // Bind shader
+        s_Data.ParticleShader->Bind();
+
+        // Bind textures — always bind both slots to avoid "required buffer is missing"
+        RenderCommand::BindTexture(0, hasTexture ? s_Data.CurrentTexture->GetRendererID() : s_Data.WhiteTexture->GetRendererID());
+        RenderCommand::BindTexture(1, s_Data.SoftParams.Enabled ? s_Data.SoftParams.DepthTextureID : s_Data.WhiteTexture->GetRendererID());
 
         // Instanced draw call
         RenderCommand::DrawIndexedInstanced(s_Data.VAO, 6, s_Data.InstanceCount);
 
         s_Data.Stats.DrawCalls++;
         s_Data.Stats.InstanceCount += s_Data.InstanceCount;
+    }
+
+    void ParticleBatchRenderer::RenderMeshParticles(const Ref<Mesh>& mesh,
+                                                    const MeshParticleInstance* instances,
+                                                    u32 instanceCount,
+                                                    const Ref<Texture2D>& texture)
+    {
+        if (!mesh || !mesh->IsValid() || instanceCount == 0)
+        {
+            return;
+        }
+
+        // Populate ParticleParams UBO (reuse the same UBO at binding 2)
+        bool hasTexture = (texture != nullptr);
+        auto& params = s_Data.ParticleParamsBuffer;
+        params.CameraRight = s_Data.CameraRight;
+        params.CameraUp = s_Data.CameraUp;
+        params.HasTexture = hasTexture ? 1 : 0;
+        params.SoftParticlesEnabled = s_Data.SoftParams.Enabled ? 1 : 0;
+        params.SoftParticleDistance = s_Data.SoftParams.Distance;
+        params.NearClip = s_Data.SoftParams.NearClip;
+        params.FarClip = s_Data.SoftParams.FarClip;
+        params.ViewportSize = s_Data.SoftParams.ViewportSize;
+        s_Data.ParticleParamsUBO->SetData(&params, sizeof(params));
+
+        // Re-bind particle UBOs (ScenePass CommandDispatch overwrites binding points 0/2/3)
+        s_Data.CameraUBO->Bind();
+        s_Data.ParticleParamsUBO->Bind();
+        s_Data.MeshInstanceUBO->Bind();
+
+        // Bind mesh shader
+        s_Data.MeshParticleShader->Bind();
+
+        // Bind textures — always bind both slots to avoid "required buffer is missing"
+        RenderCommand::BindTexture(0, hasTexture ? texture->GetRendererID() : s_Data.WhiteTexture->GetRendererID());
+        RenderCommand::BindTexture(1, s_Data.SoftParams.Enabled ? s_Data.SoftParams.DepthTextureID : s_Data.WhiteTexture->GetRendererID());
+
+        auto vao = mesh->GetVertexArray();
+        u32 indexCount = mesh->GetIndexCount();
+
+        // Render each mesh particle individually (one draw call per particle)
+        // gl_InstanceIndex is not supported in the engine's shader cross-compilation
+        // pipeline (spirv-cross outputs gl_InstanceID which shaderc rejects), so we
+        // pass a single instance per UBO and draw without instancing.
+        for (u32 i = 0; i < instanceCount; ++i)
+        {
+            s_Data.MeshInstanceUBO->SetData(&instances[i], sizeof(MeshParticleInstance));
+            RenderCommand::DrawIndexed(vao, indexCount);
+
+            s_Data.Stats.DrawCalls++;
+            s_Data.Stats.InstanceCount++;
+        }
     }
 
     void ParticleBatchRenderer::StartNewBatch()
@@ -249,4 +350,4 @@ namespace OloEngine
     {
         return s_Data.Stats;
     }
-}
+} // namespace OloEngine

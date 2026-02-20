@@ -954,6 +954,8 @@ namespace OloEngine
             out << YAML::Key << "BlendMode" << YAML::Value << static_cast<int>(sys.BlendMode);
             out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(sys.RenderMode);
             out << YAML::Key << "DepthSortEnabled" << YAML::Value << sys.DepthSortEnabled;
+            out << YAML::Key << "SoftParticlesEnabled" << YAML::Value << sys.SoftParticlesEnabled;
+            out << YAML::Key << "SoftParticleDistance" << YAML::Value << sys.SoftParticleDistance;
             out << YAML::Key << "VelocityInheritance" << YAML::Value << sys.VelocityInheritance;
 
             // Texture sheet animation
@@ -1708,7 +1710,9 @@ namespace OloEngine
                     {
                         switch (shapeType.as<int>())
                         {
-                            case 0: emitter.Shape = EmitPoint{}; break;
+                            case 0:
+                                emitter.Shape = EmitPoint{};
+                                break;
                             case 1:
                             {
                                 EmitSphere s;
@@ -1746,10 +1750,10 @@ namespace OloEngine
                                 emitter.Shape = e;
                                 break;
                             }
-                            default: break;
+                            default:
+                                break;
                         }
                     }
-
 
                     TrySet(sys.GravityModule.Enabled, particleComponent["GravityEnabled"]);
                     TrySet(sys.GravityModule.Gravity, particleComponent["Gravity"]);
@@ -1830,6 +1834,8 @@ namespace OloEngine
                     if (auto val = particleComponent["RenderMode"]; val)
                         sys.RenderMode = static_cast<ParticleRenderMode>(val.as<int>());
                     TrySet(sys.DepthSortEnabled, particleComponent["DepthSortEnabled"]);
+                    TrySet(sys.SoftParticlesEnabled, particleComponent["SoftParticlesEnabled"]);
+                    TrySet(sys.SoftParticleDistance, particleComponent["SoftParticleDistance"]);
                     TrySet(sys.VelocityInheritance, particleComponent["VelocityInheritance"]);
 
                     // Texture sheet animation
@@ -2642,7 +2648,9 @@ namespace OloEngine
                     {
                         switch (shapeType.as<int>())
                         {
-                            case 0: emitter.Shape = EmitPoint{}; break;
+                            case 0:
+                                emitter.Shape = EmitPoint{};
+                                break;
                             case 1:
                             {
                                 EmitSphere s;
@@ -2680,10 +2688,10 @@ namespace OloEngine
                                 emitter.Shape = e;
                                 break;
                             }
-                            default: break;
+                            default:
+                                break;
                         }
                     }
-
 
                     TrySet(sys.GravityModule.Enabled, particleComponent["GravityEnabled"]);
                     TrySet(sys.GravityModule.Gravity, particleComponent["Gravity"]);
@@ -2764,6 +2772,8 @@ namespace OloEngine
                     if (auto val = particleComponent["RenderMode"]; val)
                         sys.RenderMode = static_cast<ParticleRenderMode>(val.as<int>());
                     TrySet(sys.DepthSortEnabled, particleComponent["DepthSortEnabled"]);
+                    TrySet(sys.SoftParticlesEnabled, particleComponent["SoftParticlesEnabled"]);
+                    TrySet(sys.SoftParticleDistance, particleComponent["SoftParticleDistance"]);
                     TrySet(sys.VelocityInheritance, particleComponent["VelocityInheritance"]);
 
                     // Texture sheet animation

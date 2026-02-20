@@ -19,9 +19,9 @@ namespace OloEngine
     // Fixed-size ring buffer for a single particle's trail points (O(1) insert and age)
     struct TrailRingBuffer
     {
-        std::vector<TrailPoint> Points;  // Fixed-size storage
-        u32 Head = 0;    // Index of the newest point
-        u32 Count = 0;   // Number of active points
+        std::vector<TrailPoint> Points; // Fixed-size storage
+        u32 Head = 0;                   // Index of the newest point
+        u32 Count = 0;                  // Number of active points
         u32 Capacity = 0;
 
         void Resize(u32 maxPoints)
@@ -41,7 +41,10 @@ namespace OloEngine
         // Push a new point to the front (newest). Returns index of the new point.
         void Push(const TrailPoint& point)
         {
-            if (Capacity == 0) { return; }
+            if (Capacity == 0)
+            {
+                return;
+            }
             // Move head backwards (wrapping) to make room for new point
             Head = (Head == 0) ? (Capacity - 1) : (Head - 1);
             Points[Head] = point;
@@ -75,7 +78,7 @@ namespace OloEngine
     // Per-particle trail data stored as SOA alongside ParticlePool
     class ParticleTrailData
     {
-    public:
+      public:
         void Resize(u32 maxParticles, u32 maxTrailPoints);
 
         // Record a new trail point for particle at index
@@ -91,10 +94,16 @@ namespace OloEngine
         void AgePoints(f32 dt, f32 trailLifetime);
 
         // Get trail ring buffer for a particle (iterate 0..Count-1 via Get())
-        [[nodiscard]] const TrailRingBuffer& GetTrail(u32 particleIndex) const { return m_Trails[particleIndex]; }
-        [[nodiscard]] u32 GetMaxTrailPoints() const { return m_MaxTrailPoints; }
+        [[nodiscard]] const TrailRingBuffer& GetTrail(u32 particleIndex) const
+        {
+            return m_Trails[particleIndex];
+        }
+        [[nodiscard]] u32 GetMaxTrailPoints() const
+        {
+            return m_MaxTrailPoints;
+        }
 
-    private:
+      private:
         std::vector<TrailRingBuffer> m_Trails;
         u32 m_MaxTrailPoints = 16;
     };
@@ -102,12 +111,12 @@ namespace OloEngine
     struct ModuleTrail
     {
         bool Enabled = false;
-        u32 MaxTrailPoints = 16;     // Points per particle trail
-        f32 TrailLifetime = 0.5f;    // How long trail points last (seconds)
+        u32 MaxTrailPoints = 16;      // Points per particle trail
+        f32 TrailLifetime = 0.5f;     // How long trail points last (seconds)
         f32 MinVertexDistance = 0.1f; // Min distance between recorded points
         f32 WidthStart = 1.0f;
         f32 WidthEnd = 0.0f;
         glm::vec4 ColorStart{ 1.0f, 1.0f, 1.0f, 1.0f };
         glm::vec4 ColorEnd{ 1.0f, 1.0f, 1.0f, 0.0f };
     };
-}
+} // namespace OloEngine

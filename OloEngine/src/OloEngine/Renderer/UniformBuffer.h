@@ -24,6 +24,9 @@ namespace OloEngine
         // Original method using UniformData struct
         virtual void SetData(const UniformData& data) = 0;
 
+        // Re-bind this buffer to its original binding point
+        virtual void Bind() const = 0;
+
         // Phase 6.1: Resource handle caching support
         virtual u32 GetRendererID() const = 0;
         virtual u32 GetSize() const

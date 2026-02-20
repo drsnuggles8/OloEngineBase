@@ -143,4 +143,4 @@ namespace OloEngine
         uvMin = { col * cellW, row * cellH };
         uvMax = { (col + 1) * cellW, (row + 1) * cellH };
     }
-}
+} // namespace OloEngine

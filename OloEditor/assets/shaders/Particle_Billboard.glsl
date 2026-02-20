@@ -22,8 +22,17 @@ layout(std140, binding = 0) uniform Camera
 	mat4 u_ViewProjection;
 };
 
-uniform vec3 u_CameraRight;
-uniform vec3 u_CameraUp;
+layout(std140, binding = 2) uniform ParticleParams
+{
+	vec3 u_CameraRight;
+	vec3 u_CameraUp;
+	int u_HasTexture;
+	int u_SoftParticlesEnabled;
+	float u_SoftParticleDistance;
+	float u_NearClip;
+	float u_FarClip;
+	vec2 u_ViewportSize;
+};
 
 struct VertexOutput
 {
@@ -108,8 +117,26 @@ struct VertexOutput
 layout(location = 0) in VertexOutput Input;
 layout(location = 2) in flat int v_EntityID;
 
-uniform sampler2D u_Texture;
-uniform int u_HasTexture;
+layout(binding = 0) uniform sampler2D u_Texture;
+layout(binding = 1) uniform sampler2D u_DepthTexture;
+
+layout(std140, binding = 2) uniform ParticleParams
+{
+	vec3 u_CameraRight;
+	vec3 u_CameraUp;
+	int u_HasTexture;
+	int u_SoftParticlesEnabled;
+	float u_SoftParticleDistance;
+	float u_NearClip;
+	float u_FarClip;
+	vec2 u_ViewportSize;
+};
+
+float LinearizeDepth(float depth)
+{
+	float ndc = depth * 2.0 - 1.0;
+	return (2.0 * u_NearClip * u_FarClip) / (u_FarClip + u_NearClip - ndc * (u_FarClip - u_NearClip));
+}
 
 void main()
 {
@@ -117,6 +144,21 @@ void main()
 	if (u_HasTexture != 0)
 	{
 		texColor *= texture(u_Texture, Input.TexCoord);
+	}
+
+	if (texColor.a < 0.001)
+		discard;
+
+	// Soft particle depth fade
+	if (u_SoftParticlesEnabled != 0)
+	{
+		vec2 screenUV = gl_FragCoord.xy / u_ViewportSize;
+		float sceneDepth = texture(u_DepthTexture, screenUV).r;
+		float linearScene = LinearizeDepth(sceneDepth);
+		float linearFrag = LinearizeDepth(gl_FragCoord.z);
+		float depthDiff = linearScene - linearFrag;
+		float fade = clamp(depthDiff / u_SoftParticleDistance, 0.0, 1.0);
+		texColor.a *= fade;
 	}
 
 	if (texColor.a < 0.001)

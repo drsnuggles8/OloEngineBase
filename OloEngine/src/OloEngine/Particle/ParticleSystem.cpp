@@ -13,7 +13,8 @@ namespace OloEngine
         m_TrailData.Resize(maxParticles, TrailModule.MaxTrailPoints);
 
         // Wire up swap callback so trail data stays in sync when particles die
-        m_Pool.OnSwapCallback = [this](u32 a, u32 b) { m_TrailData.SwapParticles(a, b); };
+        m_Pool.OnSwapCallback = [this](u32 a, u32 b)
+        { m_TrailData.SwapParticles(a, b); };
     }
 
     void ParticleSystem::SetMaxParticles(u32 maxParticles)
@@ -143,8 +144,7 @@ namespace OloEngine
         // 2. Apply modules — independent modules run concurrently with the velocity chain
         // Color, Size, and Rotation only write Colors/Sizes/Rotations respectively,
         // so they are safe to run in parallel with the velocity chain (Gravity→Drag→Noise→Velocity).
-        bool useParallelModules = m_Pool.GetAliveCount() >= 256
-                                  && (ColorModule.Enabled || SizeModule.Enabled || RotationModule.Enabled);
+        bool useParallelModules = m_Pool.GetAliveCount() >= 256 && (ColorModule.Enabled || SizeModule.Enabled || RotationModule.Enabled);
 
         Tasks::TTask<void> colorTask;
         Tasks::TTask<void> sizeTask;
@@ -153,11 +153,14 @@ namespace OloEngine
         if (useParallelModules)
         {
             if (ColorModule.Enabled)
-                colorTask = Tasks::Launch("ColorModule", [&]() { ColorModule.Apply(m_Pool); });
+                colorTask = Tasks::Launch("ColorModule", [&]()
+                                          { ColorModule.Apply(m_Pool); });
             if (SizeModule.Enabled)
-                sizeTask = Tasks::Launch("SizeModule", [&]() { SizeModule.Apply(m_Pool); });
+                sizeTask = Tasks::Launch("SizeModule", [&]()
+                                         { SizeModule.Apply(m_Pool); });
             if (RotationModule.Enabled)
-                rotationTask = Tasks::Launch("RotModule", [&]() { RotationModule.Apply(scaledDt, m_Pool); });
+                rotationTask = Tasks::Launch("RotModule", [&]()
+                                             { RotationModule.Apply(scaledDt, m_Pool); });
         }
 
         // Velocity chain (must be sequential — all write Velocities)
@@ -307,8 +310,7 @@ namespace OloEngine
                 glm::vec3 dir = glm::normalize(glm::vec3(
                     rng.GetFloat32InRange(-1.0f, 1.0f),
                     rng.GetFloat32InRange(-1.0f, 1.0f),
-                    rng.GetFloat32InRange(-1.0f, 1.0f)
-                ));
+                    rng.GetFloat32InRange(-1.0f, 1.0f)));
                 f32 speed = Emitter.InitialSpeed + rng.GetFloat32InRange(-Emitter.SpeedVariance, Emitter.SpeedVariance);
                 glm::vec3 velocity = dir * std::max(speed, 0.0f) + trigger.Velocity;
                 m_Pool.Velocities[idx] = velocity;
@@ -375,4 +377,4 @@ namespace OloEngine
         Emitter.Reset();
         Playing = true;
     }
-}
+} // namespace OloEngine

@@ -348,8 +348,7 @@ namespace OloEngine
                 glm::vec3 dir = glm::normalize(glm::vec3(
                     rng.GetFloat32InRange(-1.0f, 1.0f),
                     rng.GetFloat32InRange(-1.0f, 1.0f),
-                    rng.GetFloat32InRange(-1.0f, 1.0f)
-                ));
+                    rng.GetFloat32InRange(-1.0f, 1.0f)));
                 f32 speed = childEmitter.InitialSpeed + rng.GetFloat32InRange(-childEmitter.SpeedVariance, childEmitter.SpeedVariance);
                 glm::vec3 velocity = dir * std::max(speed, 0.0f) + trigger.Velocity;
                 childPool.Velocities[idx] = velocity;
@@ -1606,8 +1605,22 @@ namespace OloEngine
         if (auto particlePass = Renderer3D::GetParticlePass())
         {
             particlePass->SetRenderCallback([this, &camera]()
-            {
+                                            {
                 ParticleBatchRenderer::BeginBatch(camera);
+
+                // Set up soft particle params from scene framebuffer depth texture
+                if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+                {
+                    auto fb = scenePass->GetTarget();
+                    auto& spec = fb->GetSpecification();
+                    SoftParticleParams softParams;
+                    softParams.DepthTextureID = fb->GetDepthAttachmentRendererID();
+                    softParams.NearClip = camera.GetNearClip();
+                    softParams.FarClip = camera.GetFarClip();
+                    softParams.ViewportSize = { static_cast<f32>(spec.Width), static_cast<f32>(spec.Height) };
+                    ParticleBatchRenderer::SetSoftParticleParams(softParams);
+                }
+
                 glm::vec3 camRight = camera.GetRightDirection();
                 glm::vec3 camUp = camera.GetUpDirection();
                 glm::vec3 camPos = camera.GetPosition();
@@ -1640,11 +1653,33 @@ namespace OloEngine
 
                     const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
 
+                    // Enable/disable soft particles per system
+                    {
+                        SoftParticleParams softParams;
+                        if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+                        {
+                            auto fb = scenePass->GetTarget();
+                            auto& spec = fb->GetSpecification();
+                            softParams.Enabled = sys.SoftParticlesEnabled;
+                            softParams.Distance = sys.SoftParticleDistance;
+                            softParams.DepthTextureID = fb->GetDepthAttachmentRendererID();
+                            softParams.NearClip = camera.GetNearClip();
+                            softParams.FarClip = camera.GetFarClip();
+                            softParams.ViewportSize = { static_cast<f32>(spec.Width), static_cast<f32>(spec.Height) };
+                        }
+                        ParticleBatchRenderer::SetSoftParticleParams(softParams);
+                    }
+
                     // Flush pending instances before changing blend mode
                     ParticleBatchRenderer::Flush();
                     SetParticleBlendMode(sys.BlendMode);
 
-                    if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
+                    if (sys.RenderMode == ParticleRenderMode::Mesh)
+                    {
+                        ParticleBatchRenderer::Flush();
+                        ParticleRenderer::RenderParticlesMesh(sys.GetPool(), psc.ParticleMesh, psc.Texture, offset, static_cast<int>(entity), sorted);
+                    }
+                    else if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
                     {
                         ParticleRenderer::RenderParticlesStretched(sys.GetPool(), camRight, camUp, psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
                     }
@@ -1681,8 +1716,7 @@ namespace OloEngine
 
                     RestoreDefaultBlendMode();
                 }
-                ParticleBatchRenderer::EndBatch();
-            });
+                ParticleBatchRenderer::EndBatch(); });
         }
 
         Renderer3D::EndScene();
@@ -1891,8 +1925,22 @@ namespace OloEngine
         if (auto particlePass = Renderer3D::GetParticlePass())
         {
             particlePass->SetRenderCallback([this, &camera, &cameraTransform]()
-            {
+                                            {
                 ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
+
+                // Extract near/far clips from the primary SceneCamera for soft particles
+                f32 nearClip = 0.1f;
+                f32 farClip = 1000.0f;
+                for (const auto view = m_Registry.view<CameraComponent>(); const auto entity : view)
+                {
+                    if (const auto& cam = view.get<CameraComponent>(entity); cam.Primary)
+                    {
+                        nearClip = cam.Camera.GetPerspectiveNearClip();
+                        farClip = cam.Camera.GetPerspectiveFarClip();
+                        break;
+                    }
+                }
+
                 glm::vec3 camRight = glm::normalize(glm::vec3(cameraTransform[0]));
                 glm::vec3 camUp = glm::normalize(glm::vec3(cameraTransform[1]));
                 glm::vec3 camPos = glm::vec3(glm::inverse(cameraTransform)[3]);
@@ -1925,11 +1973,33 @@ namespace OloEngine
 
                     const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
 
+                    // Enable/disable soft particles per system
+                    {
+                        SoftParticleParams softParams;
+                        if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+                        {
+                            auto fb = scenePass->GetTarget();
+                            auto& spec = fb->GetSpecification();
+                            softParams.Enabled = sys.SoftParticlesEnabled;
+                            softParams.Distance = sys.SoftParticleDistance;
+                            softParams.DepthTextureID = fb->GetDepthAttachmentRendererID();
+                            softParams.NearClip = nearClip;
+                            softParams.FarClip = farClip;
+                            softParams.ViewportSize = { static_cast<f32>(spec.Width), static_cast<f32>(spec.Height) };
+                        }
+                        ParticleBatchRenderer::SetSoftParticleParams(softParams);
+                    }
+
                     // Flush pending instances before changing blend mode
                     ParticleBatchRenderer::Flush();
                     SetParticleBlendMode(sys.BlendMode);
 
-                    if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
+                    if (sys.RenderMode == ParticleRenderMode::Mesh)
+                    {
+                        ParticleBatchRenderer::Flush();
+                        ParticleRenderer::RenderParticlesMesh(sys.GetPool(), psc.ParticleMesh, psc.Texture, offset, static_cast<int>(entity), sorted);
+                    }
+                    else if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
                     {
                         ParticleRenderer::RenderParticlesStretched(sys.GetPool(), camRight, camUp, psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
                     }
@@ -1966,8 +2036,7 @@ namespace OloEngine
 
                     RestoreDefaultBlendMode();
                 }
-                ParticleBatchRenderer::EndBatch();
-            });
+                ParticleBatchRenderer::EndBatch(); });
         }
 
         Renderer3D::EndScene();
