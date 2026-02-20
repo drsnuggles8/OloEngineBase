@@ -157,21 +157,15 @@ Remaining Renderer2D-dependent paths:
 - Trail rendering (quad strips via `DrawQuadVertices`)
 - These still lack soft particle support and custom shader effects
 
-### 3.2 Per-particle CPU transform construction is expensive
+### ~~3.2 Per-particle CPU transform construction is expensive~~ ✅ PARTIALLY FIXED
 
-**File**: `ParticleRenderer.cpp`
-
-`RenderParticlesBillboard()` computes a 4×4 matrix per particle, including `cos()` and
-`sin()` calls for rotation:
-
-```cpp
-f32 cosR = std::cos(rotation);
-f32 sinR = std::sin(rotation);
-```
-
-With 10K particles, that's 10K trig calls + 10K matrix constructions per frame on the
-CPU. GPU instancing would eliminate this entirely — upload raw per-particle data and let
-the vertex shader handle billboard construction.
+> **Partially fixed**: Billboard particles now use `Particle_Billboard.glsl` with GPU
+> billboarding in the vertex shader. Per-particle data (position, size, rotation, color)
+> is uploaded via instance VBO — no CPU matrix construction or trig calls for billboards.
+>
+> **Stretched billboard** particles still compute CPU-side vertex positions in
+> `RenderParticlesStretched()`, including trig calls for rotation. Migrating to a
+> dedicated stretched particle shader would eliminate this.
 
 ### ~~3.3 Trail rendering is O(particles × trail_points) separate draw calls~~ ✅ FIXED
 
@@ -361,20 +355,25 @@ custom vertex streams).
    Must port existing `ParticleRenderer` logic into the new pass, still using per-particle
    quads via Renderer2D initially. Can optimize to instanced rendering later.~~ ✅
 
-### Remaining: Editor + quality
+### ~~Remaining: Editor + quality~~ ✅ ALL DONE
 
-2. ~~**Add curve editor UI** (§4.3) — unblocks artist workflow.~~ ✅
-3. ~~**Optimize trail rendering** (§3.3) — batch into single draw call per particle.~~ ✅
-4. ~~**Particle billboard shader** (§1.8, Phase B) — vertex-shader billboarding, soft
-   particle depth fade in fragment shader.~~ ✅
-5. ~~**Instanced rendering** (§1.8, Phase B) — instance buffer, one draw call per texture.~~ ✅
+- ~~**Add curve editor UI** (§4.3)~~ ✅
+- ~~**Optimize trail rendering** (§3.3)~~ ✅
+- ~~**Particle billboard shader** (§1.8, Phase B)~~ ✅
+- ~~**Instanced rendering** (§1.8, Phase B)~~ ✅
+- ~~**Mesh particles** (§4.5)~~ ✅
+- ~~**Task system parallelization** (§4.6)~~ ✅
+- ~~**Trail texture UVs** (§4.13)~~ ✅
+- ~~**Inter-system sorting** (§4.14)~~ ✅
+
+### Remaining: Incremental improvements
+
+1. **Stretched billboard shader** (§3.1/§3.2) — migrate from Renderer2D to dedicated shader; adds soft particle support.
+2. **Trail shader** (§3.1) — migrate from Renderer2D to dedicated shader; adds soft particle support.
+3. **Mesh surface emission** (§5 comparison gap) — emit particles from mesh surface.
 
 ### Remaining: Future features
 
-6. ~~**Mesh particles** (§4.5) — requires instanced rendering.~~ ✅
-7. ~~**Task system parallelization** (§4.6) — parallel module application.~~ ✅
-8. **GPU compute simulation** (§4.9) — requires SSBO/compute shader support.
-9. **Particle lights** (§4.10) — per-particle point lights.
-10. **Custom vertex streams** (§4.11) — advanced shader effects.
-11. ~~**Trail texture UVs** (§4.13) — UV mapping along trail length.~~ ✅
-12. ~~**Inter-system sorting** (§4.14) — sort systems by camera distance.~~ ✅
+4. **GPU compute simulation** (§4.9) — requires SSBO/compute shader support.
+5. **Particle lights** (§4.10) — per-particle point lights.
+6. **Custom vertex streams** (§4.11) — advanced shader effects.

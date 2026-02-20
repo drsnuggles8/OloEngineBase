@@ -16,7 +16,7 @@ All core features implemented and working:
 - ParticleEmitter with rate-based + burst emission
 - 7 lifetime modifier modules (Color, Size, Velocity, Rotation, Gravity, Drag, Noise)
 - ParticleSystem orchestrator with duration, looping, playback speed
-- 2D and 3D billboard rendering (Renderer2D-based for both)
+- 2D rendering (Renderer2D), 3D billboard + mesh rendering (dedicated shaders via ParticleBatchRenderer)
 - ECS integration (ParticleSystemComponent)
 - Full YAML serialization
 - Editor UI with collapsible module panels
@@ -110,10 +110,16 @@ ParticleSystemComponent (ECS)
         │     ├── RenderMode (Billboard, StretchedBillboard, Mesh)
         │     ├── DepthSortEnabled (back-to-front sorting for alpha)
         │     └── VelocityInheritance (fraction of parent velocity added to emissions)
+        ├── ParticleBatchRenderer (instanced billboard + mesh rendering)
+        │     ├── Instance VBO for billboard particles (GPU billboarding)
+        │     ├── UBO-based per-particle mesh draws
+        │     ├── ParticleParams UBO (binding 2, camera vectors, soft particle settings)
+        │     └── Dedicated shaders: Particle_Billboard.glsl, Particle_Mesh.glsl
         └── ParticleRenderer
               ├── RenderParticles2D (flat quads via Renderer2D)
-              ├── RenderParticlesBillboard (camera-facing quads via Renderer2D, sorted + sprite sheet)
-              └── RenderParticlesStretched (velocity-aligned quads via Renderer2D)
+              ├── RenderParticlesBillboard (instanced GPU billboards via ParticleBatchRenderer)
+              ├── RenderParticlesStretched (velocity-aligned quads via Renderer2D)
+              └── RenderParticlesMesh (per-particle mesh draws via ParticleBatchRenderer)
 ```
 
 ---
@@ -146,11 +152,22 @@ Each particle's trail history is stored in a fixed-size ring buffer (`TrailRingB
 Particles are rendered via `ParticleRenderPass` in the render graph (ScenePass →
 ParticlePass → FinalPass). The pass renders into the ScenePass framebuffer with depth
 testing enabled (read-only, `GL_LEQUAL`) so particles are correctly occluded by opaque
-geometry. Internally, the pass executes a callback that uses `Renderer2D` for quad
-batching. Three render modes are supported:
-- **Billboard** — Camera-facing quads (`RenderParticlesBillboard`)
-- **StretchedBillboard** — Velocity-aligned quads (`RenderParticlesStretched`)
-- **Mesh** — Per-particle mesh instancing (placeholder, requires Renderer3D instancing)
+geometry. Per-draw-buffer blend control (`glEnablei`/`glDisablei`) avoids blending on the
+RED_INTEGER entity ID attachment. Three render modes are supported:
+- **Billboard** — GPU-billboarded quads via `ParticleBatchRenderer` using instanced
+  rendering (instance VBO + `Particle_Billboard.glsl`). Vertex shader constructs
+  camera-facing quads from position/size/rotation per-instance data.
+- **StretchedBillboard** — Velocity-aligned quads via `Renderer2D::DrawQuadVertices()`
+  (still uses Renderer2D path).
+- **Mesh** — Per-particle mesh rendering via `ParticleBatchRenderer::RenderMeshParticles()`
+  using a single-instance UBO (binding 3) with one draw call per particle
+  (`Particle_Mesh.glsl`). `ParticleSystemComponent` holds `Ref<Mesh> ParticleMesh`.
+
+**Soft particles**: Both billboard and mesh shaders sample the scene depth texture and
+fade alpha near opaque surfaces (`SoftParticlesEnabled` / `SoftParticleDistance` per system).
+
+**UBO binding management**: `UniformBuffer::Bind()` re-binds particle UBOs after ScenePass
+`CommandDispatch` overwrites shared binding points (0/2/3).
 
 Depth sorting is enabled by default for alpha-blended particles. `SortByDepth(cameraPosition)` sorts particle indices back-to-front by squared distance. Additive particles skip sorting since they're order-independent.
 
@@ -164,7 +181,7 @@ Sub-emitter entries reference child `ParticleSystem` instances stored on `Partic
 - **OverLifetime**: `frame = age * TotalFrames` (normalized 0→1)
 - **BySpeed**: `frame = speed / SpeedRange * TotalFrames`
 
-UV sub-rects are computed per particle and passed to `Renderer2D::DrawQuad()` via `uvMin`/`uvMax` overloads.
+UV sub-rects are computed per particle and passed to the renderer via `uvMin`/`uvMax` overloads.
 
 ---
 
@@ -172,32 +189,39 @@ UV sub-rects are computed per particle and passed to `Renderer2D::DrawQuad()` vi
 
 See `docs/PARTICLE_SYSTEM_REVIEW.md` for full details on each item.
 
-All bug fixes, design issues, and editor quality items are **resolved**. The remaining
-items all require a **dedicated particle shader** (GLSL vertex + fragment shader with
-instance buffer support) or are long-term future features.
+All bug fixes, design issues, rendering architecture, and editor quality items are
+**resolved**. The remaining items are long-term future features.
 
-### Next up — Rendering architecture (Phase B + C)
-1. **Particle billboard shader** (#18 Phase B) — GLSL vertex-shader billboarding,
-   fragment-shader depth-fade for soft particles. Replaces Renderer2D for particles.
-2. **Instanced rendering** (#9 / #18 Phase C) — instance buffer for per-particle data,
-   one draw call per texture batch. Eliminates per-particle CPU matrix construction.
-3. **Soft particles** (#29) — depth-fade near surfaces (requires Phase B shader).
-4. **Mesh particles** (#15) — per-particle mesh instancing (requires Phase C).
+### Incremental improvements
+1. **Stretched billboard shader** — migrate `RenderParticlesStretched` from Renderer2D
+   to a dedicated shader (analogous to `Particle_Billboard.glsl`). Would add soft
+   particle support to stretched mode.
+2. **Trail shader** — migrate `TrailRenderer::RenderTrails` from Renderer2D to a
+   dedicated shader. Would add soft particle support to trails.
+3. **Mesh surface emission** — emit particles from mesh surface (currently 6 shapes:
+   Point, Sphere, Box, Cone, Ring, Edge).
 
 ### Future features
-5. **GPU compute simulation** — requires SSBO + compute shader support (not yet in engine).
-6. **Particle lights** — per-particle point lights for fire/explosions.
-7. **Custom vertex streams** — advanced shader effects.
+4. **GPU compute simulation** — requires SSBO + compute shader support (not yet in engine).
+   Would unlock 100K–1M+ particle counts.
+5. **Particle lights** — per-particle point lights for fire/explosions.
+6. **Custom vertex streams** — advanced shader effects.
 
 ### Completed (Phase 1–4)
-- ✅ Depth sorting (back-to-front for alpha blending) — insertion sort with precomputed distances
+- ✅ Instanced billboard rendering — `Particle_Billboard.glsl` with GPU billboarding, instance VBO
+- ✅ Mesh particle rendering — `Particle_Mesh.glsl` with per-draw-call UBO
+- ✅ Soft particles — depth-fade near opaque surfaces via scene depth texture
+- ✅ ParticleRenderPass (Phase A + B) — render graph integration with depth occlusion, dedicated shaders
+- ✅ Per-draw-buffer blend control — `glEnablei`/`glDisablei` for integer entity ID attachment
+- ✅ UBO binding management — `UniformBuffer::Bind()` re-binds after ScenePass overwrites
+- ✅ OpenGLFramebuffer::ReadPixel fix — bind FBO before `glReadPixels`
+- ✅ Depth sorting — insertion sort with precomputed distances
 - ✅ Blend mode support — `ParticleBlendMode` enum; GL blend state set per system with batch flush
 - ✅ Sprite sheet animation — `ModuleTextureSheetAnimation` with grid UVs
-- ✅ Trail rendering as triangle strips — `TrailRenderer::RenderTrails()` via `Renderer2D::DrawQuadVertices()` with per-vertex color
+- ✅ Trail rendering as triangle strips — `TrailRenderer::RenderTrails()` via `DrawQuadVertices()` with per-vertex color
 - ✅ Sub-emitters as separate systems — `ChildSystems` vector; OnBirth/OnDeath/OnCollision triggers
 - ✅ Velocity inheritance — parent velocity computed from position delta
 - ✅ Stretched billboard rendering — velocity-aligned quads
-- ✅ ParticleRenderPass (Phase A) — render graph integration with depth occlusion
 - ✅ VelocityOverLifetime preserves forces — module reordered after forces
 - ✅ Iterative warm-up — `Update()` → `UpdateInternal()` split
 - ✅ Smooth LOD — linear falloff replacing stepped thresholds
@@ -208,7 +232,7 @@ instance buffer support) or are long-term future features.
 - ✅ Binary search for ParticleCurve — O(log n) segment lookup
 - ✅ Insertion sort for depth sorting — O(n) for nearly-sorted data
 - ✅ Curve editor UI — interactive ImGui curve editor with key add/remove/drag
-- ✅ Trail rendering optimization — `DrawQuadVertices()` replaces `DrawPolygon()`, fixes GL_TRIANGLE_FAN batch bug
+- ✅ Trail rendering optimization — `DrawQuadVertices()` replaces `DrawPolygon()`
 - ✅ Trail UV coordinates — UV mapping along trail length, textured trail support
 - ✅ Inter-system depth sorting — systems sorted back-to-front by camera distance
 - ✅ Task system parallelization — Color/Size/Rotation modules run as concurrent tasks
@@ -224,17 +248,26 @@ instance buffer support) or are long-term future features.
 - `ParticleCurve.h` — Piecewise-linear curve with up to 8 keys
 - `ParticleModules.h/.cpp` — All lifetime modifier modules
 - `ParticleSystem.h/.cpp` — Orchestrator (update order, warm-up, LOD, sub-emitter triggers)
-- `ParticleRenderer.h/.cpp` — 2D, billboard, and 3D render paths
+- `ParticleBatchRenderer.h/.cpp` — Instanced billboard + mesh particle renderer (instance VBO, UBOs, dedicated shaders)
+- `ParticleRenderer.h/.cpp` — 2D, billboard, stretched, and mesh render dispatch
 - `ParticleTrail.h/.cpp` — Ring buffer trail data per particle
 - `ParticleCollision.h/.cpp` — WorldPlane and Jolt raycast collision
 - `SubEmitter.h` — Sub-emitter event types and trigger info
 - `TrailRenderer.h/.cpp` — Trail quad-strip rendering via Renderer2D (camera-facing ribbons)
 - `SimplexNoise.h/.cpp` — 3D Simplex noise for turbulence module
 
+### Shaders (`OloEditor/assets/shaders/`):
+- `Particle_Billboard.glsl` — GPU billboarding vertex shader + soft particle fragment shader
+- `Particle_Mesh.glsl` — Per-draw-call mesh particle shader with single-instance UBO
+
 ### Integration points:
-- `OloEngine/src/OloEngine/Scene/Components.h` — `ParticleSystemComponent`
-- `OloEngine/src/OloEngine/Scene/Scene.cpp` — Update + render particle systems (Local space offset, billboard rendering, ParticleRenderPass callback)
-- `OloEngine/src/OloEngine/Scene/SceneSerializer.cpp` — YAML serialization
+- `OloEngine/src/OloEngine/Scene/Components.h` — `ParticleSystemComponent` (Texture, ParticleMesh)
+- `OloEngine/src/OloEngine/Scene/Scene.cpp` — Update + render particle systems (soft params, mesh dispatch, ParticleRenderPass callback)
+- `OloEngine/src/OloEngine/Scene/SceneSerializer.cpp` — YAML serialization (incl. SoftParticlesEnabled/Distance)
 - `OloEngine/src/OloEngine/Renderer/Passes/ParticleRenderPass.h/.cpp` — Render pass in the render graph
 - `OloEngine/src/OloEngine/Renderer/Renderer3D.h/.cpp` — Render graph setup + ParticlePass registration
-- `OloEditor/src/Panels/SceneHierarchyPanel.cpp` — Editor UI
+- `OloEngine/src/OloEngine/Renderer/UniformBuffer.h` — `Bind()` method for UBO re-binding
+- `OloEngine/src/Platform/OpenGL/OpenGLUniformBuffer.h/.cpp` — `Bind()` implementation + `m_Binding` member
+- `OloEngine/src/Platform/OpenGL/OpenGLFramebuffer.cpp` — `ReadPixel()` with FBO bind
+- `OloEngine/src/OloEngine/Renderer/Camera/EditorCamera.h` — `GetNearClip()`/`GetFarClip()`
+- `OloEditor/src/Panels/SceneHierarchyPanel.cpp` — Editor UI (soft particles, mesh status)
