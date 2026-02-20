@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 
@@ -277,6 +278,8 @@ namespace OloEngine
         Window& window = Application::Get().GetWindow();
         s_Data.RGraph = Ref<RenderGraph>::Create();
         SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
+
+        ParticleBatchRenderer::Init();
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
 
@@ -289,6 +292,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Shutting down Renderer3D.");
+
+        ParticleBatchRenderer::Shutdown();
 
         // Clear any pending GPU resource commands
         GPUResourceQueue::Clear();

@@ -105,5 +105,8 @@
     "sonarlint.connectedMode.project": {
         "connectionId": "drsnuggles8",
         "projectKey": "drsnuggles8_OloEngineBase"
+    },
+    "chat.tools.terminal.autoApprove": {
+        "&": true
     }
 }

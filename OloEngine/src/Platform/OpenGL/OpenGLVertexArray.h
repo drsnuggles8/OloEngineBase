@@ -14,6 +14,7 @@ namespace OloEngine
         void Unbind() const override;
 
         void AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer) override;
+        void AddInstanceBuffer(const Ref<VertexBuffer>& vertexBuffer) override;
         void SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer) override;
 
         [[nodiscard("Store this!")]] const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const override

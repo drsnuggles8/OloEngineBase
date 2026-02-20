@@ -19,6 +19,7 @@
 #include "OloEngine/UI/UIRenderer.h"
 #include "OloEngine/UI/UIInputSystem.h"
 #include "OloEngine/Particle/ParticleRenderer.h"
+#include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Particle/TrailRenderer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Core/Input.h"
@@ -1606,7 +1607,7 @@ namespace OloEngine
         {
             particlePass->SetRenderCallback([this, &camera]()
             {
-                Renderer2D::BeginScene(camera);
+                ParticleBatchRenderer::BeginBatch(camera);
                 glm::vec3 camRight = camera.GetRightDirection();
                 glm::vec3 camUp = camera.GetUpDirection();
                 glm::vec3 camPos = camera.GetPosition();
@@ -1639,6 +1640,8 @@ namespace OloEngine
 
                     const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
 
+                    // Flush pending instances before changing blend mode
+                    ParticleBatchRenderer::Flush();
                     SetParticleBlendMode(sys.BlendMode);
 
                     if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
@@ -1660,20 +1663,25 @@ namespace OloEngine
                             childSys.SortByDepth(camPos);
                             childSorted = &childSys.GetSortedIndices();
                         }
+                        ParticleBatchRenderer::Flush();
                         SetParticleBlendMode(childSys.BlendMode);
                         Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
                         ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
                     }
 
-                    // Trail rendering
+                    // Trail rendering — flush particles then use Renderer2D for trails
                     if (sys.TrailModule.Enabled)
                     {
+                        ParticleBatchRenderer::EndBatch();
+                        Renderer2D::BeginScene(camera);
                         TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
+                        Renderer2D::EndScene();
+                        ParticleBatchRenderer::BeginBatch(camera);
                     }
 
                     RestoreDefaultBlendMode();
                 }
-                Renderer2D::EndScene();
+                ParticleBatchRenderer::EndBatch();
             });
         }
 
@@ -1884,7 +1892,7 @@ namespace OloEngine
         {
             particlePass->SetRenderCallback([this, &camera, &cameraTransform]()
             {
-                Renderer2D::BeginScene(camera, cameraTransform);
+                ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
                 glm::vec3 camRight = glm::normalize(glm::vec3(cameraTransform[0]));
                 glm::vec3 camUp = glm::normalize(glm::vec3(cameraTransform[1]));
                 glm::vec3 camPos = glm::vec3(glm::inverse(cameraTransform)[3]);
@@ -1917,6 +1925,8 @@ namespace OloEngine
 
                     const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
 
+                    // Flush pending instances before changing blend mode
+                    ParticleBatchRenderer::Flush();
                     SetParticleBlendMode(sys.BlendMode);
 
                     if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
@@ -1938,20 +1948,25 @@ namespace OloEngine
                             childSys.SortByDepth(camPos);
                             childSorted = &childSys.GetSortedIndices();
                         }
+                        ParticleBatchRenderer::Flush();
                         SetParticleBlendMode(childSys.BlendMode);
                         Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
                         ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
                     }
 
-                    // Trail rendering
+                    // Trail rendering — flush particles then use Renderer2D for trails
                     if (sys.TrailModule.Enabled)
                     {
+                        ParticleBatchRenderer::EndBatch();
+                        Renderer2D::BeginScene(camera, cameraTransform);
                         TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
+                        Renderer2D::EndScene();
+                        ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
                     }
 
                     RestoreDefaultBlendMode();
                 }
-                Renderer2D::EndScene();
+                ParticleBatchRenderer::EndBatch();
             });
         }
 

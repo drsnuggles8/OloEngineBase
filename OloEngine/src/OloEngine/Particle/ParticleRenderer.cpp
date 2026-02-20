@@ -1,11 +1,14 @@
 #include "OloEnginePCH.h"
 #include "ParticleRenderer.h"
+#include "ParticleBatchRenderer.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace OloEngine
 {
+    static const glm::vec4 s_DefaultUV = { 0.0f, 0.0f, 1.0f, 1.0f };
+
     u32 ParticleRenderer::ComputeFrame(const ParticlePool& pool, u32 index, const ModuleTextureSheetAnimation& sheet)
     {
         if (sheet.TotalFrames <= 1)
@@ -51,7 +54,6 @@ namespace OloEngine
                 glm::vec2 uvMin, uvMax;
                 spriteSheet->GetFrameUV(frame, uvMin, uvMax);
 
-                // Build transform manually for UV control
                 glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos)
                     * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 0.0f, 1.0f })
                     * glm::scale(glm::mat4(1.0f), { size, size, 1.0f });
@@ -81,6 +83,8 @@ namespace OloEngine
         bool useSpriteSheet = spriteSheet && spriteSheet->Enabled && spriteSheet->TotalFrames > 1 && texture;
         bool useSorted = sortedIndices && sortedIndices->size() == count;
 
+        ParticleBatchRenderer::SetTexture(texture);
+
         for (u32 iter = 0; iter < count; ++iter)
         {
             u32 i = useSorted ? (*sortedIndices)[iter] : iter;
@@ -89,43 +93,16 @@ namespace OloEngine
             f32 rotation = glm::radians(pool.Rotations[i]);
             const auto& color = pool.Colors[i];
 
-            // Build billboard transform
-            f32 halfSize = size * 0.5f;
-            glm::vec3 right = cameraRight * halfSize;
-            glm::vec3 up = cameraUp * halfSize;
-
-            // Apply rotation around the billboard normal (camera forward = cross(right, up))
-            if (std::abs(rotation) > 0.001f)
-            {
-                f32 cosR = std::cos(rotation);
-                f32 sinR = std::sin(rotation);
-                glm::vec3 newRight = right * cosR + up * sinR;
-                glm::vec3 newUp = -right * sinR + up * cosR;
-                right = newRight;
-                up = newUp;
-            }
-
-            glm::mat4 transform(1.0f);
-            transform[0] = glm::vec4(right * 2.0f, 0.0f);
-            transform[1] = glm::vec4(up * 2.0f, 0.0f);
-            transform[2] = glm::vec4(glm::normalize(glm::cross(cameraRight, cameraUp)), 0.0f);
-            transform[3] = glm::vec4(pos, 1.0f);
-
+            glm::vec4 uvRect = s_DefaultUV;
             if (useSpriteSheet)
             {
                 u32 frame = ComputeFrame(pool, i, *spriteSheet);
                 glm::vec2 uvMin, uvMax;
                 spriteSheet->GetFrameUV(frame, uvMin, uvMax);
-                Renderer2D::DrawQuad(transform, texture, uvMin, uvMax, color, entityID);
+                uvRect = { uvMin.x, uvMin.y, uvMax.x, uvMax.y };
             }
-            else if (texture)
-            {
-                Renderer2D::DrawQuad(transform, texture, 1.0f, color, entityID);
-            }
-            else
-            {
-                Renderer2D::DrawQuad(transform, color, entityID);
-            }
+
+            ParticleBatchRenderer::Submit(pos, size, rotation, color, uvRect, entityID);
         }
     }
 
@@ -142,7 +119,8 @@ namespace OloEngine
         u32 count = pool.GetAliveCount();
         bool useSpriteSheet = spriteSheet && spriteSheet->Enabled && spriteSheet->TotalFrames > 1 && texture;
         bool useSorted = sortedIndices && sortedIndices->size() == count;
-        glm::vec3 forward = glm::normalize(glm::cross(cameraRight, cameraUp));
+
+        ParticleBatchRenderer::SetTexture(texture);
 
         for (u32 iter = 0; iter < count; ++iter)
         {
@@ -151,50 +129,17 @@ namespace OloEngine
             f32 size = pool.Sizes[i];
             const auto& color = pool.Colors[i];
             const glm::vec3& vel = pool.Velocities[i];
-            f32 speed = glm::length(vel);
 
-            // Stretch along velocity direction
-            glm::vec3 stretchDir = (speed > 0.001f) ? (vel / speed) : cameraUp;
-
-            // Project stretch direction onto the billboard plane (perpendicular to forward)
-            glm::vec3 projStretch = stretchDir - glm::dot(stretchDir, forward) * forward;
-            f32 projLen = glm::length(projStretch);
-            if (projLen < 0.001f)
-            {
-                projStretch = cameraUp;
-            }
-            else
-            {
-                projStretch /= projLen;
-            }
-
-            f32 halfWidth = size * 0.5f;
-            f32 halfLength = halfWidth + speed * lengthScale * 0.5f;
-
-            glm::vec3 up = projStretch * halfLength;
-            glm::vec3 right = glm::normalize(glm::cross(projStretch, forward)) * halfWidth;
-
-            glm::mat4 transform(1.0f);
-            transform[0] = glm::vec4(right * 2.0f, 0.0f);
-            transform[1] = glm::vec4(up * 2.0f, 0.0f);
-            transform[2] = glm::vec4(forward, 0.0f);
-            transform[3] = glm::vec4(pos, 1.0f);
-
+            glm::vec4 uvRect = s_DefaultUV;
             if (useSpriteSheet)
             {
                 u32 frame = ComputeFrame(pool, i, *spriteSheet);
                 glm::vec2 uvMin, uvMax;
                 spriteSheet->GetFrameUV(frame, uvMin, uvMax);
-                Renderer2D::DrawQuad(transform, texture, uvMin, uvMax, color, entityID);
+                uvRect = { uvMin.x, uvMin.y, uvMax.x, uvMax.y };
             }
-            else if (texture)
-            {
-                Renderer2D::DrawQuad(transform, texture, 1.0f, color, entityID);
-            }
-            else
-            {
-                Renderer2D::DrawQuad(transform, color, entityID);
-            }
+
+            ParticleBatchRenderer::SubmitStretched(pos, size, vel, lengthScale, color, uvRect, entityID);
         }
     }
 }
