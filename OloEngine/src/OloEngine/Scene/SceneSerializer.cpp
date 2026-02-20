@@ -68,7 +68,8 @@ namespace OloEngine
 
     static void DeserializeCurve(const YAML::Node& node, ParticleCurve& curve)
     {
-        if (!node || !node.IsMap()) return;
+        if (!node || !node.IsMap())
+            return;
         if (auto kc = node["KeyCount"]; kc)
             curve.KeyCount = kc.as<u32>();
         if (auto keys = node["Keys"]; keys && keys.IsSequence())
@@ -95,7 +96,8 @@ namespace OloEngine
 
     static void DeserializeCurve4(const YAML::Node& node, ParticleCurve4& curve)
     {
-        if (!node || !node.IsMap()) return;
+        if (!node || !node.IsMap())
+            return;
         DeserializeCurve(node["R"], curve.R);
         DeserializeCurve(node["G"], curve.G);
         DeserializeCurve(node["B"], curve.B);

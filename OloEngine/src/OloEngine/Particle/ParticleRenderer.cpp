@@ -184,6 +184,6 @@ namespace OloEngine
             inst.IDs = glm::ivec4(entityID, 0, 0, 0);
         }
 
-        ParticleBatchRenderer::RenderMeshParticles(mesh, std::span{s_Instances.data(), count}, texture);
+        ParticleBatchRenderer::RenderMeshParticles(mesh, std::span{ s_Instances.data(), count }, texture);
     }
 } // namespace OloEngine

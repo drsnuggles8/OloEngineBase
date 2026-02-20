@@ -218,7 +218,7 @@ namespace OloEngine
     }
 
     // Helper: generate a random direction uniformly distributed on the unit sphere
-    template <typename Algorithm>
+    template<typename Algorithm>
     inline glm::vec3 RandomUnitDirection(FastRandom<Algorithm>& rng)
     {
         glm::vec3 dir;
