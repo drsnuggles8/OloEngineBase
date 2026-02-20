@@ -4,6 +4,8 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 
+#include <iterator>
+
 namespace OloEngine
 {
     // Build EmitMesh sampling data from a Mesh object
@@ -11,6 +13,7 @@ namespace OloEngine
     {
         if (!mesh || !mesh->IsValid())
         {
+            emitMesh.Build(nullptr, 0, nullptr, 0);
             return;
         }
 
@@ -53,6 +56,7 @@ namespace OloEngine
                 mesh = MeshPrimitives::CreateCone();
                 break;
             default:
+                primitiveType = 0;
                 mesh = MeshPrimitives::CreateCube();
                 break;
         }
@@ -64,5 +68,5 @@ namespace OloEngine
     inline constexpr const char* EmitMeshPrimitiveNames[] = {
         "Cube", "Sphere", "Cylinder", "Torus", "Icosphere", "Cone"
     };
-    inline constexpr i32 EmitMeshPrimitiveCount = 6;
+    inline constexpr i32 EmitMeshPrimitiveCount = static_cast<i32>(std::size(EmitMeshPrimitiveNames));
 } // namespace OloEngine

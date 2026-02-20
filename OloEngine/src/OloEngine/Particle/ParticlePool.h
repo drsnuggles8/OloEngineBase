@@ -13,6 +13,8 @@ namespace OloEngine
       public:
         explicit ParticlePool(u32 maxParticles = 1000);
 
+        // Resize all SOA arrays to `maxParticles`.
+        // WARNING: resets m_AliveCount to 0 — all alive particle state is lost.
         void Resize(u32 maxParticles);
 
         // Emit up to `count` particles. Returns how many were actually emitted (capped by capacity).

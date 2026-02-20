@@ -85,7 +85,7 @@ Issues identified in second design review (`docs/PARTICLE_SYSTEM_REVIEW.md`):
 
 ## Architecture Overview
 
-```
+```text
 ParticleSystemComponent (ECS)
   └── ParticleSystem (owns emitters, orchestrates update/render)
         ├── ParticleEmitter (emission shape, rate, bursts, initial properties)

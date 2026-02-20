@@ -2852,6 +2852,19 @@ namespace OloEngine
         out << YAML::Key << "InitialRotation" << YAML::Value << emitter.InitialRotation;
         out << YAML::Key << "RotationVariance" << YAML::Value << emitter.RotationVariance;
         out << YAML::Key << "InitialColor" << YAML::Value << emitter.InitialColor;
+
+        // Bursts
+        out << YAML::Key << "Bursts" << YAML::Value << YAML::BeginSeq;
+        for (const auto& burst : emitter.Bursts)
+        {
+            out << YAML::BeginMap;
+            out << YAML::Key << "Time" << YAML::Value << burst.Time;
+            out << YAML::Key << "Count" << YAML::Value << burst.Count;
+            out << YAML::Key << "Probability" << YAML::Value << burst.Probability;
+            out << YAML::EndMap;
+        }
+        out << YAML::EndSeq;
+
         out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(emitter.Shape.index());
 
         if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
@@ -2955,6 +2968,20 @@ namespace OloEngine
             TrySetPS(emitter.InitialRotation, ps["InitialRotation"]);
             TrySetPS(emitter.RotationVariance, ps["RotationVariance"]);
             TrySetPS(emitter.InitialColor, ps["InitialColor"]);
+
+            // Bursts
+            emitter.Bursts.clear();
+            if (auto burstsNode = ps["Bursts"]; burstsNode && burstsNode.IsSequence())
+            {
+                for (const auto& burstNode : burstsNode)
+                {
+                    BurstEntry burst{};
+                    TrySetPS(burst.Time, burstNode["Time"]);
+                    TrySetPS(burst.Count, burstNode["Count"]);
+                    TrySetPS(burst.Probability, burstNode["Probability"]);
+                    emitter.Bursts.push_back(burst);
+                }
+            }
 
             if (auto shapeType = ps["EmissionShapeType"]; shapeType)
             {

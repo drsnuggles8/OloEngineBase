@@ -66,6 +66,11 @@ namespace OloEngine
             CumulativeAreas.clear();
             TotalArea = 0.0f;
 
+            if (!positions || vertexCount == 0 || !indices || indexCount < 3)
+            {
+                return;
+            }
+
             u32 triCount = indexCount / 3;
             Triangles.reserve(triCount);
             CumulativeAreas.reserve(triCount);
@@ -137,13 +142,15 @@ namespace OloEngine
             }
             else if constexpr (std::is_same_v<T, EmitCone>)
             {
-                f32 angleRad = glm::radians(s.Angle);
+                f32 angleRad = std::min(glm::radians(s.Angle), glm::half_pi<f32>() - 0.001f);
                 f32 theta = rng.GetFloat32InRange(0.0f, glm::two_pi<f32>());
-                f32 r = rng.GetFloat32InRange(0.0f, s.Radius);
+                f32 u = rng.GetFloat32InRange(0.0f, 1.0f);
+                f32 r = std::sqrt(u) * s.Radius; // sqrt for uniform disk distribution
+                f32 tanAngle = std::tan(angleRad);
                 return {
                     r * std::cos(theta),
                     r * std::sin(theta),
-                    r * std::tan(angleRad)
+                    r * tanAngle
                 };
             }
             else if constexpr (std::is_same_v<T, EmitRing>)
@@ -183,6 +190,20 @@ namespace OloEngine
             } }, shape);
     }
 
+    // Helper: generate a random direction uniformly distributed on the unit sphere
+    template <typename Algorithm>
+    inline glm::vec3 RandomUnitDirection(FastRandom<Algorithm>& rng)
+    {
+        glm::vec3 dir;
+        f32 lenSq;
+        do
+        {
+            dir = { rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f) };
+            lenSq = glm::dot(dir, dir);
+        } while (lenSq < 0.0001f || lenSq > 1.0f);
+        return glm::normalize(dir);
+    }
+
     // Get a direction from the emission shape for velocity initialization
     inline glm::vec3 SampleEmissionDirection(const EmissionShape& shape)
     {
@@ -195,55 +216,37 @@ namespace OloEngine
             if constexpr (std::is_same_v<T, EmitPoint>)
             {
                 // Random direction on unit sphere (uniform)
-                glm::vec3 dir;
-                f32 lenSq;
-                do
-                {
-                    dir = { rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f) };
-                    lenSq = glm::dot(dir, dir);
-                } while (lenSq < 0.0001f || lenSq > 1.0f);
-                return glm::normalize(dir);
+                return RandomUnitDirection(rng);
             }
             else if constexpr (std::is_same_v<T, EmitSphere>)
             {
-                // Radially outward from center (random direction on unit sphere)
-                glm::vec3 dir;
-                f32 lenSq;
-                do
-                {
-                    dir = { rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f) };
-                    lenSq = glm::dot(dir, dir);
-                } while (lenSq < 0.0001f || lenSq > 1.0f);
-                return glm::normalize(dir);
+                // Random direction on unit sphere (uniform)
+                return RandomUnitDirection(rng);
             }
             else if constexpr (std::is_same_v<T, EmitBox>)
             {
                 // Random direction on unit sphere
-                glm::vec3 dir;
-                f32 lenSq;
-                do
-                {
-                    dir = { rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f), rng.GetFloat32InRange(-1.0f, 1.0f) };
-                    lenSq = glm::dot(dir, dir);
-                } while (lenSq < 0.0001f || lenSq > 1.0f);
-                return glm::normalize(dir);
+                return RandomUnitDirection(rng);
             }
             else if constexpr (std::is_same_v<T, EmitCone>)
             {
-                f32 angleRad = glm::radians(s.Angle);
+                f32 angleRad = std::min(glm::radians(s.Angle), glm::half_pi<f32>() - 0.001f);
                 f32 theta = rng.GetFloat32InRange(0.0f, glm::two_pi<f32>());
-                f32 phi = rng.GetFloat32InRange(0.0f, angleRad);
+                // Uniform cone distribution: sample cos(phi) uniformly in [cos(angleRad), 1]
+                f32 cosPhiMin = std::cos(angleRad);
+                f32 cosPhi = rng.GetFloat32InRange(cosPhiMin, 1.0f);
+                f32 sinPhi = std::sqrt(1.0f - cosPhi * cosPhi);
                 return glm::normalize(glm::vec3(
-                    std::sin(phi) * std::cos(theta),
-                    std::cos(phi),
-                    std::sin(phi) * std::sin(theta)
+                    sinPhi * std::cos(theta),
+                    cosPhi,
+                    sinPhi * std::sin(theta)
                 ));
             }
             else if constexpr (std::is_same_v<T, EmitRing>)
             {
-                // Outward from center in XZ plane
+                // Outward from center in XY plane (matching SampleEmissionShape)
                 f32 theta = rng.GetFloat32InRange(0.0f, glm::two_pi<f32>());
-                return glm::vec3(std::cos(theta), 0.0f, std::sin(theta));
+                return glm::vec3(std::cos(theta), std::sin(theta), 0.0f);
             }
             else if constexpr (std::is_same_v<T, EmitEdge>)
             {

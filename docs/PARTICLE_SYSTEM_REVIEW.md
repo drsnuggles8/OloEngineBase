@@ -252,15 +252,18 @@ graph, through the wrong renderer, with incorrect pipeline ordering.
 > See §3.5.
 
 ### 4.9 LOW — GPU compute simulation
+
 Move position integration and module application to compute shaders. Requires SSBO and
 compute shader support in the renderer (not yet available). This would unlock 100K–1M+
 particle counts.
 
 ### 4.10 LOW — Particle lights
+
 Per-particle point lights that affect the 3D scene. Expensive, so typically limited to
 the N brightest/nearest particles. Unity's Shuriken has this; useful for fire, explosions.
 
 ### 4.11 LOW — Custom vertex streams
+
 Let users define which per-particle attributes are passed to the shader (tangent, custom
 data, etc.). Enables advanced shader effects.
 

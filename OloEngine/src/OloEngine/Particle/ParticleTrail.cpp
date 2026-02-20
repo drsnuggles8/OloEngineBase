@@ -15,6 +15,10 @@ namespace OloEngine
 
     void ParticleTrailData::RecordPoint(u32 particleIndex, const glm::vec3& position, f32 width, const glm::vec4& color, f32 minVertexDistance)
     {
+        if (particleIndex >= m_Trails.size())
+        {
+            return;
+        }
         auto& trail = m_Trails[particleIndex];
 
         // Check minimum distance from last recorded point
@@ -40,6 +44,10 @@ namespace OloEngine
 
     void ParticleTrailData::SwapParticles(u32 a, u32 b)
     {
+        if (a >= m_Trails.size() || b >= m_Trails.size())
+        {
+            return;
+        }
         std::swap(m_Trails[a], m_Trails[b]);
     }
 
@@ -53,6 +61,8 @@ namespace OloEngine
 
     void ParticleTrailData::AgePoints(f32 dt, f32 trailLifetime)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (trailLifetime <= 0.0f)
         {
             return;

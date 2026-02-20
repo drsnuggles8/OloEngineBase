@@ -617,6 +617,8 @@ namespace OloEngine
 
     void Renderer2D::DrawQuadVertices(const glm::vec3 positions[4], const glm::vec4 colors[4], const int entityID)
     {
+        OLO_PROFILE_FUNCTION();
+
         constexpr f32 textureIndex = 0.0f; // White Texture
         constexpr glm::vec2 textureCoords[] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
         constexpr f32 tilingFactor = 1.0f;
@@ -628,7 +630,7 @@ namespace OloEngine
 
         for (sizet i = 0; i < 4; ++i)
         {
-            s_Data.QuadVertexBufferPtr->Position = glm::vec4(positions[i], 1.0f);
+            s_Data.QuadVertexBufferPtr->Position = positions[i];
             s_Data.QuadVertexBufferPtr->Color = colors[i];
             s_Data.QuadVertexBufferPtr->TexCoord = textureCoords[i];
             s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
@@ -644,6 +646,8 @@ namespace OloEngine
     void Renderer2D::DrawQuadVertices(const glm::vec3 positions[4], const glm::vec4 colors[4],
                                       const glm::vec2 texCoords[4], const Ref<Texture2D>& texture, const int entityID)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (s_Data.QuadIndexCount >= Renderer2DData::MaxIndices)
         {
             NextBatch();
@@ -674,7 +678,7 @@ namespace OloEngine
 
         for (sizet i = 0; i < 4; ++i)
         {
-            s_Data.QuadVertexBufferPtr->Position = glm::vec4(positions[i], 1.0f);
+            s_Data.QuadVertexBufferPtr->Position = positions[i];
             s_Data.QuadVertexBufferPtr->Color = colors[i];
             s_Data.QuadVertexBufferPtr->TexCoord = texCoords[i];
             s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;

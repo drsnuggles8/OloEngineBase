@@ -7,9 +7,6 @@
 
 namespace OloEngine
 {
-    // Forward declare — sub-emitters reference separate ParticleSystem instances
-    class ParticleSystem;
-
     enum class SubEmitterEvent : u8
     {
         OnDeath = 0,

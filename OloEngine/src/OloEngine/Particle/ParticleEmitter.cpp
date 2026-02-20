@@ -74,7 +74,7 @@ namespace OloEngine
         pool.Colors[index] = InitialColor;
         pool.InitialColors[index] = InitialColor;
 
-        f32 size = InitialSize + rng.GetFloat32InRange(-SizeVariance, SizeVariance);
+        f32 size = std::max(InitialSize + rng.GetFloat32InRange(-SizeVariance, SizeVariance), 0.0f);
         pool.Sizes[index] = size;
         pool.InitialSizes[index] = size;
 

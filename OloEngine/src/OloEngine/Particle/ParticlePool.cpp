@@ -10,6 +10,8 @@ namespace OloEngine
 
     void ParticlePool::Resize(u32 maxParticles)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_MaxParticles = maxParticles;
         m_AliveCount = 0;
 
@@ -27,6 +29,8 @@ namespace OloEngine
 
     u32 ParticlePool::Emit(u32 count)
     {
+        OLO_PROFILE_FUNCTION();
+
         u32 available = m_MaxParticles - m_AliveCount;
         u32 toEmit = std::min(count, available);
 
@@ -53,6 +57,8 @@ namespace OloEngine
 
     void ParticlePool::UpdateLifetimes(f32 dt)
     {
+        OLO_PROFILE_FUNCTION();
+
         u32 i = 0;
         while (i < m_AliveCount)
         {
@@ -71,6 +77,7 @@ namespace OloEngine
 
     f32 ParticlePool::GetAge(u32 index) const
     {
+        OLO_CORE_ASSERT(index < m_AliveCount, "ParticlePool::GetAge index out of range!");
         if (MaxLifetimes[index] <= 0.0f)
         {
             return 1.0f;
@@ -80,6 +87,8 @@ namespace OloEngine
 
     void ParticlePool::SwapParticles(u32 a, u32 b)
     {
+        OLO_PROFILE_FUNCTION();
+
         std::swap(Positions[a], Positions[b]);
         std::swap(Velocities[a], Velocities[b]);
         std::swap(Colors[a], Colors[b]);

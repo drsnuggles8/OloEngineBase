@@ -2,7 +2,6 @@
 
 #include "OloEngine/Core/Base.h"
 
-#include <algorithm>
 #include <array>
 
 namespace OloEngine

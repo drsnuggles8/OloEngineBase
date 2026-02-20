@@ -18,7 +18,7 @@ namespace OloEngine
         virtual ~UniformBuffer()
         {
             if (m_LocalData)
-                delete[] m_LocalData;
+                delete[] static_cast<u8*>(m_LocalData);
         }
 
         // Original method using UniformData struct
@@ -38,8 +38,10 @@ namespace OloEngine
         virtual void SetData(const void* data, u32 size, u32 offset = 0)
         {
             // Store the data in our CPU-side buffer for later reading
-            if (!m_LocalData && size > 0 && offset == 0)
+            if (size > 0 && offset == 0 && (!m_LocalData || size > m_Size))
             {
+                if (m_LocalData)
+                    delete[] static_cast<u8*>(m_LocalData);
                 m_LocalData = new u8[size];
                 m_Size = size;
             }

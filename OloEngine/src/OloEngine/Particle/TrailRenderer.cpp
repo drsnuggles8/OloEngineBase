@@ -58,7 +58,19 @@ namespace OloEngine
                 glm::vec3 viewDir = glm::normalize(cameraPosition - midpoint);
 
                 // Perpendicular to both segment and view — this is the ribbon expansion direction
-                glm::vec3 perp = glm::normalize(glm::cross(segDir, viewDir));
+                glm::vec3 rawPerp = glm::cross(segDir, viewDir);
+                f32 perpLen = glm::length(rawPerp);
+                glm::vec3 perp;
+                if (perpLen > 0.0001f)
+                {
+                    perp = rawPerp / perpLen;
+                }
+                else
+                {
+                    // Segment is collinear with view direction — use fallback perpendicular
+                    glm::vec3 fallback = (std::abs(segDir.y) < 0.99f) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
+                    perp = glm::normalize(glm::cross(segDir, fallback));
+                }
 
                 f32 halfA = widthA * 0.5f;
                 f32 halfB = widthB * 0.5f;

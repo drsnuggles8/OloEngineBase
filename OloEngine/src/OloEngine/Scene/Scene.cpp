@@ -318,6 +318,8 @@ namespace OloEngine
     // For triggers with a valid ChildSystemIndex, emit into the corresponding child system's pool.
     static void ProcessChildSubEmitters(ParticleSystemComponent& psc, f32 dt, const glm::vec3& emitterPos)
     {
+        OLO_PROFILE_FUNCTION();
+
         const auto& triggers = psc.System.GetPendingTriggers();
         if (triggers.empty() || psc.ChildSystems.empty())
         {

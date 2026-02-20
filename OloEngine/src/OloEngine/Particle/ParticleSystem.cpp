@@ -30,7 +30,7 @@ namespace OloEngine
         {
             m_LODSpawnRateMultiplier = 0.0f;
         }
-        else if (dist <= LODDistance1)
+        else if (dist <= LODDistance1 || LODMaxDistance <= LODDistance1)
         {
             m_LODSpawnRateMultiplier = 1.0f;
         }
@@ -71,6 +71,8 @@ namespace OloEngine
 
     void ParticleSystem::UpdateInternal(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity, const glm::quat& emitterRotation)
     {
+        OLO_PROFILE_FUNCTION();
+
         f32 scaledDt = dt * PlaybackSpeed;
         m_Time += scaledDt;
         m_EmitterPosition = emitterPosition;

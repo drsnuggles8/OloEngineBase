@@ -57,11 +57,13 @@ namespace OloEngine
         // Get the i-th point (0 = newest, Count-1 = oldest)
         [[nodiscard]] const TrailPoint& Get(u32 i) const
         {
+            OLO_CORE_ASSERT(Capacity > 0 && i < Count, "TrailRingBuffer::Get out of range");
             return Points[(Head + i) % Capacity];
         }
 
         [[nodiscard]] TrailPoint& Get(u32 i)
         {
+            OLO_CORE_ASSERT(Capacity > 0 && i < Count, "TrailRingBuffer::Get out of range");
             return Points[(Head + i) % Capacity];
         }
 

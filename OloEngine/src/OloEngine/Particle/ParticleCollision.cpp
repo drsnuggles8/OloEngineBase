@@ -5,7 +5,7 @@
 
 namespace OloEngine
 {
-    void ModuleCollision::Apply(f32 dt, ParticlePool& pool, std::vector<CollisionEvent>* outEvents) const
+    void ModuleCollision::Apply([[maybe_unused]] f32 dt, ParticlePool& pool, std::vector<CollisionEvent>* outEvents) const
     {
         if (!Enabled || Mode != CollisionMode::WorldPlane)
         {
@@ -140,10 +140,15 @@ namespace OloEngine
             }
 
             // Falloff: full strength inside radius, zero outside
+            // Radius == 0 means no falloff (infinite range, full strength everywhere)
             f32 falloff = 1.0f;
             if (Radius > 0.0f)
             {
-                falloff = std::max(0.0f, 1.0f - (dist / Radius));
+                if (dist > Radius)
+                {
+                    continue; // Outside force field range
+                }
+                falloff = 1.0f - (dist / Radius);
             }
 
             glm::vec3 dirToCenter = toCenter / dist;
@@ -170,6 +175,9 @@ namespace OloEngine
                     }
                     break;
                 }
+                default:
+                    OLO_CORE_ASSERT(false, "Unknown ForceFieldType!");
+                    break;
             }
         }
     }

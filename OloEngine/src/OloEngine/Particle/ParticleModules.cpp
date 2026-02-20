@@ -95,7 +95,7 @@ namespace OloEngine
         }
 
         u32 count = pool.GetAliveCount();
-        f32 factor = std::max(1.0f - DragCoefficient * dt, 0.0f);
+        f32 factor = std::exp(-DragCoefficient * dt);
         for (u32 i = 0; i < count; ++i)
         {
             pool.Velocities[i] *= factor;

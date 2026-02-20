@@ -198,6 +198,10 @@ namespace OloEngine
 
         s_Data.Stats = {};
         StartNewBatch();
+
+        // Reset trail state for the new frame
+        s_Data.TrailQuadCount = 0;
+        s_Data.TrailVertexPtr = s_Data.TrailVertexBase;
     }
 
     void ParticleBatchRenderer::BeginBatch(const Camera& camera, const glm::mat4& cameraTransform)
@@ -213,6 +217,10 @@ namespace OloEngine
 
         s_Data.Stats = {};
         StartNewBatch();
+
+        // Reset trail state for the new frame
+        s_Data.TrailQuadCount = 0;
+        s_Data.TrailVertexPtr = s_Data.TrailVertexBase;
     }
 
     void ParticleBatchRenderer::SetSoftParticleParams(const SoftParticleParams& params)
@@ -304,6 +312,8 @@ namespace OloEngine
             return;
         }
 
+        OLO_PROFILE_FUNCTION();
+
         // Upload instance data to GPU
         u32 dataSize = s_Data.InstanceCount * sizeof(ParticleInstance);
         s_Data.InstanceVBO->SetData({ s_Data.InstanceBase, dataSize });
@@ -344,10 +354,12 @@ namespace OloEngine
                                                     u32 instanceCount,
                                                     const Ref<Texture2D>& texture)
     {
-        if (!mesh || !mesh->IsValid() || instanceCount == 0)
+        if (!mesh || !mesh->IsValid() || instanceCount == 0 || !instances)
         {
             return;
         }
+
+        OLO_PROFILE_FUNCTION();
 
         // Populate ParticleParams UBO (reuse the same UBO at binding 2)
         bool hasTexture = (texture != nullptr);
@@ -436,6 +448,8 @@ namespace OloEngine
             return;
         }
 
+        OLO_PROFILE_FUNCTION();
+
         // Upload trail vertex data
         u32 dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.TrailVertexPtr) - reinterpret_cast<u8*>(s_Data.TrailVertexBase));
         s_Data.TrailVBO->SetData({ s_Data.TrailVertexBase, dataSize });
@@ -476,9 +490,6 @@ namespace OloEngine
     {
         s_Data.InstanceCount = 0;
         s_Data.InstancePtr = s_Data.InstanceBase;
-
-        s_Data.TrailQuadCount = 0;
-        s_Data.TrailVertexPtr = s_Data.TrailVertexBase;
     }
 
     void ParticleBatchRenderer::ResetStats()
