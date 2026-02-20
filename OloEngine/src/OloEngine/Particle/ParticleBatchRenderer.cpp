@@ -392,9 +392,9 @@ namespace OloEngine
     }
 
     void ParticleBatchRenderer::SubmitTrailQuad(const glm::vec3 positions[4],
-                                               const glm::vec4 colors[4],
-                                               const glm::vec2 texCoords[4],
-                                               int entityID)
+                                                const glm::vec4 colors[4],
+                                                const glm::vec2 texCoords[4],
+                                                int entityID)
     {
         if (s_Data.TrailQuadCount >= ParticleBatchData::MaxTrailQuads)
         {

@@ -55,7 +55,10 @@ namespace OloEngine
         f32 TotalArea = 0.0f;
         i32 PrimitiveType = 0; // For serialization: index into primitive mesh list
 
-        bool IsValid() const { return !Triangles.empty(); }
+        bool IsValid() const
+        {
+            return !Triangles.empty();
+        }
 
         void Build(const glm::vec3* positions, u32 vertexCount, const u32* indices, u32 indexCount)
         {

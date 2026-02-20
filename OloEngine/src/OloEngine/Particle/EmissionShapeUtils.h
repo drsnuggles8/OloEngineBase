@@ -34,13 +34,27 @@ namespace OloEngine
         Ref<Mesh> mesh;
         switch (primitiveType)
         {
-            case 0: mesh = MeshPrimitives::CreateCube(); break;
-            case 1: mesh = MeshPrimitives::CreateSphere(); break;
-            case 2: mesh = MeshPrimitives::CreateCylinder(); break;
-            case 3: mesh = MeshPrimitives::CreateTorus(); break;
-            case 4: mesh = MeshPrimitives::CreateIcosphere(); break;
-            case 5: mesh = MeshPrimitives::CreateCone(); break;
-            default: mesh = MeshPrimitives::CreateCube(); break;
+            case 0:
+                mesh = MeshPrimitives::CreateCube();
+                break;
+            case 1:
+                mesh = MeshPrimitives::CreateSphere();
+                break;
+            case 2:
+                mesh = MeshPrimitives::CreateCylinder();
+                break;
+            case 3:
+                mesh = MeshPrimitives::CreateTorus();
+                break;
+            case 4:
+                mesh = MeshPrimitives::CreateIcosphere();
+                break;
+            case 5:
+                mesh = MeshPrimitives::CreateCone();
+                break;
+            default:
+                mesh = MeshPrimitives::CreateCube();
+                break;
         }
 
         emitMesh.PrimitiveType = primitiveType;
