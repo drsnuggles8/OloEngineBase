@@ -36,12 +36,12 @@ layout(std430, binding = 3) buffer FreeListBuffer
     uint freeList[];
 };
 
-uniform int u_MaxParticles;
+uniform uint u_MaxParticles;
 
 void main()
 {
     uint idx = gl_GlobalInvocationID.x;
-    if (idx >= uint(u_MaxParticles))
+    if (idx >= u_MaxParticles)
         return;
 
     if (particles[idx].Misc.z > 0.5)

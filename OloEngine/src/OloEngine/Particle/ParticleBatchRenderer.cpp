@@ -504,6 +504,7 @@ namespace OloEngine
         RenderCommand::DrawElementsIndirect(s_Data.VAO, gpuSystem.GetIndirectDrawSSBO()->GetRendererID());
 
         s_Data.Stats.DrawCalls++;
+        // InstanceCount not updated here: GetAliveCount() requires a GPU→CPU readback that would stall the pipeline
     }
 
     void ParticleBatchRenderer::StartNewBatch()

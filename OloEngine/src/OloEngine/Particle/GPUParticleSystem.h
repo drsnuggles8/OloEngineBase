@@ -18,8 +18,8 @@ namespace OloEngine
 
 		GPUParticleSystem(const GPUParticleSystem&) = delete;
 		GPUParticleSystem& operator=(const GPUParticleSystem&) = delete;
-		GPUParticleSystem(GPUParticleSystem&&) noexcept = default;
-		GPUParticleSystem& operator=(GPUParticleSystem&&) noexcept = default;
+		GPUParticleSystem(GPUParticleSystem&& other) noexcept;
+		GPUParticleSystem& operator=(GPUParticleSystem&& other) noexcept;
 
 		void Init(u32 maxParticles);
 		void Shutdown();

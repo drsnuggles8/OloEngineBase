@@ -37,7 +37,7 @@ layout(std430, binding = 5) buffer EmitStagingBuffer
 };
 
 uniform int u_EmitCount;
-uniform int u_MaxParticles;
+uniform uint u_MaxParticles;
 
 void main()
 {
@@ -49,7 +49,7 @@ void main()
     uint freeIdx = atomicAdd(counters.deadCount, uint(-1));
 
     // No free slots available — deadCount was 0 and wrapped or reached 0
-    if (freeIdx == 0 || freeIdx > uint(u_MaxParticles))
+    if (freeIdx == 0 || freeIdx > u_MaxParticles)
     {
         // Undo the atomic decrement
         atomicAdd(counters.deadCount, 1);
@@ -58,6 +58,14 @@ void main()
 
     // freeIdx was the count before decrement, so the slot index is freeIdx - 1
     uint slot = freeList[freeIdx - 1];
+
+    // Validate slot is within particle buffer bounds
+    if (slot >= u_MaxParticles)
+    {
+        // Corrupted free list entry — undo the claim and skip
+        atomicAdd(counters.deadCount, 1);
+        return;
+    }
 
     // Copy staged particle data into the particle buffer
     particles[slot] = staged[idx];

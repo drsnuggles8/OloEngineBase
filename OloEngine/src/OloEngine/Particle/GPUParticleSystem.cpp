@@ -18,6 +18,47 @@ namespace OloEngine
 		Shutdown();
 	}
 
+	GPUParticleSystem::GPUParticleSystem(GPUParticleSystem&& other) noexcept
+		: m_MaxParticles(other.m_MaxParticles)
+		, m_Initialized(other.m_Initialized)
+		, m_ParticleSSBO(std::move(other.m_ParticleSSBO))
+		, m_AliveIndexSSBO(std::move(other.m_AliveIndexSSBO))
+		, m_CounterSSBO(std::move(other.m_CounterSSBO))
+		, m_FreeListSSBO(std::move(other.m_FreeListSSBO))
+		, m_IndirectDrawSSBO(std::move(other.m_IndirectDrawSSBO))
+		, m_EmitStagingSSBO(std::move(other.m_EmitStagingSSBO))
+		, m_EmitShader(std::move(other.m_EmitShader))
+		, m_SimulateShader(std::move(other.m_SimulateShader))
+		, m_CompactShader(std::move(other.m_CompactShader))
+		, m_BuildIndirectShader(std::move(other.m_BuildIndirectShader))
+	{
+		other.m_Initialized = false;
+		other.m_MaxParticles = 0;
+	}
+
+	GPUParticleSystem& GPUParticleSystem::operator=(GPUParticleSystem&& other) noexcept
+	{
+		if (this != &other)
+		{
+			Shutdown();
+			m_MaxParticles = other.m_MaxParticles;
+			m_Initialized = other.m_Initialized;
+			m_ParticleSSBO = std::move(other.m_ParticleSSBO);
+			m_AliveIndexSSBO = std::move(other.m_AliveIndexSSBO);
+			m_CounterSSBO = std::move(other.m_CounterSSBO);
+			m_FreeListSSBO = std::move(other.m_FreeListSSBO);
+			m_IndirectDrawSSBO = std::move(other.m_IndirectDrawSSBO);
+			m_EmitStagingSSBO = std::move(other.m_EmitStagingSSBO);
+			m_EmitShader = std::move(other.m_EmitShader);
+			m_SimulateShader = std::move(other.m_SimulateShader);
+			m_CompactShader = std::move(other.m_CompactShader);
+			m_BuildIndirectShader = std::move(other.m_BuildIndirectShader);
+			other.m_Initialized = false;
+			other.m_MaxParticles = 0;
+		}
+		return *this;
+	}
+
 	void GPUParticleSystem::Init(u32 maxParticles)
 	{
 		OLO_PROFILE_FUNCTION();
@@ -91,6 +132,32 @@ namespace OloEngine
 		m_CompactShader = ComputeShader::Create("assets/shaders/compute/Particle_Compact.comp");
 		m_BuildIndirectShader = ComputeShader::Create("assets/shaders/compute/Particle_BuildIndirect.comp");
 
+		// Validate all shaders loaded successfully
+		if (!m_EmitShader || !m_EmitShader->IsValid())
+		{
+			OLO_CORE_ERROR("GPUParticleSystem: Failed to load m_EmitShader");
+			m_Initialized = false;
+			return;
+		}
+		if (!m_SimulateShader || !m_SimulateShader->IsValid())
+		{
+			OLO_CORE_ERROR("GPUParticleSystem: Failed to load m_SimulateShader");
+			m_Initialized = false;
+			return;
+		}
+		if (!m_CompactShader || !m_CompactShader->IsValid())
+		{
+			OLO_CORE_ERROR("GPUParticleSystem: Failed to load m_CompactShader");
+			m_Initialized = false;
+			return;
+		}
+		if (!m_BuildIndirectShader || !m_BuildIndirectShader->IsValid())
+		{
+			OLO_CORE_ERROR("GPUParticleSystem: Failed to load m_BuildIndirectShader");
+			m_Initialized = false;
+			return;
+		}
+
 		m_Initialized = true;
 	}
 
@@ -134,7 +201,7 @@ namespace OloEngine
 		// Dispatch emission compute
 		m_EmitShader->Bind();
 		m_EmitShader->SetInt("u_EmitCount", static_cast<int>(emitCount));
-		m_EmitShader->SetInt("u_MaxParticles", static_cast<int>(m_MaxParticles));
+		m_EmitShader->SetUint("u_MaxParticles", m_MaxParticles);
 
 		u32 groups = (emitCount + EMIT_WORKGROUP_SIZE - 1) / EMIT_WORKGROUP_SIZE;
 		RenderCommand::DispatchCompute(groups, 1, 1);
@@ -158,7 +225,7 @@ namespace OloEngine
 		m_SimulateShader->SetFloat("u_DeltaTime", dt);
 		m_SimulateShader->SetFloat3("u_Gravity", params.Gravity);
 		m_SimulateShader->SetFloat("u_DragCoefficient", params.DragCoefficient);
-		m_SimulateShader->SetInt("u_MaxParticles", static_cast<int>(m_MaxParticles));
+		m_SimulateShader->SetUint("u_MaxParticles", m_MaxParticles);
 		m_SimulateShader->SetInt("u_EnableGravity", params.EnableGravity);
 		m_SimulateShader->SetInt("u_EnableDrag", params.EnableDrag);
 
@@ -191,7 +258,7 @@ namespace OloEngine
 		m_FreeListSSBO->Bind();
 
 		m_CompactShader->Bind();
-		m_CompactShader->SetInt("u_MaxParticles", static_cast<int>(m_MaxParticles));
+		m_CompactShader->SetUint("u_MaxParticles", m_MaxParticles);
 
 		u32 groups = (m_MaxParticles + COMPACT_WORKGROUP_SIZE - 1) / COMPACT_WORKGROUP_SIZE;
 		RenderCommand::DispatchCompute(groups, 1, 1);
