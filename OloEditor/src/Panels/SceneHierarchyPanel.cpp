@@ -2166,7 +2166,7 @@ namespace OloEngine
             if (ImGui::CollapsingHeader("Force Fields"))
             {
                 const char* ffTypes[] = { "Attraction", "Repulsion", "Vortex" };
-                for (size_t fi = 0; fi < sys.ForceFields.size(); ++fi)
+                for (sizet fi = 0; fi < sys.ForceFields.size(); ++fi)
                 {
                     auto& ff = sys.ForceFields[fi];
                     ImGui::PushID(static_cast<int>(fi));

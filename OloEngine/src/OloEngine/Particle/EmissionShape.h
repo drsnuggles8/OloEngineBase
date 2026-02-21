@@ -171,7 +171,7 @@ namespace OloEngine
             }
             else if constexpr (std::is_same_v<T, EmitCone>)
             {
-                f32 angleRad = std::min(glm::radians(s.Angle), glm::half_pi<f32>() - 0.001f);
+                f32 angleRad = std::clamp(glm::radians(s.Angle), 0.0f, glm::half_pi<f32>() - 0.001f);
                 f32 theta = rng.GetFloat32InRange(0.0f, glm::two_pi<f32>());
                 f32 u = rng.GetFloat32InRange(0.0f, 1.0f);
                 f32 r = std::sqrt(u) * s.Radius; // sqrt for uniform disk distribution
@@ -263,7 +263,7 @@ namespace OloEngine
             }
             else if constexpr (std::is_same_v<T, EmitCone>)
             {
-                f32 angleRad = std::min(glm::radians(s.Angle), glm::half_pi<f32>() - 0.001f);
+                f32 angleRad = std::clamp(glm::radians(s.Angle), 0.0f, glm::half_pi<f32>() - 0.001f);
                 f32 theta = rng.GetFloat32InRange(0.0f, glm::two_pi<f32>());
                 // Uniform cone distribution: sample cos(phi) uniformly in [cos(angleRad), 1]
                 f32 cosPhiMin = std::cos(angleRad);

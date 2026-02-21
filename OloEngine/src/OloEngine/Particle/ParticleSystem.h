@@ -159,6 +159,7 @@ namespace OloEngine
         ParticlePool m_Pool;
         ParticleTrailData m_TrailData;
         std::vector<SubEmitterTriggerInfo> m_PendingTriggers;
+        std::vector<CollisionEvent> m_CollisionEvents;
         std::vector<u32> m_SortedIndices;
         std::vector<f32> m_SortDistances;
         JoltScene* m_JoltScene = nullptr;

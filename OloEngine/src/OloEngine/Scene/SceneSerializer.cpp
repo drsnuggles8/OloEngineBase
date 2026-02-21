@@ -75,6 +75,21 @@ namespace OloEngine
         TrySet(emitter.InitialRotation, particleComponent["InitialRotation"]);
         TrySet(emitter.RotationVariance, particleComponent["RotationVariance"]);
         TrySet(emitter.InitialColor, particleComponent["InitialColor"]);
+
+        // Bursts
+        emitter.Bursts.clear();
+        if (auto burstsNode = particleComponent["Bursts"]; burstsNode && burstsNode.IsSequence())
+        {
+            for (const auto& burstNode : burstsNode)
+            {
+                BurstEntry burst{};
+                TrySet(burst.Time, burstNode["Time"]);
+                TrySet(burst.Count, burstNode["Count"]);
+                TrySet(burst.Probability, burstNode["Probability"]);
+                emitter.Bursts.push_back(burst);
+            }
+        }
+
         // Emission shape deserialization
         if (auto shapeType = particleComponent["EmissionShapeType"]; shapeType)
         {
@@ -85,48 +100,48 @@ namespace OloEngine
                     break;
                 case EmissionShapeType::Sphere:
                 {
-                    EmitSphere s;
-                    TrySet(s.Radius, particleComponent["EmissionSphereRadius"]);
-                    emitter.Shape = s;
+                    EmitSphere sphere{};
+                    TrySet(sphere.Radius, particleComponent["EmissionSphereRadius"]);
+                    emitter.Shape = sphere;
                     break;
                 }
                 case EmissionShapeType::Box:
                 {
-                    EmitBox b;
-                    TrySet(b.HalfExtents, particleComponent["EmissionBoxHalfExtents"]);
-                    emitter.Shape = b;
+                    EmitBox box{};
+                    TrySet(box.HalfExtents, particleComponent["EmissionBoxHalfExtents"]);
+                    emitter.Shape = box;
                     break;
                 }
                 case EmissionShapeType::Cone:
                 {
-                    EmitCone c;
-                    TrySet(c.Angle, particleComponent["EmissionConeAngle"]);
-                    TrySet(c.Radius, particleComponent["EmissionConeRadius"]);
-                    emitter.Shape = c;
+                    EmitCone cone{};
+                    TrySet(cone.Angle, particleComponent["EmissionConeAngle"]);
+                    TrySet(cone.Radius, particleComponent["EmissionConeRadius"]);
+                    emitter.Shape = cone;
                     break;
                 }
                 case EmissionShapeType::Ring:
                 {
-                    EmitRing r;
-                    TrySet(r.InnerRadius, particleComponent["EmissionRingInnerRadius"]);
-                    TrySet(r.OuterRadius, particleComponent["EmissionRingOuterRadius"]);
-                    emitter.Shape = r;
+                    EmitRing ring{};
+                    TrySet(ring.InnerRadius, particleComponent["EmissionRingInnerRadius"]);
+                    TrySet(ring.OuterRadius, particleComponent["EmissionRingOuterRadius"]);
+                    emitter.Shape = ring;
                     break;
                 }
                 case EmissionShapeType::Edge:
                 {
-                    EmitEdge e;
-                    TrySet(e.Length, particleComponent["EmissionEdgeLength"]);
-                    emitter.Shape = e;
+                    EmitEdge edge{};
+                    TrySet(edge.Length, particleComponent["EmissionEdgeLength"]);
+                    emitter.Shape = edge;
                     break;
                 }
                 case EmissionShapeType::Mesh:
                 {
-                    EmitMesh m;
+                    EmitMesh mesh{};
                     i32 primType = 0;
                     TrySet(primType, particleComponent["EmissionMeshPrimitive"]);
-                    BuildEmitMeshFromPrimitive(m, primType);
-                    emitter.Shape = std::move(m);
+                    BuildEmitMeshFromPrimitive(mesh, primType);
+                    emitter.Shape = std::move(mesh);
                     break;
                 }
                 default:
@@ -170,29 +185,29 @@ namespace OloEngine
             sys.ForceFields.clear();
             for (auto ffNode : forceFieldsNode)
             {
-                ModuleForceField ff;
-                TrySet(ff.Enabled, ffNode["Enabled"]);
+                ModuleForceField forceField{};
+                TrySet(forceField.Enabled, ffNode["Enabled"]);
                 if (auto val = ffNode["Type"]; val)
-                    ff.Type = static_cast<ForceFieldType>(val.as<int>());
-                TrySet(ff.Position, ffNode["Position"]);
-                TrySet(ff.Strength, ffNode["Strength"]);
-                TrySet(ff.Radius, ffNode["Radius"]);
-                TrySet(ff.Axis, ffNode["Axis"]);
-                sys.ForceFields.push_back(ff);
+                    forceField.Type = static_cast<ForceFieldType>(val.as<int>());
+                TrySet(forceField.Position, ffNode["Position"]);
+                TrySet(forceField.Strength, ffNode["Strength"]);
+                TrySet(forceField.Radius, ffNode["Radius"]);
+                TrySet(forceField.Axis, ffNode["Axis"]);
+                sys.ForceFields.push_back(forceField);
             }
         }
         else if (auto oldEnabled = particleComponent["ForceFieldEnabled"]; oldEnabled)
         {
             // Backward compatibility: old single force field format
-            ModuleForceField ff;
-            TrySet(ff.Enabled, oldEnabled);
+            ModuleForceField forceField{};
+            TrySet(forceField.Enabled, oldEnabled);
             if (auto val = particleComponent["ForceFieldType"]; val)
-                ff.Type = static_cast<ForceFieldType>(val.as<int>());
-            TrySet(ff.Position, particleComponent["ForceFieldPosition"]);
-            TrySet(ff.Strength, particleComponent["ForceFieldStrength"]);
-            TrySet(ff.Radius, particleComponent["ForceFieldRadius"]);
-            TrySet(ff.Axis, particleComponent["ForceFieldAxis"]);
-            sys.ForceFields.push_back(ff);
+                forceField.Type = static_cast<ForceFieldType>(val.as<int>());
+            TrySet(forceField.Position, particleComponent["ForceFieldPosition"]);
+            TrySet(forceField.Strength, particleComponent["ForceFieldStrength"]);
+            TrySet(forceField.Radius, particleComponent["ForceFieldRadius"]);
+            TrySet(forceField.Axis, particleComponent["ForceFieldAxis"]);
+            sys.ForceFields.push_back(forceField);
         }
 
         // Phase 2: Trail
@@ -1059,11 +1074,27 @@ namespace OloEngine
             out << YAML::Key << "InitialColor" << YAML::Value << emitter.InitialColor;
             out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(GetEmissionShapeType(emitter.Shape));
 
+            // Bursts
+            out << YAML::Key << "Bursts" << YAML::Value << YAML::BeginSeq;
+            for (const auto& burst : emitter.Bursts)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Time" << YAML::Value << burst.Time;
+                out << YAML::Key << "Count" << YAML::Value << burst.Count;
+                out << YAML::Key << "Probability" << YAML::Value << burst.Probability;
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
             // Emission shape parameters
             if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
+            {
                 out << YAML::Key << "EmissionSphereRadius" << YAML::Value << sphere->Radius;
+            }
             if (auto* box = std::get_if<EmitBox>(&emitter.Shape))
+            {
                 out << YAML::Key << "EmissionBoxHalfExtents" << YAML::Value << box->HalfExtents;
+            }
             if (auto* cone = std::get_if<EmitCone>(&emitter.Shape))
             {
                 out << YAML::Key << "EmissionConeAngle" << YAML::Value << cone->Angle;
@@ -1075,9 +1106,13 @@ namespace OloEngine
                 out << YAML::Key << "EmissionRingOuterRadius" << YAML::Value << ring->OuterRadius;
             }
             if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
+            {
                 out << YAML::Key << "EmissionEdgeLength" << YAML::Value << edge->Length;
+            }
             if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
+            {
                 out << YAML::Key << "EmissionMeshPrimitive" << YAML::Value << mesh->PrimitiveType;
+            }
 
             // Modules
             out << YAML::Key << "GravityEnabled" << YAML::Value << sys.GravityModule.Enabled;

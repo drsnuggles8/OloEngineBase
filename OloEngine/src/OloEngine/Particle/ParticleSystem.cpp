@@ -326,10 +326,10 @@ namespace OloEngine
         }
 
         // Collision: use raycasts if Jolt scene available and mode is SceneRaycast
-        std::vector<CollisionEvent> collisionEvents;
+        m_CollisionEvents.clear();
         if (CollisionModule.Enabled)
         {
-            auto* eventsPtr = SubEmitterModule.Enabled ? &collisionEvents : nullptr;
+            auto* eventsPtr = SubEmitterModule.Enabled ? &m_CollisionEvents : nullptr;
             if (CollisionModule.Mode == CollisionMode::SceneRaycast && m_JoltScene)
             {
                 CollisionModule.ApplyWithRaycasts(scaledDt, m_Pool, m_JoltScene, eventsPtr);
@@ -340,13 +340,13 @@ namespace OloEngine
             }
 
             // Fire OnCollision sub-emitter triggers
-            if (SubEmitterModule.Enabled && !collisionEvents.empty())
+            if (SubEmitterModule.Enabled && !m_CollisionEvents.empty())
             {
                 for (const auto& entry : SubEmitterModule.Entries)
                 {
                     if (entry.Trigger == SubEmitterEvent::OnCollision)
                     {
-                        for (const auto& event : collisionEvents)
+                        for (const auto& event : m_CollisionEvents)
                         {
                             SubEmitterTriggerInfo trigger;
                             trigger.Position = event.Position;
@@ -413,12 +413,12 @@ namespace OloEngine
 
     void ParticleSystem::ProcessSubEmitterTriggers()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!SubEmitterModule.Enabled || m_PendingTriggers.empty())
         {
             return;
         }
-
-        OLO_PROFILE_FUNCTION();
 
         // Triggers with ChildSystemIndex >= 0 are handled by Scene (emitted into child systems).
         // Only triggers with ChildSystemIndex == -1 fall back to the legacy parent-pool behavior.

@@ -2767,7 +2767,9 @@ namespace OloEngine
         void TrySetPS(T& target, const YAML::Node& node)
         {
             if (node)
+            {
                 target = node.as<T>();
+            }
         }
 
     } // namespace
@@ -2906,9 +2908,13 @@ namespace OloEngine
         out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(GetEmissionShapeType(emitter.Shape));
 
         if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
+        {
             out << YAML::Key << "EmissionSphereRadius" << YAML::Value << sphere->Radius;
+        }
         else if (auto* box = std::get_if<EmitBox>(&emitter.Shape))
+        {
             out << YAML::Key << "EmissionBoxHalfExtents" << YAML::Value << box->HalfExtents;
+        }
         else if (auto* cone = std::get_if<EmitCone>(&emitter.Shape))
         {
             out << YAML::Key << "EmissionConeAngle" << YAML::Value << cone->Angle;
@@ -2920,9 +2926,13 @@ namespace OloEngine
             out << YAML::Key << "EmissionRingOuterRadius" << YAML::Value << ring->OuterRadius;
         }
         else if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
+        {
             out << YAML::Key << "EmissionEdgeLength" << YAML::Value << edge->Length;
+        }
         else if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
+        {
             out << YAML::Key << "EmissionMeshPrimitiveType" << YAML::Value << mesh->PrimitiveType;
+        }
 
         // Modules
         out << YAML::Key << "GravityEnabled" << YAML::Value << sys.GravityModule.Enabled;
@@ -3067,21 +3077,21 @@ namespace OloEngine
                         break;
                     case EmissionShapeType::Sphere:
                     {
-                        EmitSphere s;
+                        EmitSphere s{};
                         TrySetPS(s.Radius, ps["EmissionSphereRadius"]);
                         emitter.Shape = s;
                         break;
                     }
                     case EmissionShapeType::Box:
                     {
-                        EmitBox b;
+                        EmitBox b{};
                         TrySetPS(b.HalfExtents, ps["EmissionBoxHalfExtents"]);
                         emitter.Shape = b;
                         break;
                     }
                     case EmissionShapeType::Cone:
                     {
-                        EmitCone c;
+                        EmitCone c{};
                         TrySetPS(c.Angle, ps["EmissionConeAngle"]);
                         TrySetPS(c.Radius, ps["EmissionConeRadius"]);
                         emitter.Shape = c;
@@ -3089,7 +3099,7 @@ namespace OloEngine
                     }
                     case EmissionShapeType::Ring:
                     {
-                        EmitRing r;
+                        EmitRing r{};
                         TrySetPS(r.InnerRadius, ps["EmissionRingInnerRadius"]);
                         TrySetPS(r.OuterRadius, ps["EmissionRingOuterRadius"]);
                         emitter.Shape = r;
@@ -3097,16 +3107,18 @@ namespace OloEngine
                     }
                     case EmissionShapeType::Edge:
                     {
-                        EmitEdge e;
+                        EmitEdge e{};
                         TrySetPS(e.Length, ps["EmissionEdgeLength"]);
                         emitter.Shape = e;
                         break;
                     }
                     case EmissionShapeType::Mesh:
                     {
-                        EmitMesh m;
+                        EmitMesh m{};
                         if (auto val = ps["EmissionMeshPrimitiveType"]; val)
+                        {
                             m.PrimitiveType = val.as<i32>();
+                        }
                         BuildEmitMeshFromPrimitive(m, m.PrimitiveType);
                         emitter.Shape = std::move(m);
                         break;
@@ -3152,7 +3164,7 @@ namespace OloEngine
                 sys.ForceFields.clear();
                 for (auto ffNode : forceFieldsNode)
                 {
-                    ModuleForceField ff;
+                    ModuleForceField ff{};
                     TrySetPS(ff.Enabled, ffNode["Enabled"]);
                     if (auto val = ffNode["Type"]; val)
                         ff.Type = static_cast<ForceFieldType>(val.as<int>());
@@ -3165,7 +3177,7 @@ namespace OloEngine
             }
             else if (auto oldEnabled = ps["ForceFieldEnabled"]; oldEnabled)
             {
-                ModuleForceField ff;
+                ModuleForceField ff{};
                 TrySetPS(ff.Enabled, oldEnabled);
                 if (auto val = ps["ForceFieldType"]; val)
                     ff.Type = static_cast<ForceFieldType>(val.as<int>());
@@ -3192,7 +3204,7 @@ namespace OloEngine
                 sys.SubEmitterModule.Entries.clear();
                 for (auto entryNode : entriesNode)
                 {
-                    SubEmitterEntry entry;
+                    SubEmitterEntry entry{};
                     if (auto val = entryNode["Trigger"]; val)
                         entry.Trigger = static_cast<SubEmitterEvent>(val.as<int>());
                     if (auto val = entryNode["EmitCount"]; val)
