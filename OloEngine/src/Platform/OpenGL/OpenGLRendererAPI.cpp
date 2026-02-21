@@ -334,6 +334,20 @@ namespace OloEngine
         glBindTexture(GL_TEXTURE_2D, textureID);
     }
 
+    void OpenGLRendererAPI::DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glDispatchCompute(groupsX, groupsY, groupsZ);
+    }
+
+    void OpenGLRendererAPI::MemoryBarrier(u32 barrierBits)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glMemoryBarrier(static_cast<GLbitfield>(barrierBits));
+    }
+
     void OpenGLRendererAPI::SetPolygonOffset(f32 factor, f32 units)
     {
         OLO_PROFILE_FUNCTION();

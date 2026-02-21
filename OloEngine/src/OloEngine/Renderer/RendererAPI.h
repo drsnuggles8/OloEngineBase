@@ -63,6 +63,10 @@ namespace OloEngine
         virtual void DisableScissorTest() = 0;
         virtual void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height) = 0;
 
+        // Compute shader dispatch
+        virtual void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) = 0;
+        virtual void MemoryBarrier(u32 barrierBits) = 0;
+
         // New methods for render graph
         virtual void BindDefaultFramebuffer() = 0;
         virtual void BindTexture(u32 slot, u32 textureID) = 0;

@@ -9,6 +9,7 @@ add_executable(OloEngine-Tests
 		#AudioEventQueueTest.cpp
 		FastRandomTest.cpp
 		ContainerTest.cpp
+		ComputeShaderAndSSBOTest.cpp
 
 		# ============================================================================
 		# Async - Threading primitives (ported from UE5.7 Tests/Async/)
