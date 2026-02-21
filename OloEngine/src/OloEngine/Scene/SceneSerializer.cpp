@@ -9,6 +9,8 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
+#include "OloEngine/Particle/EmissionShapeUtils.h"
+#include "OloEngine/Particle/ParticleCurveSerializer.h"
 
 #include <fstream>
 
@@ -47,6 +49,204 @@ namespace OloEngine
             value = (T)node.as<int>((int)value);
         }
         return value;
+    }
+
+    static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)
+    {
+        auto& sys = psc.System;
+        auto& emitter = sys.Emitter;
+
+        if (particleComponent["MaxParticles"])
+            sys.SetMaxParticles(particleComponent["MaxParticles"].as<u32>());
+        TrySet(sys.Playing, particleComponent["Playing"]);
+        TrySet(sys.Looping, particleComponent["Looping"]);
+        TrySet(sys.Duration, particleComponent["Duration"]);
+        TrySet(sys.PlaybackSpeed, particleComponent["PlaybackSpeed"]);
+        if (particleComponent["SimulationSpace"])
+            sys.SimulationSpace = static_cast<ParticleSpace>(particleComponent["SimulationSpace"].as<int>());
+
+        TrySet(emitter.RateOverTime, particleComponent["RateOverTime"]);
+        TrySet(emitter.InitialSpeed, particleComponent["InitialSpeed"]);
+        TrySet(emitter.SpeedVariance, particleComponent["SpeedVariance"]);
+        TrySet(emitter.LifetimeMin, particleComponent["LifetimeMin"]);
+        TrySet(emitter.LifetimeMax, particleComponent["LifetimeMax"]);
+        TrySet(emitter.InitialSize, particleComponent["InitialSize"]);
+        TrySet(emitter.SizeVariance, particleComponent["SizeVariance"]);
+        TrySet(emitter.InitialRotation, particleComponent["InitialRotation"]);
+        TrySet(emitter.RotationVariance, particleComponent["RotationVariance"]);
+        TrySet(emitter.InitialColor, particleComponent["InitialColor"]);
+
+        // Bursts
+        emitter.Bursts.clear();
+        if (auto burstsNode = particleComponent["Bursts"]; burstsNode && burstsNode.IsSequence())
+        {
+            for (const auto& burstNode : burstsNode)
+            {
+                BurstEntry burst{};
+                TrySet(burst.Time, burstNode["Time"]);
+                TrySet(burst.Count, burstNode["Count"]);
+                TrySet(burst.Probability, burstNode["Probability"]);
+                emitter.Bursts.push_back(burst);
+            }
+        }
+
+        // Emission shape deserialization
+        if (auto shapeType = particleComponent["EmissionShapeType"]; shapeType)
+        {
+            switch (static_cast<EmissionShapeType>(shapeType.as<int>()))
+            {
+                case EmissionShapeType::Point:
+                    emitter.Shape = EmitPoint{};
+                    break;
+                case EmissionShapeType::Sphere:
+                {
+                    EmitSphere sphere{};
+                    TrySet(sphere.Radius, particleComponent["EmissionSphereRadius"]);
+                    emitter.Shape = sphere;
+                    break;
+                }
+                case EmissionShapeType::Box:
+                {
+                    EmitBox box{};
+                    TrySet(box.HalfExtents, particleComponent["EmissionBoxHalfExtents"]);
+                    emitter.Shape = box;
+                    break;
+                }
+                case EmissionShapeType::Cone:
+                {
+                    EmitCone cone{};
+                    TrySet(cone.Angle, particleComponent["EmissionConeAngle"]);
+                    TrySet(cone.Radius, particleComponent["EmissionConeRadius"]);
+                    emitter.Shape = cone;
+                    break;
+                }
+                case EmissionShapeType::Ring:
+                {
+                    EmitRing ring{};
+                    TrySet(ring.InnerRadius, particleComponent["EmissionRingInnerRadius"]);
+                    TrySet(ring.OuterRadius, particleComponent["EmissionRingOuterRadius"]);
+                    emitter.Shape = ring;
+                    break;
+                }
+                case EmissionShapeType::Edge:
+                {
+                    EmitEdge edge{};
+                    TrySet(edge.Length, particleComponent["EmissionEdgeLength"]);
+                    emitter.Shape = edge;
+                    break;
+                }
+                case EmissionShapeType::Mesh:
+                {
+                    EmitMesh mesh{};
+                    i32 primType = 0;
+                    TrySet(primType, particleComponent["EmissionMeshPrimitive"]);
+                    BuildEmitMeshFromPrimitive(mesh, primType);
+                    emitter.Shape = std::move(mesh);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
+        TrySet(sys.GravityModule.Enabled, particleComponent["GravityEnabled"]);
+        TrySet(sys.GravityModule.Gravity, particleComponent["Gravity"]);
+        TrySet(sys.DragModule.Enabled, particleComponent["DragEnabled"]);
+        TrySet(sys.DragModule.DragCoefficient, particleComponent["DragCoefficient"]);
+        TrySet(sys.ColorModule.Enabled, particleComponent["ColorOverLifetimeEnabled"]);
+        ParticleCurveSerializer::Deserialize4(particleComponent["ColorCurve"], sys.ColorModule.ColorCurve);
+        TrySet(sys.SizeModule.Enabled, particleComponent["SizeOverLifetimeEnabled"]);
+        ParticleCurveSerializer::Deserialize(particleComponent["SizeCurve"], sys.SizeModule.SizeCurve);
+        TrySet(sys.RotationModule.Enabled, particleComponent["RotationOverLifetimeEnabled"]);
+        TrySet(sys.RotationModule.AngularVelocity, particleComponent["AngularVelocity"]);
+        TrySet(sys.VelocityModule.Enabled, particleComponent["VelocityOverLifetimeEnabled"]);
+        TrySet(sys.VelocityModule.LinearAcceleration, particleComponent["LinearAcceleration"]);
+        if (!particleComponent["LinearAcceleration"])
+            TrySet(sys.VelocityModule.LinearAcceleration, particleComponent["LinearVelocity"]);
+        TrySet(sys.VelocityModule.SpeedMultiplier, particleComponent["SpeedMultiplier"]);
+        ParticleCurveSerializer::Deserialize(particleComponent["SpeedCurve"], sys.VelocityModule.SpeedCurve);
+        TrySet(sys.NoiseModule.Enabled, particleComponent["NoiseEnabled"]);
+        TrySet(sys.NoiseModule.Strength, particleComponent["NoiseStrength"]);
+        TrySet(sys.NoiseModule.Frequency, particleComponent["NoiseFrequency"]);
+
+        // Phase 2: Collision
+        TrySet(sys.CollisionModule.Enabled, particleComponent["CollisionEnabled"]);
+        if (auto val = particleComponent["CollisionMode"]; val)
+            sys.CollisionModule.Mode = static_cast<CollisionMode>(val.as<int>());
+        TrySet(sys.CollisionModule.PlaneNormal, particleComponent["CollisionPlaneNormal"]);
+        TrySet(sys.CollisionModule.PlaneOffset, particleComponent["CollisionPlaneOffset"]);
+        TrySet(sys.CollisionModule.Bounce, particleComponent["CollisionBounce"]);
+        TrySet(sys.CollisionModule.LifetimeLoss, particleComponent["CollisionLifetimeLoss"]);
+        TrySet(sys.CollisionModule.KillOnCollide, particleComponent["CollisionKillOnCollide"]);
+
+        // Phase 2: Force Fields (vector, with backward compat for old single-field format)
+        if (auto forceFieldsNode = particleComponent["ForceFields"]; forceFieldsNode && forceFieldsNode.IsSequence())
+        {
+            sys.ForceFields.clear();
+            for (auto ffNode : forceFieldsNode)
+            {
+                ModuleForceField forceField{};
+                TrySet(forceField.Enabled, ffNode["Enabled"]);
+                if (auto val = ffNode["Type"]; val)
+                    forceField.Type = static_cast<ForceFieldType>(val.as<int>());
+                TrySet(forceField.Position, ffNode["Position"]);
+                TrySet(forceField.Strength, ffNode["Strength"]);
+                TrySet(forceField.Radius, ffNode["Radius"]);
+                TrySet(forceField.Axis, ffNode["Axis"]);
+                sys.ForceFields.push_back(forceField);
+            }
+        }
+        else if (auto oldEnabled = particleComponent["ForceFieldEnabled"]; oldEnabled)
+        {
+            // Backward compatibility: old single force field format
+            ModuleForceField forceField{};
+            TrySet(forceField.Enabled, oldEnabled);
+            if (auto val = particleComponent["ForceFieldType"]; val)
+                forceField.Type = static_cast<ForceFieldType>(val.as<int>());
+            TrySet(forceField.Position, particleComponent["ForceFieldPosition"]);
+            TrySet(forceField.Strength, particleComponent["ForceFieldStrength"]);
+            TrySet(forceField.Radius, particleComponent["ForceFieldRadius"]);
+            TrySet(forceField.Axis, particleComponent["ForceFieldAxis"]);
+            sys.ForceFields.push_back(forceField);
+        }
+
+        // Phase 2: Trail
+        TrySet(sys.TrailModule.Enabled, particleComponent["TrailEnabled"]);
+        if (auto val = particleComponent["TrailMaxPoints"]; val)
+            sys.TrailModule.MaxTrailPoints = val.as<u32>();
+        TrySet(sys.TrailModule.TrailLifetime, particleComponent["TrailLifetime"]);
+        TrySet(sys.TrailModule.MinVertexDistance, particleComponent["TrailMinVertexDistance"]);
+        TrySet(sys.TrailModule.WidthStart, particleComponent["TrailWidthStart"]);
+        TrySet(sys.TrailModule.WidthEnd, particleComponent["TrailWidthEnd"]);
+        TrySet(sys.TrailModule.ColorStart, particleComponent["TrailColorStart"]);
+        TrySet(sys.TrailModule.ColorEnd, particleComponent["TrailColorEnd"]);
+
+        // Phase 2: Sub-Emitter
+        TrySet(sys.SubEmitterModule.Enabled, particleComponent["SubEmitterEnabled"]);
+
+        // Phase 2: LOD
+        TrySet(sys.LODDistance1, particleComponent["LODDistance1"]);
+        TrySet(sys.LODMaxDistance, particleComponent["LODMaxDistance"]);
+        TrySet(sys.WarmUpTime, particleComponent["WarmUpTime"]);
+
+        // Rendering settings
+        if (auto val = particleComponent["BlendMode"]; val)
+            sys.BlendMode = static_cast<ParticleBlendMode>(val.as<int>());
+        if (auto val = particleComponent["RenderMode"]; val)
+            sys.RenderMode = static_cast<ParticleRenderMode>(val.as<int>());
+        TrySet(sys.DepthSortEnabled, particleComponent["DepthSortEnabled"]);
+        TrySet(sys.SoftParticlesEnabled, particleComponent["SoftParticlesEnabled"]);
+        TrySet(sys.SoftParticleDistance, particleComponent["SoftParticleDistance"]);
+        TrySet(sys.VelocityInheritance, particleComponent["VelocityInheritance"]);
+
+        // Texture sheet animation
+        TrySet(sys.TextureSheetModule.Enabled, particleComponent["TextureSheetEnabled"]);
+        TrySet(sys.TextureSheetModule.GridX, particleComponent["TextureSheetGridX"]);
+        TrySet(sys.TextureSheetModule.GridY, particleComponent["TextureSheetGridY"]);
+        TrySet(sys.TextureSheetModule.TotalFrames, particleComponent["TextureSheetTotalFrames"]);
+        if (auto val = particleComponent["TextureSheetMode"]; val)
+            sys.TextureSheetModule.Mode = static_cast<TextureSheetAnimMode>(val.as<int>());
+        TrySet(sys.TextureSheetModule.SpeedRange, particleComponent["TextureSheetSpeedRange"]);
     }
 
     static std::string RigidBody2DBodyTypeToString(const Rigidbody2DComponent::BodyType bodyType)
@@ -845,6 +1045,157 @@ namespace OloEngine
             out << YAML::EndMap; // UIToggleComponent
         }
 
+        if (entity.HasComponent<ParticleSystemComponent>())
+        {
+            out << YAML::Key << "ParticleSystemComponent";
+            out << YAML::BeginMap; // ParticleSystemComponent
+
+            auto const& psc = entity.GetComponent<ParticleSystemComponent>();
+            auto const& sys = psc.System;
+            auto const& emitter = sys.Emitter;
+
+            out << YAML::Key << "MaxParticles" << YAML::Value << sys.GetMaxParticles();
+            out << YAML::Key << "Playing" << YAML::Value << sys.Playing;
+            out << YAML::Key << "Looping" << YAML::Value << sys.Looping;
+            out << YAML::Key << "Duration" << YAML::Value << sys.Duration;
+            out << YAML::Key << "PlaybackSpeed" << YAML::Value << sys.PlaybackSpeed;
+            out << YAML::Key << "SimulationSpace" << YAML::Value << static_cast<int>(sys.SimulationSpace);
+
+            // Emitter
+            out << YAML::Key << "RateOverTime" << YAML::Value << emitter.RateOverTime;
+            out << YAML::Key << "InitialSpeed" << YAML::Value << emitter.InitialSpeed;
+            out << YAML::Key << "SpeedVariance" << YAML::Value << emitter.SpeedVariance;
+            out << YAML::Key << "LifetimeMin" << YAML::Value << emitter.LifetimeMin;
+            out << YAML::Key << "LifetimeMax" << YAML::Value << emitter.LifetimeMax;
+            out << YAML::Key << "InitialSize" << YAML::Value << emitter.InitialSize;
+            out << YAML::Key << "SizeVariance" << YAML::Value << emitter.SizeVariance;
+            out << YAML::Key << "InitialRotation" << YAML::Value << emitter.InitialRotation;
+            out << YAML::Key << "RotationVariance" << YAML::Value << emitter.RotationVariance;
+            out << YAML::Key << "InitialColor" << YAML::Value << emitter.InitialColor;
+            out << YAML::Key << "EmissionShapeType" << YAML::Value << static_cast<int>(GetEmissionShapeType(emitter.Shape));
+
+            // Bursts
+            out << YAML::Key << "Bursts" << YAML::Value << YAML::BeginSeq;
+            for (const auto& burst : emitter.Bursts)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Time" << YAML::Value << burst.Time;
+                out << YAML::Key << "Count" << YAML::Value << burst.Count;
+                out << YAML::Key << "Probability" << YAML::Value << burst.Probability;
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
+            // Emission shape parameters
+            if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
+            {
+                out << YAML::Key << "EmissionSphereRadius" << YAML::Value << sphere->Radius;
+            }
+            if (auto* box = std::get_if<EmitBox>(&emitter.Shape))
+            {
+                out << YAML::Key << "EmissionBoxHalfExtents" << YAML::Value << box->HalfExtents;
+            }
+            if (auto* cone = std::get_if<EmitCone>(&emitter.Shape))
+            {
+                out << YAML::Key << "EmissionConeAngle" << YAML::Value << cone->Angle;
+                out << YAML::Key << "EmissionConeRadius" << YAML::Value << cone->Radius;
+            }
+            if (auto* ring = std::get_if<EmitRing>(&emitter.Shape))
+            {
+                out << YAML::Key << "EmissionRingInnerRadius" << YAML::Value << ring->InnerRadius;
+                out << YAML::Key << "EmissionRingOuterRadius" << YAML::Value << ring->OuterRadius;
+            }
+            if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
+            {
+                out << YAML::Key << "EmissionEdgeLength" << YAML::Value << edge->Length;
+            }
+            if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
+            {
+                out << YAML::Key << "EmissionMeshPrimitive" << YAML::Value << mesh->PrimitiveType;
+            }
+
+            // Modules
+            out << YAML::Key << "GravityEnabled" << YAML::Value << sys.GravityModule.Enabled;
+            out << YAML::Key << "Gravity" << YAML::Value << sys.GravityModule.Gravity;
+            out << YAML::Key << "DragEnabled" << YAML::Value << sys.DragModule.Enabled;
+            out << YAML::Key << "DragCoefficient" << YAML::Value << sys.DragModule.DragCoefficient;
+            out << YAML::Key << "ColorOverLifetimeEnabled" << YAML::Value << sys.ColorModule.Enabled;
+            ParticleCurveSerializer::Serialize4(out, "ColorCurve", sys.ColorModule.ColorCurve);
+            out << YAML::Key << "SizeOverLifetimeEnabled" << YAML::Value << sys.SizeModule.Enabled;
+            ParticleCurveSerializer::Serialize(out, "SizeCurve", sys.SizeModule.SizeCurve);
+            out << YAML::Key << "RotationOverLifetimeEnabled" << YAML::Value << sys.RotationModule.Enabled;
+            out << YAML::Key << "AngularVelocity" << YAML::Value << sys.RotationModule.AngularVelocity;
+            out << YAML::Key << "VelocityOverLifetimeEnabled" << YAML::Value << sys.VelocityModule.Enabled;
+            out << YAML::Key << "LinearAcceleration" << YAML::Value << sys.VelocityModule.LinearAcceleration;
+            out << YAML::Key << "SpeedMultiplier" << YAML::Value << sys.VelocityModule.SpeedMultiplier;
+            ParticleCurveSerializer::Serialize(out, "SpeedCurve", sys.VelocityModule.SpeedCurve);
+            out << YAML::Key << "NoiseEnabled" << YAML::Value << sys.NoiseModule.Enabled;
+            out << YAML::Key << "NoiseStrength" << YAML::Value << sys.NoiseModule.Strength;
+            out << YAML::Key << "NoiseFrequency" << YAML::Value << sys.NoiseModule.Frequency;
+
+            // Phase 2: Collision
+            out << YAML::Key << "CollisionEnabled" << YAML::Value << sys.CollisionModule.Enabled;
+            out << YAML::Key << "CollisionMode" << YAML::Value << static_cast<int>(sys.CollisionModule.Mode);
+            out << YAML::Key << "CollisionPlaneNormal" << YAML::Value << sys.CollisionModule.PlaneNormal;
+            out << YAML::Key << "CollisionPlaneOffset" << YAML::Value << sys.CollisionModule.PlaneOffset;
+            out << YAML::Key << "CollisionBounce" << YAML::Value << sys.CollisionModule.Bounce;
+            out << YAML::Key << "CollisionLifetimeLoss" << YAML::Value << sys.CollisionModule.LifetimeLoss;
+            out << YAML::Key << "CollisionKillOnCollide" << YAML::Value << sys.CollisionModule.KillOnCollide;
+
+            // Phase 2: Force Fields (vector)
+            out << YAML::Key << "ForceFields" << YAML::Value << YAML::BeginSeq;
+            for (const auto& ff : sys.ForceFields)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "Enabled" << YAML::Value << ff.Enabled;
+                out << YAML::Key << "Type" << YAML::Value << static_cast<int>(ff.Type);
+                out << YAML::Key << "Position" << YAML::Value << ff.Position;
+                out << YAML::Key << "Strength" << YAML::Value << ff.Strength;
+                out << YAML::Key << "Radius" << YAML::Value << ff.Radius;
+                out << YAML::Key << "Axis" << YAML::Value << ff.Axis;
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
+            // Phase 2: Trail
+            out << YAML::Key << "TrailEnabled" << YAML::Value << sys.TrailModule.Enabled;
+            out << YAML::Key << "TrailMaxPoints" << YAML::Value << sys.TrailModule.MaxTrailPoints;
+            out << YAML::Key << "TrailLifetime" << YAML::Value << sys.TrailModule.TrailLifetime;
+            out << YAML::Key << "TrailMinVertexDistance" << YAML::Value << sys.TrailModule.MinVertexDistance;
+            out << YAML::Key << "TrailWidthStart" << YAML::Value << sys.TrailModule.WidthStart;
+            out << YAML::Key << "TrailWidthEnd" << YAML::Value << sys.TrailModule.WidthEnd;
+            out << YAML::Key << "TrailColorStart" << YAML::Value << sys.TrailModule.ColorStart;
+            out << YAML::Key << "TrailColorEnd" << YAML::Value << sys.TrailModule.ColorEnd;
+
+            // Phase 2: Sub-Emitter
+            out << YAML::Key << "SubEmitterEnabled" << YAML::Value << sys.SubEmitterModule.Enabled;
+
+            // Phase 2: LOD
+            out << YAML::Key << "LODDistance1" << YAML::Value << sys.LODDistance1;
+            out << YAML::Key << "LODMaxDistance" << YAML::Value << sys.LODMaxDistance;
+
+            // Warm-up
+            out << YAML::Key << "WarmUpTime" << YAML::Value << sys.WarmUpTime;
+
+            // Rendering settings
+            out << YAML::Key << "BlendMode" << YAML::Value << static_cast<int>(sys.BlendMode);
+            out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(sys.RenderMode);
+            out << YAML::Key << "DepthSortEnabled" << YAML::Value << sys.DepthSortEnabled;
+            out << YAML::Key << "SoftParticlesEnabled" << YAML::Value << sys.SoftParticlesEnabled;
+            out << YAML::Key << "SoftParticleDistance" << YAML::Value << sys.SoftParticleDistance;
+            out << YAML::Key << "VelocityInheritance" << YAML::Value << sys.VelocityInheritance;
+
+            // Texture sheet animation
+            out << YAML::Key << "TextureSheetEnabled" << YAML::Value << sys.TextureSheetModule.Enabled;
+            out << YAML::Key << "TextureSheetGridX" << YAML::Value << sys.TextureSheetModule.GridX;
+            out << YAML::Key << "TextureSheetGridY" << YAML::Value << sys.TextureSheetModule.GridY;
+            out << YAML::Key << "TextureSheetTotalFrames" << YAML::Value << sys.TextureSheetModule.TotalFrames;
+            out << YAML::Key << "TextureSheetMode" << YAML::Value << static_cast<int>(sys.TextureSheetModule.Mode);
+            out << YAML::Key << "TextureSheetSpeedRange" << YAML::Value << sys.TextureSheetModule.SpeedRange;
+
+            out << YAML::EndMap; // ParticleSystemComponent
+        }
+
         if (entity.HasComponent<SubmeshComponent>())
         {
             out << YAML::Key << "SubmeshComponent";
@@ -1554,6 +1905,12 @@ namespace OloEngine
                     TrySet(toggle.m_OnColor, uiToggleComponent["OnColor"]);
                     TrySet(toggle.m_KnobColor, uiToggleComponent["KnobColor"]);
                     TrySet(toggle.m_Interactable, uiToggleComponent["Interactable"]);
+                }
+
+                if (auto particleComponent = entity["ParticleSystemComponent"]; particleComponent)
+                {
+                    auto& psc = deserializedEntity.AddComponent<ParticleSystemComponent>();
+                    DeserializeParticleSystemComponent(psc, particleComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
@@ -2324,6 +2681,12 @@ namespace OloEngine
                     TrySet(toggle.m_OnColor, uiToggleComponent["OnColor"]);
                     TrySet(toggle.m_KnobColor, uiToggleComponent["KnobColor"]);
                     TrySet(toggle.m_Interactable, uiToggleComponent["Interactable"]);
+                }
+
+                if (auto particleComponent = entity["ParticleSystemComponent"]; particleComponent)
+                {
+                    auto& psc = deserializedEntity.AddComponent<ParticleSystemComponent>();
+                    DeserializeParticleSystemComponent(psc, particleComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)

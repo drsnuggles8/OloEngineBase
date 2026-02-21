@@ -149,5 +149,27 @@ namespace OloEngine
                                             "onColor", &UIToggleComponent::m_OnColor,
                                             "knobColor", &UIToggleComponent::m_KnobColor,
                                             "interactable", &UIToggleComponent::m_Interactable);
+
+        // --- ParticleSystemComponent ---
+        lua.new_usertype<ParticleSystem>("ParticleSystem",
+                                         "playing", &ParticleSystem::Playing,
+                                         "looping", &ParticleSystem::Looping,
+                                         "duration", &ParticleSystem::Duration,
+                                         "playbackSpeed", &ParticleSystem::PlaybackSpeed,
+                                         "getAliveCount", &ParticleSystem::GetAliveCount,
+                                         "reset", &ParticleSystem::Reset);
+
+        lua.new_usertype<ParticleEmitter>("ParticleEmitter",
+                                          "rateOverTime", &ParticleEmitter::RateOverTime,
+                                          "initialSpeed", &ParticleEmitter::InitialSpeed,
+                                          "speedVariance", &ParticleEmitter::SpeedVariance,
+                                          "lifetimeMin", &ParticleEmitter::LifetimeMin,
+                                          "lifetimeMax", &ParticleEmitter::LifetimeMax,
+                                          "initialSize", &ParticleEmitter::InitialSize,
+                                          "sizeVariance", &ParticleEmitter::SizeVariance,
+                                          "initialColor", &ParticleEmitter::InitialColor);
+
+        lua.new_usertype<ParticleSystemComponent>("ParticleSystemComponent",
+                                                  "system", &ParticleSystemComponent::System);
     }
 } // namespace OloEngine

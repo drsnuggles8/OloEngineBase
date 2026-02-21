@@ -18,9 +18,15 @@
 #include "OloEngine/UI/UILayoutSystem.h"
 #include "OloEngine/UI/UIRenderer.h"
 #include "OloEngine/UI/UIInputSystem.h"
+#include "OloEngine/Particle/ParticleRenderer.h"
+#include "OloEngine/Particle/ParticleBatchRenderer.h"
+#include "OloEngine/Particle/TrailRenderer.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/MouseCodes.h"
+#include "OloEngine/Core/FastRandom.h"
 
+#include <glad/gl.h>
 #include <glm/glm.hpp>
 #include <ranges>
 
@@ -308,6 +314,104 @@ namespace OloEngine
         OnPhysics3DStop();
     }
 
+    // Process sub-emitter triggers that reference child systems.
+    // For triggers with a valid ChildSystemIndex, emit into the corresponding child system's pool.
+    static void ProcessChildSubEmitters(ParticleSystemComponent& psc, f32 dt, const glm::vec3& emitterPos)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const auto& triggers = psc.System.GetPendingTriggers();
+        if (triggers.empty() || psc.ChildSystems.empty())
+        {
+            return;
+        }
+
+        auto& rng = RandomUtils::GetGlobalRandom();
+
+        for (const auto& trigger : triggers)
+        {
+            if (trigger.ChildSystemIndex < 0 || static_cast<u32>(trigger.ChildSystemIndex) >= psc.ChildSystems.size())
+            {
+                continue; // Legacy parent-pool trigger or invalid index
+            }
+
+            auto& childSystem = psc.ChildSystems[trigger.ChildSystemIndex];
+            auto& childPool = childSystem.GetPool();
+            auto& childEmitter = childSystem.Emitter;
+
+            u32 firstSlot = childPool.GetAliveCount();
+            u32 emitted = childPool.Emit(trigger.EmitCount);
+
+            for (u32 i = 0; i < emitted; ++i)
+            {
+                u32 idx = firstSlot + i;
+                childPool.m_Positions[idx] = trigger.Position;
+
+                glm::vec3 randomVec(
+                    rng.GetFloat32InRange(-1.0f, 1.0f),
+                    rng.GetFloat32InRange(-1.0f, 1.0f),
+                    rng.GetFloat32InRange(-1.0f, 1.0f));
+                f32 randomLen = glm::length(randomVec);
+                glm::vec3 dir = (randomLen > 0.0001f) ? randomVec / randomLen : glm::vec3(0.0f, 1.0f, 0.0f);
+                f32 speed = childEmitter.InitialSpeed + rng.GetFloat32InRange(-childEmitter.SpeedVariance, childEmitter.SpeedVariance);
+                glm::vec3 velocity = dir * std::max(speed, 0.0f) + trigger.Velocity;
+                childPool.m_Velocities[idx] = velocity;
+                childPool.m_InitialVelocities[idx] = velocity;
+
+                childPool.m_Colors[idx] = childEmitter.InitialColor;
+                childPool.m_InitialColors[idx] = childEmitter.InitialColor;
+
+                f32 size = std::max(childEmitter.InitialSize + rng.GetFloat32InRange(-childEmitter.SizeVariance, childEmitter.SizeVariance), 0.0f);
+                childPool.m_Sizes[idx] = size;
+                childPool.m_InitialSizes[idx] = size;
+                childPool.m_Rotations[idx] = childEmitter.InitialRotation + rng.GetFloat32InRange(-childEmitter.RotationVariance, childEmitter.RotationVariance);
+
+                f32 lifetime = rng.GetFloat32InRange(std::min(childEmitter.LifetimeMin, childEmitter.LifetimeMax), std::max(childEmitter.LifetimeMin, childEmitter.LifetimeMax));
+                childPool.m_Lifetimes[idx] = lifetime;
+                childPool.m_MaxLifetimes[idx] = lifetime;
+            }
+        }
+
+        // Tick child systems (they run their own modules independent of parent)
+        for (auto& childSystem : psc.ChildSystems)
+        {
+            if (childSystem.GetAliveCount() > 0 || childSystem.Playing)
+            {
+                // Child systems emit only from triggers, suppress normal rate-based emission
+                // by zeroing the LOD multiplier (which scales rate without mutating RateOverTime)
+                childSystem.SetLODSpawnRateMultiplier(0.0f);
+                childSystem.Update(dt, emitterPos);
+            }
+        }
+    }
+
+    // Helper to set GL blend state for particle rendering
+    static void SetParticleBlendMode(ParticleBlendMode mode)
+    {
+        // Flush any pending Renderer2D batch before changing GL blend state,
+        // otherwise queued quads may render with the wrong blend mode (§1.5)
+        Renderer2D::Flush();
+
+        switch (mode)
+        {
+            case ParticleBlendMode::Alpha:
+                RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                break;
+            case ParticleBlendMode::Additive:
+                RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE);
+                break;
+            case ParticleBlendMode::PremultipliedAlpha:
+                RenderCommand::SetBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+                break;
+        }
+    }
+
+    // Helper to restore default blend mode after particle rendering
+    static void RestoreDefaultBlendMode()
+    {
+        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+
     void Scene::OnUpdateRuntime(Timestep const ts)
     {
         if (!m_IsPaused || m_StepFrames-- > 0)
@@ -412,6 +516,42 @@ namespace OloEngine
                     ac.Source->SetDirection(forward);
                 }
             }
+
+            // Update particle systems
+            {
+                // Quick camera position lookup for LOD
+                glm::vec3 camPos(0.0f);
+                for (const auto camView = m_Registry.view<TransformComponent, CameraComponent>(); const auto camEntity : camView)
+                {
+                    const auto& [camTransform, cam] = camView.get<TransformComponent, CameraComponent>(camEntity);
+                    if (cam.Primary)
+                    {
+                        camPos = camTransform.Translation;
+                        break;
+                    }
+                }
+
+                for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
+                {
+                    auto& transform = view.get<TransformComponent>(entity);
+                    auto& psc = view.get<ParticleSystemComponent>(entity);
+                    // Provide Jolt scene for raycast collision
+                    psc.System.SetJoltScene(m_JoltScene.get());
+                    psc.System.UpdateLOD(camPos, transform.Translation);
+
+                    // Compute parent velocity for velocity inheritance
+                    glm::vec3 parentVelocity(0.0f);
+                    if (psc.System.VelocityInheritance != 0.0f && ts > 0.0f)
+                    {
+                        parentVelocity = (transform.Translation - psc.System.GetEmitterPosition()) / static_cast<f32>(ts);
+                    }
+
+                    psc.System.Update(ts, transform.Translation, parentVelocity, glm::quat(transform.Rotation));
+
+                    // Process sub-emitter triggers for child systems
+                    ProcessChildSubEmitters(psc, ts, transform.Translation);
+                }
+            }
         }
 
         // Find the primary camera
@@ -440,6 +580,18 @@ namespace OloEngine
             }
 
             // Always render 2D (sprites, circles, text overlay on top of 3D)
+            // In 3D mode, re-bind ScenePass FB so 2D overlays composit into the same target
+            if (m_Is3DModeEnabled)
+            {
+                if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+                {
+                    scenePass->GetTarget()->Bind();
+                }
+                RenderCommand::SetBlendState(true);
+                RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                RenderCommand::SetDepthTest(false);
+                RenderCommand::SetDepthMask(false);
+            }
             Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
             // Draw sprites
@@ -471,7 +623,44 @@ namespace OloEngine
                 }
             }
 
+            // Draw 2D particles (3D particles are rendered by ParticleRenderPass)
+            {
+                if (!m_Is3DModeEnabled)
+                {
+                    for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+                    {
+                        auto& psc = view.get<ParticleSystemComponent>(entity);
+                        auto& sys = psc.System;
+                        glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
+
+                        const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
+
+                        SetParticleBlendMode(sys.BlendMode);
+                        ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(entity), nullptr, sheet);
+
+                        // Render child systems
+                        for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
+                        {
+                            auto& childSys = psc.ChildSystems[c];
+                            SetParticleBlendMode(childSys.BlendMode);
+                            Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
+                            ParticleRenderer::RenderParticles2D(childSys.GetPool(), childTex, offset, static_cast<int>(entity), nullptr, nullptr);
+                        }
+
+                        RestoreDefaultBlendMode();
+                    }
+                }
+            }
+
             Renderer2D::EndScene();
+
+            // Restore state after 2D overlay rendering in 3D mode
+            if (m_Is3DModeEnabled)
+            {
+                RenderCommand::SetDepthTest(true);
+                RenderCommand::SetDepthMask(true);
+                RenderCommand::BindDefaultFramebuffer();
+            }
         }
 
         // Process UI input during runtime
@@ -542,12 +731,35 @@ namespace OloEngine
             }
         }
 
-        // Render
-        RenderScene(camera);
+        // Render based on mode
+        if (m_Is3DModeEnabled)
+        {
+            RenderScene3D(camera);
+        }
+        else
+        {
+            RenderScene(camera);
+        }
     }
 
     void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
     {
+
+        // Update particle systems so they preview in the editor
+        {
+            const glm::vec3 camPos = camera.GetPosition();
+            for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
+            {
+                auto& transform = view.get<TransformComponent>(entity);
+                auto& psc = view.get<ParticleSystemComponent>(entity);
+                psc.System.UpdateLOD(camPos, transform.Translation);
+                psc.System.Update(ts, transform.Translation, glm::vec3(0.0f), glm::quat(transform.Rotation));
+
+                // Process sub-emitter triggers for child systems
+                ProcessChildSubEmitters(psc, ts, transform.Translation);
+            }
+        }
+
         // Render based on mode
         if (m_Is3DModeEnabled)
         {
@@ -991,6 +1203,31 @@ namespace OloEngine
             }
         }
 
+        // Draw particles
+        {
+            for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
+            {
+                auto& psc = view.get<ParticleSystemComponent>(entity);
+                auto& sys = psc.System;
+                glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
+
+                const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
+
+                SetParticleBlendMode(sys.BlendMode);
+                ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(entity), nullptr, sheet);
+
+                for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
+                {
+                    auto& childSys = psc.ChildSystems[c];
+                    SetParticleBlendMode(childSys.BlendMode);
+                    Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
+                    ParticleRenderer::RenderParticles2D(childSys.GetPool(), childTex, offset, static_cast<int>(entity), nullptr, nullptr);
+                }
+
+                RestoreDefaultBlendMode();
+            }
+        }
+
         Renderer2D::EndScene();
     }
 
@@ -1368,6 +1605,20 @@ namespace OloEngine
             }
         }
 
+        // Set particle render callback — executed by ParticleRenderPass during graph execution
+        if (auto particlePass = Renderer3D::GetParticlePass())
+        {
+            particlePass->SetRenderCallback([this, &camera]()
+                                            {
+                ParticleBatchRenderer::BeginBatch(camera);
+
+                glm::vec3 camPos = camera.GetPosition();
+
+                RenderParticleSystems(camPos, camera.GetNearClip(), camera.GetFarClip());
+
+                ParticleBatchRenderer::EndBatch(); });
+        }
+
         Renderer3D::EndScene();
     }
 
@@ -1570,7 +1821,130 @@ namespace OloEngine
             }
         }
 
+        // Set particle render callback — executed by ParticleRenderPass during graph execution
+        if (auto particlePass = Renderer3D::GetParticlePass())
+        {
+            particlePass->SetRenderCallback([this, &camera, &cameraTransform]()
+                                            {
+                ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
+
+                // Extract near/far clips from the primary SceneCamera for soft particles
+                f32 nearClip = 0.1f;
+                f32 farClip = 1000.0f;
+                for (const auto view = m_Registry.view<CameraComponent>(); const auto entity : view)
+                {
+                    if (const auto& cam = view.get<CameraComponent>(entity); cam.Primary)
+                    {
+                        nearClip = cam.Camera.GetPerspectiveNearClip();
+                        farClip = cam.Camera.GetPerspectiveFarClip();
+                        break;
+                    }
+                }
+
+                glm::vec3 camPos = glm::vec3(cameraTransform[3]);
+
+                RenderParticleSystems(camPos, nearClip, farClip);
+
+                ParticleBatchRenderer::EndBatch(); });
+        }
+
         Renderer3D::EndScene();
+    }
+
+    void Scene::RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Sort particle systems back-to-front for correct alpha blending
+        auto psView = m_Registry.view<TransformComponent, ParticleSystemComponent>();
+        std::vector<std::pair<f32, entt::entity>> sortedSystems;
+        sortedSystems.reserve(psView.size_hint());
+        for (auto entity : psView)
+        {
+            auto& tc = psView.get<TransformComponent>(entity);
+            f32 dist = glm::length2(glm::vec3(tc.Translation) - camPos);
+            sortedSystems.emplace_back(dist, entity);
+        }
+        std::sort(sortedSystems.begin(), sortedSystems.end(),
+                  [](const auto& a, const auto& b)
+                  { return a.first > b.first; });
+
+        for (auto& [dist, entity] : sortedSystems)
+        {
+            auto& psc = psView.get<ParticleSystemComponent>(entity);
+            auto& sys = psc.System;
+            glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
+
+            const std::vector<u32>* sorted = nullptr;
+            if (sys.DepthSortEnabled && sys.BlendMode != ParticleBlendMode::Additive)
+            {
+                sys.SortByDepth(camPos);
+                sorted = &sys.GetSortedIndices();
+            }
+
+            const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
+
+            // Enable/disable soft particles per system
+            {
+                SoftParticleParams softParams;
+                if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+                {
+                    auto fb = scenePass->GetTarget();
+                    auto& spec = fb->GetSpecification();
+                    softParams.Enabled = sys.SoftParticlesEnabled;
+                    softParams.Distance = sys.SoftParticleDistance;
+                    softParams.DepthTextureID = fb->GetDepthAttachmentRendererID();
+                    softParams.NearClip = nearClip;
+                    softParams.FarClip = farClip;
+                    softParams.ViewportSize = { static_cast<f32>(spec.Width), static_cast<f32>(spec.Height) };
+                }
+                ParticleBatchRenderer::SetSoftParticleParams(softParams);
+            }
+
+            // Flush pending instances before changing blend mode
+            ParticleBatchRenderer::Flush();
+            SetParticleBlendMode(sys.BlendMode);
+
+            if (sys.RenderMode == ParticleRenderMode::Mesh)
+            {
+                ParticleBatchRenderer::Flush();
+                ParticleRenderer::RenderParticlesMesh(sys.GetPool(), psc.ParticleMesh, psc.Texture, offset, static_cast<int>(entity), sorted);
+            }
+            else if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
+            {
+                ParticleRenderer::RenderParticlesStretched(sys.GetPool(), psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
+            }
+            else
+            {
+                ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
+            }
+
+            // Render child systems
+            for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
+            {
+                auto& childSys = psc.ChildSystems[c];
+                const std::vector<u32>* childSorted = nullptr;
+                if (childSys.DepthSortEnabled && childSys.BlendMode != ParticleBlendMode::Additive)
+                {
+                    childSys.SortByDepth(camPos);
+                    childSorted = &childSys.GetSortedIndices();
+                }
+                ParticleBatchRenderer::Flush();
+                SetParticleBlendMode(childSys.BlendMode);
+                Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
+                ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), childTex, offset, static_cast<int>(entity), childSorted, nullptr);
+            }
+
+            // Trail rendering via dedicated trail shader in ParticleBatchRenderer
+            if (sys.TrailModule.Enabled)
+            {
+                ParticleBatchRenderer::Flush();
+                TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
+                ParticleBatchRenderer::FlushTrails();
+            }
+
+            RestoreDefaultBlendMode();
+        }
     }
 
 } // namespace OloEngine
@@ -1767,5 +2141,10 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::UIGridLayoutComponent>([[mayb
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::UIToggleComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::UIToggleComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::ParticleSystemComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ParticleSystemComponent& component)
 {
 }

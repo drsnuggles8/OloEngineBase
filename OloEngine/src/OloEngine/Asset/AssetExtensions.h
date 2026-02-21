@@ -93,6 +93,7 @@ namespace OloEngine
         constexpr const char* Prefab = ".oloprefab";
         constexpr const char* Script = ".oloscript";
         constexpr const char* MeshCollider = ".olomc";
+        constexpr const char* ParticleSystem = ".oloparticle";
     } // namespace OloExtensions
 
 } // namespace OloEngine

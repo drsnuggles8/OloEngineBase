@@ -31,6 +31,12 @@ namespace OloEngine
         static void DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, f32 tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f), int entityID = -1);
         static void DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, const glm::vec2& uvMin, const glm::vec2& uvMax, const glm::vec4& tintColor = glm::vec4(1.0f), int entityID = -1);
 
+        // Draw a quad with explicit corner positions and per-vertex colors (no transform matrix).
+        // Vertices should be in counterclockwise order: bottom-left, bottom-right, top-right, top-left.
+        static void DrawQuadVertices(const glm::vec3 positions[4], const glm::vec4 colors[4], int entityID = -1);
+        static void DrawQuadVertices(const glm::vec3 positions[4], const glm::vec4 colors[4],
+                                     const glm::vec2 texCoords[4], const Ref<Texture2D>& texture, int entityID = -1);
+
         static void DrawPolygon(const std::vector<glm::vec3>& vertices, const glm::vec4& color, int entityID);
 
         static void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, f32 rotation, const glm::vec4& color);

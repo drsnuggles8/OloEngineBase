@@ -124,6 +124,60 @@ namespace OloEngine
         m_VertexBuffers.push_back(vertexBuffer);
     }
 
+    void OpenGLVertexArray::AddInstanceBuffer(const Ref<VertexBuffer>& vertexBuffer)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        OLO_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().size(), "Vertex Buffer has no layout!");
+
+        glBindVertexArray(m_RendererID);
+        vertexBuffer->Bind();
+
+        for (const auto& layout = vertexBuffer->GetLayout(); const auto& element : layout)
+        {
+            switch (element.dataType)
+            {
+                using enum OloEngine::ShaderDataType;
+                case Float:
+                case Float2:
+                case Float3:
+                case Float4:
+                case Mat3:
+                case Mat4:
+                {
+                    glEnableVertexArrayAttrib(m_RendererID, m_VertexBufferIndex);
+                    glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.offset, layout.GetStride());
+                    glVertexArrayAttribFormat(m_RendererID, m_VertexBufferIndex, static_cast<GLint>(element.GetComponentCount()), ShaderDataTypeToOpenGLBaseType(element.dataType), element.normalized ? GL_TRUE : GL_FALSE, 0);
+
+                    glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
+                    glVertexArrayBindingDivisor(m_RendererID, m_VertexBufferIndex, 1);
+                    ++m_VertexBufferIndex;
+                    break;
+                }
+                case Int:
+                case Int2:
+                case Int3:
+                case Int4:
+                case Bool:
+                {
+                    glEnableVertexArrayAttrib(m_RendererID, m_VertexBufferIndex);
+                    glVertexAttribIPointer(m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.dataType), layout.GetStride(), reinterpret_cast<const void*>(element.offset));
+
+                    glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
+                    glVertexArrayBindingDivisor(m_RendererID, m_VertexBufferIndex, 1);
+                    ++m_VertexBufferIndex;
+                    break;
+                }
+                default:
+                {
+                    OLO_CORE_ASSERT(false, "Unknown ShaderDataType!");
+                }
+            }
+        }
+
+        m_VertexBuffers.push_back(vertexBuffer);
+    }
+
     void OpenGLVertexArray::SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer)
     {
         OLO_PROFILE_FUNCTION();

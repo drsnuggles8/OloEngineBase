@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstring>
+#include <type_traits>
 #include <utility>
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Core/Ref.h"
@@ -18,11 +20,14 @@ namespace OloEngine
         virtual ~UniformBuffer()
         {
             if (m_LocalData)
-                delete[] m_LocalData;
+                delete[] static_cast<u8*>(m_LocalData);
         }
 
         // Original method using UniformData struct
         virtual void SetData(const UniformData& data) = 0;
+
+        // Re-bind this buffer to its original binding point
+        virtual void Bind() const = 0;
 
         // Phase 6.1: Resource handle caching support
         virtual u32 GetRendererID() const = 0;
@@ -34,16 +39,22 @@ namespace OloEngine
         // New convenience method to set data directly
         virtual void SetData(const void* data, u32 size, u32 offset = 0)
         {
-            // Store the data in our CPU-side buffer for later reading
-            if (!m_LocalData && size > 0 && offset == 0)
+            u32 requiredSize = offset + size;
+            // Grow the CPU-side buffer if needed
+            if (requiredSize > m_Size)
             {
-                m_LocalData = new u8[size];
-                m_Size = size;
+                auto* newBuf = new u8[requiredSize]{};
+                if (m_LocalData)
+                {
+                    std::memcpy(newBuf, m_LocalData, m_Size);
+                    delete[] static_cast<u8*>(m_LocalData);
+                }
+                m_LocalData = newBuf;
+                m_Size = requiredSize;
             }
 
-            if (m_LocalData && offset + size <= m_Size)
+            if (m_LocalData && size > 0)
             {
-                // Update our local copy
                 std::memcpy(static_cast<u8*>(m_LocalData) + offset, data, size);
             }
 
@@ -59,6 +70,7 @@ namespace OloEngine
         template<typename T>
         T GetData() const
         {
+            static_assert(std::is_trivially_copyable_v<T>, "UniformBuffer::GetData<T> requires a trivially copyable type");
             OLO_CORE_ASSERT(m_LocalData != nullptr, "Cannot read from uninitialized UBO data!");
             OLO_CORE_ASSERT(sizeof(T) <= m_Size, "Type size exceeds UBO size!");
 

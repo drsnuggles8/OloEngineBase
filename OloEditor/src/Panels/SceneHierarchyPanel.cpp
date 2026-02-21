@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
+#include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <imgui.h>
@@ -333,6 +334,237 @@ namespace OloEngine
         ImGui::PopID();
     }
 
+    // ── Curve editor widget for ParticleCurve ──────────────────────────────
+    static bool DrawParticleCurveEditor(const char* label, ParticleCurve& curve,
+                                        f32 valueMin = 0.0f, f32 valueMax = 1.0f,
+                                        ImU32 lineColor = IM_COL32(220, 220, 80, 255))
+    {
+        OLO_PROFILE_FUNCTION();
+
+        bool modified = false;
+        ImGui::PushID(label);
+
+        const f32 canvasWidth = ImGui::GetContentRegionAvail().x;
+        constexpr f32 canvasHeight = 100.0f;
+        const ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+        const ImVec2 canvasSize(canvasWidth, canvasHeight);
+
+        ImGui::InvisibleButton("##curve_canvas", canvasSize);
+        const bool isHovered = ImGui::IsItemHovered();
+        const bool isActive = ImGui::IsItemActive();
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImVec2 canvasEnd(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y);
+
+        // Background + border
+        drawList->AddRectFilled(canvasPos, canvasEnd, IM_COL32(30, 30, 30, 255));
+        drawList->AddRect(canvasPos, canvasEnd, IM_COL32(80, 80, 80, 255));
+
+        // Grid lines (quarters)
+        for (int i = 1; i < 4; ++i)
+        {
+            f32 x = canvasPos.x + canvasSize.x * (static_cast<f32>(i) / 4.0f);
+            f32 y = canvasPos.y + canvasSize.y * (static_cast<f32>(i) / 4.0f);
+            drawList->AddLine(ImVec2(x, canvasPos.y), ImVec2(x, canvasEnd.y), IM_COL32(50, 50, 50, 255));
+            drawList->AddLine(ImVec2(canvasPos.x, y), ImVec2(canvasEnd.x, y), IM_COL32(50, 50, 50, 255));
+        }
+
+        const f32 valueRange = valueMax - valueMin;
+        auto toScreen = [&](f32 time, f32 value) -> ImVec2
+        {
+            f32 ny = (valueRange > 0.0f) ? (value - valueMin) / valueRange : 0.5f;
+            return { canvasPos.x + time * canvasSize.x,
+                     canvasPos.y + (1.0f - ny) * canvasSize.y };
+        };
+        auto fromScreen = [&](ImVec2 screen) -> std::pair<f32, f32>
+        {
+            f32 t = (canvasSize.x > 0.0f) ? (screen.x - canvasPos.x) / canvasSize.x : 0.0f;
+            f32 ny = (canvasSize.y > 0.0f) ? 1.0f - (screen.y - canvasPos.y) / canvasSize.y : 0.0f;
+            return { std::clamp(t, 0.0f, 1.0f),
+                     std::clamp(valueMin + ny * valueRange, valueMin, valueMax) };
+        };
+
+        // Draw curve as polyline
+        if (curve.KeyCount > 0)
+        {
+            constexpr int numSegments = 128;
+            ImVec2 prev = toScreen(0.0f, curve.Evaluate(0.0f));
+            for (int s = 1; s <= numSegments; ++s)
+            {
+                f32 t = static_cast<f32>(s) / static_cast<f32>(numSegments);
+                ImVec2 cur = toScreen(t, curve.Evaluate(t));
+                drawList->AddLine(prev, cur, lineColor, 1.5f);
+                prev = cur;
+            }
+        }
+
+        // Per-widget drag state stored via static + pointer guard
+        static int sDragKey = -1;
+        static const void* sDragOwner = nullptr;
+
+        constexpr f32 keyRadius = 5.0f;
+        const ImVec2 mousePos = ImGui::GetIO().MousePos;
+
+        // Draw key points and detect hover
+        int hoveredKey = -1;
+        for (u32 k = 0; k < curve.KeyCount; ++k)
+        {
+            ImVec2 ks = toScreen(curve.Keys[k].Time, curve.Keys[k].Value);
+            if (std::abs(mousePos.x - ks.x) <= keyRadius + 2.0f &&
+                std::abs(mousePos.y - ks.y) <= keyRadius + 2.0f)
+            {
+                hoveredKey = static_cast<int>(k);
+            }
+            ImU32 col = (hoveredKey == static_cast<int>(k))
+                            ? IM_COL32(255, 255, 100, 255)
+                            : IM_COL32(220, 220, 220, 255);
+            drawList->AddCircleFilled(ks, keyRadius, col);
+            drawList->AddCircle(ks, keyRadius, IM_COL32(100, 100, 100, 255));
+        }
+
+        // Start drag on left-click
+        if (isHovered && hoveredKey >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            sDragKey = hoveredKey;
+            sDragOwner = &curve;
+        }
+
+        // Drag
+        if (sDragKey >= 0 && sDragOwner == &curve && isActive)
+        {
+            auto [time, value] = fromScreen(mousePos);
+            auto dk = static_cast<u32>(sDragKey);
+            if (dk == 0)
+                time = 0.0f;
+            else if (dk == curve.KeyCount - 1)
+                time = 1.0f;
+            else
+                time = std::clamp(time,
+                                  curve.Keys[dk - 1].Time + 0.001f,
+                                  curve.Keys[dk + 1].Time - 0.001f);
+            curve.Keys[dk] = { time, value };
+            modified = true;
+        }
+
+        // Release drag
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && sDragOwner == &curve)
+        {
+            sDragKey = -1;
+            sDragOwner = nullptr;
+        }
+
+        // Right-click: remove key (keep at least 2)
+        if (isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && hoveredKey >= 0 && curve.KeyCount > 2)
+        {
+            auto rk = static_cast<u32>(hoveredKey);
+            for (u32 j = rk; j < curve.KeyCount - 1; ++j)
+                curve.Keys[j] = curve.Keys[j + 1];
+            curve.KeyCount--;
+            modified = true;
+        }
+
+        // Double-click on empty area: add key (max 8)
+        if (isHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hoveredKey < 0 && curve.KeyCount < 8)
+        {
+            auto [time, value] = fromScreen(mousePos);
+            u32 insertIdx = curve.KeyCount;
+            for (u32 k = 0; k < curve.KeyCount; ++k)
+            {
+                if (time < curve.Keys[k].Time)
+                {
+                    insertIdx = k;
+                    break;
+                }
+            }
+            for (u32 k = curve.KeyCount; k > insertIdx; --k)
+                curve.Keys[k] = curve.Keys[k - 1];
+            curve.Keys[insertIdx] = { time, value };
+            curve.KeyCount++;
+            modified = true;
+        }
+
+        // Value labels at corners
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.2f", valueMax);
+        drawList->AddText(ImVec2(canvasPos.x + 2, canvasPos.y + 1), IM_COL32(120, 120, 120, 255), buf);
+        snprintf(buf, sizeof(buf), "%.2f", valueMin);
+        drawList->AddText(ImVec2(canvasPos.x + 2, canvasEnd.y - ImGui::GetFontSize() - 1),
+                          IM_COL32(120, 120, 120, 255), buf);
+
+        ImGui::TextDisabled("%s  (dbl-click: add key, right-click: remove key)", label);
+
+        ImGui::PopID();
+        return modified;
+    }
+
+    // ── Gradient preview bar for ParticleCurve4 ────────────────────────────
+    static void DrawGradientBar(const ParticleCurve4& curve, f32 width, f32 height)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        constexpr int segments = 64;
+        f32 segW = width / static_cast<f32>(segments);
+
+        for (int i = 0; i < segments; ++i)
+        {
+            f32 t0 = static_cast<f32>(i) / static_cast<f32>(segments);
+            f32 t1 = static_cast<f32>(i + 1) / static_cast<f32>(segments);
+            glm::vec4 c0 = curve.Evaluate(t0);
+            glm::vec4 c1 = curve.Evaluate(t1);
+            auto toCol = [](const glm::vec4& c) -> ImU32
+            {
+                return IM_COL32(static_cast<int>(std::clamp(c.r, 0.0f, 1.0f) * 255.0f),
+                                static_cast<int>(std::clamp(c.g, 0.0f, 1.0f) * 255.0f),
+                                static_cast<int>(std::clamp(c.b, 0.0f, 1.0f) * 255.0f),
+                                static_cast<int>(std::clamp(c.a, 0.0f, 1.0f) * 255.0f));
+            };
+            ImVec2 p0(pos.x + segW * static_cast<f32>(i), pos.y);
+            ImVec2 p1(pos.x + segW * static_cast<f32>(i + 1), pos.y + height);
+            drawList->AddRectFilledMultiColor(p0, p1, toCol(c0), toCol(c1), toCol(c1), toCol(c0));
+        }
+        drawList->AddRect(pos, ImVec2(pos.x + width, pos.y + height), IM_COL32(80, 80, 80, 255));
+        ImGui::Dummy(ImVec2(width, height));
+    }
+
+    // ── Combined color curve editor for ParticleCurve4 ─────────────────────
+    static bool DrawParticleCurve4Editor(const char* label, ParticleCurve4& curve)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        bool modified = false;
+        ImGui::PushID(label);
+
+        // Gradient preview
+        DrawGradientBar(curve, ImGui::GetContentRegionAvail().x, 20.0f);
+
+        // Per-channel curve editors in tree nodes
+        struct ChannelInfo
+        {
+            const char* name;
+            ParticleCurve* ch;
+            ImU32 lineColor;
+        };
+        ChannelInfo channels[] = {
+            { "Red", &curve.R, IM_COL32(255, 80, 80, 255) },
+            { "Green", &curve.G, IM_COL32(80, 255, 80, 255) },
+            { "Blue", &curve.B, IM_COL32(80, 130, 255, 255) },
+            { "Alpha", &curve.A, IM_COL32(200, 200, 200, 255) },
+        };
+        for (auto& [name, ch, color] : channels)
+        {
+            if (ImGui::TreeNode(name))
+            {
+                modified |= DrawParticleCurveEditor(name, *ch, 0.0f, 1.0f, color);
+                ImGui::TreePop();
+            }
+        }
+
+        ImGui::PopID();
+        return modified;
+    }
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
@@ -379,6 +611,182 @@ namespace OloEngine
             if (removeComponent)
             {
                 entity.RemoveComponent<T>();
+            }
+        }
+    }
+
+    static void DrawParticleEmissionSection(ParticleEmitter& emitter)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!ImGui::CollapsingHeader("Emission", ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+
+        ImGui::DragFloat("Rate Over Time", &emitter.RateOverTime, 0.5f, 0.0f, 10000.0f);
+        ImGui::DragFloat("Initial Speed", &emitter.InitialSpeed, 0.1f, 0.0f, 100.0f);
+        ImGui::DragFloat("Speed Variance", &emitter.SpeedVariance, 0.1f, 0.0f, 50.0f);
+        ImGui::DragFloat("Lifetime Min", &emitter.LifetimeMin, 0.05f, 0.01f, 100.0f);
+        ImGui::DragFloat("Lifetime Max", &emitter.LifetimeMax, 0.05f, 0.01f, 100.0f);
+        if (emitter.LifetimeMin > emitter.LifetimeMax)
+            std::swap(emitter.LifetimeMin, emitter.LifetimeMax);
+        ImGui::DragFloat("Initial Size", &emitter.InitialSize, 0.01f, 0.001f, 50.0f);
+        ImGui::DragFloat("Size Variance", &emitter.SizeVariance, 0.01f, 0.0f, 25.0f);
+        ImGui::DragFloat("Initial Rotation", &emitter.InitialRotation, 1.0f, -360.0f, 360.0f);
+        ImGui::DragFloat("Rotation Variance", &emitter.RotationVariance, 1.0f, 0.0f, 360.0f);
+        ImGui::ColorEdit4("Initial Color", glm::value_ptr(emitter.InitialColor));
+
+        const char* shapeItems[] = { "Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Mesh" };
+        int shapeIdx = static_cast<int>(GetEmissionShapeType(emitter.Shape));
+        if (ImGui::Combo("Emission Shape", &shapeIdx, shapeItems, 7))
+        {
+            switch (static_cast<EmissionShapeType>(shapeIdx))
+            {
+                case EmissionShapeType::Point:
+                    emitter.Shape = EmitPoint{};
+                    break;
+                case EmissionShapeType::Sphere:
+                    emitter.Shape = EmitSphere{};
+                    break;
+                case EmissionShapeType::Box:
+                    emitter.Shape = EmitBox{};
+                    break;
+                case EmissionShapeType::Cone:
+                    emitter.Shape = EmitCone{};
+                    break;
+                case EmissionShapeType::Ring:
+                    emitter.Shape = EmitRing{};
+                    break;
+                case EmissionShapeType::Edge:
+                    emitter.Shape = EmitEdge{};
+                    break;
+                case EmissionShapeType::Mesh:
+                {
+                    EmitMesh m;
+                    BuildEmitMeshFromPrimitive(m, 0);
+                    emitter.Shape = std::move(m);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        // Shape-specific parameters
+        if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
+            ImGui::DragFloat("Sphere Radius", &sphere->Radius, 0.1f, 0.0f, 100.0f);
+        if (auto* box = std::get_if<EmitBox>(&emitter.Shape))
+            ImGui::DragFloat3("Box Half Extents", glm::value_ptr(box->HalfExtents), 0.1f, 0.0f, 100.0f);
+        if (auto* cone = std::get_if<EmitCone>(&emitter.Shape))
+        {
+            ImGui::DragFloat("Cone Angle", &cone->Angle, 1.0f, 0.0f, 90.0f);
+            ImGui::DragFloat("Cone Radius", &cone->Radius, 0.1f, 0.0f, 100.0f);
+        }
+        if (auto* ring = std::get_if<EmitRing>(&emitter.Shape))
+        {
+            ImGui::DragFloat("Inner Radius", &ring->InnerRadius, 0.1f, 0.0f, 100.0f);
+            ImGui::DragFloat("Outer Radius", &ring->OuterRadius, 0.1f, 0.0f, 100.0f);
+            if (ring->InnerRadius > ring->OuterRadius)
+                std::swap(ring->InnerRadius, ring->OuterRadius);
+        }
+        if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
+            ImGui::DragFloat("Edge Length", &edge->Length, 0.1f, 0.0f, 100.0f);
+        if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
+        {
+            int primIdx = mesh->PrimitiveType;
+            if (ImGui::Combo("Mesh Primitive", &primIdx, EmitMeshPrimitiveNames, EmitMeshPrimitiveCount))
+            {
+                BuildEmitMeshFromPrimitive(*mesh, primIdx);
+            }
+            ImGui::Text("Triangles: %u", static_cast<u32>(mesh->Triangles.size()));
+        }
+    }
+
+    static void DrawParticleRenderingSection(ParticleSystemComponent& component, ParticleSystem& sys)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!ImGui::CollapsingHeader("Rendering"))
+            return;
+
+        // Blend mode
+        const char* blendModes[] = { "Alpha", "Additive", "Premultiplied Alpha" };
+        int blendIdx = static_cast<int>(sys.BlendMode);
+        if (ImGui::Combo("Blend Mode", &blendIdx, blendModes, 3))
+            sys.BlendMode = static_cast<ParticleBlendMode>(blendIdx);
+
+        // Render mode
+        const char* renderModes[] = { "Billboard", "Stretched Billboard", "Mesh" };
+        int renderIdx = static_cast<int>(sys.RenderMode);
+        if (ImGui::Combo("Render Mode", &renderIdx, renderModes, 3))
+            sys.RenderMode = static_cast<ParticleRenderMode>(renderIdx);
+
+        ImGui::Checkbox("Depth Sort", &sys.DepthSortEnabled);
+        ImGui::DragFloat("Velocity Inheritance", &sys.VelocityInheritance, 0.01f, 0.0f, 1.0f);
+
+        // Soft particles
+        ImGui::Checkbox("Soft Particles", &sys.SoftParticlesEnabled);
+        if (sys.SoftParticlesEnabled)
+        {
+            ImGui::DragFloat("Soft Distance", &sys.SoftParticleDistance, 0.1f, 0.01f, 50.0f);
+        }
+
+        ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+            {
+                auto* const path = static_cast<wchar_t*>(payload->Data);
+                std::filesystem::path texturePath(path);
+                Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
+                if (texture->IsLoaded())
+                {
+                    component.Texture = texture;
+                }
+                else
+                {
+                    OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+        if (component.Texture)
+        {
+            ImGui::SameLine();
+            ImGui::Text("%s", "Loaded");
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Texture"))
+                component.Texture = nullptr;
+        }
+
+        // Mesh selection (shown when render mode is Mesh)
+        if (sys.RenderMode == ParticleRenderMode::Mesh)
+        {
+            ImGui::Text("Particle Mesh: %s", component.ParticleMesh ? "Assigned" : "None");
+            ImGui::Button("Assign Mesh", ImVec2(100.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    auto* const path = static_cast<wchar_t*>(payload->Data);
+                    std::filesystem::path meshPath(path);
+                    auto model = Ref<Model>::Create(meshPath.string());
+                    if (model && model->GetMeshCount() > 0)
+                    {
+                        auto meshSource = model->CreateCombinedMeshSource();
+                        if (meshSource)
+                            component.ParticleMesh = Ref<Mesh>::Create(meshSource);
+                    }
+                    else
+                    {
+                        OLO_WARN("Could not load mesh {0}", meshPath.filename().string());
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (component.ParticleMesh)
+            {
+                ImGui::SameLine();
+                if (ImGui::Button("Clear Mesh"))
+                    component.ParticleMesh = nullptr;
             }
         }
     }
@@ -445,6 +853,11 @@ namespace OloEngine
             // Audio Components
             DisplayAddComponentEntry<AudioSourceComponent>("Audio Source");
             DisplayAddComponentEntry<AudioListenerComponent>("Audio Listener");
+
+            ImGui::Separator();
+
+            // Particle System
+            DisplayAddComponentEntry<ParticleSystemComponent>("Particle System");
 
             ImGui::Separator();
 
@@ -1624,6 +2037,199 @@ namespace OloEngine
             ImGui::ColorEdit4("On Color", glm::value_ptr(component.m_OnColor));
             ImGui::ColorEdit4("Knob Color", glm::value_ptr(component.m_KnobColor));
             ImGui::Checkbox("Interactable", &component.m_Interactable); });
+
+        DrawComponent<ParticleSystemComponent>("Particle System", entity, [](auto& component)
+                                               {
+            auto& sys = component.System;
+            auto& emitter = sys.Emitter;
+
+            // Playback
+            ImGui::Checkbox("Playing", &sys.Playing);
+            ImGui::SameLine();
+            if (ImGui::Button("Reset"))
+                sys.Reset();
+            ImGui::Checkbox("Looping", &sys.Looping);
+            ImGui::DragFloat("Duration", &sys.Duration, 0.1f, 0.1f, 100.0f);
+            ImGui::DragFloat("Playback Speed", &sys.PlaybackSpeed, 0.01f, 0.0f, 10.0f);
+            ImGui::DragFloat("Warm Up Time", &sys.WarmUpTime, 0.1f, 0.0f, 10.0f);
+
+            int maxP = static_cast<int>(sys.GetMaxParticles());
+            if (ImGui::DragInt("Max Particles", &maxP, 10, 1, 100000))
+                sys.SetMaxParticles(static_cast<u32>(maxP));
+            ImGui::Text("Alive: %u", sys.GetAliveCount());
+
+            const char* spaceItems[] = { "Local", "World" };
+            int spaceIdx = static_cast<int>(sys.SimulationSpace);
+            if (ImGui::Combo("Simulation Space", &spaceIdx, spaceItems, 2))
+                sys.SimulationSpace = static_cast<ParticleSpace>(spaceIdx);
+
+            // Emission
+            DrawParticleEmissionSection(emitter);
+
+            // Texture
+            DrawParticleRenderingSection(component, sys);
+
+            // Texture Sheet Animation
+            if (ImGui::CollapsingHeader("Texture Sheet Animation"))
+            {
+                ImGui::Checkbox("Sheet Enabled", &sys.TextureSheetModule.Enabled);
+                if (sys.TextureSheetModule.Enabled)
+                {
+                    int gridX = static_cast<int>(sys.TextureSheetModule.GridX);
+                    int gridY = static_cast<int>(sys.TextureSheetModule.GridY);
+                    int totalFrames = static_cast<int>(sys.TextureSheetModule.TotalFrames);
+                    if (ImGui::DragInt("Grid X", &gridX, 1, 1, 64))
+                        sys.TextureSheetModule.GridX = static_cast<u32>(gridX);
+                    if (ImGui::DragInt("Grid Y", &gridY, 1, 1, 64))
+                        sys.TextureSheetModule.GridY = static_cast<u32>(gridY);
+                    if (ImGui::DragInt("Total Frames", &totalFrames, 1, 1, 4096))
+                        sys.TextureSheetModule.TotalFrames = static_cast<u32>(totalFrames);
+                    const char* sheetModes[] = { "Over Lifetime", "By Speed" };
+                    int sheetIdx = static_cast<int>(sys.TextureSheetModule.Mode);
+                    if (ImGui::Combo("Animation Mode", &sheetIdx, sheetModes, 2))
+                        sys.TextureSheetModule.Mode = static_cast<TextureSheetAnimMode>(sheetIdx);
+                    if (sys.TextureSheetModule.Mode == TextureSheetAnimMode::BySpeed)
+                        ImGui::DragFloat("Speed Range", &sys.TextureSheetModule.SpeedRange, 0.1f, 0.1f, 100.0f);
+                }
+            }
+
+            // Modules
+            if (ImGui::CollapsingHeader("Gravity"))
+            {
+                ImGui::Checkbox("Gravity Enabled", &sys.GravityModule.Enabled);
+                ImGui::DragFloat3("Gravity", glm::value_ptr(sys.GravityModule.Gravity), 0.1f);
+            }
+            if (ImGui::CollapsingHeader("Drag"))
+            {
+                ImGui::Checkbox("Drag Enabled", &sys.DragModule.Enabled);
+                ImGui::DragFloat("Drag Coefficient", &sys.DragModule.DragCoefficient, 0.01f, 0.0f, 10.0f);
+            }
+            if (ImGui::CollapsingHeader("Color Over Lifetime"))
+            {
+                ImGui::Checkbox("Color OL Enabled", &sys.ColorModule.Enabled);
+                if (sys.ColorModule.Enabled)
+                {
+                    DrawParticleCurve4Editor("Color Curve", sys.ColorModule.ColorCurve);
+                }
+            }
+            if (ImGui::CollapsingHeader("Size Over Lifetime"))
+            {
+                ImGui::Checkbox("Size OL Enabled", &sys.SizeModule.Enabled);
+                if (sys.SizeModule.Enabled)
+                {
+                    DrawParticleCurveEditor("Size Curve", sys.SizeModule.SizeCurve, 0.0f, 2.0f);
+                }
+            }
+            if (ImGui::CollapsingHeader("Velocity Over Lifetime"))
+            {
+                ImGui::Checkbox("Velocity OL Enabled", &sys.VelocityModule.Enabled);
+                if (sys.VelocityModule.Enabled)
+                {
+                    ImGui::DragFloat3("Linear Acceleration", glm::value_ptr(sys.VelocityModule.LinearAcceleration), 0.1f);
+                    ImGui::DragFloat("Speed Multiplier", &sys.VelocityModule.SpeedMultiplier, 0.01f, 0.0f, 10.0f);
+                    DrawParticleCurveEditor("Speed Curve", sys.VelocityModule.SpeedCurve, 0.0f, 2.0f);
+                }
+            }
+            if (ImGui::CollapsingHeader("Rotation Over Lifetime"))
+            {
+                ImGui::Checkbox("Rotation OL Enabled", &sys.RotationModule.Enabled);
+                ImGui::DragFloat("Angular Velocity", &sys.RotationModule.AngularVelocity, 1.0f, -1000.0f, 1000.0f);
+            }
+            if (ImGui::CollapsingHeader("Noise"))
+            {
+                ImGui::Checkbox("Noise Enabled", &sys.NoiseModule.Enabled);
+                ImGui::DragFloat("Noise Strength", &sys.NoiseModule.Strength, 0.1f, 0.0f, 100.0f);
+                ImGui::DragFloat("Noise Frequency", &sys.NoiseModule.Frequency, 0.1f, 0.0f, 100.0f);
+            }
+
+            // Phase 2 modules
+            if (ImGui::CollapsingHeader("Collision"))
+            {
+                ImGui::Checkbox("Collision Enabled", &sys.CollisionModule.Enabled);
+                const char* collisionModes[] = { "World Plane", "Scene Raycast" };
+                int modeIdx = static_cast<int>(sys.CollisionModule.Mode);
+                if (ImGui::Combo("Collision Mode", &modeIdx, collisionModes, 2))
+                    sys.CollisionModule.Mode = static_cast<CollisionMode>(modeIdx);
+                if (sys.CollisionModule.Mode == CollisionMode::WorldPlane)
+                {
+                    if (ImGui::DragFloat3("Plane Normal", glm::value_ptr(sys.CollisionModule.PlaneNormal), 0.01f, -1.0f, 1.0f))
+                    {
+                        f32 len = glm::length(sys.CollisionModule.PlaneNormal);
+                        sys.CollisionModule.PlaneNormal = (len > 0.0001f) ? sys.CollisionModule.PlaneNormal / len : glm::vec3(0.0f, 1.0f, 0.0f);
+                    }
+                    ImGui::DragFloat("Plane Offset", &sys.CollisionModule.PlaneOffset, 0.1f);
+                }
+                ImGui::DragFloat("Bounce", &sys.CollisionModule.Bounce, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Lifetime Loss", &sys.CollisionModule.LifetimeLoss, 0.01f, 0.0f, 1.0f);
+                ImGui::Checkbox("Kill On Collide", &sys.CollisionModule.KillOnCollide);
+            }
+            if (ImGui::CollapsingHeader("Force Fields"))
+            {
+                const char* ffTypes[] = { "Attraction", "Repulsion", "Vortex" };
+                for (sizet fi = 0; fi < sys.ForceFields.size(); ++fi)
+                {
+                    auto& ff = sys.ForceFields[fi];
+                    ImGui::PushID(static_cast<int>(fi));
+                    std::string label = "Force Field " + std::to_string(fi);
+                    if (ImGui::TreeNode(label.c_str()))
+                    {
+                        ImGui::Checkbox("Enabled", &ff.Enabled);
+                        int ffIdx = static_cast<int>(ff.Type);
+                        if (ImGui::Combo("Force Type", &ffIdx, ffTypes, 3))
+                            ff.Type = static_cast<ForceFieldType>(ffIdx);
+                        ImGui::DragFloat3("Position", glm::value_ptr(ff.Position), 0.1f);
+                        ImGui::DragFloat("Strength", &ff.Strength, 0.1f, 0.0f, 1000.0f);
+                        ImGui::DragFloat("Radius", &ff.Radius, 0.1f, 0.01f, 1000.0f);
+                        if (ff.Type == ForceFieldType::Vortex)
+                        {
+                            if (ImGui::DragFloat3("Vortex Axis", glm::value_ptr(ff.Axis), 0.01f, -1.0f, 1.0f))
+                            {
+                                f32 len = glm::length(ff.Axis);
+                                ff.Axis = (len > 0.0001f) ? ff.Axis / len : glm::vec3(0.0f, 1.0f, 0.0f);
+                            }
+                        }
+                        if (ImGui::Button("Remove"))
+                        {
+                            sys.ForceFields.erase(sys.ForceFields.begin() + static_cast<ptrdiff_t>(fi));
+                            ImGui::TreePop();
+                            ImGui::PopID();
+                            break;
+                        }
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+                if (ImGui::Button("Add Force Field"))
+                {
+                    sys.ForceFields.emplace_back();
+                }
+            }
+            if (ImGui::CollapsingHeader("Trail"))
+            {
+                ImGui::Checkbox("Trail Enabled", &sys.TrailModule.Enabled);
+                int maxPts = static_cast<int>(sys.TrailModule.MaxTrailPoints);
+                if (ImGui::DragInt("Max Trail Points", &maxPts, 1, 2, 128))
+                    sys.TrailModule.MaxTrailPoints = static_cast<u32>(maxPts);
+                ImGui::DragFloat("Trail Lifetime", &sys.TrailModule.TrailLifetime, 0.01f, 0.01f, 10.0f);
+                ImGui::DragFloat("Min Vertex Distance", &sys.TrailModule.MinVertexDistance, 0.01f, 0.001f, 10.0f);
+                ImGui::DragFloat("Width Start", &sys.TrailModule.WidthStart, 0.01f, 0.001f, 10.0f);
+                ImGui::DragFloat("Width End", &sys.TrailModule.WidthEnd, 0.01f, 0.0f, 10.0f);
+                ImGui::ColorEdit4("Trail Color Start", glm::value_ptr(sys.TrailModule.ColorStart));
+                ImGui::ColorEdit4("Trail Color End", glm::value_ptr(sys.TrailModule.ColorEnd));
+            }
+            if (ImGui::CollapsingHeader("Sub-Emitter"))
+            {
+                ImGui::Checkbox("Sub-Emitter Enabled", &sys.SubEmitterModule.Enabled);
+                if (sys.SubEmitterModule.Enabled)
+                    ImGui::TextDisabled("Configure sub-emitter entries via scripting");
+            }
+            if (ImGui::CollapsingHeader("LOD"))
+            {
+                ImGui::DragFloat("LOD Distance 1", &sys.LODDistance1, 1.0f, 0.0f, 10000.0f);
+                ImGui::DragFloat("LOD Max Distance", &sys.LODMaxDistance, 1.0f, 0.0f, 10000.0f);
+                constexpr f32 epsilon = 1e-4f;
+                sys.LODDistance1 = std::clamp(sys.LODDistance1, 0.0f, std::max(0.0f, sys.LODMaxDistance - epsilon));
+            } });
     }
 
     template<typename T>

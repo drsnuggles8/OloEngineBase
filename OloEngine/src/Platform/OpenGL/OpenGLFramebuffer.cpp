@@ -300,9 +300,11 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
 
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_RendererID);
         glReadBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
         int pixelData{};
         glReadPixels(x, y, 1, 1, GL_RED_INTEGER, GL_INT, &pixelData);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
         return pixelData;
     }
 

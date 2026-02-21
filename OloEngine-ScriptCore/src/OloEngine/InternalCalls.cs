@@ -351,5 +351,20 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void UIToggleComponent_SetInteractable(ulong entityID, ref bool v);
 		#endregion
+
+		#region ParticleSystemComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ParticleSystemComponent_GetPlaying(ulong entityID, out bool v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ParticleSystemComponent_SetPlaying(ulong entityID, ref bool v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ParticleSystemComponent_GetLooping(ulong entityID, out bool v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ParticleSystemComponent_SetLooping(ulong entityID, ref bool v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ParticleSystemComponent_GetEmissionRate(ulong entityID, out float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ParticleSystemComponent_SetEmissionRate(ulong entityID, ref float v);
+		#endregion
 	}
 }

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 
@@ -277,6 +278,8 @@ namespace OloEngine
         Window& window = Application::Get().GetWindow();
         s_Data.RGraph = Ref<RenderGraph>::Create();
         SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
+
+        ParticleBatchRenderer::Init();
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
 
@@ -289,6 +292,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Shutting down Renderer3D.");
+
+        ParticleBatchRenderer::Shutdown();
 
         // Clear any pending GPU resource commands
         GPUResourceQueue::Clear();
@@ -554,6 +559,10 @@ namespace OloEngine
         if (s_Data.ScenePass && s_Data.FinalPass)
         {
             s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
+        }
+        if (s_Data.ScenePass && s_Data.ParticlePass)
+        {
+            s_Data.ParticlePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
         }
         auto& profiler = RendererProfiler::GetInstance();
         if (s_Data.ScenePass)
@@ -1681,17 +1690,24 @@ namespace OloEngine
         s_Data.ScenePass->SetName("ScenePass");
         s_Data.ScenePass->Init(scenePassSpec);
 
+        s_Data.ParticlePass = Ref<ParticleRenderPass>::Create();
+        s_Data.ParticlePass->SetName("ParticlePass");
+        s_Data.ParticlePass->Init(finalPassSpec);
+        s_Data.ParticlePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+
         s_Data.FinalPass = Ref<FinalRenderPass>::Create();
         s_Data.FinalPass->SetName("FinalPass");
         s_Data.FinalPass->Init(finalPassSpec);
 
         s_Data.RGraph->AddPass(s_Data.ScenePass);
+        s_Data.RGraph->AddPass(s_Data.ParticlePass);
         s_Data.RGraph->AddPass(s_Data.FinalPass);
 
-        s_Data.RGraph->ConnectPass("ScenePass", "FinalPass");
+        s_Data.RGraph->ConnectPass("ScenePass", "ParticlePass");
+        s_Data.RGraph->ConnectPass("ParticlePass", "FinalPass");
 
         s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        OLO_CORE_INFO("Renderer3D: Connected scene pass framebuffer to final pass input");
+        OLO_CORE_INFO("Renderer3D: Render graph: ScenePass -> ParticlePass -> FinalPass");
 
         s_Data.RGraph->SetFinalPass("FinalPass");
     }
