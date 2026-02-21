@@ -133,7 +133,7 @@ namespace OloEngine
     void OpenGLComputeShader::SetUint(const std::string& name, u32 value) const
     {
         glProgramUniform1ui(m_RendererID, GetUniformLocation(name), value);
-        OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Int);
+        OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::UInt);
     }
 
     void OpenGLComputeShader::SetIntArray(const std::string& name, int* values, u32 count) const

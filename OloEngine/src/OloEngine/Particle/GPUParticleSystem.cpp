@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 
 #include <algorithm>
+#include <numeric>
 
 namespace OloEngine
 {
@@ -19,7 +20,18 @@ namespace OloEngine
     }
 
     GPUParticleSystem::GPUParticleSystem(GPUParticleSystem&& other) noexcept
-        : m_MaxParticles(other.m_MaxParticles), m_Initialized(other.m_Initialized), m_ParticleSSBO(std::move(other.m_ParticleSSBO)), m_AliveIndexSSBO(std::move(other.m_AliveIndexSSBO)), m_CounterSSBO(std::move(other.m_CounterSSBO)), m_FreeListSSBO(std::move(other.m_FreeListSSBO)), m_IndirectDrawSSBO(std::move(other.m_IndirectDrawSSBO)), m_EmitStagingSSBO(std::move(other.m_EmitStagingSSBO)), m_EmitShader(std::move(other.m_EmitShader)), m_SimulateShader(std::move(other.m_SimulateShader)), m_CompactShader(std::move(other.m_CompactShader)), m_BuildIndirectShader(std::move(other.m_BuildIndirectShader))
+        : m_MaxParticles(other.m_MaxParticles),
+          m_Initialized(other.m_Initialized),
+          m_ParticleSSBO(std::move(other.m_ParticleSSBO)),
+          m_AliveIndexSSBO(std::move(other.m_AliveIndexSSBO)),
+          m_CounterSSBO(std::move(other.m_CounterSSBO)),
+          m_FreeListSSBO(std::move(other.m_FreeListSSBO)),
+          m_IndirectDrawSSBO(std::move(other.m_IndirectDrawSSBO)),
+          m_EmitStagingSSBO(std::move(other.m_EmitStagingSSBO)),
+          m_EmitShader(std::move(other.m_EmitShader)),
+          m_SimulateShader(std::move(other.m_SimulateShader)),
+          m_CompactShader(std::move(other.m_CompactShader)),
+          m_BuildIndirectShader(std::move(other.m_BuildIndirectShader))
     {
         other.m_Initialized = false;
         other.m_MaxParticles = 0;
@@ -66,10 +78,7 @@ namespace OloEngine
             StorageBufferUsage::DynamicCopy);
 
         // Zero-initialize particle buffer so all particles start as dead (Misc.z == 0.0)
-        {
-            std::vector<u8> zeros(maxParticles * GPUParticle::GetSize(), 0);
-            m_ParticleSSBO->SetData(zeros.data(), static_cast<u32>(zeros.size()));
-        }
+        m_ParticleSSBO->ClearData();
 
         m_AliveIndexSSBO = StorageBuffer::Create(
             maxParticles * sizeof(u32),
@@ -98,10 +107,7 @@ namespace OloEngine
 
         // Initialize free list: all slots are free [0, 1, 2, ..., maxParticles-1]
         std::vector<u32> freeListInit(maxParticles);
-        for (u32 i = 0; i < maxParticles; ++i)
-        {
-            freeListInit[i] = i;
-        }
+        std::iota(freeListInit.begin(), freeListInit.end(), 0u);
         m_FreeListSSBO->SetData(freeListInit.data(), maxParticles * sizeof(u32));
 
         // Initialize counters: 0 alive, all dead
@@ -131,25 +137,25 @@ namespace OloEngine
         if (!m_EmitShader || !m_EmitShader->IsValid())
         {
             OLO_CORE_ERROR("GPUParticleSystem: Failed to load m_EmitShader");
-            m_Initialized = false;
+            Shutdown();
             return;
         }
         if (!m_SimulateShader || !m_SimulateShader->IsValid())
         {
             OLO_CORE_ERROR("GPUParticleSystem: Failed to load m_SimulateShader");
-            m_Initialized = false;
+            Shutdown();
             return;
         }
         if (!m_CompactShader || !m_CompactShader->IsValid())
         {
             OLO_CORE_ERROR("GPUParticleSystem: Failed to load m_CompactShader");
-            m_Initialized = false;
+            Shutdown();
             return;
         }
         if (!m_BuildIndirectShader || !m_BuildIndirectShader->IsValid())
         {
             OLO_CORE_ERROR("GPUParticleSystem: Failed to load m_BuildIndirectShader");
-            m_Initialized = false;
+            Shutdown();
             return;
         }
 
@@ -281,6 +287,8 @@ namespace OloEngine
 
     u32 GPUParticleSystem::GetAliveCount() const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Initialized)
         {
             return 0;

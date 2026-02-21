@@ -232,6 +232,7 @@ namespace OloEngine
         if (UseGPU)
         {
             UpdateGPU(scaledDt, emitterPosition, emitterRotation);
+            m_PendingTriggers.clear();
             return;
         }
 

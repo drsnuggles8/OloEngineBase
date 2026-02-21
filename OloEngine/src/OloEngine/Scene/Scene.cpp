@@ -1910,11 +1910,8 @@ namespace OloEngine
             {
                 ParticleBatchRenderer::Flush();
                 ParticleBatchRenderer::RenderGPUBillboards(*sys.GetGPUSystem(), psc.Texture);
-                RestoreDefaultBlendMode();
-                continue;
             }
-
-            if (sys.RenderMode == ParticleRenderMode::Mesh)
+            else if (sys.RenderMode == ParticleRenderMode::Mesh)
             {
                 ParticleBatchRenderer::Flush();
                 ParticleRenderer::RenderParticlesMesh(sys.GetPool(), psc.ParticleMesh, psc.Texture, offset, static_cast<int>(entity), sorted);

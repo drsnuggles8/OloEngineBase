@@ -4,7 +4,6 @@
 #include "OloEngine/Particle/GPUParticleData.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/ComputeShader.h"
-#include "OloEngine/Renderer/VertexArray.h"
 
 #include <span>
 
