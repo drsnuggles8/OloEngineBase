@@ -567,6 +567,8 @@ namespace OloEngine::ParkingLot
     //////////////////////////////////////////////////////////////////////////
     // FTable - Hash table of buckets
 
+#pragma warning(push)
+#pragma warning(disable : 4200) // nonstandard extension: zero-sized array - intentional flexible array member
     class FTable final
     {
         static constexpr u32 MinSize = 32;
@@ -828,6 +830,7 @@ namespace OloEngine::ParkingLot
         u32 m_BucketCount = 0;
         std::atomic<FBucket*> m_Buckets[0]; // Flexible array member
     };
+#pragma warning(pop)
 
     //////////////////////////////////////////////////////////////////////////
     // FThreadLocalData implementation (after FTable is complete)

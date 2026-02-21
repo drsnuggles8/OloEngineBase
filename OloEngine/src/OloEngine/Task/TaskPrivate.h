@@ -178,7 +178,7 @@ namespace OloEngine::Tasks
                 }
             }
 
-            void Init(const char* InDebugName, ETaskPriority InPriority, EExtendedTaskPriority InExtendedPriority, ETaskFlags Flags)
+            void Init(const char* InDebugName, ETaskPriority InPriority, EExtendedTaskPriority InExtendedPriority, [[maybe_unused]] ETaskFlags Flags)
             {
                 m_ExtendedPriority = InExtendedPriority;
 

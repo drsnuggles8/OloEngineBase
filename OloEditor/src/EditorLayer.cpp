@@ -30,12 +30,12 @@
 
 namespace OloEngine
 {
-    static Font* s_Font;
+    static std::unique_ptr<Font> s_Font;
 
     EditorLayer::EditorLayer()
         : Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
     {
-        s_Font = new Font("C:/Windows/Fonts/arial.ttf");
+        s_Font = std::make_unique<Font>("C:/Windows/Fonts/arial.ttf");
     }
 
     EditorLayer::~EditorLayer()

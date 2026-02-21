@@ -321,7 +321,7 @@ namespace OloEngine
         framebuffer->Unbind();
 
         // Copy framebuffer to texture using DSA
-        u32 framebufferColorTexture = framebuffer->GetColorAttachmentRendererID(0);
+        // Note: framebuffer color attachment is read via glCopyTextureSubImage2D below
 
         // Copy from framebuffer color attachment to the texture
         glCopyTextureSubImage2D(
@@ -535,7 +535,7 @@ namespace OloEngine
 
     // Enhanced rendering methods
     void IBLPrecompute::RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader,
-                                                const Ref<Mesh>& cubeMesh, const IBLConfiguration& config, u32 mipLevel)
+                                                const Ref<Mesh>& cubeMesh, [[maybe_unused]] const IBLConfiguration& config, u32 mipLevel)
     {
         // Use standard render method for now - can be enhanced with parallel rendering if needed
         RenderToCubemap(cubemap, shader, cubeMesh, mipLevel);
@@ -544,7 +544,7 @@ namespace OloEngine
     }
 
     void IBLPrecompute::RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader,
-                                                const Ref<Mesh>& quadMesh, const IBLConfiguration& config)
+                                                const Ref<Mesh>& quadMesh, [[maybe_unused]] const IBLConfiguration& config)
     {
         // Use standard render method for now - can be enhanced with additional quality parameters
         RenderToTexture(texture, shader, quadMesh);

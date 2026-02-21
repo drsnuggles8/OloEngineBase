@@ -180,7 +180,7 @@ namespace OloEngine
 				{
 					// Keep the flag until no thread wakes, otherwise shared locks may win before
 					// an exclusive lock has a chance.
-					State.fetch_and(~MayHaveWaitingLockFlag, std::memory_order_relaxed);
+					State.fetch_and(static_cast<StateType>(~MayHaveWaitingLockFlag), std::memory_order_relaxed);
 				}
 				return 0; });
         }
@@ -195,7 +195,7 @@ namespace OloEngine
 				{
 					// Keep the flag until no thread wakes, otherwise shared locks may win before
 					// an exclusive lock has a chance.
-					State.fetch_and(~MayHaveWaitingLockFlag, std::memory_order_relaxed);
+					State.fetch_and(static_cast<StateType>(~MayHaveWaitingLockFlag), std::memory_order_relaxed);
 				}
 				bDidWake = WakeState.bDidWake;
 				return 0; });

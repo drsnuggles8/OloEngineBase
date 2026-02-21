@@ -1498,8 +1498,7 @@ namespace OloEngine
 
             // Path input (editable)
             char pathBuffer[512];
-            std::strncpy(pathBuffer, component.m_FilePath.c_str(), sizeof(pathBuffer) - 1);
-            pathBuffer[sizeof(pathBuffer) - 1] = '\0';
+            ::strncpy_s(pathBuffer, sizeof(pathBuffer), component.m_FilePath.c_str(), sizeof(pathBuffer) - 1);
             if (ImGui::InputText("Path##EnvMapPath", pathBuffer, sizeof(pathBuffer)))
             {
                 component.m_FilePath = pathBuffer;

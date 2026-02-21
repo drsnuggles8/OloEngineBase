@@ -81,7 +81,7 @@ namespace OloEngine
         // @param WaitTime The time to wait in milliseconds
         // @param bIgnoreThreadIdleStats Ignored in OloEngine
         // @return true if the event was signaled, false on timeout
-        bool Wait(u32 WaitTime, bool bIgnoreThreadIdleStats = false) override
+        bool Wait(u32 WaitTime, [[maybe_unused]] bool bIgnoreThreadIdleStats = false) override
         {
             WaitForStats();
 

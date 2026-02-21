@@ -350,7 +350,7 @@ namespace OloEngine
 #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::GetFirst(Key, reinterpret_cast<const Type*>(HashData), HashCount)
             OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
 #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
-            return INDEX_NONE;
+            return static_cast<u32>(INDEX_NONE);
         }
 
         // Advanced used for manual inspection of the hash data
@@ -359,7 +359,7 @@ namespace OloEngine
 #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::GetFirstByIndex(HashIndex, reinterpret_cast<const Type*>(HashData), HashCount)
             OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
 #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
-            return INDEX_NONE;
+            return static_cast<u32>(INDEX_NONE);
         }
 
         [[nodiscard]] inline u32 GetNext(u32 Index, u32 CurrentCount) const
@@ -369,7 +369,7 @@ namespace OloEngine
 #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::GetNext(Index, reinterpret_cast<const Type*>(NextIndexData), CurrentCount)
             OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
 #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
-            return INDEX_NONE;
+            return static_cast<u32>(INDEX_NONE);
         }
 
         template<typename PredicateType>
@@ -379,7 +379,7 @@ namespace OloEngine
 #define OLO_COMPACTHASHTABLE_EXECUTEBYTYPE(Type) return CompactHashTable::Find(Key, reinterpret_cast<const Type*>(HashData), HashCount, reinterpret_cast<const Type*>(NextIndexData), CurrentCount, Predicate)
             OLO_COMPACTHASHTABLE_CALLBYTYPE(NextIndexCount);
 #undef OLO_COMPACTHASHTABLE_EXECUTEBYTYPE
-            return INDEX_NONE;
+            return static_cast<u32>(INDEX_NONE);
         }
 
       protected:

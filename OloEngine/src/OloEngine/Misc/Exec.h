@@ -17,7 +17,11 @@ namespace OloEngine
 #endif
 
 #ifndef OLO_ALLOW_EXEC_DEV
-#define OLO_ALLOW_EXEC_DEV !defined(OLO_DIST) && OLO_ALLOW_EXEC_COMMANDS
+#if defined(OLO_DIST)
+#define OLO_ALLOW_EXEC_DEV 0
+#else
+#define OLO_ALLOW_EXEC_DEV OLO_ALLOW_EXEC_COMMANDS
+#endif
 #endif
 
 #ifndef OLO_ALLOW_EXEC_EDITOR

@@ -1,5 +1,10 @@
 #pragma once
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4201) // nameless struct/union
+#endif
+
 /**
  * @file SparseArray.h
  * @brief Sparse array container with O(1) add/remove using free list
@@ -1579,3 +1584,7 @@ namespace OloEngine
     }
 
 } // namespace OloEngine
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

@@ -263,7 +263,7 @@ namespace OloEngine::LowLevelTasks
                 new (*HeapPtr) TCallableType(Forward<CallableT>(Callable));
             }
 
-            OLO_FINLINE void Move(TTaskDelegateBase& DstWrapper, void* DstData, void* SrcData, u32 DestInlineSize) override
+            OLO_FINLINE void Move(TTaskDelegateBase& DstWrapper, void* DstData, void* SrcData, [[maybe_unused]] u32 DestInlineSize) override
             {
                 new (&DstWrapper) TTaskDelegateImpl<TCallableType, true>(DstData, SrcData);
                 new (this) TTaskDelegateDummy();

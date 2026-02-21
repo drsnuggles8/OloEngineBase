@@ -69,16 +69,16 @@ namespace OloEngine
         return Result;
     }
 
+#if !MALLOC_ANSI_USES__ALIGNED_MALLOC
     static sizet AnsiGetAllocationSize(void* Original)
     {
-#if MALLOC_ANSI_USES__ALIGNED_MALLOC
-        return _aligned_msize(Original, 16, 0); // TODO: incorrectly assumes alignment of 16
-#elif PLATFORM_USE_ANSI_POSIX_MALLOC || PLATFORM_USE_ANSI_MEMALIGN
+#if PLATFORM_USE_ANSI_POSIX_MALLOC || PLATFORM_USE_ANSI_MEMALIGN
         return malloc_usable_size(Original);
 #else
         return *reinterpret_cast<sizet*>(reinterpret_cast<u8*>(Original) - sizeof(void*) - sizeof(sizet));
 #endif
     }
+#endif
 
     void* AnsiRealloc(void* Ptr, sizet NewSize, u32 Alignment)
     {
@@ -236,7 +236,7 @@ namespace OloEngine
         AnsiFree(Ptr);
     }
 
-    bool FMallocAnsi::GetAllocationSize(void* Original, sizet& SizeOut)
+    bool FMallocAnsi::GetAllocationSize(void* Original, [[maybe_unused]] sizet& SizeOut)
     {
         if (!Original)
         {

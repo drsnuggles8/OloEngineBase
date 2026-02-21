@@ -748,7 +748,7 @@ namespace OloEngine
         return Private::Tuple::TGetTupleHashHelper<1u, sizeof...(Types)>::Do(GetTypeHash(Tuple.template Get<0>()), Tuple);
     }
 
-    OLO_FINLINE u32 GetTypeHash(const TTuple<>& Tuple)
+    OLO_FINLINE u32 GetTypeHash(const TTuple<>& /*Tuple*/)
     {
         return 0;
     }

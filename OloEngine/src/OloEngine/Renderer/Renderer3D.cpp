@@ -312,10 +312,8 @@ namespace OloEngine
         OLO_CORE_INFO("Renderer3D shutdown complete.");
     }
 
-    void Renderer3D::BeginScene(const PerspectiveCamera& camera)
+    void Renderer3D::BeginSceneCommon()
     {
-        OLO_PROFILE_FUNCTION();
-
         // Process any pending GPU resource creation commands from async loaders
         GPUResourceQueue::ProcessAll();
 
@@ -341,9 +339,6 @@ namespace OloEngine
             frameAllocator = CommandMemoryManager::GetFrameAllocator();
         }
         s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
-        s_Data.ViewMatrix = camera.GetView();
-        s_Data.ProjectionMatrix = camera.GetProjection();
-        s_Data.ViewProjectionMatrix = camera.GetViewProjection();
 
         CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
         CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
@@ -383,167 +378,41 @@ namespace OloEngine
         s_Data.ParallelContext.QuadShader = s_Data.QuadShader;
 
         s_Data.ParallelSubmissionActive = false;
+    }
+
+    void Renderer3D::BeginScene(const PerspectiveCamera& camera)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        s_Data.ViewMatrix = camera.GetView();
+        s_Data.ProjectionMatrix = camera.GetProjection();
+        s_Data.ViewProjectionMatrix = camera.GetViewProjection();
+
+        BeginSceneCommon();
     }
 
     void Renderer3D::BeginScene(const EditorCamera& camera)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Extract view and projection matrices from EditorCamera and call the main BeginScene
-        // EditorCamera inherits from Camera which has GetViewMatrix() and GetProjection()
-        // We need to create a temporary PerspectiveCamera-like interface or directly use the matrices
-        // Since EditorCamera provides GetViewMatrix() and GetProjection(), we can use them
-
-        // Note: We cannot easily convert EditorCamera to PerspectiveCamera, so we replicate the setup
-        // Process any pending GPU resource creation commands from async loaders
-        GPUResourceQueue::ProcessAll();
-
-        // Begin new frame for double-buffered resources
-        FrameResourceManager::Get().BeginFrame();
-
-        RendererProfiler::GetInstance().BeginFrame();
-
-        if (!s_Data.ScenePass)
-        {
-            OLO_CORE_ERROR("Renderer3D::BeginScene(EditorCamera): ScenePass is null!");
-            return;
-        }
-
-        // Reset frame data buffer for new frame
-        FrameDataBufferManager::Get().Reset();
-
-        // Use frame resource manager's allocator for double-buffering
-        CommandAllocator* frameAllocator = FrameResourceManager::Get().GetFrameAllocator();
-        if (!frameAllocator)
-        {
-            // Fallback to legacy allocator if double-buffering is disabled
-            frameAllocator = CommandMemoryManager::GetFrameAllocator();
-        }
-        s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
-
         s_Data.ViewMatrix = camera.GetViewMatrix();
         s_Data.ProjectionMatrix = camera.GetProjection();
         s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
-
-        // Extract camera position from EditorCamera
         s_Data.ViewPos = camera.GetPosition();
 
-        CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
-        CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
-        CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
-
-        s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
-
-        s_Data.Stats.Reset();
-        s_Data.CommandCounter = 0;
-
-        UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
-        UpdateLightPropertiesUBO();
-
-        CommandDispatch::SetSceneLight(s_Data.SceneLight);
-        CommandDispatch::SetViewPosition(s_Data.ViewPos);
-
-        s_Data.ScenePass->ResetCommandBucket();
-
-        CommandDispatch::ResetState();
-
-        // Initialize parallel scene context with immutable frame data
-        s_Data.ParallelContext.ViewMatrix = s_Data.ViewMatrix;
-        s_Data.ParallelContext.ProjectionMatrix = s_Data.ProjectionMatrix;
-        s_Data.ParallelContext.ViewProjectionMatrix = s_Data.ViewProjectionMatrix;
-        s_Data.ParallelContext.ViewPosition = s_Data.ViewPos;
-        s_Data.ParallelContext.ViewFrustum = s_Data.ViewFrustum;
-        s_Data.ParallelContext.FrustumCullingEnabled = s_Data.FrustumCullingEnabled;
-        s_Data.ParallelContext.DynamicCullingEnabled = s_Data.DynamicCullingEnabled;
-
-        // Cache shader references for parallel access
-        s_Data.ParallelContext.LightingShader = s_Data.LightingShader;
-        s_Data.ParallelContext.SkinnedLightingShader = s_Data.SkinnedLightingShader;
-        s_Data.ParallelContext.PBRShader = s_Data.PBRShader;
-        s_Data.ParallelContext.PBRSkinnedShader = s_Data.PBRSkinnedShader;
-        s_Data.ParallelContext.LightCubeShader = s_Data.LightCubeShader;
-        s_Data.ParallelContext.SkyboxShader = s_Data.SkyboxShader;
-        s_Data.ParallelContext.QuadShader = s_Data.QuadShader;
-
-        s_Data.ParallelSubmissionActive = false;
+        BeginSceneCommon();
     }
 
     void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& transform)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Process any pending GPU resource creation commands from async loaders
-        GPUResourceQueue::ProcessAll();
-
-        // Begin new frame for double-buffered resources
-        FrameResourceManager::Get().BeginFrame();
-
-        RendererProfiler::GetInstance().BeginFrame();
-
-        if (!s_Data.ScenePass)
-        {
-            OLO_CORE_ERROR("Renderer3D::BeginScene(Camera, transform): ScenePass is null!");
-            return;
-        }
-
-        // Reset frame data buffer for new frame
-        FrameDataBufferManager::Get().Reset();
-
-        // Use frame resource manager's allocator for double-buffering
-        CommandAllocator* frameAllocator = FrameResourceManager::Get().GetFrameAllocator();
-        if (!frameAllocator)
-        {
-            // Fallback to legacy allocator if double-buffering is disabled
-            frameAllocator = CommandMemoryManager::GetFrameAllocator();
-        }
-        s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
-
-        // Derive view matrix from the inverse of the camera's transform
         s_Data.ViewMatrix = glm::inverse(transform);
         s_Data.ProjectionMatrix = camera.GetProjection();
         s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
-
-        // Extract camera position from transform (translation column)
         s_Data.ViewPos = glm::vec3(transform[3]);
 
-        CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
-        CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
-        CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
-
-        s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
-
-        s_Data.Stats.Reset();
-        s_Data.CommandCounter = 0;
-
-        UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
-        UpdateLightPropertiesUBO();
-
-        CommandDispatch::SetSceneLight(s_Data.SceneLight);
-        CommandDispatch::SetViewPosition(s_Data.ViewPos);
-
-        s_Data.ScenePass->ResetCommandBucket();
-
-        CommandDispatch::ResetState();
-
-        // Initialize parallel scene context with immutable frame data
-        s_Data.ParallelContext.ViewMatrix = s_Data.ViewMatrix;
-        s_Data.ParallelContext.ProjectionMatrix = s_Data.ProjectionMatrix;
-        s_Data.ParallelContext.ViewProjectionMatrix = s_Data.ViewProjectionMatrix;
-        s_Data.ParallelContext.ViewPosition = s_Data.ViewPos;
-        s_Data.ParallelContext.ViewFrustum = s_Data.ViewFrustum;
-        s_Data.ParallelContext.FrustumCullingEnabled = s_Data.FrustumCullingEnabled;
-        s_Data.ParallelContext.DynamicCullingEnabled = s_Data.DynamicCullingEnabled;
-
-        // Cache shader references for parallel access
-        s_Data.ParallelContext.LightingShader = s_Data.LightingShader;
-        s_Data.ParallelContext.SkinnedLightingShader = s_Data.SkinnedLightingShader;
-        s_Data.ParallelContext.PBRShader = s_Data.PBRShader;
-        s_Data.ParallelContext.PBRSkinnedShader = s_Data.PBRSkinnedShader;
-        s_Data.ParallelContext.LightCubeShader = s_Data.LightCubeShader;
-        s_Data.ParallelContext.SkyboxShader = s_Data.SkyboxShader;
-        s_Data.ParallelContext.QuadShader = s_Data.QuadShader;
-
-        s_Data.ParallelSubmissionActive = false;
+        BeginSceneCommon();
     }
 
     void Renderer3D::EndScene()

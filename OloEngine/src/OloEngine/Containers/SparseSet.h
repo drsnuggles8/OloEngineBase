@@ -1350,7 +1350,7 @@ namespace OloEngine
         }
 
         /** Check if rehash is needed */
-        [[nodiscard]] bool ShouldRehash(i32 NumElements, i32 DesiredHashSize, bool bAllowShrinking) const
+        [[nodiscard]] bool ShouldRehash([[maybe_unused]] i32 NumElements, i32 DesiredHashSize, bool bAllowShrinking) const
         {
             if (DesiredHashSize != HashSize)
             {

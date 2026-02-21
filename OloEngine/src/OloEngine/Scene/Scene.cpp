@@ -1243,6 +1243,58 @@ namespace OloEngine
         return *s_DefaultMaterial;
     }
 
+    void Scene::LoadAndRenderSkybox()
+    {
+        auto view = m_Registry.view<EnvironmentMapComponent>();
+        for (auto entity : view)
+        {
+            auto& envMapComp = view.get<EnvironmentMapComponent>(entity);
+            if (!envMapComp.m_EnableSkybox)
+                continue;
+
+            // Lazy load environment map from file path if not already loaded
+            if (!envMapComp.m_EnvironmentMap && !envMapComp.m_FilePath.empty())
+            {
+                if (envMapComp.m_IsCubemapFolder)
+                {
+                    // Load 6 cubemap face textures from folder
+                    std::string basePath = envMapComp.m_FilePath;
+                    if (!basePath.empty() && basePath.back() != '/' && basePath.back() != '\\')
+                        basePath += '/';
+
+                    std::vector<std::string> skyboxFaces = {
+                        basePath + "right.jpg",
+                        basePath + "left.jpg",
+                        basePath + "top.jpg",
+                        basePath + "bottom.jpg",
+                        basePath + "front.jpg",
+                        basePath + "back.jpg"
+                    };
+
+                    auto skyboxCubemap = TextureCubemap::Create(skyboxFaces);
+                    if (skyboxCubemap)
+                    {
+                        envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromCubemap(skyboxCubemap);
+                    }
+                }
+                else
+                {
+                    envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromEquirectangular(envMapComp.m_FilePath);
+                }
+            }
+
+            if (envMapComp.m_EnvironmentMap && envMapComp.m_EnvironmentMap->GetEnvironmentMap())
+            {
+                auto* skyboxPacket = Renderer3D::DrawSkybox(envMapComp.m_EnvironmentMap->GetEnvironmentMap());
+                if (skyboxPacket)
+                {
+                    Renderer3D::SubmitPacket(skyboxPacket);
+                }
+            }
+            return; // Only use first environment map with skybox enabled
+        }
+    }
+
     void Scene::RenderScene3D(EditorCamera const& camera)
     {
         OLO_PROFILE_FUNCTION();
@@ -1250,58 +1302,7 @@ namespace OloEngine
         Renderer3D::BeginScene(camera);
 
         // Render skybox from EnvironmentMapComponent (first one found)
-        {
-            auto view = m_Registry.view<EnvironmentMapComponent>();
-            for (auto entity : view)
-            {
-                auto& envMapComp = view.get<EnvironmentMapComponent>(entity);
-                if (!envMapComp.m_EnableSkybox)
-                    continue;
-
-                // Lazy load environment map from file path if not already loaded
-                if (!envMapComp.m_EnvironmentMap && !envMapComp.m_FilePath.empty())
-                {
-                    if (envMapComp.m_IsCubemapFolder)
-                    {
-                        // Load 6 cubemap face textures from folder
-                        std::string basePath = envMapComp.m_FilePath;
-                        // Ensure path ends with separator
-                        if (!basePath.empty() && basePath.back() != '/' && basePath.back() != '\\')
-                            basePath += '/';
-
-                        std::vector<std::string> skyboxFaces = {
-                            basePath + "right.jpg",
-                            basePath + "left.jpg",
-                            basePath + "top.jpg",
-                            basePath + "bottom.jpg",
-                            basePath + "front.jpg",
-                            basePath + "back.jpg"
-                        };
-
-                        auto skyboxCubemap = TextureCubemap::Create(skyboxFaces);
-                        if (skyboxCubemap)
-                        {
-                            envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromCubemap(skyboxCubemap);
-                        }
-                    }
-                    else
-                    {
-                        // Load as HDR/EXR equirectangular environment map
-                        envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromEquirectangular(envMapComp.m_FilePath);
-                    }
-                }
-
-                if (envMapComp.m_EnvironmentMap && envMapComp.m_EnvironmentMap->GetEnvironmentMap())
-                {
-                    auto* skyboxPacket = Renderer3D::DrawSkybox(envMapComp.m_EnvironmentMap->GetEnvironmentMap());
-                    if (skyboxPacket)
-                    {
-                        Renderer3D::SubmitPacket(skyboxPacket);
-                    }
-                }
-                break; // Only use first environment map
-            }
-        }
+        LoadAndRenderSkybox();
 
         // Collect and set scene lights from light components
         // Note: We need to pass a Ref<Scene>, so we use a workaround since Scene doesn't inherit from enable_shared_from_this
@@ -1309,9 +1310,9 @@ namespace OloEngine
         {
             // Set first directional light as the main scene light
             auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
-            for (auto entity : dirLightView)
+            if (auto it = dirLightView.begin(); it != dirLightView.end())
             {
-                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
+                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(*it);
                 Light light;
                 light.Type = LightType::Directional;
                 light.Direction = dirLight.m_Direction;
@@ -1320,7 +1321,6 @@ namespace OloEngine
                 light.Specular = dirLight.m_Color * dirLight.m_Intensity;
                 Renderer3D::SetLight(light);
                 Renderer3D::SetViewPosition(camera.GetPosition());
-                break; // Only use first directional light for now
             }
         }
 
@@ -1629,64 +1629,15 @@ namespace OloEngine
         Renderer3D::BeginScene(camera, cameraTransform);
 
         // Render skybox from EnvironmentMapComponent (first one found)
-        {
-            auto view = m_Registry.view<EnvironmentMapComponent>();
-            for (auto entity : view)
-            {
-                auto& envMapComp = view.get<EnvironmentMapComponent>(entity);
-                if (!envMapComp.m_EnableSkybox)
-                    continue;
-
-                // Lazy load environment map from file path if not already loaded
-                if (!envMapComp.m_EnvironmentMap && !envMapComp.m_FilePath.empty())
-                {
-                    if (envMapComp.m_IsCubemapFolder)
-                    {
-                        // Load 6 cubemap face textures from folder
-                        std::string basePath = envMapComp.m_FilePath;
-                        if (!basePath.empty() && basePath.back() != '/' && basePath.back() != '\\')
-                            basePath += '/';
-
-                        std::vector<std::string> skyboxFaces = {
-                            basePath + "right.jpg",
-                            basePath + "left.jpg",
-                            basePath + "top.jpg",
-                            basePath + "bottom.jpg",
-                            basePath + "front.jpg",
-                            basePath + "back.jpg"
-                        };
-
-                        auto skyboxCubemap = TextureCubemap::Create(skyboxFaces);
-                        if (skyboxCubemap)
-                        {
-                            envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromCubemap(skyboxCubemap);
-                        }
-                    }
-                    else
-                    {
-                        envMapComp.m_EnvironmentMap = EnvironmentMap::CreateFromEquirectangular(envMapComp.m_FilePath);
-                    }
-                }
-
-                if (envMapComp.m_EnvironmentMap && envMapComp.m_EnvironmentMap->GetEnvironmentMap())
-                {
-                    auto* skyboxPacket = Renderer3D::DrawSkybox(envMapComp.m_EnvironmentMap->GetEnvironmentMap());
-                    if (skyboxPacket)
-                    {
-                        Renderer3D::SubmitPacket(skyboxPacket);
-                    }
-                }
-                break; // Only use first environment map
-            }
-        }
+        LoadAndRenderSkybox();
 
         // Collect and set scene lights from light components
         {
             // Set first directional light as the main scene light
             auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
-            for (auto entity : dirLightView)
+            if (auto it = dirLightView.begin(); it != dirLightView.end())
             {
-                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
+                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(*it);
                 Light light;
                 light.Type = LightType::Directional;
                 light.Direction = dirLight.m_Direction;
@@ -1696,7 +1647,6 @@ namespace OloEngine
                 Renderer3D::SetLight(light);
                 // Extract camera position from transform
                 Renderer3D::SetViewPosition(glm::vec3(cameraTransform[3]));
-                break; // Only use first directional light for now
             }
         }
 

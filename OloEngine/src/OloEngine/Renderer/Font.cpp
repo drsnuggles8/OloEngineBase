@@ -112,7 +112,7 @@ namespace OloEngine
                                  {
 				unsigned long long glyphSeed = coloringSeed ? ((LCG_MULTIPLIER * (coloringSeed ^ i)) + LCG_INCREMENT) : 0;
 				glyphs[i].edgeColoring(msdfgen::edgeColoringInkTrap, DEFAULT_ANGLE_THRESHOLD, glyphSeed);
-				return true; }, m_Data->Glyphs.size())
+				return true; }, static_cast<int>(m_Data->Glyphs.size()))
                 .finish(THREAD_COUNT);
         }
         else

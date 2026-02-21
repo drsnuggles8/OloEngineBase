@@ -109,7 +109,7 @@ namespace OloEngine
         }
     }
 
-    Ref<MeshSource> AnimatedModel::ProcessMesh(const aiMesh* mesh, const aiScene* scene)
+    Ref<MeshSource> AnimatedModel::ProcessMesh(const aiMesh* mesh, [[maybe_unused]] const aiScene* scene)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -203,18 +203,18 @@ namespace OloEngine
         OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Set {} bone influences on MeshSource", meshSource->GetBoneInfluences().Num());
 
         // Copy bone info in correct skeleton order
-        meshSource->GetBoneInfo().SetNum(m_Skeleton->m_BoneNames.size());
+        meshSource->GetBoneInfo().SetNum(static_cast<i32>(m_Skeleton->m_BoneNames.size()));
 
         // Initialize all entries with identity transforms and sequential IDs to ensure no uninitialized data
-        for (u32 i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+        for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
         {
-            meshSource->GetBoneInfo()[i] = { glm::mat4(1.0f), i };
+            meshSource->GetBoneInfo()[static_cast<i32>(i)] = { glm::mat4(1.0f), static_cast<u32>(i) };
         }
 
         // Overwrite entries with actual bone data from m_BoneInfoMap
         for (const auto& [boneName, boneInfo] : m_BoneInfoMap)
         {
-            if (boneInfo.Id < meshSource->GetBoneInfo().Num())
+            if (static_cast<i32>(boneInfo.Id) < meshSource->GetBoneInfo().Num())
             {
                 meshSource->GetBoneInfo()[boneInfo.Id] = { boneInfo.Offset, boneInfo.Id };
             }

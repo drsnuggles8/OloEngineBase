@@ -457,7 +457,7 @@ namespace OloEngine
         }
     }
 
-    void CommandDispatch::DrawIndexed(const void* data, RendererAPI& api)
+    void CommandDispatch::DrawIndexed(const void* data, [[maybe_unused]] RendererAPI& api)
     {
         auto const* cmd = static_cast<const DrawIndexedCommand*>(data);
 
@@ -472,7 +472,7 @@ namespace OloEngine
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), cmd->indexType, nullptr);
     }
 
-    void CommandDispatch::DrawIndexedInstanced(const void* data, RendererAPI& api)
+    void CommandDispatch::DrawIndexedInstanced(const void* data, [[maybe_unused]] RendererAPI& api)
     {
         auto const* cmd = static_cast<const DrawIndexedInstancedCommand*>(data);
 
@@ -487,7 +487,7 @@ namespace OloEngine
         glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), cmd->indexType, nullptr, static_cast<GLsizei>(cmd->instanceCount));
     }
 
-    void CommandDispatch::DrawArrays(const void* data, RendererAPI& api)
+    void CommandDispatch::DrawArrays(const void* data, [[maybe_unused]] RendererAPI& api)
     {
         auto const* cmd = static_cast<const DrawArraysCommand*>(data);
 
@@ -502,7 +502,7 @@ namespace OloEngine
         glDrawArrays(cmd->primitiveType, 0, static_cast<GLsizei>(cmd->vertexCount));
     }
 
-    void CommandDispatch::DrawLines(const void* data, RendererAPI& api)
+    void CommandDispatch::DrawLines(const void* data, [[maybe_unused]] RendererAPI& api)
     {
         auto const* cmd = static_cast<const DrawLinesCommand*>(data);
 
