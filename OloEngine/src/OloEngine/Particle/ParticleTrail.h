@@ -7,7 +7,8 @@
 
 namespace OloEngine
 {
-    // Ring buffer to store trail point history for one particle
+    // Ring buffer to store trail point history for one particle.
+    // NOTE: PascalCase fields are intentional — this is a lightweight POD aggregate.
     struct TrailPoint
     {
         glm::vec3 Position{ 0.0f };
@@ -98,6 +99,7 @@ namespace OloEngine
         // Get trail ring buffer for a particle (iterate 0..m_Count-1 via Get())
         [[nodiscard]] const TrailRingBuffer& GetTrail(u32 particleIndex) const
         {
+            OLO_CORE_ASSERT(particleIndex < m_Trails.size(), "ParticleTrailData::GetTrail index out of range!");
             return m_Trails[particleIndex];
         }
         [[nodiscard]] u32 GetMaxTrailPoints() const
@@ -110,6 +112,8 @@ namespace OloEngine
         u32 m_MaxTrailPoints = 16;
     };
 
+    // Trail rendering configuration.
+    // NOTE: PascalCase fields are intentional — this is a public configuration struct.
     struct ModuleTrail
     {
         bool Enabled = false;

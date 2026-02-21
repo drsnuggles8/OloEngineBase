@@ -62,10 +62,12 @@ namespace OloEngine
     {
         auto& rng = RandomUtils::GetGlobalRandom();
 
-        pool.m_Positions[index] = emitterPosition + emitterRotation * SampleEmissionShape(Shape);
+        // Use combined sampler to ensure mesh shapes pick position+direction from the same triangle
+        auto emission = SampleEmissionCombined(Shape);
+        pool.m_Positions[index] = emitterPosition + emitterRotation * emission.Position;
 
         // Apply entity rotation so emission shapes orient with the entity
-        glm::vec3 dir = emitterRotation * SampleEmissionDirection(Shape);
+        glm::vec3 dir = emitterRotation * emission.Direction;
         f32 speed = InitialSpeed + rng.GetFloat32InRange(-SpeedVariance, SpeedVariance);
         glm::vec3 velocity = dir * std::max(speed, 0.0f);
         pool.m_Velocities[index] = velocity;
@@ -80,7 +82,7 @@ namespace OloEngine
 
         pool.m_Rotations[index] = InitialRotation + rng.GetFloat32InRange(-RotationVariance, RotationVariance);
 
-        f32 lifetime = rng.GetFloat32InRange(LifetimeMin, LifetimeMax);
+        f32 lifetime = rng.GetFloat32InRange(std::min(LifetimeMin, LifetimeMax), std::max(LifetimeMin, LifetimeMax));
         pool.m_Lifetimes[index] = lifetime;
         pool.m_MaxLifetimes[index] = lifetime;
     }

@@ -50,6 +50,12 @@ namespace OloEngine
         // Compute LOD spawn rate multiplier based on camera distance to emitter
         void UpdateLOD(const glm::vec3& cameraPosition, const glm::vec3& emitterPosition);
 
+        // Directly set the LOD spawn rate multiplier (0 = no emission, 1 = full rate)
+        void SetLODSpawnRateMultiplier(f32 multiplier)
+        {
+            m_LODSpawnRateMultiplier = multiplier;
+        }
+
         // Sort alive particles back-to-front relative to camera for correct alpha blending.
         // Populates an internal index array; retrieve with GetSortedIndices().
         void SortByDepth(const glm::vec3& cameraPosition);

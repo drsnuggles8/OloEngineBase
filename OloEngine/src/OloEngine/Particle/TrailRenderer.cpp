@@ -37,11 +37,11 @@ namespace OloEngine
                 f32 tA = static_cast<f32>(i) / static_cast<f32>(trail.m_Count - 1);
                 f32 tB = static_cast<f32>(i + 1) / static_cast<f32>(trail.m_Count - 1);
 
-                glm::vec4 colorA = glm::mix(trailModule.ColorStart, trailModule.ColorEnd, tA);
-                glm::vec4 colorB = glm::mix(trailModule.ColorStart, trailModule.ColorEnd, tB);
+                glm::vec4 colorA = glm::mix(trailModule.ColorStart, trailModule.ColorEnd, tA) * a.Color;
+                glm::vec4 colorB = glm::mix(trailModule.ColorStart, trailModule.ColorEnd, tB) * b.Color;
 
-                f32 widthA = glm::mix(trailModule.WidthStart, trailModule.WidthEnd, tA);
-                f32 widthB = glm::mix(trailModule.WidthStart, trailModule.WidthEnd, tB);
+                f32 widthA = glm::mix(trailModule.WidthStart, trailModule.WidthEnd, tA) * a.Width;
+                f32 widthB = glm::mix(trailModule.WidthStart, trailModule.WidthEnd, tB) * b.Width;
 
                 glm::vec3 posA = a.Position + worldOffset;
                 glm::vec3 posB = b.Position + worldOffset;

@@ -14,6 +14,8 @@ namespace OloEngine
             return;
         }
 
+        OLO_PROFILE_FUNCTION();
+
         u32 count = pool.GetAliveCount();
         for (u32 i = 0; i < count; ++i)
         {
@@ -28,6 +30,8 @@ namespace OloEngine
         {
             return;
         }
+
+        OLO_PROFILE_FUNCTION();
 
         u32 count = pool.GetAliveCount();
         for (u32 i = 0; i < count; ++i)
@@ -44,6 +48,8 @@ namespace OloEngine
             return;
         }
 
+        OLO_PROFILE_FUNCTION();
+
         u32 count = pool.GetAliveCount();
         for (u32 i = 0; i < count; ++i)
         {
@@ -53,7 +59,7 @@ namespace OloEngine
             // Scale the initial velocity component by the curve while preserving
             // accumulated force contributions (gravity, drag, noise, etc.)
             glm::vec3 forceContribution = pool.m_Velocities[i] - pool.m_InitialVelocities[i];
-            pool.m_Velocities[i] = pool.m_InitialVelocities[i] * speedMul + forceContribution + LinearVelocity * dt;
+            pool.m_Velocities[i] = pool.m_InitialVelocities[i] * speedMul + forceContribution + LinearAcceleration * dt;
         }
     }
 
@@ -63,6 +69,8 @@ namespace OloEngine
         {
             return;
         }
+
+        OLO_PROFILE_FUNCTION();
 
         u32 count = pool.GetAliveCount();
         f32 delta = AngularVelocity * dt;
@@ -79,6 +87,8 @@ namespace OloEngine
             return;
         }
 
+        OLO_PROFILE_FUNCTION();
+
         u32 count = pool.GetAliveCount();
         glm::vec3 dv = Gravity * dt;
         for (u32 i = 0; i < count; ++i)
@@ -94,6 +104,8 @@ namespace OloEngine
             return;
         }
 
+        OLO_PROFILE_FUNCTION();
+
         u32 count = pool.GetAliveCount();
         f32 factor = std::exp(-DragCoefficient * dt);
         for (u32 i = 0; i < count; ++i)
@@ -108,6 +120,8 @@ namespace OloEngine
         {
             return;
         }
+
+        OLO_PROFILE_FUNCTION();
 
         // Spatially-coherent Simplex noise evaluated at particle position
         u32 count = pool.GetAliveCount();
@@ -126,6 +140,8 @@ namespace OloEngine
 
     void ModuleTextureSheetAnimation::GetFrameUV(u32 frame, glm::vec2& uvMin, glm::vec2& uvMax) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (GridX == 0 || GridY == 0)
         {
             uvMin = { 0.0f, 0.0f };

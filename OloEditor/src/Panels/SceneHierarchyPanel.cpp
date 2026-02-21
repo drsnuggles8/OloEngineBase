@@ -336,8 +336,11 @@ namespace OloEngine
 
     // ── Curve editor widget for ParticleCurve ──────────────────────────────
     static bool DrawParticleCurveEditor(const char* label, ParticleCurve& curve,
-                                        f32 valueMin = 0.0f, f32 valueMax = 1.0f)
+                                        f32 valueMin = 0.0f, f32 valueMax = 1.0f,
+                                        ImU32 lineColor = IM_COL32(220, 220, 80, 255))
     {
+        OLO_PROFILE_FUNCTION();
+
         bool modified = false;
         ImGui::PushID(label);
 
@@ -390,7 +393,7 @@ namespace OloEngine
             {
                 f32 t = static_cast<f32>(s) / static_cast<f32>(numSegments);
                 ImVec2 cur = toScreen(t, curve.Evaluate(t));
-                drawList->AddLine(prev, cur, IM_COL32(220, 220, 80, 255), 1.5f);
+                drawList->AddLine(prev, cur, lineColor, 1.5f);
                 prev = cur;
             }
         }
@@ -497,6 +500,8 @@ namespace OloEngine
     // ── Gradient preview bar for ParticleCurve4 ────────────────────────────
     static void DrawGradientBar(const ParticleCurve4& curve, f32 width, f32 height)
     {
+        OLO_PROFILE_FUNCTION();
+
         const ImVec2 pos = ImGui::GetCursorScreenPos();
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         constexpr int segments = 64;
@@ -526,6 +531,8 @@ namespace OloEngine
     // ── Combined color curve editor for ParticleCurve4 ─────────────────────
     static bool DrawParticleCurve4Editor(const char* label, ParticleCurve4& curve)
     {
+        OLO_PROFILE_FUNCTION();
+
         bool modified = false;
         ImGui::PushID(label);
 
@@ -545,11 +552,11 @@ namespace OloEngine
             { "Blue", &curve.B, IM_COL32(80, 130, 255, 255) },
             { "Alpha", &curve.A, IM_COL32(200, 200, 200, 255) },
         };
-        for (auto& [name, ch, lineColor] : channels)
+        for (auto& [name, ch, color] : channels)
         {
             if (ImGui::TreeNode(name))
             {
-                modified |= DrawParticleCurveEditor(name, *ch, 0.0f, 1.0f);
+                modified |= DrawParticleCurveEditor(name, *ch, 0.0f, 1.0f, color);
                 ImGui::TreePop();
             }
         }
@@ -604,6 +611,176 @@ namespace OloEngine
             if (removeComponent)
             {
                 entity.RemoveComponent<T>();
+            }
+        }
+    }
+
+    static void DrawParticleEmissionSection(ParticleEmitter& emitter)
+    {
+        if (!ImGui::CollapsingHeader("Emission", ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+
+        ImGui::DragFloat("Rate Over Time", &emitter.RateOverTime, 0.5f, 0.0f, 10000.0f);
+        ImGui::DragFloat("Initial Speed", &emitter.InitialSpeed, 0.1f, 0.0f, 100.0f);
+        ImGui::DragFloat("Speed Variance", &emitter.SpeedVariance, 0.1f, 0.0f, 50.0f);
+        ImGui::DragFloat("Lifetime Min", &emitter.LifetimeMin, 0.05f, 0.01f, 100.0f);
+        ImGui::DragFloat("Lifetime Max", &emitter.LifetimeMax, 0.05f, 0.01f, 100.0f);
+        if (emitter.LifetimeMin > emitter.LifetimeMax)
+            std::swap(emitter.LifetimeMin, emitter.LifetimeMax);
+        ImGui::DragFloat("Initial Size", &emitter.InitialSize, 0.01f, 0.001f, 50.0f);
+        ImGui::DragFloat("Size Variance", &emitter.SizeVariance, 0.01f, 0.0f, 25.0f);
+        ImGui::DragFloat("Initial Rotation", &emitter.InitialRotation, 1.0f, -360.0f, 360.0f);
+        ImGui::DragFloat("Rotation Variance", &emitter.RotationVariance, 1.0f, 0.0f, 360.0f);
+        ImGui::ColorEdit4("Initial Color", glm::value_ptr(emitter.InitialColor));
+
+        const char* shapeItems[] = { "Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Mesh" };
+        int shapeIdx = static_cast<int>(GetEmissionShapeType(emitter.Shape));
+        if (ImGui::Combo("Emission Shape", &shapeIdx, shapeItems, 7))
+        {
+            switch (static_cast<EmissionShapeType>(shapeIdx))
+            {
+                case EmissionShapeType::Point:
+                    emitter.Shape = EmitPoint{};
+                    break;
+                case EmissionShapeType::Sphere:
+                    emitter.Shape = EmitSphere{};
+                    break;
+                case EmissionShapeType::Box:
+                    emitter.Shape = EmitBox{};
+                    break;
+                case EmissionShapeType::Cone:
+                    emitter.Shape = EmitCone{};
+                    break;
+                case EmissionShapeType::Ring:
+                    emitter.Shape = EmitRing{};
+                    break;
+                case EmissionShapeType::Edge:
+                    emitter.Shape = EmitEdge{};
+                    break;
+                case EmissionShapeType::Mesh:
+                {
+                    EmitMesh m;
+                    BuildEmitMeshFromPrimitive(m, 0);
+                    emitter.Shape = std::move(m);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        // Shape-specific parameters
+        if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
+            ImGui::DragFloat("Sphere Radius", &sphere->Radius, 0.1f, 0.0f, 100.0f);
+        if (auto* box = std::get_if<EmitBox>(&emitter.Shape))
+            ImGui::DragFloat3("Box Half Extents", glm::value_ptr(box->HalfExtents), 0.1f, 0.0f, 100.0f);
+        if (auto* cone = std::get_if<EmitCone>(&emitter.Shape))
+        {
+            ImGui::DragFloat("Cone Angle", &cone->Angle, 1.0f, 0.0f, 90.0f);
+            ImGui::DragFloat("Cone Radius", &cone->Radius, 0.1f, 0.0f, 100.0f);
+        }
+        if (auto* ring = std::get_if<EmitRing>(&emitter.Shape))
+        {
+            ImGui::DragFloat("Inner Radius", &ring->InnerRadius, 0.1f, 0.0f, 100.0f);
+            ImGui::DragFloat("Outer Radius", &ring->OuterRadius, 0.1f, 0.0f, 100.0f);
+        }
+        if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
+            ImGui::DragFloat("Edge Length", &edge->Length, 0.1f, 0.0f, 100.0f);
+        if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
+        {
+            int primIdx = mesh->PrimitiveType;
+            if (ImGui::Combo("Mesh Primitive", &primIdx, EmitMeshPrimitiveNames, EmitMeshPrimitiveCount))
+            {
+                BuildEmitMeshFromPrimitive(*mesh, primIdx);
+            }
+            ImGui::Text("Triangles: %u", static_cast<u32>(mesh->Triangles.size()));
+        }
+    }
+
+    static void DrawParticleRenderingSection(ParticleSystemComponent& component, ParticleSystem& sys)
+    {
+        if (!ImGui::CollapsingHeader("Rendering"))
+            return;
+
+        // Blend mode
+        const char* blendModes[] = { "Alpha", "Additive", "Premultiplied Alpha" };
+        int blendIdx = static_cast<int>(sys.BlendMode);
+        if (ImGui::Combo("Blend Mode", &blendIdx, blendModes, 3))
+            sys.BlendMode = static_cast<ParticleBlendMode>(blendIdx);
+
+        // Render mode
+        const char* renderModes[] = { "Billboard", "Stretched Billboard", "Mesh" };
+        int renderIdx = static_cast<int>(sys.RenderMode);
+        if (ImGui::Combo("Render Mode", &renderIdx, renderModes, 3))
+            sys.RenderMode = static_cast<ParticleRenderMode>(renderIdx);
+
+        ImGui::Checkbox("Depth Sort", &sys.DepthSortEnabled);
+        ImGui::DragFloat("Velocity Inheritance", &sys.VelocityInheritance, 0.01f, 0.0f, 1.0f);
+
+        // Soft particles
+        ImGui::Checkbox("Soft Particles", &sys.SoftParticlesEnabled);
+        if (sys.SoftParticlesEnabled)
+        {
+            ImGui::DragFloat("Soft Distance", &sys.SoftParticleDistance, 0.1f, 0.01f, 50.0f);
+        }
+
+        ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+            {
+                auto* const path = static_cast<wchar_t*>(payload->Data);
+                std::filesystem::path texturePath(path);
+                Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
+                if (texture->IsLoaded())
+                {
+                    component.Texture = texture;
+                }
+                else
+                {
+                    OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+        if (component.Texture)
+        {
+            ImGui::SameLine();
+            ImGui::Text("%s", "Loaded");
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Texture"))
+                component.Texture = nullptr;
+        }
+
+        // Mesh selection (shown when render mode is Mesh)
+        if (sys.RenderMode == ParticleRenderMode::Mesh)
+        {
+            ImGui::Text("Particle Mesh: %s", component.ParticleMesh ? "Assigned" : "None");
+            ImGui::Button("Assign Mesh", ImVec2(100.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    auto* const path = static_cast<wchar_t*>(payload->Data);
+                    std::filesystem::path meshPath(path);
+                    auto model = Ref<Model>::Create(meshPath.string());
+                    if (model && model->GetMeshCount() > 0)
+                    {
+                        auto meshSource = model->CreateCombinedMeshSource();
+                        if (meshSource)
+                            component.ParticleMesh = Ref<Mesh>(new Mesh(meshSource));
+                    }
+                    else
+                    {
+                        OLO_WARN("Could not load mesh {0}", meshPath.filename().string());
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (component.ParticleMesh)
+            {
+                ImGui::SameLine();
+                if (ImGui::Button("Clear Mesh"))
+                    component.ParticleMesh = nullptr;
             }
         }
     }
@@ -1881,130 +2058,10 @@ namespace OloEngine
                 sys.SimulationSpace = static_cast<ParticleSpace>(spaceIdx);
 
             // Emission
-            if (ImGui::CollapsingHeader("Emission", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                ImGui::DragFloat("Rate Over Time", &emitter.RateOverTime, 0.5f, 0.0f, 10000.0f);
-                ImGui::DragFloat("Initial Speed", &emitter.InitialSpeed, 0.1f, 0.0f, 100.0f);
-                ImGui::DragFloat("Speed Variance", &emitter.SpeedVariance, 0.1f, 0.0f, 50.0f);
-                ImGui::DragFloat("Lifetime Min", &emitter.LifetimeMin, 0.05f, 0.01f, 100.0f);
-                ImGui::DragFloat("Lifetime Max", &emitter.LifetimeMax, 0.05f, 0.01f, 100.0f);
-                ImGui::DragFloat("Initial Size", &emitter.InitialSize, 0.01f, 0.001f, 50.0f);
-                ImGui::DragFloat("Size Variance", &emitter.SizeVariance, 0.01f, 0.0f, 25.0f);
-                ImGui::DragFloat("Initial Rotation", &emitter.InitialRotation, 1.0f, -360.0f, 360.0f);
-                ImGui::DragFloat("Rotation Variance", &emitter.RotationVariance, 1.0f, 0.0f, 360.0f);
-                ImGui::ColorEdit4("Initial Color", glm::value_ptr(emitter.InitialColor));
-
-                const char* shapeItems[] = { "Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Mesh" };
-                int shapeIdx = static_cast<int>(GetEmissionShapeType(emitter.Shape));
-                if (ImGui::Combo("Emission Shape", &shapeIdx, shapeItems, 7))
-                {
-                    switch (static_cast<EmissionShapeType>(shapeIdx))
-                    {
-                        case EmissionShapeType::Point:  emitter.Shape = EmitPoint{}; break;
-                        case EmissionShapeType::Sphere: emitter.Shape = EmitSphere{}; break;
-                        case EmissionShapeType::Box:    emitter.Shape = EmitBox{}; break;
-                        case EmissionShapeType::Cone:   emitter.Shape = EmitCone{}; break;
-                        case EmissionShapeType::Ring:   emitter.Shape = EmitRing{}; break;
-                        case EmissionShapeType::Edge:   emitter.Shape = EmitEdge{}; break;
-                        case EmissionShapeType::Mesh:
-                        {
-                            EmitMesh m;
-                            BuildEmitMeshFromPrimitive(m, 0);
-                            emitter.Shape = std::move(m);
-                            break;
-                        }
-                        default: break;
-                    }
-                }
-                // Shape-specific parameters
-                if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
-                    ImGui::DragFloat("Sphere Radius", &sphere->Radius, 0.1f, 0.0f, 100.0f);
-                if (auto* box = std::get_if<EmitBox>(&emitter.Shape))
-                    ImGui::DragFloat3("Box Half Extents", glm::value_ptr(box->HalfExtents), 0.1f, 0.0f, 100.0f);
-                if (auto* cone = std::get_if<EmitCone>(&emitter.Shape))
-                {
-                    ImGui::DragFloat("Cone Angle", &cone->Angle, 1.0f, 0.0f, 90.0f);
-                    ImGui::DragFloat("Cone Radius", &cone->Radius, 0.1f, 0.0f, 100.0f);
-                }
-                if (auto* ring = std::get_if<EmitRing>(&emitter.Shape))
-                {
-                    ImGui::DragFloat("Inner Radius", &ring->InnerRadius, 0.1f, 0.0f, 100.0f);
-                    ImGui::DragFloat("Outer Radius", &ring->OuterRadius, 0.1f, 0.0f, 100.0f);
-                }
-                if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
-                    ImGui::DragFloat("Edge Length", &edge->Length, 0.1f, 0.0f, 100.0f);
-                if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
-                {
-                    int primIdx = mesh->PrimitiveType;
-                    if (ImGui::Combo("Mesh Primitive", &primIdx, EmitMeshPrimitiveNames, EmitMeshPrimitiveCount))
-                    {
-                        BuildEmitMeshFromPrimitive(*mesh, primIdx);
-                    }
-                    ImGui::Text("Triangles: %u", static_cast<u32>(mesh->Triangles.size()));
-                }
-            }
+            DrawParticleEmissionSection(emitter);
 
             // Texture
-            if (ImGui::CollapsingHeader("Rendering"))
-            {
-                // Blend mode
-                const char* blendModes[] = { "Alpha", "Additive", "Premultiplied Alpha" };
-                int blendIdx = static_cast<int>(sys.BlendMode);
-                if (ImGui::Combo("Blend Mode", &blendIdx, blendModes, 3))
-                    sys.BlendMode = static_cast<ParticleBlendMode>(blendIdx);
-
-                // Render mode
-                const char* renderModes[] = { "Billboard", "Stretched Billboard", "Mesh" };
-                int renderIdx = static_cast<int>(sys.RenderMode);
-                if (ImGui::Combo("Render Mode", &renderIdx, renderModes, 3))
-                    sys.RenderMode = static_cast<ParticleRenderMode>(renderIdx);
-
-                ImGui::Checkbox("Depth Sort", &sys.DepthSortEnabled);
-                ImGui::DragFloat("Velocity Inheritance", &sys.VelocityInheritance, 0.01f, 0.0f, 1.0f);
-
-                // Soft particles
-                ImGui::Checkbox("Soft Particles", &sys.SoftParticlesEnabled);
-                if (sys.SoftParticlesEnabled)
-                {
-                    ImGui::DragFloat("Soft Distance", &sys.SoftParticleDistance, 0.1f, 0.01f, 50.0f);
-                }
-
-                ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
-                if (ImGui::BeginDragDropTarget())
-                {
-                    if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-                    {
-                        auto* const path = static_cast<wchar_t*>(payload->Data);
-                        std::filesystem::path texturePath(path);
-                        Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
-                        if (texture->IsLoaded())
-                        {
-                            component.Texture = texture;
-                        }
-                        else
-                        {
-                            OLO_WARN("Could not load texture {0}", texturePath.filename().string());
-                        }
-                    }
-                    ImGui::EndDragDropTarget();
-                }
-                if (component.Texture)
-                {
-                    ImGui::SameLine();
-                    ImGui::Text("%s", "Loaded");
-                    ImGui::SameLine();
-                    if (ImGui::Button("Clear Texture"))
-                        component.Texture = nullptr;
-                }
-
-                // Mesh selection (shown when render mode is Mesh)
-                if (sys.RenderMode == ParticleRenderMode::Mesh)
-                {
-                    ImGui::Text("Particle Mesh: %s", component.ParticleMesh ? "Assigned" : "None");
-                    if (component.ParticleMesh && ImGui::Button("Clear Mesh"))
-                        component.ParticleMesh = nullptr;
-                }
-            }
+            DrawParticleRenderingSection(component, sys);
 
             // Texture Sheet Animation
             if (ImGui::CollapsingHeader("Texture Sheet Animation"))
@@ -2062,7 +2119,7 @@ namespace OloEngine
                 ImGui::Checkbox("Velocity OL Enabled", &sys.VelocityModule.Enabled);
                 if (sys.VelocityModule.Enabled)
                 {
-                    ImGui::DragFloat3("Linear Velocity", glm::value_ptr(sys.VelocityModule.LinearVelocity), 0.1f);
+                    ImGui::DragFloat3("Linear Acceleration", glm::value_ptr(sys.VelocityModule.LinearAcceleration), 0.1f);
                     ImGui::DragFloat("Speed Multiplier", &sys.VelocityModule.SpeedMultiplier, 0.01f, 0.0f, 10.0f);
                     DrawParticleCurveEditor("Speed Curve", sys.VelocityModule.SpeedCurve, 0.0f, 2.0f);
                 }
@@ -2089,7 +2146,11 @@ namespace OloEngine
                     sys.CollisionModule.Mode = static_cast<CollisionMode>(modeIdx);
                 if (sys.CollisionModule.Mode == CollisionMode::WorldPlane)
                 {
-                    ImGui::DragFloat3("Plane Normal", glm::value_ptr(sys.CollisionModule.PlaneNormal), 0.01f, -1.0f, 1.0f);
+                    if (ImGui::DragFloat3("Plane Normal", glm::value_ptr(sys.CollisionModule.PlaneNormal), 0.01f, -1.0f, 1.0f))
+                    {
+                        f32 len = glm::length(sys.CollisionModule.PlaneNormal);
+                        sys.CollisionModule.PlaneNormal = (len > 0.0001f) ? sys.CollisionModule.PlaneNormal / len : glm::vec3(0.0f, 1.0f, 0.0f);
+                    }
                     ImGui::DragFloat("Plane Offset", &sys.CollisionModule.PlaneOffset, 0.1f);
                 }
                 ImGui::DragFloat("Bounce", &sys.CollisionModule.Bounce, 0.01f, 0.0f, 1.0f);
@@ -2114,7 +2175,13 @@ namespace OloEngine
                         ImGui::DragFloat("Strength", &ff.Strength, 0.1f, 0.0f, 1000.0f);
                         ImGui::DragFloat("Radius", &ff.Radius, 0.1f, 0.01f, 1000.0f);
                         if (ff.Type == ForceFieldType::Vortex)
-                            ImGui::DragFloat3("Vortex Axis", glm::value_ptr(ff.Axis), 0.01f, -1.0f, 1.0f);
+                        {
+                            if (ImGui::DragFloat3("Vortex Axis", glm::value_ptr(ff.Axis), 0.01f, -1.0f, 1.0f))
+                            {
+                                f32 len = glm::length(ff.Axis);
+                                ff.Axis = (len > 0.0001f) ? ff.Axis / len : glm::vec3(0.0f, 1.0f, 0.0f);
+                            }
+                        }
                         if (ImGui::Button("Remove"))
                         {
                             sys.ForceFields.erase(sys.ForceFields.begin() + static_cast<ptrdiff_t>(fi));

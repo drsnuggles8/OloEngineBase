@@ -11,6 +11,8 @@ namespace OloEngine
 
     u32 ParticleRenderer::ComputeFrame(const ParticlePool& pool, u32 index, const ModuleTextureSheetAnimation& sheet)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (sheet.TotalFrames <= 1)
         {
             return 0;
@@ -57,13 +59,13 @@ namespace OloEngine
                 glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 0.0f, 1.0f }) * glm::scale(glm::mat4(1.0f), { size, size, 1.0f });
                 Renderer2D::DrawQuad(transform, texture, uvMin, uvMax, color, entityID);
             }
-            else if (texture)
-            {
-                Renderer2D::DrawRotatedQuad(pos, { size, size }, rotation, texture, 1.0f, color);
-            }
             else
             {
-                Renderer2D::DrawRotatedQuad(pos, { size, size }, rotation, color);
+                glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 0.0f, 1.0f }) * glm::scale(glm::mat4(1.0f), { size, size, 1.0f });
+                if (texture)
+                    Renderer2D::DrawQuad(transform, texture, 1.0f, color, entityID);
+                else
+                    Renderer2D::DrawQuad(transform, color, entityID);
             }
         }
     }

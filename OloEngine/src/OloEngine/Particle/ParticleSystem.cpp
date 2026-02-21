@@ -145,12 +145,16 @@ namespace OloEngine
 
     void ParticleSystem::SetMaxParticles(u32 maxParticles)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_Pool.Resize(maxParticles);
         m_TrailData.Resize(maxParticles, TrailModule.MaxTrailPoints);
     }
 
     void ParticleSystem::UpdateLOD(const glm::vec3& cameraPosition, const glm::vec3& emitterPosition)
     {
+        OLO_PROFILE_FUNCTION();
+
         f32 dist = glm::length(cameraPosition - emitterPosition);
         if (dist >= LODMaxDistance)
         {
@@ -414,6 +418,8 @@ namespace OloEngine
             return;
         }
 
+        OLO_PROFILE_FUNCTION();
+
         // Triggers with ChildSystemIndex >= 0 are handled by Scene (emitted into child systems).
         // Only triggers with ChildSystemIndex == -1 fall back to the legacy parent-pool behavior.
         auto& rng = RandomUtils::GetGlobalRandom();
@@ -435,10 +441,12 @@ namespace OloEngine
                 m_Pool.m_Positions[idx] = trigger.Position;
 
                 // Random direction + inherited velocity
-                glm::vec3 dir = glm::normalize(glm::vec3(
+                glm::vec3 randomVec(
                     rng.GetFloat32InRange(-1.0f, 1.0f),
                     rng.GetFloat32InRange(-1.0f, 1.0f),
-                    rng.GetFloat32InRange(-1.0f, 1.0f)));
+                    rng.GetFloat32InRange(-1.0f, 1.0f));
+                f32 randomLen = glm::length(randomVec);
+                glm::vec3 dir = (randomLen > 0.0001f) ? randomVec / randomLen : glm::vec3(0.0f, 1.0f, 0.0f);
                 f32 speed = Emitter.InitialSpeed + rng.GetFloat32InRange(-Emitter.SpeedVariance, Emitter.SpeedVariance);
                 glm::vec3 velocity = dir * std::max(speed, 0.0f) + trigger.Velocity;
                 m_Pool.m_Velocities[idx] = velocity;
@@ -497,6 +505,8 @@ namespace OloEngine
 
     void ParticleSystem::Reset()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_Time = 0.0f;
         m_HasWarmedUp = false;
         m_Pool.Resize(m_Pool.GetMaxParticles());

@@ -2833,6 +2833,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         auto particleAsset = asset.As<ParticleSystemAsset>();
+        if (!particleAsset)
+        {
+            OLO_CORE_ERROR("ParticleSystemAssetSerializer::Serialize - Failed to cast asset to ParticleSystemAsset ({})", metadata.FilePath.string());
+            return;
+        }
         std::string yamlString = SerializeToYAML(particleAsset);
         std::ofstream fout(Project::GetAssetDirectory() / metadata.FilePath);
         fout << yamlString;
@@ -2885,6 +2890,8 @@ namespace OloEngine
 
     std::string ParticleSystemAssetSerializer::SerializeToYAML(const Ref<ParticleSystemAsset>& particleAsset) const
     {
+        OLO_PROFILE_FUNCTION();
+
         const auto& sys = particleAsset->System;
         const auto& emitter = sys.Emitter;
 
@@ -2943,6 +2950,8 @@ namespace OloEngine
         }
         if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
             out << YAML::Key << "EmissionEdgeLength" << YAML::Value << edge->Length;
+        if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
+            out << YAML::Key << "EmissionMeshPrimitiveType" << YAML::Value << mesh->PrimitiveType;
 
         // Modules
         out << YAML::Key << "GravityEnabled" << YAML::Value << sys.GravityModule.Enabled;
@@ -2954,7 +2963,7 @@ namespace OloEngine
         out << YAML::Key << "SizeOverLifetimeEnabled" << YAML::Value << sys.SizeModule.Enabled;
         SerializeCurve(out, "SizeCurve", sys.SizeModule.SizeCurve);
         out << YAML::Key << "VelocityOverLifetimeEnabled" << YAML::Value << sys.VelocityModule.Enabled;
-        out << YAML::Key << "LinearVelocity" << YAML::Value << sys.VelocityModule.LinearVelocity;
+        out << YAML::Key << "LinearAcceleration" << YAML::Value << sys.VelocityModule.LinearAcceleration;
         out << YAML::Key << "SpeedMultiplier" << YAML::Value << sys.VelocityModule.SpeedMultiplier;
         SerializeCurve(out, "SpeedCurve", sys.VelocityModule.SpeedCurve);
         out << YAML::Key << "RotationOverLifetimeEnabled" << YAML::Value << sys.RotationModule.Enabled;
@@ -2993,6 +3002,18 @@ namespace OloEngine
         out << YAML::Key << "TrailColorStart" << YAML::Value << sys.TrailModule.ColorStart;
         out << YAML::Key << "TrailColorEnd" << YAML::Value << sys.TrailModule.ColorEnd;
         out << YAML::Key << "SubEmitterEnabled" << YAML::Value << sys.SubEmitterModule.Enabled;
+        out << YAML::Key << "SubEmitterEntries" << YAML::Value << YAML::BeginSeq;
+        for (const auto& entry : sys.SubEmitterModule.Entries)
+        {
+            out << YAML::BeginMap;
+            out << YAML::Key << "Trigger" << YAML::Value << static_cast<int>(entry.Trigger);
+            out << YAML::Key << "EmitCount" << YAML::Value << entry.EmitCount;
+            out << YAML::Key << "InheritVelocity" << YAML::Value << entry.InheritVelocity;
+            out << YAML::Key << "InheritVelocityScale" << YAML::Value << entry.InheritVelocityScale;
+            out << YAML::Key << "ChildSystemIndex" << YAML::Value << entry.ChildSystemIndex;
+            out << YAML::EndMap;
+        }
+        out << YAML::EndSeq;
         out << YAML::Key << "LODDistance1" << YAML::Value << sys.LODDistance1;
         out << YAML::Key << "LODMaxDistance" << YAML::Value << sys.LODMaxDistance;
 
@@ -3019,6 +3040,8 @@ namespace OloEngine
 
     bool ParticleSystemAssetSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<ParticleSystemAsset>& particleAsset) const
     {
+        OLO_PROFILE_FUNCTION();
+
         try
         {
             YAML::Node data = YAML::Load(yamlString);
@@ -3108,6 +3131,14 @@ namespace OloEngine
                         emitter.Shape = e;
                         break;
                     }
+                    case EmissionShapeType::Mesh:
+                    {
+                        EmitMesh m;
+                        if (auto val = ps["EmissionMeshPrimitiveType"]; val)
+                            m.PrimitiveType = val.as<i32>();
+                        emitter.Shape = m;
+                        break;
+                    }
                     default:
                         break;
                 }
@@ -3122,7 +3153,10 @@ namespace OloEngine
             TrySetPS(sys.SizeModule.Enabled, ps["SizeOverLifetimeEnabled"]);
             DeserializeCurve(ps["SizeCurve"], sys.SizeModule.SizeCurve);
             TrySetPS(sys.VelocityModule.Enabled, ps["VelocityOverLifetimeEnabled"]);
-            TrySetPS(sys.VelocityModule.LinearVelocity, ps["LinearVelocity"]);
+            TrySetPS(sys.VelocityModule.LinearAcceleration, ps["LinearAcceleration"]);
+            // Backward compatibility with older assets
+            if (!ps["LinearAcceleration"])
+                TrySetPS(sys.VelocityModule.LinearAcceleration, ps["LinearVelocity"]);
             TrySetPS(sys.VelocityModule.SpeedMultiplier, ps["SpeedMultiplier"]);
             DeserializeCurve(ps["SpeedCurve"], sys.VelocityModule.SpeedCurve);
             TrySetPS(sys.RotationModule.Enabled, ps["RotationOverLifetimeEnabled"]);
@@ -3180,6 +3214,23 @@ namespace OloEngine
             TrySetPS(sys.TrailModule.ColorEnd, ps["TrailColorEnd"]);
 
             TrySetPS(sys.SubEmitterModule.Enabled, ps["SubEmitterEnabled"]);
+            if (auto entriesNode = ps["SubEmitterEntries"]; entriesNode && entriesNode.IsSequence())
+            {
+                sys.SubEmitterModule.Entries.clear();
+                for (auto entryNode : entriesNode)
+                {
+                    SubEmitterEntry entry;
+                    if (auto val = entryNode["Trigger"]; val)
+                        entry.Trigger = static_cast<SubEmitterEvent>(val.as<int>());
+                    if (auto val = entryNode["EmitCount"]; val)
+                        entry.EmitCount = val.as<u32>();
+                    TrySetPS(entry.InheritVelocity, entryNode["InheritVelocity"]);
+                    TrySetPS(entry.InheritVelocityScale, entryNode["InheritVelocityScale"]);
+                    if (auto val = entryNode["ChildSystemIndex"]; val)
+                        entry.ChildSystemIndex = val.as<i32>();
+                    sys.SubEmitterModule.Entries.push_back(entry);
+                }
+            }
             TrySetPS(sys.LODDistance1, ps["LODDistance1"]);
             TrySetPS(sys.LODMaxDistance, ps["LODMaxDistance"]);
 

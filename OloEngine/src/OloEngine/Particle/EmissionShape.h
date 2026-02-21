@@ -23,6 +23,7 @@ namespace OloEngine
         Mesh = 6,
     };
 
+    // NOTE: Emit* structs use PascalCase fields intentionally — they are simple PODs mirroring shader/config data.
     struct EmitPoint
     {
     };
@@ -298,5 +299,45 @@ namespace OloEngine
             {
                 return glm::vec3(0.0f, 1.0f, 0.0f);
             } }, shape);
+    }
+
+    // Combined position + direction sampler for mesh shapes.
+    // Guarantees that both are sampled from the same triangle (avoids position/direction mismatch).
+    struct EmissionSample
+    {
+        glm::vec3 Position{ 0.0f };
+        glm::vec3 Direction{ 0.0f, 1.0f, 0.0f };
+    };
+
+    inline EmissionSample SampleEmissionCombined(const EmissionShape& shape)
+    {
+        EmissionSample sample;
+        sample.Position = SampleEmissionShape(shape);
+
+        // Only EmitMesh needs a combined sample; all other shapes have independent position/direction.
+        if (auto* mesh = std::get_if<EmitMesh>(&shape); mesh && mesh->IsValid())
+        {
+            auto& rng = RandomUtils::GetGlobalRandom();
+            f32 r = rng.GetFloat32InRange(0.0f, mesh->TotalArea);
+            auto it = std::lower_bound(mesh->CumulativeAreas.begin(), mesh->CumulativeAreas.end(), r);
+            u32 triIdx = static_cast<u32>(std::distance(mesh->CumulativeAreas.begin(), it));
+            if (triIdx >= static_cast<u32>(mesh->Triangles.size()))
+                triIdx = static_cast<u32>(mesh->Triangles.size()) - 1;
+
+            const auto& tri = mesh->Triangles[triIdx];
+
+            // Uniform random point on triangle via barycentric coordinates
+            f32 r1 = rng.GetFloat32InRange(0.0f, 1.0f);
+            f32 r2 = rng.GetFloat32InRange(0.0f, 1.0f);
+            f32 sqrtR1 = std::sqrt(r1);
+            sample.Position = (1.0f - sqrtR1) * tri.V0 + sqrtR1 * (1.0f - r2) * tri.V1 + sqrtR1 * r2 * tri.V2;
+            sample.Direction = tri.Normal;
+        }
+        else
+        {
+            sample.Direction = SampleEmissionDirection(shape);
+        }
+
+        return sample;
     }
 } // namespace OloEngine

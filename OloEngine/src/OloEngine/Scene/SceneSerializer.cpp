@@ -104,6 +104,189 @@ namespace OloEngine
         DeserializeCurve(node["A"], curve.A);
     }
 
+    static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)
+    {
+        auto& sys = psc.System;
+        auto& emitter = sys.Emitter;
+
+        if (particleComponent["MaxParticles"])
+            sys.SetMaxParticles(particleComponent["MaxParticles"].as<u32>());
+        TrySet(sys.Playing, particleComponent["Playing"]);
+        TrySet(sys.Looping, particleComponent["Looping"]);
+        TrySet(sys.Duration, particleComponent["Duration"]);
+        TrySet(sys.PlaybackSpeed, particleComponent["PlaybackSpeed"]);
+        if (particleComponent["SimulationSpace"])
+            sys.SimulationSpace = static_cast<ParticleSpace>(particleComponent["SimulationSpace"].as<int>());
+
+        TrySet(emitter.RateOverTime, particleComponent["RateOverTime"]);
+        TrySet(emitter.InitialSpeed, particleComponent["InitialSpeed"]);
+        TrySet(emitter.SpeedVariance, particleComponent["SpeedVariance"]);
+        TrySet(emitter.LifetimeMin, particleComponent["LifetimeMin"]);
+        TrySet(emitter.LifetimeMax, particleComponent["LifetimeMax"]);
+        TrySet(emitter.InitialSize, particleComponent["InitialSize"]);
+        TrySet(emitter.SizeVariance, particleComponent["SizeVariance"]);
+        TrySet(emitter.InitialRotation, particleComponent["InitialRotation"]);
+        TrySet(emitter.RotationVariance, particleComponent["RotationVariance"]);
+        TrySet(emitter.InitialColor, particleComponent["InitialColor"]);
+        // Emission shape deserialization
+        if (auto shapeType = particleComponent["EmissionShapeType"]; shapeType)
+        {
+            switch (static_cast<EmissionShapeType>(shapeType.as<int>()))
+            {
+                case EmissionShapeType::Point:
+                    emitter.Shape = EmitPoint{};
+                    break;
+                case EmissionShapeType::Sphere:
+                {
+                    EmitSphere s;
+                    TrySet(s.Radius, particleComponent["EmissionSphereRadius"]);
+                    emitter.Shape = s;
+                    break;
+                }
+                case EmissionShapeType::Box:
+                {
+                    EmitBox b;
+                    TrySet(b.HalfExtents, particleComponent["EmissionBoxHalfExtents"]);
+                    emitter.Shape = b;
+                    break;
+                }
+                case EmissionShapeType::Cone:
+                {
+                    EmitCone c;
+                    TrySet(c.Angle, particleComponent["EmissionConeAngle"]);
+                    TrySet(c.Radius, particleComponent["EmissionConeRadius"]);
+                    emitter.Shape = c;
+                    break;
+                }
+                case EmissionShapeType::Ring:
+                {
+                    EmitRing r;
+                    TrySet(r.InnerRadius, particleComponent["EmissionRingInnerRadius"]);
+                    TrySet(r.OuterRadius, particleComponent["EmissionRingOuterRadius"]);
+                    emitter.Shape = r;
+                    break;
+                }
+                case EmissionShapeType::Edge:
+                {
+                    EmitEdge e;
+                    TrySet(e.Length, particleComponent["EmissionEdgeLength"]);
+                    emitter.Shape = e;
+                    break;
+                }
+                case EmissionShapeType::Mesh:
+                {
+                    EmitMesh m;
+                    i32 primType = 0;
+                    TrySet(primType, particleComponent["EmissionMeshPrimitive"]);
+                    BuildEmitMeshFromPrimitive(m, primType);
+                    emitter.Shape = std::move(m);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
+        TrySet(sys.GravityModule.Enabled, particleComponent["GravityEnabled"]);
+        TrySet(sys.GravityModule.Gravity, particleComponent["Gravity"]);
+        TrySet(sys.DragModule.Enabled, particleComponent["DragEnabled"]);
+        TrySet(sys.DragModule.DragCoefficient, particleComponent["DragCoefficient"]);
+        TrySet(sys.ColorModule.Enabled, particleComponent["ColorOverLifetimeEnabled"]);
+        DeserializeCurve4(particleComponent["ColorCurve"], sys.ColorModule.ColorCurve);
+        TrySet(sys.SizeModule.Enabled, particleComponent["SizeOverLifetimeEnabled"]);
+        DeserializeCurve(particleComponent["SizeCurve"], sys.SizeModule.SizeCurve);
+        TrySet(sys.RotationModule.Enabled, particleComponent["RotationOverLifetimeEnabled"]);
+        TrySet(sys.RotationModule.AngularVelocity, particleComponent["AngularVelocity"]);
+        TrySet(sys.VelocityModule.Enabled, particleComponent["VelocityOverLifetimeEnabled"]);
+        TrySet(sys.VelocityModule.LinearAcceleration, particleComponent["LinearAcceleration"]);
+        if (!particleComponent["LinearAcceleration"])
+            TrySet(sys.VelocityModule.LinearAcceleration, particleComponent["LinearVelocity"]);
+        TrySet(sys.VelocityModule.SpeedMultiplier, particleComponent["SpeedMultiplier"]);
+        DeserializeCurve(particleComponent["SpeedCurve"], sys.VelocityModule.SpeedCurve);
+        TrySet(sys.NoiseModule.Enabled, particleComponent["NoiseEnabled"]);
+        TrySet(sys.NoiseModule.Strength, particleComponent["NoiseStrength"]);
+        TrySet(sys.NoiseModule.Frequency, particleComponent["NoiseFrequency"]);
+
+        // Phase 2: Collision
+        TrySet(sys.CollisionModule.Enabled, particleComponent["CollisionEnabled"]);
+        if (auto val = particleComponent["CollisionMode"]; val)
+            sys.CollisionModule.Mode = static_cast<CollisionMode>(val.as<int>());
+        TrySet(sys.CollisionModule.PlaneNormal, particleComponent["CollisionPlaneNormal"]);
+        TrySet(sys.CollisionModule.PlaneOffset, particleComponent["CollisionPlaneOffset"]);
+        TrySet(sys.CollisionModule.Bounce, particleComponent["CollisionBounce"]);
+        TrySet(sys.CollisionModule.LifetimeLoss, particleComponent["CollisionLifetimeLoss"]);
+        TrySet(sys.CollisionModule.KillOnCollide, particleComponent["CollisionKillOnCollide"]);
+
+        // Phase 2: Force Fields (vector, with backward compat for old single-field format)
+        if (auto forceFieldsNode = particleComponent["ForceFields"]; forceFieldsNode && forceFieldsNode.IsSequence())
+        {
+            sys.ForceFields.clear();
+            for (auto ffNode : forceFieldsNode)
+            {
+                ModuleForceField ff;
+                TrySet(ff.Enabled, ffNode["Enabled"]);
+                if (auto val = ffNode["Type"]; val)
+                    ff.Type = static_cast<ForceFieldType>(val.as<int>());
+                TrySet(ff.Position, ffNode["Position"]);
+                TrySet(ff.Strength, ffNode["Strength"]);
+                TrySet(ff.Radius, ffNode["Radius"]);
+                TrySet(ff.Axis, ffNode["Axis"]);
+                sys.ForceFields.push_back(ff);
+            }
+        }
+        else if (auto oldEnabled = particleComponent["ForceFieldEnabled"]; oldEnabled)
+        {
+            // Backward compatibility: old single force field format
+            ModuleForceField ff;
+            TrySet(ff.Enabled, oldEnabled);
+            if (auto val = particleComponent["ForceFieldType"]; val)
+                ff.Type = static_cast<ForceFieldType>(val.as<int>());
+            TrySet(ff.Position, particleComponent["ForceFieldPosition"]);
+            TrySet(ff.Strength, particleComponent["ForceFieldStrength"]);
+            TrySet(ff.Radius, particleComponent["ForceFieldRadius"]);
+            TrySet(ff.Axis, particleComponent["ForceFieldAxis"]);
+            sys.ForceFields.push_back(ff);
+        }
+
+        // Phase 2: Trail
+        TrySet(sys.TrailModule.Enabled, particleComponent["TrailEnabled"]);
+        if (auto val = particleComponent["TrailMaxPoints"]; val)
+            sys.TrailModule.MaxTrailPoints = val.as<u32>();
+        TrySet(sys.TrailModule.TrailLifetime, particleComponent["TrailLifetime"]);
+        TrySet(sys.TrailModule.MinVertexDistance, particleComponent["TrailMinVertexDistance"]);
+        TrySet(sys.TrailModule.WidthStart, particleComponent["TrailWidthStart"]);
+        TrySet(sys.TrailModule.WidthEnd, particleComponent["TrailWidthEnd"]);
+        TrySet(sys.TrailModule.ColorStart, particleComponent["TrailColorStart"]);
+        TrySet(sys.TrailModule.ColorEnd, particleComponent["TrailColorEnd"]);
+
+        // Phase 2: Sub-Emitter
+        TrySet(sys.SubEmitterModule.Enabled, particleComponent["SubEmitterEnabled"]);
+
+        // Phase 2: LOD
+        TrySet(sys.LODDistance1, particleComponent["LODDistance1"]);
+        TrySet(sys.LODMaxDistance, particleComponent["LODMaxDistance"]);
+        TrySet(sys.WarmUpTime, particleComponent["WarmUpTime"]);
+
+        // Rendering settings
+        if (auto val = particleComponent["BlendMode"]; val)
+            sys.BlendMode = static_cast<ParticleBlendMode>(val.as<int>());
+        if (auto val = particleComponent["RenderMode"]; val)
+            sys.RenderMode = static_cast<ParticleRenderMode>(val.as<int>());
+        TrySet(sys.DepthSortEnabled, particleComponent["DepthSortEnabled"]);
+        TrySet(sys.SoftParticlesEnabled, particleComponent["SoftParticlesEnabled"]);
+        TrySet(sys.SoftParticleDistance, particleComponent["SoftParticleDistance"]);
+        TrySet(sys.VelocityInheritance, particleComponent["VelocityInheritance"]);
+
+        // Texture sheet animation
+        TrySet(sys.TextureSheetModule.Enabled, particleComponent["TextureSheetEnabled"]);
+        TrySet(sys.TextureSheetModule.GridX, particleComponent["TextureSheetGridX"]);
+        TrySet(sys.TextureSheetModule.GridY, particleComponent["TextureSheetGridY"]);
+        TrySet(sys.TextureSheetModule.TotalFrames, particleComponent["TextureSheetTotalFrames"]);
+        if (auto val = particleComponent["TextureSheetMode"]; val)
+            sys.TextureSheetModule.Mode = static_cast<TextureSheetAnimMode>(val.as<int>());
+        TrySet(sys.TextureSheetModule.SpeedRange, particleComponent["TextureSheetSpeedRange"]);
+    }
+
     static std::string RigidBody2DBodyTypeToString(const Rigidbody2DComponent::BodyType bodyType)
     {
         switch (bodyType)
@@ -961,7 +1144,7 @@ namespace OloEngine
             out << YAML::Key << "RotationOverLifetimeEnabled" << YAML::Value << sys.RotationModule.Enabled;
             out << YAML::Key << "AngularVelocity" << YAML::Value << sys.RotationModule.AngularVelocity;
             out << YAML::Key << "VelocityOverLifetimeEnabled" << YAML::Value << sys.VelocityModule.Enabled;
-            out << YAML::Key << "LinearVelocity" << YAML::Value << sys.VelocityModule.LinearVelocity;
+            out << YAML::Key << "LinearAcceleration" << YAML::Value << sys.VelocityModule.LinearAcceleration;
             out << YAML::Key << "SpeedMultiplier" << YAML::Value << sys.VelocityModule.SpeedMultiplier;
             SerializeCurve(out, "SpeedCurve", sys.VelocityModule.SpeedCurve);
             out << YAML::Key << "NoiseEnabled" << YAML::Value << sys.NoiseModule.Enabled;
@@ -1745,183 +1928,7 @@ namespace OloEngine
                 if (auto particleComponent = entity["ParticleSystemComponent"]; particleComponent)
                 {
                     auto& psc = deserializedEntity.AddComponent<ParticleSystemComponent>();
-                    auto& sys = psc.System;
-                    auto& emitter = sys.Emitter;
-
-                    if (particleComponent["MaxParticles"])
-                        sys.SetMaxParticles(particleComponent["MaxParticles"].as<u32>());
-                    TrySet(sys.Playing, particleComponent["Playing"]);
-                    TrySet(sys.Looping, particleComponent["Looping"]);
-                    TrySet(sys.Duration, particleComponent["Duration"]);
-                    TrySet(sys.PlaybackSpeed, particleComponent["PlaybackSpeed"]);
-                    if (particleComponent["SimulationSpace"])
-                        sys.SimulationSpace = static_cast<ParticleSpace>(particleComponent["SimulationSpace"].as<int>());
-
-                    TrySet(emitter.RateOverTime, particleComponent["RateOverTime"]);
-                    TrySet(emitter.InitialSpeed, particleComponent["InitialSpeed"]);
-                    TrySet(emitter.SpeedVariance, particleComponent["SpeedVariance"]);
-                    TrySet(emitter.LifetimeMin, particleComponent["LifetimeMin"]);
-                    TrySet(emitter.LifetimeMax, particleComponent["LifetimeMax"]);
-                    TrySet(emitter.InitialSize, particleComponent["InitialSize"]);
-                    TrySet(emitter.SizeVariance, particleComponent["SizeVariance"]);
-                    TrySet(emitter.InitialRotation, particleComponent["InitialRotation"]);
-                    TrySet(emitter.RotationVariance, particleComponent["RotationVariance"]);
-                    TrySet(emitter.InitialColor, particleComponent["InitialColor"]);
-                    // Emission shape deserialization
-                    if (auto shapeType = particleComponent["EmissionShapeType"]; shapeType)
-                    {
-                        switch (static_cast<EmissionShapeType>(shapeType.as<int>()))
-                        {
-                            case EmissionShapeType::Point:
-                                emitter.Shape = EmitPoint{};
-                                break;
-                            case EmissionShapeType::Sphere:
-                            {
-                                EmitSphere s;
-                                TrySet(s.Radius, particleComponent["EmissionSphereRadius"]);
-                                emitter.Shape = s;
-                                break;
-                            }
-                            case EmissionShapeType::Box:
-                            {
-                                EmitBox b;
-                                TrySet(b.HalfExtents, particleComponent["EmissionBoxHalfExtents"]);
-                                emitter.Shape = b;
-                                break;
-                            }
-                            case EmissionShapeType::Cone:
-                            {
-                                EmitCone c;
-                                TrySet(c.Angle, particleComponent["EmissionConeAngle"]);
-                                TrySet(c.Radius, particleComponent["EmissionConeRadius"]);
-                                emitter.Shape = c;
-                                break;
-                            }
-                            case EmissionShapeType::Ring:
-                            {
-                                EmitRing r;
-                                TrySet(r.InnerRadius, particleComponent["EmissionRingInnerRadius"]);
-                                TrySet(r.OuterRadius, particleComponent["EmissionRingOuterRadius"]);
-                                emitter.Shape = r;
-                                break;
-                            }
-                            case EmissionShapeType::Edge:
-                            {
-                                EmitEdge e;
-                                TrySet(e.Length, particleComponent["EmissionEdgeLength"]);
-                                emitter.Shape = e;
-                                break;
-                            }
-                            case EmissionShapeType::Mesh:
-                            {
-                                EmitMesh m;
-                                i32 primType = 0;
-                                TrySet(primType, particleComponent["EmissionMeshPrimitive"]);
-                                BuildEmitMeshFromPrimitive(m, primType);
-                                emitter.Shape = std::move(m);
-                                break;
-                            }
-                            default:
-                                break;
-                        }
-                    }
-
-                    TrySet(sys.GravityModule.Enabled, particleComponent["GravityEnabled"]);
-                    TrySet(sys.GravityModule.Gravity, particleComponent["Gravity"]);
-                    TrySet(sys.DragModule.Enabled, particleComponent["DragEnabled"]);
-                    TrySet(sys.DragModule.DragCoefficient, particleComponent["DragCoefficient"]);
-                    TrySet(sys.ColorModule.Enabled, particleComponent["ColorOverLifetimeEnabled"]);
-                    DeserializeCurve4(particleComponent["ColorCurve"], sys.ColorModule.ColorCurve);
-                    TrySet(sys.SizeModule.Enabled, particleComponent["SizeOverLifetimeEnabled"]);
-                    DeserializeCurve(particleComponent["SizeCurve"], sys.SizeModule.SizeCurve);
-                    TrySet(sys.RotationModule.Enabled, particleComponent["RotationOverLifetimeEnabled"]);
-                    TrySet(sys.RotationModule.AngularVelocity, particleComponent["AngularVelocity"]);
-                    TrySet(sys.VelocityModule.Enabled, particleComponent["VelocityOverLifetimeEnabled"]);
-                    TrySet(sys.VelocityModule.LinearVelocity, particleComponent["LinearVelocity"]);
-                    TrySet(sys.VelocityModule.SpeedMultiplier, particleComponent["SpeedMultiplier"]);
-                    DeserializeCurve(particleComponent["SpeedCurve"], sys.VelocityModule.SpeedCurve);
-                    TrySet(sys.NoiseModule.Enabled, particleComponent["NoiseEnabled"]);
-                    TrySet(sys.NoiseModule.Strength, particleComponent["NoiseStrength"]);
-                    TrySet(sys.NoiseModule.Frequency, particleComponent["NoiseFrequency"]);
-
-                    // Phase 2: Collision
-                    TrySet(sys.CollisionModule.Enabled, particleComponent["CollisionEnabled"]);
-                    if (auto val = particleComponent["CollisionMode"]; val)
-                        sys.CollisionModule.Mode = static_cast<CollisionMode>(val.as<int>());
-                    TrySet(sys.CollisionModule.PlaneNormal, particleComponent["CollisionPlaneNormal"]);
-                    TrySet(sys.CollisionModule.PlaneOffset, particleComponent["CollisionPlaneOffset"]);
-                    TrySet(sys.CollisionModule.Bounce, particleComponent["CollisionBounce"]);
-                    TrySet(sys.CollisionModule.LifetimeLoss, particleComponent["CollisionLifetimeLoss"]);
-                    TrySet(sys.CollisionModule.KillOnCollide, particleComponent["CollisionKillOnCollide"]);
-
-                    // Phase 2: Force Fields (vector, with backward compat for old single-field format)
-                    if (auto forceFieldsNode = particleComponent["ForceFields"]; forceFieldsNode && forceFieldsNode.IsSequence())
-                    {
-                        sys.ForceFields.clear();
-                        for (auto ffNode : forceFieldsNode)
-                        {
-                            ModuleForceField ff;
-                            TrySet(ff.Enabled, ffNode["Enabled"]);
-                            if (auto val = ffNode["Type"]; val)
-                                ff.Type = static_cast<ForceFieldType>(val.as<int>());
-                            TrySet(ff.Position, ffNode["Position"]);
-                            TrySet(ff.Strength, ffNode["Strength"]);
-                            TrySet(ff.Radius, ffNode["Radius"]);
-                            TrySet(ff.Axis, ffNode["Axis"]);
-                            sys.ForceFields.push_back(ff);
-                        }
-                    }
-                    else if (auto oldEnabled = particleComponent["ForceFieldEnabled"]; oldEnabled)
-                    {
-                        // Backward compatibility: old single force field format
-                        ModuleForceField ff;
-                        TrySet(ff.Enabled, oldEnabled);
-                        if (auto val = particleComponent["ForceFieldType"]; val)
-                            ff.Type = static_cast<ForceFieldType>(val.as<int>());
-                        TrySet(ff.Position, particleComponent["ForceFieldPosition"]);
-                        TrySet(ff.Strength, particleComponent["ForceFieldStrength"]);
-                        TrySet(ff.Radius, particleComponent["ForceFieldRadius"]);
-                        TrySet(ff.Axis, particleComponent["ForceFieldAxis"]);
-                        sys.ForceFields.push_back(ff);
-                    }
-
-                    // Phase 2: Trail
-                    TrySet(sys.TrailModule.Enabled, particleComponent["TrailEnabled"]);
-                    if (auto val = particleComponent["TrailMaxPoints"]; val)
-                        sys.TrailModule.MaxTrailPoints = val.as<u32>();
-                    TrySet(sys.TrailModule.TrailLifetime, particleComponent["TrailLifetime"]);
-                    TrySet(sys.TrailModule.MinVertexDistance, particleComponent["TrailMinVertexDistance"]);
-                    TrySet(sys.TrailModule.WidthStart, particleComponent["TrailWidthStart"]);
-                    TrySet(sys.TrailModule.WidthEnd, particleComponent["TrailWidthEnd"]);
-                    TrySet(sys.TrailModule.ColorStart, particleComponent["TrailColorStart"]);
-                    TrySet(sys.TrailModule.ColorEnd, particleComponent["TrailColorEnd"]);
-
-                    // Phase 2: Sub-Emitter
-                    TrySet(sys.SubEmitterModule.Enabled, particleComponent["SubEmitterEnabled"]);
-
-                    // Phase 2: LOD
-                    TrySet(sys.LODDistance1, particleComponent["LODDistance1"]);
-                    TrySet(sys.LODMaxDistance, particleComponent["LODMaxDistance"]);
-                    TrySet(sys.WarmUpTime, particleComponent["WarmUpTime"]);
-
-                    // Rendering settings
-                    if (auto val = particleComponent["BlendMode"]; val)
-                        sys.BlendMode = static_cast<ParticleBlendMode>(val.as<int>());
-                    if (auto val = particleComponent["RenderMode"]; val)
-                        sys.RenderMode = static_cast<ParticleRenderMode>(val.as<int>());
-                    TrySet(sys.DepthSortEnabled, particleComponent["DepthSortEnabled"]);
-                    TrySet(sys.SoftParticlesEnabled, particleComponent["SoftParticlesEnabled"]);
-                    TrySet(sys.SoftParticleDistance, particleComponent["SoftParticleDistance"]);
-                    TrySet(sys.VelocityInheritance, particleComponent["VelocityInheritance"]);
-
-                    // Texture sheet animation
-                    TrySet(sys.TextureSheetModule.Enabled, particleComponent["TextureSheetEnabled"]);
-                    TrySet(sys.TextureSheetModule.GridX, particleComponent["TextureSheetGridX"]);
-                    TrySet(sys.TextureSheetModule.GridY, particleComponent["TextureSheetGridY"]);
-                    TrySet(sys.TextureSheetModule.TotalFrames, particleComponent["TextureSheetTotalFrames"]);
-                    if (auto val = particleComponent["TextureSheetMode"]; val)
-                        sys.TextureSheetModule.Mode = static_cast<TextureSheetAnimMode>(val.as<int>());
-                    TrySet(sys.TextureSheetModule.SpeedRange, particleComponent["TextureSheetSpeedRange"]);
+                    DeserializeParticleSystemComponent(psc, particleComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
@@ -2697,183 +2704,7 @@ namespace OloEngine
                 if (auto particleComponent = entity["ParticleSystemComponent"]; particleComponent)
                 {
                     auto& psc = deserializedEntity.AddComponent<ParticleSystemComponent>();
-                    auto& sys = psc.System;
-                    auto& emitter = sys.Emitter;
-
-                    if (particleComponent["MaxParticles"])
-                        sys.SetMaxParticles(particleComponent["MaxParticles"].as<u32>());
-                    TrySet(sys.Playing, particleComponent["Playing"]);
-                    TrySet(sys.Looping, particleComponent["Looping"]);
-                    TrySet(sys.Duration, particleComponent["Duration"]);
-                    TrySet(sys.PlaybackSpeed, particleComponent["PlaybackSpeed"]);
-                    if (particleComponent["SimulationSpace"])
-                        sys.SimulationSpace = static_cast<ParticleSpace>(particleComponent["SimulationSpace"].as<int>());
-
-                    TrySet(emitter.RateOverTime, particleComponent["RateOverTime"]);
-                    TrySet(emitter.InitialSpeed, particleComponent["InitialSpeed"]);
-                    TrySet(emitter.SpeedVariance, particleComponent["SpeedVariance"]);
-                    TrySet(emitter.LifetimeMin, particleComponent["LifetimeMin"]);
-                    TrySet(emitter.LifetimeMax, particleComponent["LifetimeMax"]);
-                    TrySet(emitter.InitialSize, particleComponent["InitialSize"]);
-                    TrySet(emitter.SizeVariance, particleComponent["SizeVariance"]);
-                    TrySet(emitter.InitialRotation, particleComponent["InitialRotation"]);
-                    TrySet(emitter.RotationVariance, particleComponent["RotationVariance"]);
-                    TrySet(emitter.InitialColor, particleComponent["InitialColor"]);
-                    // Emission shape deserialization
-                    if (auto shapeType = particleComponent["EmissionShapeType"]; shapeType)
-                    {
-                        switch (static_cast<EmissionShapeType>(shapeType.as<int>()))
-                        {
-                            case EmissionShapeType::Point:
-                                emitter.Shape = EmitPoint{};
-                                break;
-                            case EmissionShapeType::Sphere:
-                            {
-                                EmitSphere s;
-                                TrySet(s.Radius, particleComponent["EmissionSphereRadius"]);
-                                emitter.Shape = s;
-                                break;
-                            }
-                            case EmissionShapeType::Box:
-                            {
-                                EmitBox b;
-                                TrySet(b.HalfExtents, particleComponent["EmissionBoxHalfExtents"]);
-                                emitter.Shape = b;
-                                break;
-                            }
-                            case EmissionShapeType::Cone:
-                            {
-                                EmitCone c;
-                                TrySet(c.Angle, particleComponent["EmissionConeAngle"]);
-                                TrySet(c.Radius, particleComponent["EmissionConeRadius"]);
-                                emitter.Shape = c;
-                                break;
-                            }
-                            case EmissionShapeType::Ring:
-                            {
-                                EmitRing r;
-                                TrySet(r.InnerRadius, particleComponent["EmissionRingInnerRadius"]);
-                                TrySet(r.OuterRadius, particleComponent["EmissionRingOuterRadius"]);
-                                emitter.Shape = r;
-                                break;
-                            }
-                            case EmissionShapeType::Edge:
-                            {
-                                EmitEdge e;
-                                TrySet(e.Length, particleComponent["EmissionEdgeLength"]);
-                                emitter.Shape = e;
-                                break;
-                            }
-                            case EmissionShapeType::Mesh:
-                            {
-                                EmitMesh m;
-                                i32 primType = 0;
-                                TrySet(primType, particleComponent["EmissionMeshPrimitive"]);
-                                BuildEmitMeshFromPrimitive(m, primType);
-                                emitter.Shape = std::move(m);
-                                break;
-                            }
-                            default:
-                                break;
-                        }
-                    }
-
-                    TrySet(sys.GravityModule.Enabled, particleComponent["GravityEnabled"]);
-                    TrySet(sys.GravityModule.Gravity, particleComponent["Gravity"]);
-                    TrySet(sys.DragModule.Enabled, particleComponent["DragEnabled"]);
-                    TrySet(sys.DragModule.DragCoefficient, particleComponent["DragCoefficient"]);
-                    TrySet(sys.ColorModule.Enabled, particleComponent["ColorOverLifetimeEnabled"]);
-                    DeserializeCurve4(particleComponent["ColorCurve"], sys.ColorModule.ColorCurve);
-                    TrySet(sys.SizeModule.Enabled, particleComponent["SizeOverLifetimeEnabled"]);
-                    DeserializeCurve(particleComponent["SizeCurve"], sys.SizeModule.SizeCurve);
-                    TrySet(sys.RotationModule.Enabled, particleComponent["RotationOverLifetimeEnabled"]);
-                    TrySet(sys.RotationModule.AngularVelocity, particleComponent["AngularVelocity"]);
-                    TrySet(sys.VelocityModule.Enabled, particleComponent["VelocityOverLifetimeEnabled"]);
-                    TrySet(sys.VelocityModule.LinearVelocity, particleComponent["LinearVelocity"]);
-                    TrySet(sys.VelocityModule.SpeedMultiplier, particleComponent["SpeedMultiplier"]);
-                    DeserializeCurve(particleComponent["SpeedCurve"], sys.VelocityModule.SpeedCurve);
-                    TrySet(sys.NoiseModule.Enabled, particleComponent["NoiseEnabled"]);
-                    TrySet(sys.NoiseModule.Strength, particleComponent["NoiseStrength"]);
-                    TrySet(sys.NoiseModule.Frequency, particleComponent["NoiseFrequency"]);
-
-                    // Phase 2: Collision
-                    TrySet(sys.CollisionModule.Enabled, particleComponent["CollisionEnabled"]);
-                    if (auto val = particleComponent["CollisionMode"]; val)
-                        sys.CollisionModule.Mode = static_cast<CollisionMode>(val.as<int>());
-                    TrySet(sys.CollisionModule.PlaneNormal, particleComponent["CollisionPlaneNormal"]);
-                    TrySet(sys.CollisionModule.PlaneOffset, particleComponent["CollisionPlaneOffset"]);
-                    TrySet(sys.CollisionModule.Bounce, particleComponent["CollisionBounce"]);
-                    TrySet(sys.CollisionModule.LifetimeLoss, particleComponent["CollisionLifetimeLoss"]);
-                    TrySet(sys.CollisionModule.KillOnCollide, particleComponent["CollisionKillOnCollide"]);
-
-                    // Phase 2: Force Fields (vector, with backward compat for old single-field format)
-                    if (auto forceFieldsNode = particleComponent["ForceFields"]; forceFieldsNode && forceFieldsNode.IsSequence())
-                    {
-                        sys.ForceFields.clear();
-                        for (auto ffNode : forceFieldsNode)
-                        {
-                            ModuleForceField ff;
-                            TrySet(ff.Enabled, ffNode["Enabled"]);
-                            if (auto val = ffNode["Type"]; val)
-                                ff.Type = static_cast<ForceFieldType>(val.as<int>());
-                            TrySet(ff.Position, ffNode["Position"]);
-                            TrySet(ff.Strength, ffNode["Strength"]);
-                            TrySet(ff.Radius, ffNode["Radius"]);
-                            TrySet(ff.Axis, ffNode["Axis"]);
-                            sys.ForceFields.push_back(ff);
-                        }
-                    }
-                    else if (auto oldEnabled = particleComponent["ForceFieldEnabled"]; oldEnabled)
-                    {
-                        // Backward compatibility: old single force field format
-                        ModuleForceField ff;
-                        TrySet(ff.Enabled, oldEnabled);
-                        if (auto val = particleComponent["ForceFieldType"]; val)
-                            ff.Type = static_cast<ForceFieldType>(val.as<int>());
-                        TrySet(ff.Position, particleComponent["ForceFieldPosition"]);
-                        TrySet(ff.Strength, particleComponent["ForceFieldStrength"]);
-                        TrySet(ff.Radius, particleComponent["ForceFieldRadius"]);
-                        TrySet(ff.Axis, particleComponent["ForceFieldAxis"]);
-                        sys.ForceFields.push_back(ff);
-                    }
-
-                    // Phase 2: Trail
-                    TrySet(sys.TrailModule.Enabled, particleComponent["TrailEnabled"]);
-                    if (auto val = particleComponent["TrailMaxPoints"]; val)
-                        sys.TrailModule.MaxTrailPoints = val.as<u32>();
-                    TrySet(sys.TrailModule.TrailLifetime, particleComponent["TrailLifetime"]);
-                    TrySet(sys.TrailModule.MinVertexDistance, particleComponent["TrailMinVertexDistance"]);
-                    TrySet(sys.TrailModule.WidthStart, particleComponent["TrailWidthStart"]);
-                    TrySet(sys.TrailModule.WidthEnd, particleComponent["TrailWidthEnd"]);
-                    TrySet(sys.TrailModule.ColorStart, particleComponent["TrailColorStart"]);
-                    TrySet(sys.TrailModule.ColorEnd, particleComponent["TrailColorEnd"]);
-
-                    // Phase 2: Sub-Emitter
-                    TrySet(sys.SubEmitterModule.Enabled, particleComponent["SubEmitterEnabled"]);
-
-                    // Phase 2: LOD
-                    TrySet(sys.LODDistance1, particleComponent["LODDistance1"]);
-                    TrySet(sys.LODMaxDistance, particleComponent["LODMaxDistance"]);
-                    TrySet(sys.WarmUpTime, particleComponent["WarmUpTime"]);
-
-                    // Rendering settings
-                    if (auto val = particleComponent["BlendMode"]; val)
-                        sys.BlendMode = static_cast<ParticleBlendMode>(val.as<int>());
-                    if (auto val = particleComponent["RenderMode"]; val)
-                        sys.RenderMode = static_cast<ParticleRenderMode>(val.as<int>());
-                    TrySet(sys.DepthSortEnabled, particleComponent["DepthSortEnabled"]);
-                    TrySet(sys.SoftParticlesEnabled, particleComponent["SoftParticlesEnabled"]);
-                    TrySet(sys.SoftParticleDistance, particleComponent["SoftParticleDistance"]);
-                    TrySet(sys.VelocityInheritance, particleComponent["VelocityInheritance"]);
-
-                    // Texture sheet animation
-                    TrySet(sys.TextureSheetModule.Enabled, particleComponent["TextureSheetEnabled"]);
-                    TrySet(sys.TextureSheetModule.GridX, particleComponent["TextureSheetGridX"]);
-                    TrySet(sys.TextureSheetModule.GridY, particleComponent["TextureSheetGridY"]);
-                    TrySet(sys.TextureSheetModule.TotalFrames, particleComponent["TextureSheetTotalFrames"]);
-                    if (auto val = particleComponent["TextureSheetMode"]; val)
-                        sys.TextureSheetModule.Mode = static_cast<TextureSheetAnimMode>(val.as<int>());
-                    TrySet(sys.TextureSheetModule.SpeedRange, particleComponent["TextureSheetSpeedRange"]);
+                    DeserializeParticleSystemComponent(psc, particleComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)

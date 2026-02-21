@@ -11,7 +11,8 @@
 
 namespace OloEngine
 {
-    // Per-instance data for particle instanced rendering
+    // Per-instance data for particle instanced rendering.
+    // NOTE: PascalCase fields are intentional — this struct maps directly to GPU vertex/instance attributes.
     struct ParticleInstance
     {
         glm::vec4 PositionSize;     // xyz = world position, w = size
@@ -22,7 +23,8 @@ namespace OloEngine
         int EntityID;               // editor picking
     };
 
-    // Per-instance data for mesh particle rendering (std140 UBO layout)
+    // Per-instance data for mesh particle rendering (std140 UBO layout).
+    // NOTE: PascalCase fields are intentional — this struct maps directly to GPU uniform data.
     struct MeshParticleInstance
     {
         glm::mat4 Model; // 64 bytes
@@ -30,7 +32,8 @@ namespace OloEngine
         glm::ivec4 IDs;  // 16 bytes (x = EntityID, yzw = padding)
     };
 
-    // Per-vertex data for trail quad rendering
+    // Per-vertex data for trail quad rendering.
+    // NOTE: PascalCase fields are intentional — this struct maps directly to GPU vertex attributes.
     struct TrailVertex
     {
         glm::vec3 Position;

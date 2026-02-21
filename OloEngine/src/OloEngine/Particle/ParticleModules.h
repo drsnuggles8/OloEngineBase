@@ -5,7 +5,6 @@
 #include "OloEngine/Particle/ParticlePool.h"
 
 #include <glm/glm.hpp>
-#include <variant>
 
 namespace OloEngine
 {
@@ -30,7 +29,7 @@ namespace OloEngine
     struct ModuleVelocityOverLifetime
     {
         bool Enabled = false;
-        glm::vec3 LinearVelocity{ 0.0f }; // Constant acceleration added each frame (integrated with dt)
+        glm::vec3 LinearAcceleration{ 0.0f }; // Constant acceleration added each frame (integrated with dt)
         f32 SpeedMultiplier = 1.0f;
         ParticleCurve SpeedCurve{ 1.0f };
 

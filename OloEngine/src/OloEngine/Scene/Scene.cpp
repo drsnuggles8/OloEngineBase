@@ -347,10 +347,12 @@ namespace OloEngine
                 u32 idx = firstSlot + i;
                 childPool.m_Positions[idx] = trigger.Position;
 
-                glm::vec3 dir = glm::normalize(glm::vec3(
+                glm::vec3 randomVec(
                     rng.GetFloat32InRange(-1.0f, 1.0f),
                     rng.GetFloat32InRange(-1.0f, 1.0f),
-                    rng.GetFloat32InRange(-1.0f, 1.0f)));
+                    rng.GetFloat32InRange(-1.0f, 1.0f));
+                f32 randomLen = glm::length(randomVec);
+                glm::vec3 dir = (randomLen > 0.0001f) ? randomVec / randomLen : glm::vec3(0.0f, 1.0f, 0.0f);
                 f32 speed = childEmitter.InitialSpeed + rng.GetFloat32InRange(-childEmitter.SpeedVariance, childEmitter.SpeedVariance);
                 glm::vec3 velocity = dir * std::max(speed, 0.0f) + trigger.Velocity;
                 childPool.m_Velocities[idx] = velocity;
@@ -359,12 +361,12 @@ namespace OloEngine
                 childPool.m_Colors[idx] = childEmitter.InitialColor;
                 childPool.m_InitialColors[idx] = childEmitter.InitialColor;
 
-                f32 size = childEmitter.InitialSize + rng.GetFloat32InRange(-childEmitter.SizeVariance, childEmitter.SizeVariance);
+                f32 size = std::max(childEmitter.InitialSize + rng.GetFloat32InRange(-childEmitter.SizeVariance, childEmitter.SizeVariance), 0.0f);
                 childPool.m_Sizes[idx] = size;
                 childPool.m_InitialSizes[idx] = size;
                 childPool.m_Rotations[idx] = childEmitter.InitialRotation + rng.GetFloat32InRange(-childEmitter.RotationVariance, childEmitter.RotationVariance);
 
-                f32 lifetime = rng.GetFloat32InRange(childEmitter.LifetimeMin, childEmitter.LifetimeMax);
+                f32 lifetime = rng.GetFloat32InRange(std::min(childEmitter.LifetimeMin, childEmitter.LifetimeMax), std::max(childEmitter.LifetimeMin, childEmitter.LifetimeMax));
                 childPool.m_Lifetimes[idx] = lifetime;
                 childPool.m_MaxLifetimes[idx] = lifetime;
             }
@@ -375,9 +377,9 @@ namespace OloEngine
         {
             if (childSystem.GetAliveCount() > 0 || childSystem.Playing)
             {
-                // Child systems emit at origin (trigger already placed particles)
-                // Just run modules and age particles
-                childSystem.Emitter.RateOverTime = 0.0f; // Don't emit via the emitter, only from triggers
+                // Child systems emit only from triggers, suppress normal rate-based emission
+                // by zeroing the LOD multiplier (which scales rate without mutating RateOverTime)
+                childSystem.SetLODSpawnRateMultiplier(0.0f);
                 childSystem.Update(dt, emitterPos);
             }
         }
@@ -1610,112 +1612,12 @@ namespace OloEngine
                                             {
                 ParticleBatchRenderer::BeginBatch(camera);
 
-                // Set up soft particle params from scene framebuffer depth texture
-                if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
-                {
-                    auto fb = scenePass->GetTarget();
-                    auto& spec = fb->GetSpecification();
-                    SoftParticleParams softParams;
-                    softParams.DepthTextureID = fb->GetDepthAttachmentRendererID();
-                    softParams.NearClip = camera.GetNearClip();
-                    softParams.FarClip = camera.GetFarClip();
-                    softParams.ViewportSize = { static_cast<f32>(spec.Width), static_cast<f32>(spec.Height) };
-                    ParticleBatchRenderer::SetSoftParticleParams(softParams);
-                }
-
                 glm::vec3 camRight = camera.GetRightDirection();
                 glm::vec3 camUp = camera.GetUpDirection();
                 glm::vec3 camPos = camera.GetPosition();
 
-                // Sort particle systems back-to-front for correct alpha blending
-                auto psView = m_Registry.view<TransformComponent, ParticleSystemComponent>();
-                std::vector<std::pair<f32, entt::entity>> sortedSystems;
-                sortedSystems.reserve(psView.size_hint());
-                for (auto entity : psView)
-                {
-                    auto& tc = psView.get<TransformComponent>(entity);
-                    f32 dist = glm::length2(glm::vec3(tc.Translation) - camPos);
-                    sortedSystems.emplace_back(dist, entity);
-                }
-                std::sort(sortedSystems.begin(), sortedSystems.end(),
-                          [](const auto& a, const auto& b) { return a.first > b.first; });
+                RenderParticleSystems(camRight, camUp, camPos, camera.GetNearClip(), camera.GetFarClip());
 
-                for (auto& [dist, entity] : sortedSystems)
-                {
-                    auto& psc = psView.get<ParticleSystemComponent>(entity);
-                    auto& sys = psc.System;
-                    glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
-
-                    const std::vector<u32>* sorted = nullptr;
-                    if (sys.DepthSortEnabled && sys.BlendMode != ParticleBlendMode::Additive)
-                    {
-                        sys.SortByDepth(camPos);
-                        sorted = &sys.GetSortedIndices();
-                    }
-
-                    const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
-
-                    // Enable/disable soft particles per system
-                    {
-                        SoftParticleParams softParams;
-                        if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
-                        {
-                            auto fb = scenePass->GetTarget();
-                            auto& spec = fb->GetSpecification();
-                            softParams.Enabled = sys.SoftParticlesEnabled;
-                            softParams.Distance = sys.SoftParticleDistance;
-                            softParams.DepthTextureID = fb->GetDepthAttachmentRendererID();
-                            softParams.NearClip = camera.GetNearClip();
-                            softParams.FarClip = camera.GetFarClip();
-                            softParams.ViewportSize = { static_cast<f32>(spec.Width), static_cast<f32>(spec.Height) };
-                        }
-                        ParticleBatchRenderer::SetSoftParticleParams(softParams);
-                    }
-
-                    // Flush pending instances before changing blend mode
-                    ParticleBatchRenderer::Flush();
-                    SetParticleBlendMode(sys.BlendMode);
-
-                    if (sys.RenderMode == ParticleRenderMode::Mesh)
-                    {
-                        ParticleBatchRenderer::Flush();
-                        ParticleRenderer::RenderParticlesMesh(sys.GetPool(), psc.ParticleMesh, psc.Texture, offset, static_cast<int>(entity), sorted);
-                    }
-                    else if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
-                    {
-                        ParticleRenderer::RenderParticlesStretched(sys.GetPool(), camRight, camUp, psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
-                    }
-                    else
-                    {
-                        ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
-                    }
-
-                    // Render child systems
-                    for (size_t c = 0; c < psc.ChildSystems.size(); ++c)
-                    {
-                        auto& childSys = psc.ChildSystems[c];
-                        const std::vector<u32>* childSorted = nullptr;
-                        if (childSys.DepthSortEnabled && childSys.BlendMode != ParticleBlendMode::Additive)
-                        {
-                            childSys.SortByDepth(camPos);
-                            childSorted = &childSys.GetSortedIndices();
-                        }
-                        ParticleBatchRenderer::Flush();
-                        SetParticleBlendMode(childSys.BlendMode);
-                        Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
-                        ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
-                    }
-
-                    // Trail rendering via dedicated trail shader in ParticleBatchRenderer
-                    if (sys.TrailModule.Enabled)
-                    {
-                        ParticleBatchRenderer::Flush();
-                        TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
-                        ParticleBatchRenderer::FlushTrails();
-                    }
-
-                    RestoreDefaultBlendMode();
-                }
                 ParticleBatchRenderer::EndBatch(); });
         }
 
@@ -1943,101 +1845,108 @@ namespace OloEngine
 
                 glm::vec3 camRight = glm::normalize(glm::vec3(cameraTransform[0]));
                 glm::vec3 camUp = glm::normalize(glm::vec3(cameraTransform[1]));
-                glm::vec3 camPos = glm::vec3(glm::inverse(cameraTransform)[3]);
+                glm::vec3 camPos = glm::vec3(cameraTransform[3]);
 
-                // Sort particle systems back-to-front for correct alpha blending
-                auto psView = m_Registry.view<TransformComponent, ParticleSystemComponent>();
-                std::vector<std::pair<f32, entt::entity>> sortedSystems;
-                sortedSystems.reserve(psView.size_hint());
-                for (auto entity : psView)
-                {
-                    auto& tc = psView.get<TransformComponent>(entity);
-                    f32 dist = glm::length2(glm::vec3(tc.Translation) - camPos);
-                    sortedSystems.emplace_back(dist, entity);
-                }
-                std::sort(sortedSystems.begin(), sortedSystems.end(),
-                          [](const auto& a, const auto& b) { return a.first > b.first; });
+                RenderParticleSystems(camRight, camUp, camPos, nearClip, farClip);
 
-                for (auto& [dist, entity] : sortedSystems)
-                {
-                    auto& psc = psView.get<ParticleSystemComponent>(entity);
-                    auto& sys = psc.System;
-                    glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
-
-                    const std::vector<u32>* sorted = nullptr;
-                    if (sys.DepthSortEnabled && sys.BlendMode != ParticleBlendMode::Additive)
-                    {
-                        sys.SortByDepth(camPos);
-                        sorted = &sys.GetSortedIndices();
-                    }
-
-                    const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
-
-                    // Enable/disable soft particles per system
-                    {
-                        SoftParticleParams softParams;
-                        if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
-                        {
-                            auto fb = scenePass->GetTarget();
-                            auto& spec = fb->GetSpecification();
-                            softParams.Enabled = sys.SoftParticlesEnabled;
-                            softParams.Distance = sys.SoftParticleDistance;
-                            softParams.DepthTextureID = fb->GetDepthAttachmentRendererID();
-                            softParams.NearClip = nearClip;
-                            softParams.FarClip = farClip;
-                            softParams.ViewportSize = { static_cast<f32>(spec.Width), static_cast<f32>(spec.Height) };
-                        }
-                        ParticleBatchRenderer::SetSoftParticleParams(softParams);
-                    }
-
-                    // Flush pending instances before changing blend mode
-                    ParticleBatchRenderer::Flush();
-                    SetParticleBlendMode(sys.BlendMode);
-
-                    if (sys.RenderMode == ParticleRenderMode::Mesh)
-                    {
-                        ParticleBatchRenderer::Flush();
-                        ParticleRenderer::RenderParticlesMesh(sys.GetPool(), psc.ParticleMesh, psc.Texture, offset, static_cast<int>(entity), sorted);
-                    }
-                    else if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
-                    {
-                        ParticleRenderer::RenderParticlesStretched(sys.GetPool(), camRight, camUp, psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
-                    }
-                    else
-                    {
-                        ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
-                    }
-
-                    // Render child systems
-                    for (size_t c = 0; c < psc.ChildSystems.size(); ++c)
-                    {
-                        auto& childSys = psc.ChildSystems[c];
-                        const std::vector<u32>* childSorted = nullptr;
-                        if (childSys.DepthSortEnabled && childSys.BlendMode != ParticleBlendMode::Additive)
-                        {
-                            childSys.SortByDepth(camPos);
-                            childSorted = &childSys.GetSortedIndices();
-                        }
-                        ParticleBatchRenderer::Flush();
-                        SetParticleBlendMode(childSys.BlendMode);
-                        Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
-                        ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
-                    }
-
-                    // Trail rendering via dedicated trail shader in ParticleBatchRenderer
-                    if (sys.TrailModule.Enabled)
-                    {
-                        ParticleBatchRenderer::Flush();
-                        TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
-                        ParticleBatchRenderer::FlushTrails();
-                    }
-
-                    RestoreDefaultBlendMode();
-                }
                 ParticleBatchRenderer::EndBatch(); });
         }
 
         Renderer3D::EndScene();
+    }
+
+    void Scene::RenderParticleSystems(const glm::vec3& camRight, const glm::vec3& camUp, const glm::vec3& camPos, f32 nearClip, f32 farClip)
+    {
+        // Sort particle systems back-to-front for correct alpha blending
+        auto psView = m_Registry.view<TransformComponent, ParticleSystemComponent>();
+        std::vector<std::pair<f32, entt::entity>> sortedSystems;
+        sortedSystems.reserve(psView.size_hint());
+        for (auto entity : psView)
+        {
+            auto& tc = psView.get<TransformComponent>(entity);
+            f32 dist = glm::length2(glm::vec3(tc.Translation) - camPos);
+            sortedSystems.emplace_back(dist, entity);
+        }
+        std::sort(sortedSystems.begin(), sortedSystems.end(),
+                  [](const auto& a, const auto& b)
+                  { return a.first > b.first; });
+
+        for (auto& [dist, entity] : sortedSystems)
+        {
+            auto& psc = psView.get<ParticleSystemComponent>(entity);
+            auto& sys = psc.System;
+            glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
+
+            const std::vector<u32>* sorted = nullptr;
+            if (sys.DepthSortEnabled && sys.BlendMode != ParticleBlendMode::Additive)
+            {
+                sys.SortByDepth(camPos);
+                sorted = &sys.GetSortedIndices();
+            }
+
+            const ModuleTextureSheetAnimation* sheet = sys.TextureSheetModule.Enabled ? &sys.TextureSheetModule : nullptr;
+
+            // Enable/disable soft particles per system
+            {
+                SoftParticleParams softParams;
+                if (auto scenePass = Renderer3D::GetScenePass(); scenePass && scenePass->GetTarget())
+                {
+                    auto fb = scenePass->GetTarget();
+                    auto& spec = fb->GetSpecification();
+                    softParams.Enabled = sys.SoftParticlesEnabled;
+                    softParams.Distance = sys.SoftParticleDistance;
+                    softParams.DepthTextureID = fb->GetDepthAttachmentRendererID();
+                    softParams.NearClip = nearClip;
+                    softParams.FarClip = farClip;
+                    softParams.ViewportSize = { static_cast<f32>(spec.Width), static_cast<f32>(spec.Height) };
+                }
+                ParticleBatchRenderer::SetSoftParticleParams(softParams);
+            }
+
+            // Flush pending instances before changing blend mode
+            ParticleBatchRenderer::Flush();
+            SetParticleBlendMode(sys.BlendMode);
+
+            if (sys.RenderMode == ParticleRenderMode::Mesh)
+            {
+                ParticleBatchRenderer::Flush();
+                ParticleRenderer::RenderParticlesMesh(sys.GetPool(), psc.ParticleMesh, psc.Texture, offset, static_cast<int>(entity), sorted);
+            }
+            else if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
+            {
+                ParticleRenderer::RenderParticlesStretched(sys.GetPool(), camRight, camUp, psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
+            }
+            else
+            {
+                ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
+            }
+
+            // Render child systems
+            for (size_t c = 0; c < psc.ChildSystems.size(); ++c)
+            {
+                auto& childSys = psc.ChildSystems[c];
+                const std::vector<u32>* childSorted = nullptr;
+                if (childSys.DepthSortEnabled && childSys.BlendMode != ParticleBlendMode::Additive)
+                {
+                    childSys.SortByDepth(camPos);
+                    childSorted = &childSys.GetSortedIndices();
+                }
+                ParticleBatchRenderer::Flush();
+                SetParticleBlendMode(childSys.BlendMode);
+                Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
+                ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
+            }
+
+            // Trail rendering via dedicated trail shader in ParticleBatchRenderer
+            if (sys.TrailModule.Enabled)
+            {
+                ParticleBatchRenderer::Flush();
+                TrailRenderer::RenderTrails(sys.GetPool(), sys.GetTrailData(), sys.TrailModule, camPos, psc.Texture, offset, static_cast<int>(entity));
+                ParticleBatchRenderer::FlushTrails();
+            }
+
+            RestoreDefaultBlendMode();
+        }
     }
 
 } // namespace OloEngine
