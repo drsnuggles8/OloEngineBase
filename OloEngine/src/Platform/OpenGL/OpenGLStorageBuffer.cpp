@@ -64,6 +64,7 @@ namespace OloEngine
         glNamedBufferData(m_RendererID, newSize, nullptr, ToGLUsage());
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, m_Binding, m_RendererID);
 
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::BufferBinds, 1);
         OLO_TRACK_GPU_ALLOC(this, newSize, RendererMemoryTracker::ResourceType::StorageBuffer, "OpenGL Storage Buffer");
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_SHADER_STORAGE_BUFFER, "StorageBuffer");
     }
@@ -76,7 +77,9 @@ namespace OloEngine
                 return GL_DYNAMIC_DRAW;
             case StorageBufferUsage::DynamicCopy:
                 return GL_DYNAMIC_COPY;
+            default:
+                OLO_CORE_ASSERT(false, "Unknown StorageBufferUsage!");
+                return GL_DYNAMIC_DRAW;
         }
-        return GL_DYNAMIC_DRAW;
     }
 } // namespace OloEngine

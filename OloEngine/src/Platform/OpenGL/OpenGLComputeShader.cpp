@@ -3,6 +3,7 @@
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -24,7 +25,9 @@ namespace OloEngine
         const std::string source = FileSystem::ReadFileText(filepath);
         if (!source.empty())
         {
+            OLO_SHADER_COMPILATION_START(m_Name, filepath);
             Compile(source);
+            OLO_SHADER_COMPILATION_END(m_RendererID, m_IsValid, "", 0.0);
         }
     }
 
@@ -36,6 +39,7 @@ namespace OloEngine
         {
             OLO_TRACK_DEALLOC(this);
         }
+        OLO_SHADER_UNREGISTER(m_RendererID);
         glDeleteProgram(m_RendererID);
     }
 
@@ -87,6 +91,7 @@ namespace OloEngine
 
         OLO_TRACK_GPU_ALLOC(this, 0, RendererMemoryTracker::ResourceType::Shader, "OpenGL Compute Shader");
 
+        OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
         m_IsValid = true;
         OLO_CORE_INFO("Compiled compute shader '{0}'", m_Name);
     }
@@ -95,6 +100,7 @@ namespace OloEngine
     {
         glUseProgram(m_RendererID);
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::ShaderBinds, 1);
+        OLO_SHADER_BIND(m_RendererID);
     }
 
     void OpenGLComputeShader::Unbind() const
@@ -121,46 +127,56 @@ namespace OloEngine
     void OpenGLComputeShader::SetInt(const std::string& name, int value) const
     {
         glProgramUniform1i(m_RendererID, GetUniformLocation(name), value);
+        OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Int);
     }
 
     void OpenGLComputeShader::SetIntArray(const std::string& name, int* values, u32 count) const
     {
         glProgramUniform1iv(m_RendererID, GetUniformLocation(name), static_cast<GLsizei>(count), values);
+        OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::IntArray);
     }
 
     void OpenGLComputeShader::SetFloat(const std::string& name, f32 value) const
     {
         glProgramUniform1f(m_RendererID, GetUniformLocation(name), value);
+        OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float);
     }
 
     void OpenGLComputeShader::SetFloat2(const std::string& name, const glm::vec2& value) const
     {
         glProgramUniform2f(m_RendererID, GetUniformLocation(name), value.x, value.y);
+        OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float2);
     }
 
     void OpenGLComputeShader::SetFloat3(const std::string& name, const glm::vec3& value) const
     {
         glProgramUniform3f(m_RendererID, GetUniformLocation(name), value.x, value.y, value.z);
+        OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float3);
     }
 
     void OpenGLComputeShader::SetFloat4(const std::string& name, const glm::vec4& value) const
     {
         glProgramUniform4f(m_RendererID, GetUniformLocation(name), value.x, value.y, value.z, value.w);
+        OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float4);
     }
 
     void OpenGLComputeShader::SetMat4(const std::string& name, const glm::mat4& value) const
     {
         glProgramUniformMatrix4fv(m_RendererID, GetUniformLocation(name), 1, GL_FALSE, glm::value_ptr(value));
+        OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Mat4);
     }
 
     void OpenGLComputeShader::Reload()
     {
         OLO_PROFILE_FUNCTION();
 
+        OLO_SHADER_RELOAD_START(m_RendererID);
+
         const std::string source = FileSystem::ReadFileText(m_FilePath);
         if (source.empty())
         {
             OLO_CORE_ERROR("Failed to reload compute shader '{0}': empty source", m_Name);
+            OLO_SHADER_RELOAD_END(m_RendererID, false);
             return;
         }
 
@@ -169,11 +185,13 @@ namespace OloEngine
         {
             OLO_TRACK_DEALLOC(this);
         }
+        OLO_SHADER_UNREGISTER(m_RendererID);
         glDeleteProgram(m_RendererID);
         m_RendererID = 0;
         m_IsValid = false;
         m_UniformLocationCache.clear();
 
         Compile(source);
+        OLO_SHADER_RELOAD_END(m_RendererID, m_IsValid);
     }
 } // namespace OloEngine

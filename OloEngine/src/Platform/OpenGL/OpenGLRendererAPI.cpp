@@ -345,6 +345,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (flags == MemoryBarrierFlags::None)
+            return;
+
         if (flags == MemoryBarrierFlags::All)
         {
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
