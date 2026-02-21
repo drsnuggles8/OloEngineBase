@@ -209,7 +209,7 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
     }
 
-    void GPUParticleSystem::Simulate(f32 dt, const GPUSimParams& params)
+    void GPUParticleSystem::Simulate(const GPUSimParams& params)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -223,7 +223,7 @@ namespace OloEngine
 
         // Set simulation uniforms
         m_SimulateShader->Bind();
-        m_SimulateShader->SetFloat("u_DeltaTime", dt);
+        m_SimulateShader->SetFloat("u_DeltaTime", params.DeltaTime);
         m_SimulateShader->SetFloat3("u_Gravity", params.Gravity);
         m_SimulateShader->SetFloat("u_DragCoefficient", params.DragCoefficient);
         m_SimulateShader->SetUint("u_MaxParticles", m_MaxParticles);

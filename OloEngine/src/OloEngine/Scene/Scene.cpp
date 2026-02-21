@@ -1908,7 +1908,6 @@ namespace OloEngine
             // GPU rendering path — uses indirect draw from SSBO data
             if (sys.UseGPU && sys.GetGPUSystem())
             {
-                ParticleBatchRenderer::Flush();
                 ParticleBatchRenderer::RenderGPUBillboards(*sys.GetGPUSystem(), psc.Texture);
             }
             else if (sys.RenderMode == ParticleRenderMode::Mesh)

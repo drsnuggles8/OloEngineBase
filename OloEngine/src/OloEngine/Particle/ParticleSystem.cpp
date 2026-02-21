@@ -557,7 +557,8 @@ namespace OloEngine
             }
             m_GPUSystem->EmitParticles(gpuParticles);
 
-            // Remove the CPU-side particles (GPU owns them now)
+            // Clear CPU pool — GPU owns all alive particles; the CPU pool is only
+            // used as a staging area for the emitter each frame.
             m_Pool.Resize(m_Pool.GetMaxParticles());
         }
 
@@ -571,7 +572,7 @@ namespace OloEngine
         params.EnableDrag = DragModule.Enabled ? 1 : 0;
 
         // Dispatch GPU pipeline: simulate → compact → build indirect draw
-        m_GPUSystem->Simulate(scaledDt, params);
+        m_GPUSystem->Simulate(params);
         m_GPUSystem->Compact();
         m_GPUSystem->PrepareIndirectDraw();
     }

@@ -27,7 +27,7 @@ namespace OloEngine
         void EmitParticles(std::span<const GPUParticle> newParticles);
 
         // Dispatch simulation compute shader
-        void Simulate(f32 dt, const GPUSimParams& params);
+        void Simulate(const GPUSimParams& params);
 
         // Dispatch compaction — builds alive index list and free list
         void Compact();
