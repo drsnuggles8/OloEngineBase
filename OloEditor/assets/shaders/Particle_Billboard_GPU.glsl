@@ -59,7 +59,7 @@ layout(location = 2) out flat int v_EntityID;
 void main()
 {
 	// Look up which particle this instance refers to (via compacted alive index)
-	uint particleIdx = aliveIndices[gl_InstanceID];
+	uint particleIdx = aliveIndices[gl_InstanceIndex];
 	GPUParticle p = particles[particleIdx];
 
 	vec3 position = p.PositionLifetime.xyz;

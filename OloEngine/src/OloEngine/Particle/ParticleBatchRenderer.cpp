@@ -477,7 +477,7 @@ namespace OloEngine
     }
 
     void ParticleBatchRenderer::RenderGPUBillboards(GPUParticleSystem& gpuSystem,
-                                                     const Ref<Texture2D>& texture)
+                                                    const Ref<Texture2D>& texture)
     {
         OLO_PROFILE_FUNCTION();
 

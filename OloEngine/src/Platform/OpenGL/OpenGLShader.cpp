@@ -665,8 +665,23 @@ namespace OloEngine
                 preserveResourceNames(resources.uniform_buffers);
                 preserveResourceNames(resources.stage_inputs);
                 preserveResourceNames(resources.stage_outputs);
+                preserveResourceNames(resources.storage_buffers);
 
                 result.GlslSource = glslCompiler.compile();
+
+                // spirv-cross emits gl_InstanceID / gl_VertexID for OpenGL, but shaderc
+                // (even targeting OpenGL 4.5) only accepts the Vulkan-style names.
+                {
+                    auto& src = result.GlslSource;
+                    for (sizet pos = src.find("gl_InstanceID"); pos != std::string::npos; pos = src.find("gl_InstanceID", pos))
+                    {
+                        src.replace(pos, 13, "gl_InstanceIndex");
+                    }
+                    for (sizet pos = src.find("gl_VertexID"); pos != std::string::npos; pos = src.find("gl_VertexID", pos))
+                    {
+                        src.replace(pos, 11, "gl_VertexIndex");
+                    }
+                }
 
                 // Compile GLSL to OpenGL SPIR-V
                 shaderc::Compiler compiler;
