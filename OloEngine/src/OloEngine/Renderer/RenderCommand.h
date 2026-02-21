@@ -208,9 +208,9 @@ namespace OloEngine
             s_RendererAPI->DispatchCompute(groupsX, groupsY, groupsZ);
         }
 
-        static void MemoryBarrier(u32 barrierBits)
+        static void MemoryBarrier(MemoryBarrierFlags flags)
         {
-            s_RendererAPI->MemoryBarrier(barrierBits);
+            s_RendererAPI->MemoryBarrier(flags);
         }
 
         static RendererAPI& GetRendererAPI()

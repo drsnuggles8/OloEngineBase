@@ -337,6 +337,7 @@
 		"OloEngine/Renderer/StorageBuffer.h"
 		"OloEngine/Renderer/ComputeShader.cpp"
 		"OloEngine/Renderer/ComputeShader.h"
+		"OloEngine/Renderer/MemoryBarrierFlags.h"
 		"OloEngine/Renderer/ShaderResourceRegistry.cpp"
 		"OloEngine/Renderer/ShaderResourceRegistry.h"
 		"OloEngine/Renderer/ShaderResourceTypes.h"

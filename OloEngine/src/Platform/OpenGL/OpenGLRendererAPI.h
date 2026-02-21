@@ -51,7 +51,7 @@ namespace OloEngine
         void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height) override;
 
         void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) override;
-        void MemoryBarrier(u32 barrierBits) override;
+        void MemoryBarrier(MemoryBarrierFlags flags) override;
 
         void BindDefaultFramebuffer() override;
         void BindTexture(u32 slot, u32 textureID) override;

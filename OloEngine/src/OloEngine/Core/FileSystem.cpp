@@ -27,4 +27,29 @@ namespace OloEngine
         return buffer;
     }
 
+    std::string FileSystem::ReadFileText(const std::filesystem::path& filepath)
+    {
+        std::string result;
+        std::ifstream in(filepath, std::ios::in | std::ios::binary);
+        if (!in)
+        {
+            OLO_CORE_ERROR("Could not open file '{0}'", filepath.string());
+            return result;
+        }
+
+        in.seekg(0, std::ios::end);
+        const auto size = in.tellg();
+        if (size != std::streampos(-1))
+        {
+            result.resize(static_cast<sizet>(size));
+            in.seekg(0, std::ios::beg);
+            in.read(result.data(), size);
+        }
+        else
+        {
+            OLO_CORE_ERROR("Could not read file '{0}'", filepath.string());
+        }
+        return result;
+    }
+
 } // namespace OloEngine

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Renderer/VertexArray.h"
+#include "OloEngine/Renderer/MemoryBarrierFlags.h"
 
 #include <glm/glm.hpp>
 #include <glad/gl.h>
@@ -65,7 +66,7 @@ namespace OloEngine
 
         // Compute shader dispatch
         virtual void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) = 0;
-        virtual void MemoryBarrier(u32 barrierBits) = 0;
+        virtual void MemoryBarrier(MemoryBarrierFlags flags) = 0;
 
         // New methods for render graph
         virtual void BindDefaultFramebuffer() = 0;

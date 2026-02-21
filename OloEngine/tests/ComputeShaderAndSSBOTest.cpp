@@ -7,6 +7,7 @@
 
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Core/Ref.h"
 
 using namespace OloEngine;
@@ -44,4 +45,21 @@ TEST(ComputeShaderTest, ComputeShaderInheritsRendererResource)
     static_assert(std::is_base_of_v<RendererResource, ComputeShader>,
                   "ComputeShader must inherit from RendererResource");
     SUCCEED();
+}
+
+TEST(ComputeShaderTest, ComputeShaderAssetType)
+{
+    EXPECT_EQ(ComputeShader::GetStaticType(), AssetType::ComputeShader);
+}
+
+// ---------------------------------------------------------------------------
+// MemoryBarrierFlags checks
+// ---------------------------------------------------------------------------
+
+TEST(MemoryBarrierFlagsTest, FlagCombination)
+{
+    auto combined = MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate;
+    EXPECT_NE(static_cast<u32>(combined), 0u);
+    EXPECT_EQ(static_cast<u32>(combined & MemoryBarrierFlags::ShaderStorage),
+              static_cast<u32>(MemoryBarrierFlags::ShaderStorage));
 }

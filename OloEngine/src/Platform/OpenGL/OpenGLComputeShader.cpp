@@ -1,12 +1,11 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLComputeShader.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
-
-#include <fstream>
 
 namespace OloEngine
 {
@@ -22,8 +21,11 @@ namespace OloEngine
         const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
         m_Name = filepath.substr(lastSlash, count);
 
-        const std::string source = ReadFile(filepath);
-        Compile(source);
+        const std::string source = FileSystem::ReadFileText(filepath);
+        if (!source.empty())
+        {
+            Compile(source);
+        }
     }
 
     OpenGLComputeShader::~OpenGLComputeShader()
@@ -32,31 +34,6 @@ namespace OloEngine
 
         OLO_TRACK_DEALLOC(this);
         glDeleteProgram(m_RendererID);
-    }
-
-    std::string OpenGLComputeShader::ReadFile(const std::string& filepath)
-    {
-        std::string result;
-        if (std::ifstream in(filepath, std::ios::in | std::ios::binary); in)
-        {
-            in.seekg(0, std::ios::end);
-            const auto size = in.tellg();
-            if (std::cmp_not_equal(size, -1))
-            {
-                result.resize(static_cast<sizet>(size));
-                in.seekg(0, std::ios::beg);
-                in.read(result.data(), size);
-            }
-            else
-            {
-                OLO_CORE_ERROR("Could not read compute shader file '{0}'", filepath);
-            }
-        }
-        else
-        {
-            OLO_CORE_ERROR("Could not open compute shader file '{0}'", filepath);
-        }
-        return result;
     }
 
     void OpenGLComputeShader::Compile(const std::string& source)
@@ -105,15 +82,16 @@ namespace OloEngine
         glDetachShader(m_RendererID, shader);
         glDeleteShader(shader);
 
-        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::ShaderBinds, 1);
         OLO_TRACK_GPU_ALLOC(this, 0, RendererMemoryTracker::ResourceType::Shader, "OpenGL Compute Shader");
 
+        m_IsValid = true;
         OLO_CORE_INFO("Compiled compute shader '{0}'", m_Name);
     }
 
     void OpenGLComputeShader::Bind() const
     {
         glUseProgram(m_RendererID);
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::ShaderBinds, 1);
     }
 
     void OpenGLComputeShader::Unbind() const
@@ -123,11 +101,17 @@ namespace OloEngine
 
     GLint OpenGLComputeShader::GetUniformLocation(const std::string& name) const
     {
+        if (const auto it = m_UniformLocationCache.find(name); it != m_UniformLocationCache.end())
+        {
+            return it->second;
+        }
+
         const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
         if (location == -1)
         {
             OLO_CORE_WARN("Compute shader '{0}': uniform '{1}' not found", m_Name, name);
         }
+        m_UniformLocationCache[name] = location;
         return location;
     }
 
