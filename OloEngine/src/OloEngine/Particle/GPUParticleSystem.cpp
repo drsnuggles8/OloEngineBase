@@ -65,6 +65,12 @@ namespace OloEngine
             ShaderBindingLayout::SSBO_GPU_PARTICLES,
             StorageBufferUsage::DynamicCopy);
 
+        // Zero-initialize particle buffer so all particles start as dead (Misc.z == 0.0)
+        {
+            std::vector<u8> zeros(maxParticles * GPUParticle::GetSize(), 0);
+            m_ParticleSSBO->SetData(zeros.data(), static_cast<u32>(zeros.size()));
+        }
+
         m_AliveIndexSSBO = StorageBuffer::Create(
             maxParticles * sizeof(u32),
             ShaderBindingLayout::SSBO_ALIVE_INDICES,

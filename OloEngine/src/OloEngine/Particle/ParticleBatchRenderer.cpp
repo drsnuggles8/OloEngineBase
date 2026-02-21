@@ -83,6 +83,7 @@ namespace OloEngine
         Ref<Texture2D> CurrentTrailTexture;
 
         // GPU billboard resources
+        Ref<VertexArray> GPUVAO;
         Ref<Shader> GPUBillboardShader;
 
         ParticleBatchRenderer::Statistics Stats;
@@ -175,6 +176,15 @@ namespace OloEngine
         s_Data.TrailVertexBase = std::make_unique<TrailVertex[]>(ParticleBatchData::MaxTrailVertices);
 
         s_Data.TrailShader = Shader::Create("assets/shaders/Particle_Trail.glsl");
+
+        // GPU billboard VAO — only quad VBO, no instance buffer (particle data comes from SSBO)
+        s_Data.GPUVAO = VertexArray::Create();
+        {
+            auto gpuQuadVBO = VertexBuffer::Create(quadVertices, sizeof(quadVertices));
+            gpuQuadVBO->SetLayout({ { ShaderDataType::Float2, "a_QuadPos" } });
+            s_Data.GPUVAO->AddVertexBuffer(gpuQuadVBO);
+            s_Data.GPUVAO->SetIndexBuffer(indexBuffer);
+        }
 
         // GPU billboard shader (reads particle data from SSBO)
         s_Data.GPUBillboardShader = Shader::Create("assets/shaders/Particle_Billboard_GPU.glsl");
@@ -500,8 +510,8 @@ namespace OloEngine
         // Bind textures
         BindParticleTextures(hasTexture, hasTexture ? texture->GetRendererID() : 0);
 
-        // Indirect draw using the quad VAO (same unit quad as CPU path)
-        RenderCommand::DrawElementsIndirect(s_Data.VAO, gpuSystem.GetIndirectDrawSSBO()->GetRendererID());
+        // Indirect draw using the GPU-dedicated VAO (no instance attributes)
+        RenderCommand::DrawElementsIndirect(s_Data.GPUVAO, gpuSystem.GetIndirectDrawSSBO()->GetRendererID());
 
         s_Data.Stats.DrawCalls++;
         // InstanceCount not updated here: GetAliveCount() requires a GPU→CPU readback that would stall the pipeline
