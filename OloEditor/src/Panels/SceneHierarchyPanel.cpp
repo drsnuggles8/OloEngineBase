@@ -617,6 +617,8 @@ namespace OloEngine
 
     static void DrawParticleEmissionSection(ParticleEmitter& emitter)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!ImGui::CollapsingHeader("Emission", ImGuiTreeNodeFlags_DefaultOpen))
             return;
 
@@ -682,6 +684,8 @@ namespace OloEngine
         {
             ImGui::DragFloat("Inner Radius", &ring->InnerRadius, 0.1f, 0.0f, 100.0f);
             ImGui::DragFloat("Outer Radius", &ring->OuterRadius, 0.1f, 0.0f, 100.0f);
+            if (ring->InnerRadius > ring->OuterRadius)
+                std::swap(ring->InnerRadius, ring->OuterRadius);
         }
         if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
             ImGui::DragFloat("Edge Length", &edge->Length, 0.1f, 0.0f, 100.0f);
@@ -698,6 +702,8 @@ namespace OloEngine
 
     static void DrawParticleRenderingSection(ParticleSystemComponent& component, ParticleSystem& sys)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!ImGui::CollapsingHeader("Rendering"))
             return;
 
@@ -2221,10 +2227,8 @@ namespace OloEngine
             {
                 ImGui::DragFloat("LOD Distance 1", &sys.LODDistance1, 1.0f, 0.0f, 10000.0f);
                 ImGui::DragFloat("LOD Max Distance", &sys.LODMaxDistance, 1.0f, 0.0f, 10000.0f);
-                if (sys.LODDistance1 >= sys.LODMaxDistance)
-                    sys.LODDistance1 = sys.LODMaxDistance - 0.1f;
-                if (sys.LODDistance1 < 0.0f)
-                    sys.LODDistance1 = 0.0f;
+                constexpr f32 epsilon = 1e-4f;
+                sys.LODDistance1 = std::clamp(sys.LODDistance1, 0.0f, std::max(0.0f, sys.LODMaxDistance - epsilon));
             } });
     }
 

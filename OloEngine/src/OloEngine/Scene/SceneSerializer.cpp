@@ -10,6 +10,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
+#include "OloEngine/Particle/ParticleCurveSerializer.h"
 
 #include <fstream>
 
@@ -48,61 +49,6 @@ namespace OloEngine
             value = (T)node.as<int>((int)value);
         }
         return value;
-    }
-
-    static void SerializeCurve(YAML::Emitter& out, const std::string& name, const ParticleCurve& curve)
-    {
-        out << YAML::Key << name << YAML::Value << YAML::BeginMap;
-        out << YAML::Key << "KeyCount" << YAML::Value << curve.KeyCount;
-        out << YAML::Key << "Keys" << YAML::Value << YAML::BeginSeq;
-        u32 safeCount = std::min(curve.KeyCount, static_cast<u32>(curve.Keys.size()));
-        for (u32 i = 0; i < safeCount; ++i)
-        {
-            out << YAML::BeginMap;
-            out << YAML::Key << "Time" << YAML::Value << curve.Keys[i].Time;
-            out << YAML::Key << "Value" << YAML::Value << curve.Keys[i].Value;
-            out << YAML::EndMap;
-        }
-        out << YAML::EndSeq;
-        out << YAML::EndMap;
-    }
-
-    static void DeserializeCurve(const YAML::Node& node, ParticleCurve& curve)
-    {
-        if (!node || !node.IsMap())
-            return;
-        if (auto kc = node["KeyCount"]; kc)
-            curve.KeyCount = kc.as<u32>();
-        if (auto keys = node["Keys"]; keys && keys.IsSequence())
-        {
-            u32 count = std::min(static_cast<u32>(keys.size()), static_cast<u32>(curve.Keys.size()));
-            curve.KeyCount = count;
-            for (u32 i = 0; i < count; ++i)
-            {
-                TrySet(curve.Keys[i].Time, keys[i]["Time"]);
-                TrySet(curve.Keys[i].Value, keys[i]["Value"]);
-            }
-        }
-    }
-
-    static void SerializeCurve4(YAML::Emitter& out, const std::string& name, const ParticleCurve4& curve)
-    {
-        out << YAML::Key << name << YAML::Value << YAML::BeginMap;
-        SerializeCurve(out, "R", curve.R);
-        SerializeCurve(out, "G", curve.G);
-        SerializeCurve(out, "B", curve.B);
-        SerializeCurve(out, "A", curve.A);
-        out << YAML::EndMap;
-    }
-
-    static void DeserializeCurve4(const YAML::Node& node, ParticleCurve4& curve)
-    {
-        if (!node || !node.IsMap())
-            return;
-        DeserializeCurve(node["R"], curve.R);
-        DeserializeCurve(node["G"], curve.G);
-        DeserializeCurve(node["B"], curve.B);
-        DeserializeCurve(node["A"], curve.A);
     }
 
     static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)
@@ -193,9 +139,9 @@ namespace OloEngine
         TrySet(sys.DragModule.Enabled, particleComponent["DragEnabled"]);
         TrySet(sys.DragModule.DragCoefficient, particleComponent["DragCoefficient"]);
         TrySet(sys.ColorModule.Enabled, particleComponent["ColorOverLifetimeEnabled"]);
-        DeserializeCurve4(particleComponent["ColorCurve"], sys.ColorModule.ColorCurve);
+        ParticleCurveSerializer::Deserialize4(particleComponent["ColorCurve"], sys.ColorModule.ColorCurve);
         TrySet(sys.SizeModule.Enabled, particleComponent["SizeOverLifetimeEnabled"]);
-        DeserializeCurve(particleComponent["SizeCurve"], sys.SizeModule.SizeCurve);
+        ParticleCurveSerializer::Deserialize(particleComponent["SizeCurve"], sys.SizeModule.SizeCurve);
         TrySet(sys.RotationModule.Enabled, particleComponent["RotationOverLifetimeEnabled"]);
         TrySet(sys.RotationModule.AngularVelocity, particleComponent["AngularVelocity"]);
         TrySet(sys.VelocityModule.Enabled, particleComponent["VelocityOverLifetimeEnabled"]);
@@ -203,7 +149,7 @@ namespace OloEngine
         if (!particleComponent["LinearAcceleration"])
             TrySet(sys.VelocityModule.LinearAcceleration, particleComponent["LinearVelocity"]);
         TrySet(sys.VelocityModule.SpeedMultiplier, particleComponent["SpeedMultiplier"]);
-        DeserializeCurve(particleComponent["SpeedCurve"], sys.VelocityModule.SpeedCurve);
+        ParticleCurveSerializer::Deserialize(particleComponent["SpeedCurve"], sys.VelocityModule.SpeedCurve);
         TrySet(sys.NoiseModule.Enabled, particleComponent["NoiseEnabled"]);
         TrySet(sys.NoiseModule.Strength, particleComponent["NoiseStrength"]);
         TrySet(sys.NoiseModule.Frequency, particleComponent["NoiseFrequency"]);
@@ -1139,15 +1085,15 @@ namespace OloEngine
             out << YAML::Key << "DragEnabled" << YAML::Value << sys.DragModule.Enabled;
             out << YAML::Key << "DragCoefficient" << YAML::Value << sys.DragModule.DragCoefficient;
             out << YAML::Key << "ColorOverLifetimeEnabled" << YAML::Value << sys.ColorModule.Enabled;
-            SerializeCurve4(out, "ColorCurve", sys.ColorModule.ColorCurve);
+            ParticleCurveSerializer::Serialize4(out, "ColorCurve", sys.ColorModule.ColorCurve);
             out << YAML::Key << "SizeOverLifetimeEnabled" << YAML::Value << sys.SizeModule.Enabled;
-            SerializeCurve(out, "SizeCurve", sys.SizeModule.SizeCurve);
+            ParticleCurveSerializer::Serialize(out, "SizeCurve", sys.SizeModule.SizeCurve);
             out << YAML::Key << "RotationOverLifetimeEnabled" << YAML::Value << sys.RotationModule.Enabled;
             out << YAML::Key << "AngularVelocity" << YAML::Value << sys.RotationModule.AngularVelocity;
             out << YAML::Key << "VelocityOverLifetimeEnabled" << YAML::Value << sys.VelocityModule.Enabled;
             out << YAML::Key << "LinearAcceleration" << YAML::Value << sys.VelocityModule.LinearAcceleration;
             out << YAML::Key << "SpeedMultiplier" << YAML::Value << sys.VelocityModule.SpeedMultiplier;
-            SerializeCurve(out, "SpeedCurve", sys.VelocityModule.SpeedCurve);
+            ParticleCurveSerializer::Serialize(out, "SpeedCurve", sys.VelocityModule.SpeedCurve);
             out << YAML::Key << "NoiseEnabled" << YAML::Value << sys.NoiseModule.Enabled;
             out << YAML::Key << "NoiseStrength" << YAML::Value << sys.NoiseModule.Strength;
             out << YAML::Key << "NoiseFrequency" << YAML::Value << sys.NoiseModule.Frequency;

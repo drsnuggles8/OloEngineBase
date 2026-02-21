@@ -55,6 +55,8 @@ namespace OloEngine
 
     void ParticleEmitter::Reset()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_EmitAccumulator = 0.0f;
         m_LoopTime = 0.0f;
         m_NextBurstIndex = 0;

@@ -639,7 +639,7 @@ namespace OloEngine
                         ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(entity), nullptr, sheet);
 
                         // Render child systems
-                        for (size_t c = 0; c < psc.ChildSystems.size(); ++c)
+                        for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
                         {
                             auto& childSys = psc.ChildSystems[c];
                             SetParticleBlendMode(childSys.BlendMode);
@@ -1216,7 +1216,7 @@ namespace OloEngine
                 SetParticleBlendMode(sys.BlendMode);
                 ParticleRenderer::RenderParticles2D(sys.GetPool(), psc.Texture, offset, static_cast<int>(entity), nullptr, sheet);
 
-                for (size_t c = 0; c < psc.ChildSystems.size(); ++c)
+                for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
                 {
                     auto& childSys = psc.ChildSystems[c];
                     SetParticleBlendMode(childSys.BlendMode);
@@ -1920,7 +1920,7 @@ namespace OloEngine
             }
 
             // Render child systems
-            for (size_t c = 0; c < psc.ChildSystems.size(); ++c)
+            for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
             {
                 auto& childSys = psc.ChildSystems[c];
                 const std::vector<u32>* childSorted = nullptr;

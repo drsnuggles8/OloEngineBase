@@ -4,6 +4,7 @@
 #include "OloEngine/Core/FastRandom.h"
 
 #include <algorithm>
+#include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <variant>
@@ -177,8 +178,8 @@ namespace OloEngine
                 f32 tanAngle = std::tan(angleRad);
                 return {
                     r * std::cos(theta),
-                    r * std::sin(theta),
-                    r * tanAngle
+                    r * tanAngle,
+                    r * std::sin(theta)
                 };
             }
             else if constexpr (std::is_same_v<T, EmitRing>)

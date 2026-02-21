@@ -30,6 +30,8 @@
 #include "OloEngine/Asset/MeshColliderAsset.h"
 #include "OloEngine/Core/YAMLConverters.h"
 #include "OloEngine/Particle/ParticleSystemAsset.h"
+#include "OloEngine/Particle/EmissionShapeUtils.h"
+#include "OloEngine/Particle/ParticleCurveSerializer.h"
 #include <yaml-cpp/yaml.h>
 #include <stb_image/stb_image.h>
 #include <fstream>
@@ -2768,66 +2770,6 @@ namespace OloEngine
                 target = node.as<T>();
         }
 
-        void SerializeCurve(YAML::Emitter& out, const std::string& name, const ParticleCurve& curve)
-        {
-            out << YAML::Key << name << YAML::Value << YAML::BeginMap;
-            out << YAML::Key << "KeyCount" << YAML::Value << curve.KeyCount;
-            out << YAML::Key << "Keys" << YAML::Value << YAML::BeginSeq;
-            u32 safeCount = std::min(curve.KeyCount, static_cast<u32>(curve.Keys.size()));
-            for (u32 i = 0; i < safeCount; ++i)
-            {
-                out << YAML::BeginMap;
-                out << YAML::Key << "Time" << YAML::Value << curve.Keys[i].Time;
-                out << YAML::Key << "Value" << YAML::Value << curve.Keys[i].Value;
-                out << YAML::EndMap;
-            }
-            out << YAML::EndSeq;
-            out << YAML::EndMap;
-        }
-
-        void DeserializeCurve(const YAML::Node& node, ParticleCurve& curve)
-        {
-            if (!node || !node.IsMap())
-            {
-                return;
-            }
-            if (auto kc = node["KeyCount"]; kc)
-            {
-                curve.KeyCount = kc.as<u32>();
-            }
-            if (auto keys = node["Keys"]; keys && keys.IsSequence())
-            {
-                u32 count = std::min(static_cast<u32>(keys.size()), static_cast<u32>(curve.Keys.size()));
-                curve.KeyCount = count;
-                for (u32 i = 0; i < count; ++i)
-                {
-                    TrySetPS(curve.Keys[i].Time, keys[i]["Time"]);
-                    TrySetPS(curve.Keys[i].Value, keys[i]["Value"]);
-                }
-            }
-        }
-
-        void SerializeCurve4(YAML::Emitter& out, const std::string& name, const ParticleCurve4& curve)
-        {
-            out << YAML::Key << name << YAML::Value << YAML::BeginMap;
-            SerializeCurve(out, "R", curve.R);
-            SerializeCurve(out, "G", curve.G);
-            SerializeCurve(out, "B", curve.B);
-            SerializeCurve(out, "A", curve.A);
-            out << YAML::EndMap;
-        }
-
-        void DeserializeCurve4(const YAML::Node& node, ParticleCurve4& curve)
-        {
-            if (!node || !node.IsMap())
-            {
-                return;
-            }
-            DeserializeCurve(node["R"], curve.R);
-            DeserializeCurve(node["G"], curve.G);
-            DeserializeCurve(node["B"], curve.B);
-            DeserializeCurve(node["A"], curve.A);
-        }
     } // namespace
 
     void ParticleSystemAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
@@ -2841,7 +2783,13 @@ namespace OloEngine
         }
         std::string yamlString = SerializeToYAML(particleAsset);
         auto fullPath = Project::GetAssetDirectory() / metadata.FilePath;
-        std::filesystem::create_directories(fullPath.parent_path());
+        std::error_code ec;
+        std::filesystem::create_directories(fullPath.parent_path(), ec);
+        if (ec)
+        {
+            OLO_CORE_ERROR("ParticleSystemAssetSerializer::Serialize - Failed to create directories for ({}): {}", fullPath.string(), ec.message());
+            return;
+        }
         std::ofstream fout(fullPath);
         if (!fout.is_open())
         {
@@ -2856,15 +2804,24 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         auto path = Project::GetAssetDirectory() / metadata.FilePath;
         if (!std::filesystem::exists(path))
+        {
+            OLO_CORE_WARN("ParticleSystemAssetSerializer::TryLoadData - File does not exist ({})", path.string());
             return false;
+        }
         std::ifstream file(path);
         if (!file.is_open())
+        {
+            OLO_CORE_ERROR("ParticleSystemAssetSerializer::TryLoadData - Failed to open file ({})", path.string());
             return false;
+        }
         std::stringstream ss;
         ss << file.rdbuf();
         auto particleAsset = Ref<ParticleSystemAsset>::Create();
         if (!DeserializeFromYAML(ss.str(), particleAsset))
+        {
+            OLO_CORE_ERROR("ParticleSystemAssetSerializer::TryLoadData - Failed to deserialize ({})", path.string());
             return false;
+        }
         particleAsset->SetHandle(metadata.Handle);
         asset = particleAsset;
         return true;
@@ -2875,7 +2832,10 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         auto particleAsset = AssetManager::GetAsset<ParticleSystemAsset>(handle);
         if (!particleAsset)
+        {
+            OLO_CORE_ERROR("ParticleSystemAssetSerializer::SerializeToAssetPack - Failed to get asset ({})", static_cast<u64>(handle));
             return false;
+        }
         std::string yamlString = SerializeToYAML(particleAsset);
         outInfo.Offset = stream.GetStreamPosition();
         stream.WriteString(yamlString);
@@ -2891,7 +2851,10 @@ namespace OloEngine
         stream.ReadString(yamlString);
         auto particleAsset = Ref<ParticleSystemAsset>::Create();
         if (!DeserializeFromYAML(yamlString, particleAsset))
+        {
+            OLO_CORE_ERROR("ParticleSystemAssetSerializer::DeserializeFromAssetPack - Failed to deserialize YAML (handle: {})", static_cast<u64>(assetInfo.Handle));
             return nullptr;
+        }
         particleAsset->SetHandle(assetInfo.Handle);
         return particleAsset;
     }
@@ -2944,21 +2907,21 @@ namespace OloEngine
 
         if (auto* sphere = std::get_if<EmitSphere>(&emitter.Shape))
             out << YAML::Key << "EmissionSphereRadius" << YAML::Value << sphere->Radius;
-        if (auto* box = std::get_if<EmitBox>(&emitter.Shape))
+        else if (auto* box = std::get_if<EmitBox>(&emitter.Shape))
             out << YAML::Key << "EmissionBoxHalfExtents" << YAML::Value << box->HalfExtents;
-        if (auto* cone = std::get_if<EmitCone>(&emitter.Shape))
+        else if (auto* cone = std::get_if<EmitCone>(&emitter.Shape))
         {
             out << YAML::Key << "EmissionConeAngle" << YAML::Value << cone->Angle;
             out << YAML::Key << "EmissionConeRadius" << YAML::Value << cone->Radius;
         }
-        if (auto* ring = std::get_if<EmitRing>(&emitter.Shape))
+        else if (auto* ring = std::get_if<EmitRing>(&emitter.Shape))
         {
             out << YAML::Key << "EmissionRingInnerRadius" << YAML::Value << ring->InnerRadius;
             out << YAML::Key << "EmissionRingOuterRadius" << YAML::Value << ring->OuterRadius;
         }
-        if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
+        else if (auto* edge = std::get_if<EmitEdge>(&emitter.Shape))
             out << YAML::Key << "EmissionEdgeLength" << YAML::Value << edge->Length;
-        if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
+        else if (auto* mesh = std::get_if<EmitMesh>(&emitter.Shape))
             out << YAML::Key << "EmissionMeshPrimitiveType" << YAML::Value << mesh->PrimitiveType;
 
         // Modules
@@ -2967,13 +2930,13 @@ namespace OloEngine
         out << YAML::Key << "DragEnabled" << YAML::Value << sys.DragModule.Enabled;
         out << YAML::Key << "DragCoefficient" << YAML::Value << sys.DragModule.DragCoefficient;
         out << YAML::Key << "ColorOverLifetimeEnabled" << YAML::Value << sys.ColorModule.Enabled;
-        SerializeCurve4(out, "ColorCurve", sys.ColorModule.ColorCurve);
+        ParticleCurveSerializer::Serialize4(out, "ColorCurve", sys.ColorModule.ColorCurve);
         out << YAML::Key << "SizeOverLifetimeEnabled" << YAML::Value << sys.SizeModule.Enabled;
-        SerializeCurve(out, "SizeCurve", sys.SizeModule.SizeCurve);
+        ParticleCurveSerializer::Serialize(out, "SizeCurve", sys.SizeModule.SizeCurve);
         out << YAML::Key << "VelocityOverLifetimeEnabled" << YAML::Value << sys.VelocityModule.Enabled;
         out << YAML::Key << "LinearAcceleration" << YAML::Value << sys.VelocityModule.LinearAcceleration;
         out << YAML::Key << "SpeedMultiplier" << YAML::Value << sys.VelocityModule.SpeedMultiplier;
-        SerializeCurve(out, "SpeedCurve", sys.VelocityModule.SpeedCurve);
+        ParticleCurveSerializer::Serialize(out, "SpeedCurve", sys.VelocityModule.SpeedCurve);
         out << YAML::Key << "RotationOverLifetimeEnabled" << YAML::Value << sys.RotationModule.Enabled;
         out << YAML::Key << "AngularVelocity" << YAML::Value << sys.RotationModule.AngularVelocity;
         out << YAML::Key << "NoiseEnabled" << YAML::Value << sys.NoiseModule.Enabled;
@@ -3144,10 +3107,12 @@ namespace OloEngine
                         EmitMesh m;
                         if (auto val = ps["EmissionMeshPrimitiveType"]; val)
                             m.PrimitiveType = val.as<i32>();
-                        emitter.Shape = m;
+                        BuildEmitMeshFromPrimitive(m, m.PrimitiveType);
+                        emitter.Shape = std::move(m);
                         break;
                     }
                     default:
+                        OLO_CORE_WARN("ParticleSystemAssetSerializer: Unknown EmissionShapeType ({})", shapeType.as<int>());
                         break;
                 }
             }
@@ -3157,16 +3122,16 @@ namespace OloEngine
             TrySetPS(sys.DragModule.Enabled, ps["DragEnabled"]);
             TrySetPS(sys.DragModule.DragCoefficient, ps["DragCoefficient"]);
             TrySetPS(sys.ColorModule.Enabled, ps["ColorOverLifetimeEnabled"]);
-            DeserializeCurve4(ps["ColorCurve"], sys.ColorModule.ColorCurve);
+            ParticleCurveSerializer::Deserialize4(ps["ColorCurve"], sys.ColorModule.ColorCurve);
             TrySetPS(sys.SizeModule.Enabled, ps["SizeOverLifetimeEnabled"]);
-            DeserializeCurve(ps["SizeCurve"], sys.SizeModule.SizeCurve);
+            ParticleCurveSerializer::Deserialize(ps["SizeCurve"], sys.SizeModule.SizeCurve);
             TrySetPS(sys.VelocityModule.Enabled, ps["VelocityOverLifetimeEnabled"]);
             TrySetPS(sys.VelocityModule.LinearAcceleration, ps["LinearAcceleration"]);
             // Backward compatibility with older assets
             if (!ps["LinearAcceleration"])
                 TrySetPS(sys.VelocityModule.LinearAcceleration, ps["LinearVelocity"]);
             TrySetPS(sys.VelocityModule.SpeedMultiplier, ps["SpeedMultiplier"]);
-            DeserializeCurve(ps["SpeedCurve"], sys.VelocityModule.SpeedCurve);
+            ParticleCurveSerializer::Deserialize(ps["SpeedCurve"], sys.VelocityModule.SpeedCurve);
             TrySetPS(sys.RotationModule.Enabled, ps["RotationOverLifetimeEnabled"]);
             TrySetPS(sys.RotationModule.AngularVelocity, ps["AngularVelocity"]);
             TrySetPS(sys.NoiseModule.Enabled, ps["NoiseEnabled"]);

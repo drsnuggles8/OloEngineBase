@@ -285,13 +285,13 @@ namespace OloEngine
         if (useParallelModules)
         {
             if (ColorModule.Enabled)
-                colorTask = Tasks::Launch("ColorModule", [&]()
+                colorTask = Tasks::Launch("ColorModule", [this]()
                                           { ColorModule.Apply(m_Pool); });
             if (SizeModule.Enabled)
-                sizeTask = Tasks::Launch("SizeModule", [&]()
+                sizeTask = Tasks::Launch("SizeModule", [this]()
                                          { SizeModule.Apply(m_Pool); });
             if (RotationModule.Enabled)
-                rotationTask = Tasks::Launch("RotModule", [&]()
+                rotationTask = Tasks::Launch("RotModule", [this, scaledDt]()
                                              { RotationModule.Apply(scaledDt, m_Pool); });
         }
 
