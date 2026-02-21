@@ -50,6 +50,9 @@ namespace OloEngine
         void DisableScissorTest() override;
         void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height) override;
 
+        void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
+        void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
+
         void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) override;
         void MemoryBarrier(MemoryBarrierFlags flags) override;
 

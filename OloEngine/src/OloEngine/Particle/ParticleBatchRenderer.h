@@ -11,6 +11,7 @@
 
 namespace OloEngine
 {
+    class GPUParticleSystem;
     // Per-instance data for particle instanced rendering.
     // NOTE: PascalCase fields are intentional — this struct maps directly to GPU vertex/instance attributes.
     struct ParticleInstance
@@ -100,6 +101,10 @@ namespace OloEngine
 
         // Flush pending trail quads
         static void FlushTrails();
+
+        // Render GPU particles using indirect draw (SSBO-based, no CPU instance data)
+        static void RenderGPUBillboards(GPUParticleSystem& gpuSystem,
+                                        const Ref<Texture2D>& texture);
 
         struct Statistics
         {

@@ -472,6 +472,9 @@
 		"OloEngine/Particle/ParticleBatchRenderer.cpp"
 		"OloEngine/Particle/SimplexNoise.h"
 		"OloEngine/Particle/SimplexNoise.cpp"
+		"OloEngine/Particle/GPUParticleData.h"
+		"OloEngine/Particle/GPUParticleSystem.h"
+		"OloEngine/Particle/GPUParticleSystem.cpp"
 
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/Entity.cpp"

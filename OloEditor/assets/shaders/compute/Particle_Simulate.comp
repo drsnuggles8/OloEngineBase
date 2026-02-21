@@ -1,0 +1,71 @@
+#version 450 core
+
+layout(local_size_x = 256) in;
+
+// Per-particle data (std430, 96 bytes)
+struct GPUParticle
+{
+    vec4 PositionLifetime;     // xyz = pos, w = remaining lifetime
+    vec4 VelocityMaxLifetime;  // xyz = vel, w = max lifetime
+    vec4 Color;                // rgba
+    vec4 InitialColor;         // rgba
+    vec4 InitialVelocitySize;  // xyz = initial vel, w = current size
+    vec4 Misc;                 // x = initial size, y = rotation, z = alive (1/0), w = entityID
+};
+
+layout(std430, binding = 0) buffer ParticleBuffer
+{
+    GPUParticle particles[];
+};
+
+uniform float u_DeltaTime;
+uniform vec3 u_Gravity;
+uniform float u_DragCoefficient;
+uniform uint u_MaxParticles;
+uniform int u_EnableGravity;
+uniform int u_EnableDrag;
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= u_MaxParticles)
+        return;
+
+    // Skip dead particles
+    if (particles[idx].Misc.z < 0.5)
+        return;
+
+    // Read current state
+    vec3 pos = particles[idx].PositionLifetime.xyz;
+    float lifetime = particles[idx].PositionLifetime.w;
+    vec3 vel = particles[idx].VelocityMaxLifetime.xyz;
+
+    // Decrement lifetime
+    lifetime -= u_DeltaTime;
+    if (lifetime <= 0.0)
+    {
+        // Kill particle
+        particles[idx].Misc.z = 0.0;
+        particles[idx].PositionLifetime.w = 0.0;
+        return;
+    }
+
+    // Apply gravity
+    if (u_EnableGravity != 0)
+    {
+        vel += u_Gravity * u_DeltaTime;
+    }
+
+    // Apply drag: vel *= exp(-drag * dt)
+    if (u_EnableDrag != 0)
+    {
+        vel *= exp(-u_DragCoefficient * u_DeltaTime);
+    }
+
+    // Integrate position
+    pos += vel * u_DeltaTime;
+
+    // Write back
+    particles[idx].PositionLifetime = vec4(pos, lifetime);
+    particles[idx].VelocityMaxLifetime.xyz = vel;
+}

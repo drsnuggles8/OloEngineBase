@@ -202,6 +202,17 @@ namespace OloEngine
             s_RendererAPI->SetColorMask(red, green, blue, alpha);
         }
 
+        // Indirect draw calls (GPU-driven rendering)
+        static void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID)
+        {
+            s_RendererAPI->DrawElementsIndirect(vertexArray, indirectBufferID);
+        }
+
+        static void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID)
+        {
+            s_RendererAPI->DrawArraysIndirect(vertexArray, indirectBufferID);
+        }
+
         // Compute shader dispatch
         static void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
         {

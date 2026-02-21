@@ -16,6 +16,7 @@ namespace OloEngine
 
         void SetData(const void* data, u32 size, u32 offset = 0) override;
         void GetData(void* outData, u32 size, u32 offset = 0) const override;
+        void ClearData() override;
         void Resize(u32 newSize) override;
 
         [[nodiscard]] u32 GetRendererID() const override

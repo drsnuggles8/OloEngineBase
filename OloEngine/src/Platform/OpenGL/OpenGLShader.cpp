@@ -665,6 +665,7 @@ namespace OloEngine
                 preserveResourceNames(resources.uniform_buffers);
                 preserveResourceNames(resources.stage_inputs);
                 preserveResourceNames(resources.stage_outputs);
+                preserveResourceNames(resources.storage_buffers);
 
                 result.GlslSource = glslCompiler.compile();
 
@@ -672,9 +673,10 @@ namespace OloEngine
                 shaderc::Compiler compiler;
                 shaderc::CompileOptions options;
                 options.SetTargetEnvironment(shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
+                options.SetPreserveBindings(true);
 
                 shaderc::SpvCompilationResult spirvModule = compiler.CompileGlslToSpv(
-                    result.GlslSource, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str());
+                    result.GlslSource, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
 
                 if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
                 {

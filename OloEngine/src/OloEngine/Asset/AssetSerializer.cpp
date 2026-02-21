@@ -3002,6 +3002,7 @@ namespace OloEngine
         out << YAML::Key << "BlendMode" << YAML::Value << static_cast<int>(sys.BlendMode);
         out << YAML::Key << "RenderMode" << YAML::Value << static_cast<int>(sys.RenderMode);
         out << YAML::Key << "DepthSortEnabled" << YAML::Value << sys.DepthSortEnabled;
+        out << YAML::Key << "UseGPU" << YAML::Value << sys.UseGPU;
         out << YAML::Key << "SoftParticlesEnabled" << YAML::Value << sys.SoftParticlesEnabled;
         out << YAML::Key << "SoftParticleDistance" << YAML::Value << sys.SoftParticleDistance;
         out << YAML::Key << "VelocityInheritance" << YAML::Value << sys.VelocityInheritance;
@@ -3225,6 +3226,7 @@ namespace OloEngine
             if (auto val = ps["RenderMode"]; val)
                 sys.RenderMode = static_cast<ParticleRenderMode>(val.as<int>());
             TrySetPS(sys.DepthSortEnabled, ps["DepthSortEnabled"]);
+            TrySetPS(sys.UseGPU, ps["UseGPU"]);
             TrySetPS(sys.SoftParticlesEnabled, ps["SoftParticlesEnabled"]);
             TrySetPS(sys.SoftParticleDistance, ps["SoftParticleDistance"]);
             TrySetPS(sys.VelocityInheritance, ps["VelocityInheritance"]);

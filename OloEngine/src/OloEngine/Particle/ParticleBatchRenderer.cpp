@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "ParticleBatchRenderer.h"
+#include "OloEngine/Particle/GPUParticleSystem.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
@@ -80,6 +81,10 @@ namespace OloEngine
         u32 TrailQuadCount = 0;
 
         Ref<Texture2D> CurrentTrailTexture;
+
+        // GPU billboard resources
+        Ref<VertexArray> GPUVAO;
+        Ref<Shader> GPUBillboardShader;
 
         ParticleBatchRenderer::Statistics Stats;
     };
@@ -171,6 +176,18 @@ namespace OloEngine
         s_Data.TrailVertexBase = std::make_unique<TrailVertex[]>(ParticleBatchData::MaxTrailVertices);
 
         s_Data.TrailShader = Shader::Create("assets/shaders/Particle_Trail.glsl");
+
+        // GPU billboard VAO — only quad VBO, no instance buffer (particle data comes from SSBO)
+        s_Data.GPUVAO = VertexArray::Create();
+        {
+            auto gpuQuadVBO = VertexBuffer::Create(quadVertices, sizeof(quadVertices));
+            gpuQuadVBO->SetLayout({ { ShaderDataType::Float2, "a_QuadPos" } });
+            s_Data.GPUVAO->AddVertexBuffer(gpuQuadVBO);
+            s_Data.GPUVAO->SetIndexBuffer(indexBuffer);
+        }
+
+        // GPU billboard shader (reads particle data from SSBO)
+        s_Data.GPUBillboardShader = Shader::Create("assets/shaders/Particle_Billboard_GPU.glsl");
     }
 
     void ParticleBatchRenderer::Shutdown()
@@ -467,6 +484,37 @@ namespace OloEngine
 
         s_Data.Stats.DrawCalls++;
         s_Data.Stats.InstanceCount += s_Data.TrailQuadCount;
+    }
+
+    void ParticleBatchRenderer::RenderGPUBillboards(GPUParticleSystem& gpuSystem,
+                                                    const Ref<Texture2D>& texture)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!gpuSystem.IsInitialized())
+        {
+            return;
+        }
+
+        // Populate ParticleParams UBO
+        bool hasTexture = (texture != nullptr);
+        UploadParticleParams(hasTexture);
+
+        // Bind GPU billboard shader
+        s_Data.GPUBillboardShader->Bind();
+
+        // Bind particle and alive-index SSBOs so the vertex shader can read them
+        gpuSystem.GetParticleSSBO()->Bind();
+        gpuSystem.GetAliveIndexSSBO()->Bind();
+
+        // Bind textures
+        BindParticleTextures(hasTexture, hasTexture ? texture->GetRendererID() : 0);
+
+        // Indirect draw using the GPU-dedicated VAO (no instance attributes)
+        RenderCommand::DrawElementsIndirect(s_Data.GPUVAO, gpuSystem.GetIndirectDrawSSBO()->GetRendererID());
+
+        s_Data.Stats.DrawCalls++;
+        // InstanceCount not updated here: GetAliveCount() requires a GPU→CPU readback that would stall the pipeline
     }
 
     void ParticleBatchRenderer::StartNewBatch()

@@ -1,4 +1,4 @@
-Scene: particle_test
+Scene: particle_test.olo
 Entities:
   - Entity: 2499230237858324228
     TagComponent:
@@ -25,14 +25,97 @@ Entities:
       RotationVariance: 0
       InitialColor: [1, 1, 1, 1]
       EmissionShapeType: 1
+      Bursts:
+        []
+      EmissionSphereRadius: 1
       GravityEnabled: false
       Gravity: [0, -9.81, 0]
       DragEnabled: false
       DragCoefficient: 0.1
       ColorOverLifetimeEnabled: false
+      ColorCurve:
+        R:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        G:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        B:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 1
+        A:
+          KeyCount: 2
+          Keys:
+            - Time: 0
+              Value: 1
+            - Time: 1
+              Value: 0
       SizeOverLifetimeEnabled: false
+      SizeCurve:
+        KeyCount: 2
+        Keys:
+          - Time: 0
+            Value: 1
+          - Time: 1
+            Value: 0
       RotationOverLifetimeEnabled: false
       AngularVelocity: 0
+      VelocityOverLifetimeEnabled: false
+      LinearAcceleration: [0, 0, 0]
+      SpeedMultiplier: 1
+      SpeedCurve:
+        KeyCount: 2
+        Keys:
+          - Time: 0
+            Value: 1
+          - Time: 1
+            Value: 1
       NoiseEnabled: false
       NoiseStrength: 1
       NoiseFrequency: 1
+      CollisionEnabled: false
+      CollisionMode: 0
+      CollisionPlaneNormal: [0, 1, 0]
+      CollisionPlaneOffset: 0
+      CollisionBounce: 0.5
+      CollisionLifetimeLoss: 0
+      CollisionKillOnCollide: false
+      ForceFields:
+        []
+      TrailEnabled: false
+      TrailMaxPoints: 16
+      TrailLifetime: 0.5
+      TrailMinVertexDistance: 0.1
+      TrailWidthStart: 1
+      TrailWidthEnd: 0
+      TrailColorStart: [1, 1, 1, 1]
+      TrailColorEnd: [1, 1, 1, 0]
+      SubEmitterEnabled: false
+      LODDistance1: 50
+      LODMaxDistance: 200
+      WarmUpTime: 0
+      BlendMode: 0
+      RenderMode: 0
+      DepthSortEnabled: true
+      UseGPU: true
+      SoftParticlesEnabled: false
+      SoftParticleDistance: 1
+      VelocityInheritance: 0
+      TextureSheetEnabled: false
+      TextureSheetGridX: 1
+      TextureSheetGridY: 1
+      TextureSheetTotalFrames: 1
+      TextureSheetMode: 0
+      TextureSheetSpeedRange: 10

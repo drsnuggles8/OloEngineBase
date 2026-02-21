@@ -720,6 +720,19 @@ namespace OloEngine
             sys.RenderMode = static_cast<ParticleRenderMode>(renderIdx);
 
         ImGui::Checkbox("Depth Sort", &sys.DepthSortEnabled);
+
+        // GPU compute simulation
+        ImGui::Checkbox("GPU Simulation", &sys.UseGPU);
+        if (sys.UseGPU)
+        {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(Billboard only)");
+            if (auto* gpu = sys.GetGPUSystem())
+            {
+                ImGui::Text("GPU Alive: %u", gpu->GetAliveCount());
+            }
+        }
+
         ImGui::DragFloat("Velocity Inheritance", &sys.VelocityInheritance, 0.01f, 0.0f, 1.0f);
 
         // Soft particles
