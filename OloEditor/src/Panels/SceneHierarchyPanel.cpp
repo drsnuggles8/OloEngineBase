@@ -767,7 +767,7 @@ namespace OloEngine
                     {
                         auto meshSource = model->CreateCombinedMeshSource();
                         if (meshSource)
-                            component.ParticleMesh = Ref<Mesh>(new Mesh(meshSource));
+                            component.ParticleMesh = Ref<Mesh>::Create(meshSource);
                     }
                     else
                     {
@@ -2221,6 +2221,10 @@ namespace OloEngine
             {
                 ImGui::DragFloat("LOD Distance 1", &sys.LODDistance1, 1.0f, 0.0f, 10000.0f);
                 ImGui::DragFloat("LOD Max Distance", &sys.LODMaxDistance, 1.0f, 0.0f, 10000.0f);
+                if (sys.LODDistance1 >= sys.LODMaxDistance)
+                    sys.LODDistance1 = sys.LODMaxDistance - 0.1f;
+                if (sys.LODDistance1 < 0.0f)
+                    sys.LODDistance1 = 0.0f;
             } });
     }
 

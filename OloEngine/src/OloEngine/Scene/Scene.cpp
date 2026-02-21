@@ -516,41 +516,41 @@ namespace OloEngine
                     ac.Source->SetDirection(forward);
                 }
             }
-        }
 
-        // Update particle systems
-        {
-            // Quick camera position lookup for LOD
-            glm::vec3 camPos(0.0f);
-            for (const auto camView = m_Registry.view<TransformComponent, CameraComponent>(); const auto camEntity : camView)
+            // Update particle systems
             {
-                const auto& [camTransform, cam] = camView.get<TransformComponent, CameraComponent>(camEntity);
-                if (cam.Primary)
+                // Quick camera position lookup for LOD
+                glm::vec3 camPos(0.0f);
+                for (const auto camView = m_Registry.view<TransformComponent, CameraComponent>(); const auto camEntity : camView)
                 {
-                    camPos = camTransform.Translation;
-                    break;
-                }
-            }
-
-            for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
-            {
-                auto& transform = view.get<TransformComponent>(entity);
-                auto& psc = view.get<ParticleSystemComponent>(entity);
-                // Provide Jolt scene for raycast collision
-                psc.System.SetJoltScene(m_JoltScene.get());
-                psc.System.UpdateLOD(camPos, transform.Translation);
-
-                // Compute parent velocity for velocity inheritance
-                glm::vec3 parentVelocity(0.0f);
-                if (psc.System.VelocityInheritance != 0.0f && ts > 0.0f)
-                {
-                    parentVelocity = (transform.Translation - psc.System.GetEmitterPosition()) / static_cast<f32>(ts);
+                    const auto& [camTransform, cam] = camView.get<TransformComponent, CameraComponent>(camEntity);
+                    if (cam.Primary)
+                    {
+                        camPos = camTransform.Translation;
+                        break;
+                    }
                 }
 
-                psc.System.Update(ts, transform.Translation, parentVelocity, glm::quat(transform.Rotation));
+                for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
+                {
+                    auto& transform = view.get<TransformComponent>(entity);
+                    auto& psc = view.get<ParticleSystemComponent>(entity);
+                    // Provide Jolt scene for raycast collision
+                    psc.System.SetJoltScene(m_JoltScene.get());
+                    psc.System.UpdateLOD(camPos, transform.Translation);
 
-                // Process sub-emitter triggers for child systems
-                ProcessChildSubEmitters(psc, ts, transform.Translation);
+                    // Compute parent velocity for velocity inheritance
+                    glm::vec3 parentVelocity(0.0f);
+                    if (psc.System.VelocityInheritance != 0.0f && ts > 0.0f)
+                    {
+                        parentVelocity = (transform.Translation - psc.System.GetEmitterPosition()) / static_cast<f32>(ts);
+                    }
+
+                    psc.System.Update(ts, transform.Translation, parentVelocity, glm::quat(transform.Rotation));
+
+                    // Process sub-emitter triggers for child systems
+                    ProcessChildSubEmitters(psc, ts, transform.Translation);
+                }
             }
         }
 
@@ -1612,11 +1612,9 @@ namespace OloEngine
                                             {
                 ParticleBatchRenderer::BeginBatch(camera);
 
-                glm::vec3 camRight = camera.GetRightDirection();
-                glm::vec3 camUp = camera.GetUpDirection();
                 glm::vec3 camPos = camera.GetPosition();
 
-                RenderParticleSystems(camRight, camUp, camPos, camera.GetNearClip(), camera.GetFarClip());
+                RenderParticleSystems(camPos, camera.GetNearClip(), camera.GetFarClip());
 
                 ParticleBatchRenderer::EndBatch(); });
         }
@@ -1843,11 +1841,9 @@ namespace OloEngine
                     }
                 }
 
-                glm::vec3 camRight = glm::normalize(glm::vec3(cameraTransform[0]));
-                glm::vec3 camUp = glm::normalize(glm::vec3(cameraTransform[1]));
                 glm::vec3 camPos = glm::vec3(cameraTransform[3]);
 
-                RenderParticleSystems(camRight, camUp, camPos, nearClip, farClip);
+                RenderParticleSystems(camPos, nearClip, farClip);
 
                 ParticleBatchRenderer::EndBatch(); });
         }
@@ -1855,8 +1851,10 @@ namespace OloEngine
         Renderer3D::EndScene();
     }
 
-    void Scene::RenderParticleSystems(const glm::vec3& camRight, const glm::vec3& camUp, const glm::vec3& camPos, f32 nearClip, f32 farClip)
+    void Scene::RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Sort particle systems back-to-front for correct alpha blending
         auto psView = m_Registry.view<TransformComponent, ParticleSystemComponent>();
         std::vector<std::pair<f32, entt::entity>> sortedSystems;
@@ -1914,11 +1912,11 @@ namespace OloEngine
             }
             else if (sys.RenderMode == ParticleRenderMode::StretchedBillboard)
             {
-                ParticleRenderer::RenderParticlesStretched(sys.GetPool(), camRight, camUp, psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
+                ParticleRenderer::RenderParticlesStretched(sys.GetPool(), psc.Texture, 1.0f, offset, static_cast<int>(entity), sorted, sheet);
             }
             else
             {
-                ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), camRight, camUp, psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
+                ParticleRenderer::RenderParticlesBillboard(sys.GetPool(), psc.Texture, offset, static_cast<int>(entity), sorted, sheet);
             }
 
             // Render child systems
@@ -1934,7 +1932,7 @@ namespace OloEngine
                 ParticleBatchRenderer::Flush();
                 SetParticleBlendMode(childSys.BlendMode);
                 Ref<Texture2D> childTex = (c < psc.ChildTextures.size()) ? psc.ChildTextures[c] : nullptr;
-                ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), camRight, camUp, childTex, offset, static_cast<int>(entity), childSorted, nullptr);
+                ParticleRenderer::RenderParticlesBillboard(childSys.GetPool(), childTex, offset, static_cast<int>(entity), childSorted, nullptr);
             }
 
             // Trail rendering via dedicated trail shader in ParticleBatchRenderer

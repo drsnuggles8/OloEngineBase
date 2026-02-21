@@ -50,18 +50,18 @@ namespace OloEngine
             f32 rotation = glm::radians(pool.m_Rotations[i]);
             const auto& color = pool.m_Colors[i];
 
+            glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 0.0f, 1.0f }) * glm::scale(glm::mat4(1.0f), { size, size, 1.0f });
+
             if (useSpriteSheet)
             {
                 u32 frame = ComputeFrame(pool, i, *spriteSheet);
                 glm::vec2 uvMin, uvMax;
                 spriteSheet->GetFrameUV(frame, uvMin, uvMax);
 
-                glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 0.0f, 1.0f }) * glm::scale(glm::mat4(1.0f), { size, size, 1.0f });
                 Renderer2D::DrawQuad(transform, texture, uvMin, uvMax, color, entityID);
             }
             else
             {
-                glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 0.0f, 1.0f }) * glm::scale(glm::mat4(1.0f), { size, size, 1.0f });
                 if (texture)
                     Renderer2D::DrawQuad(transform, texture, 1.0f, color, entityID);
                 else
@@ -71,7 +71,6 @@ namespace OloEngine
     }
 
     void ParticleRenderer::RenderParticlesBillboard(const ParticlePool& pool,
-                                                    const glm::vec3& cameraRight, const glm::vec3& cameraUp,
                                                     const Ref<Texture2D>& texture,
                                                     const glm::vec3& worldOffset, int entityID,
                                                     const std::vector<u32>* sortedIndices,
@@ -107,7 +106,6 @@ namespace OloEngine
     }
 
     void ParticleRenderer::RenderParticlesStretched(const ParticlePool& pool,
-                                                    const glm::vec3& cameraRight, const glm::vec3& cameraUp,
                                                     const Ref<Texture2D>& texture,
                                                     f32 lengthScale,
                                                     const glm::vec3& worldOffset, int entityID,
@@ -177,7 +175,7 @@ namespace OloEngine
             f32 rotation = glm::radians(pool.m_Rotations[i]);
             const auto& color = pool.m_Colors[i];
 
-            // Build model matrix: translate * rotate * scale
+            // Build model matrix: translate * rotate * scale (Y-axis rotation is the default for mesh particles)
             glm::mat4 model = glm::translate(glm::mat4(1.0f), pos) * glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 1.0f, 0.0f }) * glm::scale(glm::mat4(1.0f), glm::vec3(size));
 
             auto& inst = s_Instances[iter];

@@ -29,7 +29,6 @@ namespace OloEngine
         // Render as billboarded quads facing the camera
         // Call between Renderer2D::BeginScene and EndScene
         static void RenderParticlesBillboard(const ParticlePool& pool,
-                                             const glm::vec3& cameraRight, const glm::vec3& cameraUp,
                                              const Ref<Texture2D>& texture,
                                              const glm::vec3& worldOffset = glm::vec3(0.0f),
                                              int entityID = -1,
@@ -39,7 +38,6 @@ namespace OloEngine
         // Render particles as stretched billboards (velocity-aligned)
         // Call between Renderer2D::BeginScene and EndScene
         static void RenderParticlesStretched(const ParticlePool& pool,
-                                             const glm::vec3& cameraRight, const glm::vec3& cameraUp,
                                              const Ref<Texture2D>& texture,
                                              f32 lengthScale = 1.0f,
                                              const glm::vec3& worldOffset = glm::vec3(0.0f),

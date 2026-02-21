@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "ParticleEmitter.h"
 
+#include <algorithm>
+
 namespace OloEngine
 {
     u32 ParticleEmitter::Update(f32 dt, ParticlePool& pool, const glm::vec3& emitterPosition, f32 rateMultiplier, const glm::quat& emitterRotation)
@@ -56,6 +58,10 @@ namespace OloEngine
         m_EmitAccumulator = 0.0f;
         m_LoopTime = 0.0f;
         m_NextBurstIndex = 0;
+        // Sort bursts by time so the forward-iteration in Update() works correctly
+        std::sort(Bursts.begin(), Bursts.end(),
+                  [](const BurstEntry& a, const BurstEntry& b)
+                  { return a.Time < b.Time; });
     }
 
     void ParticleEmitter::InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation)

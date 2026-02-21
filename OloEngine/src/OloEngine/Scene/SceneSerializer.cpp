@@ -55,7 +55,8 @@ namespace OloEngine
         out << YAML::Key << name << YAML::Value << YAML::BeginMap;
         out << YAML::Key << "KeyCount" << YAML::Value << curve.KeyCount;
         out << YAML::Key << "Keys" << YAML::Value << YAML::BeginSeq;
-        for (u32 i = 0; i < curve.KeyCount; ++i)
+        u32 safeCount = std::min(curve.KeyCount, static_cast<u32>(curve.Keys.size()));
+        for (u32 i = 0; i < safeCount; ++i)
         {
             out << YAML::BeginMap;
             out << YAML::Key << "Time" << YAML::Value << curve.Keys[i].Time;

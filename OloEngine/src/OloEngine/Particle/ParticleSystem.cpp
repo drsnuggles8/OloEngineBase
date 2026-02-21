@@ -477,8 +477,11 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         u32 count = m_Pool.GetAliveCount();
-        m_SortedIndices.resize(count);
-        std::iota(m_SortedIndices.begin(), m_SortedIndices.end(), 0u);
+        if (m_SortedIndices.size() != count)
+        {
+            m_SortedIndices.resize(count);
+            std::iota(m_SortedIndices.begin(), m_SortedIndices.end(), 0u);
+        }
 
         // Precompute squared distances to avoid recomputing in inner loop
         m_SortDistances.resize(count);

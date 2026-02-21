@@ -176,7 +176,7 @@ namespace OloEngine
         void RenderScene(EditorCamera const& camera);
         void RenderScene3D(EditorCamera const& camera);
         void RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform);
-        void RenderParticleSystems(const glm::vec3& camRight, const glm::vec3& camUp, const glm::vec3& camPos, f32 nearClip, f32 farClip);
+        void RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip);
         void RenderUIOverlay();
 
       private:

@@ -184,7 +184,11 @@ namespace OloEngine
             else if constexpr (std::is_same_v<T, EmitRing>)
             {
                 f32 theta = rng.GetFloat32InRange(0.0f, glm::two_pi<f32>());
-                f32 r = rng.GetFloat32InRange(s.InnerRadius, s.OuterRadius);
+                // Area-uniform sampling: sqrt maps linear u to uniform area distribution
+                f32 u = rng.GetFloat32InRange(0.0f, 1.0f);
+                f32 inner2 = s.InnerRadius * s.InnerRadius;
+                f32 outer2 = s.OuterRadius * s.OuterRadius;
+                f32 r = std::sqrt(u * (outer2 - inner2) + inner2);
                 return { r * std::cos(theta), r * std::sin(theta), 0.0f };
             }
             else if constexpr (std::is_same_v<T, EmitEdge>)
@@ -312,9 +316,9 @@ namespace OloEngine
     inline EmissionSample SampleEmissionCombined(const EmissionShape& shape)
     {
         EmissionSample sample;
-        sample.Position = SampleEmissionShape(shape);
 
-        // Only EmitMesh needs a combined sample; all other shapes have independent position/direction.
+        // For mesh shapes, sample position and direction from the same triangle.
+        // Skip the generic SampleEmissionShape call to avoid wasteful double-sampling.
         if (auto* mesh = std::get_if<EmitMesh>(&shape); mesh && mesh->IsValid())
         {
             auto& rng = RandomUtils::GetGlobalRandom();
@@ -335,6 +339,7 @@ namespace OloEngine
         }
         else
         {
+            sample.Position = SampleEmissionShape(shape);
             sample.Direction = SampleEmissionDirection(shape);
         }
 

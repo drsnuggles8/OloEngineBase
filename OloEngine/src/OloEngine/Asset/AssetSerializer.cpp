@@ -2773,7 +2773,8 @@ namespace OloEngine
             out << YAML::Key << name << YAML::Value << YAML::BeginMap;
             out << YAML::Key << "KeyCount" << YAML::Value << curve.KeyCount;
             out << YAML::Key << "Keys" << YAML::Value << YAML::BeginSeq;
-            for (u32 i = 0; i < curve.KeyCount; ++i)
+            u32 safeCount = std::min(curve.KeyCount, static_cast<u32>(curve.Keys.size()));
+            for (u32 i = 0; i < safeCount; ++i)
             {
                 out << YAML::BeginMap;
                 out << YAML::Key << "Time" << YAML::Value << curve.Keys[i].Time;
@@ -2839,7 +2840,14 @@ namespace OloEngine
             return;
         }
         std::string yamlString = SerializeToYAML(particleAsset);
-        std::ofstream fout(Project::GetAssetDirectory() / metadata.FilePath);
+        auto fullPath = Project::GetAssetDirectory() / metadata.FilePath;
+        std::filesystem::create_directories(fullPath.parent_path());
+        std::ofstream fout(fullPath);
+        if (!fout.is_open())
+        {
+            OLO_CORE_ERROR("ParticleSystemAssetSerializer::Serialize - Failed to open file for writing ({})", fullPath.string());
+            return;
+        }
         fout << yamlString;
     }
 
