@@ -345,24 +345,44 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (flags == MemoryBarrierFlags::All)
+        {
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+            return;
+        }
+
         GLbitfield glBarrier = 0;
         const auto bits = static_cast<u32>(flags);
-        if (bits & static_cast<u32>(MemoryBarrierFlags::VertexAttribArray))  glBarrier |= GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::ElementArray))       glBarrier |= GL_ELEMENT_ARRAY_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::Uniform))            glBarrier |= GL_UNIFORM_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::TextureFetch))       glBarrier |= GL_TEXTURE_FETCH_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::ShaderImageAccess))  glBarrier |= GL_SHADER_IMAGE_ACCESS_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::Command))            glBarrier |= GL_COMMAND_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::PixelBuffer))        glBarrier |= GL_PIXEL_BUFFER_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::TextureUpdate))      glBarrier |= GL_TEXTURE_UPDATE_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::BufferUpdate))       glBarrier |= GL_BUFFER_UPDATE_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::Framebuffer))        glBarrier |= GL_FRAMEBUFFER_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::TransformFeedback))  glBarrier |= GL_TRANSFORM_FEEDBACK_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::AtomicCounter))      glBarrier |= GL_ATOMIC_COUNTER_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::ShaderStorage))      glBarrier |= GL_SHADER_STORAGE_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::ClientMappedBuffer)) glBarrier |= GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT;
-        if (bits & static_cast<u32>(MemoryBarrierFlags::QueryBuffer))        glBarrier |= GL_QUERY_BUFFER_BARRIER_BIT;
-        if (flags == MemoryBarrierFlags::All)                                glBarrier = GL_ALL_BARRIER_BITS;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::VertexAttribArray))
+            glBarrier |= GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::ElementArray))
+            glBarrier |= GL_ELEMENT_ARRAY_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::Uniform))
+            glBarrier |= GL_UNIFORM_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::TextureFetch))
+            glBarrier |= GL_TEXTURE_FETCH_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::ShaderImageAccess))
+            glBarrier |= GL_SHADER_IMAGE_ACCESS_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::Command))
+            glBarrier |= GL_COMMAND_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::PixelBuffer))
+            glBarrier |= GL_PIXEL_BUFFER_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::TextureUpdate))
+            glBarrier |= GL_TEXTURE_UPDATE_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::BufferUpdate))
+            glBarrier |= GL_BUFFER_UPDATE_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::Framebuffer))
+            glBarrier |= GL_FRAMEBUFFER_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::TransformFeedback))
+            glBarrier |= GL_TRANSFORM_FEEDBACK_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::AtomicCounter))
+            glBarrier |= GL_ATOMIC_COUNTER_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::ShaderStorage))
+            glBarrier |= GL_SHADER_STORAGE_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::ClientMappedBuffer))
+            glBarrier |= GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT;
+        if (bits & static_cast<u32>(MemoryBarrierFlags::QueryBuffer))
+            glBarrier |= GL_QUERY_BUFFER_BARRIER_BIT;
 
         glMemoryBarrier(glBarrier);
     }

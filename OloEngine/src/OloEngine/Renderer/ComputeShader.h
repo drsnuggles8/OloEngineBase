@@ -24,6 +24,7 @@ namespace OloEngine
         virtual void Unbind() const = 0;
 
         virtual void SetInt(const std::string& name, int value) const = 0;
+        virtual void SetIntArray(const std::string& name, int* values, u32 count) const = 0;
         virtual void SetFloat(const std::string& name, f32 value) const = 0;
         virtual void SetFloat2(const std::string& name, const glm::vec2& value) const = 0;
         virtual void SetFloat3(const std::string& name, const glm::vec3& value) const = 0;
@@ -34,6 +35,8 @@ namespace OloEngine
         [[nodiscard]] virtual u32 GetRendererID() const = 0;
         [[nodiscard]] virtual const std::string& GetName() const = 0;
         [[nodiscard]] virtual const std::string& GetFilePath() const = 0;
+
+        virtual void Reload() = 0;
 
         // Asset interface
         static AssetType GetStaticType()

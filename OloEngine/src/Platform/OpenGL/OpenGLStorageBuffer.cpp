@@ -72,8 +72,10 @@ namespace OloEngine
     {
         switch (m_Usage)
         {
-            case StorageBufferUsage::DynamicDraw: return GL_DYNAMIC_DRAW;
-            case StorageBufferUsage::DynamicCopy: return GL_DYNAMIC_COPY;
+            case StorageBufferUsage::DynamicDraw:
+                return GL_DYNAMIC_DRAW;
+            case StorageBufferUsage::DynamicCopy:
+                return GL_DYNAMIC_COPY;
         }
         return GL_DYNAMIC_DRAW;
     }

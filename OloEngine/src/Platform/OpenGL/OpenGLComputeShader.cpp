@@ -32,7 +32,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        OLO_TRACK_DEALLOC(this);
+        if (m_IsValid)
+        {
+            OLO_TRACK_DEALLOC(this);
+        }
         glDeleteProgram(m_RendererID);
     }
 
@@ -120,6 +123,11 @@ namespace OloEngine
         glProgramUniform1i(m_RendererID, GetUniformLocation(name), value);
     }
 
+    void OpenGLComputeShader::SetIntArray(const std::string& name, int* values, u32 count) const
+    {
+        glProgramUniform1iv(m_RendererID, GetUniformLocation(name), static_cast<GLsizei>(count), values);
+    }
+
     void OpenGLComputeShader::SetFloat(const std::string& name, f32 value) const
     {
         glProgramUniform1f(m_RendererID, GetUniformLocation(name), value);
@@ -143,5 +151,29 @@ namespace OloEngine
     void OpenGLComputeShader::SetMat4(const std::string& name, const glm::mat4& value) const
     {
         glProgramUniformMatrix4fv(m_RendererID, GetUniformLocation(name), 1, GL_FALSE, glm::value_ptr(value));
+    }
+
+    void OpenGLComputeShader::Reload()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const std::string source = FileSystem::ReadFileText(m_FilePath);
+        if (source.empty())
+        {
+            OLO_CORE_ERROR("Failed to reload compute shader '{0}': empty source", m_Name);
+            return;
+        }
+
+        // Clean up old program
+        if (m_IsValid)
+        {
+            OLO_TRACK_DEALLOC(this);
+        }
+        glDeleteProgram(m_RendererID);
+        m_RendererID = 0;
+        m_IsValid = false;
+        m_UniformLocationCache.clear();
+
+        Compile(source);
     }
 } // namespace OloEngine

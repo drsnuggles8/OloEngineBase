@@ -37,6 +37,7 @@
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"

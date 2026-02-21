@@ -17,6 +17,7 @@ namespace OloEngine
         void Unbind() const override;
 
         void SetInt(const std::string& name, int value) const override;
+        void SetIntArray(const std::string& name, int* values, u32 count) const override;
         void SetFloat(const std::string& name, f32 value) const override;
         void SetFloat2(const std::string& name, const glm::vec2& value) const override;
         void SetFloat3(const std::string& name, const glm::vec3& value) const override;
@@ -39,6 +40,8 @@ namespace OloEngine
         {
             return m_FilePath;
         }
+
+        void Reload() override;
 
       private:
         void Compile(const std::string& source);

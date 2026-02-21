@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <cstring>
+#include <type_traits>
 
 namespace OloEngine
 {
@@ -38,6 +39,7 @@ namespace OloEngine
         template<typename T>
         T GetData(u32 offset = 0) const
         {
+            static_assert(std::is_trivially_copyable_v<T>, "StorageBuffer::GetData<T> requires a trivially copyable type");
             OLO_CORE_ASSERT(offset + sizeof(T) <= GetSize(), "StorageBuffer::GetData<T> out of range!");
             T result;
             GetData(&result, static_cast<u32>(sizeof(T)), offset);
