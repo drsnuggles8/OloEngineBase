@@ -202,6 +202,17 @@ namespace OloEngine
             s_RendererAPI->SetColorMask(red, green, blue, alpha);
         }
 
+        // Compute shader dispatch
+        static void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
+        {
+            s_RendererAPI->DispatchCompute(groupsX, groupsY, groupsZ);
+        }
+
+        static void MemoryBarrier(MemoryBarrierFlags flags)
+        {
+            s_RendererAPI->MemoryBarrier(flags);
+        }
+
         static RendererAPI& GetRendererAPI()
         {
             return *s_RendererAPI;
