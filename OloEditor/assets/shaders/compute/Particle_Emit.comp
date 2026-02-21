@@ -1,0 +1,65 @@
+#version 450 core
+
+layout(local_size_x = 64) in;
+
+// Per-particle data (std430, 96 bytes)
+struct GPUParticle
+{
+    vec4 PositionLifetime;     // xyz = pos, w = remaining lifetime
+    vec4 VelocityMaxLifetime;  // xyz = vel, w = max lifetime
+    vec4 Color;                // rgba
+    vec4 InitialColor;         // rgba
+    vec4 InitialVelocitySize;  // xyz = initial vel, w = current size
+    vec4 Misc;                 // x = initial size, y = rotation, z = alive (1/0), w = entityID
+};
+
+layout(std430, binding = 0) buffer ParticleBuffer
+{
+    GPUParticle particles[];
+};
+
+layout(std430, binding = 2) buffer CounterBuffer
+{
+    uint aliveCount;
+    uint deadCount;
+    uint emitCount;
+    uint pad;
+} counters;
+
+layout(std430, binding = 3) buffer FreeListBuffer
+{
+    uint freeList[];
+};
+
+layout(std430, binding = 5) buffer EmitStagingBuffer
+{
+    GPUParticle staged[];
+};
+
+uniform int u_EmitCount;
+uniform int u_MaxParticles;
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= u_EmitCount)
+        return;
+
+    // Atomically claim a free slot
+    uint freeIdx = atomicAdd(counters.deadCount, uint(-1));
+
+    // No free slots available — deadCount was 0 and wrapped or reached 0
+    if (freeIdx == 0 || freeIdx > uint(u_MaxParticles))
+    {
+        // Undo the atomic decrement
+        atomicAdd(counters.deadCount, 1);
+        return;
+    }
+
+    // freeIdx was the count before decrement, so the slot index is freeIdx - 1
+    uint slot = freeList[freeIdx - 1];
+
+    // Copy staged particle data into the particle buffer
+    particles[slot] = staged[idx];
+    particles[slot].Misc.z = 1.0; // Mark alive
+}

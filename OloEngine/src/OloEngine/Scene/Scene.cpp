@@ -1905,6 +1905,15 @@ namespace OloEngine
             ParticleBatchRenderer::Flush();
             SetParticleBlendMode(sys.BlendMode);
 
+            // GPU rendering path — uses indirect draw from SSBO data
+            if (sys.UseGPU && sys.GetGPUSystem())
+            {
+                ParticleBatchRenderer::Flush();
+                ParticleBatchRenderer::RenderGPUBillboards(*sys.GetGPUSystem(), psc.Texture);
+                RestoreDefaultBlendMode();
+                continue;
+            }
+
             if (sys.RenderMode == ParticleRenderMode::Mesh)
             {
                 ParticleBatchRenderer::Flush();

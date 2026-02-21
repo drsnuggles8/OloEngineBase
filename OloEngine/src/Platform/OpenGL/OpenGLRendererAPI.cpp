@@ -341,6 +341,30 @@ namespace OloEngine
         glDispatchCompute(groupsX, groupsY, groupsZ);
     }
 
+    void OpenGLRendererAPI::DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        vertexArray->Bind();
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
+        glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr);
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+    }
+
+    void OpenGLRendererAPI::DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        vertexArray->Bind();
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
+        glDrawArraysIndirect(GL_TRIANGLES, nullptr);
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+    }
+
     void OpenGLRendererAPI::MemoryBarrier(MemoryBarrierFlags flags)
     {
         OLO_PROFILE_FUNCTION();

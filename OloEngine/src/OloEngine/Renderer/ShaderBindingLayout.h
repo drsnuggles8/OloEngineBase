@@ -233,6 +233,17 @@ namespace OloEngine
         static constexpr u32 TEX_USER_3 = 13;     // User-defined texture 3
 
         // =============================================================================
+        // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
+        // =============================================================================
+
+        static constexpr u32 SSBO_GPU_PARTICLES = 0;    // GPU particle data array
+        static constexpr u32 SSBO_ALIVE_INDICES = 1;    // Compacted alive particle index buffer
+        static constexpr u32 SSBO_COUNTERS = 2;         // Atomic counters (alive/dead/emit counts)
+        static constexpr u32 SSBO_FREE_LIST = 3;        // Free-slot indices for emission recycling
+        static constexpr u32 SSBO_INDIRECT_DRAW = 4;    // Indirect draw command buffer
+        static constexpr u32 SSBO_EMIT_STAGING = 5;     // Staging buffer for newly emitted particles
+
+        // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE
         // =============================================================================
 

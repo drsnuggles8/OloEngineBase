@@ -1,0 +1,59 @@
+#version 450 core
+
+layout(local_size_x = 256) in;
+
+// Per-particle data (std430, 96 bytes)
+struct GPUParticle
+{
+    vec4 PositionLifetime;     // xyz = pos, w = remaining lifetime
+    vec4 VelocityMaxLifetime;  // xyz = vel, w = max lifetime
+    vec4 Color;                // rgba
+    vec4 InitialColor;         // rgba
+    vec4 InitialVelocitySize;  // xyz = initial vel, w = current size
+    vec4 Misc;                 // x = initial size, y = rotation, z = alive (1/0), w = entityID
+};
+
+layout(std430, binding = 0) buffer ParticleBuffer
+{
+    GPUParticle particles[];
+};
+
+layout(std430, binding = 1) buffer AliveIndexBuffer
+{
+    uint aliveIndices[];
+};
+
+layout(std430, binding = 2) buffer CounterBuffer
+{
+    uint aliveCount;
+    uint deadCount;
+    uint emitCount;
+    uint pad;
+} counters;
+
+layout(std430, binding = 3) buffer FreeListBuffer
+{
+    uint freeList[];
+};
+
+uniform int u_MaxParticles;
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= uint(u_MaxParticles))
+        return;
+
+    if (particles[idx].Misc.z > 0.5)
+    {
+        // Alive — append to alive index list
+        uint aliveIdx = atomicAdd(counters.aliveCount, 1);
+        aliveIndices[aliveIdx] = idx;
+    }
+    else
+    {
+        // Dead — append to free list
+        uint freeIdx = atomicAdd(counters.deadCount, 1);
+        freeList[freeIdx] = idx;
+    }
+}

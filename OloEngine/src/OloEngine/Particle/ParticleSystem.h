@@ -7,6 +7,7 @@
 #include "OloEngine/Particle/ParticleCollision.h"
 #include "OloEngine/Particle/ParticleTrail.h"
 #include "OloEngine/Particle/SubEmitter.h"
+#include "OloEngine/Particle/GPUParticleSystem.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -96,6 +97,12 @@ namespace OloEngine
             return m_TrailData;
         }
 
+        // GPU particle system accessor (valid when UseGPU is true and system has been updated)
+        [[nodiscard]] GPUParticleSystem* GetGPUSystem() const
+        {
+            return m_GPUSystem.get();
+        }
+
         // Collect sub-emitter triggers that fired this frame
         [[nodiscard]] const std::vector<SubEmitterTriggerInfo>& GetPendingTriggers() const
         {
@@ -124,6 +131,9 @@ namespace OloEngine
         ParticleBlendMode BlendMode = ParticleBlendMode::Alpha;
         ParticleRenderMode RenderMode = ParticleRenderMode::Billboard;
         bool DepthSortEnabled = true; // Sort particles back-to-front (not needed for Additive)
+
+        // GPU compute simulation (requires Billboard render mode)
+        bool UseGPU = false;
 
         // Soft particles — alpha-fade near opaque surfaces using scene depth buffer
         bool SoftParticlesEnabled = false;
@@ -158,6 +168,7 @@ namespace OloEngine
       private:
         ParticlePool m_Pool;
         ParticleTrailData m_TrailData;
+        Scope<GPUParticleSystem> m_GPUSystem;
         std::vector<SubEmitterTriggerInfo> m_PendingTriggers;
         std::vector<CollisionEvent> m_CollisionEvents;
         std::vector<u32> m_SortedIndices;
@@ -171,5 +182,6 @@ namespace OloEngine
 
         void ProcessSubEmitterTriggers();
         void UpdateInternal(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity, const glm::quat& emitterRotation);
+        void UpdateGPU(f32 dt, const glm::vec3& emitterPosition, const glm::quat& emitterRotation);
     };
 } // namespace OloEngine
