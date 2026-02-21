@@ -729,7 +729,18 @@ namespace OloEngine
             ImGui::TextDisabled("(Billboard only)");
             if (auto* gpu = sys.GetGPUSystem())
             {
-                ImGui::Text("GPU Alive: %u", gpu->GetAliveCount());
+                // Throttle the GPU→CPU readback to avoid stalling the render thread every UI frame.
+                ImGui::Checkbox("Debug GPU Alive Readback", &m_DebugGPUAliveReadback);
+                if (m_DebugGPUAliveReadback)
+                {
+                    const float now = static_cast<float>(ImGui::GetTime());
+                    if (now - m_LastGPUAliveReadbackTime > 1.0f)
+                    {
+                        m_LastGPUAliveCount = gpu->GetAliveCount();
+                        m_LastGPUAliveReadbackTime = now;
+                    }
+                    ImGui::Text("GPU Alive (last readback): %u", m_LastGPUAliveCount);
+                }
             }
         }
 

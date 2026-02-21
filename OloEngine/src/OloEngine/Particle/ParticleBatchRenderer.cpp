@@ -487,7 +487,8 @@ namespace OloEngine
     }
 
     void ParticleBatchRenderer::RenderGPUBillboards(GPUParticleSystem& gpuSystem,
-                                                    const Ref<Texture2D>& texture)
+                                                    const Ref<Texture2D>& texture,
+                                                    int entityID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -502,6 +503,10 @@ namespace OloEngine
 
         // Bind GPU billboard shader
         s_Data.GPUBillboardShader->Bind();
+
+        // Forward the owning entity ID so the fragment shader can write it to the
+        // entity-ID render target, enabling correct editor picking for GPU particles.
+        s_Data.GPUBillboardShader->SetInt("u_EntityID", entityID);
 
         // Bind particle and alive-index SSBOs so the vertex shader can read them
         gpuSystem.GetParticleSSBO()->Bind();

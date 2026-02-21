@@ -228,6 +228,9 @@ namespace OloEngine
             Emitter.Reset();
         }
 
+        // Clear pending sub-emitter triggers from the previous frame (both CPU and GPU paths read this)
+        m_PendingTriggers.clear();
+
         // GPU path: emit on CPU, simulate on GPU
         if (UseGPU)
         {
@@ -238,9 +241,6 @@ namespace OloEngine
         // CPU path — continued below
         // Determine emission position based on simulation space
         glm::vec3 emitPos = (SimulationSpace == ParticleSpace::Local) ? glm::vec3(0.0f) : emitterPosition;
-
-        // Clear pending sub-emitter triggers from previous frame
-        m_PendingTriggers.clear();
 
         // 1. Emit new particles (with LOD rate multiplier passed as parameter)
         u32 prevAlive = m_Pool.GetAliveCount();
@@ -526,18 +526,21 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Lazy-initialize GPU system
-        if (!m_GPUSystem)
+        // On the first GPU frame, upload any existing alive CPU particles so toggling UseGPU
+        // at runtime doesn't silently discard particles that were already alive.
+        const bool isFirstGPUFrame = !m_GPUSystem;
+        if (isFirstGPUFrame)
         {
             m_GPUSystem = CreateScope<GPUParticleSystem>(m_Pool.GetMaxParticles());
         }
 
-        // Use a temporary CPU pool to emit particles through the existing emitter
-        // We reuse the main pool but snapshot the alive count to detect new particles
+        // Use a temporary CPU pool to emit particles through the existing emitter.
+        // On the first GPU frame start from 0 so all pre-existing alive particles are included.
         glm::vec3 emitPos = (SimulationSpace == ParticleSpace::Local) ? glm::vec3(0.0f) : emitterPosition;
-        u32 prevAlive = m_Pool.GetAliveCount();
+        u32 uploadFrom = isFirstGPUFrame ? 0 : m_Pool.GetAliveCount();
         Emitter.Update(scaledDt, m_Pool, emitPos, m_LODSpawnRateMultiplier, emitterRotation);
         u32 newAlive = m_Pool.GetAliveCount();
-        u32 newCount = newAlive - prevAlive;
+        u32 newCount = newAlive - uploadFrom;
 
         // Convert newly emitted CPU particles to GPU format and upload
         if (newCount > 0)
@@ -545,7 +548,7 @@ namespace OloEngine
             std::vector<GPUParticle> gpuParticles(newCount);
             for (u32 i = 0; i < newCount; ++i)
             {
-                u32 idx = prevAlive + i;
+                u32 idx = uploadFrom + i;
                 auto& gp = gpuParticles[i];
                 gp.PositionLifetime = glm::vec4(m_Pool.m_Positions[idx], m_Pool.m_Lifetimes[idx]);
                 gp.VelocityMaxLifetime = glm::vec4(m_Pool.m_Velocities[idx], m_Pool.m_MaxLifetimes[idx]);

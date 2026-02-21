@@ -35,5 +35,10 @@ namespace OloEngine
       private:
         Ref<Scene> m_Context;
         Entity m_SelectionContext;
+
+        // GPU particle alive-count readback state (throttled to avoid per-frame GPU stalls)
+        bool m_DebugGPUAliveReadback = false;
+        float m_LastGPUAliveReadbackTime = 0.0f;
+        u32 m_LastGPUAliveCount = 0;
     };
 } // namespace OloEngine

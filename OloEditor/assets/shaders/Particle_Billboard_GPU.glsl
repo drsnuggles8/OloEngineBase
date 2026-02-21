@@ -17,7 +17,7 @@ struct GPUParticle
 	vec4 Color;
 	vec4 InitialColor;
 	vec4 InitialVelocitySize;
-	vec4 Misc;  // x = initial size, y = rotation, z = alive, w = entityID
+	vec4 Misc;  // x = initial size, y = rotation, z = alive, w = reserved
 };
 
 layout(std430, binding = 0) readonly buffer ParticleBuffer
@@ -46,6 +46,8 @@ layout(std140, binding = 2) uniform ParticleParams
 	float u_FarClip;
 	vec2 u_ViewportSize;
 };
+
+uniform int u_EntityID;
 
 struct VertexOutput
 {
@@ -95,7 +97,7 @@ void main()
 	vec2 uv01 = a_QuadPos + vec2(0.5);
 	Output.TexCoord = uv01;
 	Output.Color = p.Color;
-	v_EntityID = int(p.Misc.w);
+	v_EntityID = u_EntityID;
 }
 
 #type fragment

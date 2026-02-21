@@ -104,7 +104,8 @@ namespace OloEngine
 
         // Render GPU particles using indirect draw (SSBO-based, no CPU instance data)
         static void RenderGPUBillboards(GPUParticleSystem& gpuSystem,
-                                        const Ref<Texture2D>& texture);
+                                        const Ref<Texture2D>& texture,
+                                        int entityID = -1);
 
         struct Statistics
         {
