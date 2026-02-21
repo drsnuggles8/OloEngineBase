@@ -64,6 +64,7 @@ namespace OloEngine
         enum class UniformType : u8
         {
             Int,
+            UInt,
             IntArray,
             Float,
             Float2,

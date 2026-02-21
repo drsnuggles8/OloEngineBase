@@ -46,6 +46,9 @@ namespace OloEngine
             return result;
         }
 
+        // Zero-fill the entire buffer on the GPU (no CPU allocation)
+        virtual void ClearData() = 0;
+
         // Resize the buffer (invalidates existing data)
         virtual void Resize(u32 newSize) = 0;
 

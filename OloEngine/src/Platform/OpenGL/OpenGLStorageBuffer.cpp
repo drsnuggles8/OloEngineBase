@@ -50,6 +50,11 @@ namespace OloEngine
         glGetNamedBufferSubData(m_RendererID, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), outData);
     }
 
+    void OpenGLStorageBuffer::ClearData()
+    {
+        glClearNamedBufferData(m_RendererID, GL_R8, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    }
+
     void OpenGLStorageBuffer::Resize(u32 newSize)
     {
         OLO_PROFILE_FUNCTION();

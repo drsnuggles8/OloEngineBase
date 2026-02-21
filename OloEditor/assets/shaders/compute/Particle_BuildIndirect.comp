@@ -1,0 +1,30 @@
+#version 450 core
+
+layout(local_size_x = 1) in;
+
+layout(std430, binding = 2) buffer CounterBuffer
+{
+    uint aliveCount;
+    uint deadCount;
+    uint emitCount;
+    uint pad;
+} counters;
+
+// DrawElementsIndirectCommand layout
+layout(std430, binding = 4) buffer IndirectDrawBuffer
+{
+    uint count;          // indices per instance (6 for quad)
+    uint instanceCount;  // alive particle count
+    uint firstIndex;
+    uint baseVertex;
+    uint baseInstance;
+} indirect;
+
+void main()
+{
+    indirect.count = 6;  // 2 triangles = 6 indices per quad
+    indirect.instanceCount = counters.aliveCount;
+    indirect.firstIndex = 0;
+    indirect.baseVertex = 0;
+    indirect.baseInstance = 0;
+}
