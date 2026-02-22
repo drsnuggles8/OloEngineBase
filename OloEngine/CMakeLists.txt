@@ -53,6 +53,14 @@ olo_enable_lto(OloEngine)
 olo_enable_pch(OloEngine src/OloEnginePCH.h)
 olo_set_compiler_options(OloEngine)
 
+# Unity Build: combines multiple .cpp files per translation unit for faster compilation
+if(OLO_ENABLE_UNITY_BUILD)
+    set_target_properties(OloEngine PROPERTIES
+        UNITY_BUILD ON
+        UNITY_BUILD_BATCH_SIZE 16
+    )
+endif()
+
 # Additional engine-specific compile definitions
 target_compile_definitions(OloEngine PRIVATE
 						_CRT_SECURE_NO_WARNINGS
