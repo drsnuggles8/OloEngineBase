@@ -942,10 +942,7 @@ namespace OloEngine
     {
         if (auto* entityPtr = m_EntityMap.Find(id))
         {
-            // FIXME: const_cast usage should be minimized. Consider updating Entity class
-            // to accept const Scene* for read-only operations or create a const-Entity view.
-            // This cast is currently necessary as Entity requires non-const Scene* for API consistency.
-            return Entity{ *entityPtr, const_cast<Scene*>(this) };
+            return Entity{ *entityPtr, this };
         }
         return std::nullopt;
     }

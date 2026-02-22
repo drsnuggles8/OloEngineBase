@@ -11,14 +11,12 @@
 #include <vector>
 
 #include <glm/glm.hpp>
-#include "box2d/box2d.h"
+#include "box2d/id.h"
 
 #pragma warning(push)
 #pragma warning(disable : 4996)
 #include "entt.hpp"
 #pragma warning(pop)
-
-class b2World;
 
 namespace OloEngine
 {

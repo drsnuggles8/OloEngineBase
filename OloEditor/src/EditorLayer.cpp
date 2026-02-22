@@ -33,7 +33,7 @@ namespace OloEngine
     static std::unique_ptr<Font> s_Font;
 
     EditorLayer::EditorLayer()
-        : Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
+        : Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f)
     {
     }
 
@@ -57,7 +57,6 @@ namespace OloEngine
 
         Application::Get().GetWindow().SetTitle("Test");
 
-        m_CheckerboardTexture = Texture2D::Create("assets/textures/Checkerboard.png");
         m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png");
         m_IconPause = Texture2D::Create("Resources/Icons/PauseButton.png");
         m_IconSimulate = Texture2D::Create("Resources/Icons/SimulateButton.png");
