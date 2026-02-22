@@ -1032,8 +1032,8 @@ namespace OloEngine
     void EditorLayer::OpenScene()
     {
         auto const dir = Project::GetActive()
-            ? Project::GetAssetDirectory().string()
-            : std::filesystem::current_path().string();
+                             ? Project::GetAssetDirectory().string()
+                             : std::filesystem::current_path().string();
         std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0", dir.c_str());
         if (!filepath.empty())
         {
@@ -1079,8 +1079,8 @@ namespace OloEngine
     void EditorLayer::SaveSceneAs()
     {
         auto const dir = Project::GetActive()
-            ? Project::GetAssetDirectory().string()
-            : std::filesystem::current_path().string();
+                             ? Project::GetAssetDirectory().string()
+                             : std::filesystem::current_path().string();
         const std::filesystem::path filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0", dir.c_str());
         if (!filepath.empty())
         {
