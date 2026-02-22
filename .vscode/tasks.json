@@ -11,7 +11,8 @@
           "--target",
           "Sandbox3D",
           "--config",
-          "Debug"
+          "Debug",
+          "--parallel"
         ],
         "group": {
           "kind": "build",
@@ -31,7 +32,8 @@
         "--target",
         "Sandbox3D",
         "--config",
-        "Release"
+        "Release",
+        "--parallel"
       ],
       "group": "build",
       "problemMatcher": [
@@ -80,7 +82,8 @@
           "--target",
           "OloEditor",
           "--config",
-          "Debug"
+          "Debug",
+          "--parallel"
         ],
         "group": "build",
         "problemMatcher": [
@@ -114,7 +117,8 @@
       "--target",
       "OloEditor",
       "--config",
-      "Release"
+      "Release",
+      "--parallel"
     ],
     "group": "build",
     "problemMatcher": [
@@ -131,7 +135,8 @@
       "--target",
       "OloEditor",
       "--config",
-      "Dist"
+      "Dist",
+      "--parallel"
     ],
     "group": "build",
     "problemMatcher": [
@@ -212,7 +217,8 @@
       "--target",
       "OloEngine-Tests",
       "--config",
-      "Debug"
+      "Debug",
+      "--parallel"
     ],
     "group": "build",
     "problemMatcher": [

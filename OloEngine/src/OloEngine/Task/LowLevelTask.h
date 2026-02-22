@@ -3,6 +3,11 @@
 
 #pragma once
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4201) // nameless struct/union
+#endif
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Task/TaskDelegate.h"
 #include "OloEngine/Memory/Platform.h"
@@ -678,3 +683,7 @@ namespace OloEngine::LowLevelTasks
     }
 
 } // namespace OloEngine::LowLevelTasks
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

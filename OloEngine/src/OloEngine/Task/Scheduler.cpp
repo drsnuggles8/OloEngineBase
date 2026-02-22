@@ -848,7 +848,7 @@ namespace OloEngine::LowLevelTasks
     }
 
     void FScheduler::StandbyLoop(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* WorkerLocalQueue,
-                                 u32 WaitCycles, bool bPermitBackgroundWork)
+                                 [[maybe_unused]] u32 WaitCycles, bool bPermitBackgroundWork)
     {
         bool bPreparingStandby = false;
         Private::FOutOfWork OutOfWork;

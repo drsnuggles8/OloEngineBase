@@ -11,14 +11,12 @@
 #include <vector>
 
 #include <glm/glm.hpp>
-#include "box2d/box2d.h"
+#include <box2d/id.h>
 
 #pragma warning(push)
 #pragma warning(disable : 4996)
 #include "entt.hpp"
 #pragma warning(pop)
-
-class b2World;
 
 namespace OloEngine
 {
@@ -176,6 +174,7 @@ namespace OloEngine
         void RenderScene(EditorCamera const& camera);
         void RenderScene3D(EditorCamera const& camera);
         void RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform);
+        void LoadAndRenderSkybox();
         void RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip);
         void RenderUIOverlay();
 

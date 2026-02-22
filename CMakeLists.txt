@@ -21,6 +21,7 @@ project(OloEngineBase
 # Build optimization options
 option(OLO_ENABLE_LTO "Enable Link Time Optimization" ON)
 option(OLO_ENABLE_PCH "Enable Precompiled Headers" ON)
+option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilation" OFF)
 
 # Includes
 include(cmake/SetupConfigurations.cmake)

@@ -1136,8 +1136,14 @@ namespace OloEngine
                 CreateProgram();
             }
         }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("Shader reload failed for '{}': {}", m_Name, e.what());
+            success = false;
+        }
         catch (...)
         {
+            OLO_CORE_ERROR("Shader reload failed for '{}': unknown error", m_Name);
             success = false;
         }
         OLO_SHADER_RELOAD_END(m_RendererID, success);

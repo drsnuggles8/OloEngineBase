@@ -135,10 +135,7 @@ namespace OloEngine
             // This ensures TLS slot allocation happens on the main thread for deterministic
             // initialization order before worker threads start using the allocator.
             m_TlsSlot = FPlatformTLS::AllocTlsSlot();
-            bool isValid = FPlatformTLS::IsValidTlsSlot(m_TlsSlot);
-            // Skipping checkLockFreePointerList and OLO_CORE_TRACE for now
-            // checkLockFreePointerList(FPlatformTLS::IsValidTlsSlot(m_TlsSlot));
-            // OLO_CORE_TRACE("LockFreeLinkAllocator_TLSCache: Initialized with TLS slot {0}", m_TlsSlot);
+            OLO_CORE_ASSERT(FPlatformTLS::IsValidTlsSlot(m_TlsSlot), "LockFreeLinkAllocator_TLSCache: invalid TLS slot after allocation");
         }
 
         // Destructor intentionally leaks memory - matches UE5.7

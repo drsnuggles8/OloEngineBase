@@ -596,9 +596,9 @@ namespace OloEngine::Audio::SoundGraph
                 }
             }
         }
-        catch (const std::filesystem::filesystem_error&)
+        catch (const std::filesystem::filesystem_error& e)
         {
-            // Ignore errors
+            OLO_CORE_WARN("CompilerCache: Failed to calculate cache size: {}", e.what());
         }
 
         return totalSize;

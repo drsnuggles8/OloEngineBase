@@ -140,7 +140,7 @@ namespace OloEngine
         }
 
         // Called to get the computed size from a size-detecting archive after it has finished serializing.
-        virtual void CountBytes(sizet InNum, sizet InMax) {}
+        virtual void CountBytes(sizet /*InNum*/, sizet /*InMax*/) {}
 
         // Returns the name of the Archive. Useful for getting the name of the package.
         [[nodiscard]] virtual std::string GetArchiveName() const
@@ -730,10 +730,10 @@ namespace OloEngine
         // ========================================================================
 
         // Attempts to set the current offset into backing data storage.
-        virtual void Seek(i64 InPos) {}
+        virtual void Seek(i64 /*InPos*/) {}
 
         // Serialize raw bytes
-        virtual void Serialize(void* V, i64 Length)
+        virtual void Serialize(void* /*V*/, i64 /*Length*/)
         {
             // Base class does nothing - derived classes implement actual serialization
         }
@@ -750,7 +750,7 @@ namespace OloEngine
         }
 
         // Serialize an int value with a max bound
-        virtual void SerializeInt(u32& Value, u32 Max)
+        virtual void SerializeInt(u32& Value, [[maybe_unused]] u32 Max)
         {
             ByteOrderSerialize(Value);
         }

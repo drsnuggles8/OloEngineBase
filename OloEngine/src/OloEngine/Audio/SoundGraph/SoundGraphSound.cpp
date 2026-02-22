@@ -276,7 +276,7 @@ namespace OloEngine::Audio::SoundGraph
             }
             catch (...)
             {
-                // Ignore errors - this is a stub implementation
+                OLO_CORE_WARN("SoundGraphSound: SetParameter(float) threw unexpectedly for parameterID {}", parameterID);
             }
         }
     }

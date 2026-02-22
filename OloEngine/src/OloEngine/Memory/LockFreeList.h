@@ -375,6 +375,10 @@ namespace OloEngine
     //
     // @tparam TPaddingForCacheContention Cache line padding
     // @tparam TABAInc ABA counter increment (use > 1 for state bits)
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4359) // Alignment specifier less than actual alignment - intentional for TPaddingForCacheContention=0
+#endif
     template<int TPaddingForCacheContention, u64 TABAInc = 1>
     class FLockFreePointerListLIFORoot
     {
@@ -1031,6 +1035,9 @@ namespace OloEngine
         FLockFreePointerFIFOBase<T, TPaddingForCacheContention> m_PriorityQueues[NumPriorities];
         alignas(TPaddingForCacheContention > 0 ? TPaddingForCacheContention : 1) TDoublePtr m_MasterState;
     };
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
     // ========================================================================
     // Public API Classes

@@ -440,7 +440,6 @@ namespace OloEngine
                     // Delete complete blocks when the last allocation is freed
                     if (Header->NumAllocations.FetchSub(1, std::memory_order_acq_rel) == 1)
                     {
-                        const uptr NextAllocationPtr = Header->NextAllocationPtr;
                         Header->~FBlockHeader();
                         FMemory::Free(Header);
                     }

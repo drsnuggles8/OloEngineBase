@@ -12,7 +12,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Particle/ParticleSystem.h"
 
-#include "box2d/box2d.h"
+#include <box2d/id.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>

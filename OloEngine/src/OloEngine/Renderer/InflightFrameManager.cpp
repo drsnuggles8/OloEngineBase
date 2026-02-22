@@ -28,7 +28,6 @@ namespace OloEngine
 
     void InflightFrameManager::EndFrame()
     {
-        auto& currentFrame = m_Frames[m_CurrentFrameIndex];
         // Frame will be marked complete at the beginning of next frame
         // This gives GPU time to process the commands
     }

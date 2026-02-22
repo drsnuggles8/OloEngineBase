@@ -376,7 +376,7 @@ namespace OloEngine
             i32 DefaultMemoryGB = 8;
             i32 SmallerMemoryGB = 4;
             i32 SmallestMemoryGB = 2;
-            i32 TiniestMemoryGB = 1;
+
 
             FPlatformMemoryStats Stats = FPlatformMemory::GetStats();
             u32 TotalPhysicalGB = static_cast<u32>((Stats.TotalPhysical + 1024 * 1024 * 1024 - 1) / 1024 / 1024 / 1024);

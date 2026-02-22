@@ -260,6 +260,15 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         delete[] s_Data.QuadVertexBufferBase;
+        s_Data.QuadVertexBufferBase = nullptr;
+        delete[] s_Data.PolygonVertexBufferBase;
+        s_Data.PolygonVertexBufferBase = nullptr;
+        delete[] s_Data.CircleVertexBufferBase;
+        s_Data.CircleVertexBufferBase = nullptr;
+        delete[] s_Data.LineVertexBufferBase;
+        s_Data.LineVertexBufferBase = nullptr;
+        delete[] s_Data.TextVertexBufferBase;
+        s_Data.TextVertexBufferBase = nullptr;
     }
 
     void Renderer2D::BeginScene(const OrthographicCamera& camera)

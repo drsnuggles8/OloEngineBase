@@ -50,7 +50,7 @@ namespace OloEngine::Tasks::Private
     // @param OutIsLocalQueue [out] Whether this uses the thread-local queue
     // @return true if this task should be routed to a named thread
     bool TranslatePriority(
-        ETaskPriority Priority,
+        [[maybe_unused]] ETaskPriority Priority,
         EExtendedTaskPriority ExtendedPriority,
         ENamedThread& OutNamedThread,
         bool& OutIsHighPriority,

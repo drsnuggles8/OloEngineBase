@@ -35,7 +35,7 @@ function(olo_set_debugger_directory target_name)
     endif()
 endfunction()
 
-# Apply Link Time Optimization if supported and enabled
+# Apply Link Time Optimization if supported and enabled (Release/Dist only)
 function(olo_enable_lto target_name)
     if(NOT DEFINED OLO_ENABLE_LTO)
         set(OLO_ENABLE_LTO ON)
@@ -43,8 +43,12 @@ function(olo_enable_lto target_name)
     
     check_ipo_supported(RESULT LTO_SUPPORT OUTPUT output)
     if(OLO_ENABLE_LTO AND LTO_SUPPORT)
-        message(STATUS "-- Enabled Link-Time Optimization (LTO) for ${target_name}")
-        set_target_properties(${target_name} PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
+        message(STATUS "Enabled Link-Time Optimization (LTO) for ${target_name} (Release/Dist only)")
+        # Only enable LTO for Release and Dist — it dramatically slows Debug builds
+        set_target_properties(${target_name} PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+            INTERPROCEDURAL_OPTIMIZATION_DIST TRUE
+        )
     else()
         if(OLO_ENABLE_LTO AND NOT LTO_SUPPORT)
             message(WARNING "LTO requested but not supported: ${output}")
@@ -68,8 +72,11 @@ function(olo_set_compiler_options target_name)
     if(MSVC)
         target_compile_options(${target_name} PRIVATE 
             /W4
-            /utf-8  # Enable UTF-8 encoding for source files
+            /MP       # Multi-processor compilation (parallel file compilation)
+            /utf-8    # Enable UTF-8 encoding for source files
             /Zc:preprocessor  # Enable conforming preprocessor (required for __VA_OPT__)
+            /Zc:inline        # Remove unreferenced COMDAT functions (reduces linker work)
+            /bigobj           # Increase COFF section limit for large translation units
         )
         # Use multi-threaded DLL runtime library
         set_target_properties(${target_name} PROPERTIES
@@ -104,6 +111,7 @@ endfunction()
 function(olo_set_link_options target_name)
     if(MSVC)
         target_link_options(${target_name} PRIVATE
+            $<$<CONFIG:Debug>:/INCREMENTAL>  # Incremental linking for fast Debug iteration
             $<$<CONFIG:Release>:/INCREMENTAL:NO>
             $<$<CONFIG:Release>:/DEBUG>
             $<$<CONFIG:Release>:/OPT:REF> # Remove unreferenced functions and data

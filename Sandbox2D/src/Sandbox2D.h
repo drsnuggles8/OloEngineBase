@@ -18,9 +18,6 @@ class Sandbox2D : public OloEngine::Layer
   private:
     OloEngine::OrthographicCameraController m_CameraController;
 
-    OloEngine::Ref<OloEngine::VertexArray> m_SquareVA;
-    OloEngine::Ref<OloEngine::Shader> m_FlatColorShader;
-
     OloEngine::Ref<OloEngine::Texture2D> m_CheckerboardTexture;
     OloEngine::Ref<OloEngine::Texture2D> m_OtterTexture;
 

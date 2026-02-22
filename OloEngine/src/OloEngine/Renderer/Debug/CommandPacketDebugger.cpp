@@ -288,7 +288,7 @@ namespace OloEngine
     // Command List Tab
     // ========================================================================
 
-    void CommandPacketDebugger::RenderCommandList(const CapturedFrameData* frame, const CommandBucket* liveBucket)
+    void CommandPacketDebugger::RenderCommandList(const CapturedFrameData* frame, [[maybe_unused]] const CommandBucket* liveBucket)
     {
         if (!frame)
         {
@@ -1249,7 +1249,6 @@ namespace OloEngine
             file << "## Sort Analysis\n\n";
             if (!frame->PreSortCommands.empty() && !frame->PostSortCommands.empty())
             {
-                const auto& pre = frame->PreSortCommands;
                 const auto& post = frame->PostSortCommands;
 
                 f64 totalDisplacement = 0.0;

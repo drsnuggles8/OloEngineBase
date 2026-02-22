@@ -7,18 +7,6 @@ namespace OloEngine::Audio::SoundGraph
     /// Moving all constructors and Init() function calls for non-template nodes here
     /// to avoid recursive includes nightmare caused by trying to inline as much as possible.
 
-    /// This macro should be used to define constructor and Init() function for node processor types
-    /// that don't need to do anything in their constructor and Init() function
-#define INIT_ENDPOINTS(TNodeProcessor)                                                        \
-    TNodeProcessor::TNodeProcessor(const char* dbgName, UUID id) : NodeProcessor(dbgName, id) \
-    {                                                                                         \
-        EndpointUtilities::RegisterEndpoints(this);                                           \
-    }                                                                                         \
-    void TNodeProcessor::Init()                                                               \
-    {                                                                                         \
-        EndpointUtilities::InitializeInputs(this);                                            \
-    }
-
     /// This macro can be used if a node processor type needs to have some custom stuff in constructor
     /// or in its Init() function. In that case it has to declare 'void RegisterEndpoints()' and 'void InitializeInputs()'
     /// functions to be defined by this macro
@@ -32,18 +20,8 @@ namespace OloEngine::Audio::SoundGraph
         EndpointUtilities::InitializeInputs(this);  \
     }
 
-    // Math nodes that are non-template (following Hazel's pattern)
-    // Note: Template math nodes are handled in NodeTypeImpls.h
-    // These math nodes have declaration-only RegisterEndpoints/InitializeInputs methods
-    INIT_ENDPOINTS_FUNCS(Subtract<f32>);
-    INIT_ENDPOINTS_FUNCS(Multiply<f32>);
-    INIT_ENDPOINTS_FUNCS(Divide<f32>);
-    INIT_ENDPOINTS_FUNCS(Min<f32>);
-    INIT_ENDPOINTS_FUNCS(Max<f32>);
-    INIT_ENDPOINTS_FUNCS(Clamp<f32>);
-    INIT_ENDPOINTS_FUNCS(MapRange<f32>);
-    INIT_ENDPOINTS_FUNCS(Power<f32>);
-    INIT_ENDPOINTS_FUNCS(Abs<f32>);
+    // Math nodes: template types (Subtract<f32>, etc.) already have inline
+    // RegisterEndpoints/InitializeInputs defined in MathNodes.h class body.
 
     // Generator nodes that need custom behavior use INIT_ENDPOINTS_FUNCS
     INIT_ENDPOINTS_FUNCS(Noise);

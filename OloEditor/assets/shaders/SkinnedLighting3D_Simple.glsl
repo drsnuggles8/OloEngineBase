@@ -18,6 +18,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
 layout(std140, binding = 3) uniform ModelMatrices {
     mat4 u_Model;
     mat4 u_Normal;
+    int u_EntityID;
+    int _paddingEntity0;
+    int _paddingEntity1;
+    int _paddingEntity2;
 };
 
 layout(std140, binding = 4) uniform AnimationMatrices {

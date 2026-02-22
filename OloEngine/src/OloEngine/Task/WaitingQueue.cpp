@@ -99,7 +99,7 @@ namespace OloEngine::LowLevelTasks::Private
         OLO_CORE_ASSERT((m_StandbyState & StackMask) == StackMask, "StandbyState should be empty");
     }
 
-    void FWaitingQueue::PrepareWait(FWaitEvent* Node)
+    void FWaitingQueue::PrepareWait([[maybe_unused]] FWaitEvent* Node)
     {
         using namespace WaitingQueueImpl;
 
@@ -196,7 +196,7 @@ namespace OloEngine::LowLevelTasks::Private
         return true;
     }
 
-    bool FWaitingQueue::CancelWait(FWaitEvent* Node)
+    bool FWaitingQueue::CancelWait([[maybe_unused]] FWaitEvent* Node)
     {
         using namespace WaitingQueueImpl;
 
@@ -521,7 +521,7 @@ namespace OloEngine::LowLevelTasks::Private
         for (FWaitEvent* Node = InNode; Node != nullptr;)
         {
             u64 NextNode = Node->Next.load(std::memory_order_relaxed) & StackMask;
-            FWaitEvent* Next = NextNode == StackMask ? nullptr : &m_NodesArray[static_cast<sizet>(NextNode)];
+            FWaitEvent* Next = NextNode == StackMask ? nullptr : &m_NodesArray[static_cast<i32>(NextNode)];
 
             UnparkedCount++;
 
