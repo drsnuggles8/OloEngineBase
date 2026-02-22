@@ -210,6 +210,9 @@ namespace OloEngine
     {
         s_Data.CurrentBoundShaderID = 0;
         s_Data.BoundTextureIDs.fill(0);
+        s_Data.CSMShadowTextureID = 0;
+        s_Data.SpotShadowTextureID = 0;
+        s_Data.PointShadowTextureIDs.fill(0);
         s_Data.Stats.Reset();
     }
 
@@ -245,12 +248,14 @@ namespace OloEngine
 
     void CommandDispatch::SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID)
     {
+        OLO_PROFILE_FUNCTION();
         s_Data.CSMShadowTextureID = csmTextureID;
         s_Data.SpotShadowTextureID = spotTextureID;
     }
 
     void CommandDispatch::SetPointShadowTextureIDs(const std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS>& pointTextureIDs)
     {
+        OLO_PROFILE_FUNCTION();
         s_Data.PointShadowTextureIDs = pointTextureIDs;
     }
 

@@ -1630,8 +1630,16 @@ namespace OloEngine
                     }
 
                     // Render animated/skinned meshes into shadow map
-                    const char* skinnedShaderName = (type == ShadowPassType::Point) ? "ShadowDepthPointSkinned" : "ShadowDepthSkinned";
-                    auto skinnedShadowShader = Renderer3D::GetShaderLibrary().Get(skinnedShaderName);
+                    // Try point-specific skinned shader first, fall back to standard skinned shader
+                    Ref<Shader> skinnedShadowShader;
+                    if (type == ShadowPassType::Point)
+                    {
+                        skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthPointSkinned");
+                    }
+                    if (!skinnedShadowShader)
+                    {
+                        skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthSkinned");
+                    }
                     if (skinnedShadowShader)
                     {
                         skinnedShadowShader->Bind();

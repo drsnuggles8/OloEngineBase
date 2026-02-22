@@ -127,6 +127,8 @@ namespace OloEngine
 
     void OpenGLFramebuffer::ApplyPostProcessing()
     {
+        OLO_PROFILE_FUNCTION();
+
         // Depth-only framebuffers (e.g. shadow maps) have no color attachments to blit
         if (m_ColorAttachments.empty())
         {
@@ -164,6 +166,8 @@ namespace OloEngine
     }
     void OpenGLFramebuffer::Invalidate()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_RendererID)
         { // Track GPU memory deallocation for existing framebuffer
             OLO_TRACK_DEALLOC(this);
@@ -338,9 +342,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLenum attachmentType = (m_DepthAttachmentSpecification.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F || m_DepthAttachmentSpecification.TextureFormat == FramebufferTextureFormat::ShadowDepth)
+                                          ? GL_DEPTH_ATTACHMENT
+                                          : GL_DEPTH_STENCIL_ATTACHMENT;
+
         glNamedFramebufferTextureLayer(
             m_RendererID,
-            GL_DEPTH_ATTACHMENT,
+            attachmentType,
             textureArrayRendererID,
             0, // mip level
             static_cast<GLint>(layer));

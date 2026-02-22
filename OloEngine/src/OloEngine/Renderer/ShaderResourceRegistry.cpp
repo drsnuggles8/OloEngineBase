@@ -469,6 +469,8 @@ namespace OloEngine
 
     bool ShaderResourceRegistry::IsStandardUBOBinding(u32 binding, const std::string& name) const
     {
+        OLO_PROFILE_FUNCTION();
+
         // If the name starts with underscore and numbers, it's likely a SPIR-V generated name
         // In this case, we only check the binding point
         if (name.find("_") == 0 && name.length() > 1 && std::isdigit(name[1]))
@@ -507,15 +509,26 @@ namespace OloEngine
                        name.find("Bone") != std::string::npos ||
                        name.find("bone") != std::string::npos;
 
+            case ShaderBindingLayout::UBO_MULTI_LIGHTS:
+                return name == "MultiLightBuffer" ||
+                       name.find("MultiLight") != std::string::npos ||
+                       name.find("multiLight") != std::string::npos;
+
+            case ShaderBindingLayout::UBO_SHADOW:
+                return name == "ShadowData" ||
+                       name.find("Shadow") != std::string::npos ||
+                       name.find("shadow") != std::string::npos;
+
             default:
                 // User-defined bindings (7+) are always valid
-                // Note: bindings 5 (MultiLight) and 6 (Shadow) are handled implicitly above
                 return binding >= ShaderBindingLayout::UBO_USER_0;
         }
     }
 
     bool ShaderResourceRegistry::IsStandardTextureBinding(u32 binding, const std::string& name) const
     {
+        OLO_PROFILE_FUNCTION();
+
         // If the name starts with "texture_binding_", it's our fallback name - validate only by binding
         if (name.find("texture_binding_") == 0)
         {

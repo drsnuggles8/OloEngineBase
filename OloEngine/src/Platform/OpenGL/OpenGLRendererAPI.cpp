@@ -66,7 +66,20 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Ensure depth writes are enabled before clearing, otherwise glClear silently no-ops
+        GLboolean depthMask = GL_FALSE;
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+        if (!depthMask)
+        {
+            glDepthMask(GL_TRUE);
+        }
+
         glClear(GL_DEPTH_BUFFER_BIT);
+
+        if (!depthMask)
+        {
+            glDepthMask(GL_FALSE);
+        }
     }
 
     Viewport OpenGLRendererAPI::GetViewport() const
@@ -75,7 +88,12 @@ namespace OloEngine
 
         GLint vp[4];
         glGetIntegerv(GL_VIEWPORT, vp);
-        return { static_cast<u32>(vp[0]), static_cast<u32>(vp[1]), static_cast<u32>(vp[2]), static_cast<u32>(vp[3]) };
+        return {
+            static_cast<u32>(std::max(vp[0], 0)),
+            static_cast<u32>(std::max(vp[1], 0)),
+            static_cast<u32>(std::max(vp[2], 0)),
+            static_cast<u32>(std::max(vp[3], 0))
+        };
     }
 
     void OpenGLRendererAPI::DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount)

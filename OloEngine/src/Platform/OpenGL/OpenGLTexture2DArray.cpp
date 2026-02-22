@@ -66,12 +66,14 @@ namespace OloEngine
 
     void OpenGLTexture2DArray::Bind(u32 slot) const
     {
+        OLO_PROFILE_FUNCTION();
         glBindTextureUnit(slot, m_RendererID);
     }
 
     // Factory
     Ref<Texture2DArray> Texture2DArray::Create(const Texture2DArraySpecification& spec)
     {
+        OLO_PROFILE_FUNCTION();
         return Ref<OpenGLTexture2DArray>::Create(spec);
     }
 } // namespace OloEngine

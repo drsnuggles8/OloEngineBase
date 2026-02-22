@@ -51,7 +51,7 @@ namespace OloEngine
 
         const u32 resolution = m_ShadowMap->GetResolution();
 
-        // Save current viewport
+        // Save current viewport and render state
         const auto prevViewport = RenderCommand::GetViewport();
 
         // Bind shadow framebuffer and set viewport to shadow resolution
@@ -131,6 +131,8 @@ namespace OloEngine
 
         // Restore state
         RenderCommand::SetColorMask(true, true, true, true);
+        RenderCommand::SetDepthTest(true);
+        RenderCommand::SetDepthMask(true);
         RenderCommand::BackCull();
         m_ShadowFramebuffer->Unbind();
         RenderCommand::SetViewport(prevViewport.x, prevViewport.y, prevViewport.width, prevViewport.height);
@@ -141,6 +143,7 @@ namespace OloEngine
 
     Ref<Framebuffer> ShadowRenderPass::GetTarget() const
     {
+        OLO_PROFILE_FUNCTION();
         return m_ShadowFramebuffer;
     }
 
@@ -168,6 +171,8 @@ namespace OloEngine
     void ShadowRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
+        m_WarnedOnce = false;
+        m_LoggedOnce = false;
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
         {
             Init(m_FramebufferSpec);
