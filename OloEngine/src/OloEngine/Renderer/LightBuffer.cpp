@@ -114,7 +114,7 @@ namespace OloEngine
                 break;
 
             case LightType::Spot:
-                data.Position = glm::vec4(light.Position, 1.0f); // w=1 for spot
+                data.Position = glm::vec4(light.Position, 2.0f); // w=2 for spot (SPOT_LIGHT type)
                 data.Direction = glm::vec4(light.Direction, 0.0f);
                 data.AttenuationParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, light.Range);
                 data.SpotParams = glm::vec4(light.CutOff, light.OuterCutOff, light.Falloff, static_cast<f32>(ShaderConstants::SPOT_LIGHT));

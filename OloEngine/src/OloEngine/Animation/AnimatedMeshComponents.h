@@ -52,6 +52,18 @@ namespace OloEngine
         }
     };
 
+    enum class MeshPrimitive : i32
+    {
+        None = 0,
+        Cube = 1,
+        Sphere = 2,
+        Plane = 3,
+        Cylinder = 4,
+        Cone = 5,
+        Icosphere = 6,
+        Torus = 7
+    };
+
     /**
      * @brief Component for the root entity of a dynamic mesh
      *
@@ -61,6 +73,7 @@ namespace OloEngine
     struct MeshComponent
     {
         Ref<MeshSource> m_MeshSource;
+        MeshPrimitive m_Primitive = MeshPrimitive::None;
 
         MeshComponent() = default;
         explicit MeshComponent(const Ref<OloEngine::MeshSource>& meshSource) noexcept : m_MeshSource(meshSource) {}

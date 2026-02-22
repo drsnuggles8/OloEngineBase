@@ -474,7 +474,7 @@ namespace OloEngine
         if (name.find("_") == 0 && name.length() > 1 && std::isdigit(name[1]))
         {
             // SPIR-V generated name - validate only by binding point
-            return binding <= ShaderBindingLayout::UBO_USER_2; // Valid binding range
+            return binding <= ShaderBindingLayout::UBO_USER_1; // Valid binding range
         }
 
         // Check if this is one of our standardized names
@@ -518,7 +518,7 @@ namespace OloEngine
         // If the name starts with "texture_binding_", it's our fallback name - validate only by binding
         if (name.find("texture_binding_") == 0)
         {
-            return binding <= ShaderBindingLayout::TEX_USER_3; // Valid binding range
+            return binding <= ShaderBindingLayout::TEX_SHADOW_POINT_3; // Valid binding range
         }
 
         // Special case for 2D renderer texture arrays

@@ -29,6 +29,16 @@ namespace OloEngine
             s_RendererAPI->Clear();
         }
 
+        static void ClearDepthOnly()
+        {
+            s_RendererAPI->ClearDepthOnly();
+        }
+
+        static Viewport GetViewport()
+        {
+            return s_RendererAPI->GetViewport();
+        }
+
         static void DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount)
         {
             s_RendererAPI->DrawArrays(vertexArray, vertexCount);

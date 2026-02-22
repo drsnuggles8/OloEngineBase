@@ -8,7 +8,9 @@
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
+#include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 
@@ -384,6 +386,9 @@ namespace OloEngine
         // Scene light collection (collects light components from scene)
         static void SetSceneLights(const Ref<Scene>& scene);
 
+        // Upload multi-light UBO data for the current frame
+        static void UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data);
+
         // Culling methods
         static void EnableFrustumCulling(bool enable);
         static bool IsFrustumCullingEnabled();
@@ -478,6 +483,16 @@ namespace OloEngine
             return s_Data.ParticlePass;
         }
 
+        static const Ref<ShadowRenderPass>& GetShadowPass()
+        {
+            return s_Data.ShadowPass;
+        }
+
+        static ShadowMap& GetShadowMap()
+        {
+            return s_Data.Shadow;
+        }
+
         // Shader library access for PBR material shader selection
         static ShaderLibrary& GetShaderLibrary();
 
@@ -551,9 +566,15 @@ namespace OloEngine
             std::unordered_map<u32, ShaderResourceRegistry*> ShaderRegistries;
 
             Ref<RenderGraph> RGraph;
+            Ref<ShadowRenderPass> ShadowPass;
             Ref<SceneRenderPass> ScenePass;
             Ref<ParticleRenderPass> ParticlePass;
             Ref<FinalRenderPass> FinalPass;
+
+            // Shadow mapping
+            ShadowMap Shadow;
+            Ref<Shader> ShadowDepthShader;
+            Ref<Shader> ShadowDepthSkinnedShader;
 
             // Parallel submission state
             ParallelSceneContext ParallelContext;

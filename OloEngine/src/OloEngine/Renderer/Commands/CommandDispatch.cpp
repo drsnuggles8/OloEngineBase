@@ -115,6 +115,11 @@ namespace OloEngine
         u32 CurrentBoundShaderID = 0;
         std::array<u32, 32> BoundTextureIDs = { 0 };
 
+        // Shadow texture renderer IDs (set per-frame)
+        u32 CSMShadowTextureID = 0;
+        u32 SpotShadowTextureID = 0;
+        std::array<u32, 4> PointShadowTextureIDs = { 0 };
+
         CommandDispatch::Statistics Stats;
     };
 
@@ -236,6 +241,17 @@ namespace OloEngine
     void CommandDispatch::SetViewPosition(const glm::vec3& viewPos)
     {
         s_Data.ViewPos = viewPos;
+    }
+
+    void CommandDispatch::SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID)
+    {
+        s_Data.CSMShadowTextureID = csmTextureID;
+        s_Data.SpotShadowTextureID = spotTextureID;
+    }
+
+    void CommandDispatch::SetPointShadowTextureIDs(const std::array<u32, 4>& pointTextureIDs)
+    {
+        s_Data.PointShadowTextureIDs = pointTextureIDs;
     }
 
     CommandDispatch::Statistics& CommandDispatch::GetStatistics()
@@ -743,6 +759,46 @@ namespace OloEngine
                     glBindTexture(GL_TEXTURE_2D, cmd->brdfLutMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] = cmd->brdfLutMapID;
                     s_Data.Stats.TextureBinds++;
+                }
+            }
+
+            // Bind shadow map textures (CSM at slot 8, spot at slot 13)
+            if (s_Data.CSMShadowTextureID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] != s_Data.CSMShadowTextureID)
+                {
+                    glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] = s_Data.CSMShadowTextureID;
+                    s_Data.Stats.TextureBinds++;
+                }
+            }
+            if (s_Data.SpotShadowTextureID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] != s_Data.SpotShadowTextureID)
+                {
+                    glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] = s_Data.SpotShadowTextureID;
+                    s_Data.Stats.TextureBinds++;
+                }
+            }
+
+            // Bind point light shadow cubemaps (slots 14-17)
+            static constexpr u32 pointSlots[4] = {
+                ShaderBindingLayout::TEX_SHADOW_POINT_0,
+                ShaderBindingLayout::TEX_SHADOW_POINT_1,
+                ShaderBindingLayout::TEX_SHADOW_POINT_2,
+                ShaderBindingLayout::TEX_SHADOW_POINT_3
+            };
+            for (u32 i = 0; i < 4; ++i)
+            {
+                if (s_Data.PointShadowTextureIDs[i] != 0)
+                {
+                    if (s_Data.BoundTextureIDs[pointSlots[i]] != s_Data.PointShadowTextureIDs[i])
+                    {
+                        glBindTextureUnit(pointSlots[i], s_Data.PointShadowTextureIDs[i]);
+                        s_Data.BoundTextureIDs[pointSlots[i]] = s_Data.PointShadowTextureIDs[i];
+                        s_Data.Stats.TextureBinds++;
+                    }
                 }
             }
         }

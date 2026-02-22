@@ -129,6 +129,33 @@ layout(binding = 10) uniform samplerCube u_IrradianceMap;   // TEX_USER_0
 layout(binding = 11) uniform samplerCube u_PrefilterMap;    // TEX_USER_1
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;        // TEX_USER_2
 
+// Shadow map textures
+layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM; // TEX_SHADOW (CSM)
+layout(binding = 13) uniform sampler2DArrayShadow u_ShadowMapSpot; // TEX_SHADOW_SPOT
+
+// Point light shadow cubemaps (TEX_SHADOW_POINT_0..3)
+layout(binding = 14) uniform samplerCubeShadow u_ShadowMapPoint0;
+layout(binding = 15) uniform samplerCubeShadow u_ShadowMapPoint1;
+layout(binding = 16) uniform samplerCubeShadow u_ShadowMapPoint2;
+layout(binding = 17) uniform samplerCubeShadow u_ShadowMapPoint3;
+
+// Shadow UBO (binding 6)
+layout(std140, binding = 6) uniform ShadowData {
+    mat4 u_DirectionalLightSpaceMatrices[4];
+    vec4 u_CascadePlaneDistances;
+    vec4 u_ShadowParams;  // x=bias, y=normalBias, z=softness, w=maxShadowDistance
+    mat4 u_SpotLightSpaceMatrices[4];
+    vec4 u_PointLightShadowParams[4]; // xyz=position, w=farPlane
+    int u_DirectionalShadowEnabled;
+    int u_SpotShadowCount;
+    int u_PointShadowCount;
+    int u_ShadowMapResolution;
+    int u_CascadeDebugEnabled;
+    int _shadowPad0;
+    int _shadowPad1;
+    int _shadowPad2;
+};
+
 // =============================================================================
 // INPUT/OUTPUT
 // =============================================================================
@@ -180,7 +207,69 @@ void main()
     vec3 Lo = vec3(0.0);
     for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
     {
-        Lo += calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
+        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
+
+        // Apply shadow factor for directional lights (type 0)
+        int lightType = int(u_Lights[i].position.w);
+        if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
+        {
+            // Compute view-space depth for cascade selection
+            vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);
+            float viewDepth = viewSpacePos.z;
+
+            float shadow = calculateCascadedShadowFactorCSM(
+                u_ShadowMapCSM,
+                v_WorldPos,
+                viewDepth,
+                u_DirectionalLightSpaceMatrices,
+                u_CascadePlaneDistances,
+                u_ShadowParams,
+                u_ShadowMapResolution
+            );
+            lightContrib *= shadow;
+        }
+        // Apply spot light shadows
+        else if (lightType == SPOT_LIGHT)
+        {
+            int spotShadowIdx = int(u_Lights[i].direction.w);
+            if (spotShadowIdx >= 0 && spotShadowIdx < u_SpotShadowCount)
+            {
+                float shadow = calculateShadowFactor(
+                    v_WorldPos,
+                    u_SpotLightSpaceMatrices[spotShadowIdx],
+                    u_ShadowMapSpot,
+                    float(spotShadowIdx),
+                    u_ShadowParams.x,
+                    u_ShadowMapResolution
+                );
+                lightContrib *= shadow;
+            }
+        }
+        // Apply point light shadows
+        else if (lightType == POINT_LIGHT)
+        {
+            int pointShadowIdx = int(u_Lights[i].direction.w);
+            if (pointShadowIdx >= 0 && pointShadowIdx < u_PointShadowCount)
+            {
+                vec3 lightPos = u_PointLightShadowParams[pointShadowIdx].xyz;
+                float farPlane = u_PointLightShadowParams[pointShadowIdx].w;
+                float bias = u_ShadowParams.x;
+
+                float shadow = 1.0;
+                if (pointShadowIdx == 0)
+                    shadow = calculatePointShadowFactor(u_ShadowMapPoint0, v_WorldPos, lightPos, farPlane, bias);
+                else if (pointShadowIdx == 1)
+                    shadow = calculatePointShadowFactor(u_ShadowMapPoint1, v_WorldPos, lightPos, farPlane, bias);
+                else if (pointShadowIdx == 2)
+                    shadow = calculatePointShadowFactor(u_ShadowMapPoint2, v_WorldPos, lightPos, farPlane, bias);
+                else if (pointShadowIdx == 3)
+                    shadow = calculatePointShadowFactor(u_ShadowMapPoint3, v_WorldPos, lightPos, farPlane, bias);
+
+                lightContrib *= shadow;
+            }
+        }
+
+        Lo += lightContrib;
     }
 
     // Calculate ambient lighting
@@ -202,6 +291,29 @@ void main()
 
     // Unified post-processing: tone mapping + gamma correction in one pass
     color = postProcessColor(color, TONEMAP_REINHARD, u_ApplyGammaCorrection == 1);
+
+    // Cascade debug visualization: tint output by cascade index
+    if (u_CascadeDebugEnabled != 0 && u_DirectionalShadowEnabled != 0)
+    {
+        vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);
+        float viewDepth = -viewSpacePos.z;
+        vec3 cascadeColors[4] = vec3[4](
+            vec3(1.0, 0.2, 0.2),  // Cascade 0: red
+            vec3(0.2, 1.0, 0.2),  // Cascade 1: green
+            vec3(0.2, 0.2, 1.0),  // Cascade 2: blue
+            vec3(1.0, 1.0, 0.2)   // Cascade 3: yellow
+        );
+        int cascadeIdx = 3;
+        for (int c = 0; c < 4; ++c)
+        {
+            if (viewDepth < u_CascadePlaneDistances[c])
+            {
+                cascadeIdx = c;
+                break;
+            }
+        }
+        color = mix(color, cascadeColors[cascadeIdx], 0.3);
+    }
 
     o_Color = vec4(color, u_BaseColorFactor.a);
     o_EntityID = u_EntityID;

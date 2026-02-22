@@ -9,6 +9,7 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Particle/ParticleCurveSerializer.h"
 
@@ -548,6 +549,11 @@ namespace OloEngine
                 out << YAML::Key << "MeshSourceHandle" << YAML::Value << static_cast<u64>(meshComponent.m_MeshSource->GetHandle());
             }
 
+            if (meshComponent.m_Primitive != MeshPrimitive::None)
+            {
+                out << YAML::Key << "Primitive" << YAML::Value << static_cast<i32>(meshComponent.m_Primitive);
+            }
+
             out << YAML::EndMap; // MeshComponent
         }
 
@@ -587,6 +593,10 @@ namespace OloEngine
             out << YAML::Key << "Color" << YAML::Value << dirLight.m_Color;
             out << YAML::Key << "Intensity" << YAML::Value << dirLight.m_Intensity;
             out << YAML::Key << "CastShadows" << YAML::Value << dirLight.m_CastShadows;
+            out << YAML::Key << "ShadowBias" << YAML::Value << dirLight.m_ShadowBias;
+            out << YAML::Key << "ShadowNormalBias" << YAML::Value << dirLight.m_ShadowNormalBias;
+            out << YAML::Key << "MaxShadowDistance" << YAML::Value << dirLight.m_MaxShadowDistance;
+            out << YAML::Key << "CascadeSplitLambda" << YAML::Value << dirLight.m_CascadeSplitLambda;
 
             out << YAML::EndMap; // DirectionalLightComponent
         }
@@ -1517,6 +1527,29 @@ namespace OloEngine
                         u64 handle = meshComponent["MeshSourceHandle"].as<u64>();
                         mc.m_MeshSource = AssetManager::GetAsset<MeshSource>(handle);
                     }
+                    if (meshComponent["Primitive"])
+                    {
+                        mc.m_Primitive = static_cast<MeshPrimitive>(meshComponent["Primitive"].as<i32>());
+                        if (!mc.m_MeshSource && mc.m_Primitive != MeshPrimitive::None)
+                        {
+                            Ref<Mesh> mesh;
+                            switch (mc.m_Primitive)
+                            {
+                            case MeshPrimitive::Cube:      mesh = MeshPrimitives::CreateCube(); break;
+                            case MeshPrimitive::Sphere:    mesh = MeshPrimitives::CreateSphere(); break;
+                            case MeshPrimitive::Plane:     mesh = MeshPrimitives::CreatePlane(); break;
+                            case MeshPrimitive::Cylinder:  mesh = MeshPrimitives::CreateCylinder(); break;
+                            case MeshPrimitive::Cone:      mesh = MeshPrimitives::CreateCone(); break;
+                            case MeshPrimitive::Icosphere: mesh = MeshPrimitives::CreateIcosphere(); break;
+                            case MeshPrimitive::Torus:     mesh = MeshPrimitives::CreateTorus(); break;
+                            default: break;
+                            }
+                            if (mesh)
+                            {
+                                mc.m_MeshSource = mesh->GetMeshSource();
+                            }
+                        }
+                    }
                 }
 
                 if (auto modelComponent = entity["ModelComponent"]; modelComponent)
@@ -1561,6 +1594,10 @@ namespace OloEngine
                     dirLight.m_Color = dirLightComponent["Color"].as<glm::vec3>(dirLight.m_Color);
                     dirLight.m_Intensity = dirLightComponent["Intensity"].as<f32>(dirLight.m_Intensity);
                     dirLight.m_CastShadows = dirLightComponent["CastShadows"].as<bool>(dirLight.m_CastShadows);
+                    dirLight.m_ShadowBias = dirLightComponent["ShadowBias"].as<f32>(dirLight.m_ShadowBias);
+                    dirLight.m_ShadowNormalBias = dirLightComponent["ShadowNormalBias"].as<f32>(dirLight.m_ShadowNormalBias);
+                    dirLight.m_MaxShadowDistance = dirLightComponent["MaxShadowDistance"].as<f32>(dirLight.m_MaxShadowDistance);
+                    dirLight.m_CascadeSplitLambda = dirLightComponent["CascadeSplitLambda"].as<f32>(dirLight.m_CascadeSplitLambda);
                 }
 
                 if (auto pointLightComponent = entity["PointLightComponent"]; pointLightComponent)
@@ -2300,6 +2337,29 @@ namespace OloEngine
                         u64 handle = meshComponent["MeshSourceHandle"].as<u64>();
                         mc.m_MeshSource = AssetManager::GetAsset<MeshSource>(handle);
                     }
+                    if (meshComponent["Primitive"])
+                    {
+                        mc.m_Primitive = static_cast<MeshPrimitive>(meshComponent["Primitive"].as<i32>());
+                        if (!mc.m_MeshSource && mc.m_Primitive != MeshPrimitive::None)
+                        {
+                            Ref<Mesh> mesh;
+                            switch (mc.m_Primitive)
+                            {
+                            case MeshPrimitive::Cube:      mesh = MeshPrimitives::CreateCube(); break;
+                            case MeshPrimitive::Sphere:    mesh = MeshPrimitives::CreateSphere(); break;
+                            case MeshPrimitive::Plane:     mesh = MeshPrimitives::CreatePlane(); break;
+                            case MeshPrimitive::Cylinder:  mesh = MeshPrimitives::CreateCylinder(); break;
+                            case MeshPrimitive::Cone:      mesh = MeshPrimitives::CreateCone(); break;
+                            case MeshPrimitive::Icosphere: mesh = MeshPrimitives::CreateIcosphere(); break;
+                            case MeshPrimitive::Torus:     mesh = MeshPrimitives::CreateTorus(); break;
+                            default: break;
+                            }
+                            if (mesh)
+                            {
+                                mc.m_MeshSource = mesh->GetMeshSource();
+                            }
+                        }
+                    }
                 }
 
                 if (auto modelComponent = entity["ModelComponent"]; modelComponent)
@@ -2344,6 +2404,10 @@ namespace OloEngine
                     dirLight.m_Color = dirLightComponent["Color"].as<glm::vec3>(dirLight.m_Color);
                     dirLight.m_Intensity = dirLightComponent["Intensity"].as<f32>(dirLight.m_Intensity);
                     dirLight.m_CastShadows = dirLightComponent["CastShadows"].as<bool>(dirLight.m_CastShadows);
+                    dirLight.m_ShadowBias = dirLightComponent["ShadowBias"].as<f32>(dirLight.m_ShadowBias);
+                    dirLight.m_ShadowNormalBias = dirLightComponent["ShadowNormalBias"].as<f32>(dirLight.m_ShadowNormalBias);
+                    dirLight.m_MaxShadowDistance = dirLightComponent["MaxShadowDistance"].as<f32>(dirLight.m_MaxShadowDistance);
+                    dirLight.m_CascadeSplitLambda = dirLightComponent["CascadeSplitLambda"].as<f32>(dirLight.m_CascadeSplitLambda);
                 }
 
                 if (auto pointLightComponent = entity["PointLightComponent"]; pointLightComponent)

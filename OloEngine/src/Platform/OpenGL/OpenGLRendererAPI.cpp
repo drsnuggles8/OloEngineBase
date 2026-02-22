@@ -62,6 +62,20 @@ namespace OloEngine
         glClear(clearFlags);
     }
 
+    void OpenGLRendererAPI::ClearDepthOnly()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glClear(GL_DEPTH_BUFFER_BIT);
+    }
+
+    Viewport OpenGLRendererAPI::GetViewport() const
+    {
+        GLint vp[4];
+        glGetIntegerv(GL_VIEWPORT, vp);
+        return { static_cast<u32>(vp[0]), static_cast<u32>(vp[1]), static_cast<u32>(vp[2]), static_cast<u32>(vp[3]) };
+    }
+
     void OpenGLRendererAPI::DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount)
     {
         OLO_PROFILE_FUNCTION();
@@ -330,8 +344,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        glActiveTexture(GL_TEXTURE0 + slot);
-        glBindTexture(GL_TEXTURE_2D, textureID);
+        glBindTextureUnit(slot, textureID);
     }
 
     void OpenGLRendererAPI::DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)

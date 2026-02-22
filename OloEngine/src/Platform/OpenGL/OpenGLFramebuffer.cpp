@@ -127,6 +127,13 @@ namespace OloEngine
 
     void OpenGLFramebuffer::ApplyPostProcessing()
     {
+        // Depth-only framebuffers (e.g. shadow maps) have no color attachments to blit
+        if (m_ColorAttachments.empty())
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return;
+        }
+
         if (m_Specification.PostProcess == PostProcessEffect::None)
         {
             // Bind default framebuffer
@@ -199,7 +206,9 @@ namespace OloEngine
             Utils::BindTexture(m_DepthAttachment);
 
             GLenum format = Utils::OloFBDepthTextureFormatToGL(m_DepthAttachmentSpecification.TextureFormat);
-            Utils::AttachDepthTexture(m_RendererID, m_DepthAttachment, static_cast<int>(m_Specification.Samples), format, GL_DEPTH_STENCIL_ATTACHMENT, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height));
+            GLenum attachmentType = (m_DepthAttachmentSpecification.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F)
+                ? GL_DEPTH_ATTACHMENT : GL_DEPTH_STENCIL_ATTACHMENT;
+            Utils::AttachDepthTexture(m_RendererID, m_DepthAttachment, static_cast<int>(m_Specification.Samples), format, attachmentType, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height));
         }
 
         if (m_ColorAttachments.size() > 1)
@@ -322,6 +331,22 @@ namespace OloEngine
 
         // Use glClearBufferfv to clear a specific color buffer
         glClearBufferfv(GL_COLOR, static_cast<GLint>(attachmentIndex), glm::value_ptr(value));
+    }
+
+    void OpenGLFramebuffer::AttachDepthTextureArrayLayer(u32 textureArrayRendererID, u32 layer)
+    {
+        glNamedFramebufferTextureLayer(
+            m_RendererID,
+            GL_DEPTH_ATTACHMENT,
+            textureArrayRendererID,
+            0, // mip level
+            static_cast<GLint>(layer)
+        );
+
+        OLO_CORE_ASSERT(
+            glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
+            "Framebuffer incomplete after attaching depth texture array layer {}", layer
+        );
     }
 
     void OpenGLFramebuffer::ClearAllAttachments(const glm::vec4& clearColor, int entityIdClear)

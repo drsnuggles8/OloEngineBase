@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
@@ -232,17 +234,22 @@ namespace OloEngine
         m_ShaderLibrary.Load("assets/shaders/BRDFLutGeneration.glsl");
         m_ShaderLibrary.Load("assets/shaders/Skybox.glsl");
         m_ShaderLibrary.Load("assets/shaders/InfiniteGrid.glsl");
+        m_ShaderLibrary.Load("assets/shaders/ShadowDepth.glsl");
+        m_ShaderLibrary.Load("assets/shaders/ShadowDepthSkinned.glsl");
+        m_ShaderLibrary.Load("assets/shaders/ShadowDepthPoint.glsl");
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
         s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
         s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
         s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
-        s_Data.PBRShader = m_ShaderLibrary.Get("PBR");
-        s_Data.PBRSkinnedShader = m_ShaderLibrary.Get("PBR_Skinned");
+        s_Data.PBRShader = m_ShaderLibrary.Get("PBR_MultiLight");
+        s_Data.PBRSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
         s_Data.PBRMultiLightShader = m_ShaderLibrary.Get("PBR_MultiLight");
         s_Data.PBRMultiLightSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
         s_Data.SkyboxShader = m_ShaderLibrary.Get("Skybox");
         s_Data.InfiniteGridShader = m_ShaderLibrary.Get("InfiniteGrid");
+        s_Data.ShadowDepthShader = m_ShaderLibrary.Get("ShadowDepth");
+        s_Data.ShadowDepthSkinnedShader = m_ShaderLibrary.Get("ShadowDepthSkinned");
 
         s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
         s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
@@ -279,6 +286,9 @@ namespace OloEngine
         s_Data.RGraph = Ref<RenderGraph>::Create();
         SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
 
+        // Initialize shadow mapping
+        s_Data.Shadow.Init();
+
         ParticleBatchRenderer::Init();
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
@@ -294,6 +304,9 @@ namespace OloEngine
         OLO_CORE_INFO("Shutting down Renderer3D.");
 
         ParticleBatchRenderer::Shutdown();
+
+        // Shutdown shadow mapping
+        s_Data.Shadow.Shutdown();
 
         // Clear any pending GPU resource commands
         GPUResourceQueue::Clear();
@@ -345,6 +358,22 @@ namespace OloEngine
         CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
         CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
         CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
+
+        // Set shadow texture IDs for CommandDispatch to bind during PBR draws
+        CommandDispatch::SetShadowTextureIDs(
+            s_Data.Shadow.GetCSMRendererID(),
+            s_Data.Shadow.GetSpotRendererID()
+        );
+
+        // Set point shadow cubemap texture IDs
+        {
+            std::array<u32, 4> pointIDs{};
+            for (u32 i = 0; i < 4; ++i)
+            {
+                pointIDs[i] = s_Data.Shadow.GetPointRendererID(i);
+            }
+            CommandDispatch::SetPointShadowTextureIDs(pointIDs);
+        }
 
         s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
 
@@ -1000,6 +1029,14 @@ namespace OloEngine
         s_Data.ViewPos = position;
     }
 
+    void Renderer3D::UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data)
+    {
+        if (s_Data.MultiLightBuffer)
+        {
+            s_Data.MultiLightBuffer->SetData(&data, UBOStructures::MultiLightUBO::GetSize());
+        }
+    }
+
     void Renderer3D::SetSceneLights(const Ref<Scene>& scene)
     {
         OLO_PROFILE_FUNCTION();
@@ -1544,6 +1581,16 @@ namespace OloEngine
 
         s_Data.RGraph->Init(width, height);
 
+        // Shadow pass (renders before scene, doesn't need scene framebuffer dimensions)
+        FramebufferSpecification shadowPassSpec;
+        shadowPassSpec.Width = static_cast<u32>(ShaderConstants::SHADOW_MAP_SIZE);
+        shadowPassSpec.Height = static_cast<u32>(ShaderConstants::SHADOW_MAP_SIZE);
+
+        s_Data.ShadowPass = Ref<ShadowRenderPass>::Create();
+        s_Data.ShadowPass->SetName("ShadowPass");
+        s_Data.ShadowPass->Init(shadowPassSpec);
+        s_Data.ShadowPass->SetShadowMap(&s_Data.Shadow);
+
         FramebufferSpecification scenePassSpec;
         scenePassSpec.Width = width;
         scenePassSpec.Height = height;
@@ -1571,15 +1618,19 @@ namespace OloEngine
         s_Data.FinalPass->SetName("FinalPass");
         s_Data.FinalPass->Init(finalPassSpec);
 
+        s_Data.RGraph->AddPass(s_Data.ShadowPass);
         s_Data.RGraph->AddPass(s_Data.ScenePass);
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
         s_Data.RGraph->AddPass(s_Data.FinalPass);
 
+        // ShadowPass -> ScenePass: ordering only (shadow textures are bound via UBO/texture slots)
+        s_Data.RGraph->AddExecutionDependency("ShadowPass", "ScenePass");
+        // ScenePass -> ParticlePass -> FinalPass: ordering + framebuffer piping
         s_Data.RGraph->ConnectPass("ScenePass", "ParticlePass");
         s_Data.RGraph->ConnectPass("ParticlePass", "FinalPass");
 
         s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        OLO_CORE_INFO("Renderer3D: Render graph: ScenePass -> ParticlePass -> FinalPass");
+        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> ParticlePass -> FinalPass");
 
         s_Data.RGraph->SetFinalPass("FinalPass");
     }

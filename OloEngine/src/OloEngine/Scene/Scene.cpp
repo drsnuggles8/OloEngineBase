@@ -22,6 +22,10 @@
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Particle/TrailRenderer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Core/FastRandom.h"
@@ -1303,23 +1307,389 @@ namespace OloEngine
         // Render skybox from EnvironmentMapComponent (first one found)
         LoadAndRenderSkybox();
 
-        // Collect and set scene lights from light components
-        // Note: We need to pass a Ref<Scene>, so we use a workaround since Scene doesn't inherit from enable_shared_from_this
-        // For now, we'll collect lights manually here
+        // Collect all scene lights into MultiLight UBO and set up shadows
+        glm::vec3 directionalLightDir(0.0f, -1.0f, 0.0f);
+        bool hasDirectionalShadow = false;
         {
-            // Set first directional light as the main scene light
+            UBOStructures::MultiLightUBO multiLightData{};
+            i32 lightIndex = 0;
+
+            // Collect directional lights
             auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
-            if (auto it = dirLightView.begin(); it != dirLightView.end())
+            for (auto entity : dirLightView)
             {
-                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(*it);
-                Light light;
-                light.Type = LightType::Directional;
-                light.Direction = dirLight.m_Direction;
-                light.Ambient = dirLight.m_Color * 0.1f;
-                light.Diffuse = dirLight.m_Color * dirLight.m_Intensity;
-                light.Specular = dirLight.m_Color * dirLight.m_Intensity;
-                Renderer3D::SetLight(light);
-                Renderer3D::SetViewPosition(camera.GetPosition());
+                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
+                {
+                    break;
+                }
+
+                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
+
+                auto& data = multiLightData.Lights[lightIndex];
+                data.Position = glm::vec4(dirLight.m_Direction, 0.0f); // w=0 for directional
+                data.Direction = glm::vec4(dirLight.m_Direction, -1.0f); // w=-1 = no shadow index
+                data.Color = glm::vec4(dirLight.m_Color, dirLight.m_Intensity);
+                data.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+                data.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f); // type = DIRECTIONAL_LIGHT = 0
+
+                // Also set single-light for backward compatibility with CommandDispatch
+                if (lightIndex == 0)
+                {
+                    Light light;
+                    light.Type = LightType::Directional;
+                    light.Direction = dirLight.m_Direction;
+                    light.Ambient = dirLight.m_Color * 0.1f;
+                    light.Diffuse = dirLight.m_Color * dirLight.m_Intensity;
+                    light.Specular = dirLight.m_Color * dirLight.m_Intensity;
+                    Renderer3D::SetLight(light);
+                    Renderer3D::SetViewPosition(camera.GetPosition());
+
+                    directionalLightDir = dirLight.m_Direction;
+                    hasDirectionalShadow = dirLight.m_CastShadows;
+
+                    if (dirLight.m_CastShadows)
+                    {
+                        auto& shadowMap = Renderer3D::GetShadowMap();
+                        auto settings = shadowMap.GetSettings();
+                        settings.Bias = dirLight.m_ShadowBias;
+                        settings.NormalBias = dirLight.m_ShadowNormalBias;
+                        settings.MaxShadowDistance = dirLight.m_MaxShadowDistance;
+                        settings.CascadeSplitLambda = dirLight.m_CascadeSplitLambda;
+                        shadowMap.SetSettings(settings);
+                        shadowMap.SetCascadeDebugEnabled(dirLight.m_CascadeDebugVisualization);
+                    }
+                }
+
+                ++lightIndex;
+            }
+
+            // Collect point lights
+            u32 pointShadowIndex = 0;
+            auto pointLightView = m_Registry.view<TransformComponent, PointLightComponent>();
+            for (auto entity : pointLightView)
+            {
+                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
+                {
+                    break;
+                }
+
+                const auto& [transform, pointLight] = pointLightView.get<TransformComponent, PointLightComponent>(entity);
+
+                auto& data = multiLightData.Lights[lightIndex];
+                data.Position = glm::vec4(transform.Translation, 1.0f); // w=1 for point
+                data.Color = glm::vec4(pointLight.m_Color, pointLight.m_Intensity);
+                data.AttenuationParams = glm::vec4(1.0f, 0.0f, pointLight.m_Attenuation, pointLight.m_Range);
+                data.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f); // type = POINT_LIGHT = 1
+
+                // Encode point shadow index in direction.w (-1 = no shadow)
+                if (pointLight.m_CastShadows && pointShadowIndex < ShadowMap::MAX_POINT_SHADOWS)
+                {
+                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, static_cast<f32>(pointShadowIndex));
+                    ++pointShadowIndex;
+                }
+                else
+                {
+                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, -1.0f);
+                }
+
+                ++lightIndex;
+            }
+
+            // Collect spot lights
+            u32 spotShadowIndex = 0;
+            auto spotLightView = m_Registry.view<TransformComponent, SpotLightComponent>();
+            for (auto entity : spotLightView)
+            {
+                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
+                {
+                    break;
+                }
+
+                const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
+
+                auto& data = multiLightData.Lights[lightIndex];
+                data.Position = glm::vec4(transform.Translation, 2.0f); // w=2 for spot
+                data.Color = glm::vec4(spotLight.m_Color, spotLight.m_Intensity);
+                data.AttenuationParams = glm::vec4(1.0f, 0.0f, spotLight.m_Attenuation, spotLight.m_Range);
+                data.SpotParams = glm::vec4(
+                    glm::cos(glm::radians(spotLight.m_InnerCutoff)),
+                    glm::cos(glm::radians(spotLight.m_OuterCutoff)),
+                    1.0f,
+                    2.0f // type = SPOT_LIGHT = 2
+                );
+
+                // Encode spot shadow index in direction.w (-1 = no shadow)
+                if (spotLight.m_CastShadows && spotShadowIndex < ShadowMap::MAX_SPOT_SHADOWS)
+                {
+                    data.Direction = glm::vec4(spotLight.m_Direction, static_cast<f32>(spotShadowIndex));
+                    ++spotShadowIndex;
+                }
+                else
+                {
+                    data.Direction = glm::vec4(spotLight.m_Direction, -1.0f);
+                }
+
+                ++lightIndex;
+            }
+
+            multiLightData.LightCount = lightIndex;
+            multiLightData.MaxLights = static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
+            Renderer3D::UploadMultiLightUBO(multiLightData);
+
+            // Set up shadow mapping
+            auto& shadowMap = Renderer3D::GetShadowMap();
+            shadowMap.BeginFrame();
+
+            // CSM for directional light
+            if (hasDirectionalShadow && shadowMap.IsEnabled())
+            {
+                shadowMap.ComputeCSMCascades(
+                    directionalLightDir,
+                    camera.GetViewMatrix(),
+                    camera.GetProjection(),
+                    camera.GetNearClip(),
+                    camera.GetFarClip()
+                );
+            }
+
+            // Spot light shadows
+            {
+                u32 spotIdx = 0;
+                for (auto entity : spotLightView)
+                {
+                    if (spotIdx >= ShadowMap::MAX_SPOT_SHADOWS)
+                    {
+                        break;
+                    }
+
+                    const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
+                    if (!spotLight.m_CastShadows)
+                    {
+                        continue;
+                    }
+
+                    shadowMap.SetSpotLightShadow(
+                        spotIdx,
+                        transform.Translation,
+                        spotLight.m_Direction,
+                        spotLight.m_OuterCutoff,
+                        spotLight.m_Range
+                    );
+                    ++spotIdx;
+                }
+                shadowMap.SetSpotShadowCount(static_cast<i32>(spotIdx));
+            }
+
+            // Point light shadows
+            {
+                u32 pointIdx = 0;
+                for (auto entity : pointLightView)
+                {
+                    if (pointIdx >= ShadowMap::MAX_POINT_SHADOWS)
+                    {
+                        break;
+                    }
+
+                    const auto& [transform, pointLight] = pointLightView.get<TransformComponent, PointLightComponent>(entity);
+                    if (!pointLight.m_CastShadows)
+                    {
+                        continue;
+                    }
+
+                    shadowMap.SetPointLightShadow(
+                        pointIdx,
+                        transform.Translation,
+                        pointLight.m_Range
+                    );
+                    ++pointIdx;
+                }
+                shadowMap.SetPointShadowCount(static_cast<i32>(pointIdx));
+            }
+
+            shadowMap.UploadUBO();
+
+            // Set shadow render callback
+            if (auto shadowPass = Renderer3D::GetShadowPass())
+            {
+                shadowPass->SetRenderCallback([this](const glm::mat4& lightVP, [[maybe_unused]] u32 layer, ShadowPassType type)
+                {
+                    auto& shadowMap = Renderer3D::GetShadowMap();
+
+                    // Select shader based on shadow pass type
+                    const char* shaderName = (type == ShadowPassType::Point) ? "ShadowDepthPoint" : "ShadowDepth";
+                    auto shadowShader = Renderer3D::GetShaderLibrary().Get(shaderName);
+                    if (!shadowShader)
+                    {
+                        OLO_CORE_ERROR("Shadow: {} shader not found!", shaderName);
+                        return;
+                    }
+                    shadowShader->Bind();
+
+                    // Upload light VP to the shadow camera UBO (binding 0)
+                    auto cameraUBOData = ShaderBindingLayout::CameraUBO{};
+                    cameraUBOData.ViewProjection = lightVP;
+                    cameraUBOData.View = glm::mat4(1.0f);
+                    cameraUBOData.Projection = lightVP;
+
+                    if (type == ShadowPassType::Point)
+                    {
+                        // For point shadows, store light position and far plane
+                        const auto& params = shadowMap.GetPointShadowParams(layer);
+                        cameraUBOData.Position = glm::vec3(params); // xyz = light position
+                        cameraUBOData._padding0 = params.w;          // w = far plane
+                    }
+                    else
+                    {
+                        cameraUBOData.Position = glm::vec3(0.0f);
+                        cameraUBOData._padding0 = 0.0f;
+                    }
+
+                    auto& cameraUBO = shadowMap.GetShadowCameraUBO();
+                    cameraUBO->SetData(&cameraUBOData, ShaderBindingLayout::CameraUBO::GetSize());
+                    cameraUBO->Bind();
+                    auto& modelUBO = shadowMap.GetShadowModelUBO();
+                    modelUBO->Bind();
+
+                    // Render all shadow-casting static meshes
+                    auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+                    for (auto entity : meshView)
+                    {
+                        if (m_Registry.all_of<SkeletonComponent>(entity))
+                        {
+                            continue;
+                        }
+
+                        // Check if material disables shadow casting
+                        if (m_Registry.all_of<MaterialComponent>(entity))
+                        {
+                            const auto& mat = m_Registry.get<MaterialComponent>(entity).m_Material;
+                            if (mat.GetFlag(MaterialFlag::DisableShadowCasting))
+                            {
+                                continue;
+                            }
+                        }
+
+                        const auto& [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(entity);
+                        if (!mesh.m_MeshSource)
+                        {
+                            continue;
+                        }
+
+                        ShaderBindingLayout::ModelUBO modelData;
+                        modelData.Model = transform.GetTransform();
+                        modelData.Normal = glm::transpose(glm::inverse(transform.GetTransform()));
+                        modelData.EntityID = -1;
+                        modelData._paddingEntity[0] = 0;
+                        modelData._paddingEntity[1] = 0;
+                        modelData._paddingEntity[2] = 0;
+                        modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+
+                        for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
+                        {
+                            auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                            auto va = submesh->GetVertexArray();
+                            if (va)
+                            {
+                                va->Bind();
+                                RenderCommand::DrawIndexed(va, submesh->GetIndexCount());
+                            }
+                        }
+                    }
+
+                    // Render submesh entities
+                    auto submeshView = m_Registry.view<TransformComponent, SubmeshComponent>();
+                    for (auto entity : submeshView)
+                    {
+                        const auto& [transform, submesh] = submeshView.get<TransformComponent, SubmeshComponent>(entity);
+                        if (!submesh.m_Mesh || !submesh.m_Visible)
+                        {
+                            continue;
+                        }
+
+                        if (m_Registry.all_of<MaterialComponent>(entity))
+                        {
+                            const auto& mat = m_Registry.get<MaterialComponent>(entity).m_Material;
+                            if (mat.GetFlag(MaterialFlag::DisableShadowCasting))
+                            {
+                                continue;
+                            }
+                        }
+
+                        ShaderBindingLayout::ModelUBO modelData;
+                        modelData.Model = transform.GetTransform();
+                        modelData.Normal = glm::transpose(glm::inverse(transform.GetTransform()));
+                        modelData.EntityID = -1;
+                        modelData._paddingEntity[0] = 0;
+                        modelData._paddingEntity[1] = 0;
+                        modelData._paddingEntity[2] = 0;
+                        modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+
+                        auto va = submesh.m_Mesh->GetVertexArray();
+                        if (va)
+                        {
+                            va->Bind();
+                            RenderCommand::DrawIndexed(va, submesh.m_Mesh->GetIndexCount());
+                        }
+                    }
+
+                    // Render animated/skinned meshes into shadow map
+                    auto skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthSkinned");
+                    if (skinnedShadowShader)
+                    {
+                        skinnedShadowShader->Bind();
+                        auto& animUBO = shadowMap.GetShadowAnimationUBO();
+                        animUBO->Bind();
+
+                        auto skinnedView = m_Registry.view<TransformComponent, MeshComponent, SkeletonComponent>();
+                        for (auto entity : skinnedView)
+                        {
+                            if (m_Registry.all_of<MaterialComponent>(entity))
+                            {
+                                const auto& mat = m_Registry.get<MaterialComponent>(entity).m_Material;
+                                if (mat.GetFlag(MaterialFlag::DisableShadowCasting))
+                                {
+                                    continue;
+                                }
+                            }
+
+                            const auto& [transform, mesh, skeleton] = skinnedView.get<TransformComponent, MeshComponent, SkeletonComponent>(entity);
+                            if (!mesh.m_MeshSource || !skeleton.m_Skeleton)
+                            {
+                                continue;
+                            }
+
+                            // Upload model matrix
+                            ShaderBindingLayout::ModelUBO skinnedModelData;
+                            skinnedModelData.Model = transform.GetTransform();
+                            skinnedModelData.Normal = glm::transpose(glm::inverse(transform.GetTransform()));
+                            skinnedModelData.EntityID = -1;
+                            skinnedModelData._paddingEntity[0] = 0;
+                            skinnedModelData._paddingEntity[1] = 0;
+                            skinnedModelData._paddingEntity[2] = 0;
+                            modelUBO->SetData(&skinnedModelData, ShaderBindingLayout::ModelUBO::GetSize());
+
+                            // Upload bone matrices
+                            const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
+                            if (!boneMatrices.empty())
+                            {
+                                auto boneCount = std::min(static_cast<u32>(boneMatrices.size()), static_cast<u32>(ShaderBindingLayout::AnimationUBO::MAX_BONES));
+                                animUBO->SetData(boneMatrices.data(), boneCount * sizeof(glm::mat4));
+                            }
+
+                            // Draw each submesh
+                            for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
+                            {
+                                auto submeshRef = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                                auto va = submeshRef->GetVertexArray();
+                                if (va)
+                                {
+                                    va->Bind();
+                                    RenderCommand::DrawIndexed(va, submeshRef->GetIndexCount());
+                                }
+                            }
+                        }
+                    }
+                });
             }
         }
 

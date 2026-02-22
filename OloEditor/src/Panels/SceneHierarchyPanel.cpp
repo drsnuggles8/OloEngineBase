@@ -1287,6 +1287,7 @@ namespace OloEngine
 				if (mesh)
 				{
 					component.m_MeshSource = mesh->GetMeshSource();
+					component.m_Primitive = static_cast<MeshPrimitive>(currentPrimitive);
 				}
 				currentPrimitive = 0; // Reset selection
 			}
@@ -1452,7 +1453,17 @@ namespace OloEngine
 			DrawVec3Control("Direction", component.m_Direction);
 			ImGui::ColorEdit3("Color", glm::value_ptr(component.m_Color));
 			ImGui::DragFloat("Intensity##DirectionalLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
-			ImGui::Checkbox("Cast Shadows##DirectionalLight", &component.m_CastShadows); });
+			ImGui::Checkbox("Cast Shadows##DirectionalLight", &component.m_CastShadows);
+			if (component.m_CastShadows)
+			{
+				ImGui::Indent();
+				ImGui::DragFloat("Shadow Bias##DirLight", &component.m_ShadowBias, 0.0001f, 0.0f, 0.05f, "%.4f");
+				ImGui::DragFloat("Normal Bias##DirLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 0.1f, "%.3f");
+				ImGui::DragFloat("Max Shadow Distance##DirLight", &component.m_MaxShadowDistance, 1.0f, 10.0f, 1000.0f);
+				ImGui::DragFloat("Cascade Split Lambda##DirLight", &component.m_CascadeSplitLambda, 0.01f, 0.0f, 1.0f, "%.2f");
+				ImGui::Checkbox("Cascade Debug Visualization##DirLight", &component.m_CascadeDebugVisualization);
+				ImGui::Unindent();
+			} });
 
         DrawComponent<PointLightComponent>("Point Light", entity, [](auto& component)
                                            {
@@ -1460,7 +1471,14 @@ namespace OloEngine
 			ImGui::DragFloat("Intensity##PointLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
 			ImGui::DragFloat("Range##PointLight", &component.m_Range, 0.1f, 0.1f, 100.0f);
 			ImGui::DragFloat("Attenuation##PointLight", &component.m_Attenuation, 0.1f, 0.1f, 4.0f);
-			ImGui::Checkbox("Cast Shadows##PointLight", &component.m_CastShadows); });
+			ImGui::Checkbox("Cast Shadows##PointLight", &component.m_CastShadows);
+			if (component.m_CastShadows)
+			{
+				ImGui::Indent();
+				ImGui::DragFloat("Shadow Bias##PointLight", &component.m_ShadowBias, 0.0001f, 0.0f, 0.05f, "%.4f");
+				ImGui::DragFloat("Normal Bias##PointLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 0.1f, "%.3f");
+				ImGui::Unindent();
+			} });
 
         DrawComponent<SpotLightComponent>("Spot Light", entity, [](auto& component)
                                           {
@@ -1471,7 +1489,14 @@ namespace OloEngine
 			ImGui::DragFloat("Inner Cutoff##SpotLight", &component.m_InnerCutoff, 0.1f, 0.0f, 90.0f);
 			ImGui::DragFloat("Outer Cutoff##SpotLight", &component.m_OuterCutoff, 0.1f, 0.0f, 90.0f);
 			ImGui::DragFloat("Attenuation##SpotLight", &component.m_Attenuation, 0.1f, 0.1f, 4.0f);
-			ImGui::Checkbox("Cast Shadows##SpotLight", &component.m_CastShadows); });
+			ImGui::Checkbox("Cast Shadows##SpotLight", &component.m_CastShadows);
+			if (component.m_CastShadows)
+			{
+				ImGui::Indent();
+				ImGui::DragFloat("Shadow Bias##SpotLight", &component.m_ShadowBias, 0.0001f, 0.0f, 0.05f, "%.4f");
+				ImGui::DragFloat("Normal Bias##SpotLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 0.1f, "%.3f");
+				ImGui::Unindent();
+			} });
 
         DrawComponent<EnvironmentMapComponent>("Environment Map", entity, [](auto& component)
                                                {

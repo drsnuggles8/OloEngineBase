@@ -26,7 +26,7 @@ namespace OloEngine
         // Clear all pass references
         m_PassLookup.clear();
         m_Dependencies.clear();
-        m_DependentPasses.clear();
+        m_FramebufferConnections.clear();
         m_PassOrder.clear();
         m_FinalPassName.clear();
     }
@@ -45,7 +45,6 @@ namespace OloEngine
     void RenderGraph::ConnectPass(const std::string& outputPass, const std::string& inputPass)
     {
         OLO_PROFILE_FUNCTION();
-        // TODO: Implement attachment-specific connections
 
         if (m_PassLookup.find(outputPass) == m_PassLookup.end())
         {
@@ -59,11 +58,36 @@ namespace OloEngine
             return;
         }
 
-        OLO_CORE_INFO("Connecting passes: {} -> {}", outputPass, inputPass);
+        OLO_CORE_INFO("Connecting passes (with framebuffer piping): {} -> {}", outputPass, inputPass);
 
-        // Add dependency
+        // Add dependency for execution ordering
         m_Dependencies[inputPass].push_back(outputPass);
-        m_DependentPasses[outputPass].push_back(inputPass);
+        // Mark for framebuffer piping
+        m_FramebufferConnections[outputPass].push_back(inputPass);
+
+        m_DependencyGraphDirty = true;
+    }
+
+    void RenderGraph::AddExecutionDependency(const std::string& beforePass, const std::string& afterPass)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_PassLookup.find(beforePass) == m_PassLookup.end())
+        {
+            OLO_CORE_ERROR("RenderGraph::AddExecutionDependency: Pass '{}' not found!", beforePass);
+            return;
+        }
+
+        if (m_PassLookup.find(afterPass) == m_PassLookup.end())
+        {
+            OLO_CORE_ERROR("RenderGraph::AddExecutionDependency: Pass '{}' not found!", afterPass);
+            return;
+        }
+
+        OLO_CORE_INFO("Adding execution dependency (ordering only): {} -> {}", beforePass, afterPass);
+
+        // Only add dependency for execution ordering, no framebuffer piping
+        m_Dependencies[afterPass].push_back(beforePass);
 
         m_DependencyGraphDirty = true;
     }
@@ -79,22 +103,17 @@ namespace OloEngine
             m_DependencyGraphDirty = false;
         }
 
-        // First pass: Connect framebuffers between dependencies
-        for (const auto& [outputPass, inputPasses] : m_DependentPasses)
+        // First pass: Connect framebuffers between passes that use framebuffer piping
+        for (const auto& [outputPass, inputPasses] : m_FramebufferConnections)
         {
             auto& outputPassRef = m_PassLookup[outputPass];
-            Ref<Framebuffer> outputFramebuffer;
+            Ref<Framebuffer> outputFramebuffer = outputPassRef->GetTarget();
 
-            // Get output framebuffer from output pass
-            outputFramebuffer = outputPassRef->GetTarget();
-
-            // Set this framebuffer as input for all dependent passes
             if (outputFramebuffer)
             {
                 for (const auto& inputPass : inputPasses)
                 {
                     auto& inputPassRef = m_PassLookup[inputPass];
-                    // Handle RenderPass (like FinalRenderPass)
                     if (auto* finalPass = dynamic_cast<FinalRenderPass*>(inputPassRef.get()))
                     {
                         finalPass->SetInputFramebuffer(outputFramebuffer);
@@ -224,8 +243,8 @@ namespace OloEngine
             // If no final pass was explicitly set, try to find a pass with no dependents
             for (const auto& [name, _] : m_PassLookup)
             {
-                if (m_DependentPasses.find(name) == m_DependentPasses.end() ||
-                    m_DependentPasses[name].empty())
+                if (m_FramebufferConnections.find(name) == m_FramebufferConnections.end() ||
+                    m_FramebufferConnections[name].empty())
                 {
                     m_FinalPassName = name;
                     OLO_CORE_INFO("RenderGraph: Auto-selected final pass: {}", name);

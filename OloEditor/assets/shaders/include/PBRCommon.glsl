@@ -591,21 +591,144 @@ vec3 calculateLightContributionEnhanced(LightData light, vec3 N, vec3 V, vec3 al
 }
 
 // =============================================================================
-// SHADOW FUNCTIONS (placeholder for future implementation)
+// SHADOW FUNCTIONS
 // =============================================================================
 
-// Calculate shadow factor (placeholder)
-float calculateShadowFactor(vec3 worldPos, mat4 lightSpaceMatrix, sampler2D shadowMap)
+// PCF (Percentage Closer Filtering) for soft shadow edges
+float sampleShadowPCF(sampler2DArrayShadow shadowMap, vec3 projCoords, float layer, float bias, int resolution)
 {
-    // TODO: Implement shadow mapping
-    return 1.0; // No shadows for now
+    float shadow = 0.0;
+    float texelSize = 1.0 / float(resolution);
+
+    // 3x3 PCF kernel
+    for (int x = -1; x <= 1; ++x)
+    {
+        for (int y = -1; y <= 1; ++y)
+        {
+            vec2 offset = vec2(float(x), float(y)) * texelSize;
+            // sampler2DArrayShadow: texture(sampler, vec4(uv.x, uv.y, layer, compareRef))
+            shadow += texture(shadowMap, vec4(projCoords.xy + offset, layer, projCoords.z - bias));
+        }
+    }
+    return shadow / 9.0;
 }
 
-// Calculate cascaded shadow factor for directional lights
-float calculateCascadedShadowFactor(vec3 worldPos, vec3 viewPos)
+// Calculate CSM shadow factor for directional lights
+// shadowMap: sampler2DArrayShadow bound at TEX_SHADOW (binding 8)
+// worldPos: fragment world position
+// viewPos: fragment position in view space (needed for cascade selection)
+// lightSpaceMatrices[4]: per-cascade light VP matrices
+// cascadePlaneDistances: view-space far distances for each cascade
+// shadowParams: x=bias, y=normalBias, z=softness, w=maxShadowDistance
+// shadowMapResolution: shadow map size in pixels
+float calculateCascadedShadowFactorCSM(
+    sampler2DArrayShadow shadowMap,
+    vec3 worldPos,
+    float viewDepth,
+    mat4 lightSpaceMatrices[4],
+    vec4 cascadePlaneDistances,
+    vec4 shadowParams,
+    int shadowMapResolution)
 {
-    // TODO: Implement cascaded shadow mapping
-    return 1.0; // No shadows for now
+    float maxShadowDistance = shadowParams.w;
+    if (-viewDepth > maxShadowDistance)
+    {
+        return 1.0; // Beyond shadow distance
+    }
+
+    // Select cascade based on view-space depth
+    int cascadeIndex = 3; // Default to last cascade
+    float cascadeDists[4] = float[4](
+        cascadePlaneDistances.x,
+        cascadePlaneDistances.y,
+        cascadePlaneDistances.z,
+        cascadePlaneDistances.w
+    );
+
+    for (int i = 0; i < 4; ++i)
+    {
+        if (-viewDepth < cascadeDists[i])
+        {
+            cascadeIndex = i;
+            break;
+        }
+    }
+
+    // Transform to light space
+    vec4 lightSpacePos = lightSpaceMatrices[cascadeIndex] * vec4(worldPos, 1.0);
+    vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
+    projCoords = projCoords * 0.5 + 0.5; // NDC [-1,1] -> [0,1]
+
+    // Out of shadow map bounds
+    if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
+        projCoords.y < 0.0 || projCoords.y > 1.0 ||
+        projCoords.z > 1.0)
+    {
+        return 1.0;
+    }
+
+    // Scale bias by cascade (farther cascades need more bias)
+    float baseBias = shadowParams.x;
+    float cascadeBias = baseBias * float(cascadeIndex + 1);
+
+    float shadow = sampleShadowPCF(shadowMap, projCoords, float(cascadeIndex), cascadeBias, shadowMapResolution);
+
+    // Cascade blending: smooth cross-fade in the last 10% of each cascade
+    if (cascadeIndex < 3)
+    {
+        float cascadeFar = cascadeDists[cascadeIndex];
+        float blendZone = cascadeFar * 0.1;
+        float blendFactor = smoothstep(cascadeFar - blendZone, cascadeFar, -viewDepth);
+
+        if (blendFactor > 0.0)
+        {
+            // Sample next cascade
+            vec4 nextLightSpacePos = lightSpaceMatrices[cascadeIndex + 1] * vec4(worldPos, 1.0);
+            vec3 nextProjCoords = nextLightSpacePos.xyz / nextLightSpacePos.w;
+            nextProjCoords = nextProjCoords * 0.5 + 0.5;
+            float nextBias = baseBias * float(cascadeIndex + 2);
+            float nextShadow = sampleShadowPCF(shadowMap, nextProjCoords, float(cascadeIndex + 1), nextBias, shadowMapResolution);
+            shadow = mix(shadow, nextShadow, blendFactor);
+        }
+    }
+
+    // Distance fade: smoothly transition to no shadow at max shadow distance
+    float fadeStart = maxShadowDistance * 0.8;
+    float distanceFade = 1.0 - smoothstep(fadeStart, maxShadowDistance, -viewDepth);
+    shadow = mix(1.0, shadow, distanceFade);
+
+    return shadow;
+}
+
+// Simple shadow factor for a single light (spot light)
+float calculateShadowFactor(vec3 worldPos, mat4 lightSpaceMatrix, sampler2DArrayShadow shadowMap, float layer, float bias, int resolution)
+{
+    vec4 lightSpacePos = lightSpaceMatrix * vec4(worldPos, 1.0);
+    vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
+    projCoords = projCoords * 0.5 + 0.5;
+
+    if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
+        projCoords.y < 0.0 || projCoords.y > 1.0 ||
+        projCoords.z > 1.0)
+    {
+        return 1.0;
+    }
+
+    return sampleShadowPCF(shadowMap, projCoords, layer, bias, resolution);
+}
+
+// Point light shadow factor using depth cubemap
+// Uses samplerCubeShadow with hardware depth comparison (GL_LEQUAL)
+// The cubemap stores linear depth ( distance / farPlane ) written by ShadowDepthPoint.glsl
+float calculatePointShadowFactor(samplerCubeShadow shadowCubemap, vec3 worldPos, vec3 lightPos, float farPlane, float bias)
+{
+    vec3 fragToLight = worldPos - lightPos;
+    float currentDepth = length(fragToLight) / farPlane;
+
+    // samplerCubeShadow: texture(sampler, vec4(direction.xyz, refDepth))
+    // Returns 1.0 if refDepth <= stored depth (not in shadow), 0.0 otherwise
+    float shadow = texture(shadowCubemap, vec4(fragToLight, currentDepth - bias));
+    return shadow;
 }
 
 // =============================================================================

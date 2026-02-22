@@ -120,6 +120,22 @@ layout(binding = 10) uniform samplerCube u_IrradianceMap;   // TEX_USER_0
 layout(binding = 11) uniform samplerCube u_PrefilterMap;    // TEX_USER_1
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;        // TEX_USER_2
 
+// Shadow map textures
+layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM; // TEX_SHADOW (CSM)
+
+// Shadow UBO (binding 6)
+layout(std140, binding = 6) uniform ShadowData {
+    mat4 u_DirectionalLightSpaceMatrices[4];
+    vec4 u_CascadePlaneDistances;
+    vec4 u_ShadowParams;  // x=bias, y=normalBias, z=softness, w=maxShadowDistance
+    mat4 u_SpotLightSpaceMatrices[4];
+    vec4 u_PointLightShadowParams[4]; // xyz=position, w=farPlane
+    int u_DirectionalShadowEnabled;
+    int u_SpotShadowCount;
+    int u_PointShadowCount;
+    int u_ShadowMapResolution;
+};
+
 void main()
 {
     // Sample material properties
@@ -148,6 +164,19 @@ void main()
     {
         Lo = calculateDirectionalLightUniform(N, V, albedo, metallic, roughness,
                                              u_LightDirection.xyz, u_LightDiffuse.rgb);
+
+        // Apply CSM shadow factor for directional light
+        if (u_DirectionalShadowEnabled != 0)
+        {
+            vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);
+            float viewDepth = viewSpacePos.z;
+            float shadow = calculateCascadedShadowFactorCSM(
+                u_ShadowMapCSM, v_WorldPos, viewDepth,
+                u_DirectionalLightSpaceMatrices, u_CascadePlaneDistances,
+                u_ShadowParams, u_ShadowMapResolution
+            );
+            Lo *= shadow;
+        }
     }
     else if (lightType == POINT_LIGHT)
     {
