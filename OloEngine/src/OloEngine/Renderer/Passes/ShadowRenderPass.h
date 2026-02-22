@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
+
+#include <glm/glm.hpp>
 #include <functional>
 
 namespace OloEngine
@@ -50,5 +52,7 @@ namespace OloEngine
         ShadowMap* m_ShadowMap = nullptr;
         ShadowRenderCallback m_RenderCallback;
         Ref<Framebuffer> m_ShadowFramebuffer; // Depth-only FBO for shadow rendering
+        bool m_WarnedOnce = false;
+        bool m_LoggedOnce = false;
     };
 } // namespace OloEngine

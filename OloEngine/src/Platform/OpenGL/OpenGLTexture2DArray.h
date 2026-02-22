@@ -26,6 +26,10 @@ namespace OloEngine
         {
             return m_RendererID;
         }
+        [[nodiscard]] const Texture2DArraySpecification& GetSpecification() const override
+        {
+            return m_Specification;
+        }
 
         void Bind(u32 slot) const override;
 
@@ -34,5 +38,6 @@ namespace OloEngine
         u32 m_Width = 0;
         u32 m_Height = 0;
         u32 m_Layers = 0;
+        Texture2DArraySpecification m_Specification;
     };
 } // namespace OloEngine

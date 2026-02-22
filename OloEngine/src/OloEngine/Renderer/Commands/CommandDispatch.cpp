@@ -118,7 +118,7 @@ namespace OloEngine
         // Shadow texture renderer IDs (set per-frame)
         u32 CSMShadowTextureID = 0;
         u32 SpotShadowTextureID = 0;
-        std::array<u32, 4> PointShadowTextureIDs = { 0 };
+        std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> PointShadowTextureIDs = { 0 };
 
         CommandDispatch::Statistics Stats;
     };
@@ -249,7 +249,7 @@ namespace OloEngine
         s_Data.SpotShadowTextureID = spotTextureID;
     }
 
-    void CommandDispatch::SetPointShadowTextureIDs(const std::array<u32, 4>& pointTextureIDs)
+    void CommandDispatch::SetPointShadowTextureIDs(const std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS>& pointTextureIDs)
     {
         s_Data.PointShadowTextureIDs = pointTextureIDs;
     }
@@ -783,13 +783,13 @@ namespace OloEngine
             }
 
             // Bind point light shadow cubemaps (slots 14-17)
-            static constexpr u32 pointSlots[4] = {
+            static constexpr u32 pointSlots[UBOStructures::ShadowUBO::MAX_POINT_SHADOWS] = {
                 ShaderBindingLayout::TEX_SHADOW_POINT_0,
                 ShaderBindingLayout::TEX_SHADOW_POINT_1,
                 ShaderBindingLayout::TEX_SHADOW_POINT_2,
                 ShaderBindingLayout::TEX_SHADOW_POINT_3
             };
-            for (u32 i = 0; i < 4; ++i)
+            for (u32 i = 0; i < UBOStructures::ShadowUBO::MAX_POINT_SHADOWS; ++i)
             {
                 if (s_Data.PointShadowTextureIDs[i] != 0)
                 {

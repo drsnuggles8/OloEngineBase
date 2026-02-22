@@ -508,7 +508,8 @@ namespace OloEngine
                        name.find("bone") != std::string::npos;
 
             default:
-                // User-defined bindings (5-7) are always valid
+                // User-defined bindings (7+) are always valid
+                // Note: bindings 5 (MultiLight) and 6 (Shadow) are handled implicitly above
                 return binding >= ShaderBindingLayout::UBO_USER_0;
         }
     }

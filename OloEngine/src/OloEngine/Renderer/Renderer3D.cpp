@@ -366,8 +366,8 @@ namespace OloEngine
 
         // Set point shadow cubemap texture IDs
         {
-            std::array<u32, 4> pointIDs{};
-            for (u32 i = 0; i < 4; ++i)
+            std::array<u32, ShadowMap::MAX_POINT_SHADOWS> pointIDs{};
+            for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
             {
                 pointIDs[i] = s_Data.Shadow.GetPointRendererID(i);
             }
@@ -1030,6 +1030,8 @@ namespace OloEngine
 
     void Renderer3D::UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (s_Data.MultiLightBuffer)
         {
             s_Data.MultiLightBuffer->SetData(&data, UBOStructures::MultiLightUBO::GetSize());

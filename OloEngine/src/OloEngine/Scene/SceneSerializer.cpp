@@ -52,6 +52,29 @@ namespace OloEngine
         return value;
     }
 
+    static Ref<Mesh> CreateMeshFromPrimitive(MeshPrimitive primitive)
+    {
+        switch (primitive)
+        {
+            case MeshPrimitive::Cube:
+                return MeshPrimitives::CreateCube();
+            case MeshPrimitive::Sphere:
+                return MeshPrimitives::CreateSphere();
+            case MeshPrimitive::Plane:
+                return MeshPrimitives::CreatePlane();
+            case MeshPrimitive::Cylinder:
+                return MeshPrimitives::CreateCylinder();
+            case MeshPrimitive::Cone:
+                return MeshPrimitives::CreateCone();
+            case MeshPrimitive::Icosphere:
+                return MeshPrimitives::CreateIcosphere();
+            case MeshPrimitive::Torus:
+                return MeshPrimitives::CreateTorus();
+            default:
+                return nullptr;
+        }
+    }
+
     static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)
     {
         auto& sys = psc.System;
@@ -1534,37 +1557,19 @@ namespace OloEngine
                     }
                     if (meshComponent["Primitive"])
                     {
-                        mc.m_Primitive = static_cast<MeshPrimitive>(meshComponent["Primitive"].as<i32>());
+                        const auto primitiveInt = meshComponent["Primitive"].as<i32>();
+                        if (primitiveInt >= static_cast<i32>(MeshPrimitive::None) && primitiveInt <= static_cast<i32>(MeshPrimitive::Torus))
+                        {
+                            mc.m_Primitive = static_cast<MeshPrimitive>(primitiveInt);
+                        }
+                        else
+                        {
+                            OLO_CORE_WARN("SceneSerializer: Invalid MeshPrimitive value {}, defaulting to None", primitiveInt);
+                            mc.m_Primitive = MeshPrimitive::None;
+                        }
                         if (!mc.m_MeshSource && mc.m_Primitive != MeshPrimitive::None)
                         {
-                            Ref<Mesh> mesh;
-                            switch (mc.m_Primitive)
-                            {
-                                case MeshPrimitive::Cube:
-                                    mesh = MeshPrimitives::CreateCube();
-                                    break;
-                                case MeshPrimitive::Sphere:
-                                    mesh = MeshPrimitives::CreateSphere();
-                                    break;
-                                case MeshPrimitive::Plane:
-                                    mesh = MeshPrimitives::CreatePlane();
-                                    break;
-                                case MeshPrimitive::Cylinder:
-                                    mesh = MeshPrimitives::CreateCylinder();
-                                    break;
-                                case MeshPrimitive::Cone:
-                                    mesh = MeshPrimitives::CreateCone();
-                                    break;
-                                case MeshPrimitive::Icosphere:
-                                    mesh = MeshPrimitives::CreateIcosphere();
-                                    break;
-                                case MeshPrimitive::Torus:
-                                    mesh = MeshPrimitives::CreateTorus();
-                                    break;
-                                default:
-                                    break;
-                            }
-                            if (mesh)
+                            if (auto mesh = CreateMeshFromPrimitive(mc.m_Primitive))
                             {
                                 mc.m_MeshSource = mesh->GetMeshSource();
                             }
@@ -2364,37 +2369,19 @@ namespace OloEngine
                     }
                     if (meshComponent["Primitive"])
                     {
-                        mc.m_Primitive = static_cast<MeshPrimitive>(meshComponent["Primitive"].as<i32>());
+                        const auto primitiveInt = meshComponent["Primitive"].as<i32>();
+                        if (primitiveInt >= static_cast<i32>(MeshPrimitive::None) && primitiveInt <= static_cast<i32>(MeshPrimitive::Torus))
+                        {
+                            mc.m_Primitive = static_cast<MeshPrimitive>(primitiveInt);
+                        }
+                        else
+                        {
+                            OLO_CORE_WARN("SceneSerializer: Invalid MeshPrimitive value {}, defaulting to None", primitiveInt);
+                            mc.m_Primitive = MeshPrimitive::None;
+                        }
                         if (!mc.m_MeshSource && mc.m_Primitive != MeshPrimitive::None)
                         {
-                            Ref<Mesh> mesh;
-                            switch (mc.m_Primitive)
-                            {
-                                case MeshPrimitive::Cube:
-                                    mesh = MeshPrimitives::CreateCube();
-                                    break;
-                                case MeshPrimitive::Sphere:
-                                    mesh = MeshPrimitives::CreateSphere();
-                                    break;
-                                case MeshPrimitive::Plane:
-                                    mesh = MeshPrimitives::CreatePlane();
-                                    break;
-                                case MeshPrimitive::Cylinder:
-                                    mesh = MeshPrimitives::CreateCylinder();
-                                    break;
-                                case MeshPrimitive::Cone:
-                                    mesh = MeshPrimitives::CreateCone();
-                                    break;
-                                case MeshPrimitive::Icosphere:
-                                    mesh = MeshPrimitives::CreateIcosphere();
-                                    break;
-                                case MeshPrimitive::Torus:
-                                    mesh = MeshPrimitives::CreateTorus();
-                                    break;
-                                default:
-                                    break;
-                            }
-                            if (mesh)
+                            if (auto mesh = CreateMeshFromPrimitive(mc.m_Primitive))
                             {
                                 mc.m_MeshSource = mesh->GetMeshSource();
                             }

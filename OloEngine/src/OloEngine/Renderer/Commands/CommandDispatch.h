@@ -2,6 +2,7 @@
 
 #include "RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include <array>
 
 namespace OloEngine
@@ -42,7 +43,7 @@ namespace OloEngine
 
         // Shadow texture binding — set per-frame from Renderer3D/Scene
         static void SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID);
-        static void SetPointShadowTextureIDs(const std::array<u32, 4>& pointTextureIDs);
+        static void SetPointShadowTextureIDs(const std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS>& pointTextureIDs);
 
         // Getters for current frame state (used for sort key generation)
         static const glm::mat4& GetViewMatrix();

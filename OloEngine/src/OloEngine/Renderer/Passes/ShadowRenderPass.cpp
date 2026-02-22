@@ -33,13 +33,12 @@ namespace OloEngine
 
         if (!m_RenderCallback || !m_ShadowMap || !m_ShadowMap->IsEnabled())
         {
-            static bool s_WarnedOnce = false;
-            if (!s_WarnedOnce)
+            if (!m_WarnedOnce)
             {
                 OLO_CORE_WARN("ShadowRenderPass::Execute skipped: callback={}, shadowMap={}, enabled={}",
                               m_RenderCallback != nullptr, m_ShadowMap != nullptr,
                               m_ShadowMap ? m_ShadowMap->IsEnabled() : false);
-                s_WarnedOnce = true;
+                m_WarnedOnce = true;
             }
             return;
         }
@@ -72,12 +71,11 @@ namespace OloEngine
         const auto& csmArray = m_ShadowMap->GetCSMTextureArray();
         if (csmArray)
         {
-            static bool s_LoggedOnce = false;
-            if (!s_LoggedOnce)
+            if (!m_LoggedOnce)
             {
                 OLO_CORE_INFO("ShadowRenderPass: Rendering {} CSM cascades, resolution={}, FBO={}, textureID={}",
                               ShadowMap::MAX_CSM_CASCADES, resolution, m_ShadowFramebuffer->GetRendererID(), csmArray->GetRendererID());
-                s_LoggedOnce = true;
+                m_LoggedOnce = true;
             }
             for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
             {
@@ -148,11 +146,13 @@ namespace OloEngine
 
     void ShadowRenderPass::SetRenderCallback(ShadowRenderCallback callback)
     {
+        OLO_PROFILE_FUNCTION();
         m_RenderCallback = std::move(callback);
     }
 
     void ShadowRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
+        OLO_PROFILE_FUNCTION();
         // Shadow pass resolution is managed by ShadowMap::m_Settings, not the framebuffer spec
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
@@ -160,12 +160,14 @@ namespace OloEngine
 
     void ShadowRenderPass::ResizeFramebuffer(u32 width, u32 height)
     {
+        OLO_PROFILE_FUNCTION();
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
     }
 
     void ShadowRenderPass::OnReset()
     {
+        OLO_PROFILE_FUNCTION();
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
         {
             Init(m_FramebufferSpec);

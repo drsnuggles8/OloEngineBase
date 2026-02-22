@@ -1298,6 +1298,7 @@ namespace OloEngine
 				if (ImGui::Button("Clear Mesh"))
 				{
 					component.m_MeshSource.Reset();
+					component.m_Primitive = MeshPrimitive::None;
 				}
 			} });
 

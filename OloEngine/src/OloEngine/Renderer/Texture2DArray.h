@@ -31,6 +31,7 @@ namespace OloEngine
         [[nodiscard]] virtual u32 GetHeight() const = 0;
         [[nodiscard]] virtual u32 GetLayers() const = 0;
         [[nodiscard]] virtual u32 GetRendererID() const = 0;
+        [[nodiscard]] virtual const Texture2DArraySpecification& GetSpecification() const = 0;
 
         virtual void Bind(u32 slot) const = 0;
 

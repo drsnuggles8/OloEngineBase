@@ -26,7 +26,7 @@ namespace OloEngine
     } // namespace
 
     OpenGLTexture2DArray::OpenGLTexture2DArray(const Texture2DArraySpecification& spec)
-        : m_Width(spec.Width), m_Height(spec.Height), m_Layers(spec.Layers)
+        : m_Width(spec.Width), m_Height(spec.Height), m_Layers(spec.Layers), m_Specification(spec)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -37,12 +37,19 @@ namespace OloEngine
 
         glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 
-        // White border so areas outside the shadow map read as "no shadow"
-        constexpr float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-        glTextureParameterfv(m_RendererID, GL_TEXTURE_BORDER_COLOR, borderColor);
+        const bool isDepthFormat = (spec.Format == Texture2DArrayFormat::DEPTH_COMPONENT32F);
+        const GLenum wrapMode = isDepthFormat ? GL_CLAMP_TO_BORDER : GL_CLAMP_TO_EDGE;
+        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, static_cast<GLint>(wrapMode));
+        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, static_cast<GLint>(wrapMode));
+        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_R, static_cast<GLint>(wrapMode));
+
+        if (isDepthFormat)
+        {
+            // White border so areas outside the shadow map read as "no shadow"
+            constexpr float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+            glTextureParameterfv(m_RendererID, GL_TEXTURE_BORDER_COLOR, borderColor);
+        }
 
         if (spec.DepthComparisonMode)
         {

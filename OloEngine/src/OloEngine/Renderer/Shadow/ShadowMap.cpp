@@ -85,6 +85,8 @@ namespace OloEngine
 
     void ShadowMap::Shutdown()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_CSMTextureArray.Reset();
         m_SpotTextureArray.Reset();
 
@@ -106,6 +108,8 @@ namespace OloEngine
 
     void ShadowMap::BeginFrame()
     {
+        OLO_PROFILE_FUNCTION();
+
         // Reset per-frame state
         m_UBOData.DirectionalShadowEnabled = 0;
         m_UBOData.SpotShadowCount = 0;
@@ -285,6 +289,8 @@ namespace OloEngine
 
     void ShadowMap::UploadUBO()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_ShadowUBO)
         {
             return;
@@ -346,6 +352,8 @@ namespace OloEngine
 
     void ShadowMap::SetSettings(const ShadowSettings& settings)
     {
+        OLO_PROFILE_FUNCTION();
+
         const bool resolutionChanged = settings.Resolution != m_Settings.Resolution;
         m_Settings = settings;
 

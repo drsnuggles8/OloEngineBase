@@ -71,6 +71,8 @@ namespace OloEngine
 
     Viewport OpenGLRendererAPI::GetViewport() const
     {
+        OLO_PROFILE_FUNCTION();
+
         GLint vp[4];
         glGetIntegerv(GL_VIEWPORT, vp);
         return { static_cast<u32>(vp[0]), static_cast<u32>(vp[1]), static_cast<u32>(vp[2]), static_cast<u32>(vp[3]) };

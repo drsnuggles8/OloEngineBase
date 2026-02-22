@@ -336,6 +336,8 @@ namespace OloEngine
 
     void OpenGLFramebuffer::AttachDepthTextureArrayLayer(u32 textureArrayRendererID, u32 layer)
     {
+        OLO_PROFILE_FUNCTION();
+
         glNamedFramebufferTextureLayer(
             m_RendererID,
             GL_DEPTH_ATTACHMENT,

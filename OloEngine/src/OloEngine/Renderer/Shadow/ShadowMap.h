@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <glm/glm.hpp>
+#include <algorithm>
 #include <array>
 
 namespace OloEngine
@@ -148,11 +149,11 @@ namespace OloEngine
         }
         void SetSpotShadowCount(i32 count)
         {
-            m_UBOData.SpotShadowCount = count;
+            m_UBOData.SpotShadowCount = std::clamp(count, 0, static_cast<i32>(MAX_SPOT_SHADOWS));
         }
         void SetPointShadowCount(i32 count)
         {
-            m_UBOData.PointShadowCount = count;
+            m_UBOData.PointShadowCount = std::clamp(count, 0, static_cast<i32>(MAX_POINT_SHADOWS));
         }
         void SetCascadeDebugEnabled(bool enabled)
         {
