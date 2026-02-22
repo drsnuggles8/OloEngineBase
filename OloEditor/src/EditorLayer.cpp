@@ -87,6 +87,7 @@ namespace OloEngine
     void EditorLayer::OnDetach()
     {
         OLO_PROFILE_FUNCTION();
+        s_Font.reset();
     }
 
     void EditorLayer::OnUpdate(Timestep const ts)
@@ -985,8 +986,10 @@ namespace OloEngine
 
     bool EditorLayer::OpenProject()
     {
-        auto const cwd = std::filesystem::current_path().string();
-        if (std::string filepath = FileDialogs::OpenFile("OloEngine Project (*.oloproj)\0*.oloproj\0", cwd.c_str()); !filepath.empty())
+        std::error_code ec;
+        auto const cwd = std::filesystem::current_path(ec).string();
+        const char* initialDir = ec ? nullptr : cwd.c_str();
+        if (std::string filepath = FileDialogs::OpenFile("OloEngine Project (*.oloproj)\0*.oloproj\0", initialDir); !filepath.empty())
         {
             OpenProject(filepath);
             return true;
@@ -1031,10 +1034,12 @@ namespace OloEngine
 
     void EditorLayer::OpenScene()
     {
+        std::error_code ec;
         auto const dir = Project::GetActive()
                              ? Project::GetAssetDirectory().string()
-                             : std::filesystem::current_path().string();
-        std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0", dir.c_str());
+                             : std::filesystem::current_path(ec).string();
+        const char* initialDir = ec ? nullptr : dir.c_str();
+        std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0", initialDir);
         if (!filepath.empty())
         {
             OpenScene(filepath);
@@ -1078,10 +1083,12 @@ namespace OloEngine
 
     void EditorLayer::SaveSceneAs()
     {
+        std::error_code ec;
         auto const dir = Project::GetActive()
                              ? Project::GetAssetDirectory().string()
-                             : std::filesystem::current_path().string();
-        const std::filesystem::path filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0", dir.c_str());
+                             : std::filesystem::current_path(ec).string();
+        const char* initialDir = ec ? nullptr : dir.c_str();
+        const std::filesystem::path filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0", initialDir);
         if (!filepath.empty())
         {
             m_EditorScene->SetName(filepath.stem().string());

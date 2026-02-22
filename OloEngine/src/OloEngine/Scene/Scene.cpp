@@ -1242,6 +1242,8 @@ namespace OloEngine
 
     void Scene::LoadAndRenderSkybox()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto view = m_Registry.view<EnvironmentMapComponent>();
         for (auto entity : view)
         {

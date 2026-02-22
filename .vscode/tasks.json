@@ -32,8 +32,7 @@
         "--target",
         "Sandbox3D",
         "--config",
-        "Dist",
-        "--parallel",
+        "Release",
         "--parallel"
       ],
       "group": "build",

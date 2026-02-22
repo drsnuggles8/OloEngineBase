@@ -314,6 +314,8 @@ namespace OloEngine
 
     void Renderer3D::BeginSceneCommon()
     {
+        OLO_PROFILE_FUNCTION();
+
         // Process any pending GPU resource creation commands from async loaders
         GPUResourceQueue::ProcessAll();
 
@@ -387,6 +389,7 @@ namespace OloEngine
         s_Data.ViewMatrix = camera.GetView();
         s_Data.ProjectionMatrix = camera.GetProjection();
         s_Data.ViewProjectionMatrix = camera.GetViewProjection();
+        s_Data.ViewPos = camera.GetPosition();
 
         BeginSceneCommon();
     }

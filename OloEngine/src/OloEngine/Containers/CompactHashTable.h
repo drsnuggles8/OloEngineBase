@@ -164,7 +164,7 @@ namespace OloEngine::CompactHashTable
             }
             OLO_CORE_ASSERT(ElementIndex < NextIndexCount, "Index chain corrupt");
         }
-        return INDEX_NONE;
+        return static_cast<u32>(INDEX_NONE);
     }
 
     /* Insert new element into the hash table */

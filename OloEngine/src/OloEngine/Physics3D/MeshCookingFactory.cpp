@@ -203,7 +203,7 @@ namespace OloEngine
             return ECookingResult::SourceDataInvalid;
         }
 
-        if (submesh.m_BaseVertex + submesh.m_VertexCount > vertexCount)
+        if (static_cast<u64>(submesh.m_BaseVertex) + submesh.m_VertexCount > vertexCount)
         {
             LogCookingError("ProcessSubmesh", "Submesh vertex range [" + std::to_string(submesh.m_BaseVertex) +
                                                   ", " + std::to_string(submesh.m_BaseVertex + submesh.m_VertexCount) +
@@ -219,7 +219,7 @@ namespace OloEngine
             return ECookingResult::SourceDataInvalid;
         }
 
-        if (submesh.m_BaseIndex + submesh.m_IndexCount > indexCount)
+        if (static_cast<u64>(submesh.m_BaseIndex) + submesh.m_IndexCount > indexCount)
         {
             LogCookingError("ProcessSubmesh", "Submesh index range [" + std::to_string(submesh.m_BaseIndex) +
                                                   ", " + std::to_string(submesh.m_BaseIndex + submesh.m_IndexCount) +

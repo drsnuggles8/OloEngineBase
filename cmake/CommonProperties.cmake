@@ -43,7 +43,7 @@ function(olo_enable_lto target_name)
     
     check_ipo_supported(RESULT LTO_SUPPORT OUTPUT output)
     if(OLO_ENABLE_LTO AND LTO_SUPPORT)
-        message(STATUS "-- Enabled Link-Time Optimization (LTO) for ${target_name} (Release/Dist only)")
+        message(STATUS "Enabled Link-Time Optimization (LTO) for ${target_name} (Release/Dist only)")
         # Only enable LTO for Release and Dist — it dramatically slows Debug builds
         set_target_properties(${target_name} PROPERTIES
             INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE

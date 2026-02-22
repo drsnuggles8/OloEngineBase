@@ -7,18 +7,6 @@ namespace OloEngine::Audio::SoundGraph
     /// Moving all constructors and Init() function calls for non-template nodes here
     /// to avoid recursive includes nightmare caused by trying to inline as much as possible.
 
-    /// This macro should be used to define constructor and Init() function for node processor types
-    /// that don't need to do anything in their constructor and Init() function
-#define INIT_ENDPOINTS(TNodeProcessor)                                                        \
-    TNodeProcessor::TNodeProcessor(const char* dbgName, UUID id) : NodeProcessor(dbgName, id) \
-    {                                                                                         \
-        EndpointUtilities::RegisterEndpoints(this);                                           \
-    }                                                                                         \
-    void TNodeProcessor::Init()                                                               \
-    {                                                                                         \
-        EndpointUtilities::InitializeInputs(this);                                            \
-    }
-
     /// This macro can be used if a node processor type needs to have some custom stuff in constructor
     /// or in its Init() function. In that case it has to declare 'void RegisterEndpoints()' and 'void InitializeInputs()'
     /// functions to be defined by this macro
