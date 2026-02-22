@@ -953,7 +953,7 @@ namespace OloEngine
     void Scene::OnPhysics2DStart()
     {
         b2WorldDef worldDef = b2DefaultWorldDef();
-        worldDef.gravity = { 0.0f, -9.8f };
+        worldDef.gravity = { 0.0f, -9.81f };
         m_PhysicsWorld = b2CreateWorld(&worldDef);
 
         for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)

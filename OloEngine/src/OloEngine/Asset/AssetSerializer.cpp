@@ -1285,7 +1285,6 @@ namespace OloEngine
             return nullptr;
         }
 
-        // scene->m_Handle = assetInfo.Handle; // TODO: Scene doesn't have Handle member
         scene->m_Handle = assetInfo.Handle;
 
         OLO_CORE_TRACE("SceneAssetSerializer::DeserializeFromAssetPack - Deserialized scene from pack");

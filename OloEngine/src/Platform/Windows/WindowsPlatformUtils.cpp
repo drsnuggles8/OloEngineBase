@@ -14,7 +14,7 @@ namespace OloEngine
         return static_cast<f32>(GLFWAPI::glfwGetTime());
     }
 
-    std::string FileDialogs::OpenFile(const char* const filter)
+    std::string FileDialogs::OpenFile(const char* const filter, const char* const initialDir)
     {
         OPENFILENAMEA ofn;
         CHAR szFile[260] = { 0 };
@@ -24,7 +24,11 @@ namespace OloEngine
         ofn.hwndOwner = GLFWAPI::glfwGetWin32Window(static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow()));
         ofn.lpstrFile = szFile;
         ofn.nMaxFile = sizeof(szFile);
-        if (::GetCurrentDirectoryA(256, currentDir))
+        if (initialDir)
+        {
+            ofn.lpstrInitialDir = initialDir;
+        }
+        else if (::GetCurrentDirectoryA(256, currentDir))
         {
             ofn.lpstrInitialDir = currentDir;
         }
@@ -39,7 +43,7 @@ namespace OloEngine
         return {};
     }
 
-    std::string FileDialogs::SaveFile(const char* const filter)
+    std::string FileDialogs::SaveFile(const char* const filter, const char* const initialDir)
     {
         OPENFILENAMEA ofn;
         CHAR szFile[260] = { 0 };
@@ -49,7 +53,11 @@ namespace OloEngine
         ofn.hwndOwner = GLFWAPI::glfwGetWin32Window(static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow()));
         ofn.lpstrFile = szFile;
         ofn.nMaxFile = sizeof(szFile);
-        if (::GetCurrentDirectoryA(256, currentDir))
+        if (initialDir)
+        {
+            ofn.lpstrInitialDir = initialDir;
+        }
+        else if (::GetCurrentDirectoryA(256, currentDir))
         {
             ofn.lpstrInitialDir = currentDir;
         }

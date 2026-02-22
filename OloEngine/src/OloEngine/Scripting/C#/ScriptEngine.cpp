@@ -162,6 +162,7 @@ namespace OloEngine
 
     void ScriptEngine::Init()
     {
+        OLO_PROFILE_FUNCTION();
         OLO_CORE_TRACE("[ScriptEngine] Initializing.");
 
         s_Data = new ScriptEngineData();
@@ -198,6 +199,7 @@ namespace OloEngine
 
     void ScriptEngine::InitMono()
     {
+        OLO_PROFILE_FUNCTION();
         ::mono_set_assemblies_path("mono/lib");
 
         if (s_Data->EnableDebugging)

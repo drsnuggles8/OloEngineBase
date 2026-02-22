@@ -39,6 +39,7 @@ namespace OloEngine
 
     void LuaScriptEngine::Init()
     {
+        OLO_PROFILE_FUNCTION();
         OLO_CORE_TRACE("[LuaScriptEngine] Initializing.");
 
         s_LuaData.LuaState = new sol::state();

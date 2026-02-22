@@ -9,8 +9,9 @@ namespace OloEngine
     {
       public:
         // These return empty strings if cancelled
-        static std::string OpenFile(const char* filter);
-        static std::string SaveFile(const char* filter);
+        // initialDir overrides the OS-remembered last-used directory when provided
+        static std::string OpenFile(const char* filter, const char* initialDir = nullptr);
+        static std::string SaveFile(const char* filter, const char* initialDir = nullptr);
     };
 
     class Time

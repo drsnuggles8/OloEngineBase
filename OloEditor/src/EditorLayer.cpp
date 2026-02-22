@@ -35,7 +35,6 @@ namespace OloEngine
     EditorLayer::EditorLayer()
         : Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
     {
-        s_Font = std::make_unique<Font>("C:/Windows/Fonts/arial.ttf");
     }
 
     EditorLayer::~EditorLayer()
@@ -668,6 +667,10 @@ namespace OloEngine
             ImGui::SetTooltip("Enable expensive physics debug capture during play mode.\nOff by default for production performance.");
         }
 
+        if (!s_Font)
+        {
+            s_Font = std::make_unique<Font>("assets/fonts/opensans/OpenSans-Regular.ttf");
+        }
         ImGui::Image((ImTextureID)s_Font->GetAtlasTexture()->GetRendererID(), { 512, 512 }, { 0, 1 }, { 1, 0 });
 
         ImGui::End();
@@ -983,7 +986,8 @@ namespace OloEngine
 
     bool EditorLayer::OpenProject()
     {
-        if (std::string filepath = FileDialogs::OpenFile("OloEngine Project (*.oloproj)\0*.oloproj\0"); !filepath.empty())
+        auto const cwd = std::filesystem::current_path().string();
+        if (std::string filepath = FileDialogs::OpenFile("OloEngine Project (*.oloproj)\0*.oloproj\0", cwd.c_str()); !filepath.empty())
         {
             OpenProject(filepath);
             return true;
@@ -1028,7 +1032,10 @@ namespace OloEngine
 
     void EditorLayer::OpenScene()
     {
-        std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0");
+        auto const dir = Project::GetActive()
+            ? Project::GetAssetDirectory().string()
+            : std::filesystem::current_path().string();
+        std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0", dir.c_str());
         if (!filepath.empty())
         {
             OpenScene(filepath);
@@ -1072,7 +1079,10 @@ namespace OloEngine
 
     void EditorLayer::SaveSceneAs()
     {
-        const std::filesystem::path filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
+        auto const dir = Project::GetActive()
+            ? Project::GetAssetDirectory().string()
+            : std::filesystem::current_path().string();
+        const std::filesystem::path filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0", dir.c_str());
         if (!filepath.empty())
         {
             m_EditorScene->SetName(filepath.stem().string());
