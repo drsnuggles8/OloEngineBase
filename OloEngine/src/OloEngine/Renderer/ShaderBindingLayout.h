@@ -208,7 +208,7 @@ namespace OloEngine
             i32 SpotShadowCount;
             i32 PointShadowCount;
             i32 ShadowMapResolution;
-            i32 CascadeDebugEnabled;                                   // Visualize cascade boundaries
+            i32 CascadeDebugEnabled; // Visualize cascade boundaries
             i32 _shadowPad0 = 0;
             i32 _shadowPad1 = 0;
             i32 _shadowPad2 = 0;
@@ -244,14 +244,14 @@ namespace OloEngine
         // TEXTURE SAMPLER BINDINGS
         // =============================================================================
 
-        static constexpr u32 TEX_DIFFUSE = 0;     // Primary diffuse/albedo texture
-        static constexpr u32 TEX_SPECULAR = 1;    // Specular/metallic texture
-        static constexpr u32 TEX_NORMAL = 2;      // Normal map
-        static constexpr u32 TEX_HEIGHT = 3;      // Height/displacement map
-        static constexpr u32 TEX_AMBIENT = 4;     // Ambient occlusion
-        static constexpr u32 TEX_EMISSIVE = 5;    // Emissive map
-        static constexpr u32 TEX_ROUGHNESS = 6;   // Roughness map
-        static constexpr u32 TEX_METALLIC = 7;    // Metallic map
+        static constexpr u32 TEX_DIFFUSE = 0;         // Primary diffuse/albedo texture
+        static constexpr u32 TEX_SPECULAR = 1;        // Specular/metallic texture
+        static constexpr u32 TEX_NORMAL = 2;          // Normal map
+        static constexpr u32 TEX_HEIGHT = 3;          // Height/displacement map
+        static constexpr u32 TEX_AMBIENT = 4;         // Ambient occlusion
+        static constexpr u32 TEX_EMISSIVE = 5;        // Emissive map
+        static constexpr u32 TEX_ROUGHNESS = 6;       // Roughness map
+        static constexpr u32 TEX_METALLIC = 7;        // Metallic map
         static constexpr u32 TEX_SHADOW = 8;          // Shadow map (CSM, sampler2DArrayShadow)
         static constexpr u32 TEX_ENVIRONMENT = 9;     // Environment/skybox
         static constexpr u32 TEX_USER_0 = 10;         // User-defined texture 0

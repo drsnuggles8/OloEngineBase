@@ -10,10 +10,22 @@ namespace OloEngine
         explicit OpenGLTexture2DArray(const Texture2DArraySpecification& spec);
         ~OpenGLTexture2DArray() override;
 
-        [[nodiscard]] u32 GetWidth() const override { return m_Width; }
-        [[nodiscard]] u32 GetHeight() const override { return m_Height; }
-        [[nodiscard]] u32 GetLayers() const override { return m_Layers; }
-        [[nodiscard]] u32 GetRendererID() const override { return m_RendererID; }
+        [[nodiscard]] u32 GetWidth() const override
+        {
+            return m_Width;
+        }
+        [[nodiscard]] u32 GetHeight() const override
+        {
+            return m_Height;
+        }
+        [[nodiscard]] u32 GetLayers() const override
+        {
+            return m_Layers;
+        }
+        [[nodiscard]] u32 GetRendererID() const override
+        {
+            return m_RendererID;
+        }
 
         void Bind(u32 slot) const override;
 

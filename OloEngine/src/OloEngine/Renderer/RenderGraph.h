@@ -70,7 +70,7 @@ namespace OloEngine
         void ResolveFinalPass();
 
         std::unordered_map<std::string, Ref<RenderPass>> m_PassLookup;
-        std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;          // Execution ordering
+        std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;           // Execution ordering
         std::unordered_map<std::string, std::vector<std::string>> m_FramebufferConnections; // Framebuffer piping
         std::vector<std::string> m_PassOrder;
         std::string m_FinalPassName;

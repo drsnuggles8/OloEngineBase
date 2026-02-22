@@ -362,8 +362,7 @@ namespace OloEngine
         // Set shadow texture IDs for CommandDispatch to bind during PBR draws
         CommandDispatch::SetShadowTextureIDs(
             s_Data.Shadow.GetCSMRendererID(),
-            s_Data.Shadow.GetSpotRendererID()
-        );
+            s_Data.Shadow.GetSpotRendererID());
 
         // Set point shadow cubemap texture IDs
         {

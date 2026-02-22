@@ -1540,14 +1540,29 @@ namespace OloEngine
                             Ref<Mesh> mesh;
                             switch (mc.m_Primitive)
                             {
-                            case MeshPrimitive::Cube:      mesh = MeshPrimitives::CreateCube(); break;
-                            case MeshPrimitive::Sphere:    mesh = MeshPrimitives::CreateSphere(); break;
-                            case MeshPrimitive::Plane:     mesh = MeshPrimitives::CreatePlane(); break;
-                            case MeshPrimitive::Cylinder:  mesh = MeshPrimitives::CreateCylinder(); break;
-                            case MeshPrimitive::Cone:      mesh = MeshPrimitives::CreateCone(); break;
-                            case MeshPrimitive::Icosphere: mesh = MeshPrimitives::CreateIcosphere(); break;
-                            case MeshPrimitive::Torus:     mesh = MeshPrimitives::CreateTorus(); break;
-                            default: break;
+                                case MeshPrimitive::Cube:
+                                    mesh = MeshPrimitives::CreateCube();
+                                    break;
+                                case MeshPrimitive::Sphere:
+                                    mesh = MeshPrimitives::CreateSphere();
+                                    break;
+                                case MeshPrimitive::Plane:
+                                    mesh = MeshPrimitives::CreatePlane();
+                                    break;
+                                case MeshPrimitive::Cylinder:
+                                    mesh = MeshPrimitives::CreateCylinder();
+                                    break;
+                                case MeshPrimitive::Cone:
+                                    mesh = MeshPrimitives::CreateCone();
+                                    break;
+                                case MeshPrimitive::Icosphere:
+                                    mesh = MeshPrimitives::CreateIcosphere();
+                                    break;
+                                case MeshPrimitive::Torus:
+                                    mesh = MeshPrimitives::CreateTorus();
+                                    break;
+                                default:
+                                    break;
                             }
                             if (mesh)
                             {
@@ -2355,14 +2370,29 @@ namespace OloEngine
                             Ref<Mesh> mesh;
                             switch (mc.m_Primitive)
                             {
-                            case MeshPrimitive::Cube:      mesh = MeshPrimitives::CreateCube(); break;
-                            case MeshPrimitive::Sphere:    mesh = MeshPrimitives::CreateSphere(); break;
-                            case MeshPrimitive::Plane:     mesh = MeshPrimitives::CreatePlane(); break;
-                            case MeshPrimitive::Cylinder:  mesh = MeshPrimitives::CreateCylinder(); break;
-                            case MeshPrimitive::Cone:      mesh = MeshPrimitives::CreateCone(); break;
-                            case MeshPrimitive::Icosphere: mesh = MeshPrimitives::CreateIcosphere(); break;
-                            case MeshPrimitive::Torus:     mesh = MeshPrimitives::CreateTorus(); break;
-                            default: break;
+                                case MeshPrimitive::Cube:
+                                    mesh = MeshPrimitives::CreateCube();
+                                    break;
+                                case MeshPrimitive::Sphere:
+                                    mesh = MeshPrimitives::CreateSphere();
+                                    break;
+                                case MeshPrimitive::Plane:
+                                    mesh = MeshPrimitives::CreatePlane();
+                                    break;
+                                case MeshPrimitive::Cylinder:
+                                    mesh = MeshPrimitives::CreateCylinder();
+                                    break;
+                                case MeshPrimitive::Cone:
+                                    mesh = MeshPrimitives::CreateCone();
+                                    break;
+                                case MeshPrimitive::Icosphere:
+                                    mesh = MeshPrimitives::CreateIcosphere();
+                                    break;
+                                case MeshPrimitive::Torus:
+                                    mesh = MeshPrimitives::CreateTorus();
+                                    break;
+                                default:
+                                    break;
                             }
                             if (mesh)
                             {

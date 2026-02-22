@@ -11,10 +11,14 @@ namespace OloEngine
         {
             switch (format)
             {
-                case Texture2DArrayFormat::DEPTH_COMPONENT32F: return GL_DEPTH_COMPONENT32F;
-                case Texture2DArrayFormat::RGBA8:              return GL_RGBA8;
-                case Texture2DArrayFormat::RGBA16F:            return GL_RGBA16F;
-                case Texture2DArrayFormat::RGBA32F:            return GL_RGBA32F;
+                case Texture2DArrayFormat::DEPTH_COMPONENT32F:
+                    return GL_DEPTH_COMPONENT32F;
+                case Texture2DArrayFormat::RGBA8:
+                    return GL_RGBA8;
+                case Texture2DArrayFormat::RGBA16F:
+                    return GL_RGBA16F;
+                case Texture2DArrayFormat::RGBA32F:
+                    return GL_RGBA32F;
             }
             OLO_CORE_ASSERT(false, "Unknown Texture2DArrayFormat");
             return 0;

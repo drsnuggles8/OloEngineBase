@@ -1326,7 +1326,7 @@ namespace OloEngine
                 const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
 
                 auto& data = multiLightData.Lights[lightIndex];
-                data.Position = glm::vec4(dirLight.m_Direction, 0.0f); // w=0 for directional
+                data.Position = glm::vec4(dirLight.m_Direction, 0.0f);   // w=0 for directional
                 data.Direction = glm::vec4(dirLight.m_Direction, -1.0f); // w=-1 = no shadow index
                 data.Color = glm::vec4(dirLight.m_Color, dirLight.m_Intensity);
                 data.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
@@ -1448,8 +1448,7 @@ namespace OloEngine
                     camera.GetViewMatrix(),
                     camera.GetProjection(),
                     camera.GetNearClip(),
-                    camera.GetFarClip()
-                );
+                    camera.GetFarClip());
             }
 
             // Spot light shadows
@@ -1473,8 +1472,7 @@ namespace OloEngine
                         transform.Translation,
                         spotLight.m_Direction,
                         spotLight.m_OuterCutoff,
-                        spotLight.m_Range
-                    );
+                        spotLight.m_Range);
                     ++spotIdx;
                 }
                 shadowMap.SetSpotShadowCount(static_cast<i32>(spotIdx));
@@ -1499,8 +1497,7 @@ namespace OloEngine
                     shadowMap.SetPointLightShadow(
                         pointIdx,
                         transform.Translation,
-                        pointLight.m_Range
-                    );
+                        pointLight.m_Range);
                     ++pointIdx;
                 }
                 shadowMap.SetPointShadowCount(static_cast<i32>(pointIdx));
@@ -1512,7 +1509,7 @@ namespace OloEngine
             if (auto shadowPass = Renderer3D::GetShadowPass())
             {
                 shadowPass->SetRenderCallback([this](const glm::mat4& lightVP, [[maybe_unused]] u32 layer, ShadowPassType type)
-                {
+                                              {
                     auto& shadowMap = Renderer3D::GetShadowMap();
 
                     // Select shader based on shadow pass type
@@ -1688,8 +1685,7 @@ namespace OloEngine
                                 }
                             }
                         }
-                    }
-                });
+                    } });
             }
         }
 
