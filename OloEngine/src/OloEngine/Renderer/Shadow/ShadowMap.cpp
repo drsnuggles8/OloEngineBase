@@ -139,7 +139,7 @@ namespace OloEngine
             const f32 p = static_cast<f32>(i) / static_cast<f32>(MAX_CSM_CASCADES);
             const f32 logSplit = cameraNear * std::pow(effectiveFar / cameraNear, p);
             const f32 uniformSplit = cameraNear + (effectiveFar - cameraNear) * p;
-            cascadeSplits[i] = lambda * logSplit + (1.0f - lambda) * uniformSplit;
+            cascadeSplits[i] = std::lerp(uniformSplit, logSplit, lambda);
         }
 
         // Store cascade far planes (view-space distances) for shader

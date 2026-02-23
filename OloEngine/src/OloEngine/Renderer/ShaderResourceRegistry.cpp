@@ -71,7 +71,7 @@ namespace OloEngine
                     name = compiler.get_name(resource.id);
                 }
 
-                if (name.empty() || (name.find("_") == 0 && name.length() > 1 && std::isdigit(name[1])))
+                if (name.empty() || (name.starts_with("_") && name.length() > 1 && std::isdigit(name[1])))
                 {
                     std::string glslName = ParseUBONameFromGLSL(binding, filePath);
                     if (!glslName.empty())
@@ -105,7 +105,7 @@ namespace OloEngine
                     name = compiler.get_name(resource.id);
                 }
 
-                if (name.empty() || (name.find("_") == 0 && name.length() > 1 && std::isdigit(name[1])))
+                if (name.empty() || (name.starts_with("_") && name.length() > 1 && std::isdigit(name[1])))
                 {
                     std::string glslName = ParseTextureNameFromGLSL(binding, filePath);
                     if (!glslName.empty())
@@ -473,7 +473,7 @@ namespace OloEngine
 
         // If the name starts with underscore and numbers, it's likely a SPIR-V generated name
         // In this case, we only check the binding point
-        if (name.find("_") == 0 && name.length() > 1 && std::isdigit(name[1]))
+        if (name.starts_with("_") && name.length() > 1 && std::isdigit(name[1]))
         {
             // SPIR-V generated name - validate only by binding point
             return binding <= ShaderBindingLayout::UBO_USER_1; // Valid binding range
@@ -530,9 +530,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // If the name starts with "texture_binding_", it's our fallback name - validate only by binding
-        if (name.find("texture_binding_") == 0)
+        if (name.starts_with("texture_binding_"))
         {
-            return binding <= ShaderBindingLayout::TEX_SHADOW_POINT_3; // Valid binding range
+            return (binding <= ShaderBindingLayout::TEX_SHADOW_POINT_3) && (binding < ShaderBindingLayout::TEX_USER_0 || binding > ShaderBindingLayout::TEX_USER_2); // Exclude user slots
         }
 
         // Special case for 2D renderer texture arrays
@@ -575,9 +575,7 @@ namespace OloEngine
             case ShaderBindingLayout::TEX_SHADOW:
                 return name == "u_ShadowMap" ||
                        name.find("Shadow") != std::string::npos ||
-                       name.find("shadow") != std::string::npos ||
-                       name.find("FontAtlas") != std::string::npos ||
-                       name.find("font") != std::string::npos;
+                       name.find("shadow") != std::string::npos;
 
             default:
                 // User-defined texture bindings (10+) are always valid

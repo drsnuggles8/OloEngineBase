@@ -67,16 +67,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Ensure depth writes are enabled before clearing, otherwise glClear silently no-ops
-        GLboolean depthMask = GL_FALSE;
-        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
-        if (!depthMask)
+        if (!m_DepthMaskEnabled)
         {
             glDepthMask(GL_TRUE);
         }
 
         glClear(GL_DEPTH_BUFFER_BIT);
 
-        if (!depthMask)
+        if (!m_DepthMaskEnabled)
         {
             glDepthMask(GL_FALSE);
         }
@@ -187,6 +185,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        m_DepthMaskEnabled = value;
         glDepthMask(value);
     }
     void OpenGLRendererAPI::SetDepthTest(bool value)

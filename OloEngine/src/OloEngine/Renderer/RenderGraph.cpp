@@ -46,13 +46,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_PassLookup.find(outputPass) == m_PassLookup.end())
+        if (!m_PassLookup.contains(outputPass))
         {
             OLO_CORE_ERROR("RenderGraph::ConnectPass: Output pass '{}' not found!", outputPass);
             return;
         }
 
-        if (m_PassLookup.find(inputPass) == m_PassLookup.end())
+        if (!m_PassLookup.contains(inputPass))
         {
             OLO_CORE_ERROR("RenderGraph::ConnectPass: Input pass '{}' not found!", inputPass);
             return;
@@ -72,13 +72,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_PassLookup.find(beforePass) == m_PassLookup.end())
+        if (!m_PassLookup.contains(beforePass))
         {
             OLO_CORE_ERROR("RenderGraph::AddExecutionDependency: Pass '{}' not found!", beforePass);
             return;
         }
 
-        if (m_PassLookup.find(afterPass) == m_PassLookup.end())
+        if (!m_PassLookup.contains(afterPass))
         {
             OLO_CORE_ERROR("RenderGraph::AddExecutionDependency: Pass '{}' not found!", afterPass);
             return;
@@ -189,20 +189,20 @@ namespace OloEngine
 
         std::function<bool(const std::string&)> visit = [&](const std::string& node)
         {
-            if (inProgress.find(node) != inProgress.end())
+            if (inProgress.contains(node))
             {
                 OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Cycle detected in graph!");
                 return false;
             }
 
-            if (visited.find(node) != visited.end())
+            if (visited.contains(node))
             {
                 return true;
             }
 
             inProgress.insert(node);
 
-            if (m_Dependencies.find(node) != m_Dependencies.end())
+            if (m_Dependencies.contains(node))
             {
                 for (const auto& dep : m_Dependencies[node])
                 {
@@ -221,7 +221,7 @@ namespace OloEngine
         // Visit all nodes
         for (const auto& [name, _] : m_PassLookup)
         {
-            if (visited.find(name) == visited.end())
+            if (!visited.contains(name))
             {
                 if (!visit(name))
                 {
@@ -243,7 +243,7 @@ namespace OloEngine
             // If no final pass was explicitly set, try to find a pass with no dependents
             for (const auto& [name, _] : m_PassLookup)
             {
-                if (m_FramebufferConnections.find(name) == m_FramebufferConnections.end() ||
+                if (!m_FramebufferConnections.contains(name) ||
                     m_FramebufferConnections[name].empty())
                 {
                     m_FinalPassName = name;

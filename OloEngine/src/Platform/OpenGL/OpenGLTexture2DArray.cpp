@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture2DArray.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
 #include <glad/gl.h>
 
@@ -7,7 +8,7 @@ namespace OloEngine
 {
     namespace
     {
-        GLenum Texture2DArrayFormatToGL(Texture2DArrayFormat format)
+        auto Texture2DArrayFormatToGL(Texture2DArrayFormat format) -> GLenum
         {
             switch (format)
             {
@@ -47,20 +48,37 @@ namespace OloEngine
         if (isDepthFormat)
         {
             // White border so areas outside the shadow map read as "no shadow"
-            constexpr float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-            glTextureParameterfv(m_RendererID, GL_TEXTURE_BORDER_COLOR, borderColor);
+            constexpr std::array<float, 4> borderColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+            glTextureParameterfv(m_RendererID, GL_TEXTURE_BORDER_COLOR, borderColor.data());
         }
 
-        if (spec.DepthComparisonMode)
+        if (isDepthFormat && spec.DepthComparisonMode)
         {
             glTextureParameteri(m_RendererID, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
             glTextureParameteri(m_RendererID, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
         }
+
+        // Track GPU memory allocation
+        sizet bytesPerPixel = 4; // DEPTH_COMPONENT32F = 4, RGBA8 = 4
+        if (spec.Format == Texture2DArrayFormat::RGBA16F)
+        {
+            bytesPerPixel = 8;
+        }
+        else if (spec.Format == Texture2DArrayFormat::RGBA32F)
+        {
+            bytesPerPixel = 16;
+        }
+        sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * m_Layers * bytesPerPixel;
+        OLO_TRACK_GPU_ALLOC(this,
+                            textureMemory,
+                            RendererMemoryTracker::ResourceType::Texture2D,
+                            "OpenGL Texture2DArray");
     }
 
     OpenGLTexture2DArray::~OpenGLTexture2DArray()
     {
         OLO_PROFILE_FUNCTION();
+        OLO_TRACK_DEALLOC(this);
         glDeleteTextures(1, &m_RendererID);
     }
 

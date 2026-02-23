@@ -68,8 +68,7 @@ namespace OloEngine
         RenderCommand::FrontCull();
 
         // Render CSM cascades
-        const auto& csmArray = m_ShadowMap->GetCSMTextureArray();
-        if (csmArray)
+        if (const auto& csmArray = m_ShadowMap->GetCSMTextureArray(); csmArray)
         {
             if (!m_LoggedOnce)
             {
@@ -88,10 +87,9 @@ namespace OloEngine
         }
 
         // Render spot light shadows
-        const auto& spotArray = m_ShadowMap->GetSpotTextureArray();
-        const auto spotCount = static_cast<u32>(m_ShadowMap->GetSpotShadowCount());
-        if (spotArray && spotCount > 0)
+        if (const auto& spotArray = m_ShadowMap->GetSpotTextureArray(); spotArray)
         {
+            const auto spotCount = static_cast<u32>(m_ShadowMap->GetSpotShadowCount());
             for (u32 i = 0; i < spotCount; ++i)
             {
                 m_ShadowFramebuffer->AttachDepthTextureArrayLayer(spotArray->GetRendererID(), i);
@@ -103,8 +101,7 @@ namespace OloEngine
         }
 
         // Render point light shadow cubemaps (6 faces per light)
-        const auto pointCount = static_cast<u32>(m_ShadowMap->GetPointShadowCount());
-        if (pointCount > 0)
+        if (const auto pointCount = static_cast<u32>(m_ShadowMap->GetPointShadowCount()); pointCount > 0)
         {
             for (u32 light = 0; light < pointCount; ++light)
             {
@@ -155,15 +152,12 @@ namespace OloEngine
 
     void ShadowRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
-        OLO_PROFILE_FUNCTION();
         // Shadow pass resolution is managed by ShadowMap::m_Settings, not the framebuffer spec
-        m_FramebufferSpec.Width = width;
-        m_FramebufferSpec.Height = height;
+        ResizeFramebuffer(width, height);
     }
 
     void ShadowRenderPass::ResizeFramebuffer(u32 width, u32 height)
     {
-        OLO_PROFILE_FUNCTION();
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
     }

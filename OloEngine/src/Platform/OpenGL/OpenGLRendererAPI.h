@@ -63,6 +63,7 @@ namespace OloEngine
 
       private:
         bool m_DepthTestEnabled = false;
+        bool m_DepthMaskEnabled = true;
         bool m_StencilTestEnabled = false;
     };
 } // namespace OloEngine

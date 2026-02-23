@@ -1547,6 +1547,19 @@ namespace OloEngine
                     auto& modelUBO = shadowMap.GetShadowModelUBO();
                     modelUBO->Bind();
 
+                    // Helper to populate and upload the shadow ModelUBO for a given transform
+                    auto uploadShadowModelUBO = [&modelUBO](const glm::mat4& worldTransform)
+                    {
+                        ShaderBindingLayout::ModelUBO modelData;
+                        modelData.Model = worldTransform;
+                        modelData.Normal = glm::transpose(glm::inverse(worldTransform));
+                        modelData.EntityID = -1;
+                        modelData._paddingEntity[0] = 0;
+                        modelData._paddingEntity[1] = 0;
+                        modelData._paddingEntity[2] = 0;
+                        modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+                    };
+
                     // Render all shadow-casting static meshes
                     auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
                     for (auto entity : meshView)
@@ -1572,14 +1585,7 @@ namespace OloEngine
                             continue;
                         }
 
-                        ShaderBindingLayout::ModelUBO modelData;
-                        modelData.Model = transform.GetTransform();
-                        modelData.Normal = glm::transpose(glm::inverse(transform.GetTransform()));
-                        modelData.EntityID = -1;
-                        modelData._paddingEntity[0] = 0;
-                        modelData._paddingEntity[1] = 0;
-                        modelData._paddingEntity[2] = 0;
-                        modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+                        uploadShadowModelUBO(transform.GetTransform());
 
                         for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
                         {
@@ -1612,14 +1618,7 @@ namespace OloEngine
                             }
                         }
 
-                        ShaderBindingLayout::ModelUBO modelData;
-                        modelData.Model = transform.GetTransform();
-                        modelData.Normal = glm::transpose(glm::inverse(transform.GetTransform()));
-                        modelData.EntityID = -1;
-                        modelData._paddingEntity[0] = 0;
-                        modelData._paddingEntity[1] = 0;
-                        modelData._paddingEntity[2] = 0;
-                        modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+                        uploadShadowModelUBO(transform.GetTransform());
 
                         auto va = submesh.m_Mesh->GetVertexArray();
                         if (va)
@@ -1630,7 +1629,7 @@ namespace OloEngine
                     }
 
                     // Render animated/skinned meshes into shadow map
-                    // Try point-specific skinned shader first, fall back to standard skinned shader
+                    // Fallback chain: ShadowDepthPointSkinned -> ShadowDepthSkinned
                     Ref<Shader> skinnedShadowShader;
                     if (type == ShadowPassType::Point)
                     {
@@ -1665,14 +1664,7 @@ namespace OloEngine
                             }
 
                             // Upload model matrix
-                            ShaderBindingLayout::ModelUBO skinnedModelData;
-                            skinnedModelData.Model = transform.GetTransform();
-                            skinnedModelData.Normal = glm::transpose(glm::inverse(transform.GetTransform()));
-                            skinnedModelData.EntityID = -1;
-                            skinnedModelData._paddingEntity[0] = 0;
-                            skinnedModelData._paddingEntity[1] = 0;
-                            skinnedModelData._paddingEntity[2] = 0;
-                            modelUBO->SetData(&skinnedModelData, ShaderBindingLayout::ModelUBO::GetSize());
+                            uploadShadowModelUBO(transform.GetTransform());
 
                             // Upload bone matrices
                             const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;

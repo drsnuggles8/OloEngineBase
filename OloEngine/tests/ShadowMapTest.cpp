@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <cmath>
 
-using namespace OloEngine;
+using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file, brevity preferred
 
 // =============================================================================
 // Cascade Split Math Tests
