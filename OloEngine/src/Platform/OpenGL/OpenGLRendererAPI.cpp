@@ -185,6 +185,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (m_DepthMaskEnabled != value)
+        {
+            RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+        }
+
         m_DepthMaskEnabled = value;
         glDepthMask(value);
     }

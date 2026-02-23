@@ -240,6 +240,8 @@ namespace OloEngine
         f32 outerCutoff,
         f32 range)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (index >= MAX_SPOT_SHADOWS)
         {
             return;
@@ -268,6 +270,8 @@ namespace OloEngine
         const glm::vec3& position,
         f32 range)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (index >= MAX_POINT_SHADOWS)
         {
             return;
@@ -369,6 +373,8 @@ namespace OloEngine
         const glm::mat4& projection,
         const glm::mat4& view)
     {
+        OLO_PROFILE_FUNCTION();
+
         const glm::mat4 invVP = glm::inverse(projection * view);
 
         // NDC corners of the full frustum [-1,1]^3
@@ -399,6 +405,8 @@ namespace OloEngine
         const glm::mat4& lightView,
         u32 shadowMapResolution)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Compute the size of a shadow map texel in world space
         const glm::mat4 shadowMatrix = lightProjection * lightView;
         glm::vec4 shadowOrigin = shadowMatrix * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);

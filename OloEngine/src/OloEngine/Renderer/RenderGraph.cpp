@@ -60,10 +60,18 @@ namespace OloEngine
 
         OLO_CORE_INFO("Connecting passes (with framebuffer piping): {} -> {}", outputPass, inputPass);
 
-        // Add dependency for execution ordering
-        m_Dependencies[inputPass].push_back(outputPass);
-        // Mark for framebuffer piping
-        m_FramebufferConnections[outputPass].push_back(inputPass);
+        // Add dependency for execution ordering (avoid duplicates)
+        auto& deps = m_Dependencies[inputPass];
+        if (std::find(deps.begin(), deps.end(), outputPass) == deps.end())
+        {
+            deps.push_back(outputPass);
+        }
+        // Mark for framebuffer piping (avoid duplicates)
+        auto& conns = m_FramebufferConnections[outputPass];
+        if (std::find(conns.begin(), conns.end(), inputPass) == conns.end())
+        {
+            conns.push_back(inputPass);
+        }
 
         m_DependencyGraphDirty = true;
     }
@@ -86,8 +94,12 @@ namespace OloEngine
 
         OLO_CORE_INFO("Adding execution dependency (ordering only): {} -> {}", beforePass, afterPass);
 
-        // Only add dependency for execution ordering, no framebuffer piping
-        m_Dependencies[afterPass].push_back(beforePass);
+        // Only add dependency for execution ordering, no framebuffer piping (avoid duplicates)
+        auto& deps = m_Dependencies[afterPass];
+        if (std::find(deps.begin(), deps.end(), beforePass) == deps.end())
+        {
+            deps.push_back(beforePass);
+        }
 
         m_DependencyGraphDirty = true;
     }
@@ -241,8 +253,10 @@ namespace OloEngine
         if (m_FinalPassName.empty())
         {
             // If no final pass was explicitly set, try to find a pass with no dependents
-            for (const auto& [name, _] : m_PassLookup)
+            // Iterate m_PassOrder (deterministic) instead of m_PassLookup (unordered_map)
+            for (auto it = m_PassOrder.rbegin(); it != m_PassOrder.rend(); ++it)
             {
+                const auto& name = *it;
                 if (!m_FramebufferConnections.contains(name) ||
                     m_FramebufferConnections[name].empty())
                 {

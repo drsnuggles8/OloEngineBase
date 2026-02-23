@@ -1552,7 +1552,8 @@ namespace OloEngine
                     {
                         ShaderBindingLayout::ModelUBO modelData;
                         modelData.Model = worldTransform;
-                        modelData.Normal = glm::transpose(glm::inverse(worldTransform));
+                        // Shadow depth shaders don't use normals — skip the expensive inverse+transpose
+                        modelData.Normal = glm::mat4(1.0f);
                         modelData.EntityID = -1;
                         modelData._paddingEntity[0] = 0;
                         modelData._paddingEntity[1] = 0;
@@ -1638,6 +1639,10 @@ namespace OloEngine
                     if (!skinnedShadowShader)
                     {
                         skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthSkinned");
+                        if (skinnedShadowShader)
+                        {
+                            OLO_CORE_WARN("ShadowDepthPointSkinned shader not found, falling back to ShadowDepthSkinned");
+                        }
                     }
                     if (skinnedShadowShader)
                     {

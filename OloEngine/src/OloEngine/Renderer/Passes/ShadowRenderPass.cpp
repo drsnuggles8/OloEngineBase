@@ -7,6 +7,7 @@ namespace OloEngine
 {
     ShadowRenderPass::ShadowRenderPass()
     {
+        OLO_PROFILE_FUNCTION();
         SetName("ShadowRenderPass");
     }
 
