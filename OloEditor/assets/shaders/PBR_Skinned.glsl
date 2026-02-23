@@ -75,6 +75,7 @@ layout(location = 2) in vec2 v_TexCoord;
 // Output
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
+layout(location = 2) out vec4 o_ViewNormal;
 
 // Model UBO (binding 3) for entity ID access
 layout(std140, binding = 3) uniform ModelMatrices {
@@ -233,4 +234,5 @@ void main()
     // Output linear HDR color — tone mapping and gamma handled in post-process pass
     o_Color = vec4(color, u_BaseColorFactor.a);
     o_EntityID = u_EntityID;
+    o_ViewNormal = vec4(normalize(mat3(u_View) * N), 0.0);
 }

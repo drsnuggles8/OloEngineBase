@@ -43,6 +43,15 @@ layout(location = 2) in vec2 v_TexCoord;
 
 layout(location = 0) out vec4 FragColor;
 layout(location = 1) out int o_EntityID;
+layout(location = 2) out vec4 o_ViewNormal;
+
+layout(std140, binding = 0) uniform CameraMatrices {
+    mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _cameraPad0;
+};
 
 layout(std140, binding = 3) uniform ModelMatrices {
     mat4 u_Model;
@@ -162,4 +171,5 @@ void main()
 
     FragColor = vec4(result, 1.0);
     o_EntityID = u_EntityID;
+    o_ViewNormal = vec4(normalize(mat3(u_View) * normal), 0.0);
 }

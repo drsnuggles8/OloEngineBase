@@ -260,6 +260,7 @@ namespace OloEngine
         s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
         s_Data.PostProcessUBO = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0);
         s_Data.MotionBlurUBO = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1);
+        s_Data.SSAOUBO = UniformBuffer::Create(SSAOUBOData::GetSize(), ShaderBindingLayout::UBO_SSAO);
 
         CommandDispatch::SetUBOReferences(
             s_Data.CameraUBO,
@@ -472,12 +473,31 @@ namespace OloEngine
         {
             s_Data.ParticlePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
         }
+        if (s_Data.SSAOPass)
+        {
+            s_Data.SSAOPass->SetSettings(s_Data.PostProcess);
+            s_Data.SSAOPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+
+            // Upload projection matrices for SSAO position reconstruction
+            s_Data.SSAOGPUData.Projection = s_Data.ProjectionMatrix;
+            s_Data.SSAOGPUData.InverseProjection = glm::inverse(s_Data.ProjectionMatrix);
+        }
         if (s_Data.PostProcessPass)
         {
             s_Data.PostProcessPass->SetSettings(s_Data.PostProcess);
             s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
             s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
             s_Data.PostProcessPass->SetPostProcessUBO(s_Data.PostProcessUBO, &s_Data.PostProcessGPUData);
+
+            // Pass SSAO texture to PostProcessPass for application
+            if (s_Data.SSAOPass && s_Data.PostProcess.SSAOEnabled)
+            {
+                s_Data.PostProcessPass->SetSSAOTexture(s_Data.SSAOPass->GetSSAOTextureID());
+            }
+            else
+            {
+                s_Data.PostProcessPass->SetSSAOTexture(0);
+            }
         }
         auto& profiler = RendererProfiler::GetInstance();
         if (s_Data.ScenePass)
@@ -1652,8 +1672,9 @@ namespace OloEngine
         scenePassSpec.Height = height;
         scenePassSpec.Samples = 1;
         scenePassSpec.Attachments = {
-            FramebufferTextureFormat::RGBA16F,     // HDR color output
-            FramebufferTextureFormat::RED_INTEGER,  // Entity ID attachment
+            FramebufferTextureFormat::RGBA16F,     // [0] HDR color output
+            FramebufferTextureFormat::RED_INTEGER,  // [1] Entity ID attachment
+            FramebufferTextureFormat::RGBA16F,     // [2] View-space normals (G-buffer for SSAO)
             FramebufferTextureFormat::Depth
         };
 
@@ -1670,6 +1691,12 @@ namespace OloEngine
         s_Data.ParticlePass->Init(finalPassSpec);
         s_Data.ParticlePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
 
+        s_Data.SSAOPass = Ref<SSAORenderPass>::Create();
+        s_Data.SSAOPass->SetName("SSAOPass");
+        s_Data.SSAOPass->Init(scenePassSpec);
+        s_Data.SSAOPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+        s_Data.SSAOPass->SetSSAOUBO(s_Data.SSAOUBO, &s_Data.SSAOGPUData);
+
         s_Data.PostProcessPass = Ref<PostProcessRenderPass>::Create();
         s_Data.PostProcessPass->SetName("PostProcessPass");
         s_Data.PostProcessPass->Init(finalPassSpec);
@@ -1681,12 +1708,17 @@ namespace OloEngine
 
         s_Data.RGraph->AddPass(s_Data.ShadowPass);
         s_Data.RGraph->AddPass(s_Data.ScenePass);
+        s_Data.RGraph->AddPass(s_Data.SSAOPass);
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
         s_Data.RGraph->AddPass(s_Data.PostProcessPass);
         s_Data.RGraph->AddPass(s_Data.FinalPass);
 
         // ShadowPass -> ScenePass: ordering only (shadow textures are bound via UBO/texture slots)
         s_Data.RGraph->AddExecutionDependency("ShadowPass", "ScenePass");
+        // ScenePass -> SSAOPass: ordering only (SSAO reads scene depth/normals via texture slots)
+        s_Data.RGraph->AddExecutionDependency("ScenePass", "SSAOPass");
+        // SSAOPass -> ParticlePass: ordering (SSAO must complete before particles render into scene FB)
+        s_Data.RGraph->AddExecutionDependency("SSAOPass", "ParticlePass");
         // ScenePass -> ParticlePass -> PostProcessPass -> FinalPass: ordering + framebuffer piping
         s_Data.RGraph->ConnectPass("ScenePass", "ParticlePass");
         s_Data.RGraph->ConnectPass("ParticlePass", "PostProcessPass");
@@ -1694,7 +1726,7 @@ namespace OloEngine
 
         s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
         s_Data.FinalPass->SetInputFramebuffer(s_Data.PostProcessPass->GetTarget());
-        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> ParticlePass -> PostProcessPass -> FinalPass");
+        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> SSAOPass -> ParticlePass -> PostProcessPass -> FinalPass");
 
         s_Data.RGraph->SetFinalPass("FinalPass");
     }

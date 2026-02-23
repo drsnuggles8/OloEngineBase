@@ -67,6 +67,7 @@ namespace OloEngine
         m_FXAAShader = Shader::Create("assets/shaders/PostProcess_FXAA.glsl");
         m_DOFShader = Shader::Create("assets/shaders/PostProcess_DOF.glsl");
         m_MotionBlurShader = Shader::Create("assets/shaders/PostProcess_MotionBlur.glsl");
+        m_SSAOApplyShader = Shader::Create("assets/shaders/PostProcess_SSAOApply.glsl");
 
         // Create bloom mip chain
         CreateBloomMipChain(spec.Width, spec.Height);
@@ -96,7 +97,8 @@ namespace OloEngine
                              || m_Settings.FXAAEnabled
                              || m_Settings.DOFEnabled
                              || m_Settings.MotionBlurEnabled
-                             || m_Settings.ColorGradingEnabled;
+                             || m_Settings.ColorGradingEnabled
+                             || (m_Settings.SSAOEnabled && m_SSAOTextureID != 0);
 
         // Always run tone mapping if we have the shader (it's the core of post-processing)
         if (!anyEffectEnabled && !m_ToneMapShader)
@@ -120,6 +122,28 @@ namespace OloEngine
         };
 
         // === Effect chain order ===
+        // 0. SSAO Apply (modulate scene color by AO factor)
+        if (m_Settings.SSAOEnabled && m_SSAOApplyShader && m_SSAOTextureID != 0)
+        {
+            Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
+            dest->Bind();
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetBlendState(false);
+
+            m_SSAOApplyShader->Bind();
+            u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
+            RenderCommand::BindTexture(0, srcColorID);
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_SSAO, m_SSAOTextureID);
+
+            DrawFullscreenTriangle();
+            dest->Unbind();
+
+            currentSource = dest;
+            writeToP = !writeToP;
+        }
+
         // 1. Bloom (threshold → downsample → upsample → composite)
         if (m_Settings.BloomEnabled && m_BloomThresholdShader && !m_BloomMipChain.empty())
         {

@@ -398,6 +398,8 @@
 		"OloEngine/Renderer/Passes/ShadowRenderPass.cpp"
 		"OloEngine/Renderer/Passes/PostProcessRenderPass.h"
 		"OloEngine/Renderer/Passes/PostProcessRenderPass.cpp"
+		"OloEngine/Renderer/Passes/SSAORenderPass.h"
+		"OloEngine/Renderer/Passes/SSAORenderPass.cpp"
 		"OloEngine/Renderer/PostProcessSettings.h"
 		"OloEngine/Renderer/Shadow/ShadowMap.h"
 		"OloEngine/Renderer/Shadow/ShadowMap.cpp"

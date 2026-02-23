@@ -37,8 +37,10 @@ namespace OloEngine
 
         // Enable blending only on draw buffer 0 (color).
         // Draw buffer 1 is RED_INTEGER (entity ID) — blending is invalid on integer attachments.
+        // Draw buffer 2 is view-space normals — no blending needed.
         glEnablei(GL_BLEND, 0);
         glDisablei(GL_BLEND, 1);
+        glDisablei(GL_BLEND, 2);
         RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         m_RenderCallback();

@@ -50,6 +50,7 @@ layout(location = 6) in mat4 v_Projection;
 
 layout(location = 0) out vec4 FragColor;
 layout(location = 1) out int EntityID;
+layout(location = 2) out vec4 o_ViewNormal;
 
 // Grid settings (hardcoded for now - could be passed via uniform block if needed)
 const float c_GridScale = 1.0;
@@ -125,6 +126,7 @@ void main() {
         FragColor = gridColor;
         gl_FragDepth = depth;
         EntityID = -1;  // Grid is not pickable
+        o_ViewNormal = vec4(0.0);
     } else {
         discard;
     }

@@ -29,6 +29,7 @@ void main()
 
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
+layout(location = 2) out vec4 o_ViewNormal;
 
 layout(location = 0) in vec4 v_Color;
 layout(location = 1) in vec2 v_TexCoord;
@@ -64,4 +65,5 @@ void main()
 		discard;
 
 	o_EntityID = v_EntityID;
+	o_ViewNormal = vec4(0.0);
 }

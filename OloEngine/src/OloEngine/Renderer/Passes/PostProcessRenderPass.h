@@ -31,6 +31,7 @@ namespace OloEngine
         void SetSettings(const PostProcessSettings& settings) { m_Settings = settings; }
         void SetSceneDepthFramebuffer(const Ref<Framebuffer>& sceneFB) { m_SceneDepthFB = sceneFB; }
         void SetPostProcessUBO(Ref<UniformBuffer> ubo, PostProcessUBOData* gpuData) { m_PostProcessUBO = ubo; m_GPUData = gpuData; }
+        void SetSSAOTexture(u32 textureID) { m_SSAOTextureID = textureID; }
 
       private:
         void CreatePingPongFramebuffers(u32 width, u32 height);
@@ -58,6 +59,7 @@ namespace OloEngine
         Ref<Shader> m_FXAAShader;
         Ref<Shader> m_DOFShader;
         Ref<Shader> m_MotionBlurShader;
+        Ref<Shader> m_SSAOApplyShader;
 
         Ref<VertexArray> m_FullscreenTriangleVA;
 
@@ -66,6 +68,8 @@ namespace OloEngine
         // UBO reference for per-pass updates (texel size, camera near/far)
         Ref<UniformBuffer> m_PostProcessUBO;
         PostProcessUBOData* m_GPUData = nullptr;
+
+        u32 m_SSAOTextureID = 0;
 
         // Bloom mip chain framebuffers (RGBA16F, progressively smaller)
         static constexpr u32 MAX_BLOOM_MIPS = 5;

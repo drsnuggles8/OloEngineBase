@@ -237,8 +237,9 @@ namespace OloEngine
         static constexpr u32 UBO_ANIMATION = 4;    // Animation/bone matrices
         static constexpr u32 UBO_MULTI_LIGHTS = 5; // Multi-light buffer for advanced lighting
         static constexpr u32 UBO_SHADOW = 6;       // Shadow mapping matrices and parameters
-        static constexpr u32 UBO_USER_0 = 7;       // User-defined buffer 0
-        static constexpr u32 UBO_USER_1 = 8;       // User-defined buffer 1
+        static constexpr u32 UBO_USER_0 = 7;       // User-defined buffer 0 (PostProcess)
+        static constexpr u32 UBO_USER_1 = 8;       // User-defined buffer 1 (MotionBlur)
+        static constexpr u32 UBO_SSAO = 9;          // SSAO parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -264,6 +265,9 @@ namespace OloEngine
         static constexpr u32 TEX_SHADOW_POINT_3 = 17; // Point light shadow cubemap 3
         static constexpr u32 TEX_POSTPROCESS_LUT = 18;   // Post-process color grading LUT
         static constexpr u32 TEX_POSTPROCESS_DEPTH = 19;  // Post-process scene depth access
+        static constexpr u32 TEX_SSAO = 20;               // Blurred SSAO result
+        static constexpr u32 TEX_SSAO_NOISE = 21;         // SSAO 4x4 rotation noise texture
+        static constexpr u32 TEX_SCENE_NORMALS = 22;      // View-space normals from G-buffer
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
