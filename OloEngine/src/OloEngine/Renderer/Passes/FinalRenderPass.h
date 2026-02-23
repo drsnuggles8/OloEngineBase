@@ -24,7 +24,7 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
-        void SetInputFramebuffer(const Ref<Framebuffer>& input);
+        void SetInputFramebuffer(const Ref<Framebuffer>& input) override;
         [[nodiscard]] Ref<Framebuffer> GetInputFramebuffer() const;
 
       private:

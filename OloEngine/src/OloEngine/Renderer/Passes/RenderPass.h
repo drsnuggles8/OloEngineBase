@@ -41,6 +41,10 @@ namespace OloEngine
         virtual void ResizeFramebuffer(u32 width, u32 height) = 0;
         virtual void OnReset() = 0;
 
+        // Called by RenderGraph to pipe the output framebuffer of a previous pass as input.
+        // Passes that accept an input framebuffer should override this.
+        virtual void SetInputFramebuffer(const Ref<Framebuffer>& /*input*/) {}
+
         void ResetCommandBucket()
         {
             OLO_CORE_ASSERT(m_Allocator, "RenderPass::ResetCommandBucket: No allocator available!");

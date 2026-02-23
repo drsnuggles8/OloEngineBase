@@ -289,10 +289,7 @@ void main()
     // Apply ambient occlusion to ambient lighting only
     color = mix(color, color * ao, 0.5);
 
-    // Unified post-processing: tone mapping + gamma correction in one pass
-    color = postProcessColor(color, TONEMAP_REINHARD, u_ApplyGammaCorrection == 1);
-
-    // Cascade debug visualization: tint output by cascade index
+    // Cascade debug visualization: tint output by cascade index (applied in linear HDR space)
     if (u_CascadeDebugEnabled != 0 && u_DirectionalShadowEnabled != 0)
     {
         vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);

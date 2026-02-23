@@ -11,6 +11,7 @@ add_executable(OloEngine-Tests
 		ContainerTest.cpp
 		ComputeShaderAndSSBOTest.cpp
 		ShadowMapTest.cpp
+		PostProcessTest.cpp
 
 		# ============================================================================
 		# Async - Threading primitives (ported from UE5.7 Tests/Async/)

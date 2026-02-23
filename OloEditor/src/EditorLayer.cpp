@@ -373,6 +373,7 @@ namespace OloEngine
         {
             ImGui::MenuItem("Animation Panel", nullptr, &m_ShowAnimationPanel);
             ImGui::MenuItem("Environment Settings", nullptr, &m_ShowEnvironmentSettings);
+            ImGui::MenuItem("Post Process Settings", nullptr, &m_ShowPostProcessSettings);
 
             ImGui::EndMenu();
         }
@@ -401,12 +402,23 @@ namespace OloEngine
         u64 textureID = 0;
         if (m_Is3DMode)
         {
-            // Get Renderer3D's scene pass output (the FinalPass renders to screen, not a target)
-            if (auto scenePass = Renderer3D::GetScenePass(); scenePass)
+            // Use post-processed output (includes tone mapping for HDR→LDR)
+            if (auto postProcessPass = Renderer3D::GetPostProcessPass(); postProcessPass)
             {
-                if (auto target = scenePass->GetTarget(); target)
+                if (auto target = postProcessPass->GetTarget(); target)
                 {
                     textureID = target->GetColorAttachmentRendererID(0);
+                }
+            }
+            // Fallback to scene pass if post-process pass is not available
+            if (textureID == 0)
+            {
+                if (auto scenePass = Renderer3D::GetScenePass(); scenePass)
+                {
+                    if (auto target = scenePass->GetTarget(); target)
+                    {
+                        textureID = target->GetColorAttachmentRendererID(0);
+                    }
                 }
             }
         }
@@ -625,6 +637,12 @@ namespace OloEngine
         {
             m_EnvironmentSettingsPanel.SetContext(m_ActiveScene);
             m_EnvironmentSettingsPanel.OnImGuiRender();
+        }
+
+        // Post Process Settings Panel
+        if (m_ShowPostProcessSettings)
+        {
+            m_PostProcessSettingsPanel.OnImGuiRender();
         }
     }
 
@@ -1066,6 +1084,7 @@ namespace OloEngine
         }
         SetEditorScene(newScene);
         m_EditorScenePath = path;
+        Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
         return true;
     }
 
@@ -1073,6 +1092,7 @@ namespace OloEngine
     {
         if (!m_EditorScenePath.empty())
         {
+            m_ActiveScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
             SerializeScene(m_ActiveScene, m_EditorScenePath);
         }
         else
@@ -1094,6 +1114,7 @@ namespace OloEngine
             m_EditorScene->SetName(filepath.stem().string());
             m_EditorScenePath = filepath;
 
+            m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
             SerializeScene(m_EditorScene, filepath);
             SyncWindowTitle();
         }

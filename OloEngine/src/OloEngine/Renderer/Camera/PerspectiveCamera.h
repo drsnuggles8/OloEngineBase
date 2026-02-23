@@ -26,6 +26,14 @@ namespace OloEngine
         {
             return m_Position;
         }
+        f32 GetNearClip() const
+        {
+            return m_NearClip;
+        }
+        f32 GetFarClip() const
+        {
+            return m_FarClip;
+        }
 
       private:
         void UpdateProjection();

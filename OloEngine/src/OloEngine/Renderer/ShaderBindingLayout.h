@@ -262,6 +262,8 @@ namespace OloEngine
         static constexpr u32 TEX_SHADOW_POINT_1 = 15; // Point light shadow cubemap 1
         static constexpr u32 TEX_SHADOW_POINT_2 = 16; // Point light shadow cubemap 2
         static constexpr u32 TEX_SHADOW_POINT_3 = 17; // Point light shadow cubemap 3
+        static constexpr u32 TEX_POSTPROCESS_LUT = 18;   // Post-process color grading LUT
+        static constexpr u32 TEX_POSTPROCESS_DEPTH = 19;  // Post-process scene depth access
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS

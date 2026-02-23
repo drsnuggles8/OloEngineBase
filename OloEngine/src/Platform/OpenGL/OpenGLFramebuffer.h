@@ -51,10 +51,6 @@ namespace OloEngine
         static void ShutdownSharedResources();
 
       private:
-        void InitPostProcessing();
-        void ApplyPostProcessing();
-
-      private:
         u32 m_RendererID = 0;
         FramebufferSpecification m_Specification;
 
@@ -63,10 +59,6 @@ namespace OloEngine
 
         std::vector<u32> m_ColorAttachments;
         u32 m_DepthAttachment = 0;
-
-        // Post-processing resources (per-framebuffer VAO/VBO for proper state isolation)
-        u32 m_PostProcessVAO = 0;
-        u32 m_PostProcessVBO = 0;
 
         // Shared post-processing shader (static to avoid recompilation for each framebuffer)
         static Ref<class Shader> s_PostProcessShader;

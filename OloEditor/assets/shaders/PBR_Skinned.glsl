@@ -152,6 +152,10 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_SpotShadowCount;
     int u_PointShadowCount;
     int u_ShadowMapResolution;
+    int u_CascadeDebugEnabled;
+    int _shadowPad0;
+    int _shadowPad1;
+    int _shadowPad2;
 };
 
 void main()
@@ -226,9 +230,7 @@ void main()
     // Apply ambient occlusion to ambient lighting only
     color = mix(color, color * ao, 0.5);
 
-    // Unified post-processing: tone mapping + gamma correction in one pass
-    color = postProcessColor(color, TONEMAP_REINHARD, u_ApplyGammaCorrection == 1);
-
+    // Output linear HDR color — tone mapping and gamma handled in post-process pass
     o_Color = vec4(color, u_BaseColorFactor.a);
     o_EntityID = u_EntityID;
 }

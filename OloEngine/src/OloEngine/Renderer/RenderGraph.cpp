@@ -1,6 +1,5 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RenderGraph.h"
-#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 
 namespace OloEngine
 {
@@ -126,10 +125,7 @@ namespace OloEngine
                 for (const auto& inputPass : inputPasses)
                 {
                     auto& inputPassRef = m_PassLookup[inputPass];
-                    if (auto* finalPass = dynamic_cast<FinalRenderPass*>(inputPassRef.get()))
-                    {
-                        finalPass->SetInputFramebuffer(outputFramebuffer);
-                    }
+                    inputPassRef->SetInputFramebuffer(outputFramebuffer);
                 }
             }
             else

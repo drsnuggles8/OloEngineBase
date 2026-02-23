@@ -13,33 +13,18 @@ namespace OloEngine
 {
     constexpr u32 s_MaxFramebufferSize = 8192;
 
-    // Static member definitions for shared post-processing shader
+    // Static member definitions for shared resources
     Ref<Shader> OpenGLFramebuffer::s_PostProcessShader = nullptr;
     std::once_flag OpenGLFramebuffer::s_InitOnceFlag;
 
     void OpenGLFramebuffer::InitSharedResources()
     {
-        std::call_once(s_InitOnceFlag, []()
-                       {
-            // Load post-processing shader once and share across all framebuffers
-            s_PostProcessShader = Shader::Create("assets/shaders/PostProcess.glsl");
-
-            if (!s_PostProcessShader)
-            {
-                // Throw exception so once_flag remains uncompleted and future attempts can retry
-                throw std::runtime_error("OpenGLFramebuffer: Failed to initialize shared PostProcess shader (assets/shaders/PostProcess.glsl)");
-            }
-
-            OLO_CORE_INFO("OpenGLFramebuffer: Shared PostProcess shader initialized"); });
+        // Legacy post-processing resources no longer needed — post-processing is handled by PostProcessRenderPass
     }
 
     void OpenGLFramebuffer::ShutdownSharedResources()
     {
         s_PostProcessShader.Reset();
-        // Note: std::once_flag cannot be reset - it's designed to guarantee one-time initialization
-        // If re-initialization is needed after shutdown, consider using std::atomic<bool> with double-checked locking
-
-        OLO_CORE_INFO("OpenGLFramebuffer: Shared resources shutdown");
     }
 
     OpenGLFramebuffer::OpenGLFramebuffer(FramebufferSpecification specification)
@@ -60,7 +45,6 @@ namespace OloEngine
         }
 
         Invalidate();
-        InitPostProcessing();
     }
     OpenGLFramebuffer::~OpenGLFramebuffer()
     { // Track GPU memory deallocation
@@ -72,98 +56,8 @@ namespace OloEngine
         glDeleteFramebuffers(1, &m_RendererID);
         glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
         glDeleteTextures(1, &m_DepthAttachment);
-
-        // Cleanup post-processing resources
-        glDeleteVertexArrays(1, &m_PostProcessVAO);
-        glDeleteBuffers(1, &m_PostProcessVBO);
     }
 
-    void OpenGLFramebuffer::InitPostProcessing()
-    {
-        // Ensure shared shader is initialized (thread-safe)
-        InitSharedResources();
-
-        // Create per-framebuffer VAO/VBO for post-processing quad
-        f32 quadVertices[] = {
-            // positions        // texture coords
-            -1.0f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            -1.0f,
-            -1.0f,
-            0.0f,
-            0.0f,
-            0.0f,
-            1.0f,
-            1.0f,
-            0.0f,
-            1.0f,
-            1.0f,
-            1.0f,
-            -1.0f,
-            0.0f,
-            1.0f,
-            0.0f,
-        };
-
-        glCreateVertexArrays(1, &m_PostProcessVAO);
-        glCreateBuffers(1, &m_PostProcessVBO);
-
-        glBindVertexArray(m_PostProcessVAO);
-        glBindBuffer(GL_ARRAY_BUFFER, m_PostProcessVBO);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
-
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(f32), (void*)0);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(f32), (void*)(3 * sizeof(f32)));
-
-        glBindVertexArray(0);
-
-        // Note: Shader is now shared via s_PostProcessShader, no per-instance creation
-    }
-
-    void OpenGLFramebuffer::ApplyPostProcessing()
-    {
-        OLO_PROFILE_FUNCTION();
-
-        // Depth-only framebuffers (e.g. shadow maps) have no color attachments to blit
-        if (m_ColorAttachments.empty())
-        {
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            return;
-        }
-
-        if (m_Specification.PostProcess == PostProcessEffect::None)
-        {
-            // Bind default framebuffer
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glDisable(GL_DEPTH_TEST);
-
-            // Clear the default framebuffer
-            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
-
-            // Bind our shared shader and texture
-            if (s_PostProcessShader)
-            {
-                s_PostProcessShader->Bind();
-                glBindTextureUnit(0, m_ColorAttachments[0]);
-
-                // Render quad
-                glBindVertexArray(m_PostProcessVAO);
-                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-                glBindVertexArray(0);
-
-                // Cleanup
-                s_PostProcessShader->Unbind();
-            }
-            glEnable(GL_DEPTH_TEST);
-        }
-        // Add more post-processing effects here later
-    }
     void OpenGLFramebuffer::Invalidate()
     {
         OLO_PROFILE_FUNCTION();
@@ -268,32 +162,11 @@ namespace OloEngine
     {
         glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
         glViewport(0, 0, static_cast<GLsizei>(m_Specification.Width), static_cast<GLsizei>(m_Specification.Height));
-
-        bool isIntegerFramebuffer = false;
-        for (const auto& spec : m_ColorAttachmentSpecifications)
-        {
-            if (spec.TextureFormat == FramebufferTextureFormat::RED_INTEGER)
-            {
-                isIntegerFramebuffer = true;
-                break;
-            }
-        }
-
-        if (isIntegerFramebuffer)
-        {
-            glDisable(GL_BLEND);
-            glDisable(GL_DITHER);
-        }
-        else
-        {
-            glEnable(GL_BLEND);
-            glEnable(GL_DITHER);
-        }
     }
 
     void OpenGLFramebuffer::Unbind()
     {
-        ApplyPostProcessing();
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
     void OpenGLFramebuffer::Resize(u32 width, u32 height)

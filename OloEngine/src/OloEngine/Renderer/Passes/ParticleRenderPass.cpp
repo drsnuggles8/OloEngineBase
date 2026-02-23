@@ -49,6 +49,8 @@ namespace OloEngine
         glDisablei(GL_BLEND, 0);
         glDisable(GL_BLEND);
 
+        m_SceneFramebuffer->Unbind();
+
         // Clear callback to prevent stale captures across frames
         m_RenderCallback = nullptr;
     }

@@ -6,6 +6,7 @@
 #include "OloEngine/Containers/Map.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
 
 #include <optional>
 #include <vector>
@@ -154,6 +155,19 @@ namespace OloEngine
             return m_SkeletonVisualization;
         }
 
+        void SetPostProcessSettings(const PostProcessSettings& settings)
+        {
+            m_PostProcessSettings = settings;
+        }
+        [[nodiscard]] const PostProcessSettings& GetPostProcessSettings() const
+        {
+            return m_PostProcessSettings;
+        }
+        [[nodiscard]] PostProcessSettings& GetPostProcessSettings()
+        {
+            return m_PostProcessSettings;
+        }
+
         // Asset interface
         static AssetType GetStaticType()
         {
@@ -188,6 +202,7 @@ namespace OloEngine
         bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
+        PostProcessSettings m_PostProcessSettings;                 // Post-processing settings
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;

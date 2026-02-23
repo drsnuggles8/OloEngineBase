@@ -10,6 +10,8 @@
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
+#include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
@@ -488,9 +490,19 @@ namespace OloEngine
             return s_Data.ShadowPass;
         }
 
+        static const Ref<PostProcessRenderPass>& GetPostProcessPass()
+        {
+            return s_Data.PostProcessPass;
+        }
+
         static ShadowMap& GetShadowMap()
         {
             return s_Data.Shadow;
+        }
+
+        static PostProcessSettings& GetPostProcessSettings()
+        {
+            return s_Data.PostProcess;
         }
 
         // Shader library access for PBR material shader selection
@@ -544,6 +556,8 @@ namespace OloEngine
             Ref<UniformBuffer> MultiLightBuffer;
             Ref<UniformBuffer> BoneMatricesUBO;
             Ref<UniformBuffer> ModelMatrixUBO;
+            Ref<UniformBuffer> PostProcessUBO;
+            Ref<UniformBuffer> MotionBlurUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -555,6 +569,8 @@ namespace OloEngine
 
             Light SceneLight;
             glm::vec3 ViewPos;
+            f32 CameraNearClip = 0.1f;
+            f32 CameraFarClip = 1000.0f;
 
             Statistics Stats;
             u32 CommandCounter = 0;
@@ -569,12 +585,19 @@ namespace OloEngine
             Ref<ShadowRenderPass> ShadowPass;
             Ref<SceneRenderPass> ScenePass;
             Ref<ParticleRenderPass> ParticlePass;
+            Ref<PostProcessRenderPass> PostProcessPass;
             Ref<FinalRenderPass> FinalPass;
 
             // Shadow mapping
             ShadowMap Shadow;
             Ref<Shader> ShadowDepthShader;
             Ref<Shader> ShadowDepthSkinnedShader;
+
+            // Post-processing
+            PostProcessSettings PostProcess;
+            PostProcessUBOData PostProcessGPUData;
+            MotionBlurUBOData MotionBlurGPUData;
+            glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
 
             // Parallel submission state
             ParallelSceneContext ParallelContext;

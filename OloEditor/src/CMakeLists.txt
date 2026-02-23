@@ -11,6 +11,8 @@
 		"Panels/ContentBrowserPanel.h"
 		"Panels/EnvironmentSettingsPanel.cpp"
 		"Panels/EnvironmentSettingsPanel.h"
+		"Panels/PostProcessSettingsPanel.cpp"
+		"Panels/PostProcessSettingsPanel.h"
 		"Panels/SceneHierarchyPanel.cpp"
 		"Panels/SceneHierarchyPanel.h"
 )

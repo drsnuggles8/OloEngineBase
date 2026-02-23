@@ -1300,6 +1300,35 @@ namespace OloEngine
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
+
+        out << YAML::Key << "PostProcessSettings";
+        out << YAML::BeginMap;
+        {
+            auto const& pp = m_Scene->GetPostProcessSettings();
+            out << YAML::Key << "TonemapOperator" << YAML::Value << static_cast<int>(pp.Tonemap);
+            out << YAML::Key << "Exposure" << YAML::Value << pp.Exposure;
+            out << YAML::Key << "Gamma" << YAML::Value << pp.Gamma;
+            out << YAML::Key << "BloomEnabled" << YAML::Value << pp.BloomEnabled;
+            out << YAML::Key << "BloomThreshold" << YAML::Value << pp.BloomThreshold;
+            out << YAML::Key << "BloomIntensity" << YAML::Value << pp.BloomIntensity;
+            out << YAML::Key << "BloomIterations" << YAML::Value << pp.BloomIterations;
+            out << YAML::Key << "VignetteEnabled" << YAML::Value << pp.VignetteEnabled;
+            out << YAML::Key << "VignetteIntensity" << YAML::Value << pp.VignetteIntensity;
+            out << YAML::Key << "VignetteSmoothness" << YAML::Value << pp.VignetteSmoothness;
+            out << YAML::Key << "ChromaticAberrationEnabled" << YAML::Value << pp.ChromaticAberrationEnabled;
+            out << YAML::Key << "ChromaticAberrationIntensity" << YAML::Value << pp.ChromaticAberrationIntensity;
+            out << YAML::Key << "FXAAEnabled" << YAML::Value << pp.FXAAEnabled;
+            out << YAML::Key << "DOFEnabled" << YAML::Value << pp.DOFEnabled;
+            out << YAML::Key << "DOFFocusDistance" << YAML::Value << pp.DOFFocusDistance;
+            out << YAML::Key << "DOFFocusRange" << YAML::Value << pp.DOFFocusRange;
+            out << YAML::Key << "DOFBokehRadius" << YAML::Value << pp.DOFBokehRadius;
+            out << YAML::Key << "MotionBlurEnabled" << YAML::Value << pp.MotionBlurEnabled;
+            out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
+            out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
+            out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
+        }
+        out << YAML::EndMap;
+
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
                                                       {
@@ -1346,6 +1375,32 @@ namespace OloEngine
         auto sceneName = data["Scene"].as<std::string>();
         OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
         m_Scene->SetName(sceneName);
+
+        if (auto ppNode = data["PostProcessSettings"]; ppNode)
+        {
+            auto& pp = m_Scene->GetPostProcessSettings();
+            TrySetEnum(pp.Tonemap, ppNode["TonemapOperator"]);
+            TrySet(pp.Exposure, ppNode["Exposure"]);
+            TrySet(pp.Gamma, ppNode["Gamma"]);
+            TrySet(pp.BloomEnabled, ppNode["BloomEnabled"]);
+            TrySet(pp.BloomThreshold, ppNode["BloomThreshold"]);
+            TrySet(pp.BloomIntensity, ppNode["BloomIntensity"]);
+            TrySet(pp.BloomIterations, ppNode["BloomIterations"]);
+            TrySet(pp.VignetteEnabled, ppNode["VignetteEnabled"]);
+            TrySet(pp.VignetteIntensity, ppNode["VignetteIntensity"]);
+            TrySet(pp.VignetteSmoothness, ppNode["VignetteSmoothness"]);
+            TrySet(pp.ChromaticAberrationEnabled, ppNode["ChromaticAberrationEnabled"]);
+            TrySet(pp.ChromaticAberrationIntensity, ppNode["ChromaticAberrationIntensity"]);
+            TrySet(pp.FXAAEnabled, ppNode["FXAAEnabled"]);
+            TrySet(pp.DOFEnabled, ppNode["DOFEnabled"]);
+            TrySet(pp.DOFFocusDistance, ppNode["DOFFocusDistance"]);
+            TrySet(pp.DOFFocusRange, ppNode["DOFFocusRange"]);
+            TrySet(pp.DOFBokehRadius, ppNode["DOFBokehRadius"]);
+            TrySet(pp.MotionBlurEnabled, ppNode["MotionBlurEnabled"]);
+            TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
+            TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
+            TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
+        }
 
         if (const auto entities = data["Entities"]; entities)
         {
@@ -2104,6 +2159,35 @@ namespace OloEngine
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
+
+        out << YAML::Key << "PostProcessSettings";
+        out << YAML::BeginMap;
+        {
+            auto const& pp = m_Scene->GetPostProcessSettings();
+            out << YAML::Key << "TonemapOperator" << YAML::Value << static_cast<int>(pp.Tonemap);
+            out << YAML::Key << "Exposure" << YAML::Value << pp.Exposure;
+            out << YAML::Key << "Gamma" << YAML::Value << pp.Gamma;
+            out << YAML::Key << "BloomEnabled" << YAML::Value << pp.BloomEnabled;
+            out << YAML::Key << "BloomThreshold" << YAML::Value << pp.BloomThreshold;
+            out << YAML::Key << "BloomIntensity" << YAML::Value << pp.BloomIntensity;
+            out << YAML::Key << "BloomIterations" << YAML::Value << pp.BloomIterations;
+            out << YAML::Key << "VignetteEnabled" << YAML::Value << pp.VignetteEnabled;
+            out << YAML::Key << "VignetteIntensity" << YAML::Value << pp.VignetteIntensity;
+            out << YAML::Key << "VignetteSmoothness" << YAML::Value << pp.VignetteSmoothness;
+            out << YAML::Key << "ChromaticAberrationEnabled" << YAML::Value << pp.ChromaticAberrationEnabled;
+            out << YAML::Key << "ChromaticAberrationIntensity" << YAML::Value << pp.ChromaticAberrationIntensity;
+            out << YAML::Key << "FXAAEnabled" << YAML::Value << pp.FXAAEnabled;
+            out << YAML::Key << "DOFEnabled" << YAML::Value << pp.DOFEnabled;
+            out << YAML::Key << "DOFFocusDistance" << YAML::Value << pp.DOFFocusDistance;
+            out << YAML::Key << "DOFFocusRange" << YAML::Value << pp.DOFFocusRange;
+            out << YAML::Key << "DOFBokehRadius" << YAML::Value << pp.DOFBokehRadius;
+            out << YAML::Key << "MotionBlurEnabled" << YAML::Value << pp.MotionBlurEnabled;
+            out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
+            out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
+            out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
+        }
+        out << YAML::EndMap;
+
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
                                                       {
@@ -2147,6 +2231,32 @@ namespace OloEngine
 
         std::string sceneName = data["Scene"].as<std::string>();
         OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
+
+        if (auto ppNode = data["PostProcessSettings"]; ppNode)
+        {
+            auto& pp = m_Scene->GetPostProcessSettings();
+            TrySetEnum(pp.Tonemap, ppNode["TonemapOperator"]);
+            TrySet(pp.Exposure, ppNode["Exposure"]);
+            TrySet(pp.Gamma, ppNode["Gamma"]);
+            TrySet(pp.BloomEnabled, ppNode["BloomEnabled"]);
+            TrySet(pp.BloomThreshold, ppNode["BloomThreshold"]);
+            TrySet(pp.BloomIntensity, ppNode["BloomIntensity"]);
+            TrySet(pp.BloomIterations, ppNode["BloomIterations"]);
+            TrySet(pp.VignetteEnabled, ppNode["VignetteEnabled"]);
+            TrySet(pp.VignetteIntensity, ppNode["VignetteIntensity"]);
+            TrySet(pp.VignetteSmoothness, ppNode["VignetteSmoothness"]);
+            TrySet(pp.ChromaticAberrationEnabled, ppNode["ChromaticAberrationEnabled"]);
+            TrySet(pp.ChromaticAberrationIntensity, ppNode["ChromaticAberrationIntensity"]);
+            TrySet(pp.FXAAEnabled, ppNode["FXAAEnabled"]);
+            TrySet(pp.DOFEnabled, ppNode["DOFEnabled"]);
+            TrySet(pp.DOFFocusDistance, ppNode["DOFFocusDistance"]);
+            TrySet(pp.DOFFocusRange, ppNode["DOFFocusRange"]);
+            TrySet(pp.DOFBokehRadius, ppNode["DOFBokehRadius"]);
+            TrySet(pp.MotionBlurEnabled, ppNode["MotionBlurEnabled"]);
+            TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
+            TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
+            TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
+        }
 
         auto entities = data["Entities"];
         if (entities)

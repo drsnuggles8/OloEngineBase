@@ -27,6 +27,7 @@
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
+#include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Core/Application.h"
@@ -257,6 +258,8 @@ namespace OloEngine
         s_Data.MultiLightBuffer = UniformBuffer::Create(ShaderBindingLayout::MultiLightUBO::GetSize(), ShaderBindingLayout::UBO_MULTI_LIGHTS);
         s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
         s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
+        s_Data.PostProcessUBO = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0);
+        s_Data.MotionBlurUBO = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1);
 
         CommandDispatch::SetUBOReferences(
             s_Data.CameraUBO,
@@ -359,21 +362,6 @@ namespace OloEngine
         CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
         CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
 
-        // Set shadow texture IDs for CommandDispatch to bind during PBR draws
-        CommandDispatch::SetShadowTextureIDs(
-            s_Data.Shadow.GetCSMRendererID(),
-            s_Data.Shadow.GetSpotRendererID());
-
-        // Set point shadow cubemap texture IDs
-        {
-            std::array<u32, ShadowMap::MAX_POINT_SHADOWS> pointIDs{};
-            for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
-            {
-                pointIDs[i] = s_Data.Shadow.GetPointRendererID(i);
-            }
-            CommandDispatch::SetPointShadowTextureIDs(pointIDs);
-        }
-
         s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
 
         s_Data.Stats.Reset();
@@ -388,6 +376,21 @@ namespace OloEngine
         s_Data.ScenePass->ResetCommandBucket();
 
         CommandDispatch::ResetState();
+
+        // Set shadow texture IDs AFTER ResetState() so they aren't zeroed out
+        CommandDispatch::SetShadowTextureIDs(
+            s_Data.Shadow.GetCSMRendererID(),
+            s_Data.Shadow.GetSpotRendererID());
+
+        // Set point shadow cubemap texture IDs
+        {
+            std::array<u32, ShadowMap::MAX_POINT_SHADOWS> pointIDs{};
+            for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
+            {
+                pointIDs[i] = s_Data.Shadow.GetPointRendererID(i);
+            }
+            CommandDispatch::SetPointShadowTextureIDs(pointIDs);
+        }
 
         // Initialize parallel scene context with immutable frame data
         s_Data.ParallelContext.ViewMatrix = s_Data.ViewMatrix;
@@ -418,6 +421,8 @@ namespace OloEngine
         s_Data.ProjectionMatrix = camera.GetProjection();
         s_Data.ViewProjectionMatrix = camera.GetViewProjection();
         s_Data.ViewPos = camera.GetPosition();
+        s_Data.CameraNearClip = camera.GetNearClip();
+        s_Data.CameraFarClip = camera.GetFarClip();
 
         BeginSceneCommon();
     }
@@ -430,6 +435,8 @@ namespace OloEngine
         s_Data.ProjectionMatrix = camera.GetProjection();
         s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
         s_Data.ViewPos = camera.GetPosition();
+        s_Data.CameraNearClip = camera.GetNearClip();
+        s_Data.CameraFarClip = camera.GetFarClip();
 
         BeginSceneCommon();
     }
@@ -442,6 +449,7 @@ namespace OloEngine
         s_Data.ProjectionMatrix = camera.GetProjection();
         s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
         s_Data.ViewPos = glm::vec3(transform[3]);
+        // Camera base class has no near/far — keep previous values
 
         BeginSceneCommon();
     }
@@ -456,13 +464,20 @@ namespace OloEngine
             return;
         }
 
-        if (s_Data.ScenePass && s_Data.FinalPass)
+        if (s_Data.PostProcessPass && s_Data.FinalPass)
         {
-            s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
+            s_Data.FinalPass->SetInputFramebuffer(s_Data.PostProcessPass->GetTarget());
         }
         if (s_Data.ScenePass && s_Data.ParticlePass)
         {
             s_Data.ParticlePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+        }
+        if (s_Data.PostProcessPass)
+        {
+            s_Data.PostProcessPass->SetSettings(s_Data.PostProcess);
+            s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
+            s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
+            s_Data.PostProcessPass->SetPostProcessUBO(s_Data.PostProcessUBO, &s_Data.PostProcessGPUData);
         }
         auto& profiler = RendererProfiler::GetInstance();
         if (s_Data.ScenePass)
@@ -473,7 +488,47 @@ namespace OloEngine
 
         ApplyGlobalResources();
 
+        // Upload post-process settings to GPU
+        {
+            auto& pp = s_Data.PostProcess;
+            auto& gpu = s_Data.PostProcessGPUData;
+            gpu.TonemapOperator = static_cast<i32>(pp.Tonemap);
+            gpu.Exposure = pp.Exposure;
+            gpu.Gamma = pp.Gamma;
+            gpu.BloomThreshold = pp.BloomThreshold;
+            gpu.BloomIntensity = pp.BloomIntensity;
+            gpu.VignetteIntensity = pp.VignetteIntensity;
+            gpu.VignetteSmoothness = pp.VignetteSmoothness;
+            gpu.ChromaticAberrationIntensity = pp.ChromaticAberrationIntensity;
+            gpu.DOFFocusDistance = pp.DOFFocusDistance;
+            gpu.DOFFocusRange = pp.DOFFocusRange;
+            gpu.DOFBokehRadius = pp.DOFBokehRadius;
+            gpu.MotionBlurStrength = pp.MotionBlurStrength;
+            gpu.MotionBlurSamples = pp.MotionBlurSamples;
+            gpu.CameraNear = s_Data.CameraNearClip;
+            gpu.CameraFar = s_Data.CameraFarClip;
+            if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+            {
+                const auto& spec = s_Data.ScenePass->GetTarget()->GetSpecification();
+                gpu.InverseScreenWidth = 1.0f / static_cast<f32>(spec.Width);
+                gpu.InverseScreenHeight = 1.0f / static_cast<f32>(spec.Height);
+            }
+            s_Data.PostProcessUBO->SetData(&gpu, PostProcessUBOData::GetSize());
+        }
+
+        // Upload motion blur matrices
+        if (s_Data.PostProcess.MotionBlurEnabled)
+        {
+            auto& mb = s_Data.MotionBlurGPUData;
+            mb.InverseViewProjection = glm::inverse(s_Data.ViewProjectionMatrix);
+            mb.PrevViewProjection = s_Data.PrevViewProjectionMatrix;
+            s_Data.MotionBlurUBO->SetData(&mb, MotionBlurUBOData::GetSize());
+        }
+
         s_Data.RGraph->Execute();
+
+        // Store current VP as previous for next frame's motion blur
+        s_Data.PrevViewProjectionMatrix = s_Data.ViewProjectionMatrix;
 
         // Don't return the allocator to the pool - it's managed by FrameResourceManager
         // The allocator will be reset at the start of the next frame when this buffer is reused
@@ -1597,8 +1652,8 @@ namespace OloEngine
         scenePassSpec.Height = height;
         scenePassSpec.Samples = 1;
         scenePassSpec.Attachments = {
-            FramebufferTextureFormat::RGBA8,
-            FramebufferTextureFormat::RED_INTEGER, // Entity ID attachment
+            FramebufferTextureFormat::RGBA16F,     // HDR color output
+            FramebufferTextureFormat::RED_INTEGER,  // Entity ID attachment
             FramebufferTextureFormat::Depth
         };
 
@@ -1615,6 +1670,11 @@ namespace OloEngine
         s_Data.ParticlePass->Init(finalPassSpec);
         s_Data.ParticlePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
 
+        s_Data.PostProcessPass = Ref<PostProcessRenderPass>::Create();
+        s_Data.PostProcessPass->SetName("PostProcessPass");
+        s_Data.PostProcessPass->Init(finalPassSpec);
+        s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
+
         s_Data.FinalPass = Ref<FinalRenderPass>::Create();
         s_Data.FinalPass->SetName("FinalPass");
         s_Data.FinalPass->Init(finalPassSpec);
@@ -1622,16 +1682,19 @@ namespace OloEngine
         s_Data.RGraph->AddPass(s_Data.ShadowPass);
         s_Data.RGraph->AddPass(s_Data.ScenePass);
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
+        s_Data.RGraph->AddPass(s_Data.PostProcessPass);
         s_Data.RGraph->AddPass(s_Data.FinalPass);
 
         // ShadowPass -> ScenePass: ordering only (shadow textures are bound via UBO/texture slots)
         s_Data.RGraph->AddExecutionDependency("ShadowPass", "ScenePass");
-        // ScenePass -> ParticlePass -> FinalPass: ordering + framebuffer piping
+        // ScenePass -> ParticlePass -> PostProcessPass -> FinalPass: ordering + framebuffer piping
         s_Data.RGraph->ConnectPass("ScenePass", "ParticlePass");
-        s_Data.RGraph->ConnectPass("ParticlePass", "FinalPass");
+        s_Data.RGraph->ConnectPass("ParticlePass", "PostProcessPass");
+        s_Data.RGraph->ConnectPass("PostProcessPass", "FinalPass");
 
-        s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> ParticlePass -> FinalPass");
+        s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
+        s_Data.FinalPass->SetInputFramebuffer(s_Data.PostProcessPass->GetTarget());
+        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> ParticlePass -> PostProcessPass -> FinalPass");
 
         s_Data.RGraph->SetFinalPass("FinalPass");
     }
