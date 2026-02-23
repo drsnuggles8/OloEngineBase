@@ -26,7 +26,7 @@ namespace OloEngine
         // Clear all pass references
         m_PassLookup.clear();
         m_Dependencies.clear();
-        m_DependentPasses.clear();
+        m_FramebufferConnections.clear();
         m_PassOrder.clear();
         m_FinalPassName.clear();
     }
@@ -45,25 +45,61 @@ namespace OloEngine
     void RenderGraph::ConnectPass(const std::string& outputPass, const std::string& inputPass)
     {
         OLO_PROFILE_FUNCTION();
-        // TODO: Implement attachment-specific connections
 
-        if (m_PassLookup.find(outputPass) == m_PassLookup.end())
+        if (!m_PassLookup.contains(outputPass))
         {
             OLO_CORE_ERROR("RenderGraph::ConnectPass: Output pass '{}' not found!", outputPass);
             return;
         }
 
-        if (m_PassLookup.find(inputPass) == m_PassLookup.end())
+        if (!m_PassLookup.contains(inputPass))
         {
             OLO_CORE_ERROR("RenderGraph::ConnectPass: Input pass '{}' not found!", inputPass);
             return;
         }
 
-        OLO_CORE_INFO("Connecting passes: {} -> {}", outputPass, inputPass);
+        OLO_CORE_INFO("Connecting passes (with framebuffer piping): {} -> {}", outputPass, inputPass);
 
-        // Add dependency
-        m_Dependencies[inputPass].push_back(outputPass);
-        m_DependentPasses[outputPass].push_back(inputPass);
+        // Add dependency for execution ordering (avoid duplicates)
+        auto& deps = m_Dependencies[inputPass];
+        if (std::find(deps.begin(), deps.end(), outputPass) == deps.end())
+        {
+            deps.push_back(outputPass);
+        }
+        // Mark for framebuffer piping (avoid duplicates)
+        auto& conns = m_FramebufferConnections[outputPass];
+        if (std::find(conns.begin(), conns.end(), inputPass) == conns.end())
+        {
+            conns.push_back(inputPass);
+        }
+
+        m_DependencyGraphDirty = true;
+    }
+
+    void RenderGraph::AddExecutionDependency(const std::string& beforePass, const std::string& afterPass)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_PassLookup.contains(beforePass))
+        {
+            OLO_CORE_ERROR("RenderGraph::AddExecutionDependency: Pass '{}' not found!", beforePass);
+            return;
+        }
+
+        if (!m_PassLookup.contains(afterPass))
+        {
+            OLO_CORE_ERROR("RenderGraph::AddExecutionDependency: Pass '{}' not found!", afterPass);
+            return;
+        }
+
+        OLO_CORE_INFO("Adding execution dependency (ordering only): {} -> {}", beforePass, afterPass);
+
+        // Only add dependency for execution ordering, no framebuffer piping (avoid duplicates)
+        auto& deps = m_Dependencies[afterPass];
+        if (std::find(deps.begin(), deps.end(), beforePass) == deps.end())
+        {
+            deps.push_back(beforePass);
+        }
 
         m_DependencyGraphDirty = true;
     }
@@ -79,22 +115,17 @@ namespace OloEngine
             m_DependencyGraphDirty = false;
         }
 
-        // First pass: Connect framebuffers between dependencies
-        for (const auto& [outputPass, inputPasses] : m_DependentPasses)
+        // First pass: Connect framebuffers between passes that use framebuffer piping
+        for (const auto& [outputPass, inputPasses] : m_FramebufferConnections)
         {
             auto& outputPassRef = m_PassLookup[outputPass];
-            Ref<Framebuffer> outputFramebuffer;
+            Ref<Framebuffer> outputFramebuffer = outputPassRef->GetTarget();
 
-            // Get output framebuffer from output pass
-            outputFramebuffer = outputPassRef->GetTarget();
-
-            // Set this framebuffer as input for all dependent passes
             if (outputFramebuffer)
             {
                 for (const auto& inputPass : inputPasses)
                 {
                     auto& inputPassRef = m_PassLookup[inputPass];
-                    // Handle RenderPass (like FinalRenderPass)
                     if (auto* finalPass = dynamic_cast<FinalRenderPass*>(inputPassRef.get()))
                     {
                         finalPass->SetInputFramebuffer(outputFramebuffer);
@@ -170,20 +201,20 @@ namespace OloEngine
 
         std::function<bool(const std::string&)> visit = [&](const std::string& node)
         {
-            if (inProgress.find(node) != inProgress.end())
+            if (inProgress.contains(node))
             {
                 OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Cycle detected in graph!");
                 return false;
             }
 
-            if (visited.find(node) != visited.end())
+            if (visited.contains(node))
             {
                 return true;
             }
 
             inProgress.insert(node);
 
-            if (m_Dependencies.find(node) != m_Dependencies.end())
+            if (m_Dependencies.contains(node))
             {
                 for (const auto& dep : m_Dependencies[node])
                 {
@@ -202,7 +233,7 @@ namespace OloEngine
         // Visit all nodes
         for (const auto& [name, _] : m_PassLookup)
         {
-            if (visited.find(name) == visited.end())
+            if (!visited.contains(name))
             {
                 if (!visit(name))
                 {
@@ -222,10 +253,12 @@ namespace OloEngine
         if (m_FinalPassName.empty())
         {
             // If no final pass was explicitly set, try to find a pass with no dependents
-            for (const auto& [name, _] : m_PassLookup)
+            // Iterate m_PassOrder (deterministic) instead of m_PassLookup (unordered_map)
+            for (auto it = m_PassOrder.rbegin(); it != m_PassOrder.rend(); ++it)
             {
-                if (m_DependentPasses.find(name) == m_DependentPasses.end() ||
-                    m_DependentPasses[name].empty())
+                const auto& name = *it;
+                if (!m_FramebufferConnections.contains(name) ||
+                    m_FramebufferConnections[name].empty())
                 {
                     m_FinalPassName = name;
                     OLO_CORE_INFO("RenderGraph: Auto-selected final pass: {}", name);

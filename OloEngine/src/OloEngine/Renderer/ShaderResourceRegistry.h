@@ -185,10 +185,10 @@ namespace OloEngine
         bool ValidateStandardBindings() const;
 
         // @brief Check if UBO binding matches standard layout
-        bool IsStandardUBOBinding(u32 binding, const std::string& name) const;
+        static bool IsStandardUBOBinding(u32 binding, const std::string& name);
 
         // @brief Check if texture binding matches standard layout
-        bool IsStandardTextureBinding(u32 binding, const std::string& name) const;
+        static bool IsStandardTextureBinding(u32 binding, const std::string& name);
 
       private:
         Ref<Shader> m_Shader;

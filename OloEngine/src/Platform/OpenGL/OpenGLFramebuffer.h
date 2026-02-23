@@ -39,10 +39,12 @@ namespace OloEngine
         {
             return m_Specification;
         }
-        [[nodiscard("Store this!")]] u32 GetRendererID() const
+        [[nodiscard("Store this!")]] u32 GetRendererID() const override
         {
             return m_RendererID;
         }
+
+        void AttachDepthTextureArrayLayer(u32 textureArrayRendererID, u32 layer) override;
 
         // Static initialization/shutdown for shared resources
         static void InitSharedResources();

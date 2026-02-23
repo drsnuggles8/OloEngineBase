@@ -24,9 +24,11 @@ namespace OloEngine
 
         // Depth/stencil formats
         DEPTH24STENCIL8,
+        DEPTH_COMPONENT32F,
 
         // Defaults
-        Depth = DEPTH24STENCIL8
+        Depth = DEPTH24STENCIL8,
+        ShadowDepth = DEPTH_COMPONENT32F
     };
 
     enum class PostProcessEffect
@@ -87,6 +89,10 @@ namespace OloEngine
         [[nodiscard("Store this!")]] virtual u32 GetDepthAttachmentRendererID() const = 0;
         [[nodiscard("Store this!")]] virtual const FramebufferSpecification& GetSpecification() const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetRendererID() const = 0;
+
+        // Attach a specific layer of a texture array as the depth attachment.
+        // Used by shadow mapping to render into individual cascade layers.
+        virtual void AttachDepthTextureArrayLayer(u32 textureArrayRendererID, u32 layer) = 0;
 
         static Ref<Framebuffer> Create(const FramebufferSpecification& spec);
     };

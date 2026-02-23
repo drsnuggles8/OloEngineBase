@@ -1,12 +1,21 @@
 Scene: fox.olo
 Entities:
-  - Entity: 6314009358522869315
+  - Entity: 3654357267115472602
     TagComponent:
-      Tag: skybox
+      Tag: directional light
     TransformComponent:
       Translation: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0.8, -1, 0]
+      Color: [1, 1, 1]
+      Intensity: 2
+      CastShadows: true
+      ShadowBias: 0.0206
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 238
+      CascadeSplitLambda: 1
   - Entity: 11366012263217394104
     TagComponent:
       Tag: fox
@@ -30,3 +39,29 @@ Entities:
       CurrentClipName: Survey
     SkeletonComponent:
       {}
+  - Entity: 6314009358522869315
+    TagComponent:
+      Tag: skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  - Entity: 12878999777548220279
+    TagComponent:
+      Tag: floor
+    TransformComponent:
+      Translation: [0, 0.1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [300, 0.1, 300]
+    MeshComponent:
+      Primitive: 3

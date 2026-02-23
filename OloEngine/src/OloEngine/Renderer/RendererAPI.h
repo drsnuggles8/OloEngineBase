@@ -8,6 +8,13 @@
 
 namespace OloEngine
 {
+    struct Viewport
+    {
+        u32 x = 0;
+        u32 y = 0;
+        u32 width = 0;
+        u32 height = 0;
+    };
 
     class RendererAPI
     {
@@ -31,6 +38,8 @@ namespace OloEngine
         virtual void SetViewport(u32 x, u32 y, u32 width, u32 height) = 0;
         virtual void SetClearColor(const glm::vec4& color) = 0;
         virtual void Clear() = 0;
+        virtual void ClearDepthOnly() = 0;
+        virtual Viewport GetViewport() const = 0;
 
         virtual void DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount) = 0;
         virtual void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount) = 0;

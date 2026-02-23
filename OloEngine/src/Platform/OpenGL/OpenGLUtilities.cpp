@@ -19,7 +19,8 @@ namespace OloEngine
         {
             OLO_CORE_ASSERT((format == GL_RGBA8 || format == GL_RGBA16F || format == GL_RGBA32F ||
                              format == GL_RGB16F || format == GL_RGB32F || format == GL_RG16F ||
-                             format == GL_RG32F || format == GL_R32I || format == GL_DEPTH24_STENCIL8),
+                             format == GL_RG32F || format == GL_R32I || format == GL_DEPTH24_STENCIL8 ||
+                             format == GL_DEPTH_COMPONENT32F),
                             "Invalid format.");
 
             if (const bool multisampled = samples > 1)
@@ -83,6 +84,7 @@ namespace OloEngine
             switch (format)
             {
                 case FramebufferTextureFormat::DEPTH24STENCIL8:
+                case FramebufferTextureFormat::DEPTH_COMPONENT32F:
                     return true;
             }
             return false;
@@ -146,6 +148,8 @@ namespace OloEngine
             {
                 case FramebufferTextureFormat::DEPTH24STENCIL8:
                     return GL_DEPTH24_STENCIL8;
+                case FramebufferTextureFormat::DEPTH_COMPONENT32F:
+                    return GL_DEPTH_COMPONENT32F;
             }
 
             OLO_CORE_ASSERT(false);

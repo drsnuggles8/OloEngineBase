@@ -14,6 +14,8 @@ namespace OloEngine
 
         void SetClearColor(const glm::vec4& color) override;
         void Clear() override;
+        void ClearDepthOnly() override;
+        Viewport GetViewport() const override;
 
         void DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount) override;
         void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0) override;
@@ -61,6 +63,7 @@ namespace OloEngine
 
       private:
         bool m_DepthTestEnabled = false;
+        bool m_DepthMaskEnabled = true;
         bool m_StencilTestEnabled = false;
     };
 } // namespace OloEngine

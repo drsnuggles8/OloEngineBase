@@ -191,6 +191,33 @@ namespace OloEngine
                 return sizeof(IBLParametersUBO);
             }
         };
+
+        // @brief Shadow mapping UBO for directional (CSM), spot, and point light shadows
+        struct ShadowUBO
+        {
+            static constexpr u32 MAX_CSM_CASCADES = 4;
+            static constexpr u32 MAX_SPOT_SHADOWS = 4;
+            static constexpr u32 MAX_POINT_SHADOWS = 4;
+
+            glm::mat4 DirectionalLightSpaceMatrices[MAX_CSM_CASCADES]; // Light VP per cascade
+            glm::vec4 CascadePlaneDistances;                           // View-space far plane per cascade
+            glm::vec4 ShadowParams;                                    // x=bias, y=normalBias, z=softness, w=maxShadowDistance
+            glm::mat4 SpotLightSpaceMatrices[MAX_SPOT_SHADOWS];        // Light VP per spot shadow
+            glm::vec4 PointLightShadowParams[MAX_POINT_SHADOWS];       // xyz=position, w=farPlane
+            i32 DirectionalShadowEnabled;
+            i32 SpotShadowCount;
+            i32 PointShadowCount;
+            i32 ShadowMapResolution;
+            i32 CascadeDebugEnabled; // Visualize cascade boundaries
+            i32 _shadowPad0 = 0;
+            i32 _shadowPad1 = 0;
+            i32 _shadowPad2 = 0;
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(ShadowUBO);
+            }
+        };
     } // namespace UBOStructures
 
     // Standardized shader binding layout for consistent resource sharing
@@ -209,28 +236,32 @@ namespace OloEngine
         static constexpr u32 UBO_MODEL = 3;        // Model/transform matrices
         static constexpr u32 UBO_ANIMATION = 4;    // Animation/bone matrices
         static constexpr u32 UBO_MULTI_LIGHTS = 5; // Multi-light buffer for advanced lighting
-        static constexpr u32 UBO_USER_0 = 6;       // User-defined buffer 0
-        static constexpr u32 UBO_USER_1 = 7;       // User-defined buffer 1
-        static constexpr u32 UBO_USER_2 = 8;       // User-defined buffer 2
+        static constexpr u32 UBO_SHADOW = 6;       // Shadow mapping matrices and parameters
+        static constexpr u32 UBO_USER_0 = 7;       // User-defined buffer 0
+        static constexpr u32 UBO_USER_1 = 8;       // User-defined buffer 1
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
         // =============================================================================
 
-        static constexpr u32 TEX_DIFFUSE = 0;     // Primary diffuse/albedo texture
-        static constexpr u32 TEX_SPECULAR = 1;    // Specular/metallic texture
-        static constexpr u32 TEX_NORMAL = 2;      // Normal map
-        static constexpr u32 TEX_HEIGHT = 3;      // Height/displacement map
-        static constexpr u32 TEX_AMBIENT = 4;     // Ambient occlusion
-        static constexpr u32 TEX_EMISSIVE = 5;    // Emissive map
-        static constexpr u32 TEX_ROUGHNESS = 6;   // Roughness map
-        static constexpr u32 TEX_METALLIC = 7;    // Metallic map
-        static constexpr u32 TEX_SHADOW = 8;      // Shadow map
-        static constexpr u32 TEX_ENVIRONMENT = 9; // Environment/skybox
-        static constexpr u32 TEX_USER_0 = 10;     // User-defined texture 0
-        static constexpr u32 TEX_USER_1 = 11;     // User-defined texture 1
-        static constexpr u32 TEX_USER_2 = 12;     // User-defined texture 2
-        static constexpr u32 TEX_USER_3 = 13;     // User-defined texture 3
+        static constexpr u32 TEX_DIFFUSE = 0;         // Primary diffuse/albedo texture
+        static constexpr u32 TEX_SPECULAR = 1;        // Specular/metallic texture
+        static constexpr u32 TEX_NORMAL = 2;          // Normal map
+        static constexpr u32 TEX_HEIGHT = 3;          // Height/displacement map
+        static constexpr u32 TEX_AMBIENT = 4;         // Ambient occlusion
+        static constexpr u32 TEX_EMISSIVE = 5;        // Emissive map
+        static constexpr u32 TEX_ROUGHNESS = 6;       // Roughness map
+        static constexpr u32 TEX_METALLIC = 7;        // Metallic map
+        static constexpr u32 TEX_SHADOW = 8;          // Shadow map (CSM, sampler2DArrayShadow)
+        static constexpr u32 TEX_ENVIRONMENT = 9;     // Environment/skybox
+        static constexpr u32 TEX_USER_0 = 10;         // User-defined texture 0
+        static constexpr u32 TEX_USER_1 = 11;         // User-defined texture 1
+        static constexpr u32 TEX_USER_2 = 12;         // User-defined texture 2
+        static constexpr u32 TEX_SHADOW_SPOT = 13;    // Spot light shadow map (sampler2DArrayShadow)
+        static constexpr u32 TEX_SHADOW_POINT_0 = 14; // Point light shadow cubemap 0
+        static constexpr u32 TEX_SHADOW_POINT_1 = 15; // Point light shadow cubemap 1
+        static constexpr u32 TEX_SHADOW_POINT_2 = 16; // Point light shadow cubemap 2
+        static constexpr u32 TEX_SHADOW_POINT_3 = 17; // Point light shadow cubemap 3
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
@@ -256,6 +287,7 @@ namespace OloEngine
         using ModelUBO = UBOStructures::ModelUBO;
         using AnimationUBO = UBOStructures::AnimationUBO;
         using IBLParametersUBO = UBOStructures::IBLParametersUBO;
+        using ShadowUBO = UBOStructures::ShadowUBO;
 
         // =============================================================================
         // GLSL LAYOUT STRINGS FOR CODE GENERATION
@@ -401,6 +433,26 @@ layout(binding = 9) uniform samplerCube u_EnvironmentMap;
 layout(binding = 10) uniform samplerCube u_IrradianceMap;
 layout(binding = 11) uniform samplerCube u_PrefilterMap;
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;)";
+        }
+
+        static const char* GetShadowUBOLayout()
+        {
+            return R"(
+layout(std140, binding = 6) uniform ShadowData {
+    mat4 u_DirectionalLightSpaceMatrices[4];
+    vec4 u_CascadePlaneDistances;
+    vec4 u_ShadowParams;  // x=bias, y=normalBias, z=softness, w=maxShadowDistance
+    mat4 u_SpotLightSpaceMatrices[4];
+    vec4 u_PointLightShadowParams[4]; // xyz=position, w=farPlane
+    int u_DirectionalShadowEnabled;
+    int u_SpotShadowCount;
+    int u_PointShadowCount;
+    int u_ShadowMapResolution;
+    int u_CascadeDebugEnabled;
+    int _shadowPad0;
+    int _shadowPad1;
+    int _shadowPad2;
+};)";
         }
     };
 } // namespace OloEngine

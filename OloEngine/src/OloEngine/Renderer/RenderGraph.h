@@ -22,8 +22,13 @@ namespace OloEngine
 
         // Only support RenderPass
         void AddPass(const Ref<RenderPass>& pass);
-        // Connect two passes in the graph
+        // Connect two passes: establishes execution ordering AND framebuffer piping
         void ConnectPass(const std::string& outputPass, const std::string& inputPass);
+
+        // Add an execution-ordering dependency without framebuffer piping.
+        // Use this when the upstream pass produces outputs consumed via texture bindings
+        // rather than framebuffer attachments (e.g., shadow maps).
+        void AddExecutionDependency(const std::string& beforePass, const std::string& afterPass);
 
         // Execute all passes in the correct order
         void Execute();
@@ -65,8 +70,8 @@ namespace OloEngine
         void ResolveFinalPass();
 
         std::unordered_map<std::string, Ref<RenderPass>> m_PassLookup;
-        std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;
-        std::unordered_map<std::string, std::vector<std::string>> m_DependentPasses;
+        std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;           // Execution ordering
+        std::unordered_map<std::string, std::vector<std::string>> m_FramebufferConnections; // Framebuffer piping
         std::vector<std::string> m_PassOrder;
         std::string m_FinalPassName;
         bool m_DependencyGraphDirty = false;

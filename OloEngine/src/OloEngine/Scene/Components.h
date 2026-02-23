@@ -374,6 +374,13 @@ namespace OloEngine
         f32 m_Intensity = 1.0f;
         bool m_CastShadows = true;
 
+        // Shadow settings
+        f32 m_ShadowBias = 0.005f;
+        f32 m_ShadowNormalBias = 0.01f;
+        f32 m_MaxShadowDistance = 200.0f;
+        f32 m_CascadeSplitLambda = 0.5f;
+        bool m_CascadeDebugVisualization = false;
+
         DirectionalLightComponent() = default;
         DirectionalLightComponent(const DirectionalLightComponent&) = default;
     };
@@ -385,6 +392,10 @@ namespace OloEngine
         f32 m_Range = 10.0f;      // Falloff range
         f32 m_Attenuation = 2.0f; // Attenuation power
         bool m_CastShadows = false;
+
+        // Shadow settings
+        f32 m_ShadowBias = 0.005f;
+        f32 m_ShadowNormalBias = 0.01f;
 
         PointLightComponent() = default;
         PointLightComponent(const PointLightComponent&) = default;
@@ -400,6 +411,10 @@ namespace OloEngine
         f32 m_OuterCutoff = 17.5f; // Outer cone angle in degrees
         f32 m_Attenuation = 2.0f;
         bool m_CastShadows = false;
+
+        // Shadow settings
+        f32 m_ShadowBias = 0.005f;
+        f32 m_ShadowNormalBias = 0.01f;
 
         SpotLightComponent() = default;
         SpotLightComponent(const SpotLightComponent&) = default;

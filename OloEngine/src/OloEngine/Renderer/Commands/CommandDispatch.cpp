@@ -115,6 +115,11 @@ namespace OloEngine
         u32 CurrentBoundShaderID = 0;
         std::array<u32, 32> BoundTextureIDs = { 0 };
 
+        // Shadow texture renderer IDs (set per-frame)
+        u32 CSMShadowTextureID = 0;
+        u32 SpotShadowTextureID = 0;
+        std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> PointShadowTextureIDs = { 0 };
+
         CommandDispatch::Statistics Stats;
     };
 
@@ -205,6 +210,9 @@ namespace OloEngine
     {
         s_Data.CurrentBoundShaderID = 0;
         s_Data.BoundTextureIDs.fill(0);
+        s_Data.CSMShadowTextureID = 0;
+        s_Data.SpotShadowTextureID = 0;
+        s_Data.PointShadowTextureIDs.fill(0);
         s_Data.Stats.Reset();
     }
 
@@ -236,6 +244,17 @@ namespace OloEngine
     void CommandDispatch::SetViewPosition(const glm::vec3& viewPos)
     {
         s_Data.ViewPos = viewPos;
+    }
+
+    void CommandDispatch::SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID)
+    {
+        s_Data.CSMShadowTextureID = csmTextureID;
+        s_Data.SpotShadowTextureID = spotTextureID;
+    }
+
+    void CommandDispatch::SetPointShadowTextureIDs(const std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS>& pointTextureIDs)
+    {
+        s_Data.PointShadowTextureIDs = pointTextureIDs;
     }
 
     CommandDispatch::Statistics& CommandDispatch::GetStatistics()
@@ -537,7 +556,7 @@ namespace OloEngine
         {
             glUseProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
-            s_Data.Stats.ShaderBinds++;
+            ++s_Data.Stats.ShaderBinds;
         }
 
         ShaderBindingLayout::CameraUBO cameraData;
@@ -654,7 +673,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_DIFFUSE);
                     glBindTexture(GL_TEXTURE_2D, cmd->albedoMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->albedoMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
 
@@ -665,7 +684,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_SPECULAR);
                     glBindTexture(GL_TEXTURE_2D, cmd->metallicRoughnessMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = cmd->metallicRoughnessMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
 
@@ -676,7 +695,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_NORMAL);
                     glBindTexture(GL_TEXTURE_2D, cmd->normalMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] = cmd->normalMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
 
@@ -687,7 +706,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_AMBIENT);
                     glBindTexture(GL_TEXTURE_2D, cmd->aoMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] = cmd->aoMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
 
@@ -698,7 +717,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_EMISSIVE);
                     glBindTexture(GL_TEXTURE_2D, cmd->emissiveMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] = cmd->emissiveMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
 
@@ -709,7 +728,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_ENVIRONMENT);
                     glBindTexture(GL_TEXTURE_CUBE_MAP, cmd->environmentMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] = cmd->environmentMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
 
@@ -720,7 +739,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_0);
                     glBindTexture(GL_TEXTURE_CUBE_MAP, cmd->irradianceMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = cmd->irradianceMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
 
@@ -731,7 +750,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_1);
                     glBindTexture(GL_TEXTURE_CUBE_MAP, cmd->prefilterMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] = cmd->prefilterMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
 
@@ -742,7 +761,47 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_2);
                     glBindTexture(GL_TEXTURE_2D, cmd->brdfLutMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] = cmd->brdfLutMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            // Bind shadow map textures (CSM at TEX_SHADOW, spot at TEX_SHADOW_SPOT)
+            if (s_Data.CSMShadowTextureID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] != s_Data.CSMShadowTextureID)
+                {
+                    glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] = s_Data.CSMShadowTextureID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+            if (s_Data.SpotShadowTextureID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] != s_Data.SpotShadowTextureID)
+                {
+                    glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] = s_Data.SpotShadowTextureID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            // Bind point light shadow cubemaps (TEX_SHADOW_POINT_0 .. TEX_SHADOW_POINT_3)
+            static constexpr std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> pointSlots = {
+                ShaderBindingLayout::TEX_SHADOW_POINT_0,
+                ShaderBindingLayout::TEX_SHADOW_POINT_1,
+                ShaderBindingLayout::TEX_SHADOW_POINT_2,
+                ShaderBindingLayout::TEX_SHADOW_POINT_3
+            };
+            for (u32 i = 0; i < UBOStructures::ShadowUBO::MAX_POINT_SHADOWS; ++i)
+            {
+                if (s_Data.PointShadowTextureIDs[i] != 0)
+                {
+                    if (s_Data.BoundTextureIDs[pointSlots[i]] != s_Data.PointShadowTextureIDs[i])
+                    {
+                        glBindTextureUnit(pointSlots[i], s_Data.PointShadowTextureIDs[i]);
+                        s_Data.BoundTextureIDs[pointSlots[i]] = s_Data.PointShadowTextureIDs[i];
+                        ++s_Data.Stats.TextureBinds;
+                    }
                 }
             }
         }
@@ -756,7 +815,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_DIFFUSE);
                     glBindTexture(GL_TEXTURE_2D, cmd->diffuseMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->diffuseMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
 
@@ -767,7 +826,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_SPECULAR);
                     glBindTexture(GL_TEXTURE_2D, cmd->specularMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = cmd->specularMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
         }
@@ -803,7 +862,7 @@ namespace OloEngine
 
         // Bind VAO and draw using renderer ID directly
         glBindVertexArray(cmd->vertexArrayID);
-        s_Data.Stats.DrawCalls++;
+        ++s_Data.Stats.DrawCalls;
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
     }
 
@@ -827,7 +886,7 @@ namespace OloEngine
         {
             glUseProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
-            s_Data.Stats.ShaderBinds++;
+            ++s_Data.Stats.ShaderBinds;
         }
 
         // Update material UBO
@@ -890,7 +949,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_DIFFUSE);
                     glBindTexture(GL_TEXTURE_2D, cmd->diffuseMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->diffuseMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
 
@@ -901,7 +960,7 @@ namespace OloEngine
                     glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_SPECULAR);
                     glBindTexture(GL_TEXTURE_2D, cmd->specularMapID);
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = cmd->specularMapID;
-                    s_Data.Stats.TextureBinds++;
+                    ++s_Data.Stats.TextureBinds;
                 }
             }
         }
@@ -914,7 +973,7 @@ namespace OloEngine
 
         // Bind VAO and draw using renderer ID directly
         glBindVertexArray(cmd->vertexArrayID);
-        s_Data.Stats.DrawCalls++;
+        ++s_Data.Stats.DrawCalls;
         glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(instanceCount));
     }
 
@@ -939,7 +998,7 @@ namespace OloEngine
         {
             glUseProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
-            s_Data.Stats.ShaderBinds++;
+            ++s_Data.Stats.ShaderBinds;
         }
 
         // Bind skybox cubemap texture using renderer ID directly
@@ -948,7 +1007,7 @@ namespace OloEngine
             glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_ENVIRONMENT);
             glBindTexture(GL_TEXTURE_CUBE_MAP, cmd->skyboxTextureID);
             s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] = cmd->skyboxTextureID;
-            s_Data.Stats.TextureBinds++;
+            ++s_Data.Stats.TextureBinds;
         }
 
         // Bind vertex array and draw using renderer ID directly
@@ -956,7 +1015,7 @@ namespace OloEngine
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
 
         // Update statistics
-        s_Data.Stats.DrawCalls++;
+        ++s_Data.Stats.DrawCalls;
     }
 
     void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
@@ -986,7 +1045,7 @@ namespace OloEngine
         {
             glUseProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
-            s_Data.Stats.ShaderBinds++;
+            ++s_Data.Stats.ShaderBinds;
         }
 
         // Update model matrix UBO
@@ -1013,12 +1072,12 @@ namespace OloEngine
             glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_DIFFUSE);
             glBindTexture(GL_TEXTURE_2D, cmd->textureID);
             s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->textureID;
-            s_Data.Stats.TextureBinds++;
+            ++s_Data.Stats.TextureBinds;
         }
 
         // Bind VAO and draw using renderer ID directly
         glBindVertexArray(cmd->quadVAID);
-        s_Data.Stats.DrawCalls++;
+        ++s_Data.Stats.DrawCalls;
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
     }
 
@@ -1043,7 +1102,7 @@ namespace OloEngine
         {
             glUseProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
-            s_Data.Stats.ShaderBinds++;
+            ++s_Data.Stats.ShaderBinds;
         }
 
         // Note: Grid shader typically reads view/projection from Camera UBO
@@ -1060,6 +1119,6 @@ namespace OloEngine
         glBindVertexArray(cmd->quadVAOID);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
-        s_Data.Stats.DrawCalls++;
+        ++s_Data.Stats.DrawCalls;
     }
 } // namespace OloEngine

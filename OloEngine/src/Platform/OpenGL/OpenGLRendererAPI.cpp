@@ -62,6 +62,38 @@ namespace OloEngine
         glClear(clearFlags);
     }
 
+    void OpenGLRendererAPI::ClearDepthOnly()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Ensure depth writes are enabled before clearing, otherwise glClear silently no-ops
+        if (!m_DepthMaskEnabled)
+        {
+            glDepthMask(GL_TRUE);
+        }
+
+        glClear(GL_DEPTH_BUFFER_BIT);
+
+        if (!m_DepthMaskEnabled)
+        {
+            glDepthMask(GL_FALSE);
+        }
+    }
+
+    Viewport OpenGLRendererAPI::GetViewport() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLint vp[4];
+        glGetIntegerv(GL_VIEWPORT, vp);
+        return {
+            static_cast<u32>(std::max(vp[0], 0)),
+            static_cast<u32>(std::max(vp[1], 0)),
+            static_cast<u32>(std::max(vp[2], 0)),
+            static_cast<u32>(std::max(vp[3], 0))
+        };
+    }
+
     void OpenGLRendererAPI::DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount)
     {
         OLO_PROFILE_FUNCTION();
@@ -153,6 +185,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (m_DepthMaskEnabled != value)
+        {
+            RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+        }
+
+        m_DepthMaskEnabled = value;
         glDepthMask(value);
     }
     void OpenGLRendererAPI::SetDepthTest(bool value)
@@ -330,8 +368,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        glActiveTexture(GL_TEXTURE0 + slot);
-        glBindTexture(GL_TEXTURE_2D, textureID);
+        glBindTextureUnit(slot, textureID);
     }
 
     void OpenGLRendererAPI::DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
