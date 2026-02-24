@@ -239,7 +239,7 @@ void main()
 
     // Normalize and apply intensity
     occlusion /= float(numSlices);
-    float ao = clamp(occlusion * u_Intensity, 0.0, 1.0);
+    float ao = clamp(occlusion, 0.0, 1.0);
 
     o_Color = vec4(ao, 0.0, 0.0, 1.0);
 }

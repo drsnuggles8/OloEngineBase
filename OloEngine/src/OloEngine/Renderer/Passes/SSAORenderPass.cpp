@@ -14,6 +14,14 @@ namespace OloEngine
         SetName("SSAOPass");
     }
 
+    SSAORenderPass::~SSAORenderPass()
+    {
+        if (m_NoiseTexture != 0)
+        {
+            glDeleteTextures(1, &m_NoiseTexture);
+        }
+    }
+
     void SSAORenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
@@ -88,6 +96,8 @@ namespace OloEngine
 
     void SSAORenderPass::CreateNoiseTexture()
     {
+        OLO_PROFILE_FUNCTION();
+
         // Generate 4x4 random rotation vectors in tangent space (xy rotation, z=0)
         std::mt19937 gen(42); // Fixed seed for deterministic noise
         std::uniform_real_distribution<f32> dist(-1.0f, 1.0f);
@@ -95,7 +105,9 @@ namespace OloEngine
         std::array<glm::vec2, 16> noise;
         for (auto& n : noise)
         {
-            n = glm::normalize(glm::vec2(dist(gen), dist(gen)));
+            glm::vec2 v(dist(gen), dist(gen));
+            f32 len = glm::length(v);
+            n = (len > 1e-6f) ? v / len : glm::vec2(1.0f, 0.0f);
         }
 
         glCreateTextures(GL_TEXTURE_2D, 1, &m_NoiseTexture);
@@ -111,7 +123,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Settings.SSAOEnabled || !m_SceneFramebuffer || !m_SSAOShader || !m_SSAOBlurShader)
+        if (!m_Settings.SSAOEnabled || !m_SceneFramebuffer || !m_SSAOShader || !m_SSAOBlurShader || !m_SSAOFramebuffer || !m_BlurFramebuffer || !m_FullscreenTriangleVA)
         {
             return;
         }

@@ -13,7 +13,7 @@ namespace OloEngine
     {
       public:
         SSAORenderPass();
-        ~SSAORenderPass() override = default;
+        ~SSAORenderPass() override;
 
         void Init(const FramebufferSpecification& spec) override;
         void Execute() override;

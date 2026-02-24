@@ -59,7 +59,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_View;
     mat4 u_Projection;
     vec3 u_CameraPosition;
-    float _cameraPad0;
+    float _padding0;
 };
 
 layout(std140, binding = 3) uniform ModelMatrices {

@@ -1326,6 +1326,12 @@ namespace OloEngine
             out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
             out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
             out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
+            out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
+            out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
+            out << YAML::Key << "SSAOBias" << YAML::Value << pp.SSAOBias;
+            out << YAML::Key << "SSAOIntensity" << YAML::Value << pp.SSAOIntensity;
+            out << YAML::Key << "SSAOSamples" << YAML::Value << pp.SSAOSamples;
+            out << YAML::Key << "SSAODebugView" << YAML::Value << pp.SSAODebugView;
         }
         out << YAML::EndMap;
 
