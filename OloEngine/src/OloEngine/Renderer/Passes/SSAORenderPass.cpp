@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include <array>
 #include <random>
 
 namespace OloEngine
