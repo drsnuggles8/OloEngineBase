@@ -166,6 +166,9 @@ namespace OloEngine
         u32 rawSSAOID = m_SSAOFramebuffer->GetColorAttachmentRendererID(0);
         RenderCommand::BindTexture(0, rawSSAOID);
 
+        // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19) for bilateral edge detection
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+
         DrawFullscreenTriangle();
         m_BlurFramebuffer->Unbind();
 

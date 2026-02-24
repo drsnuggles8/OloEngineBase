@@ -197,6 +197,7 @@ namespace OloEngine
                 ImGui::DragFloat("Bias##SSAO", &settings.SSAOBias, 0.001f, 0.0f, 0.1f, "%.3f");
                 ImGui::DragFloat("Intensity##SSAO", &settings.SSAOIntensity, 0.01f, 0.0f, 3.0f, "%.2f");
                 ImGui::SliderInt("Samples##SSAO", &settings.SSAOSamples, 4, 64);
+                ImGui::Checkbox("Show AO Only##SSAO", &settings.SSAODebugView);
             }
 
             ImGui::Unindent();

@@ -58,6 +58,7 @@ namespace OloEngine
         f32 SSAOBias = 0.025f;
         f32 SSAOIntensity = 1.0f;
         i32 SSAOSamples = 32;
+        bool SSAODebugView = false;
     };
 
     // GPU-side UBO layout for post-process parameters (std140, binding 7)
@@ -111,7 +112,7 @@ namespace OloEngine
 
         i32 ScreenWidth = 0;
         i32 ScreenHeight = 0;
-        f32 _pad0 = 0.0f;
+        i32 DebugView = 0;
         f32 _pad1 = 0.0f;
 
         glm::mat4 Projection = glm::mat4(1.0f);

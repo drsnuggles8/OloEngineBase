@@ -481,6 +481,7 @@ namespace OloEngine
             // Upload projection matrices for SSAO position reconstruction
             s_Data.SSAOGPUData.Projection = s_Data.ProjectionMatrix;
             s_Data.SSAOGPUData.InverseProjection = glm::inverse(s_Data.ProjectionMatrix);
+            s_Data.SSAOGPUData.DebugView = s_Data.PostProcess.SSAODebugView ? 1 : 0;
         }
         if (s_Data.PostProcessPass)
         {
@@ -1674,7 +1675,7 @@ namespace OloEngine
         scenePassSpec.Attachments = {
             FramebufferTextureFormat::RGBA16F,     // [0] HDR color output
             FramebufferTextureFormat::RED_INTEGER,  // [1] Entity ID attachment
-            FramebufferTextureFormat::RGBA16F,     // [2] View-space normals (G-buffer for SSAO)
+            FramebufferTextureFormat::RG16F,       // [2] View-space normals (octahedral encoded for SSAO)
             FramebufferTextureFormat::Depth
         };
 

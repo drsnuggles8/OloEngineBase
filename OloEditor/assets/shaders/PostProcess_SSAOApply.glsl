@@ -28,7 +28,7 @@ layout(binding = 0) uniform sampler2D u_Texture;
 // Blurred SSAO result (R channel = AO value, 0 = full occlusion, 1 = no occlusion)
 layout(binding = 20) uniform sampler2D u_SSAOTexture;
 
-// SSAO UBO (binding 9) — we read intensity from here
+// SSAO UBO (binding 9) — we read intensity and debug flag from here
 layout(std140, binding = 9) uniform SSAOUBO
 {
     float u_Radius;
@@ -38,7 +38,7 @@ layout(std140, binding = 9) uniform SSAOUBO
 
     int   u_ScreenWidth;
     int   u_ScreenHeight;
-    float _pad0;
+    int   u_DebugView;
     float _pad1;
 
     mat4  u_Projection;
@@ -49,6 +49,13 @@ void main()
 {
     vec3 sceneColor = texture(u_Texture, v_TexCoord).rgb;
     float ao = texture(u_SSAOTexture, v_TexCoord).r;
+
+    if (u_DebugView != 0)
+    {
+        // Debug: show raw AO as grayscale
+        o_Color = vec4(vec3(ao), 1.0);
+        return;
+    }
 
     // Mix between full color and AO-modulated color based on intensity
     vec3 result = sceneColor * mix(1.0, ao, u_Intensity);

@@ -15,9 +15,9 @@ void main()
 #type fragment
 #version 460 core
 
-// SSAO — Screen-Space Ambient Occlusion
-// Uses G-buffer view-space normals and depth to compute per-pixel occlusion.
-// Hemisphere sampling with random kernel + noise texture rotation.
+// GTAO — Ground Truth Ambient Occlusion
+// Horizon-based screen-space AO using G-buffer normals (octahedral encoded in RG16F).
+// Based on Jimenez et al. "Practical Real-Time Strategies for Accurate Indirect Occlusion" (2016).
 
 layout(location = 0) out vec4 o_Color;
 
@@ -26,7 +26,7 @@ layout(location = 0) in vec2 v_TexCoord;
 // Scene depth (from ScenePass)
 layout(binding = 19) uniform sampler2D u_DepthTexture;
 
-// View-space normals (from ScenePass G-buffer, attachment 2)
+// View-space normals (from ScenePass G-buffer, octahedral encoded in RG16F, attachment 2)
 layout(binding = 22) uniform sampler2D u_NormalsTexture;
 
 // 4x4 random rotation noise texture
@@ -42,56 +42,66 @@ layout(std140, binding = 9) uniform SSAOUBO
 
     int   u_ScreenWidth;
     int   u_ScreenHeight;
-    float _pad0;
+    int   u_DebugView;
     float _pad1;
 
     mat4  u_Projection;
     mat4  u_InverseProjection;
 };
 
+const float PI = 3.14159265359;
+const float HALF_PI = 1.57079632679;
+
+// Octahedral decode: RG16F [-1,1]² → unit normal on sphere
+vec3 octDecode(vec2 f)
+{
+    vec3 n = vec3(f.xy, 1.0 - abs(f.x) - abs(f.y));
+    float t = max(-n.z, 0.0);
+    n.x += (n.x >= 0.0) ? -t : t;
+    n.y += (n.y >= 0.0) ? -t : t;
+    return normalize(n);
+}
+
 // Reconstruct view-space position from depth and screen UV
 vec3 reconstructViewPos(vec2 uv, float depth)
 {
-    // Convert to NDC
     vec4 clipPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 viewPos = u_InverseProjection * clipPos;
     return viewPos.xyz / viewPos.w;
 }
 
-// Hash function for generating sample kernel in-shader
-// Based on interleaved gradient noise pattern
-float interleavedGradientNoise(vec2 coord)
+// Interleaved gradient noise for per-pixel jitter (Jorge Jimenez, 2014)
+float interleavedGradientNoise(vec2 pixelCoord)
 {
     vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
-    return fract(magic.z * fract(dot(coord, magic.xy)));
+    return fract(magic.z * fract(dot(pixelCoord, magic.xy)));
 }
 
-// Cosine-weighted hemisphere sample distribution
-vec3 hemisphereSample(int index, int totalSamples)
+// Compute the inverse of the projected radius in screen pixels at given view depth
+float projectedRadiusInPixels(float viewZ)
 {
-    // Use Hammersley sequence for well-distributed points
-    float i = float(index);
-    float n = float(totalSamples);
+    // u_Projection[1][1] is the Y scale factor (1 / tan(fov/2))
+    return (u_Radius * u_Projection[1][1] * float(u_ScreenHeight)) / (2.0 * abs(viewZ));
+}
 
-    // Van der Corput radical inverse
-    uint bits = uint(index);
-    bits = (bits << 16u) | (bits >> 16u);
-    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
-    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
-    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
-    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
-    float radicalInverse = float(bits) * 2.3283064365386963e-10;
+// Fast atan approximation for horizon angle computation
+float fastAcos(float x)
+{
+    // Polynomial approximation (max error ~0.02 rad)
+    float ax = abs(x);
+    float res = -0.156583 * ax + HALF_PI;
+    res *= sqrt(1.0 - ax);
+    return (x >= 0.0) ? res : PI - res;
+}
 
-    float phi = radicalInverse * 2.0 * 3.14159265;
-    float cosTheta = 1.0 - i / n; // Cosine-weighted
-    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-
-    // Scale so samples are distributed within the hemisphere,
-    // with more samples near the origin (closer samples contribute more)
-    float scale = (i + 1.0) / n;
-    scale = mix(0.1, 1.0, scale * scale); // Accelerating interpolation
-
-    return vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta) * scale;
+// Integrate the cosine-weighted visible angle for a single horizon slice
+// n_dot_v: dot(normal, viewDir), sinN/cosN: sin/cos of normal projected angle in slice
+float integrateArc(float h1, float h2, float sinN, float cosN)
+{
+    // Integrated form of cos(theta - n) over [h1, h2]
+    float a1 = -cos(2.0 * h1 - acos(cosN)) + cosN + 2.0 * h1 * sinN;
+    float a2 = -cos(2.0 * h2 - acos(cosN)) + cosN + 2.0 * h2 * sinN;
+    return 0.25 * (a1 + a2);
 }
 
 void main()
@@ -105,61 +115,131 @@ void main()
         return;
     }
 
-    // Reconstruct view-space position and read view-space normal
-    vec3 fragPos = reconstructViewPos(v_TexCoord, depth);
-    vec3 normal = normalize(texture(u_NormalsTexture, v_TexCoord).xyz);
-
-    // If normal is zero (particles, 2D quads, etc.), no occlusion
-    if (dot(normal, normal) < 0.01)
+    // Read octahedral-encoded normal — sentinel value (-2,-2) means "no normal"
+    vec2 encodedNormal = texture(u_NormalsTexture, v_TexCoord).rg;
+    if (encodedNormal.x < -1.5)
     {
         o_Color = vec4(1.0, 0.0, 0.0, 1.0);
         return;
     }
 
-    // Sample noise for random rotation (tile 4x4 across screen)
-    vec2 noiseScale = vec2(float(u_ScreenWidth) / 4.0, float(u_ScreenHeight) / 4.0);
-    vec2 noiseVec = texture(u_NoiseTexture, v_TexCoord * noiseScale).rg;
+    // Reconstruct view-space position and decode normal
+    vec3 viewPos = reconstructViewPos(v_TexCoord, depth);
+    vec3 viewNormal = octDecode(encodedNormal);
+    vec3 viewDir = normalize(-viewPos);
 
-    // Construct TBN matrix from noise rotation and surface normal
-    vec3 tangent = normalize(noiseVec.x * vec3(1.0, 0.0, 0.0) + noiseVec.y * vec3(0.0, 1.0, 0.0));
-    tangent = normalize(tangent - normal * dot(tangent, normal)); // Gram-Schmidt orthogonalize
-    vec3 bitangent = cross(normal, tangent);
-    mat3 TBN = mat3(tangent, bitangent, normal);
-
-    // Accumulate occlusion
-    float occlusion = 0.0;
-    int sampleCount = clamp(u_Samples, 4, 64);
-
-    for (int i = 0; i < sampleCount; ++i)
+    // Compute projected radius in pixels — clamp to avoid oversampling
+    float radiusPixels = projectedRadiusInPixels(viewPos.z);
+    if (radiusPixels < 1.0)
     {
-        // Get sample position in hemisphere
-        vec3 sampleDir = TBN * hemisphereSample(i, sampleCount);
-        vec3 samplePos = fragPos + sampleDir * u_Radius;
+        o_Color = vec4(1.0, 0.0, 0.0, 1.0);
+        return;
+    }
+    radiusPixels = min(radiusPixels, 256.0);
 
-        // Project sample to screen space
-        vec4 offset = u_Projection * vec4(samplePos, 1.0);
-        offset.xyz /= offset.w;
-        offset.xy = offset.xy * 0.5 + 0.5; // NDC to [0, 1]
+    // Per-pixel noise rotation and spatial jitter
+    vec2 pixelCoord = v_TexCoord * vec2(float(u_ScreenWidth), float(u_ScreenHeight));
+    vec2 noiseVec = texture(u_NoiseTexture, pixelCoord / 4.0).rg;
+    float noiseAngle = noiseVec.x * PI;
+    float noiseOffset = noiseVec.y;
 
-        // Skip out-of-bounds samples
-        if (offset.x < 0.0 || offset.x > 1.0 || offset.y < 0.0 || offset.y > 1.0)
+    // Number of direction slices and steps per slice
+    int numSlices = clamp(u_Samples / 4, 2, 16);
+    int stepsPerSlice = clamp(u_Samples / numSlices, 2, 16);
+
+    vec2 texelSize = 1.0 / vec2(float(u_ScreenWidth), float(u_ScreenHeight));
+
+    float occlusion = 0.0;
+
+    for (int slice = 0; slice < numSlices; ++slice)
+    {
+        // Direction angle for this slice, rotated by per-pixel noise
+        float phi = (PI / float(numSlices)) * (float(slice) + noiseOffset) + noiseAngle;
+        vec2 dir = vec2(cos(phi), sin(phi));
+        vec2 stepDir = dir * texelSize;
+
+        // Project the normal onto the slice plane to get the normal's angle in this slice
+        // sliceDir in view space (approximate: we use screen-space direction mapped to view)
+        vec3 sliceDirVS = vec3(dir.x, dir.y, 0.0);
+        vec3 orthoDir = normalize(cross(sliceDirVS, vec3(0.0, 0.0, 1.0)));
+        vec3 projNormal = viewNormal - orthoDir * dot(viewNormal, orthoDir);
+        float projNormalLen = length(projNormal);
+
+        // The angle of the projected normal relative to the view direction in the slice plane
+        float cosNormalAngle = clamp(dot(normalize(projNormal), viewDir), -1.0, 1.0);
+        float normalAngle = -sign(dot(projNormal, sliceDirVS)) * fastAcos(cosNormalAngle);
+        float sinN = sin(normalAngle);
+        float cosN = cos(normalAngle);
+
+        // March in both directions along the slice to find max horizon angles
+        float h1 = -HALF_PI; // Horizon angle in negative direction
+        float h2 = -HALF_PI; // Horizon angle in positive direction
+
+        for (int step = 1; step <= stepsPerSlice; ++step)
         {
-            continue;
+            float stepScale = (float(step) + noiseOffset * 0.5) / float(stepsPerSlice);
+            float marchPixels = stepScale * radiusPixels;
+
+            // Positive direction
+            {
+                vec2 sampleUV = v_TexCoord + stepDir * marchPixels;
+                if (sampleUV.x >= 0.0 && sampleUV.x <= 1.0 && sampleUV.y >= 0.0 && sampleUV.y <= 1.0)
+                {
+                    float sampleDepth = texture(u_DepthTexture, sampleUV).r;
+                    if (sampleDepth < 1.0)
+                    {
+                        vec3 samplePos = reconstructViewPos(sampleUV, sampleDepth);
+                        vec3 horizonVec = samplePos - viewPos;
+                        float horizonLen = length(horizonVec);
+                        if (horizonLen > 0.001)
+                        {
+                            float angle = atan(horizonVec.z / max(length(horizonVec.xy), 0.0001));
+                            // Apply thickness bias to prevent self-occlusion
+                            angle -= u_Bias;
+                            // Range attenuation: reduce contribution for distant samples
+                            float rangeAtten = 1.0 - smoothstep(u_Radius * 0.8, u_Radius, horizonLen);
+                            // Keep maximum horizon angle (weighted by attenuation)
+                            h2 = max(h2, mix(h2, angle, rangeAtten));
+                        }
+                    }
+                }
+            }
+
+            // Negative direction
+            {
+                vec2 sampleUV = v_TexCoord - stepDir * marchPixels;
+                if (sampleUV.x >= 0.0 && sampleUV.x <= 1.0 && sampleUV.y >= 0.0 && sampleUV.y <= 1.0)
+                {
+                    float sampleDepth = texture(u_DepthTexture, sampleUV).r;
+                    if (sampleDepth < 1.0)
+                    {
+                        vec3 samplePos = reconstructViewPos(sampleUV, sampleDepth);
+                        vec3 horizonVec = samplePos - viewPos;
+                        float horizonLen = length(horizonVec);
+                        if (horizonLen > 0.001)
+                        {
+                            float angle = atan(horizonVec.z / max(length(horizonVec.xy), 0.0001));
+                            angle -= u_Bias;
+                            float rangeAtten = 1.0 - smoothstep(u_Radius * 0.8, u_Radius, horizonLen);
+                            h1 = max(h1, mix(h1, angle, rangeAtten));
+                        }
+                    }
+                }
+            }
         }
 
-        // Sample scene depth at projected position
-        float sampleDepth = texture(u_DepthTexture, offset.xy).r;
-        vec3 sampleViewPos = reconstructViewPos(offset.xy, sampleDepth);
+        // Clamp horizon angles to hemisphere
+        h1 = clamp(h1, -HALF_PI, HALF_PI);
+        h2 = clamp(h2, -HALF_PI, HALF_PI);
 
-        // Range check: only occlude if the sampled geometry is within radius
-        float rangeCheck = smoothstep(0.0, 1.0, u_Radius / abs(fragPos.z - sampleViewPos.z));
-
-        // Compare: if the geometry at the sample is closer than our sample point, it occludes
-        occlusion += (sampleViewPos.z >= samplePos.z + u_Bias ? 1.0 : 0.0) * rangeCheck;
+        // Integrate visibility over the arc defined by the two horizon angles
+        float sliceAO = integrateArc(h1, h2, sinN, cosN);
+        occlusion += sliceAO * projNormalLen;
     }
 
-    float ao = 1.0 - (occlusion / float(sampleCount)) * u_Intensity;
-    ao = clamp(ao, 0.0, 1.0);
+    // Normalize and apply intensity
+    occlusion /= float(numSlices);
+    float ao = clamp(occlusion * u_Intensity, 0.0, 1.0);
 
     o_Color = vec4(ao, 0.0, 0.0, 1.0);
 }

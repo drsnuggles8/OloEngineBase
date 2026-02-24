@@ -75,7 +75,16 @@ layout(location = 2) in vec2 v_TexCoord;
 // Output
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
-layout(location = 2) out vec4 o_ViewNormal;
+layout(location = 2) out vec2 o_ViewNormal;
+
+// Octahedral encode: unit normal → RG16F [-1,1]²
+vec2 octEncode(vec3 n)
+{
+    n /= (abs(n.x) + abs(n.y) + abs(n.z));
+    if (n.z < 0.0)
+        n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+    return n.xy;
+}
 
 // Model UBO (binding 3) for entity ID access
 layout(std140, binding = 3) uniform ModelMatrices {
@@ -234,5 +243,5 @@ void main()
     // Output linear HDR color — tone mapping and gamma handled in post-process pass
     o_Color = vec4(color, u_BaseColorFactor.a);
     o_EntityID = u_EntityID;
-    o_ViewNormal = vec4(normalize(mat3(u_View) * N), 0.0);
+    o_ViewNormal = octEncode(normalize(mat3(u_View) * N));
 }
