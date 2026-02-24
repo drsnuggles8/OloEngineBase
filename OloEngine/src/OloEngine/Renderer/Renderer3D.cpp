@@ -1674,7 +1674,7 @@ namespace OloEngine
         scenePassSpec.Samples = 1;
         scenePassSpec.Attachments = {
             FramebufferTextureFormat::RGBA16F,     // [0] HDR color output
-            FramebufferTextureFormat::RED_INTEGER,  // [1] Entity ID attachment
+            FramebufferTextureFormat::RED_INTEGER, // [1] Entity ID attachment
             FramebufferTextureFormat::RG16F,       // [2] View-space normals (octahedral encoded for SSAO)
             FramebufferTextureFormat::Depth
         };

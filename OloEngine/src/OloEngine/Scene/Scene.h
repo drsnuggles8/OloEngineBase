@@ -202,7 +202,7 @@ namespace OloEngine
         bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
-        PostProcessSettings m_PostProcessSettings;                 // Post-processing settings
+        PostProcessSettings m_PostProcessSettings;             // Post-processing settings
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;

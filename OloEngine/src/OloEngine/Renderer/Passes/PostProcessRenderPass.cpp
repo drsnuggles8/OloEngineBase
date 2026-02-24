@@ -91,14 +91,7 @@ namespace OloEngine
         }
 
         // If no effects are enabled, skip — GetTarget() returns the input framebuffer directly
-        bool anyEffectEnabled = m_Settings.BloomEnabled
-                             || m_Settings.VignetteEnabled
-                             || m_Settings.ChromaticAberrationEnabled
-                             || m_Settings.FXAAEnabled
-                             || m_Settings.DOFEnabled
-                             || m_Settings.MotionBlurEnabled
-                             || m_Settings.ColorGradingEnabled
-                             || (m_Settings.SSAOEnabled && m_SSAOTextureID != 0);
+        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.ColorGradingEnabled || (m_Settings.SSAOEnabled && m_SSAOTextureID != 0);
 
         // Always run tone mapping if we have the shader (it's the core of post-processing)
         if (!anyEffectEnabled && !m_ToneMapShader)

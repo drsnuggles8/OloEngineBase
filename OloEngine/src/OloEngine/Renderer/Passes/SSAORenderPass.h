@@ -22,9 +22,19 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        void SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB) { m_SceneFramebuffer = sceneFB; }
-        void SetSettings(const PostProcessSettings& settings) { m_Settings = settings; }
-        void SetSSAOUBO(Ref<UniformBuffer> ubo, SSAOUBOData* gpuData) { m_SSAOUBO = ubo; m_GPUData = gpuData; }
+        void SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB)
+        {
+            m_SceneFramebuffer = sceneFB;
+        }
+        void SetSettings(const PostProcessSettings& settings)
+        {
+            m_Settings = settings;
+        }
+        void SetSSAOUBO(Ref<UniformBuffer> ubo, SSAOUBOData* gpuData)
+        {
+            m_SSAOUBO = ubo;
+            m_GPUData = gpuData;
+        }
 
         [[nodiscard]] u32 GetSSAOTextureID() const;
 

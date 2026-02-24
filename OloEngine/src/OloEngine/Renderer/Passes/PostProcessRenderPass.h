@@ -28,10 +28,23 @@ namespace OloEngine
         void OnReset() override;
 
         void SetInputFramebuffer(const Ref<Framebuffer>& input) override;
-        void SetSettings(const PostProcessSettings& settings) { m_Settings = settings; }
-        void SetSceneDepthFramebuffer(const Ref<Framebuffer>& sceneFB) { m_SceneDepthFB = sceneFB; }
-        void SetPostProcessUBO(Ref<UniformBuffer> ubo, PostProcessUBOData* gpuData) { m_PostProcessUBO = ubo; m_GPUData = gpuData; }
-        void SetSSAOTexture(u32 textureID) { m_SSAOTextureID = textureID; }
+        void SetSettings(const PostProcessSettings& settings)
+        {
+            m_Settings = settings;
+        }
+        void SetSceneDepthFramebuffer(const Ref<Framebuffer>& sceneFB)
+        {
+            m_SceneDepthFB = sceneFB;
+        }
+        void SetPostProcessUBO(Ref<UniformBuffer> ubo, PostProcessUBOData* gpuData)
+        {
+            m_PostProcessUBO = ubo;
+            m_GPUData = gpuData;
+        }
+        void SetSSAOTexture(u32 textureID)
+        {
+            m_SSAOTextureID = textureID;
+        }
 
       private:
         void CreatePingPongFramebuffers(u32 width, u32 height);

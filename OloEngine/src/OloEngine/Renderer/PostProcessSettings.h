@@ -64,7 +64,7 @@ namespace OloEngine
     // GPU-side UBO layout for post-process parameters (std140, binding 7)
     struct PostProcessUBOData
     {
-        i32 TonemapOperator = 1;   // Reinhard
+        i32 TonemapOperator = 1; // Reinhard
         f32 Exposure = 1.0f;
         f32 Gamma = 2.2f;
         f32 BloomThreshold = 1.0f;
@@ -90,7 +90,10 @@ namespace OloEngine
         f32 CameraNear = 0.1f;
         f32 CameraFar = 1000.0f;
 
-        static constexpr u32 GetSize() { return sizeof(PostProcessUBOData); }
+        static constexpr u32 GetSize()
+        {
+            return sizeof(PostProcessUBOData);
+        }
     };
 
     // GPU-side UBO layout for motion blur matrices (std140, binding 8)
@@ -99,7 +102,10 @@ namespace OloEngine
         glm::mat4 InverseViewProjection = glm::mat4(1.0f);
         glm::mat4 PrevViewProjection = glm::mat4(1.0f);
 
-        static constexpr u32 GetSize() { return sizeof(MotionBlurUBOData); }
+        static constexpr u32 GetSize()
+        {
+            return sizeof(MotionBlurUBOData);
+        }
     };
 
     // GPU-side UBO layout for SSAO parameters (std140, binding 9)
@@ -118,6 +124,9 @@ namespace OloEngine
         glm::mat4 Projection = glm::mat4(1.0f);
         glm::mat4 InverseProjection = glm::mat4(1.0f);
 
-        static constexpr u32 GetSize() { return sizeof(SSAOUBOData); }
+        static constexpr u32 GetSize()
+        {
+            return sizeof(SSAOUBOData);
+        }
     };
 } // namespace OloEngine
