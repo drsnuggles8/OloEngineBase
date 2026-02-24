@@ -33,9 +33,11 @@ layout(location = 1) in flat int v_EntityID;
 
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
+layout(location = 2) out vec2 o_ViewNormal;
 
 void main()
 {
     o_Color = v_Color;
     o_EntityID = v_EntityID;
+    o_ViewNormal = vec2(-2.0);
 }

@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
+#include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Core/Timestep.h"
@@ -558,6 +559,7 @@ namespace OloEngine
             Ref<UniformBuffer> ModelMatrixUBO;
             Ref<UniformBuffer> PostProcessUBO;
             Ref<UniformBuffer> MotionBlurUBO;
+            Ref<UniformBuffer> SSAOUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -584,6 +586,7 @@ namespace OloEngine
             Ref<RenderGraph> RGraph;
             Ref<ShadowRenderPass> ShadowPass;
             Ref<SceneRenderPass> ScenePass;
+            Ref<SSAORenderPass> SSAOPass;
             Ref<ParticleRenderPass> ParticlePass;
             Ref<PostProcessRenderPass> PostProcessPass;
             Ref<FinalRenderPass> FinalPass;
@@ -597,6 +600,7 @@ namespace OloEngine
             PostProcessSettings PostProcess;
             PostProcessUBOData PostProcessGPUData;
             MotionBlurUBOData MotionBlurGPUData;
+            SSAOUBOData SSAOGPUData;
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
 
             // Parallel submission state

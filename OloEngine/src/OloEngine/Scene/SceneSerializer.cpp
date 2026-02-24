@@ -1326,6 +1326,12 @@ namespace OloEngine
             out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
             out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
             out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
+            out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
+            out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
+            out << YAML::Key << "SSAOBias" << YAML::Value << pp.SSAOBias;
+            out << YAML::Key << "SSAOIntensity" << YAML::Value << pp.SSAOIntensity;
+            out << YAML::Key << "SSAOSamples" << YAML::Value << pp.SSAOSamples;
+            out << YAML::Key << "SSAODebugView" << YAML::Value << pp.SSAODebugView;
         }
         out << YAML::EndMap;
 
@@ -1400,6 +1406,12 @@ namespace OloEngine
             TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
             TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
             TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
+            TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
+            TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
+            TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
+            TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
+            TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
+            TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
         }
 
         if (const auto entities = data["Entities"]; entities)
@@ -2185,6 +2197,12 @@ namespace OloEngine
             out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
             out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
             out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
+            out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
+            out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
+            out << YAML::Key << "SSAOBias" << YAML::Value << pp.SSAOBias;
+            out << YAML::Key << "SSAOIntensity" << YAML::Value << pp.SSAOIntensity;
+            out << YAML::Key << "SSAOSamples" << YAML::Value << pp.SSAOSamples;
+            out << YAML::Key << "SSAODebugView" << YAML::Value << pp.SSAODebugView;
         }
         out << YAML::EndMap;
 
@@ -2256,6 +2274,12 @@ namespace OloEngine
             TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
             TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
             TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
+            TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
+            TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
+            TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
+            TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
+            TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
+            TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
         }
 
         auto entities = data["Entities"];

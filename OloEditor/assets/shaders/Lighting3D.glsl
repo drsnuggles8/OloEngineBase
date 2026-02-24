@@ -43,6 +43,24 @@ layout(location = 2) in vec2 v_TexCoord;
 
 layout(location = 0) out vec4 FragColor;
 layout(location = 1) out int o_EntityID;
+layout(location = 2) out vec2 o_ViewNormal;
+
+// Octahedral encode: unit normal → RG16F [-1,1]²
+vec2 octEncode(vec3 n)
+{
+    n /= (abs(n.x) + abs(n.y) + abs(n.z));
+    if (n.z < 0.0)
+        n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+    return n.xy;
+}
+
+layout(std140, binding = 0) uniform CameraMatrices {
+    mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
+};
 
 layout(std140, binding = 3) uniform ModelMatrices {
     mat4 u_Model;
@@ -162,4 +180,5 @@ void main()
 
     FragColor = vec4(result, 1.0);
     o_EntityID = u_EntityID;
+    o_ViewNormal = octEncode(normalize(mat3(u_View) * normal));
 }

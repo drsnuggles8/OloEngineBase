@@ -51,12 +51,20 @@ namespace OloEngine
 
         // Color Grading
         bool ColorGradingEnabled = false;
+
+        // SSAO
+        bool SSAOEnabled = false;
+        f32 SSAORadius = 0.5f;
+        f32 SSAOBias = 0.025f;
+        f32 SSAOIntensity = 1.0f;
+        i32 SSAOSamples = 32;
+        bool SSAODebugView = false;
     };
 
     // GPU-side UBO layout for post-process parameters (std140, binding 7)
     struct PostProcessUBOData
     {
-        i32 TonemapOperator = 1;   // Reinhard
+        i32 TonemapOperator = 1; // Reinhard
         f32 Exposure = 1.0f;
         f32 Gamma = 2.2f;
         f32 BloomThreshold = 1.0f;
@@ -82,7 +90,10 @@ namespace OloEngine
         f32 CameraNear = 0.1f;
         f32 CameraFar = 1000.0f;
 
-        static constexpr u32 GetSize() { return sizeof(PostProcessUBOData); }
+        static constexpr u32 GetSize()
+        {
+            return sizeof(PostProcessUBOData);
+        }
     };
 
     // GPU-side UBO layout for motion blur matrices (std140, binding 8)
@@ -91,6 +102,31 @@ namespace OloEngine
         glm::mat4 InverseViewProjection = glm::mat4(1.0f);
         glm::mat4 PrevViewProjection = glm::mat4(1.0f);
 
-        static constexpr u32 GetSize() { return sizeof(MotionBlurUBOData); }
+        static constexpr u32 GetSize()
+        {
+            return sizeof(MotionBlurUBOData);
+        }
+    };
+
+    // GPU-side UBO layout for SSAO parameters (std140, binding 9)
+    struct SSAOUBOData
+    {
+        f32 Radius = 0.5f;
+        f32 Bias = 0.025f;
+        f32 Intensity = 1.0f;
+        i32 Samples = 32;
+
+        i32 ScreenWidth = 0;
+        i32 ScreenHeight = 0;
+        i32 DebugView = 0;
+        f32 _pad1 = 0.0f;
+
+        glm::mat4 Projection = glm::mat4(1.0f);
+        glm::mat4 InverseProjection = glm::mat4(1.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(SSAOUBOData);
+        }
     };
 } // namespace OloEngine

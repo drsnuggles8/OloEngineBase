@@ -13,6 +13,7 @@ namespace OloEngine
         auto& settings = Renderer3D::GetPostProcessSettings();
 
         DrawToneMappingSection();
+        DrawSSAOSection();
         DrawBloomSection();
         DrawVignetteSection();
         DrawChromaticAberrationSection();
@@ -174,6 +175,29 @@ namespace OloEngine
             {
                 ImGui::DragFloat("Strength", &settings.MotionBlurStrength, 0.01f, 0.0f, 2.0f, "%.2f");
                 ImGui::SliderInt("Samples", &settings.MotionBlurSamples, 1, 32);
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawSSAOSection()
+    {
+        auto& settings = Renderer3D::GetPostProcessSettings();
+
+        if (ImGui::CollapsingHeader("SSAO"))
+        {
+            ImGui::Indent();
+
+            ImGui::Checkbox("Enable##SSAO", &settings.SSAOEnabled);
+
+            if (settings.SSAOEnabled)
+            {
+                ImGui::DragFloat("Radius##SSAO", &settings.SSAORadius, 0.01f, 0.01f, 5.0f, "%.2f");
+                ImGui::DragFloat("Bias##SSAO", &settings.SSAOBias, 0.001f, 0.0f, 0.1f, "%.3f");
+                ImGui::DragFloat("Intensity##SSAO", &settings.SSAOIntensity, 0.01f, 0.0f, 3.0f, "%.2f");
+                ImGui::SliderInt("Samples##SSAO", &settings.SSAOSamples, 4, 64);
+                ImGui::Checkbox("Show AO Only##SSAO", &settings.SSAODebugView);
             }
 
             ImGui::Unindent();
