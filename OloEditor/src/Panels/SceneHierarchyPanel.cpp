@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Utils/PlatformUtils.h"
+#include "OloEngine/Core/FastRandom.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -2318,7 +2319,7 @@ namespace OloEngine
 
                 if (ImGui::Button("Randomize Seed"))
                 {
-                    component.m_ProceduralSeed = static_cast<i32>(std::rand());
+                    component.m_ProceduralSeed = RandomUtils::Int32(0, std::numeric_limits<i32>::max());
                     component.m_TerrainData = nullptr;
                     component.m_NeedsRebuild = true;
                 }

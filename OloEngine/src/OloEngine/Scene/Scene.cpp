@@ -2055,11 +2055,11 @@ namespace OloEngine
                         else
                         {
                             // Unbind terrain material slots to prevent stale texture type mismatches
-                            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP, 0);
-                            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, 0);
-                            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, 0);
-                            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, 0);
-                            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1, 0);
+                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP, 0);
+                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, 0);
+                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, 0);
+                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, 0);
+                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1, 0);
                         }
 
                         // Upload model matrix
