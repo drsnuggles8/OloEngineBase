@@ -163,6 +163,9 @@ namespace OloEngine
 
     glm::vec3 TerrainData::GetNormalAt(f32 normalizedX, f32 normalizedZ, f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const
     {
+        if (m_Resolution == 0)
+            return { 0.0f, 1.0f, 0.0f };
+
         f32 texelSize = 1.0f / static_cast<f32>(m_Resolution);
 
         f32 hL = GetHeightAt(normalizedX - texelSize, normalizedZ) * heightScale;

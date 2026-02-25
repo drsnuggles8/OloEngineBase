@@ -83,6 +83,8 @@ namespace OloEngine
         }
 
         u32 edgeSamples = std::min(myRes, neighborRes);
+        if (edgeSamples <= 1)
+            return;
 
         switch (direction)
         {

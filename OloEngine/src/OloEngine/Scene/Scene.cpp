@@ -1854,8 +1854,7 @@ namespace OloEngine
 
         // Initialize terrain chunks if needed and set up terrain rendering
         {
-            static u64 s_TerrainFrameCounter = 0;
-            ++s_TerrainFrameCounter;
+            ++m_TerrainFrameCounter;
 
             auto terrainView = m_Registry.view<TransformComponent, TerrainComponent>();
             for (auto entity : terrainView)
@@ -1903,7 +1902,7 @@ namespace OloEngine
                     }
 
                     // Update streamer each frame
-                    terrain.m_Streamer->Update(camera.GetPosition(), s_TerrainFrameCounter);
+                    terrain.m_Streamer->Update(camera.GetPosition(), m_TerrainFrameCounter);
                 }
                 else
                 {
@@ -2032,7 +2031,7 @@ namespace OloEngine
                         auto terrainShader = Renderer3D::GetTerrainPBRShader();
                         if (!terrainShader)
                         {
-                            break;
+                            continue;
                         }
                         terrainShader->Bind();
 

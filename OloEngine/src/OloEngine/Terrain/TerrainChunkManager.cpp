@@ -20,7 +20,7 @@ namespace OloEngine
 
         // Determine chunk grid size based on heightmap resolution
         m_NumChunksX = std::max(1u, resolution / TerrainChunk::CHUNK_RESOLUTION);
-        m_NumChunksZ = m_NumChunksX;
+        m_NumChunksZ = std::max(1u, resolution / TerrainChunk::CHUNK_RESOLUTION);
 
         u32 totalChunks = m_NumChunksX * m_NumChunksZ;
         m_Chunks.resize(totalChunks);
@@ -46,7 +46,7 @@ namespace OloEngine
         // Max depth is log2 of number of chunks on one axis (so leaf = one chunk)
         u32 quadtreeDepth = 0;
         {
-            u32 n = m_NumChunksX;
+            u32 n = std::max(m_NumChunksX, m_NumChunksZ);
             while (n > 1)
             {
                 n >>= 1;

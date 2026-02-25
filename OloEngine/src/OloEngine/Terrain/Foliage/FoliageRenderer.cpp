@@ -21,7 +21,12 @@ namespace OloEngine
     // Simple hash for deterministic placement — returns float in [0, 1)
     static f32 HashPosition(f32 x, f32 z, u32 seed)
     {
-        u32 h = static_cast<u32>(x * 73856093.0f) ^ static_cast<u32>(z * 19349663.0f) ^ seed;
+        u32 hx, hz;
+        f32 fx = x * 73856093.0f;
+        f32 fz = z * 19349663.0f;
+        std::memcpy(&hx, &fx, sizeof(u32));
+        std::memcpy(&hz, &fz, sizeof(u32));
+        u32 h = hx ^ hz ^ seed;
         h = (h * 2654435761u) >> 16;
         return static_cast<f32>(h & 0xFFFF) / 65536.0f;
     }
@@ -163,7 +168,7 @@ namespace OloEngine
             f32 cosMaxSlope = std::cos(glm::radians(layer.MinSlopeAngle));
 
             std::vector<FoliageInstanceData> instances;
-            instances.reserve(countX * countZ / 4); // Estimate ~25% coverage
+            instances.reserve(static_cast<sizet>(countX) * countZ / 4); // Estimate ~25% coverage
 
             u32 seed = static_cast<u32>(layerIdx * 17 + 31);
 

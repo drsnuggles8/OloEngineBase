@@ -1294,6 +1294,9 @@ namespace OloEngine
         f32 worldSizeZ = tc.m_WorldSizeZ;
         f32 heightScale = tc.m_HeightScale;
 
+        if (worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
+            return false;
+
         // Coarse march along ray (step size = 1 world unit)
         constexpr f32 stepSize = 1.0f;
         constexpr f32 maxDist = 2000.0f;

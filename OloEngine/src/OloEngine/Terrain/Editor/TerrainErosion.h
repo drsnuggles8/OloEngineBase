@@ -22,7 +22,7 @@ namespace OloEngine
         f32 Gravity = 4.0f;              // Gravity constant
         f32 InitialWater = 1.0f;         // Starting water volume
         f32 InitialSpeed = 1.0f;         // Starting droplet speed
-        i32 ErosionRadius = 3;           // Brush radius for erosion/deposition (texels)
+        u32 ErosionRadius = 3;           // Brush radius for erosion/deposition (texels)
     };
 
     // GPU-accelerated hydraulic erosion for terrain heightmaps.

@@ -266,7 +266,10 @@ namespace OloEngine
         auto readF32 = [&]() -> f32
         { f32 v; std::memcpy(&v, &data[offset], 4); offset += 4; return v; };
 
-        u32 chunkCount = static_cast<u32>(readI32());
+        i32 rawChunkCount = readI32();
+        if (rawChunkCount < 0)
+            return false;
+        u32 chunkCount = static_cast<u32>(rawChunkCount);
         m_Chunks.clear();
 
         for (u32 ci = 0; ci < chunkCount; ++ci)

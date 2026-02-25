@@ -126,8 +126,8 @@ namespace OloEngine
 
     void TerrainStreamer::SetMaterial(const Ref<TerrainMaterial>& material)
     {
-        m_SharedMaterial = material;
         std::lock_guard lock(m_TileMutex);
+        m_SharedMaterial = material;
         for (auto& [coord, tile] : m_Tiles)
         {
             tile->SetMaterial(material);

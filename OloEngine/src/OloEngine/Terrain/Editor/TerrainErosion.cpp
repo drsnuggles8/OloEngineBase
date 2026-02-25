@@ -4,12 +4,14 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Core/FastRandom.h"
 
 #include <glad/gl.h>
 
 namespace OloEngine
 {
     TerrainErosion::TerrainErosion()
+        : m_IterationSeed(static_cast<u32>(RandomUtils::Int32(0, std::numeric_limits<i32>::max())))
     {
         m_ErosionShader = ComputeShader::Create("assets/shaders/compute/Terrain_Erosion.comp");
     }
@@ -56,7 +58,7 @@ namespace OloEngine
         m_ErosionShader->SetFloat("u_Gravity", settings.Gravity);
         m_ErosionShader->SetFloat("u_InitialWater", settings.InitialWater);
         m_ErosionShader->SetFloat("u_InitialSpeed", settings.InitialSpeed);
-        m_ErosionShader->SetInt("u_ErosionRadius", settings.ErosionRadius);
+        m_ErosionShader->SetInt("u_ErosionRadius", static_cast<i32>(settings.ErosionRadius));
         m_ErosionShader->SetUint("u_Seed", m_IterationSeed);
 
         // Dispatch — one thread per droplet

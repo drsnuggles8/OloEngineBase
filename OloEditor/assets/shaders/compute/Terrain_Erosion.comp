@@ -3,7 +3,7 @@
 layout(local_size_x = 256) in;
 
 // Heightmap image — R32F, read/write
-layout(r32f, binding = 0) uniform image2D u_Heightmap;
+layout(r32f, binding = 0) coherent uniform image2D u_Heightmap;
 
 // Erosion parameters
 uniform uint  u_Resolution;       // Heightmap resolution (square)

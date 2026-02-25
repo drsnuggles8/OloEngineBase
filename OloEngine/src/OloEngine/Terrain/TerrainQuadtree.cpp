@@ -18,7 +18,7 @@ namespace OloEngine
         m_WorldSizeX = worldSizeX;
         m_WorldSizeZ = worldSizeZ;
         m_HeightScale = heightScale;
-        m_MaxDepth = maxDepth;
+        m_MaxDepth = std::min(maxDepth, TerrainLODConfig::MAX_LOD_LEVELS);
 
         m_Nodes.clear();
         m_SelectedNodes.clear();

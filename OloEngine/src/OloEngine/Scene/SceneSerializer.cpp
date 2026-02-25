@@ -1280,7 +1280,7 @@ namespace OloEngine
                 out << YAML::Key << "SplatmapPath0" << YAML::Value << mat->GetSplatmapPath(0);
                 out << YAML::Key << "SplatmapPath1" << YAML::Value << mat->GetSplatmapPath(1);
                 out << YAML::Key << "Layers";
-                out << YAML::BeginSeq;
+                out << YAML::Value << YAML::BeginSeq;
                 for (u32 i = 0; i < mat->GetLayerCount(); ++i)
                 {
                     const auto& layer = mat->GetLayer(i);
@@ -1314,7 +1314,7 @@ namespace OloEngine
             if (!foliage.m_Layers.empty())
             {
                 out << YAML::Key << "Layers";
-                out << YAML::BeginSeq;
+                out << YAML::Value << YAML::BeginSeq;
                 for (const auto& layer : foliage.m_Layers)
                 {
                     out << YAML::BeginMap;
@@ -2191,6 +2191,33 @@ namespace OloEngine
                     // Voxel override settings
                     terrain.m_VoxelEnabled = terrainComponent["VoxelEnabled"].as<bool>(terrain.m_VoxelEnabled);
                     terrain.m_VoxelSize = terrainComponent["VoxelSize"].as<f32>(terrain.m_VoxelSize);
+
+                    // Deserialize terrain material layers
+                    if (auto layersNode = terrainComponent["Layers"]; layersNode && layersNode.IsSequence())
+                    {
+                        terrain.m_Material = Ref<TerrainMaterial>::Create();
+                        if (auto sp0 = terrainComponent["SplatmapPath0"]; sp0)
+                            terrain.m_Material->SetSplatmapPath(0, sp0.as<std::string>());
+                        if (auto sp1 = terrainComponent["SplatmapPath1"]; sp1)
+                            terrain.m_Material->SetSplatmapPath(1, sp1.as<std::string>());
+
+                        for (auto layerNode : layersNode)
+                        {
+                            TerrainLayer layer;
+                            layer.Name = layerNode["Name"].as<std::string>(layer.Name);
+                            layer.AlbedoPath = layerNode["AlbedoPath"].as<std::string>(layer.AlbedoPath);
+                            layer.NormalPath = layerNode["NormalPath"].as<std::string>(layer.NormalPath);
+                            layer.ARMPath = layerNode["ARMPath"].as<std::string>(layer.ARMPath);
+                            layer.TilingScale = layerNode["TilingScale"].as<f32>(layer.TilingScale);
+                            layer.HeightBlendSharpness = layerNode["HeightBlendSharpness"].as<f32>(layer.HeightBlendSharpness);
+                            layer.TriplanarSharpness = layerNode["TriplanarSharpness"].as<f32>(layer.TriplanarSharpness);
+                            layer.BaseColor = layerNode["BaseColor"].as<glm::vec3>(layer.BaseColor);
+                            layer.Roughness = layerNode["Roughness"].as<f32>(layer.Roughness);
+                            layer.Metallic = layerNode["Metallic"].as<f32>(layer.Metallic);
+                            terrain.m_Material->AddLayer(layer);
+                        }
+                        terrain.m_MaterialNeedsRebuild = true;
+                    }
 
                     terrain.m_NeedsRebuild = true;
                 }

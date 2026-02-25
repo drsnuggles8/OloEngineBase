@@ -30,11 +30,13 @@ namespace OloEngine
 
         [[nodiscard]] f32& At(u32 x, u32 y, u32 z)
         {
+            OLO_CORE_ASSERT(x < CHUNK_SIZE && y < CHUNK_SIZE && z < CHUNK_SIZE, "VoxelChunk::At out of bounds");
             return SDFData[static_cast<sizet>(x) + static_cast<sizet>(y) * CHUNK_SIZE + static_cast<sizet>(z) * CHUNK_SIZE * CHUNK_SIZE];
         }
 
         [[nodiscard]] f32 At(u32 x, u32 y, u32 z) const
         {
+            OLO_CORE_ASSERT(x < CHUNK_SIZE && y < CHUNK_SIZE && z < CHUNK_SIZE, "VoxelChunk::At out of bounds");
             return SDFData[static_cast<sizet>(x) + static_cast<sizet>(y) * CHUNK_SIZE + static_cast<sizet>(z) * CHUNK_SIZE * CHUNK_SIZE];
         }
     };
