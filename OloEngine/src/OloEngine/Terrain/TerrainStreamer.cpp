@@ -31,6 +31,8 @@ namespace OloEngine
             return;
         }
 
+        m_CurrentFrame = frameNumber;
+
         // Determine which tile the camera is in
         i32 cameraTileX = static_cast<i32>(std::floor(cameraPos.x / m_Config.TileWorldSize));
         i32 cameraTileZ = static_cast<i32>(std::floor(cameraPos.z / m_Config.TileWorldSize));
@@ -243,6 +245,7 @@ namespace OloEngine
             static_cast<f32>(gridX) * m_Config.TileWorldSize,
             0.0f,
             static_cast<f32>(gridZ) * m_Config.TileWorldSize);
+        tile->LastUsedFrame = m_CurrentFrame;
         tile->SetState(TerrainTile::State::Loading);
 
         std::string tilePath = BuildTilePath(gridX, gridZ);

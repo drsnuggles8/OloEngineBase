@@ -26,7 +26,7 @@ namespace OloEngine
         // Pre-allocate — a full quadtree of depth D has sum(4^i, i=0..D) nodes
         // But we won't necessarily fill all levels
         sizet estimatedNodes = 0;
-        for (u32 d = 0; d <= maxDepth; ++d)
+        for (u32 d = 0; d <= m_MaxDepth; ++d)
         {
             estimatedNodes += static_cast<sizet>(1) << (2 * d); // 4^d
         }
@@ -138,6 +138,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_SelectedNodes.clear();
+        m_SelectedNodeSet.clear();
 
         if (m_RootIndex < 0)
         {
@@ -145,6 +146,9 @@ namespace OloEngine
         }
 
         SelectNode(m_RootIndex, frustum, cameraPos, viewProjection, viewportHeight);
+
+        // Build O(1) lookup set for neighbor resolution
+        m_SelectedNodeSet.insert(m_SelectedNodes.begin(), m_SelectedNodes.end());
 
         // After selecting nodes, resolve neighbor LODs for crack-free stitching
         ResolveNeighborLODs();
@@ -272,19 +276,8 @@ namespace OloEngine
         {
             const auto& node = m_Nodes[static_cast<sizet>(current)];
 
-            // Check if this is a selected leaf (present in m_SelectedNodes)
-            // We check if it's a leaf OR if it was selected at this LOD (stop node)
-            bool isSelected = false;
-            for (const auto* sel : m_SelectedNodes)
-            {
-                if (sel == &node)
-                {
-                    isSelected = true;
-                    break;
-                }
-            }
-
-            if (isSelected)
+            // Check if this node was selected at this LOD level (O(1) set lookup)
+            if (m_SelectedNodeSet.contains(&node))
             {
                 return &node;
             }

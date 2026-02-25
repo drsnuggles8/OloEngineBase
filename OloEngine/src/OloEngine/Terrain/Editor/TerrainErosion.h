@@ -33,8 +33,8 @@ namespace OloEngine
         TerrainErosion();
 
         // Run one iteration of hydraulic erosion on the given terrain.
-        // After dispatch, reads back the GPU heightmap to the CPU buffer.
-        void Apply(TerrainData& terrainData, const ErosionSettings& settings);
+        // After dispatch, reads back the GPU heightmap to the CPU buffer unless skipReadback is true.
+        void Apply(TerrainData& terrainData, const ErosionSettings& settings, bool skipReadback = false);
 
         // Run multiple iterations (convenience wrapper)
         void ApplyIterations(TerrainData& terrainData, const ErosionSettings& settings, u32 iterations);

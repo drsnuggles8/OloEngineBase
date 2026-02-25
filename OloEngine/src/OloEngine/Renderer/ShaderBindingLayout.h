@@ -273,6 +273,14 @@ namespace OloEngine
         };
     } // namespace UBOStructures
 
+    // Alignment/size checks for terrain UBO structs (must match GLSL std140 layout)
+    static_assert(sizeof(UBOStructures::TerrainUBO) % 16 == 0, "TerrainUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::BrushPreviewUBO) % 16 == 0, "BrushPreviewUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::FoliageUBO) % 16 == 0, "FoliageUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::TerrainUBO) == 144, "TerrainUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::FoliageUBO) == 48, "FoliageUBO unexpected size — update GLSL layout");
+
     // Standardized shader binding layout for consistent resource sharing
     // across all shaders in the engine. This ensures efficient data sharing
     // and eliminates binding conflicts.

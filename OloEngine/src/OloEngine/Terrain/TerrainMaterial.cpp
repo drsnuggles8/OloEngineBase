@@ -55,7 +55,7 @@ namespace OloEngine
         }
 
         i32 w = 0, h = 0, channels = 0;
-        stbi_set_flip_vertically_on_load(0);
+        stbi_set_flip_vertically_on_load_thread(0);
         u8* pixels = stbi_load(path.c_str(), &w, &h, &channels, 4); // Force RGBA
         if (!pixels)
         {
@@ -98,6 +98,12 @@ namespace OloEngine
         if (m_LayerCount == 0)
         {
             OLO_CORE_WARN("TerrainMaterial: No layers to build");
+            return;
+        }
+
+        if (layerResolution == 0)
+        {
+            OLO_CORE_ERROR("TerrainMaterial: Invalid layer resolution 0");
             return;
         }
 

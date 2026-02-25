@@ -133,5 +133,8 @@ namespace OloEngine
 
         // Protects m_Tiles during async load completion
         mutable std::mutex m_TileMutex;
+
+        // Current frame number for LRU tracking of newly requested tiles
+        u64 m_CurrentFrame = 0;
     };
 } // namespace OloEngine

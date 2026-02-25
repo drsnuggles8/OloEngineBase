@@ -1735,7 +1735,7 @@ namespace OloEngine
                                         worldSizeX, worldSizeZ,
                                         heightScale,
                                         static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
-                                    u32 res = terrainData ? terrainData->GetResolution() : 256;
+                                    u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
                                     shadowTerrainUBO.TerrainParams = glm::vec4(
                                         1.0f / static_cast<f32>(res), 1.0f / static_cast<f32>(res), 0.0f, 0.0f);
                                     shadowTerrainUBO.HeightmapResolution = static_cast<i32>(res);
@@ -2111,7 +2111,7 @@ namespace OloEngine
                                 worldSizeX, worldSizeZ,
                                 heightScale,
                                 static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
-                            u32 res = terrainData ? terrainData->GetResolution() : 256;
+                            u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
 
                             const TerrainMaterial* effectiveMat = tileHasMaterial ? tileMaterial : (hasMaterial ? terrain.m_Material.get() : nullptr);
                             u32 layerCount = effectiveMat ? effectiveMat->GetLayerCount() : 0;

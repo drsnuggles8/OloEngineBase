@@ -21,7 +21,7 @@ namespace OloEngine
         return m_ErosionShader && m_ErosionShader->IsValid();
     }
 
-    void TerrainErosion::Apply(TerrainData& terrainData, const ErosionSettings& settings)
+    void TerrainErosion::Apply(TerrainData& terrainData, const ErosionSettings& settings, bool skipReadback)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -60,6 +60,7 @@ namespace OloEngine
         m_ErosionShader->SetFloat("u_InitialSpeed", settings.InitialSpeed);
         m_ErosionShader->SetInt("u_ErosionRadius", static_cast<i32>(settings.ErosionRadius));
         m_ErosionShader->SetUint("u_Seed", m_IterationSeed);
+        m_ErosionShader->SetUint("u_DropletCount", settings.DropletCount);
 
         // Dispatch — one thread per droplet
         u32 groups = (settings.DropletCount + 255) / 256;
@@ -70,13 +71,16 @@ namespace OloEngine
         glBindImageTexture(0, 0, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
 
         // Read back GPU heightmap to CPU for chunk rebuilding and serialization
-        std::vector<u8> rawData;
-        if (heightmap->GetData(rawData))
+        if (!skipReadback)
         {
-            auto& heights = terrainData.GetHeightData();
-            if (rawData.size() == heights.size() * sizeof(f32))
+            std::vector<u8> rawData;
+            if (heightmap->GetData(rawData))
             {
-                std::memcpy(heights.data(), rawData.data(), rawData.size());
+                auto& heights = terrainData.GetHeightData();
+                if (rawData.size() == heights.size() * sizeof(f32))
+                {
+                    std::memcpy(heights.data(), rawData.data(), rawData.size());
+                }
             }
         }
 
@@ -90,7 +94,7 @@ namespace OloEngine
 
         for (u32 i = 0; i < iterations; ++i)
         {
-            Apply(terrainData, settings);
+            Apply(terrainData, settings, i < iterations - 1);
         }
     }
 } // namespace OloEngine

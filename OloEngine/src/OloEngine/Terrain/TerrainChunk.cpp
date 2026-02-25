@@ -13,6 +13,8 @@ namespace OloEngine
                              u32 numChunksX, u32 numChunksZ,
                              f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
     {
+        OLO_PROFILE_FUNCTION();
+
         BuildGeometry(terrainData, chunkX, chunkZ, numChunksX, numChunksZ,
                       worldSizeX, worldSizeZ, heightScale);
         UploadToGPU();
@@ -23,6 +25,12 @@ namespace OloEngine
                                      f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (numChunksX == 0 || numChunksZ == 0)
+        {
+            OLO_CORE_WARN("TerrainChunk::BuildGeometry - Zero chunk count");
+            return;
+        }
 
         u32 vertsPerSide = CHUNK_RESOLUTION + 1;
         u32 vertCount = vertsPerSide * vertsPerSide;

@@ -19,7 +19,7 @@ namespace OloEngine
         int height = 0;
         int channels = 0;
 
-        stbi_set_flip_vertically_on_load(0);
+        stbi_set_flip_vertically_on_load_thread(0);
         stbi_us* data16 = stbi_load_16(path.c_str(), &width, &height, &channels, 1);
         if (data16)
         {
@@ -249,6 +249,8 @@ namespace OloEngine
 
     bool TerrainData::ExportRawR32F(const std::string& path) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Heights.empty() || m_Resolution == 0)
         {
             OLO_CORE_ERROR("TerrainData::ExportRawR32F - No heightmap data to export");
@@ -269,6 +271,8 @@ namespace OloEngine
 
     bool TerrainData::ExportRawR16(const std::string& path) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Heights.empty() || m_Resolution == 0)
         {
             OLO_CORE_ERROR("TerrainData::ExportRawR16 - No heightmap data to export");

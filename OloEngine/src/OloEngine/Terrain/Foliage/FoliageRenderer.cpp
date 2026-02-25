@@ -14,6 +14,7 @@
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 
+#include <cstring>
 #include <glm/gtc/constants.hpp>
 
 namespace OloEngine

@@ -7,6 +7,7 @@
 
 #include <glm/glm.hpp>
 #include <array>
+#include <unordered_set>
 #include <vector>
 
 namespace OloEngine
@@ -143,6 +144,7 @@ namespace OloEngine
 
         std::vector<TerrainQuadNode> m_Nodes;
         std::vector<const TerrainQuadNode*> m_SelectedNodes;
+        std::unordered_set<const TerrainQuadNode*> m_SelectedNodeSet; // O(1) lookup for FindLeafAt
         i32 m_RootIndex = -1;
         u32 m_MaxDepth = 6;
         TerrainLODConfig m_Config;

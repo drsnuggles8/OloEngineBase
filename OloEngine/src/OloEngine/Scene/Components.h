@@ -824,6 +824,45 @@ namespace OloEngine
         {
             // Runtime state intentionally NOT copied — force rebuild
         }
+        TerrainComponent& operator=(const TerrainComponent& other)
+        {
+            if (this != &other)
+            {
+                m_HeightmapPath = other.m_HeightmapPath;
+                m_WorldSizeX = other.m_WorldSizeX;
+                m_WorldSizeZ = other.m_WorldSizeZ;
+                m_HeightScale = other.m_HeightScale;
+                m_ProceduralEnabled = other.m_ProceduralEnabled;
+                m_ProceduralSeed = other.m_ProceduralSeed;
+                m_ProceduralResolution = other.m_ProceduralResolution;
+                m_ProceduralOctaves = other.m_ProceduralOctaves;
+                m_ProceduralFrequency = other.m_ProceduralFrequency;
+                m_ProceduralLacunarity = other.m_ProceduralLacunarity;
+                m_ProceduralPersistence = other.m_ProceduralPersistence;
+                m_TessellationEnabled = other.m_TessellationEnabled;
+                m_TargetTriangleSize = other.m_TargetTriangleSize;
+                m_MorphRegion = other.m_MorphRegion;
+                m_StreamingEnabled = other.m_StreamingEnabled;
+                m_TileDirectory = other.m_TileDirectory;
+                m_TileFilePattern = other.m_TileFilePattern;
+                m_TileWorldSize = other.m_TileWorldSize;
+                m_TileResolution = other.m_TileResolution;
+                m_StreamingLoadRadius = other.m_StreamingLoadRadius;
+                m_StreamingMaxTiles = other.m_StreamingMaxTiles;
+                m_VoxelEnabled = other.m_VoxelEnabled;
+                m_VoxelSize = other.m_VoxelSize;
+                // Runtime state reset — force rebuild
+                m_TerrainData = nullptr;
+                m_ChunkManager = nullptr;
+                m_Material = nullptr;
+                m_Streamer = nullptr;
+                m_VoxelOverride = nullptr;
+                m_VoxelMeshes.clear();
+                m_NeedsRebuild = true;
+                m_MaterialNeedsRebuild = true;
+            }
+            return *this;
+        }
     };
 
     struct FoliageComponent
@@ -841,6 +880,17 @@ namespace OloEngine
             : m_Layers(other.m_Layers), m_Enabled(other.m_Enabled)
         {
             // Runtime state intentionally NOT copied — force rebuild
+        }
+        FoliageComponent& operator=(const FoliageComponent& other)
+        {
+            if (this != &other)
+            {
+                m_Layers = other.m_Layers;
+                m_Enabled = other.m_Enabled;
+                m_Renderer = nullptr;
+                m_NeedsRebuild = true;
+            }
+            return *this;
         }
     };
 

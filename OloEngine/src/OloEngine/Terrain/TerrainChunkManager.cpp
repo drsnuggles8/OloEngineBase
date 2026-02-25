@@ -18,9 +18,9 @@ namespace OloEngine
             return;
         }
 
-        // Determine chunk grid size based on heightmap resolution
-        m_NumChunksX = std::max(1u, resolution / TerrainChunk::CHUNK_RESOLUTION);
-        m_NumChunksZ = std::max(1u, resolution / TerrainChunk::CHUNK_RESOLUTION);
+        // Determine chunk grid size based on heightmap resolution (ceil to ensure full coverage)
+        m_NumChunksX = std::max(1u, (resolution + TerrainChunk::CHUNK_RESOLUTION - 1) / TerrainChunk::CHUNK_RESOLUTION);
+        m_NumChunksZ = std::max(1u, (resolution + TerrainChunk::CHUNK_RESOLUTION - 1) / TerrainChunk::CHUNK_RESOLUTION);
 
         u32 totalChunks = m_NumChunksX * m_NumChunksZ;
         m_Chunks.resize(totalChunks);

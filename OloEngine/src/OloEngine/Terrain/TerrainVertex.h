@@ -29,4 +29,6 @@ namespace OloEngine
             };
         }
     };
+
+    static_assert(sizeof(TerrainVertex) == 32, "TerrainVertex must be 32 bytes (3+2+3 floats)");
 } // namespace OloEngine

@@ -85,7 +85,7 @@ namespace OloEngine
         m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
 
         // Create brush preview UBO (binding 11, 32 bytes = 2 vec4s)
-        m_BrushPreviewUBO = UniformBuffer::Create(ShaderBindingLayout::BrushPreviewUBO::GetSize(), 11);
+        m_BrushPreviewUBO = UniformBuffer::Create(ShaderBindingLayout::BrushPreviewUBO::GetSize(), ShaderBindingLayout::UBO_BRUSH_PREVIEW);
     }
 
     void EditorLayer::OnDetach()
@@ -1249,6 +1249,8 @@ namespace OloEngine
 
     bool EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
         {
             return false;

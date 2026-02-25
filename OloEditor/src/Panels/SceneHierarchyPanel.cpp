@@ -2453,6 +2453,7 @@ namespace OloEngine
                         TerrainLayer newLayer;
                         newLayer.Name = "Layer " + std::to_string(layerCount);
                         mat->AddLayer(newLayer);
+                        component.m_MaterialNeedsRebuild = true;
                     }
                 }
 

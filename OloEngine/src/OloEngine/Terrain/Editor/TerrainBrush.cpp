@@ -68,6 +68,7 @@ namespace OloEngine
 
         f32 strengthDt = settings.Strength * deltaTime;
         f32 invHeightScale = 1.0f / heightScale;
+        bool changed = false;
 
         for (i32 z = minZ; z <= maxZ; ++z)
         {
@@ -82,16 +83,17 @@ namespace OloEngine
                     continue;
 
                 f32 weight = ComputeFalloff(dist, settings.Radius, settings.Falloff);
+                f32 influence = glm::clamp(weight * strengthDt, 0.0f, 1.0f);
                 sizet idx = static_cast<sizet>(z) * res + static_cast<sizet>(x);
 
                 switch (settings.Tool)
                 {
                     case TerrainBrushTool::Raise:
-                        heights[idx] += weight * strengthDt * invHeightScale;
+                        heights[idx] += influence * invHeightScale;
                         break;
 
                     case TerrainBrushTool::Lower:
-                        heights[idx] -= weight * strengthDt * invHeightScale;
+                        heights[idx] -= influence * invHeightScale;
                         break;
 
                     case TerrainBrushTool::Smooth:
@@ -122,26 +124,30 @@ namespace OloEngine
                         if (count > 0)
                         {
                             avg /= static_cast<f32>(count);
-                            heights[idx] += (avg - heights[idx]) * weight * strengthDt;
+                            heights[idx] += (avg - heights[idx]) * influence;
                         }
                         break;
                     }
 
                     case TerrainBrushTool::Flatten:
-                        heights[idx] = glm::mix(heights[idx], targetHeight, weight * strengthDt);
+                        heights[idx] = glm::mix(heights[idx], targetHeight, influence);
                         break;
 
                     case TerrainBrushTool::Level:
                     {
                         // Move towards target height — same as flatten but from initial click height
-                        heights[idx] = glm::mix(heights[idx], targetHeight, weight * strengthDt);
+                        heights[idx] = glm::mix(heights[idx], targetHeight, influence);
                         break;
                     }
                 }
 
                 heights[idx] = std::clamp(heights[idx], 0.0f, 1.0f);
+                changed = true;
             }
         }
+
+        if (!changed)
+            return dirty;
 
         dirty.X = static_cast<u32>(minX);
         dirty.Y = static_cast<u32>(minZ);

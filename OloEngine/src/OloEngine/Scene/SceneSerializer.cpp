@@ -3195,6 +3195,43 @@ namespace OloEngine
                     terrain.m_NeedsRebuild = true;
                 }
 
+                if (auto foliageComponent = entity["FoliageComponent"]; foliageComponent)
+                {
+                    auto& foliage = deserializedEntity.AddComponent<FoliageComponent>();
+                    foliage.m_Enabled = foliageComponent["Enabled"].as<bool>(foliage.m_Enabled);
+
+                    if (auto layersNode = foliageComponent["Layers"]; layersNode && layersNode.IsSequence())
+                    {
+                        foliage.m_Layers.clear();
+                        for (auto const& layerNode : layersNode)
+                        {
+                            FoliageLayer layer;
+                            layer.Name = layerNode["Name"].as<std::string>(layer.Name);
+                            layer.MeshPath = layerNode["MeshPath"].as<std::string>(layer.MeshPath);
+                            layer.AlbedoPath = layerNode["AlbedoPath"].as<std::string>(layer.AlbedoPath);
+                            layer.Density = layerNode["Density"].as<f32>(layer.Density);
+                            layer.SplatmapChannel = layerNode["SplatmapChannel"].as<i32>(layer.SplatmapChannel);
+                            layer.MinSlopeAngle = layerNode["MinSlopeAngle"].as<f32>(layer.MinSlopeAngle);
+                            layer.MaxSlopeAngle = layerNode["MaxSlopeAngle"].as<f32>(layer.MaxSlopeAngle);
+                            layer.MinScale = layerNode["MinScale"].as<f32>(layer.MinScale);
+                            layer.MaxScale = layerNode["MaxScale"].as<f32>(layer.MaxScale);
+                            layer.MinHeight = layerNode["MinHeight"].as<f32>(layer.MinHeight);
+                            layer.MaxHeight = layerNode["MaxHeight"].as<f32>(layer.MaxHeight);
+                            layer.RandomRotation = layerNode["RandomRotation"].as<bool>(layer.RandomRotation);
+                            layer.ViewDistance = layerNode["ViewDistance"].as<f32>(layer.ViewDistance);
+                            layer.FadeStartDistance = layerNode["FadeStartDistance"].as<f32>(layer.FadeStartDistance);
+                            layer.WindStrength = layerNode["WindStrength"].as<f32>(layer.WindStrength);
+                            layer.WindSpeed = layerNode["WindSpeed"].as<f32>(layer.WindSpeed);
+                            layer.BaseColor = layerNode["BaseColor"].as<glm::vec3>(layer.BaseColor);
+                            layer.Roughness = layerNode["Roughness"].as<f32>(layer.Roughness);
+                            layer.AlphaCutoff = layerNode["AlphaCutoff"].as<f32>(layer.AlphaCutoff);
+                            layer.Enabled = layerNode["Enabled"].as<bool>(layer.Enabled);
+                            foliage.m_Layers.push_back(layer);
+                        }
+                    }
+                    foliage.m_NeedsRebuild = true;
+                }
+
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
                 {
                     auto& submesh = deserializedEntity.AddComponent<SubmeshComponent>();

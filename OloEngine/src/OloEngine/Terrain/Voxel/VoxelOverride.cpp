@@ -75,6 +75,8 @@ namespace OloEngine
     void VoxelOverride::InitializeChunkFromHeightmap(const VoxelCoord& coord, const TerrainData& terrainData,
                                                      f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& chunk = GetOrCreateChunk(coord);
 
         for (u32 z = 0; z < VoxelChunk::CHUNK_SIZE; ++z)
@@ -285,6 +287,8 @@ namespace OloEngine
             coord.Z = readI32();
 
             i32 runCount = readI32();
+            if (runCount < 0 || static_cast<u32>(runCount) > VoxelChunk::TOTAL_VOXELS)
+                return false;
 
             auto& chunk = m_Chunks.emplace(coord, VoxelChunk{}).first->second;
             sizet idx = 0;

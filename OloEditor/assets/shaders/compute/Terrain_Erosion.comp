@@ -19,6 +19,7 @@ uniform float u_InitialWater;      // Starting water volume (default 1.0)
 uniform float u_InitialSpeed;      // Starting droplet speed (default 1.0)
 uniform int   u_ErosionRadius;     // Brush radius for erosion/deposition in texels (default 3)
 uniform uint  u_Seed;              // RNG seed offset
+uniform uint  u_DropletCount;      // Actual number of droplets to simulate
 
 // --- Pseudo-random number generator (PCG) ---
 uint pcgHash(uint v)
@@ -136,6 +137,8 @@ void depositAt(vec2 pos, float amount)
 void main()
 {
     uint dropletIdx = gl_GlobalInvocationID.x;
+    if (dropletIdx >= u_DropletCount)
+        return;
 
     // Generate starting position from RNG
     uint rng = pcgHash(dropletIdx + u_Seed);
@@ -212,8 +215,8 @@ void main()
             erodeAt(pos, erodeAmount);
         }
 
-        // Update speed
-        speed = sqrt(max(0.0, speed * speed + heightDiff * u_Gravity));
+        // Update speed (kinetic energy change from height difference)
+        speed = sqrt(max(0.0, speed * speed - heightDiff * u_Gravity));
 
         // Evaporate water
         water *= (1.0 - u_EvaporateSpeed);
