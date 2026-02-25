@@ -1246,6 +1246,16 @@ namespace OloEngine
             out << YAML::Key << "WorldSizeX" << YAML::Value << terrain.m_WorldSizeX;
             out << YAML::Key << "WorldSizeZ" << YAML::Value << terrain.m_WorldSizeZ;
             out << YAML::Key << "HeightScale" << YAML::Value << terrain.m_HeightScale;
+
+            // Procedural generation settings
+            out << YAML::Key << "ProceduralEnabled" << YAML::Value << terrain.m_ProceduralEnabled;
+            out << YAML::Key << "ProceduralSeed" << YAML::Value << terrain.m_ProceduralSeed;
+            out << YAML::Key << "ProceduralResolution" << YAML::Value << terrain.m_ProceduralResolution;
+            out << YAML::Key << "ProceduralOctaves" << YAML::Value << terrain.m_ProceduralOctaves;
+            out << YAML::Key << "ProceduralFrequency" << YAML::Value << terrain.m_ProceduralFrequency;
+            out << YAML::Key << "ProceduralLacunarity" << YAML::Value << terrain.m_ProceduralLacunarity;
+            out << YAML::Key << "ProceduralPersistence" << YAML::Value << terrain.m_ProceduralPersistence;
+
             out << YAML::Key << "TessellationEnabled" << YAML::Value << terrain.m_TessellationEnabled;
             out << YAML::Key << "TargetTriangleSize" << YAML::Value << terrain.m_TargetTriangleSize;
             out << YAML::Key << "MorphRegion" << YAML::Value << terrain.m_MorphRegion;
@@ -2156,6 +2166,15 @@ namespace OloEngine
                     terrain.m_WorldSizeX = terrainComponent["WorldSizeX"].as<f32>(terrain.m_WorldSizeX);
                     terrain.m_WorldSizeZ = terrainComponent["WorldSizeZ"].as<f32>(terrain.m_WorldSizeZ);
                     terrain.m_HeightScale = terrainComponent["HeightScale"].as<f32>(terrain.m_HeightScale);
+                    // Procedural generation settings
+                    terrain.m_ProceduralEnabled = terrainComponent["ProceduralEnabled"].as<bool>(terrain.m_ProceduralEnabled);
+                    terrain.m_ProceduralSeed = terrainComponent["ProceduralSeed"].as<i32>(terrain.m_ProceduralSeed);
+                    terrain.m_ProceduralResolution = terrainComponent["ProceduralResolution"].as<u32>(terrain.m_ProceduralResolution);
+                    terrain.m_ProceduralOctaves = terrainComponent["ProceduralOctaves"].as<u32>(terrain.m_ProceduralOctaves);
+                    terrain.m_ProceduralFrequency = terrainComponent["ProceduralFrequency"].as<f32>(terrain.m_ProceduralFrequency);
+                    terrain.m_ProceduralLacunarity = terrainComponent["ProceduralLacunarity"].as<f32>(terrain.m_ProceduralLacunarity);
+                    terrain.m_ProceduralPersistence = terrainComponent["ProceduralPersistence"].as<f32>(terrain.m_ProceduralPersistence);
+
                     terrain.m_TessellationEnabled = terrainComponent["TessellationEnabled"].as<bool>(terrain.m_TessellationEnabled);
                     terrain.m_TargetTriangleSize = terrainComponent["TargetTriangleSize"].as<f32>(terrain.m_TargetTriangleSize);
                     terrain.m_MorphRegion = terrainComponent["MorphRegion"].as<f32>(terrain.m_MorphRegion);
@@ -3092,6 +3111,16 @@ namespace OloEngine
                     terrain.m_WorldSizeX = terrainComponent["WorldSizeX"].as<f32>(terrain.m_WorldSizeX);
                     terrain.m_WorldSizeZ = terrainComponent["WorldSizeZ"].as<f32>(terrain.m_WorldSizeZ);
                     terrain.m_HeightScale = terrainComponent["HeightScale"].as<f32>(terrain.m_HeightScale);
+
+                    // Procedural generation settings
+                    terrain.m_ProceduralEnabled = terrainComponent["ProceduralEnabled"].as<bool>(terrain.m_ProceduralEnabled);
+                    terrain.m_ProceduralSeed = terrainComponent["ProceduralSeed"].as<i32>(terrain.m_ProceduralSeed);
+                    terrain.m_ProceduralResolution = terrainComponent["ProceduralResolution"].as<u32>(terrain.m_ProceduralResolution);
+                    terrain.m_ProceduralOctaves = terrainComponent["ProceduralOctaves"].as<u32>(terrain.m_ProceduralOctaves);
+                    terrain.m_ProceduralFrequency = terrainComponent["ProceduralFrequency"].as<f32>(terrain.m_ProceduralFrequency);
+                    terrain.m_ProceduralLacunarity = terrainComponent["ProceduralLacunarity"].as<f32>(terrain.m_ProceduralLacunarity);
+                    terrain.m_ProceduralPersistence = terrainComponent["ProceduralPersistence"].as<f32>(terrain.m_ProceduralPersistence);
+
                     terrain.m_TessellationEnabled = terrainComponent["TessellationEnabled"].as<bool>(terrain.m_TessellationEnabled);
                     terrain.m_TargetTriangleSize = terrainComponent["TargetTriangleSize"].as<f32>(terrain.m_TargetTriangleSize);
                     terrain.m_MorphRegion = terrainComponent["MorphRegion"].as<f32>(terrain.m_MorphRegion);

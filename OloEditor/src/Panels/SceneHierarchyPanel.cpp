@@ -2284,6 +2284,52 @@ namespace OloEngine
             if (ImGui::InputText("Heightmap Path", buf, sizeof(buf)))
                 component.m_HeightmapPath = buf;
 
+            // ── Procedural Generation ────────────────────────────────────
+            ImGui::Separator();
+            ImGui::Text("Procedural Generation");
+            if (ImGui::Checkbox("Procedural Enabled", &component.m_ProceduralEnabled))
+                component.m_NeedsRebuild = true;
+
+            if (component.m_ProceduralEnabled)
+            {
+                if (ImGui::DragInt("Seed", &component.m_ProceduralSeed, 1))
+                    component.m_NeedsRebuild = true;
+
+                int procRes = static_cast<int>(component.m_ProceduralResolution);
+                if (ImGui::DragInt("Resolution", &procRes, 1, 64, 2048))
+                {
+                    component.m_ProceduralResolution = static_cast<u32>(procRes);
+                    component.m_NeedsRebuild = true;
+                }
+
+                int procOctaves = static_cast<int>(component.m_ProceduralOctaves);
+                if (ImGui::DragInt("Octaves", &procOctaves, 1, 1, 12))
+                {
+                    component.m_ProceduralOctaves = static_cast<u32>(procOctaves);
+                    component.m_NeedsRebuild = true;
+                }
+
+                if (ImGui::DragFloat("Frequency", &component.m_ProceduralFrequency, 0.1f, 0.1f, 20.0f))
+                    component.m_NeedsRebuild = true;
+                if (ImGui::DragFloat("Lacunarity", &component.m_ProceduralLacunarity, 0.05f, 1.0f, 4.0f))
+                    component.m_NeedsRebuild = true;
+                if (ImGui::DragFloat("Persistence", &component.m_ProceduralPersistence, 0.01f, 0.1f, 0.9f))
+                    component.m_NeedsRebuild = true;
+
+                if (ImGui::Button("Randomize Seed"))
+                {
+                    component.m_ProceduralSeed = static_cast<i32>(std::rand());
+                    component.m_TerrainData = nullptr;
+                    component.m_NeedsRebuild = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Regenerate"))
+                {
+                    component.m_TerrainData = nullptr;
+                    component.m_NeedsRebuild = true;
+                }
+            }
+
             // World dimensions
             ImGui::DragFloat("World Size X", &component.m_WorldSizeX, 1.0f, 1.0f, 16384.0f);
             ImGui::DragFloat("World Size Z", &component.m_WorldSizeZ, 1.0f, 1.0f, 16384.0f);

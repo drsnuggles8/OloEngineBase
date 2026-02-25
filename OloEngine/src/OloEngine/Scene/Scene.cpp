@@ -1918,6 +1918,17 @@ namespace OloEngine
                             {
                                 terrain.m_TerrainData->LoadFromFile(terrain.m_HeightmapPath);
                             }
+                            else if (terrain.m_ProceduralEnabled)
+                            {
+                                terrain.m_TerrainData->GenerateProcedural(
+                                    terrain.m_ProceduralResolution,
+                                    terrain.m_ProceduralSeed,
+                                    terrain.m_ProceduralOctaves,
+                                    terrain.m_ProceduralFrequency,
+                                    1.0f,
+                                    terrain.m_ProceduralLacunarity,
+                                    terrain.m_ProceduralPersistence);
+                            }
                             else
                             {
                                 terrain.m_TerrainData->CreateFlat(256, 0.0f);

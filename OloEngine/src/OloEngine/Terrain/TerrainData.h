@@ -23,6 +23,13 @@ namespace OloEngine
         // Create a flat heightmap of given resolution
         void CreateFlat(u32 resolution, f32 defaultHeight = 0.0f);
 
+        // Generate procedural terrain using fBm simplex noise
+        // seed: random seed, octaves: detail layers, frequency: base scale, amplitude: height variation
+        // lacunarity: frequency multiplier per octave, persistence: amplitude multiplier per octave
+        void GenerateProcedural(u32 resolution, i32 seed, u32 octaves = 6,
+                                f32 frequency = 2.0f, f32 amplitude = 1.0f,
+                                f32 lacunarity = 2.0f, f32 persistence = 0.5f);
+
         // CPU height query with bilinear interpolation — normalizedX/Z in [0, 1]
         [[nodiscard]] f32 GetHeightAt(f32 normalizedX, f32 normalizedZ) const;
 

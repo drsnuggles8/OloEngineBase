@@ -26,9 +26,16 @@ Entities:
       Scale: [1, 1, 1]
     TerrainComponent:
       HeightmapPath: ""
-      WorldSizeX: 128
-      WorldSizeZ: 128
-      HeightScale: 32
+      WorldSizeX: 256
+      WorldSizeZ: 256
+      HeightScale: 48
+      ProceduralEnabled: true
+      ProceduralSeed: 42
+      ProceduralResolution: 512
+      ProceduralOctaves: 6
+      ProceduralFrequency: 3
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.449999988
       TessellationEnabled: false
       TargetTriangleSize: 8
       MorphRegion: 0.300000012

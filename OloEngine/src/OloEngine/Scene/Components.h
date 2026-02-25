@@ -781,6 +781,15 @@ namespace OloEngine
         f32 m_WorldSizeZ = 256.0f;
         f32 m_HeightScale = 64.0f;
 
+        // Procedural generation settings (serialized, used when m_HeightmapPath is empty)
+        bool m_ProceduralEnabled = false;
+        i32 m_ProceduralSeed = 42;
+        u32 m_ProceduralResolution = 512;
+        u32 m_ProceduralOctaves = 6;
+        f32 m_ProceduralFrequency = 3.0f;
+        f32 m_ProceduralLacunarity = 2.0f;
+        f32 m_ProceduralPersistence = 0.45f;
+
         // LOD / tessellation settings (serialized)
         bool m_TessellationEnabled = true;
         f32 m_TargetTriangleSize = 8.0f;   // Screen-space pixel target

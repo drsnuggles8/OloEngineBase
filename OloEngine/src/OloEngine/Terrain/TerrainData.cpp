@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Particle/SimplexNoise.h"
 
 #include <stb_image/stb_image.h>
 #include <glad/gl.h>
@@ -73,6 +74,62 @@ namespace OloEngine
         m_Resolution = resolution;
         m_Heights.assign(static_cast<sizet>(resolution) * static_cast<sizet>(resolution), defaultHeight);
         UploadToGPU();
+    }
+
+    void TerrainData::GenerateProcedural(u32 resolution, i32 seed, u32 octaves,
+                                         f32 frequency, f32 amplitude,
+                                         f32 lacunarity, f32 persistence)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        m_Resolution = resolution;
+        sizet totalPixels = static_cast<sizet>(resolution) * resolution;
+        m_Heights.resize(totalPixels);
+
+        f32 seedOffset = static_cast<f32>(seed) * 13.37f;
+        f32 minH = std::numeric_limits<f32>::max();
+        f32 maxH = std::numeric_limits<f32>::lowest();
+
+        for (u32 z = 0; z < resolution; ++z)
+        {
+            for (u32 x = 0; x < resolution; ++x)
+            {
+                f32 nx = static_cast<f32>(x) / static_cast<f32>(resolution);
+                f32 nz = static_cast<f32>(z) / static_cast<f32>(resolution);
+
+                f32 value = 0.0f;
+                f32 freq = frequency;
+                f32 amp = amplitude;
+                for (u32 o = 0; o < octaves; ++o)
+                {
+                    value += SimplexNoise3D(nx * freq + seedOffset,
+                                            0.0f,
+                                            nz * freq + seedOffset) * amp;
+                    freq *= lacunarity;
+                    amp *= persistence;
+                }
+
+                sizet idx = static_cast<sizet>(z) * resolution + x;
+                m_Heights[idx] = value;
+                minH = std::min(minH, value);
+                maxH = std::max(maxH, value);
+            }
+        }
+
+        // Normalize to [0, 1]
+        f32 range = maxH - minH;
+        if (range > 1e-6f)
+        {
+            f32 invRange = 1.0f / range;
+            for (auto& h : m_Heights)
+            {
+                h = (h - minH) * invRange;
+            }
+        }
+
+        UploadToGPU();
+        OLO_CORE_INFO("TerrainData: Generated {}x{} procedural terrain (seed={}, octaves={}, freq={:.1f})",
+                       resolution, resolution, seed, octaves, frequency);
     }
 
     f32 TerrainData::GetHeightAt(f32 normalizedX, f32 normalizedZ) const
