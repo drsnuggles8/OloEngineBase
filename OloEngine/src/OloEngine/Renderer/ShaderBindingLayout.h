@@ -192,6 +192,59 @@ namespace OloEngine
             }
         };
 
+        // @brief Terrain rendering parameters
+        struct TerrainUBO
+        {
+            glm::vec4 WorldSizeAndHeightScale; // xy = world size X/Z, z = height scale, w = chunk size
+            glm::vec4 TerrainParams;           // x = texel size, y = inv heightmap res, z = layerCount, w = triplanarSharpness
+            i32 HeightmapResolution;
+            i32 _terrainPad0 = 0;
+            i32 _terrainPad1 = 0;
+            i32 _terrainPad2 = 0;
+            glm::vec4 TessFactors;             // x = inner, y = +X edge, z = -X edge, w = +Z edge
+            glm::vec4 TessFactors2;            // x = -Z edge, y = morphFactor, z = LODLevel, w = tessEnabled flag
+            glm::vec4 LayerTilingScales0;      // Tiling scales for layers 0-3
+            glm::vec4 LayerTilingScales1;      // Tiling scales for layers 4-7
+            glm::vec4 LayerBlendSharpness0;    // Height blend sharpness for layers 0-3
+            glm::vec4 LayerBlendSharpness1;    // Height blend sharpness for layers 4-7
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(TerrainUBO);
+            }
+        };
+
+        // @brief Brush preview UBO for terrain editing visualization (binding 11)
+        struct BrushPreviewUBO
+        {
+            glm::vec4 BrushPosAndRadius;  // xyz = world position, w = radius
+            glm::vec4 BrushParams;        // x = active (1.0/0.0), y = falloff, z = mode (0=sculpt, 1=paint), w = unused
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(BrushPreviewUBO);
+            }
+        };
+
+        struct FoliageUBO
+        {
+            f32 Time;
+            f32 WindStrength;
+            f32 WindSpeed;
+            f32 ViewDistance;
+            f32 FadeStart;
+            f32 AlphaCutoff;
+            f32 _pad0 = 0.0f;
+            f32 _pad1 = 0.0f;
+            glm::vec3 BaseColor;
+            f32 _pad2 = 0.0f;
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(FoliageUBO);
+            }
+        };
+
         // @brief Shadow mapping UBO for directional (CSM), spot, and point light shadows
         struct ShadowUBO
         {
@@ -240,6 +293,8 @@ namespace OloEngine
         static constexpr u32 UBO_USER_0 = 7;       // User-defined buffer 0 (PostProcess)
         static constexpr u32 UBO_USER_1 = 8;       // User-defined buffer 1 (MotionBlur)
         static constexpr u32 UBO_SSAO = 9;         // SSAO parameters
+        static constexpr u32 UBO_TERRAIN = 10;      // Terrain parameters (height scale, world size, etc.)
+        static constexpr u32 UBO_FOLIAGE = 12;     // Foliage instance rendering parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -268,6 +323,12 @@ namespace OloEngine
         static constexpr u32 TEX_SSAO = 20;              // Blurred SSAO result
         static constexpr u32 TEX_SSAO_NOISE = 21;        // SSAO 4x4 rotation noise texture
         static constexpr u32 TEX_SCENE_NORMALS = 22;     // View-space normals from G-buffer
+        static constexpr u32 TEX_TERRAIN_HEIGHTMAP = 23;      // Terrain heightmap (R32F)
+        static constexpr u32 TEX_TERRAIN_SPLATMAP = 24;       // Terrain splatmap 0 (RGBA8, layers 0-3)
+        static constexpr u32 TEX_TERRAIN_ALBEDO_ARRAY = 25;   // Terrain albedo layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_NORMAL_ARRAY = 26;   // Terrain normal map layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_ARM_ARRAY = 27;      // Terrain ARM layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_SPLATMAP_1 = 28;     // Terrain splatmap 1 (RGBA8, layers 4-7)
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
@@ -279,6 +340,7 @@ namespace OloEngine
         static constexpr u32 SSBO_FREE_LIST = 3;     // Free-slot indices for emission recycling
         static constexpr u32 SSBO_INDIRECT_DRAW = 4; // Indirect draw command buffer
         static constexpr u32 SSBO_EMIT_STAGING = 5;  // Staging buffer for newly emitted particles
+        static constexpr u32 SSBO_FOLIAGE_INSTANCES = 6; // Foliage instance data (reserved for GPU-driven path)
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE
@@ -294,6 +356,9 @@ namespace OloEngine
         using AnimationUBO = UBOStructures::AnimationUBO;
         using IBLParametersUBO = UBOStructures::IBLParametersUBO;
         using ShadowUBO = UBOStructures::ShadowUBO;
+        using TerrainUBO = UBOStructures::TerrainUBO;
+        using BrushPreviewUBO = UBOStructures::BrushPreviewUBO;
+        using FoliageUBO = UBOStructures::FoliageUBO;
 
         // =============================================================================
         // GLSL LAYOUT STRINGS FOR CODE GENERATION

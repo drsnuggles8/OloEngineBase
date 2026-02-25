@@ -11,6 +11,14 @@
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Particle/ParticleSystem.h"
+#include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Terrain/TerrainChunkManager.h"
+#include "OloEngine/Terrain/TerrainMaterial.h"
+#include "OloEngine/Terrain/TerrainStreamer.h"
+#include "OloEngine/Terrain/Voxel/VoxelOverride.h"
+#include "OloEngine/Terrain/Voxel/MarchingCubes.h"
+#include "OloEngine/Terrain/Foliage/FoliageLayer.h"
+#include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
 #include <box2d/id.h>
 
@@ -763,6 +771,62 @@ namespace OloEngine
         ParticleSystemComponent(const ParticleSystemComponent&) = default;
     };
 
+    // ── Terrain ──────────────────────────────────────────────────────────
+
+    struct TerrainComponent
+    {
+        // Serialized properties
+        std::string m_HeightmapPath;
+        f32 m_WorldSizeX = 256.0f;
+        f32 m_WorldSizeZ = 256.0f;
+        f32 m_HeightScale = 64.0f;
+
+        // LOD / tessellation settings (serialized)
+        bool m_TessellationEnabled = true;
+        f32 m_TargetTriangleSize = 8.0f;   // Screen-space pixel target
+        f32 m_MorphRegion = 0.3f;           // Morph blend fraction [0,1]
+
+        // Streaming settings (serialized)
+        bool m_StreamingEnabled = false;
+        std::string m_TileDirectory;            // Directory containing tile files
+        std::string m_TileFilePattern = "tile_%d_%d.raw";
+        f32 m_TileWorldSize = 256.0f;           // World-space size per tile
+        u32 m_TileResolution = 513;             // Heightmap resolution per tile
+        u32 m_StreamingLoadRadius = 3;          // Tile load radius around camera
+        u32 m_StreamingMaxTiles = 25;           // LRU tile budget
+
+        // Voxel override settings (serialized)
+        bool m_VoxelEnabled = false;
+        f32 m_VoxelSize = 1.0f;
+
+        // Runtime state — not serialized
+        Ref<TerrainData> m_TerrainData;
+        Ref<TerrainChunkManager> m_ChunkManager;
+        Ref<TerrainMaterial> m_Material;
+        Ref<TerrainStreamer> m_Streamer;
+        Ref<VoxelOverride> m_VoxelOverride;
+        std::unordered_map<VoxelCoord, VoxelMesh, VoxelCoordHash> m_VoxelMeshes;
+        bool m_NeedsRebuild = true;
+        bool m_MaterialNeedsRebuild = true;
+
+        TerrainComponent() = default;
+        TerrainComponent(const TerrainComponent&) = default;
+    };
+
+    struct FoliageComponent
+    {
+        // Serialized
+        std::vector<FoliageLayer> m_Layers;
+        bool m_Enabled = true;
+
+        // Runtime (not serialized)
+        Ref<FoliageRenderer> m_Renderer;
+        bool m_NeedsRebuild = true;
+
+        FoliageComponent() = default;
+        FoliageComponent(const FoliageComponent&) = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -814,5 +878,7 @@ namespace OloEngine
         UIDropdownComponent,
         UIGridLayoutComponent,
         UIToggleComponent,
-        ParticleSystemComponent>;
+        ParticleSystemComponent,
+        TerrainComponent,
+        FoliageComponent>;
 } // namespace OloEngine

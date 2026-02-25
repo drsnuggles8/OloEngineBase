@@ -6,9 +6,11 @@
 #include "Panels/AnimationPanel.h"
 #include "Panels/EnvironmentSettingsPanel.h"
 #include "Panels/PostProcessSettingsPanel.h"
+#include "Panels/TerrainEditorPanel.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <atomic>
 #include <mutex>
@@ -91,6 +93,9 @@ namespace OloEngine
         void SetEditorScene(const Ref<Scene>& scene);
         void SyncWindowTitle() const;
 
+        // Terrain editing: screen-to-world raycast against heightmap
+        bool TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;
+
       private:
         OloEngine::OrthographicCameraController m_CameraController;
 
@@ -143,9 +148,14 @@ namespace OloEngine
         AnimationPanel m_AnimationPanel;
         EnvironmentSettingsPanel m_EnvironmentSettingsPanel;
         PostProcessSettingsPanel m_PostProcessSettingsPanel;
+        TerrainEditorPanel m_TerrainEditorPanel;
         bool m_ShowAnimationPanel = true;
         bool m_ShowEnvironmentSettings = false;
         bool m_ShowPostProcessSettings = true;
+        bool m_ShowTerrainEditor = false;
+
+        // Terrain brush preview UBO (binding 11)
+        Ref<UniformBuffer> m_BrushPreviewUBO;
 
         // Editor resources
         Ref<Texture2D> m_IconPlay;

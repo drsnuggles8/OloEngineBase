@@ -33,6 +33,9 @@ namespace OloEngine
 
         void Bind(u32 slot) const override;
 
+        void SetLayerData(u32 layer, const void* data, u32 width, u32 height) override;
+        void GenerateMipmaps() override;
+
       private:
         u32 m_RendererID = 0;
         u32 m_Width = 0;

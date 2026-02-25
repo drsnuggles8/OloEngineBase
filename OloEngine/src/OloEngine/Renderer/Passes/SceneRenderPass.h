@@ -10,6 +10,8 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Shader.h"
 
+#include <functional>
+
 namespace OloEngine
 {
     // @brief Render pass for the main 3D scene.
@@ -19,6 +21,10 @@ namespace OloEngine
     class SceneRenderPass : public RenderPass
     {
       public:
+        // Callback invoked after command bucket execution, while the scene framebuffer is still bound.
+        // Used for terrain, decals, and other custom geometry that bypasses the command packet system.
+        using PostExecuteCallback = std::function<void()>;
+
         SceneRenderPass();
         ~SceneRenderPass() override = default;
 
@@ -28,5 +34,10 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
+
+        void SetPostExecuteCallback(PostExecuteCallback callback) { m_PostExecuteCallback = std::move(callback); }
+
+      private:
+        PostExecuteCallback m_PostExecuteCallback;
     };
 } // namespace OloEngine

@@ -139,6 +139,19 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, vertexCount);
     }
 
+    void OpenGLRendererAPI::DrawIndexedPatches(const Ref<VertexArray>& vertexArray, const u32 indexCount, const u32 patchVertices)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        vertexArray->Bind();
+        glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(patchVertices));
+        const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
+        glDrawElements(GL_PATCHES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
+
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, count);
+    }
+
     void OpenGLRendererAPI::SetLineWidth(const f32 width)
     {
         OLO_PROFILE_FUNCTION();

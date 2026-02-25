@@ -13,6 +13,7 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -82,6 +83,9 @@ namespace OloEngine
             }
         }
         m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
+
+        // Create brush preview UBO (binding 11, 32 bytes = 2 vec4s)
+        m_BrushPreviewUBO = UniformBuffer::Create(ShaderBindingLayout::BrushPreviewUBO::GetSize(), 11);
     }
 
     void EditorLayer::OnDetach()
@@ -129,6 +133,19 @@ namespace OloEngine
             RenderCommand::Clear();
             // Clear our entity ID attachment to -1
             m_Framebuffer->ClearAttachment(1, -1);
+        }
+
+        // Upload brush preview UBO for terrain shader
+        {
+            ShaderBindingLayout::BrushPreviewUBO brushData{};
+            if (m_ShowTerrainEditor && m_TerrainEditorPanel.IsActive() && m_TerrainEditorPanel.HasBrushHit())
+            {
+                brushData.BrushPosAndRadius = glm::vec4(m_TerrainEditorPanel.GetBrushWorldPos(), m_TerrainEditorPanel.GetBrushRadius());
+                brushData.BrushParams.x = 1.0f; // active
+                brushData.BrushParams.y = m_TerrainEditorPanel.GetBrushFalloff();
+                brushData.BrushParams.z = m_TerrainEditorPanel.GetEditMode() == TerrainEditMode::Paint ? 1.0f : 0.0f;
+            }
+            m_BrushPreviewUBO->SetData(&brushData, sizeof(brushData));
         }
 
         switch (m_SceneState)
@@ -182,6 +199,15 @@ namespace OloEngine
                 pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
             }
             m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
+        }
+
+        // Terrain editor: raycast from mouse into heightmap and update brush
+        if (m_ShowTerrainEditor && m_TerrainEditorPanel.IsActive() && m_ViewportHovered && m_SceneState == SceneState::Edit)
+        {
+            glm::vec3 terrainHitPos{};
+            bool hasTerrainHit = TerrainRaycast({mx, my}, viewportSize, terrainHitPos);
+            bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft) && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
+            m_TerrainEditorPanel.OnUpdate(ts, terrainHitPos, hasTerrainHit, mouseDown);
         }
 
         if (m_Is3DMode)
@@ -374,6 +400,7 @@ namespace OloEngine
             ImGui::MenuItem("Animation Panel", nullptr, &m_ShowAnimationPanel);
             ImGui::MenuItem("Environment Settings", nullptr, &m_ShowEnvironmentSettings);
             ImGui::MenuItem("Post Process Settings", nullptr, &m_ShowPostProcessSettings);
+            ImGui::MenuItem("Terrain Editor", nullptr, &m_ShowTerrainEditor);
 
             ImGui::EndMenu();
         }
@@ -644,6 +671,13 @@ namespace OloEngine
         {
             m_PostProcessSettingsPanel.OnImGuiRender();
         }
+
+        // Terrain Editor Panel
+        if (m_ShowTerrainEditor)
+        {
+            m_TerrainEditorPanel.SetContext(m_ActiveScene);
+            m_TerrainEditorPanel.OnImGuiRender();
+        }
     }
 
     void EditorLayer::UI_Settings()
@@ -868,6 +902,12 @@ namespace OloEngine
 
     bool EditorLayer::OnMouseButtonPressed(MouseButtonPressedEvent const& e)
     {
+        // When terrain editor is active, consume left-click for brush application
+        if (m_ShowTerrainEditor && m_TerrainEditorPanel.IsActive() && e.GetMouseButton() == Mouse::ButtonLeft && m_ViewportHovered && !Input::IsKeyPressed(Key::LeftAlt))
+        {
+            return true;
+        }
+
         if ((e.GetMouseButton() == Mouse::ButtonLeft) && m_ViewportHovered && (!ImGuizmo::IsOver()) && (!Input::IsKeyPressed(Key::LeftAlt)))
         {
             m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
@@ -1193,6 +1233,7 @@ namespace OloEngine
         m_EditorScene = scene;
         m_SceneHierarchyPanel.SetContext(m_EditorScene);
         m_AnimationPanel.SetContext(m_EditorScene);
+        m_TerrainEditorPanel.SetContext(m_EditorScene);
 
         m_ActiveScene = m_EditorScene;
 
@@ -1204,6 +1245,109 @@ namespace OloEngine
         std::string const& projectName = Project::GetActive()->GetConfig().Name;
         std::string title = projectName + " - " + m_ActiveScene->GetName() + " - OloEditor";
         Application::Get().GetWindow().SetTitle(title);
+    }
+
+    bool EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
+    {
+        if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
+        {
+            return false;
+        }
+
+        // Find a terrain entity in the active scene
+        Entity terrainEntity;
+        auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
+        for (auto entityID : view)
+        {
+            terrainEntity = Entity(entityID, m_ActiveScene.get());
+            break;
+        }
+        if (!terrainEntity || !terrainEntity.GetComponent<TerrainComponent>().m_TerrainData)
+        {
+            return false;
+        }
+
+        auto const& tc = terrainEntity.GetComponent<TerrainComponent>();
+        auto const& transform = terrainEntity.GetComponent<TransformComponent>();
+
+        // Convert mouse position to NDC [-1, 1]
+        float ndcX = (mousePos.x / viewportSize.x) * 2.0f - 1.0f;
+        float ndcY = (mousePos.y / viewportSize.y) * 2.0f - 1.0f;
+
+        // Unproject near and far points
+        glm::mat4 invVP = glm::inverse(m_EditorCamera.GetViewProjection());
+        glm::vec4 nearNDC(ndcX, ndcY, -1.0f, 1.0f);
+        glm::vec4 farNDC(ndcX, ndcY, 1.0f, 1.0f);
+
+        glm::vec4 nearWorld = invVP * nearNDC;
+        glm::vec4 farWorld = invVP * farNDC;
+        nearWorld /= nearWorld.w;
+        farWorld /= farWorld.w;
+
+        glm::vec3 rayOrigin(nearWorld);
+        glm::vec3 rayDir = glm::normalize(glm::vec3(farWorld) - glm::vec3(nearWorld));
+
+        // Step along ray to find heightmap intersection
+        // Terrain origin is at entity transform position
+        glm::vec3 terrainOrigin = transform.Translation;
+        f32 worldSizeX = tc.m_WorldSizeX;
+        f32 worldSizeZ = tc.m_WorldSizeZ;
+        f32 heightScale = tc.m_HeightScale;
+
+        // Coarse march along ray (step size = 1 world unit)
+        constexpr f32 stepSize = 1.0f;
+        constexpr f32 maxDist = 2000.0f;
+        constexpr int refinementSteps = 8;
+
+        f32 t = 0.0f;
+        bool wasAbove = true;
+        for (; t < maxDist; t += stepSize)
+        {
+            glm::vec3 p = rayOrigin + rayDir * t;
+
+            // Convert world position to terrain normalized coords [0,1]
+            f32 normX = (p.x - terrainOrigin.x) / worldSizeX;
+            f32 normZ = (p.z - terrainOrigin.z) / worldSizeZ;
+
+            // Outside terrain bounds
+            if (normX < 0.0f || normX > 1.0f || normZ < 0.0f || normZ > 1.0f)
+            {
+                continue;
+            }
+
+            f32 terrainHeight = terrainOrigin.y + tc.m_TerrainData->GetHeightAt(normX, normZ) * heightScale;
+            bool isAbove = p.y > terrainHeight;
+
+            if (!isAbove && wasAbove)
+            {
+                // Binary search refinement between t-stepSize and t
+                f32 lo = t - stepSize;
+                f32 hi = t;
+                for (int i = 0; i < refinementSteps; ++i)
+                {
+                    f32 mid = (lo + hi) * 0.5f;
+                    glm::vec3 mp = rayOrigin + rayDir * mid;
+                    f32 mnx = (mp.x - terrainOrigin.x) / worldSizeX;
+                    f32 mnz = (mp.z - terrainOrigin.z) / worldSizeZ;
+                    mnx = glm::clamp(mnx, 0.0f, 1.0f);
+                    mnz = glm::clamp(mnz, 0.0f, 1.0f);
+                    f32 th = terrainOrigin.y + tc.m_TerrainData->GetHeightAt(mnx, mnz) * heightScale;
+                    if (mp.y > th)
+                    {
+                        lo = mid;
+                    }
+                    else
+                    {
+                        hi = mid;
+                    }
+                }
+                glm::vec3 hitP = rayOrigin + rayDir * ((lo + hi) * 0.5f);
+                outHitPos = hitP;
+                return true;
+            }
+            wasAbove = isAbove;
+        }
+        return false;
     }
 
     void EditorLayer::OnScenePause()

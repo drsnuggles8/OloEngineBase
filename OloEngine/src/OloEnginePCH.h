@@ -33,5 +33,5 @@
 #include "OloEngine/Debug/Instrumentor.h"
 
 #ifdef OLO_PLATFORM_WINDOWS
-#include <Windows.h>
+#include "Platform/Windows/WindowsHWrapper.h"
 #endif

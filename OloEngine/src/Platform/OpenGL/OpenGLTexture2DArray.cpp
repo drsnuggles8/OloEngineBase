@@ -34,9 +34,23 @@ namespace OloEngine
         GLenum internalFormat = Texture2DArrayFormatToGL(spec.Format);
 
         glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &m_RendererID);
-        glTextureStorage3D(m_RendererID, 1, internalFormat, static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height), static_cast<GLsizei>(m_Layers));
 
-        glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        // Calculate mip levels
+        GLsizei mipLevels = 1;
+        if (spec.GenerateMipmaps)
+        {
+            mipLevels = static_cast<GLsizei>(std::floor(std::log2(std::max(m_Width, m_Height)))) + 1;
+        }
+        glTextureStorage3D(m_RendererID, mipLevels, internalFormat, static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height), static_cast<GLsizei>(m_Layers));
+
+        if (spec.GenerateMipmaps)
+        {
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        }
+        else
+        {
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        }
         glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
         const bool isDepthFormat = (spec.Format == Texture2DArrayFormat::DEPTH_COMPONENT32F);
@@ -86,6 +100,49 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         glBindTextureUnit(slot, m_RendererID);
+    }
+
+    void OpenGLTexture2DArray::SetLayerData(u32 layer, const void* data, u32 width, u32 height)
+    {
+        OLO_PROFILE_FUNCTION();
+        OLO_CORE_ASSERT(layer < m_Layers, "Layer index out of bounds");
+        OLO_CORE_ASSERT(width == m_Width && height == m_Height, "Layer data dimensions must match array dimensions");
+
+        GLenum dataFormat = GL_RGBA;
+        GLenum dataType = GL_UNSIGNED_BYTE;
+
+        switch (m_Specification.Format)
+        {
+            case Texture2DArrayFormat::RGBA8:
+                dataFormat = GL_RGBA;
+                dataType = GL_UNSIGNED_BYTE;
+                break;
+            case Texture2DArrayFormat::RGBA16F:
+            case Texture2DArrayFormat::RGBA32F:
+                dataFormat = GL_RGBA;
+                dataType = (m_Specification.Format == Texture2DArrayFormat::RGBA16F) ? GL_HALF_FLOAT : GL_FLOAT;
+                break;
+            default:
+                OLO_CORE_ASSERT(false, "SetLayerData not supported for depth formats");
+                return;
+        }
+
+        glTextureSubImage3D(
+            m_RendererID,
+            0,                                  // mip level 0
+            0, 0, static_cast<GLint>(layer),    // x, y, layer offset
+            static_cast<GLsizei>(width),
+            static_cast<GLsizei>(height),
+            1,                                  // depth = 1 layer
+            dataFormat,
+            dataType,
+            data);
+    }
+
+    void OpenGLTexture2DArray::GenerateMipmaps()
+    {
+        OLO_PROFILE_FUNCTION();
+        glGenerateTextureMipmap(m_RendererID);
     }
 
     // Factory

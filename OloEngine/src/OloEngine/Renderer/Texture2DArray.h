@@ -20,6 +20,7 @@ namespace OloEngine
         u32 Layers = 1;
         Texture2DArrayFormat Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
         bool DepthComparisonMode = false; // Enable hardware shadow comparison (sampler2DArrayShadow)
+        bool GenerateMipmaps = false;     // Allocate mipmap levels (for color texture arrays)
     };
 
     class Texture2DArray : public RefCounted
@@ -34,6 +35,13 @@ namespace OloEngine
         [[nodiscard]] virtual const Texture2DArraySpecification& GetSpecification() const = 0;
 
         virtual void Bind(u32 slot) const = 0;
+
+        // Upload pixel data to a specific layer (for building texture arrays from individual images)
+        // data must be RGBA8 (4 bytes per pixel), width × height pixels
+        virtual void SetLayerData(u32 layer, const void* data, u32 width, u32 height) = 0;
+
+        // Generate mipmaps for the texture array
+        virtual void GenerateMipmaps() = 0;
 
         static Ref<Texture2DArray> Create(const Texture2DArraySpecification& spec);
     };

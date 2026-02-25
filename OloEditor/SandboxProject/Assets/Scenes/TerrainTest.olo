@@ -1,0 +1,43 @@
+Scene: TerrainTest
+Entities:
+  - Entity: 100000000000001
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 10, 0]
+      Rotation: [-0.785398185, 0.392699093, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.5, -0.707106769, -0.5]
+      Color: [1, 0.960784316, 0.898039222]
+      Intensity: 1.5
+      CastShadows: true
+      ShadowBias: 0.00499999989
+      ShadowNormalBias: 0.00999999978
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false
+  - Entity: 100000000000002
+    TagComponent:
+      Tag: Terrain
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 128
+      WorldSizeZ: 128
+      HeightScale: 32
+      TessellationEnabled: false
+      TargetTriangleSize: 8
+      MorphRegion: 0.300000012
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: "tile_%d_%d.raw"
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1

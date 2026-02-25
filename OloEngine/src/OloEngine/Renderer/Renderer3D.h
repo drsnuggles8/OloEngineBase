@@ -501,6 +501,16 @@ namespace OloEngine
             return s_Data.Shadow;
         }
 
+        static Ref<Shader> GetTerrainPBRShader() { return s_Data.TerrainPBRShader; }
+        static Ref<Shader> GetTerrainDepthShader() { return s_Data.TerrainDepthShader; }
+        static Ref<Shader> GetVoxelPBRShader() { return s_Data.VoxelPBRShader; }
+        static Ref<Shader> GetVoxelDepthShader() { return s_Data.VoxelDepthShader; }
+        static Ref<Shader> GetFoliageShader() { return s_Data.FoliageShader; }
+        static Ref<Shader> GetFoliageDepthShader() { return s_Data.FoliageDepthShader; }
+        static Ref<UniformBuffer> GetTerrainUBO() { return s_Data.TerrainUBO; }
+        static Ref<UniformBuffer> GetFoliageUBO() { return s_Data.FoliageUBO; }
+        static Ref<UniformBuffer> GetModelMatrixUBO() { return s_Data.ModelMatrixUBO; }
+
         static PostProcessSettings& GetPostProcessSettings()
         {
             return s_Data.PostProcess;
@@ -560,6 +570,8 @@ namespace OloEngine
             Ref<UniformBuffer> PostProcessUBO;
             Ref<UniformBuffer> MotionBlurUBO;
             Ref<UniformBuffer> SSAOUBO;
+            Ref<UniformBuffer> TerrainUBO;
+            Ref<UniformBuffer> FoliageUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -595,6 +607,14 @@ namespace OloEngine
             ShadowMap Shadow;
             Ref<Shader> ShadowDepthShader;
             Ref<Shader> ShadowDepthSkinnedShader;
+
+            // Terrain
+            Ref<Shader> TerrainPBRShader;
+            Ref<Shader> TerrainDepthShader;
+            Ref<Shader> VoxelPBRShader;
+            Ref<Shader> VoxelDepthShader;
+            Ref<Shader> FoliageShader;
+            Ref<Shader> FoliageDepthShader;
 
             // Post-processing
             PostProcessSettings PostProcess;

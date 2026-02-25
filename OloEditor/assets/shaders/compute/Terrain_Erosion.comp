@@ -1,0 +1,227 @@
+#version 450 core
+
+layout(local_size_x = 256) in;
+
+// Heightmap image — R32F, read/write
+layout(r32f, binding = 0) uniform image2D u_Heightmap;
+
+// Erosion parameters
+uniform uint  u_Resolution;       // Heightmap resolution (square)
+uniform uint  u_MaxDropletSteps;   // Max steps per droplet (default 64)
+uniform float u_Inertia;           // Direction inertia [0,1] (default 0.05)
+uniform float u_SedimentCapacity;  // Sediment capacity multiplier (default 4.0)
+uniform float u_MinSedimentCapacity; // Minimum capacity floor (default 0.01)
+uniform float u_DepositSpeed;      // Deposit speed [0,1] (default 0.3)
+uniform float u_ErodeSpeed;        // Erosion speed [0,1] (default 0.3)
+uniform float u_EvaporateSpeed;    // Evaporation per step [0,1] (default 0.01)
+uniform float u_Gravity;           // Gravity constant (default 4.0)
+uniform float u_InitialWater;      // Starting water volume (default 1.0)
+uniform float u_InitialSpeed;      // Starting droplet speed (default 1.0)
+uniform int   u_ErosionRadius;     // Brush radius for erosion/deposition in texels (default 3)
+uniform uint  u_Seed;              // RNG seed offset
+
+// --- Pseudo-random number generator (PCG) ---
+uint pcgHash(uint v)
+{
+    uint state = v * 747796405u + 2891336453u;
+    uint word  = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+// Returns float in [0, 1)
+float randomFloat(uint seed)
+{
+    return float(pcgHash(seed)) / 4294967296.0;
+}
+
+// --- Bilinear heightmap sampling ---
+// Returns interpolated height at fractional (x, y) in texel coords
+float sampleHeight(vec2 pos)
+{
+    ivec2 coord = ivec2(floor(pos));
+    vec2  frac  = pos - vec2(coord);
+
+    float h00 = imageLoad(u_Heightmap, clamp(coord,              ivec2(0), ivec2(u_Resolution - 1))).r;
+    float h10 = imageLoad(u_Heightmap, clamp(coord + ivec2(1,0), ivec2(0), ivec2(u_Resolution - 1))).r;
+    float h01 = imageLoad(u_Heightmap, clamp(coord + ivec2(0,1), ivec2(0), ivec2(u_Resolution - 1))).r;
+    float h11 = imageLoad(u_Heightmap, clamp(coord + ivec2(1,1), ivec2(0), ivec2(u_Resolution - 1))).r;
+
+    return mix(mix(h00, h10, frac.x), mix(h01, h11, frac.x), frac.y);
+}
+
+// --- Gradient calculation via bilinear ---
+vec2 calcGradient(vec2 pos)
+{
+    ivec2 coord = ivec2(floor(pos));
+    vec2  frac  = pos - vec2(coord);
+
+    float h00 = imageLoad(u_Heightmap, clamp(coord,              ivec2(0), ivec2(u_Resolution - 1))).r;
+    float h10 = imageLoad(u_Heightmap, clamp(coord + ivec2(1,0), ivec2(0), ivec2(u_Resolution - 1))).r;
+    float h01 = imageLoad(u_Heightmap, clamp(coord + ivec2(0,1), ivec2(0), ivec2(u_Resolution - 1))).r;
+    float h11 = imageLoad(u_Heightmap, clamp(coord + ivec2(1,1), ivec2(0), ivec2(u_Resolution - 1))).r;
+
+    // Gradient from bilinear interpolation derivatives
+    float gx = (h10 - h00) * (1.0 - frac.y) + (h11 - h01) * frac.y;
+    float gy = (h01 - h00) * (1.0 - frac.x) + (h11 - h10) * frac.x;
+
+    return vec2(gx, gy);
+}
+
+// --- Erode/deposit within a radius using a weighted brush ---
+void erodeAt(vec2 pos, float amount)
+{
+    ivec2 center = ivec2(floor(pos));
+
+    // Pre-compute weight sum for normalization
+    float weightSum = 0.0;
+    for (int dy = -u_ErosionRadius; dy <= u_ErosionRadius; ++dy)
+    {
+        for (int dx = -u_ErosionRadius; dx <= u_ErosionRadius; ++dx)
+        {
+            float dist = length(vec2(float(dx), float(dy)));
+            if (dist <= float(u_ErosionRadius))
+            {
+                weightSum += max(0.0, float(u_ErosionRadius) - dist);
+            }
+        }
+    }
+
+    if (weightSum < 1e-6)
+    {
+        // Fallback: single texel
+        ivec2 c = clamp(center, ivec2(0), ivec2(u_Resolution - 1));
+        float h = imageLoad(u_Heightmap, c).r;
+        imageStore(u_Heightmap, c, vec4(h - amount, 0, 0, 0));
+        return;
+    }
+
+    for (int dy = -u_ErosionRadius; dy <= u_ErosionRadius; ++dy)
+    {
+        for (int dx = -u_ErosionRadius; dx <= u_ErosionRadius; ++dx)
+        {
+            float dist = length(vec2(float(dx), float(dy)));
+            if (dist > float(u_ErosionRadius))
+                continue;
+
+            float weight = max(0.0, float(u_ErosionRadius) - dist) / weightSum;
+            ivec2 c = clamp(center + ivec2(dx, dy), ivec2(0), ivec2(u_Resolution - 1));
+            float h = imageLoad(u_Heightmap, c).r;
+            imageStore(u_Heightmap, c, vec4(h - amount * weight, 0, 0, 0));
+        }
+    }
+}
+
+void depositAt(vec2 pos, float amount)
+{
+    // Deposit on the 4 bilinear neighbors
+    ivec2 coord = ivec2(floor(pos));
+    vec2  frac  = pos - vec2(coord);
+
+    float w00 = (1.0 - frac.x) * (1.0 - frac.y);
+    float w10 = frac.x          * (1.0 - frac.y);
+    float w01 = (1.0 - frac.x) * frac.y;
+    float w11 = frac.x          * frac.y;
+
+    ivec2 c00 = clamp(coord,              ivec2(0), ivec2(u_Resolution - 1));
+    ivec2 c10 = clamp(coord + ivec2(1,0), ivec2(0), ivec2(u_Resolution - 1));
+    ivec2 c01 = clamp(coord + ivec2(0,1), ivec2(0), ivec2(u_Resolution - 1));
+    ivec2 c11 = clamp(coord + ivec2(1,1), ivec2(0), ivec2(u_Resolution - 1));
+
+    imageStore(u_Heightmap, c00, vec4(imageLoad(u_Heightmap, c00).r + amount * w00, 0, 0, 0));
+    imageStore(u_Heightmap, c10, vec4(imageLoad(u_Heightmap, c10).r + amount * w10, 0, 0, 0));
+    imageStore(u_Heightmap, c01, vec4(imageLoad(u_Heightmap, c01).r + amount * w01, 0, 0, 0));
+    imageStore(u_Heightmap, c11, vec4(imageLoad(u_Heightmap, c11).r + amount * w11, 0, 0, 0));
+}
+
+void main()
+{
+    uint dropletIdx = gl_GlobalInvocationID.x;
+
+    // Generate starting position from RNG
+    uint rng = pcgHash(dropletIdx + u_Seed);
+    float startX = randomFloat(rng) * float(u_Resolution - 1);
+    rng = pcgHash(rng);
+    float startY = randomFloat(rng) * float(u_Resolution - 1);
+
+    vec2 pos = vec2(startX, startY);
+    vec2 dir = vec2(0.0, 0.0);
+    float speed    = u_InitialSpeed;
+    float water    = u_InitialWater;
+    float sediment = 0.0;
+
+    for (uint step = 0; step < u_MaxDropletSteps; ++step)
+    {
+        // Out of bounds check
+        if (pos.x < 0.0 || pos.x >= float(u_Resolution - 1) ||
+            pos.y < 0.0 || pos.y >= float(u_Resolution - 1))
+            break;
+
+        float heightOld = sampleHeight(pos);
+        vec2  gradient   = calcGradient(pos);
+
+        // Update direction with inertia
+        dir = dir * u_Inertia - gradient * (1.0 - u_Inertia);
+
+        float dirLen = length(dir);
+        if (dirLen < 1e-6)
+        {
+            // Random direction if flat
+            rng = pcgHash(rng);
+            float angle = randomFloat(rng) * 6.2831853;
+            dir = vec2(cos(angle), sin(angle));
+        }
+        else
+        {
+            dir /= dirLen;
+        }
+
+        // Move to new position
+        vec2 newPos = pos + dir;
+
+        // Clamp to bounds
+        newPos = clamp(newPos, vec2(0.0), vec2(float(u_Resolution - 1) - 0.001));
+
+        float heightNew = sampleHeight(newPos);
+        float heightDiff = heightNew - heightOld;
+
+        // Compute sediment capacity
+        float capacity = max(-heightDiff * speed * water * u_SedimentCapacity, u_MinSedimentCapacity);
+
+        if (sediment > capacity || heightDiff > 0.0)
+        {
+            // Deposit sediment
+            float depositAmount;
+            if (heightDiff > 0.0)
+            {
+                // Going uphill — deposit up to the height difference
+                depositAmount = min(sediment, heightDiff);
+            }
+            else
+            {
+                // Over-capacity — deposit excess
+                depositAmount = (sediment - capacity) * u_DepositSpeed;
+            }
+            sediment -= depositAmount;
+            depositAt(pos, depositAmount);
+        }
+        else
+        {
+            // Erode terrain
+            float erodeAmount = min((capacity - sediment) * u_ErodeSpeed, -heightDiff);
+            sediment += erodeAmount;
+            erodeAt(pos, erodeAmount);
+        }
+
+        // Update speed
+        speed = sqrt(max(0.0, speed * speed + heightDiff * u_Gravity));
+
+        // Evaporate water
+        water *= (1.0 - u_EvaporateSpeed);
+
+        // Stop if water is negligible
+        if (water < 0.001)
+            break;
+
+        pos = newPos;
+    }
+}

@@ -50,6 +50,14 @@ namespace OloEngine
             {
                 return GL_FRAGMENT_SHADER;
             }
+            if ((type == "tess_control") || (type == "tesscontrol"))
+            {
+                return GL_TESS_CONTROL_SHADER;
+            }
+            if ((type == "tess_evaluation") || (type == "tesseval"))
+            {
+                return GL_TESS_EVALUATION_SHADER;
+            }
 
             OLO_CORE_ERROR("Unknown shader type: '{0}' (length: {1})", std::string(type), type.length());
             OLO_CORE_ASSERT(false, "Unknown shader type!");
@@ -68,6 +76,14 @@ namespace OloEngine
                 {
                     return shaderc_glsl_fragment_shader;
                 }
+                case GL_TESS_CONTROL_SHADER:
+                {
+                    return shaderc_glsl_tess_control_shader;
+                }
+                case GL_TESS_EVALUATION_SHADER:
+                {
+                    return shaderc_glsl_tess_evaluation_shader;
+                }
             }
             OLO_CORE_ASSERT(false);
             return static_cast<shaderc_shader_kind>(0);
@@ -84,6 +100,14 @@ namespace OloEngine
                 case GL_FRAGMENT_SHADER:
                 {
                     return "GL_FRAGMENT_SHADER";
+                }
+                case GL_TESS_CONTROL_SHADER:
+                {
+                    return "GL_TESS_CONTROL_SHADER";
+                }
+                case GL_TESS_EVALUATION_SHADER:
+                {
+                    return "GL_TESS_EVALUATION_SHADER";
                 }
             }
             OLO_CORE_ASSERT(false);
@@ -123,6 +147,14 @@ namespace OloEngine
                 {
                     return ".cached_opengl.frag";
                 }
+                case GL_TESS_CONTROL_SHADER:
+                {
+                    return ".cached_opengl.tesc";
+                }
+                case GL_TESS_EVALUATION_SHADER:
+                {
+                    return ".cached_opengl.tese";
+                }
             }
             OLO_CORE_ASSERT(false);
             return "";
@@ -139,6 +171,14 @@ namespace OloEngine
                 case GL_FRAGMENT_SHADER:
                 {
                     return ".cached_vulkan.frag";
+                }
+                case GL_TESS_CONTROL_SHADER:
+                {
+                    return ".cached_vulkan.tesc";
+                }
+                case GL_TESS_EVALUATION_SHADER:
+                {
+                    return ".cached_vulkan.tese";
                 }
             }
             OLO_CORE_ASSERT(false);

@@ -239,6 +239,13 @@ namespace OloEngine
         m_ShaderLibrary.Load("assets/shaders/ShadowDepthSkinned.glsl");
         m_ShaderLibrary.Load("assets/shaders/ShadowDepthPoint.glsl");
 
+        m_ShaderLibrary.Load("assets/shaders/Terrain_PBR.glsl");
+        m_ShaderLibrary.Load("assets/shaders/Terrain_Depth.glsl");
+        m_ShaderLibrary.Load("assets/shaders/Terrain_Voxel.glsl");
+        m_ShaderLibrary.Load("assets/shaders/Terrain_VoxelDepth.glsl");
+        m_ShaderLibrary.Load("assets/shaders/Foliage_Instance.glsl");
+        m_ShaderLibrary.Load("assets/shaders/Foliage_Depth.glsl");
+
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
         s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
         s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
@@ -251,6 +258,12 @@ namespace OloEngine
         s_Data.InfiniteGridShader = m_ShaderLibrary.Get("InfiniteGrid");
         s_Data.ShadowDepthShader = m_ShaderLibrary.Get("ShadowDepth");
         s_Data.ShadowDepthSkinnedShader = m_ShaderLibrary.Get("ShadowDepthSkinned");
+        s_Data.TerrainPBRShader = m_ShaderLibrary.Get("Terrain_PBR");
+        s_Data.TerrainDepthShader = m_ShaderLibrary.Get("Terrain_Depth");
+        s_Data.VoxelPBRShader = m_ShaderLibrary.Get("Terrain_Voxel");
+        s_Data.VoxelDepthShader = m_ShaderLibrary.Get("Terrain_VoxelDepth");
+        s_Data.FoliageShader = m_ShaderLibrary.Get("Foliage_Instance");
+        s_Data.FoliageDepthShader = m_ShaderLibrary.Get("Foliage_Depth");
 
         s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
         s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
@@ -258,6 +271,8 @@ namespace OloEngine
         s_Data.MultiLightBuffer = UniformBuffer::Create(ShaderBindingLayout::MultiLightUBO::GetSize(), ShaderBindingLayout::UBO_MULTI_LIGHTS);
         s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
         s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
+        s_Data.TerrainUBO = UniformBuffer::Create(ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
+        s_Data.FoliageUBO = UniformBuffer::Create(ShaderBindingLayout::FoliageUBO::GetSize(), ShaderBindingLayout::UBO_FOLIAGE);
         s_Data.PostProcessUBO = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0);
         s_Data.MotionBlurUBO = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1);
         s_Data.SSAOUBO = UniformBuffer::Create(SSAOUBOData::GetSize(), ShaderBindingLayout::UBO_SSAO);

@@ -21,6 +21,7 @@ namespace OloEngine
         void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0) override;
         void DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, u32 indexCount = 0, u32 instanceCount = 1) override;
         void DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount) override;
+        void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount = 0, u32 patchVertices = 4) override;
 
         void SetLineWidth(f32 width) override;
 
