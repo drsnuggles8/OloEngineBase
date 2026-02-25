@@ -49,15 +49,36 @@ namespace OloEngine
         void GetAllChunks(std::vector<const TerrainChunk*>& outChunks) const;
 
         // Get selected chunks from last SelectVisibleChunks call (with LOD data)
-        [[nodiscard]] const std::vector<TerrainRenderChunk>& GetSelectedChunks() const { return m_SelectedChunks; }
+        [[nodiscard]] const std::vector<TerrainRenderChunk>& GetSelectedChunks() const
+        {
+            return m_SelectedChunks;
+        }
 
-        [[nodiscard]] u32 GetNumChunksX() const { return m_NumChunksX; }
-        [[nodiscard]] u32 GetNumChunksZ() const { return m_NumChunksZ; }
-        [[nodiscard]] u32 GetTotalChunks() const { return m_NumChunksX * m_NumChunksZ; }
-        [[nodiscard]] bool IsBuilt() const { return !m_Chunks.empty(); }
+        [[nodiscard]] u32 GetNumChunksX() const
+        {
+            return m_NumChunksX;
+        }
+        [[nodiscard]] u32 GetNumChunksZ() const
+        {
+            return m_NumChunksZ;
+        }
+        [[nodiscard]] u32 GetTotalChunks() const
+        {
+            return m_NumChunksX * m_NumChunksZ;
+        }
+        [[nodiscard]] bool IsBuilt() const
+        {
+            return !m_Chunks.empty();
+        }
 
-        [[nodiscard]] TerrainQuadtree& GetQuadtree() { return m_Quadtree; }
-        [[nodiscard]] const TerrainQuadtree& GetQuadtree() const { return m_Quadtree; }
+        [[nodiscard]] TerrainQuadtree& GetQuadtree()
+        {
+            return m_Quadtree;
+        }
+        [[nodiscard]] const TerrainQuadtree& GetQuadtree() const
+        {
+            return m_Quadtree;
+        }
 
         // Enable/disable tessellation (fallback to Phase 1 triangle rendering)
         bool TessellationEnabled = true;

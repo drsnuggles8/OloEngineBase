@@ -21,10 +21,10 @@ namespace OloEngine
         enum class State : u8
         {
             Unloaded = 0,
-            Loading,     // Async loading in progress
-            Loaded,      // CPU data ready, needs GPU upload
-            Ready,       // Fully built and renderable
-            Unloading    // Scheduled for cleanup
+            Loading,  // Async loading in progress
+            Loaded,   // CPU data ready, needs GPU upload
+            Ready,    // Fully built and renderable
+            Unloading // Scheduled for cleanup
         };
 
         TerrainTile() = default;
@@ -43,7 +43,7 @@ namespace OloEngine
         f32 HeightScale = 64.0f;
 
         // World origin of this tile
-        glm::vec3 WorldOrigin{0.0f};
+        glm::vec3 WorldOrigin{ 0.0f };
 
         // Load heightmap data from file (CPU-side, thread-safe for async use)
         bool LoadFromFile(const std::string& heightmapPath);
@@ -58,14 +58,32 @@ namespace OloEngine
         void Unload();
 
         // Accessors for rendering
-        [[nodiscard]] Ref<TerrainData> GetTerrainData() const { return m_TerrainData; }
-        [[nodiscard]] Ref<TerrainChunkManager> GetChunkManager() const { return m_ChunkManager; }
-        [[nodiscard]] Ref<TerrainMaterial> GetMaterial() const { return m_Material; }
+        [[nodiscard]] Ref<TerrainData> GetTerrainData() const
+        {
+            return m_TerrainData;
+        }
+        [[nodiscard]] Ref<TerrainChunkManager> GetChunkManager() const
+        {
+            return m_ChunkManager;
+        }
+        [[nodiscard]] Ref<TerrainMaterial> GetMaterial() const
+        {
+            return m_Material;
+        }
 
-        void SetMaterial(const Ref<TerrainMaterial>& material) { m_Material = material; }
+        void SetMaterial(const Ref<TerrainMaterial>& material)
+        {
+            m_Material = material;
+        }
 
-        [[nodiscard]] State GetState() const { return m_State.load(std::memory_order_acquire); }
-        void SetState(State state) { m_State.store(state, std::memory_order_release); }
+        [[nodiscard]] State GetState() const
+        {
+            return m_State.load(std::memory_order_acquire);
+        }
+        void SetState(State state)
+        {
+            m_State.store(state, std::memory_order_release);
+        }
 
         // LRU timestamp for cache eviction (frame number when last used)
         u64 LastUsedFrame = 0;
@@ -78,6 +96,6 @@ namespace OloEngine
         Ref<TerrainChunkManager> m_ChunkManager;
         Ref<TerrainMaterial> m_Material;
 
-        std::atomic<State> m_State{State::Unloaded};
+        std::atomic<State> m_State{ State::Unloaded };
     };
 } // namespace OloEngine

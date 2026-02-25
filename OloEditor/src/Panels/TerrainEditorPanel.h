@@ -24,20 +24,35 @@ namespace OloEngine
       public:
         TerrainEditorPanel() = default;
 
-        void SetContext(const Ref<Scene>& scene) { m_Context = scene; }
+        void SetContext(const Ref<Scene>& scene)
+        {
+            m_Context = scene;
+        }
         void OnImGuiRender();
 
         // Called from EditorLayer each frame with terrain hit info
         void OnUpdate(f32 deltaTime, const glm::vec3& hitPos, bool hasHit, bool mouseDown);
 
-        [[nodiscard]] TerrainEditMode GetEditMode() const { return m_EditMode; }
-        [[nodiscard]] bool IsActive() const { return m_EditMode != TerrainEditMode::None; }
+        [[nodiscard]] TerrainEditMode GetEditMode() const
+        {
+            return m_EditMode;
+        }
+        [[nodiscard]] bool IsActive() const
+        {
+            return m_EditMode != TerrainEditMode::None;
+        }
 
         // Get brush position for preview rendering
-        [[nodiscard]] const glm::vec3& GetBrushWorldPos() const { return m_BrushWorldPos; }
+        [[nodiscard]] const glm::vec3& GetBrushWorldPos() const
+        {
+            return m_BrushWorldPos;
+        }
         [[nodiscard]] f32 GetBrushRadius() const;
         [[nodiscard]] f32 GetBrushFalloff() const;
-        [[nodiscard]] bool HasBrushHit() const { return m_HasBrushHit; }
+        [[nodiscard]] bool HasBrushHit() const
+        {
+            return m_HasBrushHit;
+        }
 
         bool Visible = true;
 
@@ -61,7 +76,7 @@ namespace OloEngine
         u32 m_ErosionIterations = 1;
 
         // Brush hit state (from viewport raycast)
-        glm::vec3 m_BrushWorldPos{0.0f};
+        glm::vec3 m_BrushWorldPos{ 0.0f };
         bool m_HasBrushHit = false;
     };
 } // namespace OloEngine

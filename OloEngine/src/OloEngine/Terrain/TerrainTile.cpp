@@ -94,7 +94,8 @@ namespace OloEngine
                     u32 myZ = static_cast<u32>(t * static_cast<f32>(myRes - 1));
                     u32 nZ = static_cast<u32>(t * static_cast<f32>(neighborRes - 1));
                     f32 avg = (myHeights[static_cast<sizet>(myZ) * myRes + (myRes - 1)] +
-                               neighborHeights[static_cast<sizet>(nZ) * neighborRes]) * 0.5f;
+                               neighborHeights[static_cast<sizet>(nZ) * neighborRes]) *
+                              0.5f;
                     myHeights[static_cast<sizet>(myZ) * myRes + (myRes - 1)] = avg;
                 }
                 break;
@@ -107,7 +108,8 @@ namespace OloEngine
                     u32 myZ = static_cast<u32>(t * static_cast<f32>(myRes - 1));
                     u32 nZ = static_cast<u32>(t * static_cast<f32>(neighborRes - 1));
                     f32 avg = (myHeights[static_cast<sizet>(myZ) * myRes] +
-                               neighborHeights[static_cast<sizet>(nZ) * neighborRes + (neighborRes - 1)]) * 0.5f;
+                               neighborHeights[static_cast<sizet>(nZ) * neighborRes + (neighborRes - 1)]) *
+                              0.5f;
                     myHeights[static_cast<sizet>(myZ) * myRes] = avg;
                 }
                 break;
@@ -120,7 +122,8 @@ namespace OloEngine
                     u32 myX = static_cast<u32>(t * static_cast<f32>(myRes - 1));
                     u32 nX = static_cast<u32>(t * static_cast<f32>(neighborRes - 1));
                     f32 avg = (myHeights[static_cast<sizet>(myRes - 1) * myRes + myX] +
-                               neighborHeights[nX]) * 0.5f;
+                               neighborHeights[nX]) *
+                              0.5f;
                     myHeights[static_cast<sizet>(myRes - 1) * myRes + myX] = avg;
                 }
                 break;
@@ -133,7 +136,8 @@ namespace OloEngine
                     u32 myX = static_cast<u32>(t * static_cast<f32>(myRes - 1));
                     u32 nX = static_cast<u32>(t * static_cast<f32>(neighborRes - 1));
                     f32 avg = (myHeights[myX] +
-                               neighborHeights[static_cast<sizet>(neighborRes - 1) * neighborRes + nX]) * 0.5f;
+                               neighborHeights[static_cast<sizet>(neighborRes - 1) * neighborRes + nX]) *
+                              0.5f;
                     myHeights[myX] = avg;
                 }
                 break;

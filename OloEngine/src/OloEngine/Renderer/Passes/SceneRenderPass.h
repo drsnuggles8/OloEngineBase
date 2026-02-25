@@ -35,7 +35,10 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        void SetPostExecuteCallback(PostExecuteCallback callback) { m_PostExecuteCallback = std::move(callback); }
+        void SetPostExecuteCallback(PostExecuteCallback callback)
+        {
+            m_PostExecuteCallback = std::move(callback);
+        }
 
       private:
         PostExecuteCallback m_PostExecuteCallback;

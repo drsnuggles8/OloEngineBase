@@ -43,9 +43,15 @@ namespace OloEngine
         void RenderShadows(const Ref<Shader>& depthShader);
 
         [[nodiscard]] u32 GetTotalInstanceCount() const;
-        [[nodiscard]] u32 GetVisibleInstanceCount() const { return m_VisibleInstances; }
+        [[nodiscard]] u32 GetVisibleInstanceCount() const
+        {
+            return m_VisibleInstances;
+        }
 
-        void SetTime(f32 time) { m_Time = time; }
+        void SetTime(f32 time)
+        {
+            m_Time = time;
+        }
 
       private:
         // Internal per-layer GPU data
@@ -61,7 +67,7 @@ namespace OloEngine
             f32 FadeStartDistance = 80.0f;
             f32 WindStrength = 0.3f;
             f32 WindSpeed = 1.0f;
-            glm::vec3 BaseColor{1.0f};
+            glm::vec3 BaseColor{ 1.0f };
             f32 AlphaCutoff = 0.5f;
             Ref<Texture2D> AlbedoTexture;
         };

@@ -73,7 +73,7 @@ namespace OloEngine
     }
 
     void VoxelOverride::InitializeChunkFromHeightmap(const VoxelCoord& coord, const TerrainData& terrainData,
-                                                      f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
+                                                     f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
     {
         auto& chunk = GetOrCreateChunk(coord);
 
@@ -176,7 +176,7 @@ namespace OloEngine
             {
                 for (i32 cx = minCoord.X; cx <= maxCoord.X; ++cx)
                 {
-                    outCoords.push_back({cx, cy, cz});
+                    outCoords.push_back({ cx, cy, cz });
                 }
             }
         }
@@ -198,9 +198,12 @@ namespace OloEngine
 
         std::vector<u8> data;
 
-        auto writeI32 = [&](i32 v) { data.insert(data.end(), reinterpret_cast<const u8*>(&v), reinterpret_cast<const u8*>(&v) + 4); };
-        auto writeU16 = [&](u16 v) { data.insert(data.end(), reinterpret_cast<const u8*>(&v), reinterpret_cast<const u8*>(&v) + 2); };
-        auto writeF32 = [&](f32 v) { data.insert(data.end(), reinterpret_cast<const u8*>(&v), reinterpret_cast<const u8*>(&v) + 4); };
+        auto writeI32 = [&](i32 v)
+        { data.insert(data.end(), reinterpret_cast<const u8*>(&v), reinterpret_cast<const u8*>(&v) + 4); };
+        auto writeU16 = [&](u16 v)
+        { data.insert(data.end(), reinterpret_cast<const u8*>(&v), reinterpret_cast<const u8*>(&v) + 2); };
+        auto writeF32 = [&](f32 v)
+        { data.insert(data.end(), reinterpret_cast<const u8*>(&v), reinterpret_cast<const u8*>(&v) + 4); };
 
         u32 chunkCount = static_cast<u32>(m_Chunks.size());
         writeI32(static_cast<i32>(chunkCount));
@@ -227,12 +230,12 @@ namespace OloEngine
                     }
                     else
                     {
-                        runs.push_back({currentVal, runLen});
+                        runs.push_back({ currentVal, runLen });
                         currentVal = chunk.SDFData[i];
                         runLen = 1;
                     }
                 }
-                runs.push_back({currentVal, runLen});
+                runs.push_back({ currentVal, runLen });
             }
 
             writeI32(static_cast<i32>(runs.size()));
@@ -256,9 +259,12 @@ namespace OloEngine
         }
 
         sizet offset = 0;
-        auto readI32 = [&]() -> i32 { i32 v; std::memcpy(&v, &data[offset], 4); offset += 4; return v; };
-        auto readU16 = [&]() -> u16 { u16 v; std::memcpy(&v, &data[offset], 2); offset += 2; return v; };
-        auto readF32 = [&]() -> f32 { f32 v; std::memcpy(&v, &data[offset], 4); offset += 4; return v; };
+        auto readI32 = [&]() -> i32
+        { i32 v; std::memcpy(&v, &data[offset], 4); offset += 4; return v; };
+        auto readU16 = [&]() -> u16
+        { u16 v; std::memcpy(&v, &data[offset], 2); offset += 2; return v; };
+        auto readF32 = [&]() -> f32
+        { f32 v; std::memcpy(&v, &data[offset], 4); offset += 4; return v; };
 
         u32 chunkCount = static_cast<u32>(readI32());
         m_Chunks.clear();

@@ -22,7 +22,10 @@ namespace OloEngine
         i32 X = 0;
         i32 Z = 0;
 
-        bool operator==(const TileCoord& other) const { return X == other.X && Z == other.Z; }
+        bool operator==(const TileCoord& other) const
+        {
+            return X == other.X && Z == other.Z;
+        }
     };
 
     struct TileCoordHash
@@ -90,7 +93,10 @@ namespace OloEngine
         // Stitch edges between loaded neighboring tiles
         void StitchLoadedTiles();
 
-        [[nodiscard]] const TerrainStreamerConfig& GetConfig() const { return m_Config; }
+        [[nodiscard]] const TerrainStreamerConfig& GetConfig() const
+        {
+            return m_Config;
+        }
         [[nodiscard]] u32 GetLoadedTileCount() const;
         [[nodiscard]] u32 GetLoadingTileCount() const;
 

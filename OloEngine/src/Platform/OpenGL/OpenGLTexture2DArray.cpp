@@ -129,11 +129,11 @@ namespace OloEngine
 
         glTextureSubImage3D(
             m_RendererID,
-            0,                                  // mip level 0
-            0, 0, static_cast<GLint>(layer),    // x, y, layer offset
+            0,                               // mip level 0
+            0, 0, static_cast<GLint>(layer), // x, y, layer offset
             static_cast<GLsizei>(width),
             static_cast<GLsizei>(height),
-            1,                                  // depth = 1 layer
+            1, // depth = 1 layer
             dataFormat,
             dataType,
             data);

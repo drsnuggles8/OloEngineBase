@@ -32,10 +32,26 @@ namespace OloEngine
         // Positions in local space, billboard rotation handled in shader
         f32 quadVertices[] = {
             // x,    y,    z,    u,    v
-            -0.5f, 0.0f, 0.0f, 0.0f, 0.0f,  // bottom-left
-             0.5f, 0.0f, 0.0f, 1.0f, 0.0f,  // bottom-right
-             0.5f, 1.0f, 0.0f, 1.0f, 1.0f,  // top-right
-            -0.5f, 1.0f, 0.0f, 0.0f, 1.0f,  // top-left
+            -0.5f,
+            0.0f,
+            0.0f,
+            0.0f,
+            0.0f, // bottom-left
+            0.5f,
+            0.0f,
+            0.0f,
+            1.0f,
+            0.0f, // bottom-right
+            0.5f,
+            1.0f,
+            0.0f,
+            1.0f,
+            1.0f, // top-right
+            -0.5f,
+            1.0f,
+            0.0f,
+            0.0f,
+            1.0f, // top-left
         };
 
         u32 indices[] = { 0, 1, 2, 2, 3, 0 };

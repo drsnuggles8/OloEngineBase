@@ -202,7 +202,7 @@ namespace OloEngine
         m_ARMArray->GenerateMipmaps();
 
         OLO_CORE_INFO("TerrainMaterial: Built texture arrays ({} layers, {}×{} per layer)",
-                       m_LayerCount, layerResolution, layerResolution);
+                      m_LayerCount, layerResolution, layerResolution);
     }
 
     void TerrainMaterial::SetSplatmapPath(u32 index, const std::string& path)
@@ -267,7 +267,7 @@ namespace OloEngine
                     else
                     {
                         OLO_CORE_WARN("TerrainMaterial: Splatmap {} size mismatch ({}x{} vs {}), using blank",
-                                       i, texW, texH, resolution);
+                                      i, texW, texH, resolution);
                     }
                 }
             }
@@ -294,7 +294,7 @@ namespace OloEngine
 
             m_Splatmaps[i] = Texture2D::Create(spec);
             m_Splatmaps[i]->SetData(m_CPUSplatmaps[i].data(),
-                                     static_cast<u32>(m_CPUSplatmaps[i].size()));
+                                    static_cast<u32>(m_CPUSplatmaps[i].size()));
         }
     }
 

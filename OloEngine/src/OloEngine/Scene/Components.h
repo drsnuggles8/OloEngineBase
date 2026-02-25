@@ -792,17 +792,17 @@ namespace OloEngine
 
         // LOD / tessellation settings (serialized)
         bool m_TessellationEnabled = true;
-        f32 m_TargetTriangleSize = 8.0f;   // Screen-space pixel target
-        f32 m_MorphRegion = 0.3f;           // Morph blend fraction [0,1]
+        f32 m_TargetTriangleSize = 8.0f; // Screen-space pixel target
+        f32 m_MorphRegion = 0.3f;        // Morph blend fraction [0,1]
 
         // Streaming settings (serialized)
         bool m_StreamingEnabled = false;
-        std::string m_TileDirectory;            // Directory containing tile files
+        std::string m_TileDirectory; // Directory containing tile files
         std::string m_TileFilePattern = "tile_%d_%d.raw";
-        f32 m_TileWorldSize = 256.0f;           // World-space size per tile
-        u32 m_TileResolution = 513;             // Heightmap resolution per tile
-        u32 m_StreamingLoadRadius = 3;          // Tile load radius around camera
-        u32 m_StreamingMaxTiles = 25;           // LRU tile budget
+        f32 m_TileWorldSize = 256.0f;  // World-space size per tile
+        u32 m_TileResolution = 513;    // Heightmap resolution per tile
+        u32 m_StreamingLoadRadius = 3; // Tile load radius around camera
+        u32 m_StreamingMaxTiles = 25;  // LRU tile budget
 
         // Voxel override settings (serialized)
         bool m_VoxelEnabled = false;

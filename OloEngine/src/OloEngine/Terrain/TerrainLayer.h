@@ -12,12 +12,12 @@ namespace OloEngine
     struct TerrainLayer
     {
         // Texture paths (relative to asset directory)
-        std::string AlbedoPath;        // Albedo/diffuse texture
-        std::string NormalPath;        // Normal map
-        std::string ARMPath;           // AO(R) + Roughness(G) + Metallic(B) packed
+        std::string AlbedoPath; // Albedo/diffuse texture
+        std::string NormalPath; // Normal map
+        std::string ARMPath;    // AO(R) + Roughness(G) + Metallic(B) packed
 
         // Tiling and blending
-        f32 TilingScale = 10.0f;       // UV tiling factor for this layer
+        f32 TilingScale = 10.0f;         // UV tiling factor for this layer
         f32 HeightBlendSharpness = 4.0f; // Sharpness of height-based blending at transitions
         f32 TriplanarSharpness = 8.0f;   // Sharpness of triplanar projection (higher = sharper)
 

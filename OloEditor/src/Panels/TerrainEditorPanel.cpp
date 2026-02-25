@@ -247,9 +247,12 @@ namespace OloEngine
     {
         switch (m_EditMode)
         {
-            case TerrainEditMode::Sculpt: return m_SculptSettings.Radius;
-            case TerrainEditMode::Paint: return m_PaintSettings.Radius;
-            default: return 0.0f;
+            case TerrainEditMode::Sculpt:
+                return m_SculptSettings.Radius;
+            case TerrainEditMode::Paint:
+                return m_PaintSettings.Radius;
+            default:
+                return 0.0f;
         }
     }
 
@@ -338,9 +341,12 @@ namespace OloEngine
     {
         switch (m_EditMode)
         {
-            case TerrainEditMode::Sculpt: return m_SculptSettings.Falloff;
-            case TerrainEditMode::Paint: return m_PaintSettings.Falloff;
-            default: return 0.5f;
+            case TerrainEditMode::Sculpt:
+                return m_SculptSettings.Falloff;
+            case TerrainEditMode::Paint:
+                return m_PaintSettings.Falloff;
+            default:
+                return 0.5f;
         }
     }
 } // namespace OloEngine

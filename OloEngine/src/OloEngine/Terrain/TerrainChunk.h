@@ -37,10 +37,22 @@ namespace OloEngine
         // Upload staged geometry to GPU (must be called on main/GL thread)
         void UploadToGPU();
 
-        [[nodiscard]] const Ref<VertexArray>& GetVertexArray() const { return m_VAO; }
-        [[nodiscard]] u32 GetIndexCount() const { return m_IndexCount; }
-        [[nodiscard]] const BoundingBox& GetBounds() const { return m_Bounds; }
-        [[nodiscard]] bool IsBuilt() const { return m_VAO != nullptr; }
+        [[nodiscard]] const Ref<VertexArray>& GetVertexArray() const
+        {
+            return m_VAO;
+        }
+        [[nodiscard]] u32 GetIndexCount() const
+        {
+            return m_IndexCount;
+        }
+        [[nodiscard]] const BoundingBox& GetBounds() const
+        {
+            return m_Bounds;
+        }
+        [[nodiscard]] bool IsBuilt() const
+        {
+            return m_VAO != nullptr;
+        }
 
       private:
         Ref<VertexArray> m_VAO;

@@ -2554,7 +2554,7 @@ namespace OloEngine
             } });
 
         DrawComponent<FoliageComponent>("Foliage", entity, [](auto& component)
-            {
+                                        {
                 ImGui::Checkbox("Enabled", &component.m_Enabled);
 
                 ImGui::Separator();
@@ -2681,8 +2681,7 @@ namespace OloEngine
                 {
                     ImGui::Text("Total Instances: %u", component.m_Renderer->GetTotalInstanceCount());
                     ImGui::Text("Visible Instances: %u", component.m_Renderer->GetVisibleInstanceCount());
-                }
-            });
+                } });
     }
 
     template<typename T>

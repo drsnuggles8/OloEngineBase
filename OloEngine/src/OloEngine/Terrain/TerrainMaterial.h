@@ -29,7 +29,10 @@ namespace OloEngine
         [[nodiscard]] const TerrainLayer& GetLayer(u32 index) const;
         TerrainLayer& GetLayer(u32 index);
 
-        [[nodiscard]] u32 GetLayerCount() const { return m_LayerCount; }
+        [[nodiscard]] u32 GetLayerCount() const
+        {
+            return m_LayerCount;
+        }
 
         // Build GPU texture arrays from layer textures.
         // Must be called after adding/modifying layers before rendering.
@@ -41,20 +44,38 @@ namespace OloEngine
         void LoadSplatmaps();
 
         // GPU resources for rendering
-        [[nodiscard]] Ref<Texture2DArray> GetAlbedoArray() const { return m_AlbedoArray; }
-        [[nodiscard]] Ref<Texture2DArray> GetNormalArray() const { return m_NormalArray; }
-        [[nodiscard]] Ref<Texture2DArray> GetARMArray() const { return m_ARMArray; }
+        [[nodiscard]] Ref<Texture2DArray> GetAlbedoArray() const
+        {
+            return m_AlbedoArray;
+        }
+        [[nodiscard]] Ref<Texture2DArray> GetNormalArray() const
+        {
+            return m_NormalArray;
+        }
+        [[nodiscard]] Ref<Texture2DArray> GetARMArray() const
+        {
+            return m_ARMArray;
+        }
         [[nodiscard]] Ref<Texture2D> GetSplatmap(u32 index) const;
 
-        [[nodiscard]] bool IsBuilt() const { return m_AlbedoArray != nullptr; }
+        [[nodiscard]] bool IsBuilt() const
+        {
+            return m_AlbedoArray != nullptr;
+        }
 
         // CPU splatmap data for paint brush editing
         void InitializeCPUSplatmaps(u32 resolution);
-        [[nodiscard]] u32 GetSplatmapResolution() const { return m_SplatmapResolution; }
+        [[nodiscard]] u32 GetSplatmapResolution() const
+        {
+            return m_SplatmapResolution;
+        }
         [[nodiscard]] std::vector<u8>& GetSplatmapData(u32 index);
         [[nodiscard]] const std::vector<u8>& GetSplatmapData(u32 index) const;
         void UploadSplatmapRegion(u32 splatmapIndex, u32 x, u32 y, u32 w, u32 h);
-        [[nodiscard]] bool HasCPUSplatmaps() const { return m_SplatmapResolution > 0 && !m_CPUSplatmaps[0].empty(); }
+        [[nodiscard]] bool HasCPUSplatmaps() const
+        {
+            return m_SplatmapResolution > 0 && !m_CPUSplatmaps[0].empty();
+        }
 
       private:
         // Load a single texture, resize if needed, return RGBA8 pixel data

@@ -21,30 +21,30 @@ namespace OloEngine
         std::string AlbedoPath;
 
         // Density / placement
-        f32 Density = 1.0f;            // Instances per world unit squared
-        i32 SplatmapChannel = -1;      // Splatmap channel to read density from (-1 = uniform)
-        f32 MinSlopeAngle = 0.0f;      // Minimum slope angle (degrees) — 0 = flat
-        f32 MaxSlopeAngle = 45.0f;     // Maximum slope angle (degrees) — reject if steeper
+        f32 Density = 1.0f;        // Instances per world unit squared
+        i32 SplatmapChannel = -1;  // Splatmap channel to read density from (-1 = uniform)
+        f32 MinSlopeAngle = 0.0f;  // Minimum slope angle (degrees) — 0 = flat
+        f32 MaxSlopeAngle = 45.0f; // Maximum slope angle (degrees) — reject if steeper
 
         // Randomization
         f32 MinScale = 0.8f;
         f32 MaxScale = 1.2f;
-        f32 MinHeight = 0.5f;          // Min instance height
-        f32 MaxHeight = 1.5f;          // Max instance height
-        bool RandomRotation = true;    // Random Y-axis rotation
+        f32 MinHeight = 0.5f;       // Min instance height
+        f32 MaxHeight = 1.5f;       // Max instance height
+        bool RandomRotation = true; // Random Y-axis rotation
 
         // LOD distances
-        f32 ViewDistance = 100.0f;      // Max view distance for this layer
-        f32 FadeStartDistance = 80.0f;  // Distance where fade-out begins
+        f32 ViewDistance = 100.0f;     // Max view distance for this layer
+        f32 FadeStartDistance = 80.0f; // Distance where fade-out begins
 
         // Wind
-        f32 WindStrength = 0.3f;       // Wind sway amplitude
-        f32 WindSpeed = 1.0f;          // Wind animation speed
+        f32 WindStrength = 0.3f; // Wind sway amplitude
+        f32 WindSpeed = 1.0f;    // Wind animation speed
 
         // Rendering
-        glm::vec3 BaseColor{0.3f, 0.5f, 0.1f};  // Tint color
+        glm::vec3 BaseColor{ 0.3f, 0.5f, 0.1f }; // Tint color
         f32 Roughness = 0.8f;
-        f32 AlphaCutoff = 0.5f;        // Alpha test threshold
+        f32 AlphaCutoff = 0.5f; // Alpha test threshold
 
         // Runtime (not serialized)
         Ref<Texture2D> AlbedoTexture;
@@ -55,8 +55,8 @@ namespace OloEngine
     // Per-instance data for GPU (must match shader layout)
     struct FoliageInstanceData
     {
-        glm::vec4 PositionScale;      // xyz = world pos, w = uniform scale
-        glm::vec4 RotationHeight;     // x = Y-axis rotation (radians), y = height, z = fade, w = unused
-        glm::vec4 ColorAlpha;         // rgb = tint color, a = alpha cutoff
+        glm::vec4 PositionScale;  // xyz = world pos, w = uniform scale
+        glm::vec4 RotationHeight; // x = Y-axis rotation (radians), y = height, z = fade, w = unused
+        glm::vec4 ColorAlpha;     // rgb = tint color, a = alpha cutoff
     };
 } // namespace OloEngine

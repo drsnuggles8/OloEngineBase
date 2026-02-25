@@ -36,10 +36,22 @@ namespace OloEngine
         // CPU normal query from finite differences
         [[nodiscard]] glm::vec3 GetNormalAt(f32 normalizedX, f32 normalizedZ, f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const;
 
-        [[nodiscard]] u32 GetResolution() const { return m_Resolution; }
-        [[nodiscard]] const std::vector<f32>& GetHeightData() const { return m_Heights; }
-        [[nodiscard]] std::vector<f32>& GetHeightData() { return m_Heights; }
-        [[nodiscard]] Ref<Texture2D> GetGPUHeightmap() const { return m_GPUHeightmap; }
+        [[nodiscard]] u32 GetResolution() const
+        {
+            return m_Resolution;
+        }
+        [[nodiscard]] const std::vector<f32>& GetHeightData() const
+        {
+            return m_Heights;
+        }
+        [[nodiscard]] std::vector<f32>& GetHeightData()
+        {
+            return m_Heights;
+        }
+        [[nodiscard]] Ref<Texture2D> GetGPUHeightmap() const
+        {
+            return m_GPUHeightmap;
+        }
 
         // Re-upload full heightmap to GPU (call after CPU edits)
         void UploadToGPU();
@@ -54,12 +66,18 @@ namespace OloEngine
         bool ExportRawR16(const std::string& path) const;
 
         // Asset interface
-        static AssetType GetStaticType() { return AssetType::Terrain; }
-        AssetType GetAssetType() const override { return GetStaticType(); }
+        static AssetType GetStaticType()
+        {
+            return AssetType::Terrain;
+        }
+        AssetType GetAssetType() const override
+        {
+            return GetStaticType();
+        }
 
       private:
-        u32 m_Resolution = 0;         // Heightmap is m_Resolution × m_Resolution
-        std::vector<f32> m_Heights;   // Row-major CPU heightmap [0, 1] range
+        u32 m_Resolution = 0;          // Heightmap is m_Resolution × m_Resolution
+        std::vector<f32> m_Heights;    // Row-major CPU heightmap [0, 1] range
         Ref<Texture2D> m_GPUHeightmap; // R32F GPU texture
     };
 } // namespace OloEngine

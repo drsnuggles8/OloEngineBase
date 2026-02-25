@@ -11,10 +11,10 @@ namespace OloEngine
 
     struct TerrainPaintSettings
     {
-        f32 Radius = 10.0f;        // World-space radius
-        f32 Strength = 0.5f;       // Paint strength per application [0, 1]
-        f32 Falloff = 0.5f;        // 0 = hard brush, 1 = soft falloff
-        u32 TargetLayer = 0;       // Which layer to paint (0-7)
+        f32 Radius = 10.0f;  // World-space radius
+        f32 Strength = 0.5f; // Paint strength per application [0, 1]
+        f32 Falloff = 0.5f;  // 0 = hard brush, 1 = soft falloff
+        u32 TargetLayer = 0; // Which layer to paint (0-7)
     };
 
     // Splatmap painting brush. Paints on CPU splatmap data and marks dirty regions.

@@ -10,8 +10,8 @@
 namespace OloEngine
 {
     void TerrainQuadtree::Build(const TerrainData& terrainData,
-                                 f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
-                                 u32 maxDepth)
+                                f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+                                u32 maxDepth)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -39,9 +39,9 @@ namespace OloEngine
     }
 
     i32 TerrainQuadtree::BuildNode(const TerrainData& terrainData,
-                                    f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
-                                    f32 minX, f32 minZ, f32 maxX, f32 maxZ,
-                                    u32 depth)
+                                   f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+                                   f32 minX, f32 minZ, f32 maxX, f32 maxZ,
+                                   u32 depth)
     {
         auto nodeIndex = static_cast<i32>(m_Nodes.size());
         m_Nodes.emplace_back();
@@ -131,9 +131,9 @@ namespace OloEngine
     }
 
     void TerrainQuadtree::SelectLOD(const Frustum& frustum,
-                                     const glm::vec3& cameraPos,
-                                     const glm::mat4& viewProjection,
-                                     f32 viewportHeight)
+                                    const glm::vec3& cameraPos,
+                                    const glm::mat4& viewProjection,
+                                    f32 viewportHeight)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -151,9 +151,9 @@ namespace OloEngine
     }
 
     void TerrainQuadtree::SelectNode(i32 nodeIndex, const Frustum& frustum,
-                                      const glm::vec3& cameraPos,
-                                      const glm::mat4& viewProjection,
-                                      f32 viewportHeight)
+                                     const glm::vec3& cameraPos,
+                                     const glm::mat4& viewProjection,
+                                     f32 viewportHeight)
     {
         auto& node = m_Nodes[static_cast<sizet>(nodeIndex)];
 
@@ -183,8 +183,8 @@ namespace OloEngine
             // Calculate morph factor based on how close error is to threshold
             f32 morphStart = m_Config.TargetTriangleSize * (1.0f - m_Config.MorphRegion);
             node.MorphFactor = (screenError > morphStart)
-                               ? (screenError - morphStart) / (m_Config.TargetTriangleSize - morphStart)
-                               : 0.0f;
+                                   ? (screenError - morphStart) / (m_Config.TargetTriangleSize - morphStart)
+                                   : 0.0f;
             node.MorphFactor = glm::clamp(node.MorphFactor, 0.0f, 1.0f);
 
             m_SelectedNodes.push_back(&node);
@@ -202,9 +202,9 @@ namespace OloEngine
     }
 
     f32 TerrainQuadtree::CalculateScreenSpaceError(const TerrainQuadNode& node,
-                                                    const glm::vec3& cameraPos,
-                                                    const glm::mat4& viewProjection,
-                                                    f32 viewportHeight) const
+                                                   const glm::vec3& cameraPos,
+                                                   const glm::mat4& viewProjection,
+                                                   f32 viewportHeight) const
     {
         // Geometric error: proportional to the node's world-space extent
         // A node covering more terrain has more potential detail to miss

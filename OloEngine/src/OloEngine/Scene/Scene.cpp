@@ -2021,7 +2021,7 @@ namespace OloEngine
             if (auto scenePass = Renderer3D::GetScenePass())
             {
                 scenePass->SetPostExecuteCallback([this, &camera]()
-                {
+                                                  {
                     auto terrainRenderView = m_Registry.view<TransformComponent, TerrainComponent>();
 
                     for (auto entity : terrainRenderView)
@@ -2254,8 +2254,7 @@ namespace OloEngine
                             foliage.m_Renderer->Render(
                                 Renderer3D::GetViewFrustum(), camera.GetPosition(), foliageShader);
                         }
-                    }
-                });
+                    } });
             }
         }
 

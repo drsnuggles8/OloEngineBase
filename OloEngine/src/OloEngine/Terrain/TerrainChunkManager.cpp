@@ -7,7 +7,7 @@
 namespace OloEngine
 {
     void TerrainChunkManager::GenerateAllChunks(const TerrainData& terrainData,
-                                                 f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
+                                                f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -47,17 +47,21 @@ namespace OloEngine
         u32 quadtreeDepth = 0;
         {
             u32 n = m_NumChunksX;
-            while (n > 1) { n >>= 1; ++quadtreeDepth; }
+            while (n > 1)
+            {
+                n >>= 1;
+                ++quadtreeDepth;
+            }
         }
         quadtreeDepth = std::max(quadtreeDepth, 2u); // At least 2 levels
         m_Quadtree.Build(terrainData, worldSizeX, worldSizeZ, heightScale, quadtreeDepth);
 
         OLO_CORE_INFO("TerrainChunkManager: Built {}x{} chunks ({} total), quadtree depth {}",
-                       m_NumChunksX, m_NumChunksZ, totalChunks, quadtreeDepth);
+                      m_NumChunksX, m_NumChunksZ, totalChunks, quadtreeDepth);
     }
 
     void TerrainChunkManager::RebuildChunk(const TerrainData& terrainData, u32 chunkX, u32 chunkZ,
-                                            f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
+                                           f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
     {
         if (chunkX >= m_NumChunksX || chunkZ >= m_NumChunksZ)
         {
@@ -70,9 +74,9 @@ namespace OloEngine
     }
 
     void TerrainChunkManager::SelectVisibleChunks(const Frustum& frustum,
-                                                   const glm::vec3& cameraPos,
-                                                   const glm::mat4& viewProjection,
-                                                   f32 viewportHeight)
+                                                  const glm::vec3& cameraPos,
+                                                  const glm::mat4& viewProjection,
+                                                  f32 viewportHeight)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -98,7 +102,7 @@ namespace OloEngine
     }
 
     void TerrainChunkManager::GetVisibleChunks(const Frustum& frustum,
-                                                std::vector<const TerrainChunk*>& outChunks) const
+                                               std::vector<const TerrainChunk*>& outChunks) const
     {
         OLO_PROFILE_FUNCTION();
 

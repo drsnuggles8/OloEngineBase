@@ -20,9 +20,9 @@ namespace OloEngine
 
     struct TerrainBrushSettings
     {
-        f32 Radius = 10.0f;        // World-space radius
-        f32 Strength = 0.5f;       // Effect strength per application [0, 1]
-        f32 Falloff = 0.5f;        // 0 = no falloff (hard), 1 = full falloff (soft)
+        f32 Radius = 10.0f;  // World-space radius
+        f32 Strength = 0.5f; // Effect strength per application [0, 1]
+        f32 Falloff = 0.5f;  // 0 = no falloff (hard), 1 = full falloff (soft)
         TerrainBrushTool Tool = TerrainBrushTool::Raise;
     };
 

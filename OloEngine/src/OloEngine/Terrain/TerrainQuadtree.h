@@ -90,16 +90,31 @@ namespace OloEngine
                        f32 viewportHeight);
 
         // Get selected (visible, LOD-assigned) nodes for rendering
-        [[nodiscard]] const std::vector<const TerrainQuadNode*>& GetSelectedNodes() const { return m_SelectedNodes; }
+        [[nodiscard]] const std::vector<const TerrainQuadNode*>& GetSelectedNodes() const
+        {
+            return m_SelectedNodes;
+        }
 
         // Get LOD data for a selected node (for GPU tessellation upload)
         [[nodiscard]] TerrainChunkLODData GetChunkLODData(const TerrainQuadNode& node) const;
 
-        [[nodiscard]] const TerrainLODConfig& GetConfig() const { return m_Config; }
-        TerrainLODConfig& GetConfig() { return m_Config; }
+        [[nodiscard]] const TerrainLODConfig& GetConfig() const
+        {
+            return m_Config;
+        }
+        TerrainLODConfig& GetConfig()
+        {
+            return m_Config;
+        }
 
-        [[nodiscard]] u32 GetMaxDepth() const { return m_MaxDepth; }
-        [[nodiscard]] u32 GetNodeCount() const { return static_cast<u32>(m_Nodes.size()); }
+        [[nodiscard]] u32 GetMaxDepth() const
+        {
+            return m_MaxDepth;
+        }
+        [[nodiscard]] u32 GetNodeCount() const
+        {
+            return static_cast<u32>(m_Nodes.size());
+        }
 
       private:
         // Recursively build quadtree nodes

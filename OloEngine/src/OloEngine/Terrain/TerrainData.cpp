@@ -104,7 +104,8 @@ namespace OloEngine
                 {
                     value += SimplexNoise3D(nx * freq + seedOffset,
                                             0.0f,
-                                            nz * freq + seedOffset) * amp;
+                                            nz * freq + seedOffset) *
+                             amp;
                     freq *= lacunarity;
                     amp *= persistence;
                 }
@@ -129,7 +130,7 @@ namespace OloEngine
 
         UploadToGPU();
         OLO_CORE_INFO("TerrainData: Generated {}x{} procedural terrain (seed={}, octaves={}, freq={:.1f})",
-                       resolution, resolution, seed, octaves, frequency);
+                      resolution, resolution, seed, octaves, frequency);
     }
 
     f32 TerrainData::GetHeightAt(f32 normalizedX, f32 normalizedZ) const
@@ -233,7 +234,7 @@ namespace OloEngine
         // Partial upload via glTextureSubImage2D (DSA)
         glTextureSubImage2D(
             m_GPUHeightmap->GetRendererID(),
-            0,                         // mip level
+            0, // mip level
             static_cast<GLint>(x),
             static_cast<GLint>(y),
             static_cast<GLsizei>(width),

@@ -19,7 +19,7 @@ namespace OloEngine
 
         m_Config = config;
         OLO_CORE_INFO("TerrainStreamer: Initialized (tileSize={}, loadRadius={}, budget={})",
-                       m_Config.TileWorldSize, m_Config.LoadRadius, m_Config.MaxLoadedTiles);
+                      m_Config.TileWorldSize, m_Config.LoadRadius, m_Config.MaxLoadedTiles);
     }
 
     void TerrainStreamer::Update(const glm::vec3& cameraPos, u64 frameNumber)
@@ -44,7 +44,7 @@ namespace OloEngine
             {
                 i32 gx = cameraTileX + dx;
                 i32 gz = cameraTileZ + dz;
-                TileCoord coord{gx, gz};
+                TileCoord coord{ gx, gz };
 
                 std::lock_guard lock(m_TileMutex);
                 auto it = m_Tiles.find(coord);
@@ -147,14 +147,14 @@ namespace OloEngine
             }
 
             // Stitch +X neighbor
-            auto itPX = m_Tiles.find({coord.X + 1, coord.Z});
+            auto itPX = m_Tiles.find({ coord.X + 1, coord.Z });
             if (itPX != m_Tiles.end() && itPX->second->GetState() == TerrainTile::State::Ready)
             {
                 tile->StitchEdge(*itPX->second, 0);
             }
 
             // Stitch +Z neighbor
-            auto itPZ = m_Tiles.find({coord.X, coord.Z + 1});
+            auto itPZ = m_Tiles.find({ coord.X, coord.Z + 1 });
             if (itPZ != m_Tiles.end() && itPZ->second->GetState() == TerrainTile::State::Ready)
             {
                 tile->StitchEdge(*itPZ->second, 2);
@@ -184,7 +184,7 @@ namespace OloEngine
     Ref<TerrainTile> TerrainStreamer::GetTile(i32 gridX, i32 gridZ) const
     {
         std::lock_guard lock(m_TileMutex);
-        auto it = m_Tiles.find({gridX, gridZ});
+        auto it = m_Tiles.find({ gridX, gridZ });
         if (it != m_Tiles.end())
         {
             return it->second;
@@ -223,7 +223,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Check if already pending
-        TileCoord coord{gridX, gridZ};
+        TileCoord coord{ gridX, gridZ };
         for (const auto& pending : m_PendingLoads)
         {
             if (pending.Coord == coord)
@@ -249,9 +249,8 @@ namespace OloEngine
 
         // Async load: CPU heightmap parsing happens on background thread
         // GPU upload deferred to ProcessCompletedLoads on the main thread
-        auto loadTask = Tasks::Launch("TerrainTileLoad",
-            [tile, tilePath]() mutable -> bool
-            {
+        auto loadTask = Tasks::Launch("TerrainTileLoad", [tile, tilePath]() mutable -> bool
+                                      {
                 if (std::filesystem::exists(tilePath))
                 {
                     if (tile->LoadFromFile(tilePath))
@@ -268,11 +267,9 @@ namespace OloEngine
                     return true;
                 }
                 tile->SetState(TerrainTile::State::Unloaded);
-                return false;
-            },
-            Tasks::ETaskPriority::BackgroundNormal);
+                return false; }, Tasks::ETaskPriority::BackgroundNormal);
 
-        m_PendingLoads.push_back({coord, std::move(loadTask), tile});
+        m_PendingLoads.push_back({ coord, std::move(loadTask), tile });
     }
 
     void TerrainStreamer::EvictOverBudget()
@@ -291,11 +288,12 @@ namespace OloEngine
         sortedTiles.reserve(m_Tiles.size());
         for (auto& [coord, tile] : m_Tiles)
         {
-            sortedTiles.push_back({coord, tile->LastUsedFrame});
+            sortedTiles.push_back({ coord, tile->LastUsedFrame });
         }
 
         std::sort(sortedTiles.begin(), sortedTiles.end(),
-            [](const auto& a, const auto& b) { return a.second < b.second; });
+                  [](const auto& a, const auto& b)
+                  { return a.second < b.second; });
 
         // Evict oldest tiles until under budget
         sizet toEvict = m_Tiles.size() - m_Config.MaxLoadedTiles;

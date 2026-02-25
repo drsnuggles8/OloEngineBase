@@ -205,7 +205,7 @@ namespace OloEngine
         if (m_ShowTerrainEditor && m_TerrainEditorPanel.IsActive() && m_ViewportHovered && m_SceneState == SceneState::Edit)
         {
             glm::vec3 terrainHitPos{};
-            bool hasTerrainHit = TerrainRaycast({mx, my}, viewportSize, terrainHitPos);
+            bool hasTerrainHit = TerrainRaycast({ mx, my }, viewportSize, terrainHitPos);
             bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft) && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
             m_TerrainEditorPanel.OnUpdate(ts, terrainHitPos, hasTerrainHit, mouseDown);
         }

@@ -99,10 +99,26 @@ namespace OloEngine
                         // Average of 4 neighbors
                         f32 avg = 0.0f;
                         i32 count = 0;
-                        if (x > 0) { avg += heights[idx - 1]; ++count; }
-                        if (x < static_cast<i32>(res) - 1) { avg += heights[idx + 1]; ++count; }
-                        if (z > 0) { avg += heights[idx - res]; ++count; }
-                        if (z < static_cast<i32>(res) - 1) { avg += heights[idx + res]; ++count; }
+                        if (x > 0)
+                        {
+                            avg += heights[idx - 1];
+                            ++count;
+                        }
+                        if (x < static_cast<i32>(res) - 1)
+                        {
+                            avg += heights[idx + 1];
+                            ++count;
+                        }
+                        if (z > 0)
+                        {
+                            avg += heights[idx - res];
+                            ++count;
+                        }
+                        if (z < static_cast<i32>(res) - 1)
+                        {
+                            avg += heights[idx + res];
+                            ++count;
+                        }
                         if (count > 0)
                         {
                             avg /= static_cast<f32>(count);

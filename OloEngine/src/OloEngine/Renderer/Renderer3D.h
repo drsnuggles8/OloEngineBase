@@ -501,15 +501,42 @@ namespace OloEngine
             return s_Data.Shadow;
         }
 
-        static Ref<Shader> GetTerrainPBRShader() { return s_Data.TerrainPBRShader; }
-        static Ref<Shader> GetTerrainDepthShader() { return s_Data.TerrainDepthShader; }
-        static Ref<Shader> GetVoxelPBRShader() { return s_Data.VoxelPBRShader; }
-        static Ref<Shader> GetVoxelDepthShader() { return s_Data.VoxelDepthShader; }
-        static Ref<Shader> GetFoliageShader() { return s_Data.FoliageShader; }
-        static Ref<Shader> GetFoliageDepthShader() { return s_Data.FoliageDepthShader; }
-        static Ref<UniformBuffer> GetTerrainUBO() { return s_Data.TerrainUBO; }
-        static Ref<UniformBuffer> GetFoliageUBO() { return s_Data.FoliageUBO; }
-        static Ref<UniformBuffer> GetModelMatrixUBO() { return s_Data.ModelMatrixUBO; }
+        static Ref<Shader> GetTerrainPBRShader()
+        {
+            return s_Data.TerrainPBRShader;
+        }
+        static Ref<Shader> GetTerrainDepthShader()
+        {
+            return s_Data.TerrainDepthShader;
+        }
+        static Ref<Shader> GetVoxelPBRShader()
+        {
+            return s_Data.VoxelPBRShader;
+        }
+        static Ref<Shader> GetVoxelDepthShader()
+        {
+            return s_Data.VoxelDepthShader;
+        }
+        static Ref<Shader> GetFoliageShader()
+        {
+            return s_Data.FoliageShader;
+        }
+        static Ref<Shader> GetFoliageDepthShader()
+        {
+            return s_Data.FoliageDepthShader;
+        }
+        static Ref<UniformBuffer> GetTerrainUBO()
+        {
+            return s_Data.TerrainUBO;
+        }
+        static Ref<UniformBuffer> GetFoliageUBO()
+        {
+            return s_Data.FoliageUBO;
+        }
+        static Ref<UniformBuffer> GetModelMatrixUBO()
+        {
+            return s_Data.ModelMatrixUBO;
+        }
 
         static PostProcessSettings& GetPostProcessSettings()
         {

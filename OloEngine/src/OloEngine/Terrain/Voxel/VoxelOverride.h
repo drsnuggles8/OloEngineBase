@@ -46,7 +46,10 @@ namespace OloEngine
         i32 Y = 0;
         i32 Z = 0;
 
-        bool operator==(const VoxelCoord& other) const { return X == other.X && Y == other.Y && Z == other.Z; }
+        bool operator==(const VoxelCoord& other) const
+        {
+            return X == other.X && Y == other.Y && Z == other.Z;
+        }
     };
 
     struct VoxelCoordHash
@@ -103,12 +106,24 @@ namespace OloEngine
         // Get world-space bounding box for a chunk
         [[nodiscard]] BoundingBox GetChunkBounds(const VoxelCoord& coord) const;
 
-        [[nodiscard]] f32 GetVoxelSize() const { return m_VoxelSize; }
-        [[nodiscard]] u32 GetChunkCount() const { return static_cast<u32>(m_Chunks.size()); }
+        [[nodiscard]] f32 GetVoxelSize() const
+        {
+            return m_VoxelSize;
+        }
+        [[nodiscard]] u32 GetChunkCount() const
+        {
+            return static_cast<u32>(m_Chunks.size());
+        }
 
         // Access chunk map for serialization / iteration
-        [[nodiscard]] const std::unordered_map<VoxelCoord, VoxelChunk, VoxelCoordHash>& GetChunks() const { return m_Chunks; }
-        [[nodiscard]] std::unordered_map<VoxelCoord, VoxelChunk, VoxelCoordHash>& GetChunks() { return m_Chunks; }
+        [[nodiscard]] const std::unordered_map<VoxelCoord, VoxelChunk, VoxelCoordHash>& GetChunks() const
+        {
+            return m_Chunks;
+        }
+        [[nodiscard]] std::unordered_map<VoxelCoord, VoxelChunk, VoxelCoordHash>& GetChunks()
+        {
+            return m_Chunks;
+        }
 
         // RLE serialization
         [[nodiscard]] std::vector<u8> SerializeRLE() const;
