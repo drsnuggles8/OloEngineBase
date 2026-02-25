@@ -59,7 +59,7 @@ namespace OloEngine
             s_RendererAPI->DrawLines(vertexArray, vertexCount);
         }
 
-        static void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, const u32 indexCount = 0, const u32 patchVertices = 3)
+        static void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, const u32 indexCount = 0, const u32 patchVertices = 4)
         {
             s_RendererAPI->DrawIndexedPatches(vertexArray, indexCount, patchVertices);
         }

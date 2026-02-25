@@ -33,7 +33,7 @@ namespace OloEngine
             return dirty;
 
         u32 res = material.GetSplatmapResolution();
-        if (res == 0 || worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
+        if (res <= 1 || worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
             return dirty;
         u32 splatmapIdx = settings.TargetLayer / 4; // 0 for layers 0-3, 1 for layers 4-7
         u32 channelIdx = settings.TargetLayer % 4;  // R=0, G=1, B=2, A=3

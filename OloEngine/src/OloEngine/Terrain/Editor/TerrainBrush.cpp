@@ -34,7 +34,7 @@ namespace OloEngine
         auto& heights = terrainData.GetHeightData();
         u32 res = terrainData.GetResolution();
 
-        if (res == 0 || heights.empty() || heightScale <= 0.0f || worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
+        if (res <= 1 || heights.empty() || heightScale <= 0.0f || worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
             return dirty;
 
         // Convert world position to normalized terrain coords [0, 1]
