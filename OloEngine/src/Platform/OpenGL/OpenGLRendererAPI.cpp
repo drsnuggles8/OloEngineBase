@@ -386,6 +386,8 @@ namespace OloEngine
 
     void OpenGLRendererAPI::BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format)
     {
+        OLO_PROFILE_FUNCTION();
+
         glBindImageTexture(unit, textureID, static_cast<GLint>(mipLevel), layered ? GL_TRUE : GL_FALSE, static_cast<GLint>(layer), access, format);
     }
 

@@ -298,6 +298,11 @@ namespace OloEngine
             spec.GenerateMips = false;
 
             m_Splatmaps[i] = Texture2D::Create(spec);
+            if (!m_Splatmaps[i])
+            {
+                OLO_CORE_ERROR("TerrainMaterial::InitializeCPUSplatmaps - Failed to create splatmap texture {}", i);
+                continue;
+            }
             m_Splatmaps[i]->SetData(m_CPUSplatmaps[i].data(),
                                     static_cast<u32>(m_CPUSplatmaps[i].size()));
         }
@@ -325,8 +330,8 @@ namespace OloEngine
         u32 res = m_SplatmapResolution;
         x = std::min(x, res - 1);
         y = std::min(y, res - 1);
-        u32 endX = std::min(x + w, res);
-        u32 endY = std::min(y + h, res);
+        u32 endX = x + std::min(w, res - x);
+        u32 endY = y + std::min(h, res - y);
         w = endX - x;
         h = endY - y;
 

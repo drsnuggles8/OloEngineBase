@@ -9,6 +9,8 @@ namespace OloEngine
 {
     void VoxelOverride::Initialize(f32 worldSizeX, f32 worldSizeZ, f32 heightScale, f32 voxelSize)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_WorldSizeX = worldSizeX;
         m_WorldSizeZ = worldSizeZ;
         m_HeightScale = heightScale;
@@ -117,6 +119,8 @@ namespace OloEngine
 
     void VoxelOverride::GetDirtyChunks(std::vector<VoxelCoord>& outCoords) const
     {
+        OLO_PROFILE_FUNCTION();
+
         outCoords.clear();
         for (const auto& [coord, chunk] : m_Chunks)
         {
@@ -168,6 +172,8 @@ namespace OloEngine
 
     void VoxelOverride::GetChunksInSphere(const glm::vec3& center, f32 radius, std::vector<VoxelCoord>& outCoords) const
     {
+        OLO_PROFILE_FUNCTION();
+
         VoxelCoord minCoord = WorldToChunkCoord(center - glm::vec3(radius));
         VoxelCoord maxCoord = WorldToChunkCoord(center + glm::vec3(radius));
 
@@ -272,7 +278,9 @@ namespace OloEngine
         if (rawChunkCount < 0)
             return false;
         u32 chunkCount = static_cast<u32>(rawChunkCount);
-        m_Chunks.clear();
+
+        // Build into a temp map so m_Chunks stays intact on parse failure
+        std::unordered_map<VoxelCoord, VoxelChunk, VoxelCoordHash> tempChunks;
 
         for (u32 ci = 0; ci < chunkCount; ++ci)
         {
@@ -291,7 +299,7 @@ namespace OloEngine
                 return false;
 
             u32 runCountU = static_cast<u32>(runCount);
-            auto& chunk = m_Chunks.emplace(coord, VoxelChunk{}).first->second;
+            auto& chunk = tempChunks.emplace(coord, VoxelChunk{}).first->second;
             sizet idx = 0;
 
             for (u32 ri = 0; ri < runCountU; ++ri)
@@ -312,6 +320,7 @@ namespace OloEngine
             chunk.Dirty = true;
         }
 
+        m_Chunks = std::move(tempChunks);
         return true;
     }
 } // namespace OloEngine

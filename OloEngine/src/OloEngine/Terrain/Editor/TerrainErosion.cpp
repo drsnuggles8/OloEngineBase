@@ -9,9 +9,9 @@
 namespace OloEngine
 {
     TerrainErosion::TerrainErosion()
-        : m_IterationSeed(static_cast<u32>(RandomUtils::Int32(0, std::numeric_limits<i32>::max())))
+        : m_IterationSeed(static_cast<u32>(RandomUtils::Int32(0, std::numeric_limits<i32>::max()))), m_ErosionShader(ComputeShader::Create("assets/shaders/compute/Terrain_Erosion.comp"))
     {
-        m_ErosionShader = ComputeShader::Create("assets/shaders/compute/Terrain_Erosion.comp");
+        OLO_PROFILE_FUNCTION();
     }
 
     bool TerrainErosion::IsReady() const

@@ -207,8 +207,17 @@ namespace OloEngine
         glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, data);
     }
 
-    void OpenGLTexture2D::SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize)
+    void OpenGLTexture2D::SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, [[maybe_unused]] u32 dataSize)
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (x + width > m_Width || y + height > m_Height)
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D::SubImage - Region ({},{} {}x{}) exceeds texture bounds ({}x{})",
+                           x, y, width, height, m_Width, m_Height);
+            return;
+        }
+
         GLenum dataType = GL_UNSIGNED_BYTE;
         switch (m_Specification.Format)
         {

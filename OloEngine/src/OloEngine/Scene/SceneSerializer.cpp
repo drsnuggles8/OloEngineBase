@@ -276,6 +276,8 @@ namespace OloEngine
 
     static void DeserializeTerrainComponent(TerrainComponent& terrain, const YAML::Node& terrainComponent)
     {
+        OLO_PROFILE_FUNCTION();
+
         terrain.m_HeightmapPath = terrainComponent["HeightmapPath"].as<std::string>(terrain.m_HeightmapPath);
         terrain.m_WorldSizeX = terrainComponent["WorldSizeX"].as<f32>(terrain.m_WorldSizeX);
         terrain.m_WorldSizeZ = terrainComponent["WorldSizeZ"].as<f32>(terrain.m_WorldSizeZ);
@@ -339,6 +341,8 @@ namespace OloEngine
 
     static void DeserializeFoliageComponent(FoliageComponent& foliage, const YAML::Node& foliageComponent)
     {
+        OLO_PROFILE_FUNCTION();
+
         foliage.m_Enabled = foliageComponent["Enabled"].as<bool>(foliage.m_Enabled);
 
         if (auto layersNode = foliageComponent["Layers"]; layersNode && layersNode.IsSequence())

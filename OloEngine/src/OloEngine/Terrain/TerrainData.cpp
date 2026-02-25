@@ -218,8 +218,8 @@ namespace OloEngine
         // Clamp region to heightmap bounds
         x = std::min(x, m_Resolution - 1);
         y = std::min(y, m_Resolution - 1);
-        u32 endX = std::min(x + width, m_Resolution);
-        u32 endY = std::min(y + height, m_Resolution);
+        u32 endX = x + std::min(width, m_Resolution - x);
+        u32 endY = y + std::min(height, m_Resolution - y);
         width = endX - x;
         height = endY - y;
 
