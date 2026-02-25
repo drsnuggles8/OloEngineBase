@@ -6,8 +6,6 @@
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Core/FastRandom.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     TerrainErosion::TerrainErosion()
@@ -43,7 +41,7 @@ namespace OloEngine
             return;
 
         // Bind heightmap as image unit 0 for read/write
-        glBindImageTexture(0, heightmap->GetRendererID(), 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
+        RenderCommand::BindImageTexture(0, heightmap->GetRendererID(), 0, false, 0, GL_READ_WRITE, GL_R32F);
 
         // Bind and configure the compute shader
         m_ErosionShader->Bind();
@@ -68,7 +66,7 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 
         // Unbind image
-        glBindImageTexture(0, 0, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
+        RenderCommand::BindImageTexture(0, 0, 0, false, 0, GL_READ_WRITE, GL_R32F);
 
         // Read back GPU heightmap to CPU for chunk rebuilding and serialization
         if (!skipReadback)

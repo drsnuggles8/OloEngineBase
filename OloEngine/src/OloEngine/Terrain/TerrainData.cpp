@@ -3,7 +3,6 @@
 #include "OloEngine/Particle/SimplexNoise.h"
 
 #include <stb_image/stb_image.h>
-#include <glad/gl.h>
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -25,7 +24,9 @@ namespace OloEngine
         {
             if (width != height)
             {
-                OLO_CORE_WARN("TerrainData::LoadFromFile: Non-square heightmap {}x{}, using width as resolution", width, height);
+                OLO_CORE_ERROR("TerrainData::LoadFromFile: Non-square heightmap {}x{} not supported in '{}'", width, height, path);
+                stbi_image_free(data16);
+                return false;
             }
 
             m_Resolution = static_cast<u32>(width);
@@ -215,10 +216,10 @@ namespace OloEngine
         }
 
         // Clamp region to heightmap bounds
-        u32 endX = std::min(x + width, m_Resolution);
-        u32 endY = std::min(y + height, m_Resolution);
         x = std::min(x, m_Resolution - 1);
         y = std::min(y, m_Resolution - 1);
+        u32 endX = std::min(x + width, m_Resolution);
+        u32 endY = std::min(y + height, m_Resolution);
         width = endX - x;
         height = endY - y;
 
@@ -234,17 +235,9 @@ namespace OloEngine
             std::memcpy(&regionData[dstOffset], &m_Heights[srcOffset], width * sizeof(f32));
         }
 
-        // Partial upload via glTextureSubImage2D (DSA)
-        glTextureSubImage2D(
-            m_GPUHeightmap->GetRendererID(),
-            0, // mip level
-            static_cast<GLint>(x),
-            static_cast<GLint>(y),
-            static_cast<GLsizei>(width),
-            static_cast<GLsizei>(height),
-            GL_RED,
-            GL_FLOAT,
-            regionData.data());
+        // Partial upload via SubImage
+        u32 dataSize = width * height * static_cast<u32>(sizeof(f32));
+        m_GPUHeightmap->SubImage(x, y, width, height, regionData.data(), dataSize);
     }
 
     bool TerrainData::ExportRawR32F(const std::string& path) const

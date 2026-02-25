@@ -10,6 +10,8 @@ namespace OloEngine
 {
     TerrainStreamer::~TerrainStreamer()
     {
+        OLO_PROFILE_FUNCTION();
+
         UnloadAll();
     }
 

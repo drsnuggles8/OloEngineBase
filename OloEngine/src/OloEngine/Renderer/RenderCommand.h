@@ -197,6 +197,11 @@ namespace OloEngine
             s_RendererAPI->BindTexture(slot, textureID);
         }
 
+        static void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format)
+        {
+            s_RendererAPI->BindImageTexture(unit, textureID, mipLevel, layered, layer, access, format);
+        }
+
         static void SetPolygonOffset(f32 factor, f32 units)
         {
             s_RendererAPI->SetPolygonOffset(factor, units);

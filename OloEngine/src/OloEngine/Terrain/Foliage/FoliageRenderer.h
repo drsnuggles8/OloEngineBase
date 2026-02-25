@@ -62,6 +62,7 @@ namespace OloEngine
             Ref<VertexBuffer> InstanceVBO; // Per-instance data
             Ref<IndexBuffer> IBO;
             u32 InstanceCount = 0;
+            u32 InstanceCapacity = 0;
             u32 IndexCount = 0;
             f32 ViewDistance = 100.0f;
             f32 FadeStartDistance = 80.0f;

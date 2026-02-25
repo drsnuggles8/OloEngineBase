@@ -85,6 +85,7 @@ namespace OloEngine
         // New methods for render graph
         virtual void BindDefaultFramebuffer() = 0;
         virtual void BindTexture(u32 slot, u32 textureID) = 0;
+        virtual void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format) = 0;
 
         virtual void SetPolygonOffset(f32 factor, f32 units) = 0;
         virtual void EnableMultisampling() = 0;

@@ -207,6 +207,28 @@ namespace OloEngine
         glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, data);
     }
 
+    void OpenGLTexture2D::SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize)
+    {
+        GLenum dataType = GL_UNSIGNED_BYTE;
+        switch (m_Specification.Format)
+        {
+            case ImageFormat::R32F:
+            case ImageFormat::RG32F:
+            case ImageFormat::RGB32F:
+            case ImageFormat::RGBA32F:
+                dataType = GL_FLOAT;
+                break;
+            default:
+                break;
+        }
+
+        glTextureSubImage2D(
+            m_RendererID, 0,
+            static_cast<GLint>(x), static_cast<GLint>(y),
+            static_cast<GLsizei>(width), static_cast<GLsizei>(height),
+            m_DataFormat, dataType, data);
+    }
+
     void OpenGLTexture2D::Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels)
     {
         OLO_PROFILE_FUNCTION();

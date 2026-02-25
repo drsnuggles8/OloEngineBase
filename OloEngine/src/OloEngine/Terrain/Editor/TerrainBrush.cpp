@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/Editor/TerrainBrush.h"
+#include "OloEngine/Terrain/Editor/TerrainBrushUtils.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainChunk.h"
@@ -9,18 +10,6 @@
 
 namespace OloEngine
 {
-    f32 TerrainBrush::ComputeFalloff(f32 distance, f32 radius, f32 falloff)
-    {
-        if (distance >= radius)
-            return 0.0f;
-
-        f32 t = distance / radius; // [0, 1]
-
-        // Blend between hard (constant 1) and smooth (cosine) based on falloff
-        f32 smooth = 0.5f * (1.0f + std::cos(t * glm::pi<f32>()));
-        return glm::mix(1.0f, smooth, falloff);
-    }
-
     TerrainBrush::DirtyRegion TerrainBrush::Apply(
         TerrainData& terrainData,
         const TerrainBrushSettings& settings,
@@ -70,6 +59,14 @@ namespace OloEngine
         f32 invHeightScale = 1.0f / heightScale;
         bool changed = false;
 
+        // Snapshot for smooth tool so reads are order-independent
+        std::vector<f32> smoothSnapshot;
+        if (settings.Tool == TerrainBrushTool::Smooth)
+        {
+            smoothSnapshot = heights;
+        }
+        const auto& readHeights = (settings.Tool == TerrainBrushTool::Smooth) ? smoothSnapshot : heights;
+
         for (i32 z = minZ; z <= maxZ; ++z)
         {
             for (i32 x = minX; x <= maxX; ++x)
@@ -82,7 +79,7 @@ namespace OloEngine
                 if (dist > settings.Radius)
                     continue;
 
-                f32 weight = ComputeFalloff(dist, settings.Radius, settings.Falloff);
+                f32 weight = TerrainBrushUtils::ComputeFalloff(dist, settings.Radius, settings.Falloff);
                 f32 influence = glm::clamp(weight * strengthDt, 0.0f, 1.0f);
                 sizet idx = static_cast<sizet>(z) * res + static_cast<sizet>(x);
 
@@ -98,33 +95,33 @@ namespace OloEngine
 
                     case TerrainBrushTool::Smooth:
                     {
-                        // Average of 4 neighbors
+                        // Average of 4 neighbors (read from snapshot)
                         f32 avg = 0.0f;
                         i32 count = 0;
                         if (x > 0)
                         {
-                            avg += heights[idx - 1];
+                            avg += readHeights[idx - 1];
                             ++count;
                         }
                         if (x < static_cast<i32>(res) - 1)
                         {
-                            avg += heights[idx + 1];
+                            avg += readHeights[idx + 1];
                             ++count;
                         }
                         if (z > 0)
                         {
-                            avg += heights[idx - res];
+                            avg += readHeights[idx - res];
                             ++count;
                         }
                         if (z < static_cast<i32>(res) - 1)
                         {
-                            avg += heights[idx + res];
+                            avg += readHeights[idx + res];
                             ++count;
                         }
                         if (count > 0)
                         {
                             avg /= static_cast<f32>(count);
-                            heights[idx] += (avg - heights[idx]) * influence;
+                            heights[idx] += (avg - readHeights[idx]) * influence;
                         }
                         break;
                     }
@@ -167,7 +164,6 @@ namespace OloEngine
         if (region.Width == 0 || region.Height == 0)
             return;
 
-        u32 res = terrainData.GetResolution();
         u32 numChunksX = chunkManager.GetNumChunksX();
         u32 numChunksZ = chunkManager.GetNumChunksZ();
 

@@ -57,7 +57,7 @@ namespace OloEngine
         i32 ChunkIndex = -1;
 
         // Tree structure
-        i32 Children[4] = { -1, -1, -1, -1 }; // Indices into node pool
+        std::array<i32, 4> Children = { -1, -1, -1, -1 }; // Indices into node pool
         bool IsLeaf = true;
         u32 Depth = 0; // Tree depth (0 = root)
     };
@@ -79,7 +79,7 @@ namespace OloEngine
         // Build the full quadtree from terrain data
         void Build(const TerrainData& terrainData,
                    f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
-                   u32 maxDepth = 6);
+                   u32 maxDepth = TerrainLODConfig::MAX_LOD_LEVELS);
 
         // Select visible leaf nodes at appropriate LOD levels for rendering
         // cameraPos: world-space camera position

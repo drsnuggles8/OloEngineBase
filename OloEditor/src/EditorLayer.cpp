@@ -1273,8 +1273,8 @@ namespace OloEngine
         auto const& transform = terrainEntity.GetComponent<TransformComponent>();
 
         // Convert mouse position to NDC [-1, 1]
-        float ndcX = (mousePos.x / viewportSize.x) * 2.0f - 1.0f;
-        float ndcY = (mousePos.y / viewportSize.y) * 2.0f - 1.0f;
+        f32 ndcX = (mousePos.x / viewportSize.x) * 2.0f - 1.0f;
+        f32 ndcY = (mousePos.y / viewportSize.y) * 2.0f - 1.0f;
 
         // Unproject near and far points
         glm::mat4 invVP = glm::inverse(m_EditorCamera.GetViewProjection());
@@ -1297,12 +1297,14 @@ namespace OloEngine
         f32 heightScale = tc.m_HeightScale;
 
         if (worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
+        {
             return false;
+        }
 
         // Coarse march along ray (step size = 1 world unit)
         constexpr f32 stepSize = 1.0f;
         constexpr f32 maxDist = 2000.0f;
-        constexpr int refinementSteps = 8;
+        constexpr i32 refinementSteps = 8;
 
         f32 t = 0.0f;
         bool wasAbove = true;

@@ -79,6 +79,12 @@ namespace OloEngine
 
         auto& chunk = GetOrCreateChunk(coord);
 
+        if (worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
+        {
+            OLO_CORE_WARN("VoxelOverride::InitializeChunkFromHeightmap: Invalid world size ({}, {})", worldSizeX, worldSizeZ);
+            return;
+        }
+
         for (u32 z = 0; z < VoxelChunk::CHUNK_SIZE; ++z)
         {
             for (u32 y = 0; y < VoxelChunk::CHUNK_SIZE; ++y)
@@ -100,12 +106,8 @@ namespace OloEngine
 
     VoxelChunk& VoxelOverride::GetOrCreateChunk(const VoxelCoord& coord)
     {
-        auto it = m_Chunks.find(coord);
-        if (it != m_Chunks.end())
-        {
-            return it->second;
-        }
-        return m_Chunks.emplace(coord, VoxelChunk{}).first->second;
+        auto [it, inserted] = m_Chunks.try_emplace(coord, VoxelChunk{});
+        return it->second;
     }
 
     bool VoxelOverride::HasChunk(const VoxelCoord& coord) const
@@ -166,8 +168,6 @@ namespace OloEngine
 
     void VoxelOverride::GetChunksInSphere(const glm::vec3& center, f32 radius, std::vector<VoxelCoord>& outCoords) const
     {
-        f32 chunkWorldSize = static_cast<f32>(VoxelChunk::CHUNK_SIZE) * m_VoxelSize;
-
         VoxelCoord minCoord = WorldToChunkCoord(center - glm::vec3(radius));
         VoxelCoord maxCoord = WorldToChunkCoord(center + glm::vec3(radius));
 
@@ -290,10 +290,11 @@ namespace OloEngine
             if (runCount < 0 || static_cast<u32>(runCount) > VoxelChunk::TOTAL_VOXELS)
                 return false;
 
+            u32 runCountU = static_cast<u32>(runCount);
             auto& chunk = m_Chunks.emplace(coord, VoxelChunk{}).first->second;
             sizet idx = 0;
 
-            for (i32 ri = 0; ri < runCount && idx < VoxelChunk::TOTAL_VOXELS; ++ri)
+            for (u32 ri = 0; ri < runCountU; ++ri)
             {
                 if (offset + 6 > data.size())
                 {

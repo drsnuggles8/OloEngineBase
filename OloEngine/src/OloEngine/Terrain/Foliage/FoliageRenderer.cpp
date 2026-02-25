@@ -84,12 +84,29 @@ namespace OloEngine
             return;
         }
 
-        u32 dataSize = static_cast<u32>(instances.size() * sizeof(FoliageInstanceData));
+        auto requiredCount = static_cast<u32>(instances.size());
+        auto dataSize = static_cast<u32>(instances.size() * sizeof(FoliageInstanceData));
 
-        // Create or resize instance buffer
-        if (!data.InstanceVBO || data.InstanceCount < instances.size())
+        if (!data.InstanceVBO)
         {
-            data.InstanceVBO = VertexBuffer::Create(dataSize);
+            // First creation
+            data.InstanceCapacity = std::max(requiredCount, 256u);
+            u32 allocSize = data.InstanceCapacity * static_cast<u32>(sizeof(FoliageInstanceData));
+            data.InstanceVBO = VertexBuffer::Create(allocSize);
+            data.InstanceVBO->SetLayout({
+                { ShaderDataType::Float4, "a_PositionScale" },
+                { ShaderDataType::Float4, "a_RotationHeight" },
+                { ShaderDataType::Float4, "a_ColorAlpha" },
+            });
+            data.VAO->AddInstanceBuffer(data.InstanceVBO);
+        }
+        else if (data.InstanceCapacity < requiredCount)
+        {
+            // Grow — rebuild VAO to avoid duplicate attribute bindings
+            data.InstanceCapacity = requiredCount * 2;
+            BuildQuadGeometry(data);
+            u32 allocSize = data.InstanceCapacity * static_cast<u32>(sizeof(FoliageInstanceData));
+            data.InstanceVBO = VertexBuffer::Create(allocSize);
             data.InstanceVBO->SetLayout({
                 { ShaderDataType::Float4, "a_PositionScale" },
                 { ShaderDataType::Float4, "a_RotationHeight" },
@@ -99,7 +116,7 @@ namespace OloEngine
         }
 
         data.InstanceVBO->SetData({ instances.data(), dataSize });
-        data.InstanceCount = static_cast<u32>(instances.size());
+        data.InstanceCount = requiredCount;
     }
 
     void FoliageRenderer::GenerateInstances(
@@ -245,7 +262,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         if (!shader)
+        {
             return;
+        }
 
         shader->Bind();
         m_VisibleInstances = 0;
@@ -263,7 +282,7 @@ namespace OloEngine
             foliageUBOData.ViewDistance = layer.ViewDistance;
             foliageUBOData.FadeStart = layer.FadeStartDistance;
             foliageUBOData.AlphaCutoff = layer.AlphaCutoff;
-            foliageUBOData.BaseColor = layer.BaseColor;
+            foliageUBOData.BaseColor = glm::vec4(layer.BaseColor, 0.0f);
             auto foliageUBO = Renderer3D::GetFoliageUBO();
             foliageUBO->SetData(&foliageUBOData, ShaderBindingLayout::FoliageUBO::GetSize());
 
@@ -284,7 +303,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         if (!depthShader)
+        {
             return;
+        }
 
         depthShader->Bind();
 

@@ -23,6 +23,15 @@ namespace OloEngine
         m_Nodes.clear();
         m_SelectedNodes.clear();
 
+        u32 resolution = terrainData.GetResolution();
+        if (resolution == 0 || terrainData.GetHeightData().size() < static_cast<sizet>(resolution) * resolution)
+        {
+            OLO_CORE_ERROR("TerrainQuadtree::Build: Invalid terrain data (resolution={}, heights={})",
+                           resolution, terrainData.GetHeightData().size());
+            m_RootIndex = -1;
+            return;
+        }
+
         // Pre-allocate — a full quadtree of depth D has sum(4^i, i=0..D) nodes
         // But we won't necessarily fill all levels
         sizet estimatedNodes = 0;
@@ -45,14 +54,15 @@ namespace OloEngine
     {
         auto nodeIndex = static_cast<i32>(m_Nodes.size());
         m_Nodes.emplace_back();
-        auto& node = m_Nodes[static_cast<sizet>(nodeIndex)];
 
-        node.MinX = minX;
-        node.MinZ = minZ;
-        node.MaxX = maxX;
-        node.MaxZ = maxZ;
-        node.Depth = depth;
-        node.IsLeaf = true;
+        // Set node properties — use index-based access since recursive BuildNode
+        // calls below may reallocate m_Nodes, invalidating any references.
+        m_Nodes[static_cast<sizet>(nodeIndex)].MinX = minX;
+        m_Nodes[static_cast<sizet>(nodeIndex)].MinZ = minZ;
+        m_Nodes[static_cast<sizet>(nodeIndex)].MaxX = maxX;
+        m_Nodes[static_cast<sizet>(nodeIndex)].MaxZ = maxZ;
+        m_Nodes[static_cast<sizet>(nodeIndex)].Depth = depth;
+        m_Nodes[static_cast<sizet>(nodeIndex)].IsLeaf = true;
 
         // Compute world-space bounding box by sampling heights in the region
         f32 worldMinX = minX * worldSizeX;
@@ -102,29 +112,34 @@ namespace OloEngine
             hMax += 0.01f;
         }
 
-        node.Bounds = BoundingBox(
+        m_Nodes[static_cast<sizet>(nodeIndex)].Bounds = BoundingBox(
             glm::vec3(worldMinX, hMin, worldMinZ),
             glm::vec3(worldMaxX, hMax, worldMaxZ));
 
         // Recursively subdivide if not at max depth
         if (depth < m_MaxDepth)
         {
-            node.IsLeaf = false;
+            m_Nodes[static_cast<sizet>(nodeIndex)].IsLeaf = false;
             f32 midX = (minX + maxX) * 0.5f;
             f32 midZ = (minZ + maxZ) * 0.5f;
 
             // Children: [0]=SW, [1]=SE, [2]=NW, [3]=NE
-            node.Children[0] = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
-                                         minX, minZ, midX, midZ, depth + 1);
-            node.Children[1] = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
-                                         midX, minZ, maxX, midZ, depth + 1);
-            node.Children[2] = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
-                                         minX, midZ, midX, maxZ, depth + 1);
-            node.Children[3] = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
-                                         midX, midZ, maxX, maxZ, depth + 1);
+            // Each BuildNode call may reallocate m_Nodes, so re-index after each call.
+            i32 child0 = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
+                                   minX, minZ, midX, midZ, depth + 1);
+            m_Nodes[static_cast<sizet>(nodeIndex)].Children[0] = child0;
 
-            // NOTE: m_Nodes may have been reallocated by recursive calls,
-            // so do NOT use `node` reference after this point.
+            i32 child1 = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
+                                   midX, minZ, maxX, midZ, depth + 1);
+            m_Nodes[static_cast<sizet>(nodeIndex)].Children[1] = child1;
+
+            i32 child2 = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
+                                   minX, midZ, midX, maxZ, depth + 1);
+            m_Nodes[static_cast<sizet>(nodeIndex)].Children[2] = child2;
+
+            i32 child3 = BuildNode(terrainData, worldSizeX, worldSizeZ, heightScale,
+                                   midX, midZ, maxX, maxZ, depth + 1);
+            m_Nodes[static_cast<sizet>(nodeIndex)].Children[3] = child3;
         }
 
         return nodeIndex;

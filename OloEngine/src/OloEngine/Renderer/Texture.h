@@ -76,6 +76,8 @@ namespace OloEngine
     class Texture2D : public Texture
     {
       public:
+        virtual void SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize) = 0;
+
         static Ref<Texture2D> Create(const TextureSpecification& specification);
         static Ref<Texture2D> Create(const std::string& path);
 

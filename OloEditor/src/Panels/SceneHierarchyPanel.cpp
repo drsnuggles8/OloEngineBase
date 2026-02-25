@@ -2510,11 +2510,17 @@ namespace OloEngine
 
                 int loadRadius = static_cast<int>(component.m_StreamingLoadRadius);
                 if (ImGui::DragInt("Load Radius (tiles)", &loadRadius, 1, 1, 10))
+                {
                     component.m_StreamingLoadRadius = static_cast<u32>(loadRadius);
+                    component.m_NeedsRebuild = true;
+                }
 
                 int maxTiles = static_cast<int>(component.m_StreamingMaxTiles);
                 if (ImGui::DragInt("Max Loaded Tiles", &maxTiles, 1, 1, 100))
+                {
                     component.m_StreamingMaxTiles = static_cast<u32>(maxTiles);
+                    component.m_NeedsRebuild = true;
+                }
 
                 // Streaming runtime info
                 if (component.m_Streamer)

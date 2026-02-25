@@ -863,6 +863,8 @@ namespace OloEngine
             }
             return *this;
         }
+        TerrainComponent(TerrainComponent&&) noexcept = default;
+        TerrainComponent& operator=(TerrainComponent&&) noexcept = default;
     };
 
     struct FoliageComponent
@@ -892,8 +894,9 @@ namespace OloEngine
             }
             return *this;
         }
+        FoliageComponent(FoliageComponent&&) noexcept = default;
+        FoliageComponent& operator=(FoliageComponent&&) noexcept = default;
     };
-
     template<typename... Component>
     struct ComponentGroup
     {

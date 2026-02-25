@@ -2185,7 +2185,12 @@ namespace OloEngine
                             for (const auto& tile : readyTiles)
                             {
                                 auto tileMat = tile->GetMaterial();
-                                renderChunkManager(*tile->GetChunkManager(), tile->GetTerrainData().get(),
+                                auto chunkMgr = tile->GetChunkManager();
+                                if (!chunkMgr)
+                                {
+                                    continue;
+                                }
+                                renderChunkManager(*chunkMgr, tile->GetTerrainData().get(),
                                                    tileMat ? tileMat.get() : nullptr,
                                                    tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale);
                             }

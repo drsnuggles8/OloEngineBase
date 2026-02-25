@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/Editor/TerrainPaintBrush.h"
+#include "OloEngine/Terrain/Editor/TerrainBrushUtils.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
 
@@ -8,16 +9,6 @@
 
 namespace OloEngine
 {
-    f32 TerrainPaintBrush::ComputeFalloff(f32 distance, f32 radius, f32 falloff)
-    {
-        if (distance >= radius)
-            return 0.0f;
-
-        f32 t = distance / radius;
-        f32 smooth = 0.5f * (1.0f + std::cos(t * glm::pi<f32>()));
-        return glm::mix(1.0f, smooth, falloff);
-    }
-
     TerrainPaintBrush::DirtyRegion TerrainPaintBrush::Apply(
         TerrainMaterial& material,
         const TerrainPaintSettings& settings,
@@ -77,7 +68,7 @@ namespace OloEngine
                 if (dist > settings.Radius)
                     continue;
 
-                f32 weight = ComputeFalloff(dist, settings.Radius, settings.Falloff);
+                f32 weight = TerrainBrushUtils::ComputeFalloff(dist, settings.Radius, settings.Falloff);
                 f32 addAmount = weight * strengthDt * 255.0f;
 
                 sizet pixelIdx = (static_cast<sizet>(z) * res + static_cast<sizet>(x)) * 4;

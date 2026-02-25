@@ -7,7 +7,6 @@ namespace OloEngine
 {
     class ComputeShader;
     class TerrainData;
-    class TerrainChunkManager;
 
     struct ErosionSettings
     {

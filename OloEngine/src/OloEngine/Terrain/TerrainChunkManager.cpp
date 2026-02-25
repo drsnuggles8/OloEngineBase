@@ -43,13 +43,12 @@ namespace OloEngine
         }
 
         // Build quadtree for LOD selection
-        // Max depth is log2 of number of chunks on one axis (so leaf = one chunk)
+        // Max depth is ceil(log2) of number of chunks on one axis (so leaf = one chunk)
         u32 quadtreeDepth = 0;
         {
             u32 n = std::max(m_NumChunksX, m_NumChunksZ);
-            while (n > 1)
+            while ((1u << quadtreeDepth) < n)
             {
-                n >>= 1;
                 ++quadtreeDepth;
             }
         }
@@ -63,6 +62,8 @@ namespace OloEngine
     void TerrainChunkManager::RebuildChunk(const TerrainData& terrainData, u32 chunkX, u32 chunkZ,
                                            f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (chunkX >= m_NumChunksX || chunkZ >= m_NumChunksZ)
         {
             return;
@@ -126,6 +127,8 @@ namespace OloEngine
 
     void TerrainChunkManager::GetAllChunks(std::vector<const TerrainChunk*>& outChunks) const
     {
+        OLO_PROFILE_FUNCTION();
+
         outChunks.clear();
         outChunks.reserve(m_Chunks.size());
 
@@ -140,6 +143,8 @@ namespace OloEngine
 
     const TerrainChunk* TerrainChunkManager::FindChunkForNode(const TerrainQuadNode& node) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_NumChunksX == 0 || m_NumChunksZ == 0)
         {
             return nullptr;

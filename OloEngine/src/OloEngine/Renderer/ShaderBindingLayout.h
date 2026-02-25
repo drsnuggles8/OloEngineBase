@@ -236,8 +236,7 @@ namespace OloEngine
             f32 AlphaCutoff;
             f32 _pad0 = 0.0f;
             f32 _pad1 = 0.0f;
-            glm::vec3 BaseColor;
-            f32 _pad2 = 0.0f;
+            glm::vec4 BaseColor; // xyz = color, w = unused
 
             static constexpr u32 GetSize()
             {

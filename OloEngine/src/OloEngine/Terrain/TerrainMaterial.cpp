@@ -2,7 +2,6 @@
 #include "OloEngine/Terrain/TerrainMaterial.h"
 
 #include <stb_image/stb_image.h>
-#include <glad/gl.h>
 
 namespace OloEngine
 {
@@ -324,10 +323,10 @@ namespace OloEngine
             return;
 
         u32 res = m_SplatmapResolution;
-        u32 endX = std::min(x + w, res);
-        u32 endY = std::min(y + h, res);
         x = std::min(x, res - 1);
         y = std::min(y, res - 1);
+        u32 endX = std::min(x + w, res);
+        u32 endY = std::min(y + h, res);
         w = endX - x;
         h = endY - y;
 
@@ -344,16 +343,8 @@ namespace OloEngine
             std::memcpy(&regionData[dstOffset], &cpuData[srcOffset], w * 4);
         }
 
-        glTextureSubImage2D(
-            m_Splatmaps[splatmapIndex]->GetRendererID(),
-            0,
-            static_cast<GLint>(x),
-            static_cast<GLint>(y),
-            static_cast<GLsizei>(w),
-            static_cast<GLsizei>(h),
-            GL_RGBA,
-            GL_UNSIGNED_BYTE,
-            regionData.data());
+        u32 dataSize = w * h * 4;
+        m_Splatmaps[splatmapIndex]->SubImage(x, y, w, h, regionData.data(), dataSize);
     }
 
 } // namespace OloEngine

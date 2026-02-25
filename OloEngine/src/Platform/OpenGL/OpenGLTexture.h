@@ -36,6 +36,7 @@ namespace OloEngine
         }
 
         void SetData(void* data, u32 size) override;
+        void SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize) override;
         void Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels) override;
 
         void Bind(u32 slot) const override;

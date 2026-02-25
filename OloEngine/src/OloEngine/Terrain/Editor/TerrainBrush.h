@@ -55,7 +55,5 @@ namespace OloEngine
             f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
 
       private:
-        // Compute falloff weight at distance d from center, given radius and falloff
-        static f32 ComputeFalloff(f32 distance, f32 radius, f32 falloff);
     };
 } // namespace OloEngine

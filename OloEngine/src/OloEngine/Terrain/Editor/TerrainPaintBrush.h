@@ -37,8 +37,5 @@ namespace OloEngine
             const glm::vec3& worldPos,
             f32 worldSizeX, f32 worldSizeZ,
             f32 deltaTime);
-
-      private:
-        static f32 ComputeFalloff(f32 distance, f32 radius, f32 falloff);
     };
 } // namespace OloEngine
