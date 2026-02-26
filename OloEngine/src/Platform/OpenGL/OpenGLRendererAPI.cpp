@@ -149,9 +149,23 @@ namespace OloEngine
             return;
         }
 
+        GLint maxPatchVerts = 0;
+        glGetIntegerv(GL_MAX_PATCH_VERTICES, &maxPatchVerts);
+        if (patchVertices > static_cast<u32>(maxPatchVerts))
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI::DrawIndexedPatches - patchVertices {} exceeds GL_MAX_PATCH_VERTICES {}",
+                           patchVertices, maxPatchVerts);
+            return;
+        }
+
         vertexArray->Bind();
         glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(patchVertices));
-        const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
+        u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
+        count = (count / patchVertices) * patchVertices; // Trim to whole patches
+        if (count == 0)
+        {
+            return;
+        }
         glDrawElements(GL_PATCHES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
 
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);

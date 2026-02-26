@@ -2,6 +2,7 @@
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
 #include "OloEngine/Terrain/TerrainData.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -320,11 +321,18 @@ namespace OloEngine
                 f32 val = readF32();
                 u16 count = readU16();
 
-                for (u16 j = 0; j < count && idx < VoxelChunk::TOTAL_VOXELS; ++j)
+                if (idx + count > VoxelChunk::TOTAL_VOXELS)
+                    return false;
+
+                for (u16 j = 0; j < count; ++j)
                 {
                     chunk.SDFData[idx++] = val;
                 }
             }
+
+            if (idx != VoxelChunk::TOTAL_VOXELS)
+                return false;
+
             chunk.Dirty = true;
         }
 

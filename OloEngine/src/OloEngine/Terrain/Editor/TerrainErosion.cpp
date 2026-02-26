@@ -38,7 +38,15 @@ namespace OloEngine
 
         u32 resolution = terrainData.GetResolution();
         if (resolution == 0)
+        {
             return;
+        }
+
+        // Early-out if no droplets requested (before binding resources)
+        if (settings.DropletCount == 0)
+        {
+            return;
+        }
 
         // Bind heightmap as image unit 0 for read/write
         RenderCommand::BindImageTexture(0, heightmap->GetRendererID(), 0, false, 0, GL_READ_WRITE, GL_R32F);
@@ -61,8 +69,6 @@ namespace OloEngine
         m_ErosionShader->SetUint("u_DropletCount", settings.DropletCount);
 
         // Dispatch — one thread per droplet
-        if (settings.DropletCount == 0)
-            return;
         u32 groups = (settings.DropletCount + 255) / 256;
         RenderCommand::DispatchCompute(groups, 1, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
