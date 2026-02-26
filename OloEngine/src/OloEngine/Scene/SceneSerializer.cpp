@@ -274,6 +274,109 @@ namespace OloEngine
         TrySet(sys.TextureSheetModule.SpeedRange, particleComponent["TextureSheetSpeedRange"]);
     }
 
+    static void DeserializeTerrainComponent(TerrainComponent& terrain, const YAML::Node& terrainComponent)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        terrain.m_HeightmapPath = terrainComponent["HeightmapPath"].as<std::string>(terrain.m_HeightmapPath);
+        terrain.m_WorldSizeX = terrainComponent["WorldSizeX"].as<f32>(terrain.m_WorldSizeX);
+        terrain.m_WorldSizeZ = terrainComponent["WorldSizeZ"].as<f32>(terrain.m_WorldSizeZ);
+        terrain.m_HeightScale = terrainComponent["HeightScale"].as<f32>(terrain.m_HeightScale);
+
+        // Procedural generation settings
+        terrain.m_ProceduralEnabled = terrainComponent["ProceduralEnabled"].as<bool>(terrain.m_ProceduralEnabled);
+        terrain.m_ProceduralSeed = terrainComponent["ProceduralSeed"].as<i32>(terrain.m_ProceduralSeed);
+        terrain.m_ProceduralResolution = terrainComponent["ProceduralResolution"].as<u32>(terrain.m_ProceduralResolution);
+        terrain.m_ProceduralOctaves = terrainComponent["ProceduralOctaves"].as<u32>(terrain.m_ProceduralOctaves);
+        terrain.m_ProceduralFrequency = terrainComponent["ProceduralFrequency"].as<f32>(terrain.m_ProceduralFrequency);
+        terrain.m_ProceduralLacunarity = terrainComponent["ProceduralLacunarity"].as<f32>(terrain.m_ProceduralLacunarity);
+        terrain.m_ProceduralPersistence = terrainComponent["ProceduralPersistence"].as<f32>(terrain.m_ProceduralPersistence);
+
+        terrain.m_TessellationEnabled = terrainComponent["TessellationEnabled"].as<bool>(terrain.m_TessellationEnabled);
+        terrain.m_TargetTriangleSize = terrainComponent["TargetTriangleSize"].as<f32>(terrain.m_TargetTriangleSize);
+        terrain.m_MorphRegion = terrainComponent["MorphRegion"].as<f32>(terrain.m_MorphRegion);
+
+        // Streaming settings
+        terrain.m_StreamingEnabled = terrainComponent["StreamingEnabled"].as<bool>(terrain.m_StreamingEnabled);
+        terrain.m_TileDirectory = terrainComponent["TileDirectory"].as<std::string>(terrain.m_TileDirectory);
+        terrain.m_TileFilePattern = terrainComponent["TileFilePattern"].as<std::string>(terrain.m_TileFilePattern);
+        terrain.m_TileWorldSize = terrainComponent["TileWorldSize"].as<f32>(terrain.m_TileWorldSize);
+        terrain.m_TileResolution = terrainComponent["TileResolution"].as<u32>(terrain.m_TileResolution);
+        terrain.m_StreamingLoadRadius = terrainComponent["StreamingLoadRadius"].as<u32>(terrain.m_StreamingLoadRadius);
+        terrain.m_StreamingMaxTiles = terrainComponent["StreamingMaxTiles"].as<u32>(terrain.m_StreamingMaxTiles);
+
+        // Voxel override settings
+        terrain.m_VoxelEnabled = terrainComponent["VoxelEnabled"].as<bool>(terrain.m_VoxelEnabled);
+        terrain.m_VoxelSize = terrainComponent["VoxelSize"].as<f32>(terrain.m_VoxelSize);
+
+        // Deserialize terrain material layers
+        if (auto layersNode = terrainComponent["Layers"]; layersNode && layersNode.IsSequence())
+        {
+            terrain.m_Material = Ref<TerrainMaterial>::Create();
+            if (auto sp0 = terrainComponent["SplatmapPath0"]; sp0)
+                terrain.m_Material->SetSplatmapPath(0, sp0.as<std::string>());
+            if (auto sp1 = terrainComponent["SplatmapPath1"]; sp1)
+                terrain.m_Material->SetSplatmapPath(1, sp1.as<std::string>());
+
+            for (const auto& layerNode : layersNode)
+            {
+                TerrainLayer layer;
+                layer.Name = layerNode["Name"].as<std::string>(layer.Name);
+                layer.AlbedoPath = layerNode["AlbedoPath"].as<std::string>(layer.AlbedoPath);
+                layer.NormalPath = layerNode["NormalPath"].as<std::string>(layer.NormalPath);
+                layer.ARMPath = layerNode["ARMPath"].as<std::string>(layer.ARMPath);
+                layer.TilingScale = layerNode["TilingScale"].as<f32>(layer.TilingScale);
+                layer.HeightBlendSharpness = layerNode["HeightBlendSharpness"].as<f32>(layer.HeightBlendSharpness);
+                layer.TriplanarSharpness = layerNode["TriplanarSharpness"].as<f32>(layer.TriplanarSharpness);
+                layer.BaseColor = layerNode["BaseColor"].as<glm::vec3>(layer.BaseColor);
+                layer.Roughness = layerNode["Roughness"].as<f32>(layer.Roughness);
+                layer.Metallic = layerNode["Metallic"].as<f32>(layer.Metallic);
+                terrain.m_Material->AddLayer(layer);
+            }
+            terrain.m_MaterialNeedsRebuild = true;
+        }
+
+        terrain.m_NeedsRebuild = true;
+    }
+
+    static void DeserializeFoliageComponent(FoliageComponent& foliage, const YAML::Node& foliageComponent)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        foliage.m_Enabled = foliageComponent["Enabled"].as<bool>(foliage.m_Enabled);
+
+        if (auto layersNode = foliageComponent["Layers"]; layersNode && layersNode.IsSequence())
+        {
+            foliage.m_Layers.clear();
+            for (auto const& layerNode : layersNode)
+            {
+                FoliageLayer layer;
+                layer.Name = layerNode["Name"].as<std::string>(layer.Name);
+                layer.MeshPath = layerNode["MeshPath"].as<std::string>(layer.MeshPath);
+                layer.AlbedoPath = layerNode["AlbedoPath"].as<std::string>(layer.AlbedoPath);
+                layer.Density = layerNode["Density"].as<f32>(layer.Density);
+                layer.SplatmapChannel = layerNode["SplatmapChannel"].as<i32>(layer.SplatmapChannel);
+                layer.MinSlopeAngle = layerNode["MinSlopeAngle"].as<f32>(layer.MinSlopeAngle);
+                layer.MaxSlopeAngle = layerNode["MaxSlopeAngle"].as<f32>(layer.MaxSlopeAngle);
+                layer.MinScale = layerNode["MinScale"].as<f32>(layer.MinScale);
+                layer.MaxScale = layerNode["MaxScale"].as<f32>(layer.MaxScale);
+                layer.MinHeight = layerNode["MinHeight"].as<f32>(layer.MinHeight);
+                layer.MaxHeight = layerNode["MaxHeight"].as<f32>(layer.MaxHeight);
+                layer.RandomRotation = layerNode["RandomRotation"].as<bool>(layer.RandomRotation);
+                layer.ViewDistance = layerNode["ViewDistance"].as<f32>(layer.ViewDistance);
+                layer.FadeStartDistance = layerNode["FadeStartDistance"].as<f32>(layer.FadeStartDistance);
+                layer.WindStrength = layerNode["WindStrength"].as<f32>(layer.WindStrength);
+                layer.WindSpeed = layerNode["WindSpeed"].as<f32>(layer.WindSpeed);
+                layer.BaseColor = layerNode["BaseColor"].as<glm::vec3>(layer.BaseColor);
+                layer.Roughness = layerNode["Roughness"].as<f32>(layer.Roughness);
+                layer.AlphaCutoff = layerNode["AlphaCutoff"].as<f32>(layer.AlphaCutoff);
+                layer.Enabled = layerNode["Enabled"].as<bool>(layer.Enabled);
+                foliage.m_Layers.push_back(layer);
+            }
+        }
+        foliage.m_NeedsRebuild = true;
+    }
+
     static std::string RigidBody2DBodyTypeToString(const Rigidbody2DComponent::BodyType bodyType)
     {
         switch (bodyType)
@@ -1236,6 +1339,116 @@ namespace OloEngine
             out << YAML::EndMap; // ParticleSystemComponent
         }
 
+        if (entity.HasComponent<TerrainComponent>())
+        {
+            out << YAML::Key << "TerrainComponent";
+            out << YAML::BeginMap; // TerrainComponent
+
+            auto const& terrain = entity.GetComponent<TerrainComponent>();
+            out << YAML::Key << "HeightmapPath" << YAML::Value << terrain.m_HeightmapPath;
+            out << YAML::Key << "WorldSizeX" << YAML::Value << terrain.m_WorldSizeX;
+            out << YAML::Key << "WorldSizeZ" << YAML::Value << terrain.m_WorldSizeZ;
+            out << YAML::Key << "HeightScale" << YAML::Value << terrain.m_HeightScale;
+
+            // Procedural generation settings
+            out << YAML::Key << "ProceduralEnabled" << YAML::Value << terrain.m_ProceduralEnabled;
+            out << YAML::Key << "ProceduralSeed" << YAML::Value << terrain.m_ProceduralSeed;
+            out << YAML::Key << "ProceduralResolution" << YAML::Value << terrain.m_ProceduralResolution;
+            out << YAML::Key << "ProceduralOctaves" << YAML::Value << terrain.m_ProceduralOctaves;
+            out << YAML::Key << "ProceduralFrequency" << YAML::Value << terrain.m_ProceduralFrequency;
+            out << YAML::Key << "ProceduralLacunarity" << YAML::Value << terrain.m_ProceduralLacunarity;
+            out << YAML::Key << "ProceduralPersistence" << YAML::Value << terrain.m_ProceduralPersistence;
+
+            out << YAML::Key << "TessellationEnabled" << YAML::Value << terrain.m_TessellationEnabled;
+            out << YAML::Key << "TargetTriangleSize" << YAML::Value << terrain.m_TargetTriangleSize;
+            out << YAML::Key << "MorphRegion" << YAML::Value << terrain.m_MorphRegion;
+
+            // Streaming settings
+            out << YAML::Key << "StreamingEnabled" << YAML::Value << terrain.m_StreamingEnabled;
+            out << YAML::Key << "TileDirectory" << YAML::Value << terrain.m_TileDirectory;
+            out << YAML::Key << "TileFilePattern" << YAML::Value << terrain.m_TileFilePattern;
+            out << YAML::Key << "TileWorldSize" << YAML::Value << terrain.m_TileWorldSize;
+            out << YAML::Key << "TileResolution" << YAML::Value << terrain.m_TileResolution;
+            out << YAML::Key << "StreamingLoadRadius" << YAML::Value << terrain.m_StreamingLoadRadius;
+            out << YAML::Key << "StreamingMaxTiles" << YAML::Value << terrain.m_StreamingMaxTiles;
+
+            // Voxel override settings
+            out << YAML::Key << "VoxelEnabled" << YAML::Value << terrain.m_VoxelEnabled;
+            out << YAML::Key << "VoxelSize" << YAML::Value << terrain.m_VoxelSize;
+
+            // Terrain material layers
+            if (terrain.m_Material && terrain.m_Material->GetLayerCount() > 0)
+            {
+                const auto& mat = terrain.m_Material;
+                out << YAML::Key << "SplatmapPath0" << YAML::Value << mat->GetSplatmapPath(0);
+                out << YAML::Key << "SplatmapPath1" << YAML::Value << mat->GetSplatmapPath(1);
+                out << YAML::Key << "Layers";
+                out << YAML::Value << YAML::BeginSeq;
+                for (u32 i = 0; i < mat->GetLayerCount(); ++i)
+                {
+                    const auto& layer = mat->GetLayer(i);
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "Name" << YAML::Value << layer.Name;
+                    out << YAML::Key << "AlbedoPath" << YAML::Value << layer.AlbedoPath;
+                    out << YAML::Key << "NormalPath" << YAML::Value << layer.NormalPath;
+                    out << YAML::Key << "ARMPath" << YAML::Value << layer.ARMPath;
+                    out << YAML::Key << "TilingScale" << YAML::Value << layer.TilingScale;
+                    out << YAML::Key << "HeightBlendSharpness" << YAML::Value << layer.HeightBlendSharpness;
+                    out << YAML::Key << "TriplanarSharpness" << YAML::Value << layer.TriplanarSharpness;
+                    out << YAML::Key << "BaseColor" << YAML::Value << layer.BaseColor;
+                    out << YAML::Key << "Roughness" << YAML::Value << layer.Roughness;
+                    out << YAML::Key << "Metallic" << YAML::Value << layer.Metallic;
+                    out << YAML::EndMap;
+                }
+                out << YAML::EndSeq;
+            }
+
+            out << YAML::EndMap; // TerrainComponent
+        }
+
+        if (entity.HasComponent<FoliageComponent>())
+        {
+            out << YAML::Key << "FoliageComponent";
+            out << YAML::BeginMap;
+
+            auto const& foliage = entity.GetComponent<FoliageComponent>();
+            out << YAML::Key << "Enabled" << YAML::Value << foliage.m_Enabled;
+
+            if (!foliage.m_Layers.empty())
+            {
+                out << YAML::Key << "Layers";
+                out << YAML::Value << YAML::BeginSeq;
+                for (const auto& layer : foliage.m_Layers)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "Name" << YAML::Value << layer.Name;
+                    out << YAML::Key << "MeshPath" << YAML::Value << layer.MeshPath;
+                    out << YAML::Key << "AlbedoPath" << YAML::Value << layer.AlbedoPath;
+                    out << YAML::Key << "Density" << YAML::Value << layer.Density;
+                    out << YAML::Key << "SplatmapChannel" << YAML::Value << layer.SplatmapChannel;
+                    out << YAML::Key << "MinSlopeAngle" << YAML::Value << layer.MinSlopeAngle;
+                    out << YAML::Key << "MaxSlopeAngle" << YAML::Value << layer.MaxSlopeAngle;
+                    out << YAML::Key << "MinScale" << YAML::Value << layer.MinScale;
+                    out << YAML::Key << "MaxScale" << YAML::Value << layer.MaxScale;
+                    out << YAML::Key << "MinHeight" << YAML::Value << layer.MinHeight;
+                    out << YAML::Key << "MaxHeight" << YAML::Value << layer.MaxHeight;
+                    out << YAML::Key << "RandomRotation" << YAML::Value << layer.RandomRotation;
+                    out << YAML::Key << "ViewDistance" << YAML::Value << layer.ViewDistance;
+                    out << YAML::Key << "FadeStartDistance" << YAML::Value << layer.FadeStartDistance;
+                    out << YAML::Key << "WindStrength" << YAML::Value << layer.WindStrength;
+                    out << YAML::Key << "WindSpeed" << YAML::Value << layer.WindSpeed;
+                    out << YAML::Key << "BaseColor" << YAML::Value << layer.BaseColor;
+                    out << YAML::Key << "Roughness" << YAML::Value << layer.Roughness;
+                    out << YAML::Key << "AlphaCutoff" << YAML::Value << layer.AlphaCutoff;
+                    out << YAML::Key << "Enabled" << YAML::Value << layer.Enabled;
+                    out << YAML::EndMap;
+                }
+                out << YAML::EndSeq;
+            }
+
+            out << YAML::EndMap; // FoliageComponent
+        }
+
         if (entity.HasComponent<SubmeshComponent>())
         {
             out << YAML::Key << "SubmeshComponent";
@@ -2047,6 +2260,18 @@ namespace OloEngine
                 {
                     auto& psc = deserializedEntity.AddComponent<ParticleSystemComponent>();
                     DeserializeParticleSystemComponent(psc, particleComponent);
+                }
+
+                if (auto terrainComponent = entity["TerrainComponent"]; terrainComponent)
+                {
+                    auto& terrain = deserializedEntity.AddComponent<TerrainComponent>();
+                    DeserializeTerrainComponent(terrain, terrainComponent);
+                }
+
+                if (auto foliageComponent = entity["FoliageComponent"]; foliageComponent)
+                {
+                    auto& foliage = deserializedEntity.AddComponent<FoliageComponent>();
+                    DeserializeFoliageComponent(foliage, foliageComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
@@ -2919,6 +3144,18 @@ namespace OloEngine
                 {
                     auto& psc = deserializedEntity.AddComponent<ParticleSystemComponent>();
                     DeserializeParticleSystemComponent(psc, particleComponent);
+                }
+
+                if (auto terrainComponent = entity["TerrainComponent"]; terrainComponent)
+                {
+                    auto& terrain = deserializedEntity.AddComponent<TerrainComponent>();
+                    DeserializeTerrainComponent(terrain, terrainComponent);
+                }
+
+                if (auto foliageComponent = entity["FoliageComponent"]; foliageComponent)
+                {
+                    auto& foliage = deserializedEntity.AddComponent<FoliageComponent>();
+                    DeserializeFoliageComponent(foliage, foliageComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)

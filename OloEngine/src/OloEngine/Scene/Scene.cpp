@@ -26,9 +26,19 @@
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Terrain/TerrainChunk.h"
+#include "OloEngine/Terrain/TerrainChunkManager.h"
+#include "OloEngine/Terrain/TerrainMaterial.h"
+#include "OloEngine/Terrain/TerrainTile.h"
+#include "OloEngine/Terrain/TerrainStreamer.h"
+#include "OloEngine/Terrain/Voxel/VoxelOverride.h"
+#include "OloEngine/Terrain/Voxel/MarchingCubes.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Core/FastRandom.h"
+#include "OloEngine/Utils/PlatformUtils.h"
+#include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -852,6 +862,10 @@ namespace OloEngine
     void Scene::OnComponentAdded<SpotLightComponent>(Entity, SpotLightComponent&) {}
     template<>
     void Scene::OnComponentAdded<EnvironmentMapComponent>(Entity, EnvironmentMapComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<TerrainComponent>(Entity, TerrainComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<FoliageComponent>(Entity, FoliageComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
@@ -1690,6 +1704,559 @@ namespace OloEngine
                                     RenderCommand::DrawIndexed(va, submeshRef->GetIndexCount());
                                 }
                             }
+                        }
+                    }
+
+                    // Render terrain into shadow map
+                    {
+                        // Use the appropriate depth shader for terrain
+                        const char* terrainDepthName = (type == ShadowPassType::Point) ? "ShadowDepthPoint" : "Terrain_Depth";
+                        auto terrainDepthShader = Renderer3D::GetShaderLibrary().Get(terrainDepthName);
+                        if (!terrainDepthShader)
+                        {
+                            terrainDepthShader = Renderer3D::GetTerrainDepthShader();
+                        }
+                        if (terrainDepthShader)
+                        {
+                            terrainDepthShader->Bind();
+                            auto terrainShadowView = m_Registry.view<TransformComponent, TerrainComponent>();
+                            for (auto terrainEntity : terrainShadowView)
+                            {
+                                const auto& [terrainTransform, terrain] = terrainShadowView.get<TransformComponent, TerrainComponent>(terrainEntity);
+
+                                // Lambda to render chunks from a single chunk manager for shadows
+                                auto renderShadowChunks = [&](const TerrainChunkManager& chunkMgr,
+                                                              const TerrainData* terrainData,
+                                                              f32 worldSizeX, f32 worldSizeZ,
+                                                              f32 heightScale, bool useTess)
+                                {
+                                    ShaderBindingLayout::TerrainUBO shadowTerrainUBO{};
+                                    shadowTerrainUBO.WorldSizeAndHeightScale = glm::vec4(
+                                        worldSizeX, worldSizeZ,
+                                        heightScale,
+                                        static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
+                                    u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
+                                    shadowTerrainUBO.TerrainParams = glm::vec4(
+                                        1.0f / static_cast<f32>(res), 1.0f / static_cast<f32>(res), 0.0f, 0.0f);
+                                    shadowTerrainUBO.HeightmapResolution = static_cast<i32>(res);
+
+                                    if (terrainData && terrainData->GetGPUHeightmap())
+                                    {
+                                        terrainData->GetGPUHeightmap()->Bind(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP);
+                                    }
+
+                                    if (useTess)
+                                    {
+                                        const auto& selectedChunks = chunkMgr.GetSelectedChunks();
+                                        for (const auto& rc : selectedChunks)
+                                        {
+                                            auto va = rc.Chunk->GetVertexArray();
+                                            if (!va) { continue; }
+                                            shadowTerrainUBO.TessFactors = rc.LODData.TessFactors;
+                                            shadowTerrainUBO.TessFactors2 = rc.LODData.TessFactors2;
+                                            shadowTerrainUBO.TessFactors2.w = 1.0f;
+                                            auto terrainUBO = Renderer3D::GetTerrainUBO();
+                                            terrainUBO->SetData(&shadowTerrainUBO, ShaderBindingLayout::TerrainUBO::GetSize());
+                                            terrainUBO->Bind();
+                                            va->Bind();
+                                            RenderCommand::DrawIndexedPatches(va, rc.Chunk->GetIndexCount(), 3);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        // Shader always has TCS+TES — must use GL_PATCHES.
+                                        // Tess level 1.0 = no subdivision (pass-through).
+                                        shadowTerrainUBO.TessFactors = glm::vec4(1.0f);
+                                        shadowTerrainUBO.TessFactors2.w = 1.0f;
+                                        auto terrainUBO = Renderer3D::GetTerrainUBO();
+                                        terrainUBO->SetData(&shadowTerrainUBO, ShaderBindingLayout::TerrainUBO::GetSize());
+                                        terrainUBO->Bind();
+                                        std::vector<const TerrainChunk*> allChunks;
+                                        chunkMgr.GetAllChunks(allChunks);
+                                        for (const auto* chunk : allChunks)
+                                        {
+                                            auto va = chunk->GetVertexArray();
+                                            if (va)
+                                            {
+                                                va->Bind();
+                                                RenderCommand::DrawIndexedPatches(va, chunk->GetIndexCount(), 3);
+                                            }
+                                        }
+                                    }
+                                };
+
+                                uploadShadowModelUBO(terrainTransform.GetTransform());
+                                bool useTess = terrain.m_TessellationEnabled;
+
+                                if (terrain.m_StreamingEnabled && terrain.m_Streamer)
+                                {
+                                    // Streaming mode: render all ready tiles
+                                    std::vector<Ref<TerrainTile>> readyTiles;
+                                    terrain.m_Streamer->GetReadyTiles(readyTiles);
+                                    for (const auto& tile : readyTiles)
+                                    {
+                                        if (tile->GetChunkManager() && tile->GetChunkManager()->IsBuilt())
+                                        {
+                                            renderShadowChunks(*tile->GetChunkManager(), tile->GetTerrainData().get(),
+                                                               tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale, useTess);
+                                        }
+                                    }
+                                }
+                                else if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
+                                {
+                                    // Single-tile mode
+                                    renderShadowChunks(*terrain.m_ChunkManager, terrain.m_TerrainData.get(),
+                                                       terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, useTess);
+                                }
+
+                                // Voxel override shadow pass
+                                if (terrain.m_VoxelEnabled && !terrain.m_VoxelMeshes.empty())
+                                {
+                                    auto voxelDepthShader = Renderer3D::GetVoxelDepthShader();
+                                    if (voxelDepthShader)
+                                    {
+                                        voxelDepthShader->Bind();
+                                        for (const auto& [coord, mesh] : terrain.m_VoxelMeshes)
+                                        {
+                                            if (mesh.VAO && mesh.IndexCount > 0)
+                                            {
+                                                mesh.VAO->Bind();
+                                                RenderCommand::DrawIndexed(mesh.VAO, mesh.IndexCount);
+                                            }
+                                        }
+                                        // Re-bind terrain depth shader for remaining terrain entities
+                                        terrainDepthShader->Bind();
+                                    }
+                                }
+
+                                // ── Foliage shadow pass ──
+                                if (m_Registry.all_of<FoliageComponent>(terrainEntity))
+                                {
+                                    auto& foliage = m_Registry.get<FoliageComponent>(terrainEntity);
+                                    if (foliage.m_Enabled && foliage.m_Renderer)
+                                    {
+                                        auto foliageDepthShader = Renderer3D::GetFoliageDepthShader();
+                                        if (foliageDepthShader)
+                                        {
+                                            foliageDepthShader->Bind();
+                                            foliage.m_Renderer->SetTime(Time::GetTime());
+                                            foliage.m_Renderer->RenderShadows(foliageDepthShader);
+                                            // Re-bind terrain depth shader for remaining entities
+                                            terrainDepthShader->Bind();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } });
+            }
+        }
+
+        // Initialize terrain chunks if needed and set up terrain rendering
+        {
+            ++m_TerrainFrameCounter;
+
+            auto terrainView = m_Registry.view<TransformComponent, TerrainComponent>();
+            for (auto entity : terrainView)
+            {
+                auto& terrain = terrainView.get<TerrainComponent>(entity);
+
+                if (terrain.m_StreamingEnabled)
+                {
+                    // ── Streaming mode ──
+                    if (terrain.m_NeedsRebuild)
+                    {
+                        if (!terrain.m_Streamer)
+                        {
+                            terrain.m_Streamer = Ref<TerrainStreamer>::Create();
+                        }
+
+                        TerrainStreamerConfig config;
+                        config.TileWorldSize = terrain.m_TileWorldSize;
+                        config.HeightScale = terrain.m_HeightScale;
+                        config.TileResolution = terrain.m_TileResolution;
+                        config.LoadRadius = terrain.m_StreamingLoadRadius;
+                        config.MaxLoadedTiles = terrain.m_StreamingMaxTiles;
+                        config.TessellationEnabled = terrain.m_TessellationEnabled;
+                        config.TargetTriangleSize = terrain.m_TargetTriangleSize;
+                        config.MorphRegion = terrain.m_MorphRegion;
+                        config.TileDirectory = terrain.m_TileDirectory;
+                        config.TileFilePattern = terrain.m_TileFilePattern;
+                        terrain.m_Streamer->Initialize(config);
+
+                        if (terrain.m_Material)
+                        {
+                            terrain.m_Streamer->SetMaterial(terrain.m_Material);
+                        }
+
+                        terrain.m_NeedsRebuild = false;
+                    }
+
+                    // Build / rebuild terrain material texture arrays
+                    if (terrain.m_MaterialNeedsRebuild && terrain.m_Material && terrain.m_Material->GetLayerCount() > 0)
+                    {
+                        terrain.m_Material->BuildTextureArrays();
+                        terrain.m_Material->LoadSplatmaps();
+                        terrain.m_Streamer->SetMaterial(terrain.m_Material);
+                        terrain.m_MaterialNeedsRebuild = false;
+                    }
+
+                    // Update streamer each frame
+                    terrain.m_Streamer->Update(camera.GetPosition(), m_TerrainFrameCounter);
+                }
+                else
+                {
+                    // ── Single-tile mode (original) ──
+                    if (terrain.m_NeedsRebuild)
+                    {
+                        // Create TerrainData if not yet loaded
+                        if (!terrain.m_TerrainData)
+                        {
+                            terrain.m_TerrainData = Ref<TerrainData>::Create();
+                            if (!terrain.m_HeightmapPath.empty())
+                            {
+                                terrain.m_TerrainData->LoadFromFile(terrain.m_HeightmapPath);
+                            }
+                            else if (terrain.m_ProceduralEnabled)
+                            {
+                                terrain.m_TerrainData->GenerateProcedural(
+                                    terrain.m_ProceduralResolution,
+                                    terrain.m_ProceduralSeed,
+                                    terrain.m_ProceduralOctaves,
+                                    terrain.m_ProceduralFrequency,
+                                    1.0f,
+                                    terrain.m_ProceduralLacunarity,
+                                    terrain.m_ProceduralPersistence);
+                            }
+                            else
+                            {
+                                terrain.m_TerrainData->CreateFlat(256, 0.0f);
+                            }
+                        }
+
+                        // Build chunks + quadtree
+                        if (!terrain.m_ChunkManager)
+                        {
+                            terrain.m_ChunkManager = Ref<TerrainChunkManager>::Create();
+                        }
+                        // Apply LOD config from component
+                        terrain.m_ChunkManager->TessellationEnabled = terrain.m_TessellationEnabled;
+                        auto& lodCfg = terrain.m_ChunkManager->GetQuadtree().GetConfig();
+                        lodCfg.TargetTriangleSize = terrain.m_TargetTriangleSize;
+                        lodCfg.MorphRegion = terrain.m_MorphRegion;
+
+                        terrain.m_ChunkManager->GenerateAllChunks(
+                            *terrain.m_TerrainData,
+                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+
+                        terrain.m_NeedsRebuild = false;
+                    }
+
+                    // Build / rebuild terrain material texture arrays
+                    if (terrain.m_MaterialNeedsRebuild && terrain.m_Material && terrain.m_Material->GetLayerCount() > 0)
+                    {
+                        terrain.m_Material->BuildTextureArrays();
+                        terrain.m_Material->LoadSplatmaps();
+                        terrain.m_MaterialNeedsRebuild = false;
+                    }
+
+                    // Run quadtree LOD selection each frame if tessellation is enabled
+                    if (terrain.m_TessellationEnabled && terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
+                    {
+                        terrain.m_ChunkManager->SelectVisibleChunks(
+                            Renderer3D::GetViewFrustum(),
+                            camera.GetPosition(),
+                            camera.GetViewProjection(),
+                            static_cast<f32>(m_ViewportHeight));
+                    }
+                }
+
+                // ── Voxel override layer ──
+                if (terrain.m_VoxelEnabled)
+                {
+                    if (!terrain.m_VoxelOverride)
+                    {
+                        terrain.m_VoxelOverride = Ref<VoxelOverride>::Create();
+                        terrain.m_VoxelOverride->Initialize(
+                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ,
+                            terrain.m_HeightScale, terrain.m_VoxelSize);
+                    }
+
+                    // Rebuild dirty voxel meshes on main thread
+                    MarchingCubes::RebuildDirtyMeshes(*terrain.m_VoxelOverride, terrain.m_VoxelMeshes);
+                }
+            }
+
+            // ── Foliage instancing ──
+            {
+                auto foliageView = m_Registry.view<TransformComponent, TerrainComponent, FoliageComponent>();
+                for (auto entity : foliageView)
+                {
+                    auto& terrain = foliageView.get<TerrainComponent>(entity);
+                    auto& foliage = foliageView.get<FoliageComponent>(entity);
+
+                    if (!foliage.m_Enabled || foliage.m_Layers.empty())
+                        continue;
+
+                    if (!foliage.m_Renderer)
+                    {
+                        foliage.m_Renderer = Ref<FoliageRenderer>::Create();
+                        foliage.m_NeedsRebuild = true;
+                    }
+
+                    if (foliage.m_NeedsRebuild && terrain.m_TerrainData)
+                    {
+                        foliage.m_Renderer->GenerateInstances(
+                            foliage.m_Layers,
+                            *terrain.m_TerrainData,
+                            terrain.m_Material.get(),
+                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                        foliage.m_NeedsRebuild = false;
+                    }
+                }
+            }
+
+            // Set up terrain rendering callback on the SceneRenderPass
+            if (auto scenePass = Renderer3D::GetScenePass())
+            {
+                scenePass->SetPostExecuteCallback([this, &camera]()
+                                                  {
+                    auto terrainRenderView = m_Registry.view<TransformComponent, TerrainComponent>();
+
+                    for (auto entity : terrainRenderView)
+                    {
+                        const auto& [transform, terrain] = terrainRenderView.get<TransformComponent, TerrainComponent>(entity);
+
+                        // Bind terrain shader
+                        auto terrainShader = Renderer3D::GetTerrainPBRShader();
+                        if (!terrainShader)
+                        {
+                            continue;
+                        }
+                        terrainShader->Bind();
+
+                        // Bind terrain material textures (splatmaps + layer arrays)
+                        bool hasMaterial = terrain.m_Material && terrain.m_Material->IsBuilt();
+                        if (hasMaterial)
+                        {
+                            auto& mat = terrain.m_Material;
+                            if (auto splatmap0 = mat->GetSplatmap(0))
+                                splatmap0->Bind(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP);
+                            if (auto splatmap1 = mat->GetSplatmap(1))
+                                splatmap1->Bind(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1);
+                            if (mat->GetAlbedoArray())
+                                mat->GetAlbedoArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY);
+                            if (mat->GetNormalArray())
+                                mat->GetNormalArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY);
+                            if (mat->GetARMArray())
+                                mat->GetARMArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY);
+                        }
+                        else
+                        {
+                            // Unbind terrain material slots to prevent stale texture type mismatches
+                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP, 0);
+                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, 0);
+                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, 0);
+                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, 0);
+                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1, 0);
+                        }
+
+                        // Upload model matrix
+                        ShaderBindingLayout::ModelUBO modelData{};
+                        modelData.Model = transform.GetTransform();
+                        modelData.Normal = glm::transpose(glm::inverse(transform.GetTransform()));
+                        modelData.EntityID = static_cast<i32>(static_cast<u32>(entity));
+                        auto modelUBO = Renderer3D::GetModelMatrixUBO();
+                        modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+
+                        bool useTess = terrain.m_TessellationEnabled;
+
+                        // Lambda to render one chunk manager with its terrain data
+                        auto renderChunkManager = [&](const TerrainChunkManager& chunkMgr,
+                                                      const TerrainData* terrainData,
+                                                      const TerrainMaterial* tileMaterial,
+                                                      f32 worldSizeX, f32 worldSizeZ,
+                                                      f32 heightScale)
+                        {
+                            if (!chunkMgr.IsBuilt())
+                            {
+                                return;
+                            }
+
+                            // Bind heightmap texture
+                            if (terrainData && terrainData->GetGPUHeightmap())
+                            {
+                                terrainData->GetGPUHeightmap()->Bind(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP);
+                            }
+
+                            // Bind per-tile material if different from entity material
+                            bool tileHasMaterial = tileMaterial && tileMaterial->IsBuilt();
+                            if (tileHasMaterial && tileMaterial != terrain.m_Material.get())
+                            {
+                                if (auto splatmap0 = tileMaterial->GetSplatmap(0))
+                                    splatmap0->Bind(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP);
+                                if (auto splatmap1 = tileMaterial->GetSplatmap(1))
+                                    splatmap1->Bind(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1);
+                                if (tileMaterial->GetAlbedoArray())
+                                    tileMaterial->GetAlbedoArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY);
+                                if (tileMaterial->GetNormalArray())
+                                    tileMaterial->GetNormalArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY);
+                                if (tileMaterial->GetARMArray())
+                                    tileMaterial->GetARMArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY);
+                            }
+
+                            // Build terrain UBO
+                            ShaderBindingLayout::TerrainUBO terrainUBOData{};
+                            terrainUBOData.WorldSizeAndHeightScale = glm::vec4(
+                                worldSizeX, worldSizeZ,
+                                heightScale,
+                                static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
+                            u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
+
+                            const TerrainMaterial* effectiveMat = tileHasMaterial ? tileMaterial : (hasMaterial ? terrain.m_Material.get() : nullptr);
+                            u32 layerCount = effectiveMat ? effectiveMat->GetLayerCount() : 0;
+                            f32 triplanarSharpness = 8.0f;
+                            terrainUBOData.TerrainParams = glm::vec4(
+                                1.0f / static_cast<f32>(res),
+                                1.0f / static_cast<f32>(res),
+                                static_cast<f32>(layerCount),
+                                triplanarSharpness);
+                            terrainUBOData.HeightmapResolution = static_cast<i32>(res);
+
+                            if (effectiveMat)
+                            {
+                                for (u32 i = 0; i < std::min(layerCount, 4u); ++i)
+                                {
+                                    terrainUBOData.LayerTilingScales0[i] = effectiveMat->GetLayer(i).TilingScale;
+                                    terrainUBOData.LayerBlendSharpness0[i] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                                }
+                                for (u32 i = 4; i < std::min(layerCount, 8u); ++i)
+                                {
+                                    terrainUBOData.LayerTilingScales1[i - 4] = effectiveMat->GetLayer(i).TilingScale;
+                                    terrainUBOData.LayerBlendSharpness1[i - 4] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                                }
+                            }
+
+                            if (useTess)
+                            {
+                                const auto& selectedChunks = chunkMgr.GetSelectedChunks();
+                                for (const auto& rc : selectedChunks)
+                                {
+                                    auto va = rc.Chunk->GetVertexArray();
+                                    if (!va) { continue; }
+                                    terrainUBOData.TessFactors = rc.LODData.TessFactors;
+                                    terrainUBOData.TessFactors2 = rc.LODData.TessFactors2;
+                                    terrainUBOData.TessFactors2.w = 1.0f;
+                                    auto terrainUBO = Renderer3D::GetTerrainUBO();
+                                    terrainUBO->SetData(&terrainUBOData, ShaderBindingLayout::TerrainUBO::GetSize());
+                                    terrainUBO->Bind();
+                                    va->Bind();
+                                    RenderCommand::DrawIndexedPatches(va, rc.Chunk->GetIndexCount(), 3);
+                                }
+                            }
+                            else
+                            {
+                                // Shader always has TCS+TES — must use GL_PATCHES.
+                                // Tess level 1.0 = no subdivision (pass-through).
+                                terrainUBOData.TessFactors = glm::vec4(1.0f);
+                                terrainUBOData.TessFactors2.w = 1.0f;
+                                auto terrainUBO = Renderer3D::GetTerrainUBO();
+                                terrainUBO->SetData(&terrainUBOData, ShaderBindingLayout::TerrainUBO::GetSize());
+                                terrainUBO->Bind();
+                                std::vector<const TerrainChunk*> visibleChunks;
+                                chunkMgr.GetVisibleChunks(Renderer3D::GetViewFrustum(), visibleChunks);
+                                for (const auto* chunk : visibleChunks)
+                                {
+                                    auto va = chunk->GetVertexArray();
+                                    if (va)
+                                    {
+                                        va->Bind();
+                                        RenderCommand::DrawIndexedPatches(va, chunk->GetIndexCount(), 3);
+                                    }
+                                }
+                            }
+                        };
+
+                        if (terrain.m_StreamingEnabled && terrain.m_Streamer)
+                        {
+                            // Streaming mode: render all ready tiles
+                            std::vector<Ref<TerrainTile>> readyTiles;
+                            terrain.m_Streamer->GetReadyTiles(readyTiles);
+                            for (const auto& tile : readyTiles)
+                            {
+                                auto tileMat = tile->GetMaterial();
+                                auto chunkMgr = tile->GetChunkManager();
+                                if (!chunkMgr)
+                                {
+                                    continue;
+                                }
+                                renderChunkManager(*chunkMgr, tile->GetTerrainData().get(),
+                                                   tileMat ? tileMat.get() : nullptr,
+                                                   tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale);
+                            }
+                        }
+                        else if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
+                        {
+                            // Single-tile mode
+                            renderChunkManager(*terrain.m_ChunkManager, terrain.m_TerrainData.get(),
+                                               nullptr,
+                                               terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                        }
+
+                        // ── Render voxel override meshes ──
+                        if (terrain.m_VoxelEnabled && !terrain.m_VoxelMeshes.empty())
+                        {
+                            auto voxelShader = Renderer3D::GetVoxelPBRShader();
+                            if (voxelShader)
+                            {
+                                voxelShader->Bind();
+
+                                // Bind terrain material textures for triplanar sampling
+                                if (hasMaterial)
+                                {
+                                    auto& mat = terrain.m_Material;
+                                    if (mat->GetAlbedoArray())
+                                        mat->GetAlbedoArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY);
+                                    if (mat->GetNormalArray())
+                                        mat->GetNormalArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY);
+                                    if (mat->GetARMArray())
+                                        mat->GetARMArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY);
+                                }
+
+                                for (const auto& [coord, mesh] : terrain.m_VoxelMeshes)
+                                {
+                                    if (mesh.VAO && mesh.IndexCount > 0)
+                                    {
+                                        mesh.VAO->Bind();
+                                        RenderCommand::DrawIndexed(mesh.VAO, mesh.IndexCount);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Render foliage instances ──
+                    auto foliageRenderView = m_Registry.view<TransformComponent, TerrainComponent, FoliageComponent>();
+                    for (auto foliageEntity : foliageRenderView)
+                    {
+                        auto const& [foliageTransform, fTerrain, foliage] = foliageRenderView.get<TransformComponent, TerrainComponent, FoliageComponent>(foliageEntity);
+                        if (!foliage.m_Enabled || !foliage.m_Renderer)
+                            continue;
+
+                        // Upload model matrix for foliage (same as terrain entity transform)
+                        ShaderBindingLayout::ModelUBO foliageModelUBO{};
+                        foliageModelUBO.Model = foliageTransform.GetTransform();
+                        foliageModelUBO.Normal = glm::transpose(glm::inverse(foliageTransform.GetTransform()));
+                        auto modelUBO = Renderer3D::GetModelMatrixUBO();
+                        modelUBO->SetData(&foliageModelUBO, ShaderBindingLayout::ModelUBO::GetSize());
+
+                        auto foliageShader = Renderer3D::GetFoliageShader();
+                        if (foliageShader)
+                        {
+                            foliageShader->Bind();
+                            foliage.m_Renderer->SetTime(Time::GetTime());
+                            foliage.m_Renderer->Render(
+                                Renderer3D::GetViewFrustum(), camera.GetPosition(), foliageShader);
                         }
                     } });
             }

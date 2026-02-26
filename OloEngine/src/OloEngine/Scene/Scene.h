@@ -199,6 +199,7 @@ namespace OloEngine
         bool m_IsRunning = false;
         bool m_IsPaused = false;
         int m_StepFrames = 0;
+        u64 m_TerrainFrameCounter = 0;
         bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization

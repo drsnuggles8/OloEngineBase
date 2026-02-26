@@ -59,6 +59,11 @@ namespace OloEngine
             s_RendererAPI->DrawLines(vertexArray, vertexCount);
         }
 
+        static void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, const u32 indexCount = 0, const u32 patchVertices = 4)
+        {
+            s_RendererAPI->DrawIndexedPatches(vertexArray, indexCount, patchVertices);
+        }
+
         static void SetLineWidth(const f32 width)
         {
             s_RendererAPI->SetLineWidth(width);
@@ -190,6 +195,11 @@ namespace OloEngine
         static void BindTexture(u32 slot, u32 textureID)
         {
             s_RendererAPI->BindTexture(slot, textureID);
+        }
+
+        static void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format)
+        {
+            s_RendererAPI->BindImageTexture(unit, textureID, mipLevel, layered, layer, access, format);
         }
 
         static void SetPolygonOffset(f32 factor, f32 units)

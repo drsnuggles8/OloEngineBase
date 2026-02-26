@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Utils/PlatformUtils.h"
+#include "OloEngine/Core/FastRandom.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -871,6 +872,12 @@ namespace OloEngine
 
             // Particle System
             DisplayAddComponentEntry<ParticleSystemComponent>("Particle System");
+
+            ImGui::Separator();
+
+            // Terrain
+            DisplayAddComponentEntry<TerrainComponent>("Terrain");
+            DisplayAddComponentEntry<FoliageComponent>("Foliage");
 
             ImGui::Separator();
 
@@ -2268,6 +2275,421 @@ namespace OloEngine
                 constexpr f32 epsilon = 1e-4f;
                 sys.LODDistance1 = std::clamp(sys.LODDistance1, 0.0f, std::max(0.0f, sys.LODMaxDistance - epsilon));
             } });
+
+        DrawComponent<TerrainComponent>("Terrain", entity, [](auto& component)
+                                        {
+            // Heightmap path
+            char buf[256];
+            std::strncpy(buf, component.m_HeightmapPath.c_str(), sizeof(buf) - 1);
+            buf[sizeof(buf) - 1] = '\0';
+            if (ImGui::InputText("Heightmap Path", buf, sizeof(buf)))
+                component.m_HeightmapPath = buf;
+
+            // ── Procedural Generation ────────────────────────────────────
+            ImGui::Separator();
+            ImGui::Text("Procedural Generation");
+            if (ImGui::Checkbox("Procedural Enabled", &component.m_ProceduralEnabled))
+                component.m_NeedsRebuild = true;
+
+            if (component.m_ProceduralEnabled)
+            {
+                if (ImGui::DragInt("Seed", &component.m_ProceduralSeed, 1))
+                    component.m_NeedsRebuild = true;
+
+                int procRes = static_cast<int>(component.m_ProceduralResolution);
+                if (ImGui::DragInt("Resolution", &procRes, 1, 64, 2048))
+                {
+                    component.m_ProceduralResolution = static_cast<u32>(procRes);
+                    component.m_NeedsRebuild = true;
+                }
+
+                int procOctaves = static_cast<int>(component.m_ProceduralOctaves);
+                if (ImGui::DragInt("Octaves", &procOctaves, 1, 1, 12))
+                {
+                    component.m_ProceduralOctaves = static_cast<u32>(procOctaves);
+                    component.m_NeedsRebuild = true;
+                }
+
+                if (ImGui::DragFloat("Frequency", &component.m_ProceduralFrequency, 0.1f, 0.1f, 20.0f))
+                    component.m_NeedsRebuild = true;
+                if (ImGui::DragFloat("Lacunarity", &component.m_ProceduralLacunarity, 0.05f, 1.0f, 4.0f))
+                    component.m_NeedsRebuild = true;
+                if (ImGui::DragFloat("Persistence", &component.m_ProceduralPersistence, 0.01f, 0.1f, 0.9f))
+                    component.m_NeedsRebuild = true;
+
+                if (ImGui::Button("Randomize Seed"))
+                {
+                    component.m_ProceduralSeed = RandomUtils::Int32(0, std::numeric_limits<i32>::max());
+                    component.m_TerrainData = nullptr;
+                    component.m_NeedsRebuild = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Regenerate"))
+                {
+                    component.m_TerrainData = nullptr;
+                    component.m_NeedsRebuild = true;
+                }
+            }
+
+            // World dimensions
+            ImGui::DragFloat("World Size X", &component.m_WorldSizeX, 1.0f, 1.0f, 16384.0f);
+            ImGui::DragFloat("World Size Z", &component.m_WorldSizeZ, 1.0f, 1.0f, 16384.0f);
+            ImGui::DragFloat("Height Scale", &component.m_HeightScale, 0.5f, 0.0f, 1024.0f);
+
+            // LOD / Tessellation settings
+            ImGui::Separator();
+            ImGui::Text("LOD & Tessellation");
+            if (ImGui::Checkbox("Tessellation Enabled", &component.m_TessellationEnabled))
+                component.m_NeedsRebuild = true;
+            ImGui::DragFloat("Target Triangle Size (px)", &component.m_TargetTriangleSize, 0.5f, 1.0f, 64.0f);
+            ImGui::DragFloat("Morph Region", &component.m_MorphRegion, 0.01f, 0.0f, 1.0f);
+
+            // ── Material Layers ──────────────────────────────────────────
+            ImGui::Separator();
+            ImGui::Text("Material Layers");
+
+            // Create material if it doesn't exist
+            if (!component.m_Material)
+            {
+                if (ImGui::Button("Create Material"))
+                {
+                    component.m_Material = Ref<TerrainMaterial>::Create();
+                    component.m_MaterialNeedsRebuild = true;
+                }
+            }
+            else
+            {
+                auto& mat = component.m_Material;
+
+                // Splatmap paths
+                {
+                    char sp0Buf[256]{};
+                    std::strncpy(sp0Buf, mat->GetSplatmapPath(0).c_str(), sizeof(sp0Buf) - 1);
+                    if (ImGui::InputText("Splatmap 0", sp0Buf, sizeof(sp0Buf)))
+                    {
+                        mat->SetSplatmapPath(0, sp0Buf);
+                        component.m_MaterialNeedsRebuild = true;
+                    }
+
+                    char sp1Buf[256]{};
+                    std::strncpy(sp1Buf, mat->GetSplatmapPath(1).c_str(), sizeof(sp1Buf) - 1);
+                    if (ImGui::InputText("Splatmap 1", sp1Buf, sizeof(sp1Buf)))
+                    {
+                        mat->SetSplatmapPath(1, sp1Buf);
+                        component.m_MaterialNeedsRebuild = true;
+                    }
+                }
+
+                // Layer list
+                u32 layerCount = mat->GetLayerCount();
+                for (u32 i = 0; i < layerCount; ++i)
+                {
+                    ImGui::PushID(static_cast<int>(i));
+                    auto& layer = mat->GetLayer(i);
+
+                    bool layerOpen = ImGui::TreeNodeEx(
+                        layer.Name.c_str(),
+                        ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_DefaultOpen);
+
+                    // Remove button on same line
+                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - 20.0f);
+                    if (ImGui::SmallButton("X"))
+                    {
+                        mat->RemoveLayer(i);
+                        component.m_MaterialNeedsRebuild = true;
+                        if (layerOpen) ImGui::TreePop();
+                        ImGui::PopID();
+                        break;
+                    }
+
+                    if (layerOpen)
+                    {
+                        char nameBuf[128]{};
+                        std::strncpy(nameBuf, layer.Name.c_str(), sizeof(nameBuf) - 1);
+                        if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
+                            layer.Name = nameBuf;
+
+                        char albBuf[256]{};
+                        std::strncpy(albBuf, layer.AlbedoPath.c_str(), sizeof(albBuf) - 1);
+                        if (ImGui::InputText("Albedo", albBuf, sizeof(albBuf)))
+                        {
+                            layer.AlbedoPath = albBuf;
+                            component.m_MaterialNeedsRebuild = true;
+                        }
+
+                        char nrmBuf[256]{};
+                        std::strncpy(nrmBuf, layer.NormalPath.c_str(), sizeof(nrmBuf) - 1);
+                        if (ImGui::InputText("Normal", nrmBuf, sizeof(nrmBuf)))
+                        {
+                            layer.NormalPath = nrmBuf;
+                            component.m_MaterialNeedsRebuild = true;
+                        }
+
+                        char armBuf[256]{};
+                        std::strncpy(armBuf, layer.ARMPath.c_str(), sizeof(armBuf) - 1);
+                        if (ImGui::InputText("ARM", armBuf, sizeof(armBuf)))
+                        {
+                            layer.ARMPath = armBuf;
+                            component.m_MaterialNeedsRebuild = true;
+                        }
+
+                        ImGui::DragFloat("Tiling", &layer.TilingScale, 0.1f, 0.1f, 200.0f);
+                        ImGui::DragFloat("Blend Sharpness", &layer.HeightBlendSharpness, 0.1f, 0.1f, 32.0f);
+                        ImGui::DragFloat("Triplanar Sharpness", &layer.TriplanarSharpness, 0.1f, 1.0f, 32.0f);
+                        ImGui::ColorEdit3("Base Color", &layer.BaseColor.x);
+                        ImGui::DragFloat("Roughness", &layer.Roughness, 0.01f, 0.0f, 1.0f);
+                        ImGui::DragFloat("Metallic", &layer.Metallic, 0.01f, 0.0f, 1.0f);
+
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+
+                // Add layer button
+                if (layerCount < MAX_TERRAIN_LAYERS)
+                {
+                    if (ImGui::Button("+ Add Layer"))
+                    {
+                        TerrainLayer newLayer;
+                        newLayer.Name = "Layer " + std::to_string(layerCount);
+                        mat->AddLayer(newLayer);
+                        component.m_MaterialNeedsRebuild = true;
+                    }
+                }
+
+                // Build / Rebuild materials button
+                if (ImGui::Button("Build Materials"))
+                {
+                    component.m_MaterialNeedsRebuild = true;
+                }
+
+                if (mat->IsBuilt())
+                {
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "Built (%u layers)", layerCount);
+                }
+            }
+
+            // Rebuild button
+            if (ImGui::Button("Rebuild Terrain"))
+                component.m_NeedsRebuild = true;
+
+            // ── Streaming Settings ───────────────────────────────────────
+            ImGui::Separator();
+            ImGui::Text("Streaming");
+            if (ImGui::Checkbox("Streaming Enabled", &component.m_StreamingEnabled))
+                component.m_NeedsRebuild = true;
+
+            if (component.m_StreamingEnabled)
+            {
+                char tileDirBuf[256]{};
+                std::strncpy(tileDirBuf, component.m_TileDirectory.c_str(), sizeof(tileDirBuf) - 1);
+                if (ImGui::InputText("Tile Directory", tileDirBuf, sizeof(tileDirBuf)))
+                {
+                    component.m_TileDirectory = tileDirBuf;
+                    component.m_NeedsRebuild = true;
+                }
+
+                char tilePatBuf[128]{};
+                std::strncpy(tilePatBuf, component.m_TileFilePattern.c_str(), sizeof(tilePatBuf) - 1);
+                if (ImGui::InputText("Tile File Pattern", tilePatBuf, sizeof(tilePatBuf)))
+                {
+                    component.m_TileFilePattern = tilePatBuf;
+                    component.m_NeedsRebuild = true;
+                }
+
+                if (ImGui::DragFloat("Tile World Size", &component.m_TileWorldSize, 1.0f, 32.0f, 4096.0f))
+                    component.m_NeedsRebuild = true;
+
+                int tileRes = static_cast<int>(component.m_TileResolution);
+                if (ImGui::DragInt("Tile Resolution", &tileRes, 1, 65, 2049))
+                {
+                    component.m_TileResolution = static_cast<u32>(tileRes);
+                    component.m_NeedsRebuild = true;
+                }
+
+                int loadRadius = static_cast<int>(component.m_StreamingLoadRadius);
+                if (ImGui::DragInt("Load Radius (tiles)", &loadRadius, 1, 1, 10))
+                {
+                    component.m_StreamingLoadRadius = static_cast<u32>(loadRadius);
+                    component.m_NeedsRebuild = true;
+                }
+
+                int maxTiles = static_cast<int>(component.m_StreamingMaxTiles);
+                if (ImGui::DragInt("Max Loaded Tiles", &maxTiles, 1, 1, 100))
+                {
+                    component.m_StreamingMaxTiles = static_cast<u32>(maxTiles);
+                    component.m_NeedsRebuild = true;
+                }
+
+                // Streaming runtime info
+                if (component.m_Streamer)
+                {
+                    ImGui::Separator();
+                    ImGui::Text("Loaded Tiles: %u", component.m_Streamer->GetLoadedTileCount());
+                    ImGui::Text("Loading: %u", component.m_Streamer->GetLoadingTileCount());
+                }
+            }
+
+            // ── Voxel Override Settings ───────────────────────────────────
+            ImGui::Separator();
+            ImGui::Text("Voxel Override (Caves/Overhangs)");
+            ImGui::Checkbox("Voxel Enabled", &component.m_VoxelEnabled);
+
+            if (component.m_VoxelEnabled)
+            {
+                ImGui::DragFloat("Voxel Size", &component.m_VoxelSize, 0.1f, 0.25f, 4.0f, "%.2f");
+
+                if (component.m_VoxelOverride)
+                {
+                    ImGui::Text("Voxel Chunks: %u", component.m_VoxelOverride->GetChunkCount());
+                    ImGui::Text("Voxel Meshes: %u", static_cast<u32>(component.m_VoxelMeshes.size()));
+                }
+            }
+
+            // Runtime info
+            if (component.m_ChunkManager)
+            {
+                ImGui::Separator();
+                ImGui::Text("Chunks: %u", component.m_ChunkManager->GetTotalChunks());
+                if (component.m_TessellationEnabled)
+                {
+                    ImGui::Text("Visible (LOD): %u",
+                        static_cast<u32>(component.m_ChunkManager->GetSelectedChunks().size()));
+                    ImGui::Text("Quadtree Nodes: %u",
+                        component.m_ChunkManager->GetQuadtree().GetNodeCount());
+                }
+            } });
+
+        DrawComponent<FoliageComponent>("Foliage", entity, [](auto& component)
+                                        {
+                ImGui::Checkbox("Enabled", &component.m_Enabled);
+
+                ImGui::Separator();
+                ImGui::Text("Layers: %u", static_cast<u32>(component.m_Layers.size()));
+
+                if (ImGui::Button("+ Add Layer"))
+                {
+                    FoliageLayer newLayer;
+                    newLayer.Name = "Layer " + std::to_string(component.m_Layers.size());
+                    component.m_Layers.push_back(newLayer);
+                    component.m_NeedsRebuild = true;
+                }
+
+                i32 removeIdx = -1;
+                for (sizet i = 0; i < component.m_Layers.size(); ++i)
+                {
+                    auto& layer = component.m_Layers[i];
+                    ImGui::PushID(static_cast<int>(i));
+
+                    bool layerOpen = ImGui::TreeNodeEx(layer.Name.c_str(),
+                        ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_Framed);
+
+                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - 60.0f);
+                    if (ImGui::SmallButton("Remove"))
+                    {
+                        removeIdx = static_cast<i32>(i);
+                    }
+
+                    if (layerOpen)
+                    {
+                        char nameBuf[128];
+                        std::strncpy(nameBuf, layer.Name.c_str(), sizeof(nameBuf) - 1);
+                        nameBuf[sizeof(nameBuf) - 1] = '\0';
+                        if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
+                        {
+                            layer.Name = nameBuf;
+                        }
+                        ImGui::Checkbox("Layer Enabled", &layer.Enabled);
+
+                        // Paths
+                        char meshBuf[256];
+                        std::strncpy(meshBuf, layer.MeshPath.c_str(), sizeof(meshBuf) - 1);
+                        meshBuf[sizeof(meshBuf) - 1] = '\0';
+                        if (ImGui::InputText("Mesh Path", meshBuf, sizeof(meshBuf)))
+                        {
+                            layer.MeshPath = meshBuf;
+                            component.m_NeedsRebuild = true;
+                        }
+
+                        char albedoBuf[256];
+                        std::strncpy(albedoBuf, layer.AlbedoPath.c_str(), sizeof(albedoBuf) - 1);
+                        albedoBuf[sizeof(albedoBuf) - 1] = '\0';
+                        if (ImGui::InputText("Albedo Path", albedoBuf, sizeof(albedoBuf)))
+                        {
+                            layer.AlbedoPath = albedoBuf;
+                            component.m_NeedsRebuild = true;
+                        }
+
+                        ImGui::Separator();
+                        ImGui::Text("Placement");
+
+                        if (ImGui::DragFloat("Density", &layer.Density, 0.01f, 0.001f, 100.0f))
+                            component.m_NeedsRebuild = true;
+                        if (ImGui::DragInt("Splatmap Channel", &layer.SplatmapChannel, 1, -1, 7))
+                            component.m_NeedsRebuild = true;
+                        if (ImGui::DragFloat("Min Slope", &layer.MinSlopeAngle, 0.5f, 0.0f, 90.0f))
+                            component.m_NeedsRebuild = true;
+                        if (ImGui::DragFloat("Max Slope", &layer.MaxSlopeAngle, 0.5f, 0.0f, 90.0f))
+                            component.m_NeedsRebuild = true;
+
+                        ImGui::Separator();
+                        ImGui::Text("Scale & Height");
+
+                        if (ImGui::DragFloat("Min Scale", &layer.MinScale, 0.01f, 0.01f, 10.0f))
+                            component.m_NeedsRebuild = true;
+                        if (ImGui::DragFloat("Max Scale", &layer.MaxScale, 0.01f, 0.01f, 10.0f))
+                            component.m_NeedsRebuild = true;
+                        if (ImGui::DragFloat("Min Height", &layer.MinHeight, 0.01f, 0.01f, 10.0f))
+                            component.m_NeedsRebuild = true;
+                        if (ImGui::DragFloat("Max Height", &layer.MaxHeight, 0.01f, 0.01f, 10.0f))
+                            component.m_NeedsRebuild = true;
+                        if (ImGui::Checkbox("Random Rotation", &layer.RandomRotation))
+                            component.m_NeedsRebuild = true;
+
+                        ImGui::Separator();
+                        ImGui::Text("Rendering");
+
+                        ImGui::DragFloat("View Distance", &layer.ViewDistance, 1.0f, 10.0f, 1000.0f);
+                        ImGui::DragFloat("Fade Start", &layer.FadeStartDistance, 1.0f, 5.0f, 1000.0f);
+
+                        ImGui::Separator();
+                        ImGui::Text("Wind");
+
+                        ImGui::DragFloat("Wind Strength", &layer.WindStrength, 0.01f, 0.0f, 5.0f);
+                        ImGui::DragFloat("Wind Speed", &layer.WindSpeed, 0.1f, 0.0f, 20.0f);
+
+                        ImGui::Separator();
+                        ImGui::Text("Material");
+
+                        ImGui::ColorEdit3("Base Color", glm::value_ptr(layer.BaseColor));
+                        ImGui::DragFloat("Roughness", &layer.Roughness, 0.01f, 0.0f, 1.0f);
+                        ImGui::DragFloat("Alpha Cutoff", &layer.AlphaCutoff, 0.01f, 0.0f, 1.0f);
+
+                        ImGui::TreePop();
+                    }
+
+                    ImGui::PopID();
+                }
+
+                if (removeIdx >= 0)
+                {
+                    component.m_Layers.erase(component.m_Layers.begin() + removeIdx);
+                    component.m_NeedsRebuild = true;
+                }
+
+                ImGui::Separator();
+                if (ImGui::Button("Rebuild Foliage"))
+                {
+                    component.m_NeedsRebuild = true;
+                }
+
+                // Runtime info
+                if (component.m_Renderer)
+                {
+                    ImGui::Text("Total Instances: %u", component.m_Renderer->GetTotalInstanceCount());
+                    ImGui::Text("Visible Instances: %u", component.m_Renderer->GetVisibleInstanceCount());
+                } });
     }
 
     template<typename T>

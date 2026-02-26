@@ -139,6 +139,39 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, vertexCount);
     }
 
+    void OpenGLRendererAPI::DrawIndexedPatches(const Ref<VertexArray>& vertexArray, const u32 indexCount, const u32 patchVertices)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (patchVertices == 0)
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI::DrawIndexedPatches - patchVertices must be >= 1");
+            return;
+        }
+
+        GLint maxPatchVerts = 0;
+        glGetIntegerv(GL_MAX_PATCH_VERTICES, &maxPatchVerts);
+        if (patchVertices > static_cast<u32>(maxPatchVerts))
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI::DrawIndexedPatches - patchVertices {} exceeds GL_MAX_PATCH_VERTICES {}",
+                           patchVertices, maxPatchVerts);
+            return;
+        }
+
+        vertexArray->Bind();
+        glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(patchVertices));
+        u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
+        count = (count / patchVertices) * patchVertices; // Trim to whole patches
+        if (count == 0)
+        {
+            return;
+        }
+        glDrawElements(GL_PATCHES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
+
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, count);
+    }
+
     void OpenGLRendererAPI::SetLineWidth(const f32 width)
     {
         OLO_PROFILE_FUNCTION();
@@ -369,6 +402,13 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glBindTextureUnit(slot, textureID);
+    }
+
+    void OpenGLRendererAPI::BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glBindImageTexture(unit, textureID, static_cast<GLint>(mipLevel), layered ? GL_TRUE : GL_FALSE, static_cast<GLint>(layer), access, format);
     }
 
     void OpenGLRendererAPI::DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)

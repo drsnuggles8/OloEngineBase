@@ -192,6 +192,58 @@ namespace OloEngine
             }
         };
 
+        // @brief Terrain rendering parameters
+        struct TerrainUBO
+        {
+            glm::vec4 WorldSizeAndHeightScale; // xy = world size X/Z, z = height scale, w = chunk size
+            glm::vec4 TerrainParams;           // x = texel size, y = inv heightmap res, z = layerCount, w = triplanarSharpness
+            i32 HeightmapResolution;
+            i32 _terrainPad0 = 0;
+            i32 _terrainPad1 = 0;
+            i32 _terrainPad2 = 0;
+            glm::vec4 TessFactors;          // x = inner, y = +X edge, z = -X edge, w = +Z edge
+            glm::vec4 TessFactors2;         // x = -Z edge, y = morphFactor, z = LODLevel, w = tessEnabled flag
+            glm::vec4 LayerTilingScales0;   // Tiling scales for layers 0-3
+            glm::vec4 LayerTilingScales1;   // Tiling scales for layers 4-7
+            glm::vec4 LayerBlendSharpness0; // Height blend sharpness for layers 0-3
+            glm::vec4 LayerBlendSharpness1; // Height blend sharpness for layers 4-7
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(TerrainUBO);
+            }
+        };
+
+        // @brief Brush preview UBO for terrain editing visualization (binding 11)
+        struct BrushPreviewUBO
+        {
+            glm::vec4 BrushPosAndRadius; // xyz = world position, w = radius
+            glm::vec4 BrushParams;       // x = active (1.0/0.0), y = falloff, z = mode (0=sculpt, 1=paint), w = unused
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(BrushPreviewUBO);
+            }
+        };
+
+        struct FoliageUBO
+        {
+            f32 Time;
+            f32 WindStrength;
+            f32 WindSpeed;
+            f32 ViewDistance;
+            f32 FadeStart;
+            f32 AlphaCutoff;
+            f32 _pad0 = 0.0f;
+            f32 _pad1 = 0.0f;
+            glm::vec4 BaseColor; // xyz = color, w = unused
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(FoliageUBO);
+            }
+        };
+
         // @brief Shadow mapping UBO for directional (CSM), spot, and point light shadows
         struct ShadowUBO
         {
@@ -220,6 +272,14 @@ namespace OloEngine
         };
     } // namespace UBOStructures
 
+    // Alignment/size checks for terrain UBO structs (must match GLSL std140 layout)
+    static_assert(sizeof(UBOStructures::TerrainUBO) % 16 == 0, "TerrainUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::BrushPreviewUBO) % 16 == 0, "BrushPreviewUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::FoliageUBO) % 16 == 0, "FoliageUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::TerrainUBO) == 144, "TerrainUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::FoliageUBO) == 48, "FoliageUBO unexpected size — update GLSL layout");
+
     // Standardized shader binding layout for consistent resource sharing
     // across all shaders in the engine. This ensures efficient data sharing
     // and eliminates binding conflicts.
@@ -230,55 +290,65 @@ namespace OloEngine
         // UNIFORM BUFFER OBJECT (UBO) BINDINGS
         // =============================================================================
 
-        static constexpr u32 UBO_CAMERA = 0;       // Camera matrices (view, projection, etc.)
-        static constexpr u32 UBO_LIGHTS = 1;       // Lighting properties and data
-        static constexpr u32 UBO_MATERIAL = 2;     // Material properties
-        static constexpr u32 UBO_MODEL = 3;        // Model/transform matrices
-        static constexpr u32 UBO_ANIMATION = 4;    // Animation/bone matrices
-        static constexpr u32 UBO_MULTI_LIGHTS = 5; // Multi-light buffer for advanced lighting
-        static constexpr u32 UBO_SHADOW = 6;       // Shadow mapping matrices and parameters
-        static constexpr u32 UBO_USER_0 = 7;       // User-defined buffer 0 (PostProcess)
-        static constexpr u32 UBO_USER_1 = 8;       // User-defined buffer 1 (MotionBlur)
-        static constexpr u32 UBO_SSAO = 9;         // SSAO parameters
+        static constexpr u32 UBO_CAMERA = 0;         // Camera matrices (view, projection, etc.)
+        static constexpr u32 UBO_LIGHTS = 1;         // Lighting properties and data
+        static constexpr u32 UBO_MATERIAL = 2;       // Material properties
+        static constexpr u32 UBO_MODEL = 3;          // Model/transform matrices
+        static constexpr u32 UBO_ANIMATION = 4;      // Animation/bone matrices
+        static constexpr u32 UBO_MULTI_LIGHTS = 5;   // Multi-light buffer for advanced lighting
+        static constexpr u32 UBO_SHADOW = 6;         // Shadow mapping matrices and parameters
+        static constexpr u32 UBO_USER_0 = 7;         // User-defined buffer 0 (PostProcess)
+        static constexpr u32 UBO_USER_1 = 8;         // User-defined buffer 1 (MotionBlur)
+        static constexpr u32 UBO_SSAO = 9;           // SSAO parameters
+        static constexpr u32 UBO_TERRAIN = 10;       // Terrain parameters (height scale, world size, etc.)
+        static constexpr u32 UBO_BRUSH_PREVIEW = 11; // Brush preview overlay for terrain editing
+        static constexpr u32 UBO_FOLIAGE = 12;       // Foliage instance rendering parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
         // =============================================================================
 
-        static constexpr u32 TEX_DIFFUSE = 0;            // Primary diffuse/albedo texture
-        static constexpr u32 TEX_SPECULAR = 1;           // Specular/metallic texture
-        static constexpr u32 TEX_NORMAL = 2;             // Normal map
-        static constexpr u32 TEX_HEIGHT = 3;             // Height/displacement map
-        static constexpr u32 TEX_AMBIENT = 4;            // Ambient occlusion
-        static constexpr u32 TEX_EMISSIVE = 5;           // Emissive map
-        static constexpr u32 TEX_ROUGHNESS = 6;          // Roughness map
-        static constexpr u32 TEX_METALLIC = 7;           // Metallic map
-        static constexpr u32 TEX_SHADOW = 8;             // Shadow map (CSM, sampler2DArrayShadow)
-        static constexpr u32 TEX_ENVIRONMENT = 9;        // Environment/skybox
-        static constexpr u32 TEX_USER_0 = 10;            // User-defined texture 0
-        static constexpr u32 TEX_USER_1 = 11;            // User-defined texture 1
-        static constexpr u32 TEX_USER_2 = 12;            // User-defined texture 2
-        static constexpr u32 TEX_SHADOW_SPOT = 13;       // Spot light shadow map (sampler2DArrayShadow)
-        static constexpr u32 TEX_SHADOW_POINT_0 = 14;    // Point light shadow cubemap 0
-        static constexpr u32 TEX_SHADOW_POINT_1 = 15;    // Point light shadow cubemap 1
-        static constexpr u32 TEX_SHADOW_POINT_2 = 16;    // Point light shadow cubemap 2
-        static constexpr u32 TEX_SHADOW_POINT_3 = 17;    // Point light shadow cubemap 3
-        static constexpr u32 TEX_POSTPROCESS_LUT = 18;   // Post-process color grading LUT
-        static constexpr u32 TEX_POSTPROCESS_DEPTH = 19; // Post-process scene depth access
-        static constexpr u32 TEX_SSAO = 20;              // Blurred SSAO result
-        static constexpr u32 TEX_SSAO_NOISE = 21;        // SSAO 4x4 rotation noise texture
-        static constexpr u32 TEX_SCENE_NORMALS = 22;     // View-space normals from G-buffer
+        static constexpr u32 TEX_DIFFUSE = 0;               // Primary diffuse/albedo texture
+        static constexpr u32 TEX_SPECULAR = 1;              // Specular/metallic texture
+        static constexpr u32 TEX_NORMAL = 2;                // Normal map
+        static constexpr u32 TEX_HEIGHT = 3;                // Height/displacement map
+        static constexpr u32 TEX_AMBIENT = 4;               // Ambient occlusion
+        static constexpr u32 TEX_EMISSIVE = 5;              // Emissive map
+        static constexpr u32 TEX_ROUGHNESS = 6;             // Roughness map
+        static constexpr u32 TEX_METALLIC = 7;              // Metallic map
+        static constexpr u32 TEX_SHADOW = 8;                // Shadow map (CSM, sampler2DArrayShadow)
+        static constexpr u32 TEX_ENVIRONMENT = 9;           // Environment/skybox
+        static constexpr u32 TEX_USER_0 = 10;               // User-defined texture 0
+        static constexpr u32 TEX_USER_1 = 11;               // User-defined texture 1
+        static constexpr u32 TEX_USER_2 = 12;               // User-defined texture 2
+        static constexpr u32 TEX_SHADOW_SPOT = 13;          // Spot light shadow map (sampler2DArrayShadow)
+        static constexpr u32 TEX_SHADOW_POINT_0 = 14;       // Point light shadow cubemap 0
+        static constexpr u32 TEX_SHADOW_POINT_1 = 15;       // Point light shadow cubemap 1
+        static constexpr u32 TEX_SHADOW_POINT_2 = 16;       // Point light shadow cubemap 2
+        static constexpr u32 TEX_SHADOW_POINT_3 = 17;       // Point light shadow cubemap 3
+        static constexpr u32 TEX_POSTPROCESS_LUT = 18;      // Post-process color grading LUT
+        static constexpr u32 TEX_POSTPROCESS_DEPTH = 19;    // Post-process scene depth access
+        static constexpr u32 TEX_SSAO = 20;                 // Blurred SSAO result
+        static constexpr u32 TEX_SSAO_NOISE = 21;           // SSAO 4x4 rotation noise texture
+        static constexpr u32 TEX_SCENE_NORMALS = 22;        // View-space normals from G-buffer
+        static constexpr u32 TEX_TERRAIN_HEIGHTMAP = 23;    // Terrain heightmap (R32F)
+        static constexpr u32 TEX_TERRAIN_SPLATMAP = 24;     // Terrain splatmap 0 (RGBA8, layers 0-3)
+        static constexpr u32 TEX_TERRAIN_ALBEDO_ARRAY = 25; // Terrain albedo layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_NORMAL_ARRAY = 26; // Terrain normal map layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_ARM_ARRAY = 27;    // Terrain ARM layer array (Texture2DArray)
+        static constexpr u32 TEX_TERRAIN_SPLATMAP_1 = 28;   // Terrain splatmap 1 (RGBA8, layers 4-7)
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
         // =============================================================================
 
-        static constexpr u32 SSBO_GPU_PARTICLES = 0; // GPU particle data array
-        static constexpr u32 SSBO_ALIVE_INDICES = 1; // Compacted alive particle index buffer
-        static constexpr u32 SSBO_COUNTERS = 2;      // Atomic counters (alive/dead/emit counts)
-        static constexpr u32 SSBO_FREE_LIST = 3;     // Free-slot indices for emission recycling
-        static constexpr u32 SSBO_INDIRECT_DRAW = 4; // Indirect draw command buffer
-        static constexpr u32 SSBO_EMIT_STAGING = 5;  // Staging buffer for newly emitted particles
+        static constexpr u32 SSBO_GPU_PARTICLES = 0;     // GPU particle data array
+        static constexpr u32 SSBO_ALIVE_INDICES = 1;     // Compacted alive particle index buffer
+        static constexpr u32 SSBO_COUNTERS = 2;          // Atomic counters (alive/dead/emit counts)
+        static constexpr u32 SSBO_FREE_LIST = 3;         // Free-slot indices for emission recycling
+        static constexpr u32 SSBO_INDIRECT_DRAW = 4;     // Indirect draw command buffer
+        static constexpr u32 SSBO_EMIT_STAGING = 5;      // Staging buffer for newly emitted particles
+        static constexpr u32 SSBO_FOLIAGE_INSTANCES = 6; // Foliage instance data (reserved for GPU-driven path)
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE
@@ -294,6 +364,9 @@ namespace OloEngine
         using AnimationUBO = UBOStructures::AnimationUBO;
         using IBLParametersUBO = UBOStructures::IBLParametersUBO;
         using ShadowUBO = UBOStructures::ShadowUBO;
+        using TerrainUBO = UBOStructures::TerrainUBO;
+        using BrushPreviewUBO = UBOStructures::BrushPreviewUBO;
+        using FoliageUBO = UBOStructures::FoliageUBO;
 
         // =============================================================================
         // GLSL LAYOUT STRINGS FOR CODE GENERATION

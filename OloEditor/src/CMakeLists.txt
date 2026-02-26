@@ -15,6 +15,8 @@
 		"Panels/PostProcessSettingsPanel.h"
 		"Panels/SceneHierarchyPanel.cpp"
 		"Panels/SceneHierarchyPanel.h"
+		"Panels/TerrainEditorPanel.cpp"
+		"Panels/TerrainEditorPanel.h"
 )
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES "../assets/shaders/*.glsl")

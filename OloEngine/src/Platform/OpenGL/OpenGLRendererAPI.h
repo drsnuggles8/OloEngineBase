@@ -21,6 +21,7 @@ namespace OloEngine
         void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0) override;
         void DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, u32 indexCount = 0, u32 instanceCount = 1) override;
         void DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount) override;
+        void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 patchVertices) override;
 
         void SetLineWidth(f32 width) override;
 
@@ -60,6 +61,7 @@ namespace OloEngine
 
         void BindDefaultFramebuffer() override;
         void BindTexture(u32 slot, u32 textureID) override;
+        void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format) override;
 
       private:
         bool m_DepthTestEnabled = false;

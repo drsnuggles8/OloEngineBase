@@ -34,6 +34,7 @@ namespace OloEngine
         SoundGraph = 23,
         ParticleSystem = 24,
         ComputeShader = 25,
+        Terrain = 26,
     };
 
     enum class AssetFlag : u16
@@ -148,6 +149,8 @@ namespace OloEngine
                     return "ParticleSystem";
                 case AssetType::ComputeShader:
                     return "ComputeShader";
+                case AssetType::Terrain:
+                    return "Terrain";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -215,6 +218,8 @@ namespace OloEngine
                 return AssetType::ParticleSystem;
             if (assetType == "ComputeShader")
                 return AssetType::ComputeShader;
+            if (assetType == "Terrain")
+                return AssetType::Terrain;
 
             return AssetType::None;
         }

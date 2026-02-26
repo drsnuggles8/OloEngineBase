@@ -45,6 +45,7 @@ namespace OloEngine
         virtual void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount) = 0;
         virtual void DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 instanceCount) = 0;
         virtual void DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount) = 0;
+        virtual void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 patchVertices) = 0;
 
         virtual void SetLineWidth(f32 width) = 0;
 
@@ -84,6 +85,7 @@ namespace OloEngine
         // New methods for render graph
         virtual void BindDefaultFramebuffer() = 0;
         virtual void BindTexture(u32 slot, u32 textureID) = 0;
+        virtual void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format) = 0;
 
         virtual void SetPolygonOffset(f32 factor, f32 units) = 0;
         virtual void EnableMultisampling() = 0;
