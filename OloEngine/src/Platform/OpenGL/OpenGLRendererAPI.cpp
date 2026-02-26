@@ -143,6 +143,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (patchVertices == 0)
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI::DrawIndexedPatches - patchVertices must be >= 1");
+            return;
+        }
+
         vertexArray->Bind();
         glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(patchVertices));
         const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();

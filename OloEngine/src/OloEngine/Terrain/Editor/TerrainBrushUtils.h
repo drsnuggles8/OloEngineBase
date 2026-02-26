@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <glm/glm.hpp>
 #include <numbers>
 
 namespace OloEngine
@@ -22,7 +21,7 @@ namespace OloEngine
 
             // Blend between hard (constant 1) and smooth (cosine) based on falloff
             f32 smooth = 0.5f * (1.0f + std::cos(t * std::numbers::pi_v<f32>));
-            return glm::mix(1.0f, smooth, falloff);
+            return std::lerp(1.0f, smooth, falloff);
         }
     } // namespace TerrainBrushUtils
 } // namespace OloEngine

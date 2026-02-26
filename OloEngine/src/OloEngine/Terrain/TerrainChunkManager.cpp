@@ -16,6 +16,7 @@ namespace OloEngine
         {
             OLO_CORE_WARN("TerrainChunkManager: Cannot generate chunks — heightmap resolution is 0");
             m_Chunks.clear();
+            m_SelectedChunks.clear();
             m_NumChunksX = 0;
             m_NumChunksZ = 0;
             return;

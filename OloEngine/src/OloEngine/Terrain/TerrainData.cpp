@@ -49,6 +49,13 @@ namespace OloEngine
         stbi_uc* data8 = stbi_load(path.c_str(), &width, &height, &channels, 1);
         if (data8)
         {
+            if (width != height)
+            {
+                OLO_CORE_ERROR("TerrainData::LoadFromFile: Non-square heightmap {}x{} not supported in '{}'", width, height, path);
+                stbi_image_free(data8);
+                return false;
+            }
+
             m_Resolution = static_cast<u32>(width);
             m_Heights.resize(static_cast<sizet>(width) * static_cast<sizet>(height));
 
@@ -176,6 +183,10 @@ namespace OloEngine
 
         f32 dx = 2.0f * worldSizeX * texelSize;
         f32 dz = 2.0f * worldSizeZ * texelSize;
+
+        constexpr f32 epsilon = 1e-6f;
+        if (dx < epsilon || dz < epsilon)
+            return { 0.0f, 1.0f, 0.0f };
 
         glm::vec3 normal(
             (hL - hR) / dx,

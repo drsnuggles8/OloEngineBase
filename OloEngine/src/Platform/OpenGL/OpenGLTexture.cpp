@@ -211,7 +211,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (x + width > m_Width || y + height > m_Height)
+        if (!data || width == 0 || height == 0)
+            return;
+
+        if (width > m_Width || height > m_Height || x > m_Width - width || y > m_Height - height)
         {
             OLO_CORE_ERROR("OpenGLTexture2D::SubImage - Region ({},{} {}x{}) exceeds texture bounds ({}x{})",
                            x, y, width, height, m_Width, m_Height);

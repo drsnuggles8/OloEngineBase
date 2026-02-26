@@ -61,6 +61,8 @@ namespace OloEngine
         m_ErosionShader->SetUint("u_DropletCount", settings.DropletCount);
 
         // Dispatch — one thread per droplet
+        if (settings.DropletCount == 0)
+            return;
         u32 groups = (settings.DropletCount + 255) / 256;
         RenderCommand::DispatchCompute(groups, 1, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
@@ -72,14 +74,20 @@ namespace OloEngine
         if (!skipReadback)
         {
             std::vector<u8> rawData;
-            if (heightmap->GetData(rawData))
+            if (!heightmap->GetData(rawData))
             {
-                auto& heights = terrainData.GetHeightData();
-                if (rawData.size() == heights.size() * sizeof(f32))
-                {
-                    std::memcpy(heights.data(), rawData.data(), rawData.size());
-                }
+                OLO_CORE_ERROR("TerrainErosion::Apply - Failed to read back GPU heightmap data");
+                return;
             }
+
+            auto& heights = terrainData.GetHeightData();
+            if (rawData.size() != heights.size() * sizeof(f32))
+            {
+                OLO_CORE_ERROR("TerrainErosion::Apply - Readback size mismatch: got {} bytes, expected {} bytes",
+                               rawData.size(), heights.size() * sizeof(f32));
+                return;
+            }
+            std::memcpy(heights.data(), rawData.data(), rawData.size());
         }
 
         // Advance seed so each iteration produces different droplet positions

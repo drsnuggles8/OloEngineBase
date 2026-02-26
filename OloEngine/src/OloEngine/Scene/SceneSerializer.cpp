@@ -318,7 +318,7 @@ namespace OloEngine
             if (auto sp1 = terrainComponent["SplatmapPath1"]; sp1)
                 terrain.m_Material->SetSplatmapPath(1, sp1.as<std::string>());
 
-            for (auto layerNode : layersNode)
+            for (const auto& layerNode : layersNode)
             {
                 TerrainLayer layer;
                 layer.Name = layerNode["Name"].as<std::string>(layer.Name);

@@ -14,6 +14,11 @@ namespace OloEngine
         m_WorldSizeX = worldSizeX;
         m_WorldSizeZ = worldSizeZ;
         m_HeightScale = heightScale;
+        if (voxelSize <= 0.0f)
+        {
+            OLO_CORE_WARN("VoxelOverride::Initialize: Invalid voxelSize {}, clamping to 0.5", voxelSize);
+            voxelSize = 0.5f;
+        }
         m_VoxelSize = voxelSize;
         m_Chunks.clear();
     }
@@ -79,13 +84,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto& chunk = GetOrCreateChunk(coord);
-
         if (worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
         {
             OLO_CORE_WARN("VoxelOverride::InitializeChunkFromHeightmap: Invalid world size ({}, {})", worldSizeX, worldSizeZ);
             return;
         }
+
+        auto& chunk = GetOrCreateChunk(coord);
 
         for (u32 z = 0; z < VoxelChunk::CHUNK_SIZE; ++z)
         {
@@ -299,7 +304,10 @@ namespace OloEngine
                 return false;
 
             u32 runCountU = static_cast<u32>(runCount);
-            auto& chunk = tempChunks.emplace(coord, VoxelChunk{}).first->second;
+            auto [it, inserted] = tempChunks.try_emplace(coord, VoxelChunk{});
+            if (!inserted)
+                return false;
+            auto& chunk = it->second;
             sizet idx = 0;
 
             for (u32 ri = 0; ri < runCountU; ++ri)

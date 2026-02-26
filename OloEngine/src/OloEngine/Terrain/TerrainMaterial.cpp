@@ -7,6 +7,8 @@ namespace OloEngine
 {
     i32 TerrainMaterial::AddLayer(const TerrainLayer& layer)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_LayerCount >= MAX_TERRAIN_LAYERS)
         {
             OLO_CORE_WARN("TerrainMaterial: Cannot add layer — maximum {} reached", MAX_TERRAIN_LAYERS);
@@ -19,6 +21,8 @@ namespace OloEngine
 
     void TerrainMaterial::RemoveLayer(u32 index)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (index >= m_LayerCount)
         {
             return;
@@ -48,6 +52,8 @@ namespace OloEngine
     bool TerrainMaterial::LoadTextureData(const std::string& path, u32 targetSize,
                                           std::vector<u8>& outData)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (path.empty())
         {
             return false;
@@ -119,6 +125,12 @@ namespace OloEngine
         m_AlbedoArray = Texture2DArray::Create(spec);
         m_NormalArray = Texture2DArray::Create(spec);
         m_ARMArray = Texture2DArray::Create(spec);
+
+        if (!m_AlbedoArray || !m_NormalArray || !m_ARMArray)
+        {
+            OLO_CORE_ERROR("TerrainMaterial::BuildTextureArrays - Failed to create one or more texture arrays");
+            return;
+        }
 
         // Default data for layers without textures
         std::vector<u8> defaultAlbedo(static_cast<sizet>(layerResolution) * layerResolution * 4, 128);
@@ -246,6 +258,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (resolution == 0)
+        {
+            OLO_CORE_ERROR("TerrainMaterial::InitializeCPUSplatmaps - Cannot initialize with zero resolution");
+            return;
+        }
+
         m_SplatmapResolution = resolution;
         sizet totalPixels = static_cast<sizet>(resolution) * resolution * 4; // RGBA8
 
@@ -278,8 +296,9 @@ namespace OloEngine
             }
         }
 
-        // If no layers exist but we're initializing, fill splatmap 0 R channel with 1.0
-        // so the first layer is fully visible by default
+        // When layers exist (m_LayerCount > 0) but the first splatmap hasn't been loaded
+        // (!m_Splatmaps[0]), initialize splatmap 0's R channel to 1.0 so the first layer
+        // is fully visible by default
         if (m_LayerCount > 0 && !m_Splatmaps[0])
         {
             for (sizet p = 0; p < totalPixels; p += 4)
