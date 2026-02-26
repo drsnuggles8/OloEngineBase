@@ -14,6 +14,7 @@ namespace OloEngine
 
         DrawToneMappingSection();
         DrawSSAOSection();
+        DrawSnowSection();
         DrawBloomSection();
         DrawVignetteSection();
         DrawChromaticAberrationSection();
@@ -198,6 +199,51 @@ namespace OloEngine
                 ImGui::DragFloat("Intensity##SSAO", &settings.SSAOIntensity, 0.01f, 0.0f, 3.0f, "%.2f");
                 ImGui::SliderInt("Samples##SSAO", &settings.SSAOSamples, 4, 64);
                 ImGui::Checkbox("Show AO Only##SSAO", &settings.SSAODebugView);
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawSnowSection()
+    {
+        auto& settings = Renderer3D::GetSnowSettings();
+
+        if (ImGui::CollapsingHeader("Snow"))
+        {
+            ImGui::Indent();
+
+            ImGui::Checkbox("Enable##Snow", &settings.Enabled);
+
+            if (settings.Enabled)
+            {
+                ImGui::SeparatorText("Coverage");
+                ImGui::DragFloat("Height Start##Snow", &settings.HeightStart, 0.5f, -100.0f, 500.0f, "%.1f");
+                ImGui::DragFloat("Height Full##Snow", &settings.HeightFull, 0.5f, -100.0f, 500.0f, "%.1f");
+                ImGui::DragFloat("Slope Start##Snow", &settings.SlopeStart, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::DragFloat("Slope Full##Snow", &settings.SlopeFull, 0.01f, 0.0f, 1.0f, "%.2f");
+
+                ImGui::SeparatorText("Material");
+                ImGui::ColorEdit3("Albedo##Snow", &settings.Albedo.x);
+                ImGui::DragFloat("Roughness##Snow", &settings.Roughness, 0.01f, 0.0f, 1.0f, "%.2f");
+
+                ImGui::SeparatorText("Subsurface Scattering");
+                ImGui::ColorEdit3("SSS Color##Snow", &settings.SSSColor.x);
+                ImGui::DragFloat("SSS Intensity##Snow", &settings.SSSIntensity, 0.01f, 0.0f, 2.0f, "%.2f");
+                ImGui::Checkbox("SSS Blur##Snow", &settings.SSSBlurEnabled);
+                if (settings.SSSBlurEnabled)
+                {
+                    ImGui::DragFloat("Blur Radius##Snow", &settings.SSSBlurRadius, 0.1f, 0.5f, 10.0f, "%.1f");
+                    ImGui::DragFloat("Blur Falloff##Snow", &settings.SSSBlurFalloff, 0.1f, 0.1f, 10.0f, "%.1f");
+                }
+
+                ImGui::SeparatorText("Sparkle");
+                ImGui::DragFloat("Intensity##SnowSparkle", &settings.SparkleIntensity, 0.01f, 0.0f, 3.0f, "%.2f");
+                ImGui::DragFloat("Density##SnowSparkle", &settings.SparkleDensity, 1.0f, 1.0f, 500.0f, "%.0f");
+                ImGui::DragFloat("Scale##SnowSparkle", &settings.SparkleScale, 0.1f, 0.1f, 10.0f, "%.1f");
+
+                ImGui::SeparatorText("Normal Detail");
+                ImGui::DragFloat("Perturbation##Snow", &settings.NormalPerturbStrength, 0.01f, 0.0f, 1.0f, "%.2f");
             }
 
             ImGui::Unindent();

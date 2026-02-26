@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
+#include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Core/Timestep.h"
@@ -543,6 +544,11 @@ namespace OloEngine
             return s_Data.PostProcess;
         }
 
+        static SnowSettings& GetSnowSettings()
+        {
+            return s_Data.Snow;
+        }
+
         // Shader library access for PBR material shader selection
         static ShaderLibrary& GetShaderLibrary();
 
@@ -599,6 +605,8 @@ namespace OloEngine
             Ref<UniformBuffer> SSAOUBO;
             Ref<UniformBuffer> TerrainUBO;
             Ref<UniformBuffer> FoliageUBO;
+            Ref<UniformBuffer> SnowUBO;
+            Ref<UniformBuffer> SSSUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -627,6 +635,7 @@ namespace OloEngine
             Ref<SceneRenderPass> ScenePass;
             Ref<SSAORenderPass> SSAOPass;
             Ref<ParticleRenderPass> ParticlePass;
+            Ref<SSSRenderPass> SSSPass;
             Ref<PostProcessRenderPass> PostProcessPass;
             Ref<FinalRenderPass> FinalPass;
 
@@ -648,6 +657,9 @@ namespace OloEngine
             PostProcessUBOData PostProcessGPUData;
             MotionBlurUBOData MotionBlurGPUData;
             SSAOUBOData SSAOGPUData;
+            SnowSettings Snow;
+            SnowUBOData SnowGPUData;
+            SSSUBOData SSSGPUData;
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
 
             // Parallel submission state

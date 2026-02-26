@@ -22,5 +22,6 @@ namespace OloEngine
         void DrawDOFSection();
         void DrawMotionBlurSection();
         void DrawSSAOSection();
+        void DrawSnowSection();
     };
 } // namespace OloEngine

@@ -48,8 +48,7 @@ void main()
 #version 460 core
 
 #include "include/PBRCommon.glsl"
-
-// Input from vertex shader
+#include "include/SnowCommon.glsl"
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
@@ -115,6 +114,15 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableIBL;            // Enable IBL
     int u_ApplyGammaCorrection; // Apply gamma correction in this pass
     int u_AlphaCutoff;          // Alpha cutoff for transparency
+};
+
+// Snow UBO (binding 13)
+layout(std140, binding = 13) uniform SnowParams {
+    vec4 u_SnowCoverageParams;
+    vec4 u_SnowAlbedoAndRoughness;
+    vec4 u_SnowSSSColorAndIntensity;
+    vec4 u_SnowSparkleParams;
+    vec4 u_SnowFlags;
 };
 
 // Texture bindings following ShaderBindingLayout
@@ -219,8 +227,50 @@ void main()
     vec3 color = ambient + Lo + emissive;
     color = mix(color, color * ao, 0.5);
 
+    // Snow overlay
+    float snowWeight = 0.0;
+    if (u_SnowFlags.x > 0.5)
+    {
+        vec3 worldNormal = normalize(v_Normal);
+        snowWeight = computeSnowWeight(v_WorldPos.y, worldNormal.y,
+                                       u_SnowCoverageParams.x, u_SnowCoverageParams.y,
+                                       u_SnowCoverageParams.z, u_SnowCoverageParams.w);
+
+        if (snowWeight > 0.001)
+        {
+            vec3 snowAlbedo = u_SnowAlbedoAndRoughness.rgb;
+            float snowRoughness = u_SnowAlbedoAndRoughness.w;
+            vec3 sssColor = u_SnowSSSColorAndIntensity.rgb;
+            float sssIntensity = u_SnowSSSColorAndIntensity.w;
+            float normalPerturbStr = u_SnowSparkleParams.w;
+
+            vec3 snowN = perturbSnowNormal(N, v_WorldPos, normalPerturbStr);
+
+            // Single-light snow BRDF
+            vec3 L = vec3(0.0);
+            vec3 lightColor = u_LightDiffuse.rgb;
+            int lightType2 = int(u_ViewPosAndLightType.w);
+            if (lightType2 == DIRECTIONAL_LIGHT)
+                L = normalize(-u_LightDirection.xyz);
+            else
+                L = normalize(u_LightPosition.xyz - v_WorldPos);
+
+            vec3 snowLo = snowBRDF(snowN, V, L, snowAlbedo, snowRoughness,
+                                   sssColor, sssIntensity,
+                                   u_SnowSparkleParams.x, u_SnowSparkleParams.y,
+                                   u_SnowSparkleParams.z, v_WorldPos) * lightColor;
+
+            vec3 snowAmbient = calculateSimpleAmbient(snowAlbedo, 0.0, 1.0);
+            vec3 snowColor = snowAmbient + snowLo;
+
+            color = mix(color, snowColor, snowWeight);
+        }
+    }
+
     // Output linear HDR color — tone mapping and gamma handled in post-process pass
     o_Color = vec4(color, u_BaseColorFactor.a);
+    if (snowWeight > 0.001)
+        o_Color.a = snowWeight;
     o_EntityID = u_EntityID;
     o_ViewNormal = octEncode(normalize(mat3(u_View) * N));
 }

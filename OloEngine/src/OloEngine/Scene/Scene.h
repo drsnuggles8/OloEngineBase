@@ -168,6 +168,19 @@ namespace OloEngine
             return m_PostProcessSettings;
         }
 
+        void SetSnowSettings(const SnowSettings& settings)
+        {
+            m_SnowSettings = settings;
+        }
+        [[nodiscard]] const SnowSettings& GetSnowSettings() const
+        {
+            return m_SnowSettings;
+        }
+        [[nodiscard]] SnowSettings& GetSnowSettings()
+        {
+            return m_SnowSettings;
+        }
+
         // Asset interface
         static AssetType GetStaticType()
         {
@@ -204,6 +217,7 @@ namespace OloEngine
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
         PostProcessSettings m_PostProcessSettings;             // Post-processing settings
+        SnowSettings m_SnowSettings;                             // Snow rendering settings
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;

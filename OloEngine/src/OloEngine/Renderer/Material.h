@@ -64,6 +64,8 @@ namespace OloEngine
 
         // Static factory method for PBR materials - returns Ref<Material> for consistency
         static Ref<Material> CreatePBR(const std::string& name, const glm::vec3& baseColor, float metallic = 0.0f, float roughness = 0.5f);
+        // Static factory for snow PBR material (white, high roughness, non-metallic)
+        static Ref<Material> CreateSnow(const std::string& name = "Snow");
 
         virtual ~Material() = default;
 

@@ -48,10 +48,7 @@ void main()
 #version 460 core
 
 #include "include/PBRCommon.glsl"
-
-// =============================================================================
-// UNIFORM BUFFER OBJECTS
-// =============================================================================
+#include "include/SnowCommon.glsl"
 
 // Camera UBO (binding 0) - for view position
 layout(std140, binding = 0) uniform CameraMatrices {
@@ -87,6 +84,15 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableIBL;            // Enable IBL
     int u_ApplyGammaCorrection; // Apply gamma correction in this pass
     int u_AlphaCutoff;          // Alpha cutoff for transparency
+};
+
+// Snow UBO (binding 13)
+layout(std140, binding = 13) uniform SnowParams {
+    vec4 u_SnowCoverageParams;      // (heightStart, heightFull, slopeStart, slopeFull)
+    vec4 u_SnowAlbedoAndRoughness;  // (albedo.rgb, roughness)
+    vec4 u_SnowSSSColorAndIntensity;// (sssColor.rgb, sssIntensity)
+    vec4 u_SnowSparkleParams;       // (sparkleIntensity, sparkleDensity, sparkleScale, normalPerturbStrength)
+    vec4 u_SnowFlags;               // (enabled, pad, pad, pad)
 };
 
 // =============================================================================
@@ -299,7 +305,70 @@ void main()
         color = mix(color, cascadeColors[cascadeIdx], 0.3);
     }
 
+    // Snow overlay
+    float snowWeight = 0.0;
+    if (u_SnowFlags.x > 0.5)
+    {
+        vec3 worldNormal = normalize(v_Normal);
+        snowWeight = computeSnowWeight(v_WorldPos.y, worldNormal.y,
+                                       u_SnowCoverageParams.x, u_SnowCoverageParams.y,
+                                       u_SnowCoverageParams.z, u_SnowCoverageParams.w);
+
+        if (snowWeight > 0.001)
+        {
+            vec3 snowAlbedo = u_SnowAlbedoAndRoughness.rgb;
+            float snowRoughness = u_SnowAlbedoAndRoughness.w;
+            vec3 sssColor = u_SnowSSSColorAndIntensity.rgb;
+            float sssIntensity = u_SnowSSSColorAndIntensity.w;
+            float sparkleIntensity = u_SnowSparkleParams.x;
+            float sparkleDensity = u_SnowSparkleParams.y;
+            float sparkleScale = u_SnowSparkleParams.z;
+            float normalPerturbStr = u_SnowSparkleParams.w;
+
+            // Perturb normal for crystalline micro-surface
+            vec3 snowN = perturbSnowNormal(N, v_WorldPos, normalPerturbStr);
+
+            // Recompute lighting with snow BRDF
+            vec3 snowLo = vec3(0.0);
+            for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
+            {
+                vec3 L = vec3(0.0);
+                vec3 lightColor = u_Lights[i].color.rgb * u_Lights[i].color.w;
+                float attenuation = 1.0;
+                int lightType = int(u_Lights[i].position.w);
+
+                if (lightType == DIRECTIONAL_LIGHT)
+                {
+                    L = normalize(-u_Lights[i].direction.xyz);
+                }
+                else
+                {
+                    vec3 toLight = u_Lights[i].position.xyz - v_WorldPos;
+                    float dist = length(toLight);
+                    L = toLight / dist;
+                    float constant = u_Lights[i].attenuationParams.x;
+                    float linear = u_Lights[i].attenuationParams.y;
+                    float quadratic = u_Lights[i].attenuationParams.z;
+                    attenuation = 1.0 / (constant + linear * dist + quadratic * dist * dist);
+                }
+
+                vec3 contrib = snowBRDF(snowN, V, L, snowAlbedo, snowRoughness,
+                                        sssColor, sssIntensity, sparkleIntensity,
+                                        sparkleDensity, sparkleScale, v_WorldPos);
+                snowLo += contrib * lightColor * attenuation;
+            }
+
+            vec3 snowAmbient = calculateSimpleAmbient(snowAlbedo, 0.0, 1.0);
+            vec3 snowColor = snowAmbient + snowLo;
+
+            color = mix(color, snowColor, snowWeight);
+        }
+    }
+
     o_Color = vec4(color, u_BaseColorFactor.a);
+    // Write SSS mask to alpha: snow coverage weight for SSS blur pass
+    if (snowWeight > 0.001)
+        o_Color.a = snowWeight;
     o_EntityID = u_EntityID;
     o_ViewNormal = octEncode(normalize(mat3(u_View) * N));
 }

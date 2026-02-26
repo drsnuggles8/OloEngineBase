@@ -276,6 +276,8 @@ namespace OloEngine
         s_Data.PostProcessUBO = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0);
         s_Data.MotionBlurUBO = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1);
         s_Data.SSAOUBO = UniformBuffer::Create(SSAOUBOData::GetSize(), ShaderBindingLayout::UBO_SSAO);
+        s_Data.SnowUBO = UniformBuffer::Create(SnowUBOData::GetSize(), ShaderBindingLayout::UBO_SNOW);
+        s_Data.SSSUBO = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
 
         CommandDispatch::SetUBOReferences(
             s_Data.CameraUBO,
@@ -498,6 +500,11 @@ namespace OloEngine
             s_Data.SSAOGPUData.InverseProjection = glm::inverse(s_Data.ProjectionMatrix);
             s_Data.SSAOGPUData.DebugView = s_Data.PostProcess.SSAODebugView ? 1 : 0;
         }
+        if (s_Data.SSSPass)
+        {
+            s_Data.SSSPass->SetSettings(s_Data.Snow);
+            s_Data.SSSPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+        }
         if (s_Data.PostProcessPass)
         {
             s_Data.PostProcessPass->SetSettings(s_Data.PostProcess);
@@ -550,6 +557,38 @@ namespace OloEngine
                 gpu.InverseScreenHeight = 1.0f / static_cast<f32>(spec.Height);
             }
             s_Data.PostProcessUBO->SetData(&gpu, PostProcessUBOData::GetSize());
+        }
+
+        // Upload snow settings to GPU
+        if (s_Data.Snow.Enabled)
+        {
+            auto& snow = s_Data.Snow;
+            auto& gpu = s_Data.SnowGPUData;
+            gpu.CoverageParams = glm::vec4(snow.HeightStart, snow.HeightFull, snow.SlopeStart, snow.SlopeFull);
+            gpu.AlbedoAndRoughness = glm::vec4(snow.Albedo, snow.Roughness);
+            gpu.SSSColorAndIntensity = glm::vec4(snow.SSSColor, snow.SSSIntensity);
+            gpu.SparkleParams = glm::vec4(snow.SparkleIntensity, snow.SparkleDensity, snow.SparkleScale, snow.NormalPerturbStrength);
+            gpu.Flags = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+            s_Data.SnowUBO->SetData(&gpu, SnowUBOData::GetSize());
+
+            // SSS blur parameters
+            auto& sssGpu = s_Data.SSSGPUData;
+            sssGpu.BlurParams = glm::vec4(snow.SSSBlurRadius, snow.SSSBlurFalloff, 0.0f, 0.0f);
+            sssGpu.Flags = glm::vec4(snow.SSSBlurEnabled ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+            if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+            {
+                const auto& spec = s_Data.ScenePass->GetTarget()->GetSpecification();
+                sssGpu.BlurParams.z = static_cast<f32>(spec.Width);
+                sssGpu.BlurParams.w = static_cast<f32>(spec.Height);
+            }
+            s_Data.SSSUBO->SetData(&sssGpu, SSSUBOData::GetSize());
+        }
+        else
+        {
+            // Upload disabled state so shaders skip snow
+            auto& gpu = s_Data.SnowGPUData;
+            gpu.Flags = glm::vec4(0.0f);
+            s_Data.SnowUBO->SetData(&gpu, SnowUBOData::GetSize());
         }
 
         // Upload motion blur matrices
@@ -1713,6 +1752,12 @@ namespace OloEngine
         s_Data.SSAOPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
         s_Data.SSAOPass->SetSSAOUBO(s_Data.SSAOUBO, &s_Data.SSAOGPUData);
 
+        s_Data.SSSPass = Ref<SSSRenderPass>::Create();
+        s_Data.SSSPass->SetName("SSSPass");
+        s_Data.SSSPass->Init(scenePassSpec);
+        s_Data.SSSPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+        s_Data.SSSPass->SetSSSUBO(s_Data.SSSUBO, &s_Data.SSSGPUData);
+
         s_Data.PostProcessPass = Ref<PostProcessRenderPass>::Create();
         s_Data.PostProcessPass->SetName("PostProcessPass");
         s_Data.PostProcessPass->Init(finalPassSpec);
@@ -1726,6 +1771,7 @@ namespace OloEngine
         s_Data.RGraph->AddPass(s_Data.ScenePass);
         s_Data.RGraph->AddPass(s_Data.SSAOPass);
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
+        s_Data.RGraph->AddPass(s_Data.SSSPass);
         s_Data.RGraph->AddPass(s_Data.PostProcessPass);
         s_Data.RGraph->AddPass(s_Data.FinalPass);
 
@@ -1735,14 +1781,17 @@ namespace OloEngine
         s_Data.RGraph->AddExecutionDependency("ScenePass", "SSAOPass");
         // SSAOPass -> ParticlePass: ordering (SSAO must complete before particles render into scene FB)
         s_Data.RGraph->AddExecutionDependency("SSAOPass", "ParticlePass");
-        // ScenePass -> ParticlePass -> PostProcessPass -> FinalPass: ordering + framebuffer piping
+        // ParticlePass -> SSSPass: ordering (SSS blur reads scene FB alpha for SSS mask)
+        s_Data.RGraph->AddExecutionDependency("ParticlePass", "SSSPass");
+        // ScenePass -> ParticlePass -> SSSPass -> PostProcessPass -> FinalPass: ordering + framebuffer piping
         s_Data.RGraph->ConnectPass("ScenePass", "ParticlePass");
-        s_Data.RGraph->ConnectPass("ParticlePass", "PostProcessPass");
+        s_Data.RGraph->ConnectPass("ParticlePass", "SSSPass");
+        s_Data.RGraph->ConnectPass("SSSPass", "PostProcessPass");
         s_Data.RGraph->ConnectPass("PostProcessPass", "FinalPass");
 
         s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
         s_Data.FinalPass->SetInputFramebuffer(s_Data.PostProcessPass->GetTarget());
-        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> SSAOPass -> ParticlePass -> PostProcessPass -> FinalPass");
+        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> SSAOPass -> ParticlePass -> SSSPass -> PostProcessPass -> FinalPass");
 
         s_Data.RGraph->SetFinalPass("FinalPass");
     }
