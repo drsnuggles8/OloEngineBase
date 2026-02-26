@@ -108,7 +108,7 @@ namespace OloEngine
         // Scale framebuffer dimensions by HiDPI factor so we render at native pixel resolution.
         // Camera and scene use logical (unscaled) coordinates for correct aspect ratio.
         const f32 dpiScale = Window::s_HighDPIScaleFactor;
-        const u32 fbWidth  = static_cast<u32>(m_ViewportSize.x * dpiScale);
+        const u32 fbWidth = static_cast<u32>(m_ViewportSize.x * dpiScale);
         const u32 fbHeight = static_cast<u32>(m_ViewportSize.y * dpiScale);
 
         // Resize

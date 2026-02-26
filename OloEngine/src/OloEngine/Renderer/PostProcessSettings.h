@@ -136,10 +136,10 @@ namespace OloEngine
         bool Enabled = false;
 
         // Coverage parameters
-        f32 HeightStart = -5.0f;     // World-Y where snow starts appearing
-        f32 HeightFull = 5.0f;       // World-Y where snow reaches full coverage
-        f32 SlopeStart = 0.7f;       // Normal.y threshold where snow starts reducing
-        f32 SlopeFull = 0.3f;        // Normal.y threshold where snow is gone
+        f32 HeightStart = -5.0f; // World-Y where snow starts appearing
+        f32 HeightFull = 5.0f;   // World-Y where snow reaches full coverage
+        f32 SlopeStart = 0.7f;   // Normal.y threshold where snow starts reducing
+        f32 SlopeFull = 0.3f;    // Normal.y threshold where snow is gone
 
         // Snow material
         glm::vec3 Albedo = glm::vec3(0.92f, 0.93f, 0.98f);
