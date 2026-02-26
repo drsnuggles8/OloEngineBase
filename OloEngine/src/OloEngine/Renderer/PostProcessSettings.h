@@ -136,14 +136,14 @@ namespace OloEngine
         bool Enabled = false;
 
         // Coverage parameters
-        f32 HeightStart = 5.0f;      // World-Y where snow starts appearing
-        f32 HeightFull = 15.0f;      // World-Y where snow reaches full coverage
+        f32 HeightStart = -5.0f;     // World-Y where snow starts appearing
+        f32 HeightFull = 5.0f;       // World-Y where snow reaches full coverage
         f32 SlopeStart = 0.7f;       // Normal.y threshold where snow starts reducing
         f32 SlopeFull = 0.3f;        // Normal.y threshold where snow is gone
 
         // Snow material
-        glm::vec3 Albedo = glm::vec3(0.95f, 0.95f, 0.98f);
-        f32 Roughness = 0.85f;
+        glm::vec3 Albedo = glm::vec3(0.92f, 0.93f, 0.98f);
+        f32 Roughness = 0.65f;
 
         // SSS
         glm::vec3 SSSColor = glm::vec3(0.4f, 0.6f, 0.9f);
@@ -155,7 +155,7 @@ namespace OloEngine
         f32 SparkleScale = 1.0f;
 
         // Normal perturbation
-        f32 NormalPerturbStrength = 0.15f;
+        f32 NormalPerturbStrength = 0.25f;
 
         // SSS blur pass
         bool SSSBlurEnabled = false;
@@ -167,13 +167,13 @@ namespace OloEngine
     struct SnowUBOData
     {
         // vec4(HeightStart, HeightFull, SlopeStart, SlopeFull)
-        glm::vec4 CoverageParams = glm::vec4(5.0f, 15.0f, 0.7f, 0.3f);
+        glm::vec4 CoverageParams = glm::vec4(-5.0f, 5.0f, 0.7f, 0.3f);
         // vec4(Albedo.rgb, Roughness)
-        glm::vec4 AlbedoAndRoughness = glm::vec4(0.95f, 0.95f, 0.98f, 0.85f);
+        glm::vec4 AlbedoAndRoughness = glm::vec4(0.92f, 0.93f, 0.98f, 0.65f);
         // vec4(SSSColor.rgb, SSSIntensity)
         glm::vec4 SSSColorAndIntensity = glm::vec4(0.4f, 0.6f, 0.9f, 0.6f);
         // vec4(SparkleIntensity, SparkleDensity, SparkleScale, NormalPerturbStrength)
-        glm::vec4 SparkleParams = glm::vec4(0.8f, 80.0f, 1.0f, 0.15f);
+        glm::vec4 SparkleParams = glm::vec4(0.8f, 80.0f, 1.0f, 0.25f);
         // vec4(Enabled, pad, pad, pad)
         glm::vec4 Flags = glm::vec4(0.0f);
 

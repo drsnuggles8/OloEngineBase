@@ -703,7 +703,10 @@ void main()
                 snowLo += contrib * lightColor * attenuation;
             }
 
-            vec3 snowAmbient = calculateSimpleAmbient(snowAlbedo, 0.0, 1.0);
+            // Snow ambient: snow has very high albedo (~0.95) and scatters
+            // significant indirect light. Use a higher ambient factor than the
+            // standard 0.03 to capture sky light bouncing off the snow surface.
+            vec3 snowAmbient = 0.15 * snowAlbedo;
             vec3 snowColor = snowAmbient + snowLo;
 
             color = mix(color, snowColor, snowWeight);
@@ -717,7 +720,17 @@ void main()
         o_Color.a = snowWeight;
     o_EntityID = u_EntityID;
 
-    // View-space normal for SSAO/post-processing
-    vec3 viewNormal = normalize(mat3(u_View) * N);
+    // View-space normal for SSAO/post-processing.
+    // Snow fills geometric crevices, creating a smoother surface. Blend the
+    // terrain normal toward world-up so SSAO "sees" the filled-in geometry
+    // rather than producing dark occlusion in crevices hidden under snow.
+    // Do NOT use the noise-perturbed snow normal here — that micro-detail is
+    // for lighting only; feeding it to SSAO causes false gray occlusion.
+    vec3 outputN = N;
+    if (snowWeight > 0.001)
+    {
+        outputN = normalize(mix(N, vec3(0.0, 1.0, 0.0), snowWeight * 0.6));
+    }
+    vec3 viewNormal = normalize(mat3(u_View) * outputN);
     o_ViewNormal = octEncode(viewNormal);
 }

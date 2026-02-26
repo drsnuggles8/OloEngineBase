@@ -2021,6 +2021,11 @@ namespace OloEngine
             {
                 scenePass->SetPostExecuteCallback([this, &camera]()
                                                   {
+                    // Reset blend state — command bucket execution may have left blending enabled
+                    // (e.g., from InfiniteGrid which uses alpha blending). Terrain is opaque and
+                    // must not blend with previously rendered content.
+                    RenderCommand::SetBlendState(false);
+
                     auto terrainRenderView = m_Registry.view<TransformComponent, TerrainComponent>();
 
                     for (auto entity : terrainRenderView)

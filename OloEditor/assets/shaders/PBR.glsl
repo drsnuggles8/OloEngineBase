@@ -260,7 +260,7 @@ void main()
                                    u_SnowSparkleParams.x, u_SnowSparkleParams.y,
                                    u_SnowSparkleParams.z, v_WorldPos) * lightColor;
 
-            vec3 snowAmbient = calculateSimpleAmbient(snowAlbedo, 0.0, 1.0);
+            vec3 snowAmbient = 0.15 * snowAlbedo;
             vec3 snowColor = snowAmbient + snowLo;
 
             color = mix(color, snowColor, snowWeight);
@@ -272,5 +272,11 @@ void main()
     if (snowWeight > 0.001)
         o_Color.a = snowWeight;
     o_EntityID = u_EntityID;
-    o_ViewNormal = octEncode(normalize(mat3(u_View) * N));
+
+    vec3 outputN = N;
+    if (snowWeight > 0.001)
+    {
+        outputN = normalize(mix(N, vec3(0.0, 1.0, 0.0), snowWeight * 0.6));
+    }
+    o_ViewNormal = octEncode(normalize(mat3(u_View) * outputN));
 }

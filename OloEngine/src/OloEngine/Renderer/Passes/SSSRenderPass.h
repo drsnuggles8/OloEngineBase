@@ -13,7 +13,7 @@ namespace OloEngine
     {
       public:
         SSSRenderPass();
-        ~SSSRenderPass() override = default;
+        ~SSSRenderPass() override;
 
         void Init(const FramebufferSpecification& spec) override;
         void Execute() override;
@@ -38,6 +38,7 @@ namespace OloEngine
 
       private:
         void DrawFullscreenTriangle();
+        void EnsureStagingTexture(u32 width, u32 height);
 
         Ref<Framebuffer> m_SceneFramebuffer;
 
@@ -45,6 +46,11 @@ namespace OloEngine
         Ref<VertexArray> m_FullscreenTriangleVA;
         Ref<UniformBuffer> m_SSSUBO;
         SSSUBOData* m_GPUData = nullptr;
+
+        // Staging texture to avoid read-write hazard on scene FB
+        u32 m_StagingTexture = 0;
+        u32 m_StagingWidth = 0;
+        u32 m_StagingHeight = 0;
 
         SnowSettings m_Settings;
     };

@@ -43,20 +43,22 @@ float linearizeDepth(float d, float near, float far)
 
 void main()
 {
-    // Early out if SSS blur is disabled
+    // Early out if SSS blur is disabled — still reset alpha to 1.0
+    // so the SSS mask doesn't leak into downstream passes
     if (u_SSSFlags.x < 0.5)
     {
-        o_Color = texture(u_SceneColor, v_TexCoord);
+        vec4 c = texture(u_SceneColor, v_TexCoord);
+        o_Color = vec4(c.rgb, 1.0);
         return;
     }
 
     vec4 centerSample = texture(u_SceneColor, v_TexCoord);
     float sssMask = centerSample.a;
 
-    // No SSS on this pixel — pass through unchanged
+    // No SSS on this pixel — pass through with alpha reset to 1.0
     if (sssMask < 0.001)
     {
-        o_Color = centerSample;
+        o_Color = vec4(centerSample.rgb, 1.0);
         return;
     }
 
@@ -106,6 +108,6 @@ void main()
     // Blend blurred result with original based on SSS mask intensity
     vec3 finalColor = mix(centerSample.rgb, result, sssMask);
 
-    // Output: preserve the original alpha (SSS mask) for downstream passes
-    o_Color = vec4(finalColor, centerSample.a);
+    // Reset alpha to 1.0 — the SSS mask has been consumed by this pass
+    o_Color = vec4(finalColor, 1.0);
 }

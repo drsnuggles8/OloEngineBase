@@ -130,6 +130,13 @@ namespace OloEngine
             RenderCommand::BindTexture(0, srcColorID);
             RenderCommand::BindTexture(ShaderBindingLayout::TEX_SSAO, m_SSAOTextureID);
 
+            // Bind full-res scene depth for bilateral upsampling
+            if (m_SceneDepthFB)
+            {
+                u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
+                RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            }
+
             DrawFullscreenTriangle();
             dest->Unbind();
 

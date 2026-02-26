@@ -5,12 +5,22 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include <glad/gl.h>
+#include <array>
 
 namespace OloEngine
 {
     SSSRenderPass::SSSRenderPass()
     {
         SetName("SSSPass");
+    }
+
+    SSSRenderPass::~SSSRenderPass()
+    {
+        if (m_StagingTexture)
+        {
+            glDeleteTextures(1, &m_StagingTexture);
+        }
     }
 
     void SSSRenderPass::Init(const FramebufferSpecification& spec)
@@ -61,9 +71,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // SSS blur operates directly on the scene framebuffer's color attachment.
-        // It reads color+alpha (SSS mask), blurs, and writes the result back.
-        // We skip if snow SSS blur is disabled or resources are missing.
+        // Only run when snow is enabled AND SSS blur is explicitly turned on.
+        // The alpha channel (SSS mask) is only consumed by this pass, so when
+        // blur is off we simply leave the scene FB untouched — downstream passes
+        // (PostProcess) write alpha=1.0 on all output paths, preventing leaks.
         if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled ||
             !m_SceneFramebuffer || !m_SSSBlurShader || !m_FullscreenTriangleVA)
         {
@@ -76,39 +87,42 @@ namespace OloEngine
             m_SSSUBO->SetData(m_GPUData, SSSUBOData::GetSize());
         }
 
-        // The SSS pass reads from the scene FB color[0] and depth, and writes
-        // to the same scene FB. Since we can't read and write the same texture
-        // simultaneously, we render to the scene FB in-place — the shader
-        // samples via texture binding (which reads the current content) and
-        // the output overwrites the color attachment.
-        //
-        // This works because OpenGL allows reading from a bound texture
-        // as long as the texture is bound to a different binding point than
-        // the framebuffer's draw attachment. We bind the color texture to
-        // sampler slot 0 for reading, and the framebuffer draws to attachment 0.
-        //
-        // Note: For fully correct behavior, a ping-pong approach would be ideal.
-        // This single-pass approach works for our separable combined blur because
-        // each fragment reads from nearby pixels that haven't been written yet
-        // (undefined behavior in general, but practically works for small kernels).
+        const auto& fbSpec = m_SceneFramebuffer->GetSpecification();
+
+        // Copy scene color to staging texture to avoid read-write hazard.
+        u32 colorID = m_SceneFramebuffer->GetColorAttachmentRendererID(0);
+        EnsureStagingTexture(fbSpec.Width, fbSpec.Height);
+        glCopyImageSubData(
+            colorID, GL_TEXTURE_2D, 0, 0, 0, 0,
+            m_StagingTexture, GL_TEXTURE_2D, 0, 0, 0, 0,
+            static_cast<GLsizei>(fbSpec.Width),
+            static_cast<GLsizei>(fbSpec.Height), 1);
 
         m_SceneFramebuffer->Bind();
-        const auto& fbSpec = m_SceneFramebuffer->GetSpecification();
+
+        // Restrict drawing to color attachment 0 only — the scene FB has
+        // multiple attachments (entity ID, normals) that must not be overwritten.
+        GLenum drawBuf = GL_COLOR_ATTACHMENT0;
+        glDrawBuffers(1, &drawBuf);
+
         RenderCommand::SetViewport(0, 0, fbSpec.Width, fbSpec.Height);
         RenderCommand::SetDepthTest(false);
         RenderCommand::SetBlendState(false);
 
         m_SSSBlurShader->Bind();
 
-        // Bind scene color for sampling
-        u32 colorID = m_SceneFramebuffer->GetColorAttachmentRendererID(0);
-        RenderCommand::BindTexture(0, colorID);
+        // Bind staging copy for reading (not the live FB attachment)
+        RenderCommand::BindTexture(0, m_StagingTexture);
 
         // Bind scene depth for bilateral filtering
         u32 depthID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
         RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
         DrawFullscreenTriangle();
+
+        // Restore all draw buffers for subsequent passes
+        std::array<GLenum, 3> allBufs = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+        glDrawBuffers(static_cast<GLsizei>(allBufs.size()), allBufs.data());
 
         m_SceneFramebuffer->Unbind();
     }
@@ -143,6 +157,36 @@ namespace OloEngine
 
     void SSSRenderPass::OnReset()
     {
-        // Nothing to reset — no owned resources
+        if (m_StagingTexture)
+        {
+            glDeleteTextures(1, &m_StagingTexture);
+            m_StagingTexture = 0;
+            m_StagingWidth = 0;
+            m_StagingHeight = 0;
+        }
+    }
+
+    void SSSRenderPass::EnsureStagingTexture(u32 width, u32 height)
+    {
+        if (m_StagingTexture && m_StagingWidth == width && m_StagingHeight == height)
+        {
+            return;
+        }
+
+        if (m_StagingTexture)
+        {
+            glDeleteTextures(1, &m_StagingTexture);
+        }
+
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_StagingTexture);
+        glTextureStorage2D(m_StagingTexture, 1, GL_RGBA16F,
+                           static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+        glTextureParameteri(m_StagingTexture, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(m_StagingTexture, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureParameteri(m_StagingTexture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(m_StagingTexture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        m_StagingWidth = width;
+        m_StagingHeight = height;
     }
 } // namespace OloEngine

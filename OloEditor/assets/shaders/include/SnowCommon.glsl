@@ -25,6 +25,34 @@ float hash13(vec3 p)
     return float(h) * (1.0 / float(0xFFFFFFFFu));
 }
 
+// Smooth 3D value noise via trilinear interpolation of hash values
+// Returns vec3 in [0, 1] — continuous and differentiable
+vec3 smoothNoise3(vec3 p)
+{
+    vec3 pf = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f); // Hermite smoothstep interpolant
+
+    vec3 n000 = hash33(pf);
+    vec3 n100 = hash33(pf + vec3(1.0, 0.0, 0.0));
+    vec3 n010 = hash33(pf + vec3(0.0, 1.0, 0.0));
+    vec3 n110 = hash33(pf + vec3(1.0, 1.0, 0.0));
+    vec3 n001 = hash33(pf + vec3(0.0, 0.0, 1.0));
+    vec3 n101 = hash33(pf + vec3(1.0, 0.0, 1.0));
+    vec3 n011 = hash33(pf + vec3(0.0, 1.0, 1.0));
+    vec3 n111 = hash33(pf + vec3(1.0, 1.0, 1.0));
+
+    vec3 nx00 = mix(n000, n100, f.x);
+    vec3 nx10 = mix(n010, n110, f.x);
+    vec3 nx01 = mix(n001, n101, f.x);
+    vec3 nx11 = mix(n011, n111, f.x);
+
+    vec3 nxy0 = mix(nx00, nx10, f.y);
+    vec3 nxy1 = mix(nx01, nx11, f.y);
+
+    return mix(nxy0, nxy1, f.z);
+}
+
 // =============================================================================
 // SUBSURFACE SCATTERING APPROXIMATION
 // =============================================================================
@@ -61,9 +89,9 @@ vec3 subsurfaceDiffuse(vec3 N, vec3 L, vec3 V, vec3 sssColor, float sssIntensity
 // ICE CRYSTAL SPARKLE / GLINT
 // =============================================================================
 
-// View-dependent sparkle simulating individual ice crystal reflections
+// View- and light-dependent sparkle simulating individual ice crystal reflections
 // Returns additive specular intensity
-float snowSparkle(vec3 V, vec3 N, vec3 worldPos, float sparkleIntensity,
+float snowSparkle(vec3 V, vec3 N, vec3 L, vec3 worldPos, float sparkleIntensity,
                   float sparkleDensity, float sparkleScale)
 {
     if (sparkleIntensity < 0.001)
@@ -85,16 +113,13 @@ float snowSparkle(vec3 V, vec3 N, vec3 worldPos, float sparkleIntensity,
             // Random micro-normal for this crystal
             vec3 microNormal = normalize(N + (crystalHash * 2.0 - 1.0) * 0.3);
 
-            // Reflection direction from this micro-facet
+            // Reflection of view off micro-facet — sparkles when aligned with light
             vec3 R = reflect(-V, microNormal);
-
-            // Check if any light direction aligns with reflection
-            // Use a sharp threshold to create point-like sparkles
-            float alignment = max(dot(R, N), 0.0);
-            float glint = pow(alignment, 256.0) * crystalHash.z;
+            float alignment = max(dot(R, L), 0.0);
+            float glint = pow(alignment, 128.0) * crystalHash.z;
 
             // View-dependent masking: sparkles appear/disappear as camera moves
-            float viewMask = step(0.92, crystalHash.x + dot(V, microNormal) * 0.15);
+            float viewMask = step(0.85, crystalHash.x + dot(V, microNormal) * 0.2);
 
             sparkle += glint * viewMask;
         }
@@ -107,17 +132,18 @@ float snowSparkle(vec3 V, vec3 N, vec3 worldPos, float sparkleIntensity,
 // SNOW NORMAL PERTURBATION
 // =============================================================================
 
-// Subtle noise-based normal perturbation for crystalline micro-surface detail
+// Smooth noise-based normal perturbation for crystalline micro-surface detail
 vec3 perturbSnowNormal(vec3 N, vec3 worldPos, float strength)
 {
     if (strength < 0.001)
         return N;
 
-    // Multi-frequency noise for natural crystal patterns
-    vec3 noise1 = hash33(worldPos * 50.0) * 2.0 - 1.0;
-    vec3 noise2 = hash33(worldPos * 150.0) * 2.0 - 1.0;
+    // Multi-frequency smooth noise for natural snow crystal patterns
+    vec3 noise1 = smoothNoise3(worldPos * 8.0) * 2.0 - 1.0;   // large undulations
+    vec3 noise2 = smoothNoise3(worldPos * 32.0) * 2.0 - 1.0;  // medium detail
+    vec3 noise3 = smoothNoise3(worldPos * 96.0) * 2.0 - 1.0;  // fine crystalline detail
 
-    vec3 perturbation = (noise1 * 0.6 + noise2 * 0.4) * strength;
+    vec3 perturbation = (noise1 * 0.5 + noise2 * 0.35 + noise3 * 0.15) * strength;
 
     // Project perturbation onto tangent plane to avoid flipping normal
     perturbation -= N * dot(perturbation, N);
@@ -139,11 +165,11 @@ float computeSnowWeight(float worldPosY, float normalY, float heightStart,
 
     // Slope factor: snow sticks to flatter surfaces, slides off steep ones
     // normalY = 1.0 for flat, 0.0 for vertical
-    // slopeStart = normal.y below which snow starts reducing (e.g., 0.7)
     // slopeFull = normal.y below which no snow at all (e.g., 0.3)
+    // slopeStart = normal.y above which full snow coverage (e.g., 0.7)
+    // smoothstep(0.3, 0.7, 1.0) = 1.0 → flat = full snow
+    // smoothstep(0.3, 0.7, 0.0) = 0.0 → vertical = no snow
     float slopeWeight = smoothstep(slopeFull, slopeStart, normalY);
-    // Invert: we want MORE snow on flat (high normalY)
-    slopeWeight = 1.0 - slopeWeight;
 
     return heightWeight * slopeWeight;
 }
@@ -179,8 +205,8 @@ vec3 snowBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float roughness,
     vec3 kD = (vec3(1.0) - F);
     vec3 diffuse = kD * albedo * subsurfaceDiffuse(N, L, V, sssColor, sssIntensity);
 
-    // Sparkle: additive specular glint
-    float sparkle = snowSparkle(V, N, worldPos, sparkleIntensity, sparkleDensity, sparkleScale);
+    // Sparkle: additive specular glint (light-dependent via L)
+    float sparkle = snowSparkle(V, N, L, worldPos, sparkleIntensity, sparkleDensity, sparkleScale);
     vec3 sparkleContrib = vec3(sparkle) * F;
 
     return (diffuse + specular + sparkleContrib) * NdotL;
