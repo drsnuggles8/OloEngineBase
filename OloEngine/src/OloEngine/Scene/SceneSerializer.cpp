@@ -75,6 +75,52 @@ namespace OloEngine
         }
     }
 
+    static void SerializeSnowSettings(YAML::Emitter& out, const SnowSettings& snow)
+    {
+        out << YAML::Key << "SnowSettings";
+        out << YAML::BeginMap;
+        out << YAML::Key << "Enabled" << YAML::Value << snow.Enabled;
+        out << YAML::Key << "HeightStart" << YAML::Value << snow.HeightStart;
+        out << YAML::Key << "HeightFull" << YAML::Value << snow.HeightFull;
+        out << YAML::Key << "SlopeStart" << YAML::Value << snow.SlopeStart;
+        out << YAML::Key << "SlopeFull" << YAML::Value << snow.SlopeFull;
+        out << YAML::Key << "Albedo" << YAML::Value << snow.Albedo;
+        out << YAML::Key << "Roughness" << YAML::Value << snow.Roughness;
+        out << YAML::Key << "SSSColor" << YAML::Value << snow.SSSColor;
+        out << YAML::Key << "SSSIntensity" << YAML::Value << snow.SSSIntensity;
+        out << YAML::Key << "SparkleIntensity" << YAML::Value << snow.SparkleIntensity;
+        out << YAML::Key << "SparkleDensity" << YAML::Value << snow.SparkleDensity;
+        out << YAML::Key << "SparkleScale" << YAML::Value << snow.SparkleScale;
+        out << YAML::Key << "NormalPerturbStrength" << YAML::Value << snow.NormalPerturbStrength;
+        out << YAML::Key << "SSSBlurEnabled" << YAML::Value << snow.SSSBlurEnabled;
+        out << YAML::Key << "SSSBlurRadius" << YAML::Value << snow.SSSBlurRadius;
+        out << YAML::Key << "SSSBlurFalloff" << YAML::Value << snow.SSSBlurFalloff;
+        out << YAML::EndMap;
+    }
+
+    static void DeserializeSnowSettings(const YAML::Node& data, SnowSettings& snow)
+    {
+        if (auto snowNode = data["SnowSettings"]; snowNode)
+        {
+            TrySet(snow.Enabled, snowNode["Enabled"]);
+            TrySet(snow.HeightStart, snowNode["HeightStart"]);
+            TrySet(snow.HeightFull, snowNode["HeightFull"]);
+            TrySet(snow.SlopeStart, snowNode["SlopeStart"]);
+            TrySet(snow.SlopeFull, snowNode["SlopeFull"]);
+            TrySet(snow.Albedo, snowNode["Albedo"]);
+            TrySet(snow.Roughness, snowNode["Roughness"]);
+            TrySet(snow.SSSColor, snowNode["SSSColor"]);
+            TrySet(snow.SSSIntensity, snowNode["SSSIntensity"]);
+            TrySet(snow.SparkleIntensity, snowNode["SparkleIntensity"]);
+            TrySet(snow.SparkleDensity, snowNode["SparkleDensity"]);
+            TrySet(snow.SparkleScale, snowNode["SparkleScale"]);
+            TrySet(snow.NormalPerturbStrength, snowNode["NormalPerturbStrength"]);
+            TrySet(snow.SSSBlurEnabled, snowNode["SSSBlurEnabled"]);
+            TrySet(snow.SSSBlurRadius, snowNode["SSSBlurRadius"]);
+            TrySet(snow.SSSBlurFalloff, snowNode["SSSBlurFalloff"]);
+        }
+    }
+
     static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)
     {
         auto& sys = psc.System;
@@ -1548,28 +1594,7 @@ namespace OloEngine
         }
         out << YAML::EndMap;
 
-        out << YAML::Key << "SnowSettings";
-        out << YAML::BeginMap;
-        {
-            auto const& snow = m_Scene->GetSnowSettings();
-            out << YAML::Key << "Enabled" << YAML::Value << snow.Enabled;
-            out << YAML::Key << "HeightStart" << YAML::Value << snow.HeightStart;
-            out << YAML::Key << "HeightFull" << YAML::Value << snow.HeightFull;
-            out << YAML::Key << "SlopeStart" << YAML::Value << snow.SlopeStart;
-            out << YAML::Key << "SlopeFull" << YAML::Value << snow.SlopeFull;
-            out << YAML::Key << "Albedo" << YAML::Value << snow.Albedo;
-            out << YAML::Key << "Roughness" << YAML::Value << snow.Roughness;
-            out << YAML::Key << "SSSColor" << YAML::Value << snow.SSSColor;
-            out << YAML::Key << "SSSIntensity" << YAML::Value << snow.SSSIntensity;
-            out << YAML::Key << "SparkleIntensity" << YAML::Value << snow.SparkleIntensity;
-            out << YAML::Key << "SparkleDensity" << YAML::Value << snow.SparkleDensity;
-            out << YAML::Key << "SparkleScale" << YAML::Value << snow.SparkleScale;
-            out << YAML::Key << "NormalPerturbStrength" << YAML::Value << snow.NormalPerturbStrength;
-            out << YAML::Key << "SSSBlurEnabled" << YAML::Value << snow.SSSBlurEnabled;
-            out << YAML::Key << "SSSBlurRadius" << YAML::Value << snow.SSSBlurRadius;
-            out << YAML::Key << "SSSBlurFalloff" << YAML::Value << snow.SSSBlurFalloff;
-        }
-        out << YAML::EndMap;
+        SerializeSnowSettings(out, m_Scene->GetSnowSettings());
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
@@ -1650,26 +1675,7 @@ namespace OloEngine
             TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
         }
 
-        if (auto snowNode = data["SnowSettings"]; snowNode)
-        {
-            auto& snow = m_Scene->GetSnowSettings();
-            TrySet(snow.Enabled, snowNode["Enabled"]);
-            TrySet(snow.HeightStart, snowNode["HeightStart"]);
-            TrySet(snow.HeightFull, snowNode["HeightFull"]);
-            TrySet(snow.SlopeStart, snowNode["SlopeStart"]);
-            TrySet(snow.SlopeFull, snowNode["SlopeFull"]);
-            TrySet(snow.Albedo, snowNode["Albedo"]);
-            TrySet(snow.Roughness, snowNode["Roughness"]);
-            TrySet(snow.SSSColor, snowNode["SSSColor"]);
-            TrySet(snow.SSSIntensity, snowNode["SSSIntensity"]);
-            TrySet(snow.SparkleIntensity, snowNode["SparkleIntensity"]);
-            TrySet(snow.SparkleDensity, snowNode["SparkleDensity"]);
-            TrySet(snow.SparkleScale, snowNode["SparkleScale"]);
-            TrySet(snow.NormalPerturbStrength, snowNode["NormalPerturbStrength"]);
-            TrySet(snow.SSSBlurEnabled, snowNode["SSSBlurEnabled"]);
-            TrySet(snow.SSSBlurRadius, snowNode["SSSBlurRadius"]);
-            TrySet(snow.SSSBlurFalloff, snowNode["SSSBlurFalloff"]);
-        }
+        DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
 
         if (const auto entities = data["Entities"]; entities)
         {
@@ -2475,28 +2481,7 @@ namespace OloEngine
         }
         out << YAML::EndMap;
 
-        out << YAML::Key << "SnowSettings";
-        out << YAML::BeginMap;
-        {
-            auto const& snow = m_Scene->GetSnowSettings();
-            out << YAML::Key << "Enabled" << YAML::Value << snow.Enabled;
-            out << YAML::Key << "HeightStart" << YAML::Value << snow.HeightStart;
-            out << YAML::Key << "HeightFull" << YAML::Value << snow.HeightFull;
-            out << YAML::Key << "SlopeStart" << YAML::Value << snow.SlopeStart;
-            out << YAML::Key << "SlopeFull" << YAML::Value << snow.SlopeFull;
-            out << YAML::Key << "Albedo" << YAML::Value << snow.Albedo;
-            out << YAML::Key << "Roughness" << YAML::Value << snow.Roughness;
-            out << YAML::Key << "SSSColor" << YAML::Value << snow.SSSColor;
-            out << YAML::Key << "SSSIntensity" << YAML::Value << snow.SSSIntensity;
-            out << YAML::Key << "SparkleIntensity" << YAML::Value << snow.SparkleIntensity;
-            out << YAML::Key << "SparkleDensity" << YAML::Value << snow.SparkleDensity;
-            out << YAML::Key << "SparkleScale" << YAML::Value << snow.SparkleScale;
-            out << YAML::Key << "NormalPerturbStrength" << YAML::Value << snow.NormalPerturbStrength;
-            out << YAML::Key << "SSSBlurEnabled" << YAML::Value << snow.SSSBlurEnabled;
-            out << YAML::Key << "SSSBlurRadius" << YAML::Value << snow.SSSBlurRadius;
-            out << YAML::Key << "SSSBlurFalloff" << YAML::Value << snow.SSSBlurFalloff;
-        }
-        out << YAML::EndMap;
+        SerializeSnowSettings(out, m_Scene->GetSnowSettings());
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
@@ -2574,26 +2559,7 @@ namespace OloEngine
             TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
         }
 
-        if (auto snowNode = data["SnowSettings"]; snowNode)
-        {
-            auto& snow = m_Scene->GetSnowSettings();
-            TrySet(snow.Enabled, snowNode["Enabled"]);
-            TrySet(snow.HeightStart, snowNode["HeightStart"]);
-            TrySet(snow.HeightFull, snowNode["HeightFull"]);
-            TrySet(snow.SlopeStart, snowNode["SlopeStart"]);
-            TrySet(snow.SlopeFull, snowNode["SlopeFull"]);
-            TrySet(snow.Albedo, snowNode["Albedo"]);
-            TrySet(snow.Roughness, snowNode["Roughness"]);
-            TrySet(snow.SSSColor, snowNode["SSSColor"]);
-            TrySet(snow.SSSIntensity, snowNode["SSSIntensity"]);
-            TrySet(snow.SparkleIntensity, snowNode["SparkleIntensity"]);
-            TrySet(snow.SparkleDensity, snowNode["SparkleDensity"]);
-            TrySet(snow.SparkleScale, snowNode["SparkleScale"]);
-            TrySet(snow.NormalPerturbStrength, snowNode["NormalPerturbStrength"]);
-            TrySet(snow.SSSBlurEnabled, snowNode["SSSBlurEnabled"]);
-            TrySet(snow.SSSBlurRadius, snowNode["SSSBlurRadius"]);
-            TrySet(snow.SSSBlurFalloff, snowNode["SSSBlurFalloff"]);
-        }
+        DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
 
         auto entities = data["Entities"];
         if (entities)

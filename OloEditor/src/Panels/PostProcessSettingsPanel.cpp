@@ -222,6 +222,15 @@ namespace OloEngine
                 ImGui::DragFloat("Height Full##Snow", &settings.HeightFull, 0.5f, -100.0f, 500.0f, "%.1f");
                 ImGui::DragFloat("Slope Start##Snow", &settings.SlopeStart, 0.01f, 0.0f, 1.0f, "%.2f");
                 ImGui::DragFloat("Slope Full##Snow", &settings.SlopeFull, 0.01f, 0.0f, 1.0f, "%.2f");
+                // Enforce valid intervals
+                if (settings.HeightFull < settings.HeightStart)
+                {
+                    settings.HeightFull = settings.HeightStart;
+                }
+                if (settings.SlopeFull > settings.SlopeStart)
+                {
+                    settings.SlopeFull = settings.SlopeStart;
+                }
 
                 ImGui::SeparatorText("Material");
                 ImGui::ColorEdit3("Albedo##Snow", &settings.Albedo.x);

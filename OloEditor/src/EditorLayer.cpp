@@ -108,8 +108,8 @@ namespace OloEngine
         // Scale framebuffer dimensions by HiDPI factor so we render at native pixel resolution.
         // Camera and scene use logical (unscaled) coordinates for correct aspect ratio.
         const f32 dpiScale = Window::s_HighDPIScaleFactor;
-        const u32 fbWidth = static_cast<u32>(m_ViewportSize.x * dpiScale);
-        const u32 fbHeight = static_cast<u32>(m_ViewportSize.y * dpiScale);
+        const u32 fbWidth = std::max(1u, static_cast<u32>(m_ViewportSize.x * dpiScale));
+        const u32 fbHeight = std::max(1u, static_cast<u32>(m_ViewportSize.y * dpiScale));
 
         // Resize
         if (FramebufferSpecification const spec = m_Framebuffer->GetSpecification();
@@ -708,7 +708,7 @@ namespace OloEngine
                 if (m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
                 {
                     const f32 dpi = Window::s_HighDPIScaleFactor;
-                    Renderer3D::OnWindowResize(static_cast<u32>(m_ViewportSize.x * dpi), static_cast<u32>(m_ViewportSize.y * dpi));
+                    Renderer3D::OnWindowResize(std::max(1u, static_cast<u32>(m_ViewportSize.x * dpi)), std::max(1u, static_cast<u32>(m_ViewportSize.y * dpi)));
                 }
             }
         }

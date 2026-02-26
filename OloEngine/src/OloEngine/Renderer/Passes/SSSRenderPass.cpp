@@ -6,7 +6,7 @@
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include <glad/gl.h>
-#include <array>
+#include <vector>
 
 namespace OloEngine
 {
@@ -81,11 +81,7 @@ namespace OloEngine
             return;
         }
 
-        // Upload SSS parameters
-        if (m_SSSUBO && m_GPUData)
-        {
-            m_SSSUBO->SetData(m_GPUData, SSSUBOData::GetSize());
-        }
+        // SSS UBO is already uploaded by Renderer3D::EndScene each frame.
 
         const auto& fbSpec = m_SceneFramebuffer->GetSpecification();
 
@@ -120,8 +116,20 @@ namespace OloEngine
 
         DrawFullscreenTriangle();
 
-        // Restore all draw buffers for subsequent passes
-        std::array<GLenum, 3> allBufs = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+        // Restore all draw buffers for subsequent passes (derive count from framebuffer spec)
+        const auto& attachments = fbSpec.Attachments.Attachments;
+        std::vector<GLenum> allBufs;
+        allBufs.reserve(attachments.size());
+        u32 colorIndex = 0;
+        for (const auto& att : attachments)
+        {
+            const auto fmt = att.TextureFormat;
+            if (fmt != FramebufferTextureFormat::DEPTH24STENCIL8 && fmt != FramebufferTextureFormat::DEPTH_COMPONENT32F)
+            {
+                allBufs.push_back(GL_COLOR_ATTACHMENT0 + colorIndex);
+                ++colorIndex;
+            }
+        }
         glDrawBuffers(static_cast<GLsizei>(allBufs.size()), allBufs.data());
 
         m_SceneFramebuffer->Unbind();
