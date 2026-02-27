@@ -6,8 +6,6 @@
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     ShadowRenderPass::ShadowRenderPass()
@@ -205,8 +203,7 @@ namespace OloEngine
                 for (const auto& caster : m_MeshCasters)
                 {
                     uploadShadowModelUBO(caster.transform);
-                    glBindVertexArray(caster.vaoID);
-                    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(caster.indexCount), GL_UNSIGNED_INT, nullptr);
+                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
                 }
             }
         }
@@ -243,8 +240,7 @@ namespace OloEngine
                         }
                     }
 
-                    glBindVertexArray(caster.vaoID);
-                    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(caster.indexCount), GL_UNSIGNED_INT, nullptr);
+                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
                 }
             }
         }
@@ -269,7 +265,7 @@ namespace OloEngine
 
                     if (caster.heightmapTextureID != 0)
                     {
-                        glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, caster.heightmapTextureID);
+                        RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, caster.heightmapTextureID);
                     }
 
                     if (terrainUBO)
@@ -278,9 +274,7 @@ namespace OloEngine
                         terrainUBO->Bind();
                     }
 
-                    glBindVertexArray(caster.vaoID);
-                    glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(caster.patchVertexCount));
-                    glDrawElements(GL_PATCHES, static_cast<GLsizei>(caster.indexCount), GL_UNSIGNED_INT, nullptr);
+                    RenderCommand::DrawIndexedPatchesRaw(caster.vaoID, caster.indexCount, caster.patchVertexCount);
                 }
             }
         }
@@ -295,8 +289,7 @@ namespace OloEngine
                 for (const auto& caster : m_VoxelCasters)
                 {
                     uploadShadowModelUBO(caster.transform);
-                    glBindVertexArray(caster.vaoID);
-                    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(caster.indexCount), GL_UNSIGNED_INT, nullptr);
+                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
                 }
             }
         }

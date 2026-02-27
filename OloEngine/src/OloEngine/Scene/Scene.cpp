@@ -2305,27 +2305,628 @@ namespace OloEngine
 
         Renderer3D::BeginScene(camera, cameraTransform);
 
+        // Extract camera parameters from primary SceneCamera (base Camera lacks near/far)
+        glm::vec3 cameraPosition = glm::vec3(cameraTransform[3]);
+        glm::mat4 viewMatrix = glm::inverse(cameraTransform);
+        f32 cameraNearClip = 0.1f;
+        f32 cameraFarClip = 1000.0f;
+        {
+            for (const auto camView = m_Registry.view<CameraComponent>(); const auto entity : camView)
+            {
+                if (const auto& cam = camView.get<CameraComponent>(entity); cam.Primary)
+                {
+                    cameraNearClip = cam.Camera.GetPerspectiveNearClip();
+                    cameraFarClip = cam.Camera.GetPerspectiveFarClip();
+                    break;
+                }
+            }
+            Renderer3D::SetCameraClipPlanes(cameraNearClip, cameraFarClip);
+        }
+
         // Render skybox from EnvironmentMapComponent (first one found)
         LoadAndRenderSkybox();
 
-        // Collect and set scene lights from light components
+        // Collect all scene lights into MultiLight UBO and set up shadows
+        glm::vec3 directionalLightDir(0.0f, -1.0f, 0.0f);
+        bool hasDirectionalShadow = false;
         {
-            // Set first directional light as the main scene light
+            UBOStructures::MultiLightUBO multiLightData{};
+            i32 lightIndex = 0;
+
+            // Collect directional lights
             auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
-            if (auto it = dirLightView.begin(); it != dirLightView.end())
+            for (auto entity : dirLightView)
             {
-                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(*it);
-                Light light;
-                light.Type = LightType::Directional;
-                light.Direction = dirLight.m_Direction;
-                light.Ambient = dirLight.m_Color * 0.1f;
-                light.Diffuse = dirLight.m_Color * dirLight.m_Intensity;
-                light.Specular = dirLight.m_Color * dirLight.m_Intensity;
-                Renderer3D::SetLight(light);
-                // Extract camera position from transform
-                Renderer3D::SetViewPosition(glm::vec3(cameraTransform[3]));
+                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
+                {
+                    break;
+                }
+
+                const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
+
+                auto& data = multiLightData.Lights[lightIndex];
+                data.Position = glm::vec4(dirLight.m_Direction, 0.0f);
+                data.Direction = glm::vec4(dirLight.m_Direction, -1.0f);
+                data.Color = glm::vec4(dirLight.m_Color, dirLight.m_Intensity);
+                data.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+                data.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+
+                if (lightIndex == 0)
+                {
+                    Light light;
+                    light.Type = LightType::Directional;
+                    light.Direction = dirLight.m_Direction;
+                    light.Ambient = dirLight.m_Color * 0.1f;
+                    light.Diffuse = dirLight.m_Color * dirLight.m_Intensity;
+                    light.Specular = dirLight.m_Color * dirLight.m_Intensity;
+                    Renderer3D::SetLight(light);
+                    Renderer3D::SetViewPosition(cameraPosition);
+
+                    directionalLightDir = dirLight.m_Direction;
+                    hasDirectionalShadow = dirLight.m_CastShadows;
+
+                    if (dirLight.m_CastShadows)
+                    {
+                        auto& shadowMap = Renderer3D::GetShadowMap();
+                        auto settings = shadowMap.GetSettings();
+                        settings.Bias = dirLight.m_ShadowBias;
+                        settings.NormalBias = dirLight.m_ShadowNormalBias;
+                        settings.MaxShadowDistance = dirLight.m_MaxShadowDistance;
+                        settings.CascadeSplitLambda = dirLight.m_CascadeSplitLambda;
+                        shadowMap.SetSettings(settings);
+                        shadowMap.SetCascadeDebugEnabled(dirLight.m_CascadeDebugVisualization);
+                    }
+                }
+
+                ++lightIndex;
+            }
+
+            // Collect point lights
+            u32 pointShadowIndex = 0;
+            auto pointLightView = m_Registry.view<TransformComponent, PointLightComponent>();
+            for (auto entity : pointLightView)
+            {
+                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
+                {
+                    break;
+                }
+
+                const auto& [transform, pointLight] = pointLightView.get<TransformComponent, PointLightComponent>(entity);
+
+                auto& data = multiLightData.Lights[lightIndex];
+                data.Position = glm::vec4(transform.Translation, 1.0f);
+                data.Color = glm::vec4(pointLight.m_Color, pointLight.m_Intensity);
+                data.AttenuationParams = glm::vec4(1.0f, 0.0f, pointLight.m_Attenuation, pointLight.m_Range);
+                data.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+
+                if (pointLight.m_CastShadows && pointShadowIndex < ShadowMap::MAX_POINT_SHADOWS)
+                {
+                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, static_cast<f32>(pointShadowIndex));
+                    ++pointShadowIndex;
+                }
+                else
+                {
+                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, -1.0f);
+                }
+
+                ++lightIndex;
+            }
+
+            // Collect spot lights
+            u32 spotShadowIndex = 0;
+            auto spotLightView = m_Registry.view<TransformComponent, SpotLightComponent>();
+            for (auto entity : spotLightView)
+            {
+                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
+                {
+                    break;
+                }
+
+                const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
+
+                auto& data = multiLightData.Lights[lightIndex];
+                data.Position = glm::vec4(transform.Translation, 2.0f);
+                data.Color = glm::vec4(spotLight.m_Color, spotLight.m_Intensity);
+                data.AttenuationParams = glm::vec4(1.0f, 0.0f, spotLight.m_Attenuation, spotLight.m_Range);
+                data.SpotParams = glm::vec4(
+                    glm::cos(glm::radians(spotLight.m_InnerCutoff)),
+                    glm::cos(glm::radians(spotLight.m_OuterCutoff)),
+                    1.0f,
+                    2.0f
+                );
+
+                if (spotLight.m_CastShadows && spotShadowIndex < ShadowMap::MAX_SPOT_SHADOWS)
+                {
+                    data.Direction = glm::vec4(spotLight.m_Direction, static_cast<f32>(spotShadowIndex));
+                    ++spotShadowIndex;
+                }
+                else
+                {
+                    data.Direction = glm::vec4(spotLight.m_Direction, -1.0f);
+                }
+
+                ++lightIndex;
+            }
+
+            multiLightData.LightCount = lightIndex;
+            multiLightData.MaxLights = static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
+            Renderer3D::UploadMultiLightUBO(multiLightData);
+
+            // Set up shadow mapping
+            auto& shadowMap = Renderer3D::GetShadowMap();
+            shadowMap.BeginFrame();
+
+            // CSM for directional light
+            if (hasDirectionalShadow && shadowMap.IsEnabled())
+            {
+                shadowMap.ComputeCSMCascades(
+                    directionalLightDir,
+                    viewMatrix,
+                    camera.GetProjection(),
+                    cameraNearClip,
+                    cameraFarClip);
+            }
+
+            // Spot light shadows
+            {
+                u32 spotIdx = 0;
+                for (auto entity : spotLightView)
+                {
+                    if (spotIdx >= ShadowMap::MAX_SPOT_SHADOWS)
+                    {
+                        break;
+                    }
+
+                    const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
+                    if (!spotLight.m_CastShadows)
+                    {
+                        continue;
+                    }
+
+                    shadowMap.SetSpotLightShadow(
+                        spotIdx,
+                        transform.Translation,
+                        spotLight.m_Direction,
+                        spotLight.m_OuterCutoff,
+                        spotLight.m_Range);
+                    ++spotIdx;
+                }
+                shadowMap.SetSpotShadowCount(static_cast<i32>(spotIdx));
+            }
+
+            // Point light shadows
+            {
+                u32 pointIdx = 0;
+                for (auto entity : pointLightView)
+                {
+                    if (pointIdx >= ShadowMap::MAX_POINT_SHADOWS)
+                    {
+                        break;
+                    }
+
+                    const auto& [transform, pointLight] = pointLightView.get<TransformComponent, PointLightComponent>(entity);
+                    if (!pointLight.m_CastShadows)
+                    {
+                        continue;
+                    }
+
+                    shadowMap.SetPointLightShadow(
+                        pointIdx,
+                        transform.Translation,
+                        pointLight.m_Range);
+                    ++pointIdx;
+                }
+                shadowMap.SetPointShadowCount(static_cast<i32>(pointIdx));
+            }
+
+            shadowMap.UploadUBO();
+        }
+
+        // Initialize terrain chunks if needed and set up terrain rendering
+        {
+            ++m_TerrainFrameCounter;
+
+            auto terrainView = m_Registry.view<TransformComponent, TerrainComponent>();
+            for (auto entity : terrainView)
+            {
+                auto& terrain = terrainView.get<TerrainComponent>(entity);
+
+                if (terrain.m_StreamingEnabled)
+                {
+                    if (terrain.m_NeedsRebuild)
+                    {
+                        if (!terrain.m_Streamer)
+                        {
+                            terrain.m_Streamer = Ref<TerrainStreamer>::Create();
+                        }
+
+                        TerrainStreamerConfig config;
+                        config.TileWorldSize = terrain.m_TileWorldSize;
+                        config.HeightScale = terrain.m_HeightScale;
+                        config.TileResolution = terrain.m_TileResolution;
+                        config.LoadRadius = terrain.m_StreamingLoadRadius;
+                        config.MaxLoadedTiles = terrain.m_StreamingMaxTiles;
+                        config.TessellationEnabled = terrain.m_TessellationEnabled;
+                        config.TargetTriangleSize = terrain.m_TargetTriangleSize;
+                        config.MorphRegion = terrain.m_MorphRegion;
+                        config.TileDirectory = terrain.m_TileDirectory;
+                        config.TileFilePattern = terrain.m_TileFilePattern;
+                        terrain.m_Streamer->Initialize(config);
+
+                        if (terrain.m_Material)
+                        {
+                            terrain.m_Streamer->SetMaterial(terrain.m_Material);
+                        }
+
+                        terrain.m_NeedsRebuild = false;
+                    }
+
+                    if (terrain.m_MaterialNeedsRebuild && terrain.m_Material && terrain.m_Material->GetLayerCount() > 0)
+                    {
+                        terrain.m_Material->BuildTextureArrays();
+                        terrain.m_Material->LoadSplatmaps();
+                        terrain.m_Streamer->SetMaterial(terrain.m_Material);
+                        terrain.m_MaterialNeedsRebuild = false;
+                    }
+
+                    terrain.m_Streamer->Update(cameraPosition, m_TerrainFrameCounter);
+                }
+                else
+                {
+                    if (terrain.m_NeedsRebuild)
+                    {
+                        if (!terrain.m_TerrainData)
+                        {
+                            terrain.m_TerrainData = Ref<TerrainData>::Create();
+                            if (!terrain.m_HeightmapPath.empty())
+                            {
+                                terrain.m_TerrainData->LoadFromFile(terrain.m_HeightmapPath);
+                            }
+                            else if (terrain.m_ProceduralEnabled)
+                            {
+                                terrain.m_TerrainData->GenerateProcedural(
+                                    terrain.m_ProceduralResolution,
+                                    terrain.m_ProceduralSeed,
+                                    terrain.m_ProceduralOctaves,
+                                    terrain.m_ProceduralFrequency,
+                                    1.0f,
+                                    terrain.m_ProceduralLacunarity,
+                                    terrain.m_ProceduralPersistence);
+                            }
+                            else
+                            {
+                                terrain.m_TerrainData->CreateFlat(256, 0.0f);
+                            }
+                        }
+
+                        if (!terrain.m_ChunkManager)
+                        {
+                            terrain.m_ChunkManager = Ref<TerrainChunkManager>::Create();
+                        }
+                        terrain.m_ChunkManager->TessellationEnabled = terrain.m_TessellationEnabled;
+                        auto& lodCfg = terrain.m_ChunkManager->GetQuadtree().GetConfig();
+                        lodCfg.TargetTriangleSize = terrain.m_TargetTriangleSize;
+                        lodCfg.MorphRegion = terrain.m_MorphRegion;
+
+                        terrain.m_ChunkManager->GenerateAllChunks(
+                            *terrain.m_TerrainData,
+                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+
+                        terrain.m_NeedsRebuild = false;
+                    }
+
+                    if (terrain.m_MaterialNeedsRebuild && terrain.m_Material && terrain.m_Material->GetLayerCount() > 0)
+                    {
+                        terrain.m_Material->BuildTextureArrays();
+                        terrain.m_Material->LoadSplatmaps();
+                        terrain.m_MaterialNeedsRebuild = false;
+                    }
+
+                    if (terrain.m_TessellationEnabled && terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
+                    {
+                        terrain.m_ChunkManager->SelectVisibleChunks(
+                            Renderer3D::GetViewFrustum(),
+                            cameraPosition,
+                            camera.GetViewProjectionMatrix(),
+                            static_cast<f32>(m_ViewportHeight));
+                    }
+                }
+
+                // Voxel override layer
+                if (terrain.m_VoxelEnabled)
+                {
+                    if (!terrain.m_VoxelOverride)
+                    {
+                        terrain.m_VoxelOverride = Ref<VoxelOverride>::Create();
+                        terrain.m_VoxelOverride->Initialize(
+                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ,
+                            terrain.m_HeightScale, terrain.m_VoxelSize);
+                    }
+
+                    MarchingCubes::RebuildDirtyMeshes(*terrain.m_VoxelOverride, terrain.m_VoxelMeshes);
+                }
+            }
+
+            // Foliage instancing
+            {
+                auto foliageView = m_Registry.view<TransformComponent, TerrainComponent, FoliageComponent>();
+                for (auto entity : foliageView)
+                {
+                    auto& terrain = foliageView.get<TerrainComponent>(entity);
+                    auto& foliage = foliageView.get<FoliageComponent>(entity);
+
+                    if (!foliage.m_Enabled || foliage.m_Layers.empty())
+                        continue;
+
+                    if (!foliage.m_Renderer)
+                    {
+                        foliage.m_Renderer = Ref<FoliageRenderer>::Create();
+                        foliage.m_NeedsRebuild = true;
+                    }
+
+                    if (foliage.m_NeedsRebuild && terrain.m_TerrainData)
+                    {
+                        foliage.m_Renderer->GenerateInstances(
+                            foliage.m_Layers,
+                            *terrain.m_TerrainData,
+                            terrain.m_Material.get(),
+                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                        foliage.m_NeedsRebuild = false;
+                    }
+                }
+            }
+
+            // Submit terrain + voxel command packets and shadow casters
+            {
+                auto terrainShader = Renderer3D::GetTerrainPBRShader();
+                auto voxelShader = Renderer3D::GetVoxelPBRShader();
+                auto shadowPass = Renderer3D::GetShadowPass();
+                bool hasActiveShadows = shadowPass && Renderer3D::GetShadowMap().IsEnabled();
+
+                auto terrainRenderView = m_Registry.view<TransformComponent, TerrainComponent>();
+                for (auto entity : terrainRenderView)
+                {
+                    const auto& [transform, terrain] = terrainRenderView.get<TransformComponent, TerrainComponent>(entity);
+
+                    if (!terrainShader)
+                    {
+                        continue;
+                    }
+
+                    bool hasMaterial = terrain.m_Material && terrain.m_Material->IsBuilt();
+
+                    RendererID splatmapID = 0, splatmap1ID = 0;
+                    RendererID albedoArrayID = 0, normalArrayID = 0, armArrayID = 0;
+                    if (hasMaterial)
+                    {
+                        auto& mat = terrain.m_Material;
+                        if (auto s0 = mat->GetSplatmap(0))   splatmapID = s0->GetRendererID();
+                        if (auto s1 = mat->GetSplatmap(1))   splatmap1ID = s1->GetRendererID();
+                        if (mat->GetAlbedoArray())            albedoArrayID = mat->GetAlbedoArray()->GetRendererID();
+                        if (mat->GetNormalArray())            normalArrayID = mat->GetNormalArray()->GetRendererID();
+                        if (mat->GetARMArray())               armArrayID = mat->GetARMArray()->GetRendererID();
+                    }
+
+                    i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+                    bool useTess = terrain.m_TessellationEnabled;
+
+                    auto submitChunkPackets = [&](const TerrainChunkManager& chunkMgr,
+                                                  const TerrainData* terrainData,
+                                                  const TerrainMaterial* tileMaterial,
+                                                  f32 worldSizeX, f32 worldSizeZ,
+                                                  f32 heightScale)
+                    {
+                        if (!chunkMgr.IsBuilt())
+                        {
+                            return;
+                        }
+
+                        RendererID heightmapID = 0;
+                        if (terrainData && terrainData->GetGPUHeightmap())
+                        {
+                            heightmapID = terrainData->GetGPUHeightmap()->GetRendererID();
+                        }
+
+                        RendererID tileSplatmapID = splatmapID, tileSplatmap1ID = splatmap1ID;
+                        RendererID tileAlbedoArrayID = albedoArrayID, tileNormalArrayID = normalArrayID, tileArmArrayID = armArrayID;
+                        bool tileHasMaterial = tileMaterial && tileMaterial->IsBuilt();
+                        if (tileHasMaterial && tileMaterial != terrain.m_Material.get())
+                        {
+                            if (auto s0 = tileMaterial->GetSplatmap(0))   tileSplatmapID = s0->GetRendererID();
+                            if (auto s1 = tileMaterial->GetSplatmap(1))   tileSplatmap1ID = s1->GetRendererID();
+                            if (tileMaterial->GetAlbedoArray())           tileAlbedoArrayID = tileMaterial->GetAlbedoArray()->GetRendererID();
+                            if (tileMaterial->GetNormalArray())           tileNormalArrayID = tileMaterial->GetNormalArray()->GetRendererID();
+                            if (tileMaterial->GetARMArray())              tileArmArrayID = tileMaterial->GetARMArray()->GetRendererID();
+                        }
+
+                        ShaderBindingLayout::TerrainUBO terrainUBOData{};
+                        terrainUBOData.WorldSizeAndHeightScale = glm::vec4(
+                            worldSizeX, worldSizeZ,
+                            heightScale,
+                            static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
+                        u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
+
+                        const TerrainMaterial* effectiveMat = tileHasMaterial ? tileMaterial : (hasMaterial ? terrain.m_Material.get() : nullptr);
+                        u32 layerCount = effectiveMat ? effectiveMat->GetLayerCount() : 0;
+                        f32 triplanarSharpness = 8.0f;
+                        terrainUBOData.TerrainParams = glm::vec4(
+                            1.0f / static_cast<f32>(res),
+                            1.0f / static_cast<f32>(res),
+                            static_cast<f32>(layerCount),
+                            triplanarSharpness);
+                        terrainUBOData.HeightmapResolution = static_cast<i32>(res);
+
+                        if (effectiveMat)
+                        {
+                            for (u32 i = 0; i < std::min(layerCount, 4u); ++i)
+                            {
+                                terrainUBOData.LayerTilingScales0[i] = effectiveMat->GetLayer(i).TilingScale;
+                                terrainUBOData.LayerBlendSharpness0[i] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                            }
+                            for (u32 i = 4; i < std::min(layerCount, 8u); ++i)
+                            {
+                                terrainUBOData.LayerTilingScales1[i - 4] = effectiveMat->GetLayer(i).TilingScale;
+                                terrainUBOData.LayerBlendSharpness1[i - 4] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                            }
+                        }
+
+                        if (useTess)
+                        {
+                            const auto& selectedChunks = chunkMgr.GetSelectedChunks();
+                            for (const auto& rc : selectedChunks)
+                            {
+                                auto va = rc.Chunk->GetVertexArray();
+                                if (!va) { continue; }
+                                terrainUBOData.TessFactors = rc.LODData.TessFactors;
+                                terrainUBOData.TessFactors2 = rc.LODData.TessFactors2;
+                                terrainUBOData.TessFactors2.w = 1.0f;
+
+                                auto* packet = Renderer3D::DrawTerrainPatch(
+                                    va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
+                                    terrainShader,
+                                    heightmapID, tileSplatmapID, tileSplatmap1ID,
+                                    tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
+                                    transform.GetTransform(), terrainUBOData, entityID);
+                                if (packet)
+                                    Renderer3D::SubmitPacket(packet);
+
+                                if (hasActiveShadows)
+                                {
+                                    shadowPass->AddTerrainCaster(
+                                        va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
+                                        transform.GetTransform(), heightmapID, terrainUBOData);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            terrainUBOData.TessFactors = glm::vec4(1.0f);
+                            terrainUBOData.TessFactors2.w = 1.0f;
+                            std::vector<const TerrainChunk*> visibleChunks;
+                            chunkMgr.GetVisibleChunks(Renderer3D::GetViewFrustum(), visibleChunks);
+                            for (const auto* chunk : visibleChunks)
+                            {
+                                auto va = chunk->GetVertexArray();
+                                if (!va) { continue; }
+
+                                auto* packet = Renderer3D::DrawTerrainPatch(
+                                    va->GetRendererID(), chunk->GetIndexCount(), 3,
+                                    terrainShader,
+                                    heightmapID, tileSplatmapID, tileSplatmap1ID,
+                                    tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
+                                    transform.GetTransform(), terrainUBOData, entityID);
+                                if (packet)
+                                    Renderer3D::SubmitPacket(packet);
+
+                                if (hasActiveShadows)
+                                {
+                                    shadowPass->AddTerrainCaster(
+                                        va->GetRendererID(), chunk->GetIndexCount(), 3,
+                                        transform.GetTransform(), heightmapID, terrainUBOData);
+                                }
+                            }
+                        }
+                    };
+
+                    if (terrain.m_StreamingEnabled && terrain.m_Streamer)
+                    {
+                        std::vector<Ref<TerrainTile>> readyTiles;
+                        terrain.m_Streamer->GetReadyTiles(readyTiles);
+                        for (const auto& tile : readyTiles)
+                        {
+                            auto tileMat = tile->GetMaterial();
+                            auto chunkMgr = tile->GetChunkManager();
+                            if (!chunkMgr)
+                            {
+                                continue;
+                            }
+                            submitChunkPackets(*chunkMgr, tile->GetTerrainData().get(),
+                                               tileMat ? tileMat.get() : nullptr,
+                                               tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale);
+                        }
+                    }
+                    else if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
+                    {
+                        submitChunkPackets(*terrain.m_ChunkManager, terrain.m_TerrainData.get(),
+                                           nullptr,
+                                           terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                    }
+
+                    // Submit voxel mesh command packets
+                    if (terrain.m_VoxelEnabled && !terrain.m_VoxelMeshes.empty() && voxelShader)
+                    {
+                        for (const auto& [coord, mesh] : terrain.m_VoxelMeshes)
+                        {
+                            if (mesh.VAO && mesh.IndexCount > 0)
+                            {
+                                auto* packet = Renderer3D::DrawVoxelMesh(
+                                    mesh.VAO->GetRendererID(), mesh.IndexCount,
+                                    voxelShader,
+                                    albedoArrayID, normalArrayID, armArrayID,
+                                    transform.GetTransform(), entityID);
+                                if (packet)
+                                    Renderer3D::SubmitPacket(packet);
+
+                                if (hasActiveShadows)
+                                {
+                                    shadowPass->AddVoxelCaster(
+                                        mesh.VAO->GetRendererID(), mesh.IndexCount,
+                                        transform.GetTransform());
+                                }
+                            }
+                        }
+                    }
+
+                    // Submit foliage shadow caster
+                    if (hasActiveShadows && m_Registry.all_of<FoliageComponent>(entity))
+                    {
+                        auto& foliage = m_Registry.get<FoliageComponent>(entity);
+                        if (foliage.m_Enabled && foliage.m_Renderer)
+                        {
+                            auto foliageDepthShader = Renderer3D::GetFoliageDepthShader();
+                            if (foliageDepthShader)
+                            {
+                                shadowPass->AddFoliageCaster(
+                                    foliage.m_Renderer.get(), foliageDepthShader, Time::GetTime());
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Foliage rendering via PostExecuteCallback
+            if (auto scenePass = Renderer3D::GetScenePass())
+            {
+                scenePass->SetPostExecuteCallback([this, &cameraPosition]()
+                                                  {
+                    auto foliageRenderView = m_Registry.view<TransformComponent, TerrainComponent, FoliageComponent>();
+                    for (auto foliageEntity : foliageRenderView)
+                    {
+                        auto const& [foliageTransform, fTerrain, foliage] = foliageRenderView.get<TransformComponent, TerrainComponent, FoliageComponent>(foliageEntity);
+                        if (!foliage.m_Enabled || !foliage.m_Renderer)
+                            continue;
+
+                        ShaderBindingLayout::ModelUBO foliageModelUBO{};
+                        foliageModelUBO.Model = foliageTransform.GetTransform();
+                        foliageModelUBO.Normal = glm::transpose(glm::inverse(foliageTransform.GetTransform()));
+                        auto modelUBO = Renderer3D::GetModelMatrixUBO();
+                        modelUBO->SetData(&foliageModelUBO, ShaderBindingLayout::ModelUBO::GetSize());
+
+                        auto foliageShader = Renderer3D::GetFoliageShader();
+                        if (foliageShader)
+                        {
+                            foliageShader->Bind();
+                            foliage.m_Renderer->SetTime(Time::GetTime());
+                            foliage.m_Renderer->Render(
+                                Renderer3D::GetViewFrustum(), cameraPosition, foliageShader);
+                        }
+                    } });
             }
         }
+
+        // Shadow pass setup for mesh entity traversal
+        auto meshShadowPass = Renderer3D::GetShadowPass();
+        bool meshHasActiveShadows = meshShadowPass && Renderer3D::GetShadowMap().IsEnabled();
 
         // Draw mesh entities (skip animated entities - they're rendered separately)
         {
@@ -2350,6 +2951,10 @@ namespace OloEngine
                                                ? m_Registry.get<MaterialComponent>(entity).m_Material
                                                : GetDefaultMaterial();
 
+                bool castsShadow = meshHasActiveShadows &&
+                    (!m_Registry.all_of<MaterialComponent>(entity) ||
+                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
@@ -2362,6 +2967,17 @@ namespace OloEngine
                         auto* packet = Renderer3D::DrawMesh(submesh, transform.GetTransform(), material, true, entityID);
                         if (packet)
                             Renderer3D::SubmitPacket(packet);
+
+                        if (castsShadow && submesh)
+                        {
+                            auto va = submesh->GetVertexArray();
+                            if (va)
+                            {
+                                meshShadowPass->AddMeshCaster(
+                                    va->GetRendererID(), submesh->GetIndexCount(),
+                                    transform.GetTransform());
+                            }
+                        }
                     }
                 }
             }
@@ -2384,12 +3000,27 @@ namespace OloEngine
                                                ? m_Registry.get<MaterialComponent>(entity).m_Material
                                                : GetDefaultMaterial();
 
+                bool castsShadow = meshHasActiveShadows &&
+                    (!m_Registry.all_of<MaterialComponent>(entity) ||
+                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
                 auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, transform.GetTransform(), material, true, entityID);
                 if (packet)
                     Renderer3D::SubmitPacket(packet);
+
+                if (castsShadow && submesh.m_Mesh)
+                {
+                    auto va = submesh.m_Mesh->GetVertexArray();
+                    if (va)
+                    {
+                        meshShadowPass->AddMeshCaster(
+                            va->GetRendererID(), submesh.m_Mesh->GetIndexCount(),
+                            transform.GetTransform());
+                    }
+                }
             }
         }
 
@@ -2405,8 +3036,6 @@ namespace OloEngine
                     continue;
                 }
 
-                // Model::DrawParallel uses the model's own materials loaded from file
-                // Pass entity ID for mouse picking support
                 model.m_Model->DrawParallel(transform.GetTransform(), static_cast<int>(entity));
             }
         }
@@ -2434,6 +3063,10 @@ namespace OloEngine
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
+                bool castsShadow = meshHasActiveShadows &&
+                    (!m_Registry.all_of<MaterialComponent>(entity) ||
+                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+
                 // Draw each submesh as an animated mesh
                 if (!mesh.m_MeshSource->GetSubmeshes().IsEmpty())
                 {
@@ -2442,7 +3075,22 @@ namespace OloEngine
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
                         auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false, entityID);
                         if (packet)
+                        {
                             Renderer3D::SubmitPacket(packet);
+
+                            if (castsShadow && submesh)
+                            {
+                                auto va = submesh->GetVertexArray();
+                                if (va)
+                                {
+                                    auto* cmd = packet->GetCommandData<DrawMeshCommand>();
+                                    meshShadowPass->AddSkinnedCaster(
+                                        va->GetRendererID(), submesh->GetIndexCount(),
+                                        transform.GetTransform(),
+                                        cmd->boneBufferOffset, cmd->boneCount);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2451,27 +3099,10 @@ namespace OloEngine
         // Set particle render callback — executed by ParticleRenderPass during graph execution
         if (auto particlePass = Renderer3D::GetParticlePass())
         {
-            particlePass->SetRenderCallback([this, &camera, &cameraTransform]()
+            particlePass->SetRenderCallback([this, &camera, &cameraTransform, cameraNearClip, cameraFarClip, &cameraPosition]()
                                             {
                 ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
-
-                // Extract near/far clips from the primary SceneCamera for soft particles
-                f32 nearClip = 0.1f;
-                f32 farClip = 1000.0f;
-                for (const auto view = m_Registry.view<CameraComponent>(); const auto entity : view)
-                {
-                    if (const auto& cam = view.get<CameraComponent>(entity); cam.Primary)
-                    {
-                        nearClip = cam.Camera.GetPerspectiveNearClip();
-                        farClip = cam.Camera.GetPerspectiveFarClip();
-                        break;
-                    }
-                }
-
-                glm::vec3 camPos = glm::vec3(cameraTransform[3]);
-
-                RenderParticleSystems(camPos, nearClip, farClip);
-
+                RenderParticleSystems(cameraPosition, cameraNearClip, cameraFarClip);
                 ParticleBatchRenderer::EndBatch(); });
         }
 

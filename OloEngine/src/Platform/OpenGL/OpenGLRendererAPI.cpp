@@ -172,6 +172,36 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, count);
     }
 
+    void OpenGLRendererAPI::DrawIndexedRaw(const u32 vaoID, const u32 indexCount)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glBindVertexArray(vaoID);
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, nullptr);
+
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TrianglesRendered, indexCount / 3);
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, indexCount);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedPatchesRaw(const u32 vaoID, const u32 indexCount, const u32 patchVertices)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (patchVertices == 0)
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI::DrawIndexedPatchesRaw - patchVertices must be >= 1");
+            return;
+        }
+
+        glBindVertexArray(vaoID);
+        glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(patchVertices));
+        glDrawElements(GL_PATCHES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, nullptr);
+
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, indexCount);
+    }
+
     void OpenGLRendererAPI::SetLineWidth(const f32 width)
     {
         OLO_PROFILE_FUNCTION();

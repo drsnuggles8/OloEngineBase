@@ -10,6 +10,36 @@ The result: the architectural intent (deferred record → sort → execute) is o
 
 ---
 
+## Implementation Status
+
+All three phases have been implemented and verified (OloEditor builds clean, 365/365 tests pass).
+
+### Phase 1 — Foundation ✅
+
+| Issue | Status | Summary |
+|-------|--------|---------|
+| **#6** — Shared fullscreen triangle | ✅ Done | `FullscreenRenderPass` base class with static `s_FullscreenTriangleVA`. SSAO, SSS, PostProcess, Final inherit from it. |
+| **#1** — Split RenderPass base class | ✅ Done | `RenderPass` is now lean (no command bucket). `CommandBufferRenderPass` adds bucket/allocator. Only `SceneRenderPass` inherits it. |
+| **#7** — Raw GL call abstractions | ✅ Done | Added `RenderCommand::CopyImageSubData()`, `SetDrawBuffers()`, `SetBlendStatePerAttachment()`, `DeleteTexture()`. All raw `gl*` calls in render passes replaced. |
+| **#4** — Consolidated framebuffer piping | ✅ Done | Removed redundant manual `SetInputFramebuffer()` calls from `EndScene()`. Graph's `ConnectPass()` piping is the single source of truth. |
+
+### Phase 2 — Graph Correctness ✅
+
+| Issue | Status | Summary |
+|-------|--------|---------|
+| **#5** — SSS gets own framebuffer | ✅ Done | `SSSRenderPass` now has its own RGBA16F output framebuffer. Reads scene color as input texture, writes to own target — no read-write hazard. `GetTarget()` returns `m_InputFramebuffer` when disabled (passthrough). |
+| **#8** — Staging copy eliminated | ✅ Done | Resolved by #5 — separate input/output means no `glCopyImageSubData` staging copy needed. |
+
+### Phase 3 — Feature Integration ✅
+
+| Issue | Status | Summary |
+|-------|--------|---------|
+| **#2** — Terrain as command packets | ✅ Done | New `DrawTerrainPatchCommand` and `DrawVoxelMeshCommand` POD types with dispatch functions. Terrain chunks and voxel meshes now submit through the command bucket via `Renderer3D::DrawTerrainPatch()` / `DrawVoxelMesh()`, participating in sort/batch/profiling. `PostExecuteCallback` reduced to foliage-only (self-batching subsystem). |
+| **#3** — Shadow pass data-driven | ✅ Done | `ShadowRenderPass` completely rewritten: callback replaced with 5 POD caster structs (`ShadowMeshCaster`, `ShadowSkinnedCaster`, `ShadowTerrainCaster`, `ShadowVoxelCaster`, `ShadowFoliageCaster`). Scene.cpp submits casters during entity traversal. `Execute()` iterates caster lists per cascade/face with appropriate depth shaders. No duplicate entity traversal, no per-frame lambda allocation. Skinned shadow casters reuse bone data offsets from scene packets. |
+| **#9** — Per-frame callback elimination | ✅ Done | Shadow callback entirely removed. Terrain callback replaced with command packets. Particle callback remains (appropriate for self-batching subsystem). Foliage stays as slim `PostExecuteCallback` (also a self-batching subsystem). |
+
+---
+
 ## Issue 1: Only `SceneRenderPass` Uses the CommandBucket
 
 ### Problem
@@ -606,45 +636,31 @@ Per Issues 2 and 3, shadow and particle rendering should submit command packets.
 
 ## Architectural Diagram
 
-### Current State
+### Current State (after all three phases)
 
 ```
 Scene.cpp
-  ├── Entity traversal → DrawMesh() → CommandBucket (ScenePass)
-  ├── SetPostExecuteCallback(terrain lambda) → Direct RenderCommand:: calls  ← BYPASS
-  ├── SetRenderCallback(shadow lambda) → Direct RenderCommand:: calls        ← BYPASS
-  ├── SetRenderCallback(particle lambda) → Direct RenderCommand:: calls      ← BYPASS
-  └── Manual SetInputFramebuffer() wiring in EndScene()                      ← REDUNDANT
-
-RenderGraph::Execute()
-  ├── ShadowPass    → callback (direct draws, no bucket)
-  ├── ScenePass     → bucket.Sort() + bucket.Execute() + PostExecuteCallback
-  ├── SSAOPass      → direct fullscreen draws (raw GL noise texture)
-  ├── ParticlePass  → callback (direct draws, raw GL blend)
-  ├── SSSPass       → direct draws (raw GL staging copy + draw buffers)
-  ├── PostProcess   → direct fullscreen draws
-  └── FinalPass     → direct fullscreen blit
-```
-
-### Target State
-
-```
-Scene.cpp
-  └── Entity traversal
-        ├── DrawMesh()          → ScenePass.CommandBucket
-        ├── DrawTerrainPatch()  → ScenePass.CommandBucket
-        ├── DrawFoliage()       → ScenePass.CommandBucket
-        └── (shadow casters)    → ShadowPass.CommandBucket
+  └── Entity traversal (single pass)
+        ├── DrawMesh()           → ScenePass.CommandBucket
+        ├── DrawAnimatedMesh()   → ScenePass.CommandBucket
+        ├── DrawTerrainPatch()   → ScenePass.CommandBucket
+        ├── DrawVoxelMesh()      → ScenePass.CommandBucket
+        ├── AddMeshCaster()      → ShadowPass caster list
+        ├── AddSkinnedCaster()   → ShadowPass caster list (reuses bone offsets)
+        ├── AddTerrainCaster()   → ShadowPass caster list
+        ├── AddVoxelCaster()     → ShadowPass caster list
+        ├── AddFoliageCaster()   → ShadowPass caster list
+        └── PostExecuteCallback  → FoliageRenderer (self-batching subsystem)
 
 RenderGraph::Execute()  ← single source of truth for ordering + I/O piping
-  ├── ShadowPass (CommandBufferRenderPass)
-  │     └── bucket.Sort() + dispatch per cascade/face
+  ├── ShadowPass (RenderPass)
+  │     └── Iterates caster lists per cascade/face with depth shaders
   ├── ScenePass (CommandBufferRenderPass)
-  │     └── bucket.Sort() + bucket.Execute()
+  │     └── bucket.Sort() + bucket.Execute() + PostExecuteCallback (foliage only)
   ├── SSAOPass (FullscreenRenderPass)
   │     └── DrawFullscreenTriangle() — reads scene depth/normals, writes own FB
   ├── ParticlePass
-  │     └── Renders to own FB, depth-tests against scene depth input
+  │     └── Callback (self-batching subsystem, appropriate)
   ├── SSSPass (FullscreenRenderPass)
   │     └── DrawFullscreenTriangle() — reads scene color input, writes own FB
   ├── PostProcessPass (FullscreenRenderPass)

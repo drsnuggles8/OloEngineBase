@@ -23,6 +23,9 @@ namespace OloEngine
         void DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount) override;
         void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 patchVertices) override;
 
+        void DrawIndexedRaw(u32 vaoID, u32 indexCount) override;
+        void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices) override;
+
         void SetLineWidth(f32 width) override;
 
         void EnableCulling() override;

@@ -1160,6 +1160,12 @@ namespace OloEngine
         s_Data.ViewPos = position;
     }
 
+    void Renderer3D::SetCameraClipPlanes(f32 nearClip, f32 farClip)
+    {
+        s_Data.CameraNearClip = nearClip;
+        s_Data.CameraFarClip = farClip;
+    }
+
     void Renderer3D::UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data)
     {
         OLO_PROFILE_FUNCTION();

@@ -64,6 +64,17 @@ namespace OloEngine
             s_RendererAPI->DrawIndexedPatches(vertexArray, indexCount, patchVertices);
         }
 
+        // Raw VAO ID overloads for POD shadow casters
+        static void DrawIndexedRaw(u32 vaoID, u32 indexCount)
+        {
+            s_RendererAPI->DrawIndexedRaw(vaoID, indexCount);
+        }
+
+        static void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices)
+        {
+            s_RendererAPI->DrawIndexedPatchesRaw(vaoID, indexCount, patchVertices);
+        }
+
         static void SetLineWidth(const f32 width)
         {
             s_RendererAPI->SetLineWidth(width);

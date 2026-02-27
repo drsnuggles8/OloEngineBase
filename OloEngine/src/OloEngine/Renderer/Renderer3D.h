@@ -403,6 +403,7 @@ namespace OloEngine
 
         static void SetLight(const Light& light);
         static void SetViewPosition(const glm::vec3& position);
+        static void SetCameraClipPlanes(f32 nearClip, f32 farClip);
 
         // Scene light collection (collects light components from scene)
         static void SetSceneLights(const Ref<Scene>& scene);

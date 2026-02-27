@@ -48,6 +48,10 @@ namespace OloEngine
         virtual void DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount) = 0;
         virtual void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 patchVertices) = 0;
 
+        // Raw VAO ID overloads for POD shadow casters (no Ref<VertexArray> available)
+        virtual void DrawIndexedRaw(u32 vaoID, u32 indexCount) = 0;
+        virtual void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices) = 0;
+
         virtual void SetLineWidth(f32 width) = 0;
 
         virtual void EnableCulling() = 0;
