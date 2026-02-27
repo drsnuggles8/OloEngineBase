@@ -12,7 +12,7 @@ namespace OloEngine
     {
       public:
         SSSRenderPass();
-        ~SSSRenderPass() override;
+        ~SSSRenderPass() override = default;
 
         void Init(const FramebufferSpecification& spec) override;
         void Execute() override;
@@ -21,9 +21,10 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        void SetSceneFramebuffer(const Ref<Framebuffer>& sceneFB)
+        // Graph piping: receives the output of the previous pass (scene+particles).
+        void SetInputFramebuffer(const Ref<Framebuffer>& input) override
         {
-            m_SceneFramebuffer = sceneFB;
+            m_InputFramebuffer = input;
         }
         void SetSettings(const SnowSettings& settings)
         {
@@ -37,18 +38,13 @@ namespace OloEngine
 
       private:
         void DrawFullscreenTriangle();
-        void EnsureStagingTexture(u32 width, u32 height);
+        void CreateOutputFramebuffer(u32 width, u32 height);
 
-        Ref<Framebuffer> m_SceneFramebuffer;
+        Ref<Framebuffer> m_InputFramebuffer;
 
         Ref<Shader> m_SSSBlurShader;
         Ref<UniformBuffer> m_SSSUBO;
         SSSUBOData* m_GPUData = nullptr;
-
-        // Staging texture to avoid read-write hazard on scene FB
-        u32 m_StagingTexture = 0;
-        u32 m_StagingWidth = 0;
-        u32 m_StagingHeight = 0;
 
         SnowSettings m_Settings;
     };

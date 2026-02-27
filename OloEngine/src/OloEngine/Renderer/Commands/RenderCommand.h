@@ -131,7 +131,14 @@ namespace OloEngine
         SetScissorTest,
         SetScissorBox,
         SetColorMask,
-        SetMultisampling
+        SetMultisampling,
+
+        // Terrain/Voxel commands
+        DrawTerrainPatch,
+        DrawVoxelMesh,
+
+        // Sentinel — always keep last for dispatch table sizing
+        COUNT
     };
 
     // Single source-of-truth for CommandType -> string conversion
@@ -211,6 +218,12 @@ namespace OloEngine
                 return "SetColorMask";
             case CommandType::SetMultisampling:
                 return "SetMultisampling";
+            case CommandType::DrawTerrainPatch:
+                return "DrawTerrainPatch";
+            case CommandType::DrawVoxelMesh:
+                return "DrawVoxelMesh";
+            case CommandType::COUNT:
+                return "COUNT";
             default:
                 return "Unknown";
         }
@@ -602,6 +615,67 @@ namespace OloEngine
 
     // Static assertion for DrawQuadCommand
     static_assert(std::is_trivially_copyable_v<DrawQuadCommand>, "DrawQuadCommand must be trivially copyable for radix sort");
+
+    // Terrain patch command — uses GL_PATCHES with tessellation shaders
+    struct DrawTerrainPatchCommand
+    {
+        CommandHeader header;
+
+        // Mesh data
+        RendererID vertexArrayID = 0;
+        u32 indexCount = 0;
+        u32 patchVertexCount = 3; // Tessellation patch vertex count
+
+        // Shader
+        RendererID shaderRendererID = 0;
+
+        // Terrain textures
+        RendererID heightmapTextureID = 0;
+        RendererID splatmapTextureID = 0;
+        RendererID splatmap1TextureID = 0;
+        RendererID albedoArrayTextureID = 0;
+        RendererID normalArrayTextureID = 0;
+        RendererID armArrayTextureID = 0;
+
+        // Transform
+        glm::mat4 transform = glm::mat4(1.0f);
+        i32 entityID = -1;
+
+        // Terrain UBO data (inlined per-chunk — tess factors vary per chunk)
+        ShaderBindingLayout::TerrainUBO terrainUBOData{};
+
+        // Render state
+        PODRenderState renderState;
+    };
+
+    static_assert(std::is_trivially_copyable_v<DrawTerrainPatchCommand>, "DrawTerrainPatchCommand must be trivially copyable for radix sort");
+
+    // Voxel mesh command — standard GL_TRIANGLES
+    struct DrawVoxelMeshCommand
+    {
+        CommandHeader header;
+
+        // Mesh data
+        RendererID vertexArrayID = 0;
+        u32 indexCount = 0;
+
+        // Shader
+        RendererID shaderRendererID = 0;
+
+        // Textures for triplanar sampling
+        RendererID albedoArrayTextureID = 0;
+        RendererID normalArrayTextureID = 0;
+        RendererID armArrayTextureID = 0;
+
+        // Transform
+        glm::mat4 transform = glm::mat4(1.0f);
+        i32 entityID = -1;
+
+        // Render state
+        PODRenderState renderState;
+    };
+
+    static_assert(std::is_trivially_copyable_v<DrawVoxelMeshCommand>, "DrawVoxelMeshCommand must be trivially copyable for radix sort");
 
     // Maximum command size for allocation purposes - increased for PBR and bone matrices
     constexpr sizet MAX_COMMAND_SIZE = 1024;

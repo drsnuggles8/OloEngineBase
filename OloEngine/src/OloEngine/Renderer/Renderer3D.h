@@ -138,6 +138,23 @@ namespace OloEngine
         // Grid rendering (returns command packet for deferred execution)
         static CommandPacket* DrawInfiniteGrid(f32 gridScale = 1.0f);
 
+        // Terrain/Voxel rendering (returns command packets for sorted execution)
+        static CommandPacket* DrawTerrainPatch(
+            RendererID vaoID, u32 indexCount, u32 patchVertexCount,
+            const Ref<Shader>& shader,
+            RendererID heightmapID, RendererID splatmapID, RendererID splatmap1ID,
+            RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+            const glm::mat4& transform,
+            const ShaderBindingLayout::TerrainUBO& terrainUBO,
+            i32 entityID = -1);
+
+        static CommandPacket* DrawVoxelMesh(
+            RendererID vaoID, u32 indexCount,
+            const Ref<Shader>& shader,
+            RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+            const glm::mat4& transform,
+            i32 entityID = -1);
+
         // Skeleton visualization
         static void DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix,
                                  bool showBones = true, bool showJoints = true,

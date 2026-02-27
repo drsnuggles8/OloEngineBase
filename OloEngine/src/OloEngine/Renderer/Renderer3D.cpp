@@ -1756,8 +1756,8 @@ namespace OloEngine
 
         s_Data.SSSPass = Ref<SSSRenderPass>::Create();
         s_Data.SSSPass->SetName("SSSPass");
-        s_Data.SSSPass->Init(scenePassSpec);
-        s_Data.SSSPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+        s_Data.SSSPass->Init(finalPassSpec);
+        s_Data.SSSPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
         s_Data.SSSPass->SetSSSUBO(s_Data.SSSUBO, &s_Data.SSSGPUData);
 
         s_Data.PostProcessPass = Ref<PostProcessRenderPass>::Create();
@@ -1783,8 +1783,8 @@ namespace OloEngine
         s_Data.RGraph->AddExecutionDependency("ScenePass", "SSAOPass");
         // SSAOPass -> ParticlePass: ordering (SSAO must complete before particles render into scene FB)
         s_Data.RGraph->AddExecutionDependency("SSAOPass", "ParticlePass");
-        // ParticlePass -> SSSPass: ordering (SSS blur reads scene FB alpha for SSS mask)
-        s_Data.RGraph->AddExecutionDependency("ParticlePass", "SSSPass");
+        // ParticlePass -> SSSPass: framebuffer piping (SSS reads scene color via SetInputFramebuffer)
+        s_Data.RGraph->ConnectPass("ParticlePass", "SSSPass");
         // Graph connections: SSSPass -> PostProcessPass -> FinalPass use SetInputFramebuffer
         // via the graph's Execute() piping. No manual calls needed for these.
         s_Data.RGraph->ConnectPass("SSSPass", "PostProcessPass");
@@ -2711,6 +2711,113 @@ namespace OloEngine
 
         // Submit packet
         SubmitPacket(packet);
+        return packet;
+    }
+
+    CommandPacket* Renderer3D::DrawTerrainPatch(
+        RendererID vaoID, u32 indexCount, u32 patchVertexCount,
+        const Ref<Shader>& shader,
+        RendererID heightmapID, RendererID splatmapID, RendererID splatmap1ID,
+        RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+        const glm::mat4& transform,
+        const ShaderBindingLayout::TerrainUBO& terrainUBO,
+        i32 entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawTerrainPatch: ScenePass is null!");
+            return nullptr;
+        }
+
+        if (vaoID == 0 || !shader)
+        {
+            return nullptr;
+        }
+
+        CommandPacket* packet = CreateDrawCall<DrawTerrainPatchCommand>();
+        auto* cmd = packet->GetCommandData<DrawTerrainPatchCommand>();
+        cmd->header.type = CommandType::DrawTerrainPatch;
+
+        cmd->vertexArrayID = vaoID;
+        cmd->indexCount = indexCount;
+        cmd->patchVertexCount = patchVertexCount;
+        cmd->shaderRendererID = shader->GetRendererID();
+        cmd->heightmapTextureID = heightmapID;
+        cmd->splatmapTextureID = splatmapID;
+        cmd->splatmap1TextureID = splatmap1ID;
+        cmd->albedoArrayTextureID = albedoArrayID;
+        cmd->normalArrayTextureID = normalArrayID;
+        cmd->armArrayTextureID = armArrayID;
+        cmd->transform = transform;
+        cmd->entityID = entityID;
+        cmd->terrainUBOData = terrainUBO;
+
+        // Terrain is opaque — depth test on, no blending, culling on
+        cmd->renderState = CreateDefaultPODRenderState();
+        cmd->renderState.blendEnabled = false;
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Sort key: group by shader for state efficiency
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = shader->GetRendererID() & 0xFFFF;
+        u32 depth = ComputeDepthForSortKey(transform);
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
+        metadata.m_IsStatic = true;
+        packet->SetMetadata(metadata);
+
+        return packet;
+    }
+
+    CommandPacket* Renderer3D::DrawVoxelMesh(
+        RendererID vaoID, u32 indexCount,
+        const Ref<Shader>& shader,
+        RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+        const glm::mat4& transform,
+        i32 entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawVoxelMesh: ScenePass is null!");
+            return nullptr;
+        }
+
+        if (vaoID == 0 || !shader)
+        {
+            return nullptr;
+        }
+
+        CommandPacket* packet = CreateDrawCall<DrawVoxelMeshCommand>();
+        auto* cmd = packet->GetCommandData<DrawVoxelMeshCommand>();
+        cmd->header.type = CommandType::DrawVoxelMesh;
+
+        cmd->vertexArrayID = vaoID;
+        cmd->indexCount = indexCount;
+        cmd->shaderRendererID = shader->GetRendererID();
+        cmd->albedoArrayTextureID = albedoArrayID;
+        cmd->normalArrayTextureID = normalArrayID;
+        cmd->armArrayTextureID = armArrayID;
+        cmd->transform = transform;
+        cmd->entityID = entityID;
+
+        cmd->renderState = CreateDefaultPODRenderState();
+        cmd->renderState.blendEnabled = false;
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = shader->GetRendererID() & 0xFFFF;
+        u32 depth = ComputeDepthForSortKey(transform);
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
+        metadata.m_IsStatic = true;
+        packet->SetMetadata(metadata);
+
         return packet;
     }
 

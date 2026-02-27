@@ -22,6 +22,8 @@
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Particle/TrailRenderer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -1519,337 +1521,8 @@ namespace OloEngine
 
             shadowMap.UploadUBO();
 
-            // Set shadow render callback
-            if (auto shadowPass = Renderer3D::GetShadowPass())
-            {
-                shadowPass->SetRenderCallback([this](const glm::mat4& lightVP, [[maybe_unused]] u32 layer, ShadowPassType type)
-                                              {
-                    auto& shadowMap = Renderer3D::GetShadowMap();
-
-                    // Select shader based on shadow pass type
-                    const char* shaderName = (type == ShadowPassType::Point) ? "ShadowDepthPoint" : "ShadowDepth";
-                    auto shadowShader = Renderer3D::GetShaderLibrary().Get(shaderName);
-                    if (!shadowShader)
-                    {
-                        OLO_CORE_ERROR("Shadow: {} shader not found!", shaderName);
-                        return;
-                    }
-                    shadowShader->Bind();
-
-                    // Upload light VP to the shadow camera UBO (binding 0)
-                    auto cameraUBOData = ShaderBindingLayout::CameraUBO{};
-                    cameraUBOData.ViewProjection = lightVP;
-                    cameraUBOData.View = glm::mat4(1.0f);
-                    cameraUBOData.Projection = lightVP;
-
-                    if (type == ShadowPassType::Point)
-                    {
-                        // For point shadows, store light position and far plane
-                        const auto& params = shadowMap.GetPointShadowParams(layer);
-                        cameraUBOData.Position = glm::vec3(params); // xyz = light position
-                        cameraUBOData._padding0 = params.w;          // w = far plane
-                    }
-                    else
-                    {
-                        cameraUBOData.Position = glm::vec3(0.0f);
-                        cameraUBOData._padding0 = 0.0f;
-                    }
-
-                    auto& cameraUBO = shadowMap.GetShadowCameraUBO();
-                    cameraUBO->SetData(&cameraUBOData, ShaderBindingLayout::CameraUBO::GetSize());
-                    cameraUBO->Bind();
-                    auto& modelUBO = shadowMap.GetShadowModelUBO();
-                    modelUBO->Bind();
-
-                    // Helper to populate and upload the shadow ModelUBO for a given transform
-                    auto uploadShadowModelUBO = [&modelUBO](const glm::mat4& worldTransform)
-                    {
-                        ShaderBindingLayout::ModelUBO modelData;
-                        modelData.Model = worldTransform;
-                        // Shadow depth shaders don't use normals — skip the expensive inverse+transpose
-                        modelData.Normal = glm::mat4(1.0f);
-                        modelData.EntityID = -1;
-                        modelData._paddingEntity[0] = 0;
-                        modelData._paddingEntity[1] = 0;
-                        modelData._paddingEntity[2] = 0;
-                        modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-                    };
-
-                    // Render all shadow-casting static meshes
-                    auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
-                    for (auto entity : meshView)
-                    {
-                        if (m_Registry.all_of<SkeletonComponent>(entity))
-                        {
-                            continue;
-                        }
-
-                        // Check if material disables shadow casting
-                        if (m_Registry.all_of<MaterialComponent>(entity))
-                        {
-                            const auto& mat = m_Registry.get<MaterialComponent>(entity).m_Material;
-                            if (mat.GetFlag(MaterialFlag::DisableShadowCasting))
-                            {
-                                continue;
-                            }
-                        }
-
-                        const auto& [transform, mesh] = meshView.get<TransformComponent, MeshComponent>(entity);
-                        if (!mesh.m_MeshSource)
-                        {
-                            continue;
-                        }
-
-                        uploadShadowModelUBO(transform.GetTransform());
-
-                        for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
-                        {
-                            auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                            auto va = submesh->GetVertexArray();
-                            if (va)
-                            {
-                                va->Bind();
-                                RenderCommand::DrawIndexed(va, submesh->GetIndexCount());
-                            }
-                        }
-                    }
-
-                    // Render submesh entities
-                    auto submeshView = m_Registry.view<TransformComponent, SubmeshComponent>();
-                    for (auto entity : submeshView)
-                    {
-                        const auto& [transform, submesh] = submeshView.get<TransformComponent, SubmeshComponent>(entity);
-                        if (!submesh.m_Mesh || !submesh.m_Visible)
-                        {
-                            continue;
-                        }
-
-                        if (m_Registry.all_of<MaterialComponent>(entity))
-                        {
-                            const auto& mat = m_Registry.get<MaterialComponent>(entity).m_Material;
-                            if (mat.GetFlag(MaterialFlag::DisableShadowCasting))
-                            {
-                                continue;
-                            }
-                        }
-
-                        uploadShadowModelUBO(transform.GetTransform());
-
-                        auto va = submesh.m_Mesh->GetVertexArray();
-                        if (va)
-                        {
-                            va->Bind();
-                            RenderCommand::DrawIndexed(va, submesh.m_Mesh->GetIndexCount());
-                        }
-                    }
-
-                    // Render animated/skinned meshes into shadow map
-                    // Fallback chain: ShadowDepthPointSkinned -> ShadowDepthSkinned
-                    Ref<Shader> skinnedShadowShader;
-                    if (type == ShadowPassType::Point)
-                    {
-                        skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthPointSkinned");
-                    }
-                    if (!skinnedShadowShader)
-                    {
-                        skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthSkinned");
-                        if (skinnedShadowShader)
-                        {
-                            OLO_CORE_WARN("ShadowDepthPointSkinned shader not found, falling back to ShadowDepthSkinned");
-                        }
-                    }
-                    if (skinnedShadowShader)
-                    {
-                        skinnedShadowShader->Bind();
-                        auto& animUBO = shadowMap.GetShadowAnimationUBO();
-                        animUBO->Bind();
-
-                        auto skinnedView = m_Registry.view<TransformComponent, MeshComponent, SkeletonComponent>();
-                        for (auto entity : skinnedView)
-                        {
-                            if (m_Registry.all_of<MaterialComponent>(entity))
-                            {
-                                const auto& mat = m_Registry.get<MaterialComponent>(entity).m_Material;
-                                if (mat.GetFlag(MaterialFlag::DisableShadowCasting))
-                                {
-                                    continue;
-                                }
-                            }
-
-                            const auto& [transform, mesh, skeleton] = skinnedView.get<TransformComponent, MeshComponent, SkeletonComponent>(entity);
-                            if (!mesh.m_MeshSource || !skeleton.m_Skeleton)
-                            {
-                                continue;
-                            }
-
-                            // Upload model matrix
-                            uploadShadowModelUBO(transform.GetTransform());
-
-                            // Upload bone matrices
-                            const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
-                            if (!boneMatrices.empty())
-                            {
-                                auto boneCount = std::min(static_cast<u32>(boneMatrices.size()), static_cast<u32>(ShaderBindingLayout::AnimationUBO::MAX_BONES));
-                                animUBO->SetData(boneMatrices.data(), boneCount * sizeof(glm::mat4));
-                            }
-
-                            // Draw each submesh
-                            for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
-                            {
-                                auto submeshRef = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                                auto va = submeshRef->GetVertexArray();
-                                if (va)
-                                {
-                                    va->Bind();
-                                    RenderCommand::DrawIndexed(va, submeshRef->GetIndexCount());
-                                }
-                            }
-                        }
-                    }
-
-                    // Render terrain into shadow map
-                    {
-                        // Use the appropriate depth shader for terrain
-                        const char* terrainDepthName = (type == ShadowPassType::Point) ? "ShadowDepthPoint" : "Terrain_Depth";
-                        auto terrainDepthShader = Renderer3D::GetShaderLibrary().Get(terrainDepthName);
-                        if (!terrainDepthShader)
-                        {
-                            terrainDepthShader = Renderer3D::GetTerrainDepthShader();
-                        }
-                        if (terrainDepthShader)
-                        {
-                            terrainDepthShader->Bind();
-                            auto terrainShadowView = m_Registry.view<TransformComponent, TerrainComponent>();
-                            for (auto terrainEntity : terrainShadowView)
-                            {
-                                const auto& [terrainTransform, terrain] = terrainShadowView.get<TransformComponent, TerrainComponent>(terrainEntity);
-
-                                // Lambda to render chunks from a single chunk manager for shadows
-                                auto renderShadowChunks = [&](const TerrainChunkManager& chunkMgr,
-                                                              const TerrainData* terrainData,
-                                                              f32 worldSizeX, f32 worldSizeZ,
-                                                              f32 heightScale, bool useTess)
-                                {
-                                    ShaderBindingLayout::TerrainUBO shadowTerrainUBO{};
-                                    shadowTerrainUBO.WorldSizeAndHeightScale = glm::vec4(
-                                        worldSizeX, worldSizeZ,
-                                        heightScale,
-                                        static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
-                                    u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
-                                    shadowTerrainUBO.TerrainParams = glm::vec4(
-                                        1.0f / static_cast<f32>(res), 1.0f / static_cast<f32>(res), 0.0f, 0.0f);
-                                    shadowTerrainUBO.HeightmapResolution = static_cast<i32>(res);
-
-                                    if (terrainData && terrainData->GetGPUHeightmap())
-                                    {
-                                        terrainData->GetGPUHeightmap()->Bind(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP);
-                                    }
-
-                                    if (useTess)
-                                    {
-                                        const auto& selectedChunks = chunkMgr.GetSelectedChunks();
-                                        for (const auto& rc : selectedChunks)
-                                        {
-                                            auto va = rc.Chunk->GetVertexArray();
-                                            if (!va) { continue; }
-                                            shadowTerrainUBO.TessFactors = rc.LODData.TessFactors;
-                                            shadowTerrainUBO.TessFactors2 = rc.LODData.TessFactors2;
-                                            shadowTerrainUBO.TessFactors2.w = 1.0f;
-                                            auto terrainUBO = Renderer3D::GetTerrainUBO();
-                                            terrainUBO->SetData(&shadowTerrainUBO, ShaderBindingLayout::TerrainUBO::GetSize());
-                                            terrainUBO->Bind();
-                                            va->Bind();
-                                            RenderCommand::DrawIndexedPatches(va, rc.Chunk->GetIndexCount(), 3);
-                                        }
-                                    }
-                                    else
-                                    {
-                                        // Shader always has TCS+TES — must use GL_PATCHES.
-                                        // Tess level 1.0 = no subdivision (pass-through).
-                                        shadowTerrainUBO.TessFactors = glm::vec4(1.0f);
-                                        shadowTerrainUBO.TessFactors2.w = 1.0f;
-                                        auto terrainUBO = Renderer3D::GetTerrainUBO();
-                                        terrainUBO->SetData(&shadowTerrainUBO, ShaderBindingLayout::TerrainUBO::GetSize());
-                                        terrainUBO->Bind();
-                                        std::vector<const TerrainChunk*> allChunks;
-                                        chunkMgr.GetAllChunks(allChunks);
-                                        for (const auto* chunk : allChunks)
-                                        {
-                                            auto va = chunk->GetVertexArray();
-                                            if (va)
-                                            {
-                                                va->Bind();
-                                                RenderCommand::DrawIndexedPatches(va, chunk->GetIndexCount(), 3);
-                                            }
-                                        }
-                                    }
-                                };
-
-                                uploadShadowModelUBO(terrainTransform.GetTransform());
-                                bool useTess = terrain.m_TessellationEnabled;
-
-                                if (terrain.m_StreamingEnabled && terrain.m_Streamer)
-                                {
-                                    // Streaming mode: render all ready tiles
-                                    std::vector<Ref<TerrainTile>> readyTiles;
-                                    terrain.m_Streamer->GetReadyTiles(readyTiles);
-                                    for (const auto& tile : readyTiles)
-                                    {
-                                        if (tile->GetChunkManager() && tile->GetChunkManager()->IsBuilt())
-                                        {
-                                            renderShadowChunks(*tile->GetChunkManager(), tile->GetTerrainData().get(),
-                                                               tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale, useTess);
-                                        }
-                                    }
-                                }
-                                else if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
-                                {
-                                    // Single-tile mode
-                                    renderShadowChunks(*terrain.m_ChunkManager, terrain.m_TerrainData.get(),
-                                                       terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, useTess);
-                                }
-
-                                // Voxel override shadow pass
-                                if (terrain.m_VoxelEnabled && !terrain.m_VoxelMeshes.empty())
-                                {
-                                    auto voxelDepthShader = Renderer3D::GetVoxelDepthShader();
-                                    if (voxelDepthShader)
-                                    {
-                                        voxelDepthShader->Bind();
-                                        for (const auto& [coord, mesh] : terrain.m_VoxelMeshes)
-                                        {
-                                            if (mesh.VAO && mesh.IndexCount > 0)
-                                            {
-                                                mesh.VAO->Bind();
-                                                RenderCommand::DrawIndexed(mesh.VAO, mesh.IndexCount);
-                                            }
-                                        }
-                                        // Re-bind terrain depth shader for remaining terrain entities
-                                        terrainDepthShader->Bind();
-                                    }
-                                }
-
-                                // ── Foliage shadow pass ──
-                                if (m_Registry.all_of<FoliageComponent>(terrainEntity))
-                                {
-                                    auto& foliage = m_Registry.get<FoliageComponent>(terrainEntity);
-                                    if (foliage.m_Enabled && foliage.m_Renderer)
-                                    {
-                                        auto foliageDepthShader = Renderer3D::GetFoliageDepthShader();
-                                        if (foliageDepthShader)
-                                        {
-                                            foliageDepthShader->Bind();
-                                            foliage.m_Renderer->SetTime(Time::GetTime());
-                                            foliage.m_Renderer->RenderShadows(foliageDepthShader);
-                                            // Re-bind terrain depth shader for remaining entities
-                                            terrainDepthShader->Bind();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } });
-            }
+            // Shadow casters will be submitted during entity traversal below.
+            // ShadowRenderPass::Execute() iterates them per cascade/face.
         }
 
         // Initialize terrain chunks if needed and set up terrain rendering
@@ -2016,231 +1689,236 @@ namespace OloEngine
                 }
             }
 
-            // Set up terrain rendering callback on the SceneRenderPass
-            if (auto scenePass = Renderer3D::GetScenePass())
+            // Submit terrain + voxel command packets (sorted with other opaque geometry)
+            // and shadow casters for terrain, voxel, and foliage.
             {
-                scenePass->SetPostExecuteCallback([this, &camera]()
-                                                  {
-                    // Reset blend state — command bucket execution may have left blending enabled
-                    // (e.g., from InfiniteGrid which uses alpha blending). Terrain is opaque and
-                    // must not blend with previously rendered content.
-                    RenderCommand::SetBlendState(false);
+                auto terrainShader = Renderer3D::GetTerrainPBRShader();
+                auto voxelShader = Renderer3D::GetVoxelPBRShader();
+                auto shadowPass = Renderer3D::GetShadowPass();
+                bool hasActiveShadows = shadowPass && Renderer3D::GetShadowMap().IsEnabled();
 
-                    auto terrainRenderView = m_Registry.view<TransformComponent, TerrainComponent>();
+                auto terrainRenderView = m_Registry.view<TransformComponent, TerrainComponent>();
+                for (auto entity : terrainRenderView)
+                {
+                    const auto& [transform, terrain] = terrainRenderView.get<TransformComponent, TerrainComponent>(entity);
 
-                    for (auto entity : terrainRenderView)
+                    if (!terrainShader)
                     {
-                        const auto& [transform, terrain] = terrainRenderView.get<TransformComponent, TerrainComponent>(entity);
+                        continue;
+                    }
 
-                        // Bind terrain shader
-                        auto terrainShader = Renderer3D::GetTerrainPBRShader();
-                        if (!terrainShader)
+                    bool hasMaterial = terrain.m_Material && terrain.m_Material->IsBuilt();
+
+                    // Extract texture IDs for command packets
+                    RendererID splatmapID = 0, splatmap1ID = 0;
+                    RendererID albedoArrayID = 0, normalArrayID = 0, armArrayID = 0;
+                    if (hasMaterial)
+                    {
+                        auto& mat = terrain.m_Material;
+                        if (auto s0 = mat->GetSplatmap(0))   splatmapID = s0->GetRendererID();
+                        if (auto s1 = mat->GetSplatmap(1))   splatmap1ID = s1->GetRendererID();
+                        if (mat->GetAlbedoArray())            albedoArrayID = mat->GetAlbedoArray()->GetRendererID();
+                        if (mat->GetNormalArray())            normalArrayID = mat->GetNormalArray()->GetRendererID();
+                        if (mat->GetARMArray())               armArrayID = mat->GetARMArray()->GetRendererID();
+                    }
+
+                    i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+                    bool useTess = terrain.m_TessellationEnabled;
+
+                    // Lambda to submit command packets for one chunk manager
+                    auto submitChunkPackets = [&](const TerrainChunkManager& chunkMgr,
+                                                  const TerrainData* terrainData,
+                                                  const TerrainMaterial* tileMaterial,
+                                                  f32 worldSizeX, f32 worldSizeZ,
+                                                  f32 heightScale)
+                    {
+                        if (!chunkMgr.IsBuilt())
                         {
-                            continue;
+                            return;
                         }
-                        terrainShader->Bind();
 
-                        // Bind terrain material textures (splatmaps + layer arrays)
-                        bool hasMaterial = terrain.m_Material && terrain.m_Material->IsBuilt();
-                        if (hasMaterial)
+                        RendererID heightmapID = 0;
+                        if (terrainData && terrainData->GetGPUHeightmap())
                         {
-                            auto& mat = terrain.m_Material;
-                            if (auto splatmap0 = mat->GetSplatmap(0))
-                                splatmap0->Bind(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP);
-                            if (auto splatmap1 = mat->GetSplatmap(1))
-                                splatmap1->Bind(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1);
-                            if (mat->GetAlbedoArray())
-                                mat->GetAlbedoArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY);
-                            if (mat->GetNormalArray())
-                                mat->GetNormalArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY);
-                            if (mat->GetARMArray())
-                                mat->GetARMArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY);
+                            heightmapID = terrainData->GetGPUHeightmap()->GetRendererID();
+                        }
+
+                        // Per-tile material overrides entity material texture IDs
+                        RendererID tileSplatmapID = splatmapID, tileSplatmap1ID = splatmap1ID;
+                        RendererID tileAlbedoArrayID = albedoArrayID, tileNormalArrayID = normalArrayID, tileArmArrayID = armArrayID;
+                        bool tileHasMaterial = tileMaterial && tileMaterial->IsBuilt();
+                        if (tileHasMaterial && tileMaterial != terrain.m_Material.get())
+                        {
+                            if (auto s0 = tileMaterial->GetSplatmap(0))   tileSplatmapID = s0->GetRendererID();
+                            if (auto s1 = tileMaterial->GetSplatmap(1))   tileSplatmap1ID = s1->GetRendererID();
+                            if (tileMaterial->GetAlbedoArray())           tileAlbedoArrayID = tileMaterial->GetAlbedoArray()->GetRendererID();
+                            if (tileMaterial->GetNormalArray())           tileNormalArrayID = tileMaterial->GetNormalArray()->GetRendererID();
+                            if (tileMaterial->GetARMArray())              tileArmArrayID = tileMaterial->GetARMArray()->GetRendererID();
+                        }
+
+                        // Build base terrain UBO (tess factors filled per-chunk)
+                        ShaderBindingLayout::TerrainUBO terrainUBOData{};
+                        terrainUBOData.WorldSizeAndHeightScale = glm::vec4(
+                            worldSizeX, worldSizeZ,
+                            heightScale,
+                            static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
+                        u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
+
+                        const TerrainMaterial* effectiveMat = tileHasMaterial ? tileMaterial : (hasMaterial ? terrain.m_Material.get() : nullptr);
+                        u32 layerCount = effectiveMat ? effectiveMat->GetLayerCount() : 0;
+                        f32 triplanarSharpness = 8.0f;
+                        terrainUBOData.TerrainParams = glm::vec4(
+                            1.0f / static_cast<f32>(res),
+                            1.0f / static_cast<f32>(res),
+                            static_cast<f32>(layerCount),
+                            triplanarSharpness);
+                        terrainUBOData.HeightmapResolution = static_cast<i32>(res);
+
+                        if (effectiveMat)
+                        {
+                            for (u32 i = 0; i < std::min(layerCount, 4u); ++i)
+                            {
+                                terrainUBOData.LayerTilingScales0[i] = effectiveMat->GetLayer(i).TilingScale;
+                                terrainUBOData.LayerBlendSharpness0[i] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                            }
+                            for (u32 i = 4; i < std::min(layerCount, 8u); ++i)
+                            {
+                                terrainUBOData.LayerTilingScales1[i - 4] = effectiveMat->GetLayer(i).TilingScale;
+                                terrainUBOData.LayerBlendSharpness1[i - 4] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                            }
+                        }
+
+                        if (useTess)
+                        {
+                            const auto& selectedChunks = chunkMgr.GetSelectedChunks();
+                            for (const auto& rc : selectedChunks)
+                            {
+                                auto va = rc.Chunk->GetVertexArray();
+                                if (!va) { continue; }
+                                terrainUBOData.TessFactors = rc.LODData.TessFactors;
+                                terrainUBOData.TessFactors2 = rc.LODData.TessFactors2;
+                                terrainUBOData.TessFactors2.w = 1.0f;
+
+                                auto* packet = Renderer3D::DrawTerrainPatch(
+                                    va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
+                                    terrainShader,
+                                    heightmapID, tileSplatmapID, tileSplatmap1ID,
+                                    tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
+                                    transform.GetTransform(), terrainUBOData, entityID);
+                                if (packet)
+                                    Renderer3D::SubmitPacket(packet);
+
+                                // Shadow caster for this chunk
+                                if (hasActiveShadows)
+                                {
+                                    shadowPass->AddTerrainCaster(
+                                        va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
+                                        transform.GetTransform(), heightmapID, terrainUBOData);
+                                }
+                            }
                         }
                         else
                         {
-                            // Unbind terrain material slots to prevent stale texture type mismatches
-                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP, 0);
-                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, 0);
-                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, 0);
-                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, 0);
-                            RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1, 0);
-                        }
-
-                        // Upload model matrix
-                        ShaderBindingLayout::ModelUBO modelData{};
-                        modelData.Model = transform.GetTransform();
-                        modelData.Normal = glm::transpose(glm::inverse(transform.GetTransform()));
-                        modelData.EntityID = static_cast<i32>(static_cast<u32>(entity));
-                        auto modelUBO = Renderer3D::GetModelMatrixUBO();
-                        modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-
-                        bool useTess = terrain.m_TessellationEnabled;
-
-                        // Lambda to render one chunk manager with its terrain data
-                        auto renderChunkManager = [&](const TerrainChunkManager& chunkMgr,
-                                                      const TerrainData* terrainData,
-                                                      const TerrainMaterial* tileMaterial,
-                                                      f32 worldSizeX, f32 worldSizeZ,
-                                                      f32 heightScale)
-                        {
-                            if (!chunkMgr.IsBuilt())
+                            terrainUBOData.TessFactors = glm::vec4(1.0f);
+                            terrainUBOData.TessFactors2.w = 1.0f;
+                            std::vector<const TerrainChunk*> visibleChunks;
+                            chunkMgr.GetVisibleChunks(Renderer3D::GetViewFrustum(), visibleChunks);
+                            for (const auto* chunk : visibleChunks)
                             {
-                                return;
-                            }
+                                auto va = chunk->GetVertexArray();
+                                if (!va) { continue; }
 
-                            // Bind heightmap texture
-                            if (terrainData && terrainData->GetGPUHeightmap())
-                            {
-                                terrainData->GetGPUHeightmap()->Bind(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP);
-                            }
+                                auto* packet = Renderer3D::DrawTerrainPatch(
+                                    va->GetRendererID(), chunk->GetIndexCount(), 3,
+                                    terrainShader,
+                                    heightmapID, tileSplatmapID, tileSplatmap1ID,
+                                    tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
+                                    transform.GetTransform(), terrainUBOData, entityID);
+                                if (packet)
+                                    Renderer3D::SubmitPacket(packet);
 
-                            // Bind per-tile material if different from entity material
-                            bool tileHasMaterial = tileMaterial && tileMaterial->IsBuilt();
-                            if (tileHasMaterial && tileMaterial != terrain.m_Material.get())
-                            {
-                                if (auto splatmap0 = tileMaterial->GetSplatmap(0))
-                                    splatmap0->Bind(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP);
-                                if (auto splatmap1 = tileMaterial->GetSplatmap(1))
-                                    splatmap1->Bind(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1);
-                                if (tileMaterial->GetAlbedoArray())
-                                    tileMaterial->GetAlbedoArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY);
-                                if (tileMaterial->GetNormalArray())
-                                    tileMaterial->GetNormalArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY);
-                                if (tileMaterial->GetARMArray())
-                                    tileMaterial->GetARMArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY);
-                            }
-
-                            // Build terrain UBO
-                            ShaderBindingLayout::TerrainUBO terrainUBOData{};
-                            terrainUBOData.WorldSizeAndHeightScale = glm::vec4(
-                                worldSizeX, worldSizeZ,
-                                heightScale,
-                                static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
-                            u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
-
-                            const TerrainMaterial* effectiveMat = tileHasMaterial ? tileMaterial : (hasMaterial ? terrain.m_Material.get() : nullptr);
-                            u32 layerCount = effectiveMat ? effectiveMat->GetLayerCount() : 0;
-                            f32 triplanarSharpness = 8.0f;
-                            terrainUBOData.TerrainParams = glm::vec4(
-                                1.0f / static_cast<f32>(res),
-                                1.0f / static_cast<f32>(res),
-                                static_cast<f32>(layerCount),
-                                triplanarSharpness);
-                            terrainUBOData.HeightmapResolution = static_cast<i32>(res);
-
-                            if (effectiveMat)
-                            {
-                                for (u32 i = 0; i < std::min(layerCount, 4u); ++i)
+                                if (hasActiveShadows)
                                 {
-                                    terrainUBOData.LayerTilingScales0[i] = effectiveMat->GetLayer(i).TilingScale;
-                                    terrainUBOData.LayerBlendSharpness0[i] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                                    shadowPass->AddTerrainCaster(
+                                        va->GetRendererID(), chunk->GetIndexCount(), 3,
+                                        transform.GetTransform(), heightmapID, terrainUBOData);
                                 }
-                                for (u32 i = 4; i < std::min(layerCount, 8u); ++i)
-                                {
-                                    terrainUBOData.LayerTilingScales1[i - 4] = effectiveMat->GetLayer(i).TilingScale;
-                                    terrainUBOData.LayerBlendSharpness1[i - 4] = effectiveMat->GetLayer(i).HeightBlendSharpness;
-                                }
-                            }
-
-                            if (useTess)
-                            {
-                                const auto& selectedChunks = chunkMgr.GetSelectedChunks();
-                                for (const auto& rc : selectedChunks)
-                                {
-                                    auto va = rc.Chunk->GetVertexArray();
-                                    if (!va) { continue; }
-                                    terrainUBOData.TessFactors = rc.LODData.TessFactors;
-                                    terrainUBOData.TessFactors2 = rc.LODData.TessFactors2;
-                                    terrainUBOData.TessFactors2.w = 1.0f;
-                                    auto terrainUBO = Renderer3D::GetTerrainUBO();
-                                    terrainUBO->SetData(&terrainUBOData, ShaderBindingLayout::TerrainUBO::GetSize());
-                                    terrainUBO->Bind();
-                                    va->Bind();
-                                    RenderCommand::DrawIndexedPatches(va, rc.Chunk->GetIndexCount(), 3);
-                                }
-                            }
-                            else
-                            {
-                                // Shader always has TCS+TES — must use GL_PATCHES.
-                                // Tess level 1.0 = no subdivision (pass-through).
-                                terrainUBOData.TessFactors = glm::vec4(1.0f);
-                                terrainUBOData.TessFactors2.w = 1.0f;
-                                auto terrainUBO = Renderer3D::GetTerrainUBO();
-                                terrainUBO->SetData(&terrainUBOData, ShaderBindingLayout::TerrainUBO::GetSize());
-                                terrainUBO->Bind();
-                                std::vector<const TerrainChunk*> visibleChunks;
-                                chunkMgr.GetVisibleChunks(Renderer3D::GetViewFrustum(), visibleChunks);
-                                for (const auto* chunk : visibleChunks)
-                                {
-                                    auto va = chunk->GetVertexArray();
-                                    if (va)
-                                    {
-                                        va->Bind();
-                                        RenderCommand::DrawIndexedPatches(va, chunk->GetIndexCount(), 3);
-                                    }
-                                }
-                            }
-                        };
-
-                        if (terrain.m_StreamingEnabled && terrain.m_Streamer)
-                        {
-                            // Streaming mode: render all ready tiles
-                            std::vector<Ref<TerrainTile>> readyTiles;
-                            terrain.m_Streamer->GetReadyTiles(readyTiles);
-                            for (const auto& tile : readyTiles)
-                            {
-                                auto tileMat = tile->GetMaterial();
-                                auto chunkMgr = tile->GetChunkManager();
-                                if (!chunkMgr)
-                                {
-                                    continue;
-                                }
-                                renderChunkManager(*chunkMgr, tile->GetTerrainData().get(),
-                                                   tileMat ? tileMat.get() : nullptr,
-                                                   tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale);
                             }
                         }
-                        else if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
-                        {
-                            // Single-tile mode
-                            renderChunkManager(*terrain.m_ChunkManager, terrain.m_TerrainData.get(),
-                                               nullptr,
-                                               terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
-                        }
+                    };
 
-                        // ── Render voxel override meshes ──
-                        if (terrain.m_VoxelEnabled && !terrain.m_VoxelMeshes.empty())
+                    if (terrain.m_StreamingEnabled && terrain.m_Streamer)
+                    {
+                        std::vector<Ref<TerrainTile>> readyTiles;
+                        terrain.m_Streamer->GetReadyTiles(readyTiles);
+                        for (const auto& tile : readyTiles)
                         {
-                            auto voxelShader = Renderer3D::GetVoxelPBRShader();
-                            if (voxelShader)
+                            auto tileMat = tile->GetMaterial();
+                            auto chunkMgr = tile->GetChunkManager();
+                            if (!chunkMgr)
                             {
-                                voxelShader->Bind();
+                                continue;
+                            }
+                            submitChunkPackets(*chunkMgr, tile->GetTerrainData().get(),
+                                               tileMat ? tileMat.get() : nullptr,
+                                               tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale);
+                        }
+                    }
+                    else if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
+                    {
+                        submitChunkPackets(*terrain.m_ChunkManager, terrain.m_TerrainData.get(),
+                                           nullptr,
+                                           terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                    }
 
-                                // Bind terrain material textures for triplanar sampling
-                                if (hasMaterial)
-                                {
-                                    auto& mat = terrain.m_Material;
-                                    if (mat->GetAlbedoArray())
-                                        mat->GetAlbedoArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY);
-                                    if (mat->GetNormalArray())
-                                        mat->GetNormalArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY);
-                                    if (mat->GetARMArray())
-                                        mat->GetARMArray()->Bind(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY);
-                                }
+                    // Submit voxel mesh command packets
+                    if (terrain.m_VoxelEnabled && !terrain.m_VoxelMeshes.empty() && voxelShader)
+                    {
+                        for (const auto& [coord, mesh] : terrain.m_VoxelMeshes)
+                        {
+                            if (mesh.VAO && mesh.IndexCount > 0)
+                            {
+                                auto* packet = Renderer3D::DrawVoxelMesh(
+                                    mesh.VAO->GetRendererID(), mesh.IndexCount,
+                                    voxelShader,
+                                    albedoArrayID, normalArrayID, armArrayID,
+                                    transform.GetTransform(), entityID);
+                                if (packet)
+                                    Renderer3D::SubmitPacket(packet);
 
-                                for (const auto& [coord, mesh] : terrain.m_VoxelMeshes)
+                                if (hasActiveShadows)
                                 {
-                                    if (mesh.VAO && mesh.IndexCount > 0)
-                                    {
-                                        mesh.VAO->Bind();
-                                        RenderCommand::DrawIndexed(mesh.VAO, mesh.IndexCount);
-                                    }
+                                    shadowPass->AddVoxelCaster(
+                                        mesh.VAO->GetRendererID(), mesh.IndexCount,
+                                        transform.GetTransform());
                                 }
                             }
                         }
                     }
 
-                    // ── Render foliage instances ──
+                    // Submit foliage shadow caster
+                    if (hasActiveShadows && m_Registry.all_of<FoliageComponent>(entity))
+                    {
+                        auto& foliage = m_Registry.get<FoliageComponent>(entity);
+                        if (foliage.m_Enabled && foliage.m_Renderer)
+                        {
+                            auto foliageDepthShader = Renderer3D::GetFoliageDepthShader();
+                            if (foliageDepthShader)
+                            {
+                                shadowPass->AddFoliageCaster(
+                                    foliage.m_Renderer.get(), foliageDepthShader, Time::GetTime());
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Foliage rendering stays as PostExecuteCallback — it's a self-batching
+            // subsystem that doesn't fit the POD command packet model.
+            if (auto scenePass = Renderer3D::GetScenePass())
+            {
+                scenePass->SetPostExecuteCallback([this, &camera]()
+                                                  {
                     auto foliageRenderView = m_Registry.view<TransformComponent, TerrainComponent, FoliageComponent>();
                     for (auto foliageEntity : foliageRenderView)
                     {
@@ -2248,7 +1926,6 @@ namespace OloEngine
                         if (!foliage.m_Enabled || !foliage.m_Renderer)
                             continue;
 
-                        // Upload model matrix for foliage (same as terrain entity transform)
                         ShaderBindingLayout::ModelUBO foliageModelUBO{};
                         foliageModelUBO.Model = foliageTransform.GetTransform();
                         foliageModelUBO.Normal = glm::transpose(glm::inverse(foliageTransform.GetTransform()));
@@ -2266,6 +1943,10 @@ namespace OloEngine
                     } });
             }
         }
+
+        // Shadow pass setup for mesh entity traversal (shares state across all loops below)
+        auto meshShadowPass = Renderer3D::GetShadowPass();
+        bool meshHasActiveShadows = meshShadowPass && Renderer3D::GetShadowMap().IsEnabled();
 
         // Draw mesh entities (skip animated entities - they're rendered separately)
         {
@@ -2290,6 +1971,11 @@ namespace OloEngine
                                                ? m_Registry.get<MaterialComponent>(entity).m_Material
                                                : GetDefaultMaterial();
 
+                // Check if this entity should cast shadows
+                bool castsShadow = meshHasActiveShadows &&
+                    (!m_Registry.all_of<MaterialComponent>(entity) ||
+                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
@@ -2302,6 +1988,18 @@ namespace OloEngine
                         auto* packet = Renderer3D::DrawMesh(submesh, transform.GetTransform(), material, true, entityID);
                         if (packet)
                             Renderer3D::SubmitPacket(packet);
+
+                        // Shadow caster for this submesh
+                        if (castsShadow && submesh)
+                        {
+                            auto va = submesh->GetVertexArray();
+                            if (va)
+                            {
+                                meshShadowPass->AddMeshCaster(
+                                    va->GetRendererID(), submesh->GetIndexCount(),
+                                    transform.GetTransform());
+                            }
+                        }
                     }
                 }
             }
@@ -2324,12 +2022,28 @@ namespace OloEngine
                                                ? m_Registry.get<MaterialComponent>(entity).m_Material
                                                : GetDefaultMaterial();
 
+                bool castsShadow = meshHasActiveShadows &&
+                    (!m_Registry.all_of<MaterialComponent>(entity) ||
+                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
                 auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, transform.GetTransform(), material, true, entityID);
                 if (packet)
                     Renderer3D::SubmitPacket(packet);
+
+                // Shadow caster for this submesh entity
+                if (castsShadow && submesh.m_Mesh)
+                {
+                    auto va = submesh.m_Mesh->GetVertexArray();
+                    if (va)
+                    {
+                        meshShadowPass->AddMeshCaster(
+                            va->GetRendererID(), submesh.m_Mesh->GetIndexCount(),
+                            transform.GetTransform());
+                    }
+                }
             }
         }
 
@@ -2374,6 +2088,10 @@ namespace OloEngine
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
+                bool castsShadow = meshHasActiveShadows &&
+                    (!m_Registry.all_of<MaterialComponent>(entity) ||
+                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+
                 // Draw each submesh as an animated mesh
                 if (!mesh.m_MeshSource->GetSubmeshes().IsEmpty())
                 {
@@ -2382,7 +2100,23 @@ namespace OloEngine
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
                         auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, false, entityID);
                         if (packet)
+                        {
                             Renderer3D::SubmitPacket(packet);
+
+                            // Shadow caster reuses bone data from the scene packet
+                            if (castsShadow && submesh)
+                            {
+                                auto va = submesh->GetVertexArray();
+                                if (va)
+                                {
+                                    auto* cmd = packet->GetCommandData<DrawMeshCommand>();
+                                    meshShadowPass->AddSkinnedCaster(
+                                        va->GetRendererID(), submesh->GetIndexCount(),
+                                        transform.GetTransform(),
+                                        cmd->boneBufferOffset, cmd->boneCount);
+                                }
+                            }
+                        }
                     }
                 }
 
