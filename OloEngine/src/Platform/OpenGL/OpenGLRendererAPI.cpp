@@ -609,8 +609,10 @@ namespace OloEngine
     {
         switch (target)
         {
-            case RendererAPI::TextureTargetType::Texture2D:      return GL_TEXTURE_2D;
-            case RendererAPI::TextureTargetType::TextureCubeMap:  return GL_TEXTURE_CUBE_MAP;
+            case RendererAPI::TextureTargetType::Texture2D:
+                return GL_TEXTURE_2D;
+            case RendererAPI::TextureTargetType::TextureCubeMap:
+                return GL_TEXTURE_CUBE_MAP;
         }
         OLO_CORE_ERROR("ToGLTextureTarget: Unknown TextureTargetType");
         return GL_TEXTURE_2D;
