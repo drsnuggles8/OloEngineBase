@@ -586,6 +586,15 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        GLint maxDrawBuffers = 0;
+        glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+        if (attachment >= static_cast<u32>(maxDrawBuffers))
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI::SetBlendStateForAttachment - attachment index {} exceeds GL_MAX_DRAW_BUFFERS {}",
+                           attachment, maxDrawBuffers);
+            return;
+        }
+
         if (enabled)
         {
             glEnablei(GL_BLEND, attachment);
@@ -596,26 +605,37 @@ namespace OloEngine
         }
     }
 
-    void OpenGLRendererAPI::CopyImageSubData(u32 srcID, u32 srcTarget, u32 dstID, u32 dstTarget,
+    static GLenum ToGLTextureTarget(RendererAPI::TextureTargetType target)
+    {
+        switch (target)
+        {
+            case RendererAPI::TextureTargetType::Texture2D:      return GL_TEXTURE_2D;
+            case RendererAPI::TextureTargetType::TextureCubeMap:  return GL_TEXTURE_CUBE_MAP;
+        }
+        OLO_CORE_ERROR("ToGLTextureTarget: Unknown TextureTargetType");
+        return GL_TEXTURE_2D;
+    }
+
+    void OpenGLRendererAPI::CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
                                              u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
 
         glCopyImageSubData(
-            srcID, srcTarget, 0, 0, 0, 0,
-            dstID, dstTarget, 0, 0, 0, 0,
+            srcID, ToGLTextureTarget(srcTarget), 0, 0, 0, 0,
+            dstID, ToGLTextureTarget(dstTarget), 0, 0, 0, 0,
             static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1);
     }
 
-    void OpenGLRendererAPI::CopyImageSubDataFull(u32 srcID, u32 srcTarget, i32 srcLevel, i32 srcZ,
-                                                 u32 dstID, u32 dstTarget, i32 dstLevel, i32 dstZ,
+    void OpenGLRendererAPI::CopyImageSubDataFull(u32 srcID, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
+                                                 u32 dstID, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
                                                  u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
 
         glCopyImageSubData(
-            srcID, srcTarget, srcLevel, 0, 0, srcZ,
-            dstID, dstTarget, dstLevel, 0, 0, dstZ,
+            srcID, ToGLTextureTarget(srcTarget), srcLevel, 0, 0, srcZ,
+            dstID, ToGLTextureTarget(dstTarget), dstLevel, 0, 0, dstZ,
             static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1);
     }
 
@@ -631,27 +651,55 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Convert attachment indices to GL enums
-        std::vector<GLenum> drawBuffers;
-        drawBuffers.reserve(attachments.size());
-        for (u32 a : attachments)
+        GLint maxDrawBuffers = 0;
+        glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+        u32 maxBuf = static_cast<u32>(maxDrawBuffers);
+
+        if (attachments.size() <= maxBuf)
         {
-            drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + a);
+            // Stack-allocated path
+            std::array<GLenum, 16> drawBuffers{};
+            for (std::size_t i = 0; i < attachments.size(); ++i)
+            {
+                drawBuffers[i] = GL_COLOR_ATTACHMENT0 + attachments[i];
+            }
+            glDrawBuffers(static_cast<GLsizei>(attachments.size()), drawBuffers.data());
         }
-        glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
+        else
+        {
+            OLO_CORE_WARN("OpenGLRendererAPI::SetDrawBuffers - attachment count {} exceeds GL_MAX_DRAW_BUFFERS {}, clamping",
+                          attachments.size(), maxBuf);
+            std::vector<GLenum> drawBuffers;
+            drawBuffers.reserve(maxBuf);
+            for (u32 i = 0; i < maxBuf; ++i)
+            {
+                drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + attachments[i]);
+            }
+            glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
+        }
     }
 
     void OpenGLRendererAPI::RestoreAllDrawBuffers(u32 colorAttachmentCount)
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<GLenum> allBuffers;
-        allBuffers.reserve(colorAttachmentCount);
+        GLint maxDrawBuffers = 0;
+        glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+        u32 maxBuf = static_cast<u32>(maxDrawBuffers);
+
+        if (colorAttachmentCount > maxBuf)
+        {
+            OLO_CORE_WARN("OpenGLRendererAPI::RestoreAllDrawBuffers - count {} exceeds GL_MAX_DRAW_BUFFERS {}, clamping",
+                          colorAttachmentCount, maxBuf);
+            colorAttachmentCount = maxBuf;
+        }
+
+        std::array<GLenum, 16> allBuffers{};
         for (u32 i = 0; i < colorAttachmentCount; ++i)
         {
-            allBuffers.push_back(GL_COLOR_ATTACHMENT0 + i);
+            allBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
         }
-        glDrawBuffers(static_cast<GLsizei>(allBuffers.size()), allBuffers.data());
+        glDrawBuffers(static_cast<GLsizei>(colorAttachmentCount), allBuffers.data());
     }
 
     u32 OpenGLRendererAPI::CreateTexture2D(u32 width, u32 height, GLenum internalFormat)

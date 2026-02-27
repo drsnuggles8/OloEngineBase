@@ -272,15 +272,15 @@ namespace OloEngine
         }
 
         // GPU-side image copy
-        static void CopyImageSubData(u32 srcID, u32 srcTarget, u32 dstID, u32 dstTarget,
+        static void CopyImageSubData(u32 srcID, RendererAPI::TextureTargetType srcTarget, u32 dstID, RendererAPI::TextureTargetType dstTarget,
                                      u32 width, u32 height)
         {
             s_RendererAPI->CopyImageSubData(srcID, srcTarget, dstID, dstTarget, width, height);
         }
 
         // Full image copy with source/dest z offsets (cubemap face copies)
-        static void CopyImageSubDataFull(u32 srcID, u32 srcTarget, i32 srcLevel, i32 srcZ,
-                                         u32 dstID, u32 dstTarget, i32 dstLevel, i32 dstZ,
+        static void CopyImageSubDataFull(u32 srcID, RendererAPI::TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
+                                         u32 dstID, RendererAPI::TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
                                          u32 width, u32 height)
         {
             s_RendererAPI->CopyImageSubDataFull(srcID, srcTarget, srcLevel, srcZ,

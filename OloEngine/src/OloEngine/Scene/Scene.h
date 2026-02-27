@@ -201,6 +201,9 @@ namespace OloEngine
         void RenderScene(EditorCamera const& camera);
         void RenderScene3D(EditorCamera const& camera);
         void RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform);
+        void ProcessScene3DSharedLogic(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix,
+                                       const glm::vec3& cameraPosition,
+                                       f32 cameraNearClip, f32 cameraFarClip);
         void LoadAndRenderSkybox();
         void RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip);
         void RenderUIOverlay();

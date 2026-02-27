@@ -69,10 +69,10 @@ namespace OloEngine
         void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format) override;
 
         void SetBlendStateForAttachment(u32 attachment, bool enabled) override;
-        void CopyImageSubData(u32 srcID, u32 srcTarget, u32 dstID, u32 dstTarget,
+        void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
                               u32 width, u32 height) override;
-        void CopyImageSubDataFull(u32 srcID, u32 srcTarget, i32 srcLevel, i32 srcZ,
-                                  u32 dstID, u32 dstTarget, i32 dstLevel, i32 dstZ,
+        void CopyImageSubDataFull(u32 srcID, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
+                                  u32 dstID, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
                                   u32 width, u32 height) override;
         void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height) override;
         void SetDrawBuffers(std::span<const u32> attachments) override;

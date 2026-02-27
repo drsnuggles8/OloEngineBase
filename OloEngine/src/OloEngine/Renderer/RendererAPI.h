@@ -32,6 +32,13 @@ namespace OloEngine
             Renderer3D
         };
 
+        // Renderer-agnostic texture target types (converted to GL enums by the backend)
+        enum class TextureTargetType : u8
+        {
+            Texture2D = 0,
+            TextureCubeMap
+        };
+
       public:
         virtual ~RendererAPI() = default;
 
@@ -103,11 +110,11 @@ namespace OloEngine
         virtual void SetBlendStateForAttachment(u32 attachment, bool enabled) = 0;
 
         // GPU-side image copy (used for staging textures to avoid read-write hazards)
-        virtual void CopyImageSubData(u32 srcID, u32 srcTarget, u32 dstID, u32 dstTarget,
+        virtual void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
                                       u32 width, u32 height) = 0;
         // Full image copy with source/dest offsets (needed for cubemap face copies)
-        virtual void CopyImageSubDataFull(u32 srcID, u32 srcTarget, i32 srcLevel, i32 srcZ,
-                                          u32 dstID, u32 dstTarget, i32 dstLevel, i32 dstZ,
+        virtual void CopyImageSubDataFull(u32 srcID, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
+                                          u32 dstID, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
                                           u32 width, u32 height) = 0;
         // Copy from currently-bound READ framebuffer to a named texture
         virtual void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height) = 0;

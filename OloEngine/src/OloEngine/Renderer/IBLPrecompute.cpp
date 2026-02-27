@@ -255,8 +255,8 @@ namespace OloEngine
             u32 framebufferColorTexture = framebuffer->GetColorAttachmentRendererID(0);
 
             RenderCommand::CopyImageSubDataFull(
-                framebufferColorTexture, GL_TEXTURE_2D, 0, 0,
-                cubemap->GetRendererID(), GL_TEXTURE_CUBE_MAP, 0, static_cast<i32>(i),
+                framebufferColorTexture, RendererAPI::TextureTargetType::Texture2D, 0, 0,
+                cubemap->GetRendererID(), RendererAPI::TextureTargetType::TextureCubeMap, 0, static_cast<i32>(i),
                 mipWidth, mipHeight);
         }
 
@@ -303,8 +303,8 @@ namespace OloEngine
 
         // Copy from framebuffer color attachment to the output texture
         RenderCommand::CopyImageSubDataFull(
-            framebuffer->GetColorAttachmentRendererID(0), GL_TEXTURE_2D, 0, 0,
-            texture->GetRendererID(), GL_TEXTURE_2D, 0, 0,
+            framebuffer->GetColorAttachmentRendererID(0), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+            texture->GetRendererID(), RendererAPI::TextureTargetType::Texture2D, 0, 0,
             texture->GetWidth(), texture->GetHeight());
 
         // Restore previous stencil state
@@ -375,6 +375,10 @@ namespace OloEngine
                 break;
             case IBLQuality::Ultra:
                 shader->SetFloat("u_QualityMultiplier", 4.0f);
+                break;
+            default:
+                OLO_CORE_WARN("IBLPrecompute::GenerateIrradianceMapAdvanced: Unhandled IBLQuality value, defaulting to Medium");
+                shader->SetFloat("u_QualityMultiplier", 1.0f);
                 break;
         }
 
@@ -449,6 +453,10 @@ namespace OloEngine
                 case IBLQuality::Ultra:
                     shader->SetFloat("u_QualityMultiplier", 2.0f);
                     break;
+                default:
+                    OLO_CORE_WARN("IBLPrecompute::GeneratePrefilterMapAdvanced: Unhandled IBLQuality value, defaulting to Medium");
+                    shader->SetFloat("u_QualityMultiplier", 1.0f);
+                    break;
             }
 
             RenderToCubemapAdvanced(prefilterMap, shader, GetCubeMesh(), config, mip);
@@ -499,6 +507,10 @@ namespace OloEngine
             case IBLQuality::Ultra:
                 shader->SetInt("u_SampleCount", 2048);
                 break;
+            default:
+                OLO_CORE_WARN("IBLPrecompute::GenerateBRDFLutAdvanced: Unhandled IBLQuality value, defaulting to Medium");
+                shader->SetInt("u_SampleCount", 512);
+                break;
         }
 
         RenderToTextureAdvanced(brdfLutMap, shader, GetQuadMesh(), config);
@@ -513,7 +525,10 @@ namespace OloEngine
         // Use standard render method for now - can be enhanced with parallel rendering if needed
         RenderToCubemap(cubemap, shader, cubeMesh, mipLevel);
 
-        // Future enhancement: implement parallel face rendering if config.EnableMultithreading is true
+        // TODO(IBL): Implement parallel face rendering when config.EnableMultithreading is true.
+        //   Goal: Render all 6 cubemap faces concurrently using separate framebuffers/command lists.
+        //   Acceptance: >=2x speedup for cubemap generation on multi-threaded GL contexts;
+        //   output must be bit-identical to serial path when multithreading is disabled.
     }
 
     void IBLPrecompute::RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader,
@@ -522,6 +537,9 @@ namespace OloEngine
         // Use standard render method for now - can be enhanced with additional quality parameters
         RenderToTexture(texture, shader, quadMesh);
 
-        // Future enhancement: implement additional quality-based optimizations
+        // TODO(IBL): Implement quality-based optimizations for BRDF LUT / texture generation.
+        //   Goal: Use config.Quality to select multi-pass accumulation, higher-precision intermediate
+        //   formats, or progressive refinement for Ultra quality.
+        //   Acceptance: Measurable quality improvement at Ultra vs Medium; no regression at Low/Medium.
     }
 } // namespace OloEngine
