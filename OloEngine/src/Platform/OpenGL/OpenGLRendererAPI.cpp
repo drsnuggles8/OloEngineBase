@@ -212,6 +212,15 @@ namespace OloEngine
             return;
         }
 
+        GLint maxPatchVerts = 0;
+        glGetIntegerv(GL_MAX_PATCH_VERTICES, &maxPatchVerts);
+        if (patchVertices > static_cast<u32>(maxPatchVerts))
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI::DrawIndexedPatchesRaw - patchVertices {} exceeds GL_MAX_PATCH_VERTICES {}",
+                           patchVertices, maxPatchVerts);
+            return;
+        }
+
         glBindVertexArray(vaoID);
         glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(patchVertices));
         glDrawElements(GL_PATCHES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, nullptr);
@@ -575,6 +584,8 @@ namespace OloEngine
 
     void OpenGLRendererAPI::SetBlendStateForAttachment(u32 attachment, bool enabled)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (enabled)
         {
             glEnablei(GL_BLEND, attachment);
@@ -588,6 +599,8 @@ namespace OloEngine
     void OpenGLRendererAPI::CopyImageSubData(u32 srcID, u32 srcTarget, u32 dstID, u32 dstTarget,
                                              u32 width, u32 height)
     {
+        OLO_PROFILE_FUNCTION();
+
         glCopyImageSubData(
             srcID, srcTarget, 0, 0, 0, 0,
             dstID, dstTarget, 0, 0, 0, 0,
@@ -598,6 +611,8 @@ namespace OloEngine
                                                  u32 dstID, u32 dstTarget, i32 dstLevel, i32 dstZ,
                                                  u32 width, u32 height)
     {
+        OLO_PROFILE_FUNCTION();
+
         glCopyImageSubData(
             srcID, srcTarget, srcLevel, 0, 0, srcZ,
             dstID, dstTarget, dstLevel, 0, 0, dstZ,
@@ -606,12 +621,16 @@ namespace OloEngine
 
     void OpenGLRendererAPI::CopyFramebufferToTexture(u32 textureID, u32 width, u32 height)
     {
+        OLO_PROFILE_FUNCTION();
+
         glCopyTextureSubImage2D(textureID, 0, 0, 0, 0, 0,
                                 static_cast<GLsizei>(width), static_cast<GLsizei>(height));
     }
 
     void OpenGLRendererAPI::SetDrawBuffers(std::span<const u32> attachments)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Convert attachment indices to GL enums
         std::vector<GLenum> drawBuffers;
         drawBuffers.reserve(attachments.size());
@@ -624,6 +643,8 @@ namespace OloEngine
 
     void OpenGLRendererAPI::RestoreAllDrawBuffers(u32 colorAttachmentCount)
     {
+        OLO_PROFILE_FUNCTION();
+
         std::vector<GLenum> allBuffers;
         allBuffers.reserve(colorAttachmentCount);
         for (u32 i = 0; i < colorAttachmentCount; ++i)
@@ -635,6 +656,8 @@ namespace OloEngine
 
     u32 OpenGLRendererAPI::CreateTexture2D(u32 width, u32 height, GLenum internalFormat)
     {
+        OLO_PROFILE_FUNCTION();
+
         u32 textureID = 0;
         glCreateTextures(GL_TEXTURE_2D, 1, &textureID);
         glTextureStorage2D(textureID, 1, internalFormat,
@@ -644,6 +667,8 @@ namespace OloEngine
 
     u32 OpenGLRendererAPI::CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat)
     {
+        OLO_PROFILE_FUNCTION();
+
         u32 textureID = 0;
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &textureID);
         glTextureStorage2D(textureID, 1, internalFormat,
@@ -653,12 +678,16 @@ namespace OloEngine
 
     void OpenGLRendererAPI::SetTextureParameter(u32 textureID, GLenum pname, GLint value)
     {
+        OLO_PROFILE_FUNCTION();
+
         glTextureParameteri(textureID, pname, value);
     }
 
     void OpenGLRendererAPI::UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
                                                     GLenum format, GLenum type, const void* data)
     {
+        OLO_PROFILE_FUNCTION();
+
         glTextureSubImage2D(textureID, 0, 0, 0,
                             static_cast<GLsizei>(width), static_cast<GLsizei>(height),
                             format, type, data);
@@ -666,6 +695,8 @@ namespace OloEngine
 
     void OpenGLRendererAPI::DeleteTexture(u32 textureID)
     {
+        OLO_PROFILE_FUNCTION();
+
         glDeleteTextures(1, &textureID);
     }
 } // namespace OloEngine

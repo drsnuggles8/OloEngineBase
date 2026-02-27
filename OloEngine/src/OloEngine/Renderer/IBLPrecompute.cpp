@@ -483,7 +483,6 @@ namespace OloEngine
 
         // Configure shader with enhanced settings
         shader->Bind();
-        shader->SetInt("u_SampleCount", 1024); // High sample count for BRDF LUT accuracy
 
         // Set quality parameters
         switch (config.Quality)

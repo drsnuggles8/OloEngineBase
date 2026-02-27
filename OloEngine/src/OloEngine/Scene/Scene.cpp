@@ -1701,11 +1701,6 @@ namespace OloEngine
                 {
                     const auto& [transform, terrain] = terrainRenderView.get<TransformComponent, TerrainComponent>(entity);
 
-                    if (!terrainShader)
-                    {
-                        continue;
-                    }
-
                     bool hasMaterial = terrain.m_Material && terrain.m_Material->IsBuilt();
 
                     // Extract texture IDs for command packets
@@ -1714,161 +1709,181 @@ namespace OloEngine
                     if (hasMaterial)
                     {
                         auto& mat = terrain.m_Material;
-                        if (auto s0 = mat->GetSplatmap(0))   splatmapID = s0->GetRendererID();
-                        if (auto s1 = mat->GetSplatmap(1))   splatmap1ID = s1->GetRendererID();
-                        if (mat->GetAlbedoArray())            albedoArrayID = mat->GetAlbedoArray()->GetRendererID();
-                        if (mat->GetNormalArray())            normalArrayID = mat->GetNormalArray()->GetRendererID();
-                        if (mat->GetARMArray())               armArrayID = mat->GetARMArray()->GetRendererID();
+                        if (auto s0 = mat->GetSplatmap(0))
+                            splatmapID = s0->GetRendererID();
+                        if (auto s1 = mat->GetSplatmap(1))
+                            splatmap1ID = s1->GetRendererID();
+                        if (mat->GetAlbedoArray())
+                            albedoArrayID = mat->GetAlbedoArray()->GetRendererID();
+                        if (mat->GetNormalArray())
+                            normalArrayID = mat->GetNormalArray()->GetRendererID();
+                        if (mat->GetARMArray())
+                            armArrayID = mat->GetARMArray()->GetRendererID();
                     }
 
                     i32 entityID = static_cast<i32>(static_cast<u32>(entity));
-                    bool useTess = terrain.m_TessellationEnabled;
 
-                    // Lambda to submit command packets for one chunk manager
-                    auto submitChunkPackets = [&](const TerrainChunkManager& chunkMgr,
-                                                  const TerrainData* terrainData,
-                                                  const TerrainMaterial* tileMaterial,
-                                                  f32 worldSizeX, f32 worldSizeZ,
-                                                  f32 heightScale)
+                    if (terrainShader)
                     {
-                        if (!chunkMgr.IsBuilt())
+                        bool useTess = terrain.m_TessellationEnabled;
+
+                        // Lambda to submit command packets for one chunk manager
+                        auto submitChunkPackets = [&](const TerrainChunkManager& chunkMgr,
+                                                      const TerrainData* terrainData,
+                                                      const TerrainMaterial* tileMaterial,
+                                                      f32 worldSizeX, f32 worldSizeZ,
+                                                      f32 heightScale)
                         {
-                            return;
-                        }
-
-                        RendererID heightmapID = 0;
-                        if (terrainData && terrainData->GetGPUHeightmap())
-                        {
-                            heightmapID = terrainData->GetGPUHeightmap()->GetRendererID();
-                        }
-
-                        // Per-tile material overrides entity material texture IDs
-                        RendererID tileSplatmapID = splatmapID, tileSplatmap1ID = splatmap1ID;
-                        RendererID tileAlbedoArrayID = albedoArrayID, tileNormalArrayID = normalArrayID, tileArmArrayID = armArrayID;
-                        bool tileHasMaterial = tileMaterial && tileMaterial->IsBuilt();
-                        if (tileHasMaterial && tileMaterial != terrain.m_Material.get())
-                        {
-                            if (auto s0 = tileMaterial->GetSplatmap(0))   tileSplatmapID = s0->GetRendererID();
-                            if (auto s1 = tileMaterial->GetSplatmap(1))   tileSplatmap1ID = s1->GetRendererID();
-                            if (tileMaterial->GetAlbedoArray())           tileAlbedoArrayID = tileMaterial->GetAlbedoArray()->GetRendererID();
-                            if (tileMaterial->GetNormalArray())           tileNormalArrayID = tileMaterial->GetNormalArray()->GetRendererID();
-                            if (tileMaterial->GetARMArray())              tileArmArrayID = tileMaterial->GetARMArray()->GetRendererID();
-                        }
-
-                        // Build base terrain UBO (tess factors filled per-chunk)
-                        ShaderBindingLayout::TerrainUBO terrainUBOData{};
-                        terrainUBOData.WorldSizeAndHeightScale = glm::vec4(
-                            worldSizeX, worldSizeZ,
-                            heightScale,
-                            static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
-                        u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
-
-                        const TerrainMaterial* effectiveMat = tileHasMaterial ? tileMaterial : (hasMaterial ? terrain.m_Material.get() : nullptr);
-                        u32 layerCount = effectiveMat ? effectiveMat->GetLayerCount() : 0;
-                        f32 triplanarSharpness = 8.0f;
-                        terrainUBOData.TerrainParams = glm::vec4(
-                            1.0f / static_cast<f32>(res),
-                            1.0f / static_cast<f32>(res),
-                            static_cast<f32>(layerCount),
-                            triplanarSharpness);
-                        terrainUBOData.HeightmapResolution = static_cast<i32>(res);
-
-                        if (effectiveMat)
-                        {
-                            for (u32 i = 0; i < std::min(layerCount, 4u); ++i)
+                            if (!chunkMgr.IsBuilt())
                             {
-                                terrainUBOData.LayerTilingScales0[i] = effectiveMat->GetLayer(i).TilingScale;
-                                terrainUBOData.LayerBlendSharpness0[i] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                                return;
                             }
-                            for (u32 i = 4; i < std::min(layerCount, 8u); ++i)
+
+                            RendererID heightmapID = 0;
+                            if (terrainData && terrainData->GetGPUHeightmap())
                             {
-                                terrainUBOData.LayerTilingScales1[i - 4] = effectiveMat->GetLayer(i).TilingScale;
-                                terrainUBOData.LayerBlendSharpness1[i - 4] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                                heightmapID = terrainData->GetGPUHeightmap()->GetRendererID();
                             }
-                        }
 
-                        if (useTess)
-                        {
-                            const auto& selectedChunks = chunkMgr.GetSelectedChunks();
-                            for (const auto& rc : selectedChunks)
+                            // Per-tile material overrides entity material texture IDs
+                            RendererID tileSplatmapID = splatmapID, tileSplatmap1ID = splatmap1ID;
+                            RendererID tileAlbedoArrayID = albedoArrayID, tileNormalArrayID = normalArrayID, tileArmArrayID = armArrayID;
+                            bool tileHasMaterial = tileMaterial && tileMaterial->IsBuilt();
+                            if (tileHasMaterial && tileMaterial != terrain.m_Material.get())
                             {
-                                auto va = rc.Chunk->GetVertexArray();
-                                if (!va) { continue; }
-                                terrainUBOData.TessFactors = rc.LODData.TessFactors;
-                                terrainUBOData.TessFactors2 = rc.LODData.TessFactors2;
-                                terrainUBOData.TessFactors2.w = 1.0f;
+                                if (auto s0 = tileMaterial->GetSplatmap(0))
+                                    tileSplatmapID = s0->GetRendererID();
+                                if (auto s1 = tileMaterial->GetSplatmap(1))
+                                    tileSplatmap1ID = s1->GetRendererID();
+                                if (tileMaterial->GetAlbedoArray())
+                                    tileAlbedoArrayID = tileMaterial->GetAlbedoArray()->GetRendererID();
+                                if (tileMaterial->GetNormalArray())
+                                    tileNormalArrayID = tileMaterial->GetNormalArray()->GetRendererID();
+                                if (tileMaterial->GetARMArray())
+                                    tileArmArrayID = tileMaterial->GetARMArray()->GetRendererID();
+                            }
 
-                                auto* packet = Renderer3D::DrawTerrainPatch(
-                                    va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
-                                    terrainShader,
-                                    heightmapID, tileSplatmapID, tileSplatmap1ID,
-                                    tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                    transform.GetTransform(), terrainUBOData, entityID);
-                                if (packet)
-                                    Renderer3D::SubmitPacket(packet);
+                            // Build base terrain UBO (tess factors filled per-chunk)
+                            ShaderBindingLayout::TerrainUBO terrainUBOData{};
+                            terrainUBOData.WorldSizeAndHeightScale = glm::vec4(
+                                worldSizeX, worldSizeZ,
+                                heightScale,
+                                static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
+                            u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
 
-                                // Shadow caster for this chunk
-                                if (hasActiveShadows)
+                            const TerrainMaterial* effectiveMat = tileHasMaterial ? tileMaterial : (hasMaterial ? terrain.m_Material.get() : nullptr);
+                            u32 layerCount = effectiveMat ? effectiveMat->GetLayerCount() : 0;
+                            f32 triplanarSharpness = 8.0f;
+                            terrainUBOData.TerrainParams = glm::vec4(
+                                1.0f / static_cast<f32>(res),
+                                1.0f / static_cast<f32>(res),
+                                static_cast<f32>(layerCount),
+                                triplanarSharpness);
+                            terrainUBOData.HeightmapResolution = static_cast<i32>(res);
+
+                            if (effectiveMat)
+                            {
+                                for (u32 i = 0; i < std::min(layerCount, 4u); ++i)
                                 {
-                                    shadowPass->AddTerrainCaster(
+                                    terrainUBOData.LayerTilingScales0[i] = effectiveMat->GetLayer(i).TilingScale;
+                                    terrainUBOData.LayerBlendSharpness0[i] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                                }
+                                for (u32 i = 4; i < std::min(layerCount, 8u); ++i)
+                                {
+                                    terrainUBOData.LayerTilingScales1[i - 4] = effectiveMat->GetLayer(i).TilingScale;
+                                    terrainUBOData.LayerBlendSharpness1[i - 4] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                                }
+                            }
+
+                            if (useTess)
+                            {
+                                const auto& selectedChunks = chunkMgr.GetSelectedChunks();
+                                for (const auto& rc : selectedChunks)
+                                {
+                                    auto va = rc.Chunk->GetVertexArray();
+                                    if (!va)
+                                    {
+                                        continue;
+                                    }
+                                    terrainUBOData.TessFactors = rc.LODData.TessFactors;
+                                    terrainUBOData.TessFactors2 = rc.LODData.TessFactors2;
+                                    terrainUBOData.TessFactors2.w = 1.0f;
+
+                                    auto* packet = Renderer3D::DrawTerrainPatch(
                                         va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
-                                        transform.GetTransform(), heightmapID, terrainUBOData);
+                                        terrainShader,
+                                        heightmapID, tileSplatmapID, tileSplatmap1ID,
+                                        tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
+                                        transform.GetTransform(), terrainUBOData, entityID);
+                                    if (packet)
+                                        Renderer3D::SubmitPacket(packet);
+
+                                    // Shadow caster for this chunk
+                                    if (hasActiveShadows)
+                                    {
+                                        shadowPass->AddTerrainCaster(
+                                            va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
+                                            transform.GetTransform(), heightmapID, terrainUBOData);
+                                    }
                                 }
                             }
-                        }
-                        else
-                        {
-                            terrainUBOData.TessFactors = glm::vec4(1.0f);
-                            terrainUBOData.TessFactors2.w = 1.0f;
-                            std::vector<const TerrainChunk*> visibleChunks;
-                            chunkMgr.GetVisibleChunks(Renderer3D::GetViewFrustum(), visibleChunks);
-                            for (const auto* chunk : visibleChunks)
+                            else
                             {
-                                auto va = chunk->GetVertexArray();
-                                if (!va) { continue; }
-
-                                auto* packet = Renderer3D::DrawTerrainPatch(
-                                    va->GetRendererID(), chunk->GetIndexCount(), 3,
-                                    terrainShader,
-                                    heightmapID, tileSplatmapID, tileSplatmap1ID,
-                                    tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                    transform.GetTransform(), terrainUBOData, entityID);
-                                if (packet)
-                                    Renderer3D::SubmitPacket(packet);
-
-                                if (hasActiveShadows)
+                                terrainUBOData.TessFactors = glm::vec4(1.0f);
+                                terrainUBOData.TessFactors2.w = 1.0f;
+                                std::vector<const TerrainChunk*> visibleChunks;
+                                chunkMgr.GetVisibleChunks(Renderer3D::GetViewFrustum(), visibleChunks);
+                                for (const auto* chunk : visibleChunks)
                                 {
-                                    shadowPass->AddTerrainCaster(
+                                    auto va = chunk->GetVertexArray();
+                                    if (!va)
+                                    {
+                                        continue;
+                                    }
+
+                                    auto* packet = Renderer3D::DrawTerrainPatch(
                                         va->GetRendererID(), chunk->GetIndexCount(), 3,
-                                        transform.GetTransform(), heightmapID, terrainUBOData);
+                                        terrainShader,
+                                        heightmapID, tileSplatmapID, tileSplatmap1ID,
+                                        tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
+                                        transform.GetTransform(), terrainUBOData, entityID);
+                                    if (packet)
+                                        Renderer3D::SubmitPacket(packet);
+
+                                    if (hasActiveShadows)
+                                    {
+                                        shadowPass->AddTerrainCaster(
+                                            va->GetRendererID(), chunk->GetIndexCount(), 3,
+                                            transform.GetTransform(), heightmapID, terrainUBOData);
+                                    }
                                 }
                             }
-                        }
-                    };
+                        };
 
-                    if (terrain.m_StreamingEnabled && terrain.m_Streamer)
-                    {
-                        std::vector<Ref<TerrainTile>> readyTiles;
-                        terrain.m_Streamer->GetReadyTiles(readyTiles);
-                        for (const auto& tile : readyTiles)
+                        if (terrain.m_StreamingEnabled && terrain.m_Streamer)
                         {
-                            auto tileMat = tile->GetMaterial();
-                            auto chunkMgr = tile->GetChunkManager();
-                            if (!chunkMgr)
+                            std::vector<Ref<TerrainTile>> readyTiles;
+                            terrain.m_Streamer->GetReadyTiles(readyTiles);
+                            for (const auto& tile : readyTiles)
                             {
-                                continue;
+                                auto tileMat = tile->GetMaterial();
+                                auto chunkMgr = tile->GetChunkManager();
+                                if (!chunkMgr)
+                                {
+                                    continue;
+                                }
+                                submitChunkPackets(*chunkMgr, tile->GetTerrainData().get(),
+                                                   tileMat ? tileMat.get() : nullptr,
+                                                   tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale);
                             }
-                            submitChunkPackets(*chunkMgr, tile->GetTerrainData().get(),
-                                               tileMat ? tileMat.get() : nullptr,
-                                               tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale);
                         }
-                    }
-                    else if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
-                    {
-                        submitChunkPackets(*terrain.m_ChunkManager, terrain.m_TerrainData.get(),
-                                           nullptr,
-                                           terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
-                    }
+                        else if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
+                        {
+                            submitChunkPackets(*terrain.m_ChunkManager, terrain.m_TerrainData.get(),
+                                               nullptr,
+                                               terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                        }
+                    } // if (terrainShader)
 
                     // Submit voxel mesh command packets
                     if (terrain.m_VoxelEnabled && !terrain.m_VoxelMeshes.empty() && voxelShader)
@@ -1972,8 +1987,8 @@ namespace OloEngine
 
                 // Check if this entity should cast shadows
                 bool castsShadow = meshHasActiveShadows &&
-                    (!m_Registry.all_of<MaterialComponent>(entity) ||
-                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+                                   (!m_Registry.all_of<MaterialComponent>(entity) ||
+                                    !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -2022,8 +2037,8 @@ namespace OloEngine
                                                : GetDefaultMaterial();
 
                 bool castsShadow = meshHasActiveShadows &&
-                    (!m_Registry.all_of<MaterialComponent>(entity) ||
-                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+                                   (!m_Registry.all_of<MaterialComponent>(entity) ||
+                                    !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -2088,8 +2103,8 @@ namespace OloEngine
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
                 bool castsShadow = meshHasActiveShadows &&
-                    (!m_Registry.all_of<MaterialComponent>(entity) ||
-                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+                                   (!m_Registry.all_of<MaterialComponent>(entity) ||
+                                    !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
 
                 // Draw each submesh as an animated mesh
                 if (!mesh.m_MeshSource->GetSubmeshes().IsEmpty())
@@ -2314,8 +2329,16 @@ namespace OloEngine
             {
                 if (const auto& cam = camView.get<CameraComponent>(entity); cam.Primary)
                 {
-                    cameraNearClip = cam.Camera.GetPerspectiveNearClip();
-                    cameraFarClip = cam.Camera.GetPerspectiveFarClip();
+                    if (cam.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
+                    {
+                        cameraNearClip = cam.Camera.GetOrthographicNearClip();
+                        cameraFarClip = cam.Camera.GetOrthographicFarClip();
+                    }
+                    else
+                    {
+                        cameraNearClip = cam.Camera.GetPerspectiveNearClip();
+                        cameraFarClip = cam.Camera.GetPerspectiveFarClip();
+                    }
                     break;
                 }
             }
@@ -2431,8 +2454,7 @@ namespace OloEngine
                     glm::cos(glm::radians(spotLight.m_InnerCutoff)),
                     glm::cos(glm::radians(spotLight.m_OuterCutoff)),
                     1.0f,
-                    2.0f
-                );
+                    2.0f);
 
                 if (spotLight.m_CastShadows && spotShadowIndex < ShadowMap::MAX_SPOT_SHADOWS)
                 {
@@ -2687,11 +2709,6 @@ namespace OloEngine
                 {
                     const auto& [transform, terrain] = terrainRenderView.get<TransformComponent, TerrainComponent>(entity);
 
-                    if (!terrainShader)
-                    {
-                        continue;
-                    }
-
                     bool hasMaterial = terrain.m_Material && terrain.m_Material->IsBuilt();
 
                     RendererID splatmapID = 0, splatmap1ID = 0;
@@ -2699,157 +2716,177 @@ namespace OloEngine
                     if (hasMaterial)
                     {
                         auto& mat = terrain.m_Material;
-                        if (auto s0 = mat->GetSplatmap(0))   splatmapID = s0->GetRendererID();
-                        if (auto s1 = mat->GetSplatmap(1))   splatmap1ID = s1->GetRendererID();
-                        if (mat->GetAlbedoArray())            albedoArrayID = mat->GetAlbedoArray()->GetRendererID();
-                        if (mat->GetNormalArray())            normalArrayID = mat->GetNormalArray()->GetRendererID();
-                        if (mat->GetARMArray())               armArrayID = mat->GetARMArray()->GetRendererID();
+                        if (auto s0 = mat->GetSplatmap(0))
+                            splatmapID = s0->GetRendererID();
+                        if (auto s1 = mat->GetSplatmap(1))
+                            splatmap1ID = s1->GetRendererID();
+                        if (mat->GetAlbedoArray())
+                            albedoArrayID = mat->GetAlbedoArray()->GetRendererID();
+                        if (mat->GetNormalArray())
+                            normalArrayID = mat->GetNormalArray()->GetRendererID();
+                        if (mat->GetARMArray())
+                            armArrayID = mat->GetARMArray()->GetRendererID();
                     }
 
                     i32 entityID = static_cast<i32>(static_cast<u32>(entity));
-                    bool useTess = terrain.m_TessellationEnabled;
 
-                    auto submitChunkPackets = [&](const TerrainChunkManager& chunkMgr,
-                                                  const TerrainData* terrainData,
-                                                  const TerrainMaterial* tileMaterial,
-                                                  f32 worldSizeX, f32 worldSizeZ,
-                                                  f32 heightScale)
+                    if (terrainShader)
                     {
-                        if (!chunkMgr.IsBuilt())
+                        bool useTess = terrain.m_TessellationEnabled;
+
+                        auto submitChunkPackets = [&](const TerrainChunkManager& chunkMgr,
+                                                      const TerrainData* terrainData,
+                                                      const TerrainMaterial* tileMaterial,
+                                                      f32 worldSizeX, f32 worldSizeZ,
+                                                      f32 heightScale)
                         {
-                            return;
-                        }
-
-                        RendererID heightmapID = 0;
-                        if (terrainData && terrainData->GetGPUHeightmap())
-                        {
-                            heightmapID = terrainData->GetGPUHeightmap()->GetRendererID();
-                        }
-
-                        RendererID tileSplatmapID = splatmapID, tileSplatmap1ID = splatmap1ID;
-                        RendererID tileAlbedoArrayID = albedoArrayID, tileNormalArrayID = normalArrayID, tileArmArrayID = armArrayID;
-                        bool tileHasMaterial = tileMaterial && tileMaterial->IsBuilt();
-                        if (tileHasMaterial && tileMaterial != terrain.m_Material.get())
-                        {
-                            if (auto s0 = tileMaterial->GetSplatmap(0))   tileSplatmapID = s0->GetRendererID();
-                            if (auto s1 = tileMaterial->GetSplatmap(1))   tileSplatmap1ID = s1->GetRendererID();
-                            if (tileMaterial->GetAlbedoArray())           tileAlbedoArrayID = tileMaterial->GetAlbedoArray()->GetRendererID();
-                            if (tileMaterial->GetNormalArray())           tileNormalArrayID = tileMaterial->GetNormalArray()->GetRendererID();
-                            if (tileMaterial->GetARMArray())              tileArmArrayID = tileMaterial->GetARMArray()->GetRendererID();
-                        }
-
-                        ShaderBindingLayout::TerrainUBO terrainUBOData{};
-                        terrainUBOData.WorldSizeAndHeightScale = glm::vec4(
-                            worldSizeX, worldSizeZ,
-                            heightScale,
-                            static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
-                        u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
-
-                        const TerrainMaterial* effectiveMat = tileHasMaterial ? tileMaterial : (hasMaterial ? terrain.m_Material.get() : nullptr);
-                        u32 layerCount = effectiveMat ? effectiveMat->GetLayerCount() : 0;
-                        f32 triplanarSharpness = 8.0f;
-                        terrainUBOData.TerrainParams = glm::vec4(
-                            1.0f / static_cast<f32>(res),
-                            1.0f / static_cast<f32>(res),
-                            static_cast<f32>(layerCount),
-                            triplanarSharpness);
-                        terrainUBOData.HeightmapResolution = static_cast<i32>(res);
-
-                        if (effectiveMat)
-                        {
-                            for (u32 i = 0; i < std::min(layerCount, 4u); ++i)
+                            if (!chunkMgr.IsBuilt())
                             {
-                                terrainUBOData.LayerTilingScales0[i] = effectiveMat->GetLayer(i).TilingScale;
-                                terrainUBOData.LayerBlendSharpness0[i] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                                return;
                             }
-                            for (u32 i = 4; i < std::min(layerCount, 8u); ++i)
+
+                            RendererID heightmapID = 0;
+                            if (terrainData && terrainData->GetGPUHeightmap())
                             {
-                                terrainUBOData.LayerTilingScales1[i - 4] = effectiveMat->GetLayer(i).TilingScale;
-                                terrainUBOData.LayerBlendSharpness1[i - 4] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                                heightmapID = terrainData->GetGPUHeightmap()->GetRendererID();
                             }
-                        }
 
-                        if (useTess)
-                        {
-                            const auto& selectedChunks = chunkMgr.GetSelectedChunks();
-                            for (const auto& rc : selectedChunks)
+                            RendererID tileSplatmapID = splatmapID, tileSplatmap1ID = splatmap1ID;
+                            RendererID tileAlbedoArrayID = albedoArrayID, tileNormalArrayID = normalArrayID, tileArmArrayID = armArrayID;
+                            bool tileHasMaterial = tileMaterial && tileMaterial->IsBuilt();
+                            if (tileHasMaterial && tileMaterial != terrain.m_Material.get())
                             {
-                                auto va = rc.Chunk->GetVertexArray();
-                                if (!va) { continue; }
-                                terrainUBOData.TessFactors = rc.LODData.TessFactors;
-                                terrainUBOData.TessFactors2 = rc.LODData.TessFactors2;
-                                terrainUBOData.TessFactors2.w = 1.0f;
+                                if (auto s0 = tileMaterial->GetSplatmap(0))
+                                    tileSplatmapID = s0->GetRendererID();
+                                if (auto s1 = tileMaterial->GetSplatmap(1))
+                                    tileSplatmap1ID = s1->GetRendererID();
+                                if (tileMaterial->GetAlbedoArray())
+                                    tileAlbedoArrayID = tileMaterial->GetAlbedoArray()->GetRendererID();
+                                if (tileMaterial->GetNormalArray())
+                                    tileNormalArrayID = tileMaterial->GetNormalArray()->GetRendererID();
+                                if (tileMaterial->GetARMArray())
+                                    tileArmArrayID = tileMaterial->GetARMArray()->GetRendererID();
+                            }
 
-                                auto* packet = Renderer3D::DrawTerrainPatch(
-                                    va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
-                                    terrainShader,
-                                    heightmapID, tileSplatmapID, tileSplatmap1ID,
-                                    tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                    transform.GetTransform(), terrainUBOData, entityID);
-                                if (packet)
-                                    Renderer3D::SubmitPacket(packet);
+                            ShaderBindingLayout::TerrainUBO terrainUBOData{};
+                            terrainUBOData.WorldSizeAndHeightScale = glm::vec4(
+                                worldSizeX, worldSizeZ,
+                                heightScale,
+                                static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION));
+                            u32 res = terrainData ? std::max<u32>(1, terrainData->GetResolution()) : 256;
 
-                                if (hasActiveShadows)
+                            const TerrainMaterial* effectiveMat = tileHasMaterial ? tileMaterial : (hasMaterial ? terrain.m_Material.get() : nullptr);
+                            u32 layerCount = effectiveMat ? effectiveMat->GetLayerCount() : 0;
+                            f32 triplanarSharpness = 8.0f;
+                            terrainUBOData.TerrainParams = glm::vec4(
+                                1.0f / static_cast<f32>(res),
+                                1.0f / static_cast<f32>(res),
+                                static_cast<f32>(layerCount),
+                                triplanarSharpness);
+                            terrainUBOData.HeightmapResolution = static_cast<i32>(res);
+
+                            if (effectiveMat)
+                            {
+                                for (u32 i = 0; i < std::min(layerCount, 4u); ++i)
                                 {
-                                    shadowPass->AddTerrainCaster(
+                                    terrainUBOData.LayerTilingScales0[i] = effectiveMat->GetLayer(i).TilingScale;
+                                    terrainUBOData.LayerBlendSharpness0[i] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                                }
+                                for (u32 i = 4; i < std::min(layerCount, 8u); ++i)
+                                {
+                                    terrainUBOData.LayerTilingScales1[i - 4] = effectiveMat->GetLayer(i).TilingScale;
+                                    terrainUBOData.LayerBlendSharpness1[i - 4] = effectiveMat->GetLayer(i).HeightBlendSharpness;
+                                }
+                            }
+
+                            if (useTess)
+                            {
+                                const auto& selectedChunks = chunkMgr.GetSelectedChunks();
+                                for (const auto& rc : selectedChunks)
+                                {
+                                    auto va = rc.Chunk->GetVertexArray();
+                                    if (!va)
+                                    {
+                                        continue;
+                                    }
+                                    terrainUBOData.TessFactors = rc.LODData.TessFactors;
+                                    terrainUBOData.TessFactors2 = rc.LODData.TessFactors2;
+                                    terrainUBOData.TessFactors2.w = 1.0f;
+
+                                    auto* packet = Renderer3D::DrawTerrainPatch(
                                         va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
-                                        transform.GetTransform(), heightmapID, terrainUBOData);
+                                        terrainShader,
+                                        heightmapID, tileSplatmapID, tileSplatmap1ID,
+                                        tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
+                                        transform.GetTransform(), terrainUBOData, entityID);
+                                    if (packet)
+                                        Renderer3D::SubmitPacket(packet);
+
+                                    if (hasActiveShadows)
+                                    {
+                                        shadowPass->AddTerrainCaster(
+                                            va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
+                                            transform.GetTransform(), heightmapID, terrainUBOData);
+                                    }
                                 }
                             }
-                        }
-                        else
-                        {
-                            terrainUBOData.TessFactors = glm::vec4(1.0f);
-                            terrainUBOData.TessFactors2.w = 1.0f;
-                            std::vector<const TerrainChunk*> visibleChunks;
-                            chunkMgr.GetVisibleChunks(Renderer3D::GetViewFrustum(), visibleChunks);
-                            for (const auto* chunk : visibleChunks)
+                            else
                             {
-                                auto va = chunk->GetVertexArray();
-                                if (!va) { continue; }
-
-                                auto* packet = Renderer3D::DrawTerrainPatch(
-                                    va->GetRendererID(), chunk->GetIndexCount(), 3,
-                                    terrainShader,
-                                    heightmapID, tileSplatmapID, tileSplatmap1ID,
-                                    tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                    transform.GetTransform(), terrainUBOData, entityID);
-                                if (packet)
-                                    Renderer3D::SubmitPacket(packet);
-
-                                if (hasActiveShadows)
+                                terrainUBOData.TessFactors = glm::vec4(1.0f);
+                                terrainUBOData.TessFactors2.w = 1.0f;
+                                std::vector<const TerrainChunk*> visibleChunks;
+                                chunkMgr.GetVisibleChunks(Renderer3D::GetViewFrustum(), visibleChunks);
+                                for (const auto* chunk : visibleChunks)
                                 {
-                                    shadowPass->AddTerrainCaster(
+                                    auto va = chunk->GetVertexArray();
+                                    if (!va)
+                                    {
+                                        continue;
+                                    }
+
+                                    auto* packet = Renderer3D::DrawTerrainPatch(
                                         va->GetRendererID(), chunk->GetIndexCount(), 3,
-                                        transform.GetTransform(), heightmapID, terrainUBOData);
+                                        terrainShader,
+                                        heightmapID, tileSplatmapID, tileSplatmap1ID,
+                                        tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
+                                        transform.GetTransform(), terrainUBOData, entityID);
+                                    if (packet)
+                                        Renderer3D::SubmitPacket(packet);
+
+                                    if (hasActiveShadows)
+                                    {
+                                        shadowPass->AddTerrainCaster(
+                                            va->GetRendererID(), chunk->GetIndexCount(), 3,
+                                            transform.GetTransform(), heightmapID, terrainUBOData);
+                                    }
                                 }
                             }
-                        }
-                    };
+                        };
 
-                    if (terrain.m_StreamingEnabled && terrain.m_Streamer)
-                    {
-                        std::vector<Ref<TerrainTile>> readyTiles;
-                        terrain.m_Streamer->GetReadyTiles(readyTiles);
-                        for (const auto& tile : readyTiles)
+                        if (terrain.m_StreamingEnabled && terrain.m_Streamer)
                         {
-                            auto tileMat = tile->GetMaterial();
-                            auto chunkMgr = tile->GetChunkManager();
-                            if (!chunkMgr)
+                            std::vector<Ref<TerrainTile>> readyTiles;
+                            terrain.m_Streamer->GetReadyTiles(readyTiles);
+                            for (const auto& tile : readyTiles)
                             {
-                                continue;
+                                auto tileMat = tile->GetMaterial();
+                                auto chunkMgr = tile->GetChunkManager();
+                                if (!chunkMgr)
+                                {
+                                    continue;
+                                }
+                                submitChunkPackets(*chunkMgr, tile->GetTerrainData().get(),
+                                                   tileMat ? tileMat.get() : nullptr,
+                                                   tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale);
                             }
-                            submitChunkPackets(*chunkMgr, tile->GetTerrainData().get(),
-                                               tileMat ? tileMat.get() : nullptr,
-                                               tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale);
                         }
-                    }
-                    else if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
-                    {
-                        submitChunkPackets(*terrain.m_ChunkManager, terrain.m_TerrainData.get(),
-                                           nullptr,
-                                           terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
-                    }
+                        else if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
+                        {
+                            submitChunkPackets(*terrain.m_ChunkManager, terrain.m_TerrainData.get(),
+                                               nullptr,
+                                               terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                        }
+                    } // if (terrainShader)
 
                     // Submit voxel mesh command packets
                     if (terrain.m_VoxelEnabled && !terrain.m_VoxelMeshes.empty() && voxelShader)
@@ -2951,8 +2988,8 @@ namespace OloEngine
                                                : GetDefaultMaterial();
 
                 bool castsShadow = meshHasActiveShadows &&
-                    (!m_Registry.all_of<MaterialComponent>(entity) ||
-                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+                                   (!m_Registry.all_of<MaterialComponent>(entity) ||
+                                    !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -3000,8 +3037,8 @@ namespace OloEngine
                                                : GetDefaultMaterial();
 
                 bool castsShadow = meshHasActiveShadows &&
-                    (!m_Registry.all_of<MaterialComponent>(entity) ||
-                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+                                   (!m_Registry.all_of<MaterialComponent>(entity) ||
+                                    !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -3063,8 +3100,8 @@ namespace OloEngine
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
                 bool castsShadow = meshHasActiveShadows &&
-                    (!m_Registry.all_of<MaterialComponent>(entity) ||
-                     !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
+                                   (!m_Registry.all_of<MaterialComponent>(entity) ||
+                                    !m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting));
 
                 // Draw each submesh as an animated mesh
                 if (!mesh.m_MeshSource->GetSubmeshes().IsEmpty())
