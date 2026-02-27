@@ -33,9 +33,9 @@ layout(location = 0) out vec4 o_Color;
 
 layout(binding = 9) uniform samplerCube u_EnvironmentMap;
 
-// UBO_USER_0 (binding 6) — must match ShaderBindingLayout::UBO_USER_0
+// UBO_USER_0 (binding 7) — must match ShaderBindingLayout::UBO_USER_0
 // and IBLPrecompute.cpp GeneratePrefilterMap() which creates the UBO at this binding
-layout(std140, binding = 6) uniform IBLParameters {
+layout(std140, binding = 7) uniform IBLParameters {
     float u_Roughness;
     float u_ExposureAdjustment;
     float u_IBLIntensity;

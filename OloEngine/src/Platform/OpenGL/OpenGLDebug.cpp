@@ -14,9 +14,23 @@ namespace OloEngine
         const char* const message,
         const void* const)
     {
-        if (id == 131185 || id == 131204) // Ignore these non-significant error codes
+        // Suppress non-significant error codes
+        if (id == 131185 || id == 131204)
         {
-            return; // Suppress this specific message
+            return;
+        }
+
+        // Suppress NVIDIA driver warnings about integer framebuffer attachments.
+        // Our framebuffers use mixed attachments (e.g., RGBA8 color + R32I entity ID).
+        // Blend and fragment shader state are correctly managed per draw buffer via
+        // glEnablei/glDisablei and glClearTexImage, but the NVIDIA debug layer only
+        // checks the aggregate blend state rather than per-buffer state and warns
+        // whenever blend is enabled on ANY buffer while an integer attachment exists.
+        // 131220: "A fragment program/shader is required to correctly render to an integer framebuffer"
+        // 131140: "Blending/Dithering is enabled, but is not supported for integer framebuffers"
+        if (id == 131220 || id == 131140)
+        {
+            return;
         }
 
         std::string sourceStr;

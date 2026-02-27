@@ -470,116 +470,22 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // If the name starts with underscore and numbers, it's likely a SPIR-V generated name
-        // In this case, we only check the binding point
+        // SPIR-V generated names (e.g. "_12") — can't validate by name, accept any known slot
         if (name.starts_with("_") && name.length() > 1 && std::isdigit(name[1]))
-        {
-            // SPIR-V generated name - validate only by binding point
-            return binding <= ShaderBindingLayout::UBO_USER_1; // Valid binding range
-        }
+            return binding <= ShaderBindingLayout::UBO_SSS;
 
-        // Check if this is one of our standardized names
-        switch (binding)
-        {
-            case ShaderBindingLayout::UBO_CAMERA:
-                return name == "CameraMatrices" ||
-                       name.contains("Camera") ||
-                       name.contains("camera");
-
-            case ShaderBindingLayout::UBO_LIGHTS:
-                return name == "LightProperties" ||
-                       name.contains("Light") ||
-                       name.contains("light");
-
-            case ShaderBindingLayout::UBO_MATERIAL:
-                return name == "MaterialProperties" ||
-                       name.contains("Material") ||
-                       name.contains("material");
-
-            case ShaderBindingLayout::UBO_MODEL:
-                return name == "ModelMatrices" ||
-                       name.contains("Model") ||
-                       name.contains("model");
-
-            case ShaderBindingLayout::UBO_ANIMATION:
-                return name == "AnimationMatrices" ||
-                       name.contains("Animation") ||
-                       name.contains("animation") ||
-                       name.contains("Bone") ||
-                       name.contains("bone");
-
-            case ShaderBindingLayout::UBO_MULTI_LIGHTS:
-                return name == "MultiLightBuffer" ||
-                       name.contains("MultiLight") ||
-                       name.contains("multiLight");
-
-            case ShaderBindingLayout::UBO_SHADOW:
-                return name == "ShadowData" ||
-                       name.contains("Shadow") ||
-                       name.contains("shadow");
-
-            default:
-                // User-defined bindings (7+) are always valid
-                return binding >= ShaderBindingLayout::UBO_USER_0;
-        }
+        return ShaderBindingLayout::IsKnownUBOBinding(binding, name);
     }
 
     bool ShaderResourceRegistry::IsStandardTextureBinding(u32 binding, const std::string& name)
     {
         OLO_PROFILE_FUNCTION();
 
-        // If the name starts with "texture_binding_", it's our fallback name - validate only by binding
+        // Fallback name from failed reflection — binding itself was valid
         if (name.starts_with("texture_binding_"))
-        {
-            return (binding <= ShaderBindingLayout::TEX_SHADOW_POINT_3) && (binding < ShaderBindingLayout::TEX_USER_0 || binding > ShaderBindingLayout::TEX_USER_2); // Exclude user slots
-        }
-
-        // Special case for 2D renderer texture arrays
-        if (binding == ShaderBindingLayout::TEX_DIFFUSE &&
-            (name == "u_Textures" || name.contains("Textures")))
-        {
             return true;
-        }
 
-        // Check if this is one of our standardized names first
-        switch (binding)
-        {
-            case ShaderBindingLayout::TEX_DIFFUSE:
-                return name == "u_DiffuseMap" ||
-                       name.contains("diffuse") ||
-                       name.contains("Diffuse") ||
-                       name.contains("albedo") ||
-                       name.contains("Albedo") ||
-                       name == "u_Texture"; // Common generic texture name
-
-            case ShaderBindingLayout::TEX_SPECULAR:
-                return name == "u_SpecularMap" ||
-                       name.contains("specular") ||
-                       name.contains("Specular");
-
-            case ShaderBindingLayout::TEX_NORMAL:
-                return name == "u_NormalMap" ||
-                       name.contains("normal") ||
-                       name.contains("Normal");
-
-            case ShaderBindingLayout::TEX_ENVIRONMENT:
-                return name == "u_EnvironmentMap" ||
-                       name.contains("Skybox") ||
-                       name.contains("skybox") ||
-                       name.contains("Environment") ||
-                       name.contains("environment") ||
-                       name.contains("Cubemap") ||
-                       name == "u_Skybox";
-
-            case ShaderBindingLayout::TEX_SHADOW:
-                return name == "u_ShadowMap" ||
-                       name.contains("Shadow") ||
-                       name.contains("shadow");
-
-            default:
-                // User-defined texture bindings (10+) are always valid
-                return binding >= ShaderBindingLayout::TEX_USER_0;
-        }
+        return ShaderBindingLayout::IsKnownTextureBinding(binding, name);
     }
 
     // GLSL source parsing fallbacks
