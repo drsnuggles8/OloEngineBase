@@ -2122,10 +2122,17 @@ namespace OloEngine
                                 if (va)
                                 {
                                     auto* cmd = packet->GetCommandData<DrawMeshCommand>();
-                                    meshShadowPass->AddSkinnedCaster(
-                                        va->GetRendererID(), submesh->GetIndexCount(),
-                                        transform.GetTransform(),
-                                        cmd->boneBufferOffset, cmd->boneCount);
+                                    if (cmd)
+                                    {
+                                        meshShadowPass->AddSkinnedCaster(
+                                            va->GetRendererID(), submesh->GetIndexCount(),
+                                            transform.GetTransform(),
+                                            cmd->boneBufferOffset, cmd->boneCount);
+                                    }
+                                    else
+                                    {
+                                        OLO_CORE_WARN("DrawMeshCommand is null for animated mesh shadow caster");
+                                    }
                                 }
                             }
                         }
@@ -2373,7 +2380,7 @@ namespace OloEngine
         // Set particle render callback — executed by ParticleRenderPass during graph execution
         if (auto particlePass = Renderer3D::GetParticlePass())
         {
-            particlePass->SetRenderCallback([this, &camera, &cameraTransform, cameraNearClip, cameraFarClip, &cameraPosition]()
+            particlePass->SetRenderCallback([this, &camera, cameraTransform, cameraNearClip, cameraFarClip, cameraPosition]()
                                             {
                 ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
                 RenderParticleSystems(cameraPosition, cameraNearClip, cameraFarClip);

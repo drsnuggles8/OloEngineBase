@@ -613,9 +613,10 @@ namespace OloEngine
                 return GL_TEXTURE_2D;
             case RendererAPI::TextureTargetType::TextureCubeMap:
                 return GL_TEXTURE_CUBE_MAP;
+            default:
+                OLO_CORE_ERROR("ToGLTextureTarget: Unknown TextureTargetType");
+                return GL_TEXTURE_2D;
         }
-        OLO_CORE_ERROR("ToGLTextureTarget: Unknown TextureTargetType");
-        return GL_TEXTURE_2D;
     }
 
     void OpenGLRendererAPI::CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
@@ -657,7 +658,7 @@ namespace OloEngine
         glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
         u32 maxBuf = static_cast<u32>(maxDrawBuffers);
 
-        if (attachments.size() <= maxBuf)
+        if (attachments.size() <= maxBuf && attachments.size() <= 16)
         {
             // Stack-allocated path
             std::array<GLenum, 16> drawBuffers{};
@@ -669,15 +670,19 @@ namespace OloEngine
         }
         else
         {
-            OLO_CORE_WARN("OpenGLRendererAPI::SetDrawBuffers - attachment count {} exceeds GL_MAX_DRAW_BUFFERS {}, clamping",
-                          attachments.size(), maxBuf);
-            std::vector<GLenum> drawBuffers;
-            drawBuffers.reserve(maxBuf);
-            for (u32 i = 0; i < maxBuf; ++i)
+            u32 count = static_cast<u32>(attachments.size());
+            if (count > maxBuf)
             {
-                drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + attachments[i]);
+                OLO_CORE_WARN("OpenGLRendererAPI::SetDrawBuffers - attachment count {} exceeds GL_MAX_DRAW_BUFFERS {}, clamping",
+                              count, maxBuf);
+                count = maxBuf;
             }
-            glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
+            std::vector<GLenum> drawBuffers(count);
+            for (u32 i = 0; i < count; ++i)
+            {
+                drawBuffers[i] = GL_COLOR_ATTACHMENT0 + attachments[i];
+            }
+            glDrawBuffers(static_cast<GLsizei>(count), drawBuffers.data());
         }
     }
 
@@ -694,6 +699,18 @@ namespace OloEngine
             OLO_CORE_WARN("OpenGLRendererAPI::RestoreAllDrawBuffers - count {} exceeds GL_MAX_DRAW_BUFFERS {}, clamping",
                           colorAttachmentCount, maxBuf);
             colorAttachmentCount = maxBuf;
+        }
+
+        if (colorAttachmentCount > 16)
+        {
+            // Heap-allocated path for >16 attachments
+            std::vector<GLenum> allBuffers(colorAttachmentCount);
+            for (u32 i = 0; i < colorAttachmentCount; ++i)
+            {
+                allBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
+            }
+            glDrawBuffers(static_cast<GLsizei>(colorAttachmentCount), allBuffers.data());
+            return;
         }
 
         std::array<GLenum, 16> allBuffers{};
