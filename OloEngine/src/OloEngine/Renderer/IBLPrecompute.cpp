@@ -13,7 +13,6 @@
 #include <stb_image/stb_image.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glad/gl.h>
 
 namespace OloEngine
 {
@@ -220,10 +219,10 @@ namespace OloEngine
 
         const glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
 
-        // Store previous OpenGL state
-        bool wasStencilTestEnabled = glIsEnabled(GL_STENCIL_TEST);
+        // Store previous stencil state and disable for IBL rendering
+        bool wasStencilTestEnabled = RenderCommand::IsStencilTestEnabled();
         if (wasStencilTestEnabled)
-            glDisable(GL_STENCIL_TEST);
+            RenderCommand::DisableStencilTest();
 
         shader->Bind();
 
@@ -245,45 +244,27 @@ namespace OloEngine
             RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
 
             // Clear framebuffer
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            RenderCommand::ClearColorAndDepth();
 
             // Render cube to framebuffer
             auto vertexArray = cubeMesh->GetVertexArray();
             vertexArray->Bind();
             RenderCommand::DrawIndexed(vertexArray);
 
-            // Now copy from framebuffer to cubemap face using glCopyImageSubData
+            // Now copy from framebuffer to cubemap face
             u32 framebufferColorTexture = framebuffer->GetColorAttachmentRendererID(0);
 
-            // Check for OpenGL errors before the copy operation
-            GLenum error = glGetError();
-            if (error != GL_NO_ERROR)
-            {
-                OLO_CORE_WARN("OpenGL error before copy: {0}", error);
-            }
-
-            // Use glCopyImageSubData instead of glCopyTextureSubImage3D for better compatibility
-            glCopyImageSubData(
-                framebufferColorTexture, GL_TEXTURE_2D, 0,                         // Source texture, target, level
-                0, 0, 0,                                                           // Source x, y, z
-                cubemap->GetRendererID(), GL_TEXTURE_CUBE_MAP, 0,                  // Dest texture, target, ALWAYS use level 0
-                0, 0, i,                                                           // Dest x, y, z (z = face index)
-                static_cast<GLsizei>(mipWidth), static_cast<GLsizei>(mipHeight), 1 // Width, height, depth
-            );
-
-            // Check for errors after the copy
-            error = glGetError();
-            if (error != GL_NO_ERROR)
-            {
-                OLO_CORE_ERROR("OpenGL error during cubemap face copy {0}: {1}", i, error);
-            }
+            RenderCommand::CopyImageSubDataFull(
+                framebufferColorTexture, GL_TEXTURE_2D, 0, 0,
+                cubemap->GetRendererID(), GL_TEXTURE_CUBE_MAP, 0, static_cast<i32>(i),
+                mipWidth, mipHeight);
         }
 
         framebuffer->Unbind();
 
-        // Restore previous OpenGL state
+        // Restore previous stencil state
         if (wasStencilTestEnabled)
-            glEnable(GL_STENCIL_TEST);
+            RenderCommand::EnableStencilTest();
     }
 
     void IBLPrecompute::RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader,
@@ -299,10 +280,10 @@ namespace OloEngine
 
         auto framebuffer = Framebuffer::Create(fbSpec);
 
-        // Store previous OpenGL state
-        bool wasStencilTestEnabled = glIsEnabled(GL_STENCIL_TEST);
+        // Store previous stencil state and disable for IBL rendering
+        bool wasStencilTestEnabled = RenderCommand::IsStencilTestEnabled();
         if (wasStencilTestEnabled)
-            glDisable(GL_STENCIL_TEST);
+            RenderCommand::DisableStencilTest();
 
         // Bind framebuffer and set viewport
         framebuffer->Bind();
@@ -310,7 +291,7 @@ namespace OloEngine
         RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
 
         // Clear only color and depth buffers for IBL framebuffer
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        RenderCommand::ClearColorAndDepth();
 
         // Render fullscreen quad
         shader->Bind();
@@ -320,22 +301,15 @@ namespace OloEngine
 
         framebuffer->Unbind();
 
-        // Copy framebuffer to texture using DSA
-        // Note: framebuffer color attachment is read via glCopyTextureSubImage2D below
+        // Copy from framebuffer color attachment to the output texture
+        RenderCommand::CopyImageSubDataFull(
+            framebuffer->GetColorAttachmentRendererID(0), GL_TEXTURE_2D, 0, 0,
+            texture->GetRendererID(), GL_TEXTURE_2D, 0, 0,
+            texture->GetWidth(), texture->GetHeight());
 
-        // Copy from framebuffer color attachment to the texture
-        glCopyTextureSubImage2D(
-            texture->GetRendererID(),                  // Destination texture
-            0,                                         // Mip level
-            0, 0,                                      // X and Y offsets in destination
-            0, 0,                                      // X and Y offsets in source
-            static_cast<GLsizei>(texture->GetWidth()), // Width
-            static_cast<GLsizei>(texture->GetHeight()) // Height
-        );
-
-        // Restore previous OpenGL state
+        // Restore previous stencil state
         if (wasStencilTestEnabled)
-            glEnable(GL_STENCIL_TEST);
+            RenderCommand::EnableStencilTest();
     }
 
     const Ref<Mesh>& IBLPrecompute::GetCubeMesh()

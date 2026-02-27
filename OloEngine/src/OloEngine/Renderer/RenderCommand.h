@@ -34,6 +34,11 @@ namespace OloEngine
             s_RendererAPI->ClearDepthOnly();
         }
 
+        static void ClearColorAndDepth()
+        {
+            s_RendererAPI->ClearColorAndDepth();
+        }
+
         static Viewport GetViewport()
         {
             return s_RendererAPI->GetViewport();
@@ -158,6 +163,11 @@ namespace OloEngine
             s_RendererAPI->DisableStencilTest();
         }
 
+        static bool IsStencilTestEnabled()
+        {
+            return s_RendererAPI->IsStencilTestEnabled();
+        }
+
         static void SetStencilFunc(GLenum func, GLint ref, GLuint mask)
         {
             s_RendererAPI->SetStencilFunc(func, ref, mask);
@@ -268,6 +278,22 @@ namespace OloEngine
             s_RendererAPI->CopyImageSubData(srcID, srcTarget, dstID, dstTarget, width, height);
         }
 
+        // Full image copy with source/dest z offsets (cubemap face copies)
+        static void CopyImageSubDataFull(u32 srcID, u32 srcTarget, i32 srcLevel, i32 srcZ,
+                                         u32 dstID, u32 dstTarget, i32 dstLevel, i32 dstZ,
+                                         u32 width, u32 height)
+        {
+            s_RendererAPI->CopyImageSubDataFull(srcID, srcTarget, srcLevel, srcZ,
+                                                dstID, dstTarget, dstLevel, dstZ,
+                                                width, height);
+        }
+
+        // Copy from currently-bound READ framebuffer to a named texture
+        static void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height)
+        {
+            s_RendererAPI->CopyFramebufferToTexture(textureID, width, height);
+        }
+
         // Draw buffer control
         static void SetDrawBuffers(std::span<const u32> attachments)
         {
@@ -283,6 +309,11 @@ namespace OloEngine
         static u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat)
         {
             return s_RendererAPI->CreateTexture2D(width, height, internalFormat);
+        }
+
+        static u32 CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat)
+        {
+            return s_RendererAPI->CreateTextureCubemap(width, height, internalFormat);
         }
 
         static void SetTextureParameter(u32 textureID, GLenum pname, GLint value)

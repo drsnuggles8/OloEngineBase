@@ -80,6 +80,24 @@ namespace OloEngine
         }
     }
 
+    void OpenGLRendererAPI::ClearColorAndDepth()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Ensure depth writes are enabled before clearing, otherwise glClear silently no-ops
+        if (!m_DepthMaskEnabled)
+        {
+            glDepthMask(GL_TRUE);
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        if (!m_DepthMaskEnabled)
+        {
+            glDepthMask(GL_FALSE);
+        }
+    }
+
     Viewport OpenGLRendererAPI::GetViewport() const
     {
         OLO_PROFILE_FUNCTION();
@@ -357,6 +375,11 @@ namespace OloEngine
         m_StencilTestEnabled = false;
         glDisable(GL_STENCIL_TEST);
     }
+
+    bool OpenGLRendererAPI::IsStencilTestEnabled() const
+    {
+        return m_StencilTestEnabled;
+    }
     void OpenGLRendererAPI::SetStencilFunc(GLenum func, GLint ref, GLuint mask)
     {
         OLO_PROFILE_FUNCTION();
@@ -571,6 +594,22 @@ namespace OloEngine
             static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1);
     }
 
+    void OpenGLRendererAPI::CopyImageSubDataFull(u32 srcID, u32 srcTarget, i32 srcLevel, i32 srcZ,
+                                                 u32 dstID, u32 dstTarget, i32 dstLevel, i32 dstZ,
+                                                 u32 width, u32 height)
+    {
+        glCopyImageSubData(
+            srcID, srcTarget, srcLevel, 0, 0, srcZ,
+            dstID, dstTarget, dstLevel, 0, 0, dstZ,
+            static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1);
+    }
+
+    void OpenGLRendererAPI::CopyFramebufferToTexture(u32 textureID, u32 width, u32 height)
+    {
+        glCopyTextureSubImage2D(textureID, 0, 0, 0, 0, 0,
+                                static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+    }
+
     void OpenGLRendererAPI::SetDrawBuffers(std::span<const u32> attachments)
     {
         // Convert attachment indices to GL enums
@@ -598,6 +637,15 @@ namespace OloEngine
     {
         u32 textureID = 0;
         glCreateTextures(GL_TEXTURE_2D, 1, &textureID);
+        glTextureStorage2D(textureID, 1, internalFormat,
+                           static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+        return textureID;
+    }
+
+    u32 OpenGLRendererAPI::CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat)
+    {
+        u32 textureID = 0;
+        glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &textureID);
         glTextureStorage2D(textureID, 1, internalFormat,
                            static_cast<GLsizei>(width), static_cast<GLsizei>(height));
         return textureID;

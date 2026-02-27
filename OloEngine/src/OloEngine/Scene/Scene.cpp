@@ -42,7 +42,6 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
-#include <glad/gl.h>
 #include <glm/glm.hpp>
 #include <ranges>
 

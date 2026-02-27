@@ -40,6 +40,7 @@ namespace OloEngine
         virtual void SetClearColor(const glm::vec4& color) = 0;
         virtual void Clear() = 0;
         virtual void ClearDepthOnly() = 0;
+        virtual void ClearColorAndDepth() = 0;
         virtual Viewport GetViewport() const = 0;
 
         virtual void DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount) = 0;
@@ -68,6 +69,7 @@ namespace OloEngine
 
         virtual void EnableStencilTest() = 0;
         virtual void DisableStencilTest() = 0;
+        virtual bool IsStencilTestEnabled() const = 0;
         virtual void SetStencilFunc(GLenum func, GLint ref, GLuint mask) = 0;
         virtual void SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass) = 0;
         virtual void SetStencilMask(GLuint mask) = 0;
@@ -103,6 +105,12 @@ namespace OloEngine
         // GPU-side image copy (used for staging textures to avoid read-write hazards)
         virtual void CopyImageSubData(u32 srcID, u32 srcTarget, u32 dstID, u32 dstTarget,
                                       u32 width, u32 height) = 0;
+        // Full image copy with source/dest offsets (needed for cubemap face copies)
+        virtual void CopyImageSubDataFull(u32 srcID, u32 srcTarget, i32 srcLevel, i32 srcZ,
+                                          u32 dstID, u32 dstTarget, i32 dstLevel, i32 dstZ,
+                                          u32 width, u32 height) = 0;
+        // Copy from currently-bound READ framebuffer to a named texture
+        virtual void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height) = 0;
 
         // Restrict which color attachments are written to
         virtual void SetDrawBuffers(std::span<const u32> attachments) = 0;
@@ -111,6 +119,7 @@ namespace OloEngine
 
         // Texture lifecycle abstractions (avoid raw gl* calls in passes)
         virtual u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat) = 0;
+        virtual u32 CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat) = 0;
         virtual void SetTextureParameter(u32 textureID, GLenum pname, GLint value) = 0;
         virtual void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
                                              GLenum format, GLenum type, const void* data) = 0;
