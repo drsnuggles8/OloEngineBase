@@ -471,7 +471,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // SPIR-V generated names (e.g. "_12") — can't validate by name, accept any known slot
-        if (name.starts_with("_") && name.length() > 1 && std::isdigit(name[1]))
+        if (name.starts_with("_") && name.length() > 1 &&
+            std::isdigit(static_cast<unsigned char>(name[1])))
             return binding <= ShaderBindingLayout::UBO_SSS;
 
         return ShaderBindingLayout::IsKnownUBOBinding(binding, name);
@@ -481,9 +482,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Fallback name from failed reflection — binding itself was valid
+        // Fallback name from failed reflection — validate binding is in the known range
         if (name.starts_with("texture_binding_"))
-            return true;
+            return binding <= ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1;
 
         return ShaderBindingLayout::IsKnownTextureBinding(binding, name);
     }

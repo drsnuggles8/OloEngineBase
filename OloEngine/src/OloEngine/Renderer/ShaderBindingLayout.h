@@ -381,25 +381,41 @@ namespace OloEngine
         {
             switch (binding)
             {
-                case UBO_CAMERA:      return name.contains("Camera") || name.contains("camera");
-                case UBO_LIGHTS:      return name.contains("Light") || name.contains("light");
-                case UBO_MATERIAL:    return name.contains("Material") || name.contains("material") ||
-                                             name.contains("Particle") || name.contains("particle");
-                case UBO_MODEL:       return name.contains("Model") || name.contains("model") ||
-                                             name.contains("Instance") || name.contains("instance");
-                case UBO_ANIMATION:   return name.contains("Animation") || name.contains("animation") ||
-                                             name.contains("Bone") || name.contains("bone");
-                case UBO_MULTI_LIGHTS:return name.contains("MultiLight") || name.contains("multiLight");
-                case UBO_SHADOW:      return name.contains("Shadow") || name.contains("shadow");
-                case UBO_USER_0:      return true; // PostProcess
-                case UBO_USER_1:      return true; // MotionBlur
-                case UBO_SSAO:        return name.contains("SSAO") || name.contains("ssao");
-                case UBO_TERRAIN:     return name.contains("Terrain") || name.contains("terrain");
-                case UBO_BRUSH_PREVIEW: return name.contains("Brush") || name.contains("brush");
-                case UBO_FOLIAGE:     return name.contains("Foliage") || name.contains("foliage");
-                case UBO_SNOW:        return name.contains("Snow") || name.contains("snow");
-                case UBO_SSS:         return name.contains("SSS") || name.contains("sss");
-                default:              return false;
+                case UBO_CAMERA:
+                    return name.contains("Camera") || name.contains("camera");
+                case UBO_LIGHTS:
+                    return name.contains("Light") || name.contains("light");
+                case UBO_MATERIAL:
+                    return name.contains("Material") || name.contains("material") ||
+                           name.contains("Particle") || name.contains("particle");
+                case UBO_MODEL:
+                    return name.contains("Model") || name.contains("model") ||
+                           name.contains("Instance") || name.contains("instance");
+                case UBO_ANIMATION:
+                    return name.contains("Animation") || name.contains("animation") ||
+                           name.contains("Bone") || name.contains("bone");
+                case UBO_MULTI_LIGHTS:
+                    return name.contains("MultiLight") || name.contains("multiLight");
+                case UBO_SHADOW:
+                    return name.contains("Shadow") || name.contains("shadow");
+                case UBO_USER_0:
+                    return true; // PostProcess
+                case UBO_USER_1:
+                    return true; // MotionBlur
+                case UBO_SSAO:
+                    return name.contains("SSAO") || name.contains("ssao");
+                case UBO_TERRAIN:
+                    return name.contains("Terrain") || name.contains("terrain");
+                case UBO_BRUSH_PREVIEW:
+                    return name.contains("Brush") || name.contains("brush");
+                case UBO_FOLIAGE:
+                    return name.contains("Foliage") || name.contains("foliage");
+                case UBO_SNOW:
+                    return name.contains("Snow") || name.contains("snow");
+                case UBO_SSS:
+                    return name.contains("SSS") || name.contains("sss");
+                default:
+                    return false;
             }
         }
 
@@ -407,32 +423,44 @@ namespace OloEngine
         {
             switch (binding)
             {
-                case TEX_DIFFUSE:     return name.contains("Diffuse") || name.contains("diffuse") ||
-                                             name.contains("Albedo") || name.contains("albedo") ||
-                                             name == "u_Texture" || name == "u_Textures" ||
-                                             // Slot 0 is also used as generic input for many shaders
-                                             name.contains("Scene") || name.contains("FontAtlas") ||
-                                             name.contains("Equirectangular") || name.contains("SSAO");
-                case TEX_SPECULAR:    return name.contains("Specular") || name.contains("specular") ||
-                                             name.contains("Metallic") || name.contains("metallic") ||
-                                             name.contains("Depth") || name.contains("Bloom");
-                case TEX_NORMAL:      return name.contains("Normal") || name.contains("normal");
-                case TEX_HEIGHT:      return name.contains("Height") || name.contains("height") ||
-                                             name.contains("Displacement") || name.contains("displacement");
-                case TEX_AMBIENT:     return name.contains("AO") || name.contains("Ambient") ||
-                                             name.contains("ambient") || name.contains("Occlusion") ||
-                                             name.contains("occlusion");
-                case TEX_EMISSIVE:    return name.contains("Emissive") || name.contains("emissive") ||
-                                             name.contains("Emission") || name.contains("emission");
-                case TEX_ROUGHNESS:   return name.contains("Roughness") || name.contains("roughness");
-                case TEX_METALLIC:    return name.contains("Metallic") || name.contains("metallic");
-                case TEX_SHADOW:      return name.contains("Shadow") || name.contains("shadow");
-                case TEX_ENVIRONMENT: return name.contains("Environment") || name.contains("environment") ||
-                                             name.contains("Skybox") || name.contains("skybox") ||
-                                             name.contains("Cubemap");
+                case TEX_DIFFUSE:
+                    return name.contains("Diffuse") || name.contains("diffuse") ||
+                           name.contains("Albedo") || name.contains("albedo") ||
+                           name == "u_Texture" || name == "u_Textures" ||
+                           // Slot 0 is also used as generic input for many shaders
+                           name.contains("Scene") || name.contains("FontAtlas") ||
+                           name.contains("Equirectangular") || name.contains("SSAO");
+                case TEX_SPECULAR:
+                    // Slot 1 is reused across shader contexts: Metallic/Roughness in PBR,
+                    // Depth textures in particle effects, Bloom textures in post-processing.
+                    return name.contains("Specular") || name.contains("specular") ||
+                           name.contains("Metallic") || name.contains("metallic") ||
+                           name.contains("Depth") || name.contains("Bloom");
+                case TEX_NORMAL:
+                    return name.contains("Normal") || name.contains("normal");
+                case TEX_HEIGHT:
+                    return name.contains("Height") || name.contains("height") ||
+                           name.contains("Displacement") || name.contains("displacement");
+                case TEX_AMBIENT:
+                    return name.contains("AO") || name.contains("Ambient") ||
+                           name.contains("ambient") || name.contains("Occlusion") ||
+                           name.contains("occlusion");
+                case TEX_EMISSIVE:
+                    return name.contains("Emissive") || name.contains("emissive") ||
+                           name.contains("Emission") || name.contains("emission");
+                case TEX_ROUGHNESS:
+                    return name.contains("Roughness") || name.contains("roughness");
+                case TEX_METALLIC:
+                    return name.contains("Metallic") || name.contains("metallic");
+                case TEX_SHADOW:
+                    return name.contains("Shadow") || name.contains("shadow");
+                case TEX_ENVIRONMENT:
+                    return name.contains("Environment") || name.contains("environment") ||
+                           name.contains("Skybox") || name.contains("skybox") ||
+                           name.contains("Cubemap");
                 default:
-                    // All defined bindings above TEX_ENVIRONMENT (10+) are known engine slots
-                    return binding >= TEX_USER_0;
+                    // Accept only explicitly defined engine texture slots (10–28)
+                    return binding >= TEX_USER_0 && binding <= TEX_TERRAIN_SPLATMAP_1;
             }
         }
 
