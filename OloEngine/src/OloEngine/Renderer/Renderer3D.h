@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
+#include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Core/Timestep.h"
@@ -136,6 +137,23 @@ namespace OloEngine
 
         // Grid rendering (returns command packet for deferred execution)
         static CommandPacket* DrawInfiniteGrid(f32 gridScale = 1.0f);
+
+        // Terrain/Voxel rendering (returns command packets for sorted execution)
+        static CommandPacket* DrawTerrainPatch(
+            RendererID vaoID, u32 indexCount, u32 patchVertexCount,
+            const Ref<Shader>& shader,
+            RendererID heightmapID, RendererID splatmapID, RendererID splatmap1ID,
+            RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+            const glm::mat4& transform,
+            const ShaderBindingLayout::TerrainUBO& terrainUBO,
+            i32 entityID = -1);
+
+        static CommandPacket* DrawVoxelMesh(
+            RendererID vaoID, u32 indexCount,
+            const Ref<Shader>& shader,
+            RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+            const glm::mat4& transform,
+            i32 entityID = -1);
 
         // Skeleton visualization
         static void DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix,
@@ -385,6 +403,7 @@ namespace OloEngine
 
         static void SetLight(const Light& light);
         static void SetViewPosition(const glm::vec3& position);
+        static void SetCameraClipPlanes(f32 nearClip, f32 farClip);
 
         // Scene light collection (collects light components from scene)
         static void SetSceneLights(const Ref<Scene>& scene);
@@ -543,6 +562,11 @@ namespace OloEngine
             return s_Data.PostProcess;
         }
 
+        static SnowSettings& GetSnowSettings()
+        {
+            return s_Data.Snow;
+        }
+
         // Shader library access for PBR material shader selection
         static ShaderLibrary& GetShaderLibrary();
 
@@ -599,6 +623,8 @@ namespace OloEngine
             Ref<UniformBuffer> SSAOUBO;
             Ref<UniformBuffer> TerrainUBO;
             Ref<UniformBuffer> FoliageUBO;
+            Ref<UniformBuffer> SnowUBO;
+            Ref<UniformBuffer> SSSUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -627,6 +653,7 @@ namespace OloEngine
             Ref<SceneRenderPass> ScenePass;
             Ref<SSAORenderPass> SSAOPass;
             Ref<ParticleRenderPass> ParticlePass;
+            Ref<SSSRenderPass> SSSPass;
             Ref<PostProcessRenderPass> PostProcessPass;
             Ref<FinalRenderPass> FinalPass;
 
@@ -648,6 +675,9 @@ namespace OloEngine
             PostProcessUBOData PostProcessGPUData;
             MotionBlurUBOData MotionBlurGPUData;
             SSAOUBOData SSAOGPUData;
+            SnowSettings Snow;
+            SnowUBOData SnowGPUData;
+            SSSUBOData SSSGPUData;
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
 
             // Parallel submission state

@@ -95,6 +95,10 @@ namespace OloEngine
         static void DrawInfiniteGrid(const void* data, RendererAPI& api);
         static void DrawQuad(const void* data, RendererAPI& api);
 
+        // Terrain/Voxel dispatch functions
+        static void DrawTerrainPatch(const void* data, RendererAPI& api);
+        static void DrawVoxelMesh(const void* data, RendererAPI& api);
+
         static Statistics& GetStatistics();
 
       private:

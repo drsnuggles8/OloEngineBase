@@ -1,7 +1,10 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
 namespace OloEngine
 {
@@ -32,15 +35,23 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_RenderCallback || !m_ShadowMap || !m_ShadowMap->IsEnabled())
+        const bool hasCasters = !m_MeshCasters.empty() || !m_SkinnedCasters.empty() ||
+                                !m_TerrainCasters.empty() || !m_VoxelCasters.empty() ||
+                                !m_FoliageCasters.empty();
+
+        if (!m_ShadowMap || !m_ShadowMap->IsEnabled() || !hasCasters)
         {
-            if (!m_WarnedOnce)
+            if (!m_WarnedOnce && !hasCasters && m_ShadowMap && m_ShadowMap->IsEnabled())
             {
-                OLO_CORE_WARN("ShadowRenderPass::Execute skipped: callback={}, shadowMap={}, enabled={}",
-                              m_RenderCallback != nullptr, m_ShadowMap != nullptr,
-                              m_ShadowMap ? m_ShadowMap->IsEnabled() : false);
+                OLO_CORE_WARN("ShadowRenderPass::Execute skipped: no shadow casters submitted");
                 m_WarnedOnce = true;
             }
+            // Clear caster lists for next frame
+            m_MeshCasters.clear();
+            m_SkinnedCasters.clear();
+            m_TerrainCasters.clear();
+            m_VoxelCasters.clear();
+            m_FoliageCasters.clear();
             return;
         }
 
@@ -52,7 +63,7 @@ namespace OloEngine
 
         const u32 resolution = m_ShadowMap->GetResolution();
 
-        // Save current viewport and render state
+        // Save current viewport
         const auto prevViewport = RenderCommand::GetViewport();
 
         // Bind shadow framebuffer and set viewport to shadow resolution
@@ -83,7 +94,7 @@ namespace OloEngine
                 RenderCommand::ClearDepthOnly();
 
                 const glm::mat4& lightVP = m_ShadowMap->GetCSMMatrix(cascade);
-                m_RenderCallback(lightVP, cascade, ShadowPassType::CSM);
+                RenderCascadeOrFace(lightVP, ShadowPassType::CSM, cascade);
             }
         }
 
@@ -97,7 +108,7 @@ namespace OloEngine
                 RenderCommand::ClearDepthOnly();
 
                 const glm::mat4& lightVP = m_ShadowMap->GetSpotMatrix(i);
-                m_RenderCallback(lightVP, i, ShadowPassType::Spot);
+                RenderCascadeOrFace(lightVP, ShadowPassType::Spot, i);
             }
         }
 
@@ -114,15 +125,11 @@ namespace OloEngine
 
                 for (u32 face = 0; face < 6; ++face)
                 {
-                    // AttachDepthTextureArrayLayer uses glNamedFramebufferTextureLayer
-                    // which works for cubemaps: layer 0-5 = +X,-X,+Y,-Y,+Z,-Z
                     m_ShadowFramebuffer->AttachDepthTextureArrayLayer(cubemapID, face);
                     RenderCommand::ClearDepthOnly();
 
                     const glm::mat4& faceVP = m_ShadowMap->GetPointFaceMatrix(light, face);
-                    // Encode light index in the layer parameter so the callback
-                    // can query ShadowMap::GetPointShadowParams(light) for position/far
-                    m_RenderCallback(faceVP, light, ShadowPassType::Point);
+                    RenderCascadeOrFace(faceVP, ShadowPassType::Point, light);
                 }
             }
         }
@@ -135,20 +142,203 @@ namespace OloEngine
         m_ShadowFramebuffer->Unbind();
         RenderCommand::SetViewport(prevViewport.x, prevViewport.y, prevViewport.width, prevViewport.height);
 
-        // Clear callback to prevent stale captures across frames
-        m_RenderCallback = nullptr;
+        // Clear caster lists for next frame (vectors keep their allocation)
+        m_MeshCasters.clear();
+        m_SkinnedCasters.clear();
+        m_TerrainCasters.clear();
+        m_VoxelCasters.clear();
+        m_FoliageCasters.clear();
+    }
+
+    void ShadowRenderPass::RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& shadowMap = Renderer3D::GetShadowMap();
+
+        // Upload light VP to the shadow camera UBO (binding 0)
+        auto cameraUBOData = ShaderBindingLayout::CameraUBO{};
+        cameraUBOData.ViewProjection = lightVP;
+        cameraUBOData.View = glm::mat4(1.0f);
+        cameraUBOData.Projection = lightVP;
+
+        if (type == ShadowPassType::Point)
+        {
+            const auto& params = shadowMap.GetPointShadowParams(layerOrLight);
+            cameraUBOData.Position = glm::vec3(params);
+            cameraUBOData._padding0 = params.w; // far plane
+        }
+        else
+        {
+            cameraUBOData.Position = glm::vec3(0.0f);
+            cameraUBOData._padding0 = 0.0f;
+        }
+
+        auto& cameraUBO = shadowMap.GetShadowCameraUBO();
+        cameraUBO->SetData(&cameraUBOData, ShaderBindingLayout::CameraUBO::GetSize());
+        cameraUBO->Bind();
+        auto& modelUBO = shadowMap.GetShadowModelUBO();
+        modelUBO->Bind();
+
+        // Helper to populate and upload the shadow ModelUBO for a given transform
+        auto uploadShadowModelUBO = [&modelUBO](const glm::mat4& worldTransform)
+        {
+            ShaderBindingLayout::ModelUBO modelData;
+            modelData.Model = worldTransform;
+            modelData.Normal = glm::mat4(1.0f); // Shadow depth shaders don't use normals
+            modelData.EntityID = -1;
+            modelData._paddingEntity[0] = 0;
+            modelData._paddingEntity[1] = 0;
+            modelData._paddingEntity[2] = 0;
+            modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+        };
+
+        // ── Static meshes ──
+        {
+            const char* shaderName = (type == ShadowPassType::Point) ? "ShadowDepthPoint" : "ShadowDepth";
+            auto shadowShader = Renderer3D::GetShaderLibrary().Get(shaderName);
+            if (shadowShader)
+            {
+                shadowShader->Bind();
+                for (const auto& caster : m_MeshCasters)
+                {
+                    uploadShadowModelUBO(caster.transform);
+                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
+                }
+            }
+        }
+
+        // ── Skinned meshes ──
+        if (!m_SkinnedCasters.empty())
+        {
+            Ref<Shader> skinnedShadowShader;
+            if (type == ShadowPassType::Point)
+            {
+                skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthPointSkinned");
+            }
+            if (!skinnedShadowShader)
+            {
+                skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthSkinned");
+            }
+            if (skinnedShadowShader)
+            {
+                skinnedShadowShader->Bind();
+                auto& animUBO = shadowMap.GetShadowAnimationUBO();
+                animUBO->Bind();
+
+                for (const auto& caster : m_SkinnedCasters)
+                {
+                    uploadShadowModelUBO(caster.transform);
+
+                    if (caster.boneCount > 0)
+                    {
+                        const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(caster.boneBufferOffset);
+                        if (boneMatrices)
+                        {
+                            auto count = std::min(caster.boneCount, static_cast<u32>(ShaderBindingLayout::AnimationUBO::MAX_BONES));
+                            animUBO->SetData(boneMatrices, count * sizeof(glm::mat4));
+                        }
+                    }
+
+                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
+                }
+            }
+        }
+
+        // ── Terrain patches ──
+        if (!m_TerrainCasters.empty())
+        {
+            const char* terrainDepthName = (type == ShadowPassType::Point) ? "ShadowDepthPoint" : "Terrain_Depth";
+            auto terrainDepthShader = Renderer3D::GetShaderLibrary().Get(terrainDepthName);
+            if (!terrainDepthShader)
+            {
+                terrainDepthShader = Renderer3D::GetTerrainDepthShader();
+            }
+            if (terrainDepthShader)
+            {
+                terrainDepthShader->Bind();
+                auto terrainUBO = Renderer3D::GetTerrainUBO();
+
+                for (const auto& caster : m_TerrainCasters)
+                {
+                    uploadShadowModelUBO(caster.transform);
+
+                    if (caster.heightmapTextureID != 0)
+                    {
+                        RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, caster.heightmapTextureID);
+                    }
+
+                    if (terrainUBO)
+                    {
+                        terrainUBO->SetData(&caster.terrainUBO, ShaderBindingLayout::TerrainUBO::GetSize());
+                        terrainUBO->Bind();
+                    }
+
+                    RenderCommand::DrawIndexedPatchesRaw(caster.vaoID, caster.indexCount, caster.patchVertexCount);
+                }
+            }
+        }
+
+        // ── Voxel meshes ──
+        if (!m_VoxelCasters.empty())
+        {
+            auto voxelDepthShader = Renderer3D::GetVoxelDepthShader();
+            if (voxelDepthShader)
+            {
+                voxelDepthShader->Bind();
+                for (const auto& caster : m_VoxelCasters)
+                {
+                    uploadShadowModelUBO(caster.transform);
+                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
+                }
+            }
+        }
+
+        // ── Foliage ──
+        for (const auto& caster : m_FoliageCasters)
+        {
+            if (caster.renderer && caster.depthShader)
+            {
+                caster.depthShader->Bind();
+                caster.renderer->SetTime(caster.time);
+                caster.renderer->RenderShadows(caster.depthShader);
+            }
+        }
+    }
+
+    // Shadow caster submission methods
+    void ShadowRenderPass::AddMeshCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform)
+    {
+        m_MeshCasters.push_back({ vaoID, indexCount, transform });
+    }
+
+    void ShadowRenderPass::AddSkinnedCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform,
+                                            u32 boneBufferOffset, u32 boneCount)
+    {
+        m_SkinnedCasters.push_back({ vaoID, indexCount, transform, boneBufferOffset, boneCount });
+    }
+
+    void ShadowRenderPass::AddTerrainCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,
+                                            const glm::mat4& transform, RendererID heightmapTextureID,
+                                            const ShaderBindingLayout::TerrainUBO& terrainUBO)
+    {
+        m_TerrainCasters.push_back({ vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, terrainUBO });
+    }
+
+    void ShadowRenderPass::AddVoxelCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform)
+    {
+        m_VoxelCasters.push_back({ vaoID, indexCount, transform });
+    }
+
+    void ShadowRenderPass::AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time)
+    {
+        m_FoliageCasters.push_back({ renderer, depthShader, time });
     }
 
     Ref<Framebuffer> ShadowRenderPass::GetTarget() const
     {
         OLO_PROFILE_FUNCTION();
         return m_ShadowFramebuffer;
-    }
-
-    void ShadowRenderPass::SetRenderCallback(ShadowRenderCallback callback)
-    {
-        OLO_PROFILE_FUNCTION();
-        m_RenderCallback = std::move(callback);
     }
 
     void ShadowRenderPass::SetupFramebuffer(u32 width, u32 height)

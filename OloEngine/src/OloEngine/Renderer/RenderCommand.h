@@ -34,6 +34,11 @@ namespace OloEngine
             s_RendererAPI->ClearDepthOnly();
         }
 
+        static void ClearColorAndDepth()
+        {
+            s_RendererAPI->ClearColorAndDepth();
+        }
+
         static Viewport GetViewport()
         {
             return s_RendererAPI->GetViewport();
@@ -62,6 +67,17 @@ namespace OloEngine
         static void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, const u32 indexCount = 0, const u32 patchVertices = 4)
         {
             s_RendererAPI->DrawIndexedPatches(vertexArray, indexCount, patchVertices);
+        }
+
+        // Raw VAO ID overloads for POD shadow casters
+        static void DrawIndexedRaw(u32 vaoID, u32 indexCount)
+        {
+            s_RendererAPI->DrawIndexedRaw(vaoID, indexCount);
+        }
+
+        static void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices)
+        {
+            s_RendererAPI->DrawIndexedPatchesRaw(vaoID, indexCount, patchVertices);
         }
 
         static void SetLineWidth(const f32 width)
@@ -145,6 +161,11 @@ namespace OloEngine
         static void DisableStencilTest()
         {
             s_RendererAPI->DisableStencilTest();
+        }
+
+        static bool IsStencilTestEnabled()
+        {
+            return s_RendererAPI->IsStencilTestEnabled();
         }
 
         static void SetStencilFunc(GLenum func, GLint ref, GLuint mask)
@@ -242,6 +263,73 @@ namespace OloEngine
         static void MemoryBarrier(MemoryBarrierFlags flags)
         {
             s_RendererAPI->MemoryBarrier(flags);
+        }
+
+        // Per-attachment blend control
+        static void SetBlendStateForAttachment(u32 attachment, bool enabled)
+        {
+            s_RendererAPI->SetBlendStateForAttachment(attachment, enabled);
+        }
+
+        // GPU-side image copy
+        static void CopyImageSubData(u32 srcID, RendererAPI::TextureTargetType srcTarget, u32 dstID, RendererAPI::TextureTargetType dstTarget,
+                                     u32 width, u32 height)
+        {
+            s_RendererAPI->CopyImageSubData(srcID, srcTarget, dstID, dstTarget, width, height);
+        }
+
+        // Full image copy with source/dest z offsets (cubemap face copies)
+        static void CopyImageSubDataFull(u32 srcID, RendererAPI::TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
+                                         u32 dstID, RendererAPI::TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
+                                         u32 width, u32 height)
+        {
+            s_RendererAPI->CopyImageSubDataFull(srcID, srcTarget, srcLevel, srcZ,
+                                                dstID, dstTarget, dstLevel, dstZ,
+                                                width, height);
+        }
+
+        // Copy from currently-bound READ framebuffer to a named texture
+        static void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height)
+        {
+            s_RendererAPI->CopyFramebufferToTexture(textureID, width, height);
+        }
+
+        // Draw buffer control
+        static void SetDrawBuffers(std::span<const u32> attachments)
+        {
+            s_RendererAPI->SetDrawBuffers(attachments);
+        }
+
+        static void RestoreAllDrawBuffers(u32 colorAttachmentCount)
+        {
+            s_RendererAPI->RestoreAllDrawBuffers(colorAttachmentCount);
+        }
+
+        // Texture lifecycle
+        static u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat)
+        {
+            return s_RendererAPI->CreateTexture2D(width, height, internalFormat);
+        }
+
+        static u32 CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat)
+        {
+            return s_RendererAPI->CreateTextureCubemap(width, height, internalFormat);
+        }
+
+        static void SetTextureParameter(u32 textureID, GLenum pname, GLint value)
+        {
+            s_RendererAPI->SetTextureParameter(textureID, pname, value);
+        }
+
+        static void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
+                                            GLenum format, GLenum type, const void* data)
+        {
+            s_RendererAPI->UploadTextureSubImage2D(textureID, width, height, format, type, data);
+        }
+
+        static void DeleteTexture(u32 textureID)
+        {
+            s_RendererAPI->DeleteTexture(textureID);
         }
 
         static RendererAPI& GetRendererAPI()

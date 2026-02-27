@@ -168,6 +168,19 @@ namespace OloEngine
             return m_PostProcessSettings;
         }
 
+        void SetSnowSettings(const SnowSettings& settings)
+        {
+            m_SnowSettings = settings;
+        }
+        [[nodiscard]] const SnowSettings& GetSnowSettings() const
+        {
+            return m_SnowSettings;
+        }
+        [[nodiscard]] SnowSettings& GetSnowSettings()
+        {
+            return m_SnowSettings;
+        }
+
         // Asset interface
         static AssetType GetStaticType()
         {
@@ -188,6 +201,9 @@ namespace OloEngine
         void RenderScene(EditorCamera const& camera);
         void RenderScene3D(EditorCamera const& camera);
         void RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform);
+        void ProcessScene3DSharedLogic(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix,
+                                       const glm::vec3& cameraPosition,
+                                       f32 cameraNearClip, f32 cameraFarClip);
         void LoadAndRenderSkybox();
         void RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip);
         void RenderUIOverlay();
@@ -204,6 +220,7 @@ namespace OloEngine
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
         PostProcessSettings m_PostProcessSettings;             // Post-processing settings
+        SnowSettings m_SnowSettings;                           // Snow rendering settings
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;

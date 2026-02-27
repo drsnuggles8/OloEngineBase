@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/Camera/Camera.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
@@ -18,7 +18,19 @@ namespace OloEngine
     //
     // This pass handles the rendering of 3D scene objects to an offscreen framebuffer
     // using the command bucket system for efficient batching and sorting.
-    class SceneRenderPass : public RenderPass
+    //
+    // DESIGN NOTE — PostExecuteCallback:
+    // The engine's core rendering philosophy is "stateless layered command queue;
+    // queue population separated from execution" (Molecular Matters style). All
+    // standard meshes go through CommandBucket for sorting and batching.
+    //
+    // Terrain rendering bypasses the command bucket via PostExecuteCallback because:
+    //   - It uses tessellation shaders (GL_PATCHES) not supported by the packet system
+    //   - Per-chunk UBO updates (LOD tess factors) are inherently stateful
+    //   - Streaming tile management requires dynamic draw calls
+    // This is a deliberate, documented deviation. If the command system is extended
+    // to support tessellation/patches, terrain should migrate back to it.
+    class SceneRenderPass : public CommandBufferRenderPass
     {
       public:
         // Callback invoked after command bucket execution, while the scene framebuffer is still bound.

@@ -71,10 +71,7 @@ void main()
 #version 460 core
 
 #include "include/PBRCommon.glsl"
-
-// =============================================================================
-// UNIFORM BUFFER OBJECTS
-// =============================================================================
+#include "include/SnowCommon.glsl"
 
 // Camera UBO (binding 0) - for view position
 layout(std140, binding = 0) uniform CameraMatrices {
@@ -112,9 +109,14 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_AlphaCutoff;          // Alpha cutoff for transparency
 };
 
-// =============================================================================
-// TEXTURE BINDINGS
-// =============================================================================
+// Snow UBO (binding 13)
+layout(std140, binding = 13) uniform SnowParams {
+    vec4 u_SnowCoverageParams;
+    vec4 u_SnowAlbedoAndRoughness;
+    vec4 u_SnowSSSColorAndIntensity;
+    vec4 u_SnowSparkleParams;
+    vec4 u_SnowFlags;
+};
 
 // Texture bindings following ShaderBindingLayout
 layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
@@ -322,7 +324,75 @@ void main()
         color = mix(color, cascadeColors[cascadeIdx], 0.3);
     }
 
+    // Snow overlay
+    float snowWeight = 0.0;
+    if (u_SnowFlags.x > 0.5)
+    {
+        vec3 worldNormal = normalize(v_Normal);
+        snowWeight = computeSnowWeight(v_WorldPos.y, worldNormal.y,
+                                       u_SnowCoverageParams.x, u_SnowCoverageParams.y,
+                                       u_SnowCoverageParams.z, u_SnowCoverageParams.w);
+
+        if (snowWeight > 0.001)
+        {
+            vec3 snowAlbedo = u_SnowAlbedoAndRoughness.rgb;
+            float snowRoughness = u_SnowAlbedoAndRoughness.w;
+            vec3 sssColor = u_SnowSSSColorAndIntensity.rgb;
+            float sssIntensity = u_SnowSSSColorAndIntensity.w;
+            float sparkleIntensity = u_SnowSparkleParams.x;
+            float sparkleDensity = u_SnowSparkleParams.y;
+            float sparkleScale = u_SnowSparkleParams.z;
+            float normalPerturbStr = u_SnowSparkleParams.w;
+
+            vec3 snowN = perturbSnowNormal(N, v_WorldPos, normalPerturbStr);
+
+            vec3 snowLo = vec3(0.0);
+            for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
+            {
+                vec3 L = vec3(0.0);
+                vec3 lightColor = u_Lights[i].color.rgb * u_Lights[i].color.w;
+                float attenuation = 1.0;
+                int lightType = int(u_Lights[i].position.w);
+
+                if (lightType == DIRECTIONAL_LIGHT)
+                {
+                    L = normalize(-u_Lights[i].direction.xyz);
+                }
+                else
+                {
+                    vec3 toLight = u_Lights[i].position.xyz - v_WorldPos;
+                    float dist = length(toLight);
+                    L = toLight / dist;
+                    float constant = u_Lights[i].attenuationParams.x;
+                    float linear = u_Lights[i].attenuationParams.y;
+                    float quadratic = u_Lights[i].attenuationParams.z;
+                    attenuation = 1.0 / (constant + linear * dist + quadratic * dist * dist);
+                }
+
+                vec3 contrib = snowBRDF(snowN, V, L, snowAlbedo, snowRoughness,
+                                        sssColor, sssIntensity, sparkleIntensity,
+                                        sparkleDensity, sparkleScale, v_WorldPos);
+                snowLo += contrib * lightColor * attenuation;
+            }
+
+            vec3 snowAmbient = 0.15 * snowAlbedo;
+            vec3 snowColor = snowAmbient + snowLo;
+
+            color = mix(color, snowColor, snowWeight);
+        }
+    }
+
     o_Color = vec4(color, u_BaseColorFactor.a);
+    // SSS mask: write snow weight to alpha for SSSRenderPass bilateral blur.
+    // Alpha is reset to 1.0 by SSS_Blur before PostProcess (see SnowCommon.glsl contract).
+    if (snowWeight > 0.001)
+        o_Color.a = snowWeight;
     o_EntityID = u_EntityID;
-    o_ViewNormal = octEncode(normalize(mat3(u_View) * N));
+
+    vec3 outputN = N;
+    if (snowWeight > 0.001)
+    {
+        outputN = normalize(mix(N, vec3(0.0, 1.0, 0.0), snowWeight * 0.6));
+    }
+    o_ViewNormal = octEncode(normalize(mat3(u_View) * outputN));
 }

@@ -303,6 +303,8 @@ namespace OloEngine
         static constexpr u32 UBO_TERRAIN = 10;       // Terrain parameters (height scale, world size, etc.)
         static constexpr u32 UBO_BRUSH_PREVIEW = 11; // Brush preview overlay for terrain editing
         static constexpr u32 UBO_FOLIAGE = 12;       // Foliage instance rendering parameters
+        static constexpr u32 UBO_SNOW = 13;          // Snow rendering parameters
+        static constexpr u32 UBO_SSS = 14;           // SSS blur parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS

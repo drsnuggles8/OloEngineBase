@@ -5,6 +5,7 @@
 
 #include <glm/glm.hpp>
 #include <glad/gl.h>
+#include <span>
 
 namespace OloEngine
 {
@@ -31,6 +32,13 @@ namespace OloEngine
             Renderer3D
         };
 
+        // Renderer-agnostic texture target types (converted to GL enums by the backend)
+        enum class TextureTargetType : u8
+        {
+            Texture2D = 0,
+            TextureCubeMap
+        };
+
       public:
         virtual ~RendererAPI() = default;
 
@@ -39,6 +47,7 @@ namespace OloEngine
         virtual void SetClearColor(const glm::vec4& color) = 0;
         virtual void Clear() = 0;
         virtual void ClearDepthOnly() = 0;
+        virtual void ClearColorAndDepth() = 0;
         virtual Viewport GetViewport() const = 0;
 
         virtual void DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount) = 0;
@@ -46,6 +55,10 @@ namespace OloEngine
         virtual void DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 instanceCount) = 0;
         virtual void DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount) = 0;
         virtual void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 patchVertices) = 0;
+
+        // Raw VAO ID overloads for POD shadow casters (no Ref<VertexArray> available)
+        virtual void DrawIndexedRaw(u32 vaoID, u32 indexCount) = 0;
+        virtual void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices) = 0;
 
         virtual void SetLineWidth(f32 width) = 0;
 
@@ -63,6 +76,7 @@ namespace OloEngine
 
         virtual void EnableStencilTest() = 0;
         virtual void DisableStencilTest() = 0;
+        virtual bool IsStencilTestEnabled() const = 0;
         virtual void SetStencilFunc(GLenum func, GLint ref, GLuint mask) = 0;
         virtual void SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass) = 0;
         virtual void SetStencilMask(GLuint mask) = 0;
@@ -91,6 +105,32 @@ namespace OloEngine
         virtual void EnableMultisampling() = 0;
         virtual void DisableMultisampling() = 0;
         virtual void SetColorMask(bool red, bool green, bool blue, bool alpha) = 0;
+
+        // Per-attachment blend control (needed for mixed integer/float framebuffer attachments)
+        virtual void SetBlendStateForAttachment(u32 attachment, bool enabled) = 0;
+
+        // GPU-side image copy (used for staging textures to avoid read-write hazards)
+        virtual void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
+                                      u32 width, u32 height) = 0;
+        // Full image copy with source/dest offsets (needed for cubemap face copies)
+        virtual void CopyImageSubDataFull(u32 srcID, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
+                                          u32 dstID, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
+                                          u32 width, u32 height) = 0;
+        // Copy from currently-bound READ framebuffer to a named texture
+        virtual void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height) = 0;
+
+        // Restrict which color attachments are written to
+        virtual void SetDrawBuffers(std::span<const u32> attachments) = 0;
+        // Restore all color attachments for drawing (convenience for post-pass cleanup)
+        virtual void RestoreAllDrawBuffers(u32 colorAttachmentCount) = 0;
+
+        // Texture lifecycle abstractions (avoid raw gl* calls in passes)
+        virtual u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat) = 0;
+        virtual u32 CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat) = 0;
+        virtual void SetTextureParameter(u32 textureID, GLenum pname, GLint value) = 0;
+        virtual void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
+                                             GLenum format, GLenum type, const void* data) = 0;
+        virtual void DeleteTexture(u32 textureID) = 0;
 
         [[nodiscard("Store this!")]] static API GetAPI()
         {

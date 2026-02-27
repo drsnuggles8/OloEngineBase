@@ -126,7 +126,7 @@ namespace OloEngine
     static CommandDispatchData s_Data;
 
     // Array of dispatch functions indexed by CommandType
-    static CommandDispatchFn s_DispatchTable[static_cast<sizet>(CommandType::SetMultisampling) + 1];
+    static CommandDispatchFn s_DispatchTable[static_cast<sizet>(CommandType::COUNT)];
 
     void CommandDispatch::Initialize()
     {
@@ -174,6 +174,10 @@ namespace OloEngine
         s_DispatchTable[static_cast<sizet>(CommandType::DrawSkybox)] = CommandDispatch::DrawSkybox;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawInfiniteGrid)] = CommandDispatch::DrawInfiniteGrid;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
+
+        // Terrain/Voxel commands
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawTerrainPatch)] = CommandDispatch::DrawTerrainPatch;
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawVoxelMesh)] = CommandDispatch::DrawVoxelMesh;
 
         s_Data.CurrentBoundShaderID = 0;
         std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
@@ -281,7 +285,7 @@ namespace OloEngine
 
     CommandDispatchFn CommandDispatch::GetDispatchFunction(CommandType type)
     {
-        if (type == CommandType::Invalid || static_cast<sizet>(type) >= sizeof(s_DispatchTable) / sizeof(CommandDispatchFn))
+        if (type == CommandType::Invalid || static_cast<sizet>(type) >= static_cast<sizet>(CommandType::COUNT))
         {
             OLO_CORE_ERROR("CommandDispatch::GetDispatchFunction: Invalid command type {}", static_cast<int>(type));
             return nullptr;
@@ -1119,6 +1123,211 @@ namespace OloEngine
         glBindVertexArray(cmd->quadVAOID);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
+        ++s_Data.Stats.DrawCalls;
+    }
+
+    void CommandDispatch::DrawTerrainPatch(const void* data, RendererAPI& api)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto const* cmd = static_cast<const DrawTerrainPatchCommand*>(data);
+
+        if (cmd->vertexArrayID == 0 || cmd->shaderRendererID == 0)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawTerrainPatch: Invalid vertex array ID or shader ID");
+            return;
+        }
+
+        // Apply render state
+        ApplyPODRenderState(cmd->renderState, api);
+
+        // Bind shader
+        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        {
+            glUseProgram(cmd->shaderRendererID);
+            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            ++s_Data.Stats.ShaderBinds;
+        }
+
+        // Upload camera UBO
+        if (s_Data.CameraUBO)
+        {
+            ShaderBindingLayout::CameraUBO cameraData;
+            cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
+            cameraData.View = s_Data.ViewMatrix;
+            cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
+            cameraData.Position = s_Data.ViewPos;
+            cameraData._padding0 = 0.0f;
+            s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+        }
+
+        // Upload model matrix UBO
+        if (s_Data.ModelMatrixUBO)
+        {
+            ShaderBindingLayout::ModelUBO modelData;
+            modelData.Model = cmd->transform;
+            modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
+            modelData.EntityID = cmd->entityID;
+            modelData._paddingEntity[0] = 0;
+            modelData._paddingEntity[1] = 0;
+            modelData._paddingEntity[2] = 0;
+            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+        }
+
+        // Upload light UBO
+        if (s_Data.LightUBO)
+        {
+            const Light& light = s_Data.SceneLight;
+            ShaderBindingLayout::LightUBO lightData;
+            lightData.LightPosition = glm::vec4(light.Position, 1.0f);
+            lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
+            lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
+            lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
+            lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
+            lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
+            lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
+            lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(std::to_underlying(light.Type)));
+            s_Data.LightUBO->SetData(&lightData, ShaderBindingLayout::LightUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
+        }
+
+        // Upload terrain UBO (per-chunk data with tess factors)
+        auto terrainUBO = Renderer3D::GetTerrainUBO();
+        if (terrainUBO)
+        {
+            terrainUBO->SetData(&cmd->terrainUBOData, ShaderBindingLayout::TerrainUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_TERRAIN, terrainUBO->GetRendererID());
+        }
+
+        // Bind terrain textures
+        if (cmd->heightmapTextureID != 0)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, cmd->heightmapTextureID);
+        }
+        if (cmd->splatmapTextureID != 0)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP, cmd->splatmapTextureID);
+        }
+        if (cmd->splatmap1TextureID != 0)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1, cmd->splatmap1TextureID);
+        }
+        if (cmd->albedoArrayTextureID != 0)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID);
+        }
+        if (cmd->normalArrayTextureID != 0)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID);
+        }
+        if (cmd->armArrayTextureID != 0)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
+        }
+
+        // Bind shadow textures (terrain PBR needs shadows too)
+        if (s_Data.CSMShadowTextureID != 0)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
+        }
+        if (s_Data.SpotShadowTextureID != 0)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
+        }
+
+        // Draw with GL_PATCHES for tessellation
+        glBindVertexArray(cmd->vertexArrayID);
+        glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(cmd->patchVertexCount));
+        glDrawElements(GL_PATCHES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        ++s_Data.Stats.DrawCalls;
+    }
+
+    void CommandDispatch::DrawVoxelMesh(const void* data, RendererAPI& api)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto const* cmd = static_cast<const DrawVoxelMeshCommand*>(data);
+
+        if (cmd->vertexArrayID == 0 || cmd->shaderRendererID == 0)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawVoxelMesh: Invalid vertex array ID or shader ID");
+            return;
+        }
+
+        // Apply render state
+        ApplyPODRenderState(cmd->renderState, api);
+
+        // Bind shader
+        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        {
+            glUseProgram(cmd->shaderRendererID);
+            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            ++s_Data.Stats.ShaderBinds;
+        }
+
+        // Upload camera UBO
+        if (s_Data.CameraUBO)
+        {
+            ShaderBindingLayout::CameraUBO cameraData;
+            cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
+            cameraData.View = s_Data.ViewMatrix;
+            cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
+            cameraData.Position = s_Data.ViewPos;
+            cameraData._padding0 = 0.0f;
+            s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+        }
+
+        // Upload model matrix UBO
+        if (s_Data.ModelMatrixUBO)
+        {
+            ShaderBindingLayout::ModelUBO modelData;
+            modelData.Model = cmd->transform;
+            modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
+            modelData.EntityID = cmd->entityID;
+            modelData._paddingEntity[0] = 0;
+            modelData._paddingEntity[1] = 0;
+            modelData._paddingEntity[2] = 0;
+            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+        }
+
+        // Upload light UBO
+        if (s_Data.LightUBO)
+        {
+            const Light& light = s_Data.SceneLight;
+            ShaderBindingLayout::LightUBO lightData;
+            lightData.LightPosition = glm::vec4(light.Position, 1.0f);
+            lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
+            lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
+            lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
+            lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
+            lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
+            lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
+            lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(std::to_underlying(light.Type)));
+            s_Data.LightUBO->SetData(&lightData, ShaderBindingLayout::LightUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
+        }
+
+        // Bind textures for triplanar sampling
+        if (cmd->albedoArrayTextureID != 0)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID);
+        }
+        if (cmd->normalArrayTextureID != 0)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID);
+        }
+        if (cmd->armArrayTextureID != 0)
+        {
+            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
+        }
+
+        // Draw with GL_TRIANGLES
+        glBindVertexArray(cmd->vertexArrayID);
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
         ++s_Data.Stats.DrawCalls;
     }
 } // namespace OloEngine

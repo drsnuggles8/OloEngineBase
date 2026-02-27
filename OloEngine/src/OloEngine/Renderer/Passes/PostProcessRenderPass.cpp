@@ -2,8 +2,7 @@
 #include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
-#include "OloEngine/Renderer/VertexBuffer.h"
-#include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 namespace OloEngine
@@ -22,38 +21,6 @@ namespace OloEngine
 
         // Create ping-pong framebuffers (RGBA16F, no depth)
         CreatePingPongFramebuffers(spec.Width, spec.Height);
-
-        // Create fullscreen triangle (identical to FinalRenderPass)
-        struct FullscreenVertex
-        {
-            glm::vec3 Position;
-            glm::vec2 TexCoord;
-        };
-
-        static_assert(sizeof(FullscreenVertex) == sizeof(f32) * 5,
-                      "FullscreenVertex must be exactly 5 floats");
-
-        FullscreenVertex vertices[3] = {
-            { { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } },
-            { { 3.0f, -1.0f, 0.0f }, { 2.0f, 0.0f } },
-            { { -1.0f, 3.0f, 0.0f }, { 0.0f, 2.0f } }
-        };
-
-        u32 indices[3] = { 0, 1, 2 };
-
-        m_FullscreenTriangleVA = VertexArray::Create();
-
-        Ref<VertexBuffer> vertexBuffer = VertexBuffer::Create(
-            static_cast<const void*>(vertices),
-            static_cast<u32>(sizeof(vertices)));
-
-        vertexBuffer->SetLayout({ { ShaderDataType::Float3, "a_Position" },
-                                  { ShaderDataType::Float2, "a_TexCoord" } });
-
-        Ref<IndexBuffer> indexBuffer = IndexBuffer::Create(indices, 3);
-
-        m_FullscreenTriangleVA->AddVertexBuffer(vertexBuffer);
-        m_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);
 
         // Load all effect shaders
         m_BloomThresholdShader = Shader::Create("assets/shaders/PostProcess_BloomThreshold.glsl");
@@ -129,6 +96,11 @@ namespace OloEngine
             u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
             RenderCommand::BindTexture(0, srcColorID);
             RenderCommand::BindTexture(ShaderBindingLayout::TEX_SSAO, m_SSAOTextureID);
+
+            // Bind full-res scene depth for bilateral upsampling.
+            // Bind 0 when unavailable to avoid sampling stale texture state.
+            u32 depthID = m_SceneDepthFB ? m_SceneDepthFB->GetDepthAttachmentRendererID() : 0;
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
 
             DrawFullscreenTriangle();
             dest->Unbind();
@@ -278,8 +250,9 @@ namespace OloEngine
 
     void PostProcessRenderPass::DrawFullscreenTriangle()
     {
-        m_FullscreenTriangleVA->Bind();
-        RenderCommand::DrawIndexed(m_FullscreenTriangleVA);
+        auto va = MeshPrimitives::GetFullscreenTriangle();
+        va->Bind();
+        RenderCommand::DrawIndexed(va);
     }
 
     Ref<Framebuffer> PostProcessRenderPass::GetTarget() const

@@ -105,19 +105,25 @@ namespace OloEngine
 
         const f64 epsilon = 1e-5;
 
+        // Scale framebuffer dimensions by HiDPI factor so we render at native pixel resolution.
+        // Camera and scene use logical (unscaled) coordinates for correct aspect ratio.
+        const f32 dpiScale = Window::s_HighDPIScaleFactor;
+        const u32 fbWidth = std::max(1u, static_cast<u32>(m_ViewportSize.x * dpiScale));
+        const u32 fbHeight = std::max(1u, static_cast<u32>(m_ViewportSize.y * dpiScale));
+
         // Resize
         if (FramebufferSpecification const spec = m_Framebuffer->GetSpecification();
             (m_ViewportSize.x > 0.0f) && (m_ViewportSize.y > 0.0f) && // zero sized framebuffer is invalid
-            ((std::abs(static_cast<f32>(spec.Width) - m_ViewportSize.x) > epsilon) || (std::abs(static_cast<f32>(spec.Height) - m_ViewportSize.y) > epsilon)))
+            ((std::abs(static_cast<f32>(spec.Width) - static_cast<f32>(fbWidth)) > epsilon) || (std::abs(static_cast<f32>(spec.Height) - static_cast<f32>(fbHeight)) > epsilon)))
         {
-            m_Framebuffer->Resize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
+            m_Framebuffer->Resize(fbWidth, fbHeight);
             m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
             m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
 
             // Also resize Renderer3D's render graph for 3D mode
             if (m_Is3DMode)
             {
-                Renderer3D::OnWindowResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
+                Renderer3D::OnWindowResize(fbWidth, fbHeight);
             }
         }
 
@@ -184,9 +190,12 @@ namespace OloEngine
         my -= m_ViewportBounds[0].y;
         glm::vec2 const viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
         my = viewportSize.y - my;
-        const auto mouseX = static_cast<int>(mx);
 
-        if (const auto mouseY = static_cast<int>(my); (mouseX >= 0) && (mouseY >= 0) && (mouseX < static_cast<int>(viewportSize.x)) && (mouseY < static_cast<int>(viewportSize.y)))
+        // Scale logical mouse coords to framebuffer pixel coords for entity picking
+        const f32 pickDpiScale = Window::s_HighDPIScaleFactor;
+        const auto mouseX = static_cast<int>(mx * pickDpiScale);
+
+        if (const auto mouseY = static_cast<int>(my * pickDpiScale); (mouseX >= 0) && (mouseY >= 0) && (mouseX < static_cast<int>(viewportSize.x * pickDpiScale)) && (mouseY < static_cast<int>(viewportSize.y * pickDpiScale)))
         {
             // Read entity ID from appropriate framebuffer based on mode
             int pixelData = -1;
@@ -698,7 +707,8 @@ namespace OloEngine
                 // Resize to current viewport size
                 if (m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
                 {
-                    Renderer3D::OnWindowResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
+                    const f32 dpi = Window::s_HighDPIScaleFactor;
+                    Renderer3D::OnWindowResize(std::max(1u, static_cast<u32>(m_ViewportSize.x * dpi)), std::max(1u, static_cast<u32>(m_ViewportSize.y * dpi)));
                 }
             }
         }
@@ -1125,6 +1135,7 @@ namespace OloEngine
         SetEditorScene(newScene);
         m_EditorScenePath = path;
         Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
+        Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
         return true;
     }
 
@@ -1133,6 +1144,7 @@ namespace OloEngine
         if (!m_EditorScenePath.empty())
         {
             m_ActiveScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+            m_ActiveScene->SetSnowSettings(Renderer3D::GetSnowSettings());
             SerializeScene(m_ActiveScene, m_EditorScenePath);
         }
         else
@@ -1155,6 +1167,7 @@ namespace OloEngine
             m_EditorScenePath = filepath;
 
             m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+            m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
             SerializeScene(m_EditorScene, filepath);
             SyncWindowTitle();
         }

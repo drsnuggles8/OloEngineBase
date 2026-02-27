@@ -15,6 +15,7 @@ namespace OloEngine
         void SetClearColor(const glm::vec4& color) override;
         void Clear() override;
         void ClearDepthOnly() override;
+        void ClearColorAndDepth() override;
         Viewport GetViewport() const override;
 
         void DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount) override;
@@ -22,6 +23,9 @@ namespace OloEngine
         void DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, u32 indexCount = 0, u32 instanceCount = 1) override;
         void DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount) override;
         void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 patchVertices) override;
+
+        void DrawIndexedRaw(u32 vaoID, u32 indexCount) override;
+        void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices) override;
 
         void SetLineWidth(f32 width) override;
 
@@ -38,6 +42,7 @@ namespace OloEngine
         void SetDepthFunc(GLenum func) override;
         void EnableStencilTest() override;
         void DisableStencilTest() override;
+        bool IsStencilTestEnabled() const override;
         void SetStencilFunc(GLenum func, GLint ref, GLuint mask) override;
         void SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass) override;
         void SetStencilMask(GLuint mask) override;
@@ -62,6 +67,22 @@ namespace OloEngine
         void BindDefaultFramebuffer() override;
         void BindTexture(u32 slot, u32 textureID) override;
         void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format) override;
+
+        void SetBlendStateForAttachment(u32 attachment, bool enabled) override;
+        void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
+                              u32 width, u32 height) override;
+        void CopyImageSubDataFull(u32 srcID, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
+                                  u32 dstID, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
+                                  u32 width, u32 height) override;
+        void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height) override;
+        void SetDrawBuffers(std::span<const u32> attachments) override;
+        void RestoreAllDrawBuffers(u32 colorAttachmentCount) override;
+        u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat) override;
+        u32 CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat) override;
+        void SetTextureParameter(u32 textureID, GLenum pname, GLint value) override;
+        void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
+                                     GLenum format, GLenum type, const void* data) override;
+        void DeleteTexture(u32 textureID) override;
 
       private:
         bool m_DepthTestEnabled = false;

@@ -208,8 +208,7 @@ void main()
 #version 460 core
 
 #include "include/PBRCommon.glsl"
-
-// Camera UBO (binding 0)
+#include "include/SnowCommon.glsl"
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
     mat4 u_View;
@@ -274,6 +273,15 @@ layout(std140, binding = 10) uniform TerrainParams {
 layout(std140, binding = 11) uniform BrushPreview {
     vec4 u_BrushPosAndRadius;  // xyz = world position, w = radius
     vec4 u_BrushParams;        // x = active (1.0/0.0), y = falloff, z = mode, w = unused
+};
+
+// Snow UBO (binding 13)
+layout(std140, binding = 13) uniform SnowParams {
+    vec4 u_SnowCoverageParams;
+    vec4 u_SnowAlbedoAndRoughness;
+    vec4 u_SnowSSSColorAndIntensity;
+    vec4 u_SnowSparkleParams;
+    vec4 u_SnowFlags;
 };
 
 // Shadow maps
@@ -644,11 +652,86 @@ void main()
         }
     }
 
+    // Snow overlay (applied after brush preview so snow is visible under brush)
+    float snowWeight = 0.0;
+    if (u_SnowFlags.x > 0.5)
+    {
+        vec3 worldNormal = normalize(v_Normal);
+        snowWeight = computeSnowWeight(v_WorldPos.y, worldNormal.y,
+                                       u_SnowCoverageParams.x, u_SnowCoverageParams.y,
+                                       u_SnowCoverageParams.z, u_SnowCoverageParams.w);
+
+        if (snowWeight > 0.001)
+        {
+            vec3 snowAlbedo = u_SnowAlbedoAndRoughness.rgb;
+            float snowRoughness = u_SnowAlbedoAndRoughness.w;
+            vec3 sssColor = u_SnowSSSColorAndIntensity.rgb;
+            float sssIntensity = u_SnowSSSColorAndIntensity.w;
+            float sparkleIntensity = u_SnowSparkleParams.x;
+            float sparkleDensity = u_SnowSparkleParams.y;
+            float sparkleScale = u_SnowSparkleParams.z;
+            float normalPerturbStr = u_SnowSparkleParams.w;
+
+            vec3 snowN = perturbSnowNormal(N, v_WorldPos, normalPerturbStr);
+
+            vec3 snowLo = vec3(0.0);
+            for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
+            {
+                vec3 L = vec3(0.0);
+                vec3 lightColor = u_Lights[i].color.rgb * u_Lights[i].color.w;
+                float attenuation = 1.0;
+                int lightType = int(u_Lights[i].position.w);
+
+                if (lightType == DIRECTIONAL_LIGHT)
+                {
+                    L = normalize(-u_Lights[i].direction.xyz);
+                }
+                else
+                {
+                    vec3 toLight = u_Lights[i].position.xyz - v_WorldPos;
+                    float dist = length(toLight);
+                    L = toLight / dist;
+                    float constant = u_Lights[i].attenuationParams.x;
+                    float linear = u_Lights[i].attenuationParams.y;
+                    float quadratic = u_Lights[i].attenuationParams.z;
+                    attenuation = 1.0 / (constant + linear * dist + quadratic * dist * dist);
+                }
+
+                vec3 contrib = snowBRDF(snowN, V, L, snowAlbedo, snowRoughness,
+                                        sssColor, sssIntensity, sparkleIntensity,
+                                        sparkleDensity, sparkleScale, v_WorldPos);
+                snowLo += contrib * lightColor * attenuation;
+            }
+
+            // Snow ambient: snow has very high albedo (~0.95) and scatters
+            // significant indirect light. Use a higher ambient factor than the
+            // standard 0.03 to capture sky light bouncing off the snow surface.
+            vec3 snowAmbient = 0.15 * snowAlbedo;
+            vec3 snowColor = snowAmbient + snowLo;
+
+            color = mix(color, snowColor, snowWeight);
+        }
+    }
+
     // Output
     o_Color = vec4(color, 1.0);
+    // SSS mask: write snow weight to alpha for SSSRenderPass bilateral blur.
+    // Alpha is reset to 1.0 by SSS_Blur before PostProcess (see SnowCommon.glsl contract).
+    if (snowWeight > 0.001)
+        o_Color.a = snowWeight;
     o_EntityID = u_EntityID;
 
-    // View-space normal for SSAO/post-processing
-    vec3 viewNormal = normalize(mat3(u_View) * N);
+    // View-space normal for SSAO/post-processing.
+    // Snow fills geometric crevices, creating a smoother surface. Blend the
+    // terrain normal toward world-up so SSAO "sees" the filled-in geometry
+    // rather than producing dark occlusion in crevices hidden under snow.
+    // Do NOT use the noise-perturbed snow normal here — that micro-detail is
+    // for lighting only; feeding it to SSAO causes false gray occlusion.
+    vec3 outputN = N;
+    if (snowWeight > 0.001)
+    {
+        outputN = normalize(mix(N, vec3(0.0, 1.0, 0.0), snowWeight * 0.6));
+    }
+    vec3 viewNormal = normalize(mat3(u_View) * outputN);
     o_ViewNormal = octEncode(viewNormal);
 }

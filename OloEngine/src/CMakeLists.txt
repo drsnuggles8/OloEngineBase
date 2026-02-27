@@ -388,6 +388,7 @@
 		"OloEngine/Renderer/Debug/DebugUtils.cpp"
 		
 		"OloEngine/Renderer/Passes/RenderPass.h"
+		"OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 		"OloEngine/Renderer/Passes/FinalRenderPass.h"
 		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
 		"OloEngine/Renderer/Passes/ParticleRenderPass.h"
@@ -400,6 +401,8 @@
 		"OloEngine/Renderer/Passes/PostProcessRenderPass.cpp"
 		"OloEngine/Renderer/Passes/SSAORenderPass.h"
 		"OloEngine/Renderer/Passes/SSAORenderPass.cpp"
+		"OloEngine/Renderer/Passes/SSSRenderPass.h"
+		"OloEngine/Renderer/Passes/SSSRenderPass.cpp"
 		"OloEngine/Renderer/PostProcessSettings.h"
 		"OloEngine/Renderer/Shadow/ShadowMap.h"
 		"OloEngine/Renderer/Shadow/ShadowMap.cpp"

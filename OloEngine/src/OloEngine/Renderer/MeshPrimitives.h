@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/VertexArray.h"
 
 namespace OloEngine
 {
@@ -80,6 +81,12 @@ namespace OloEngine
         // @brief Create a full-screen quad mesh
         // @return Quad mesh for post-processing effects (-1 to 1 on X and Y)
         [[nodiscard]] static Ref<Mesh> CreateFullscreenQuad();
+
+        // @brief Create a shared fullscreen triangle VertexArray for post-processing passes.
+        // Uses a single oversized triangle that covers the entire NDC viewport.
+        // The VAO is lazily created and shared across all callers.
+        // @return Shared VertexArray for fullscreen triangle rendering
+        [[nodiscard]] static Ref<VertexArray> GetFullscreenTriangle();
 
         // @brief Create an icosphere mesh
         // @param radius Sphere radius (must be > 0.0f)

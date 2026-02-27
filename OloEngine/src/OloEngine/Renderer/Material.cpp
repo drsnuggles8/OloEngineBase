@@ -144,6 +144,11 @@ namespace OloEngine
         return material;
     }
 
+    Ref<Material> Material::CreateSnow(const std::string& name)
+    {
+        return CreatePBR(name, glm::vec3(0.95f, 0.95f, 0.98f), 0.0f, 0.85f);
+    }
+
     void Material::ConfigureIBL(const Ref<TextureCubemap>& environmentMap,
                                 const Ref<TextureCubemap>& irradianceMap,
                                 const Ref<TextureCubemap>& prefilterMap,

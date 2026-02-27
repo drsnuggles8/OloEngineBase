@@ -1,9 +1,9 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
-#include <glad/gl.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
@@ -37,20 +37,18 @@ namespace OloEngine
         // Create point shadow depth cubemaps (one per point light)
         for (u32 i = 0; i < MAX_POINT_SHADOWS; ++i)
         {
-            glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &m_PointCubemapIDs[i]);
-            glTextureStorage2D(m_PointCubemapIDs[i], 1, GL_DEPTH_COMPONENT32F,
-                               static_cast<GLsizei>(m_Settings.Resolution),
-                               static_cast<GLsizei>(m_Settings.Resolution));
+            m_PointCubemapIDs[i] = RenderCommand::CreateTextureCubemap(
+                m_Settings.Resolution, m_Settings.Resolution, GL_DEPTH_COMPONENT32F);
 
-            glTextureParameteri(m_PointCubemapIDs[i], GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTextureParameteri(m_PointCubemapIDs[i], GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTextureParameteri(m_PointCubemapIDs[i], GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTextureParameteri(m_PointCubemapIDs[i], GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            glTextureParameteri(m_PointCubemapIDs[i], GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
             // Enable hardware depth comparison for samplerCubeShadow
-            glTextureParameteri(m_PointCubemapIDs[i], GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-            glTextureParameteri(m_PointCubemapIDs[i], GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
         }
 
         // Create shadow UBO at binding 6
@@ -94,7 +92,7 @@ namespace OloEngine
         {
             if (m_PointCubemapIDs[i] != 0)
             {
-                glDeleteTextures(1, &m_PointCubemapIDs[i]);
+                RenderCommand::DeleteTexture(m_PointCubemapIDs[i]);
                 m_PointCubemapIDs[i] = 0;
             }
         }
@@ -335,7 +333,7 @@ namespace OloEngine
     {
         if (index < MAX_POINT_SHADOWS && m_PointCubemapIDs[index] != 0)
         {
-            glBindTextureUnit(slot, m_PointCubemapIDs[index]);
+            RenderCommand::BindTexture(slot, m_PointCubemapIDs[index]);
         }
     }
 

@@ -276,6 +276,8 @@ namespace OloEngine
         s_Data.PostProcessUBO = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0);
         s_Data.MotionBlurUBO = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1);
         s_Data.SSAOUBO = UniformBuffer::Create(SSAOUBOData::GetSize(), ShaderBindingLayout::UBO_SSAO);
+        s_Data.SnowUBO = UniformBuffer::Create(SnowUBOData::GetSize(), ShaderBindingLayout::UBO_SNOW);
+        s_Data.SSSUBO = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
 
         CommandDispatch::SetUBOReferences(
             s_Data.CameraUBO,
@@ -335,6 +337,17 @@ namespace OloEngine
 
         if (s_Data.RGraph)
             s_Data.RGraph->Shutdown();
+
+        // Release all render passes now while the GL context and RendererAPI are still alive.
+        // Their destructors call RenderCommand::DeleteTexture() which needs s_RendererAPI.
+        s_Data.ShadowPass.Reset();
+        s_Data.ScenePass.Reset();
+        s_Data.SSAOPass.Reset();
+        s_Data.ParticlePass.Reset();
+        s_Data.SSSPass.Reset();
+        s_Data.PostProcessPass.Reset();
+        s_Data.FinalPass.Reset();
+        s_Data.RGraph.Reset();
 
         FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
@@ -480,29 +493,25 @@ namespace OloEngine
             return;
         }
 
-        if (s_Data.PostProcessPass && s_Data.FinalPass)
-        {
-            s_Data.FinalPass->SetInputFramebuffer(s_Data.PostProcessPass->GetTarget());
-        }
-        if (s_Data.ScenePass && s_Data.ParticlePass)
-        {
-            s_Data.ParticlePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
-        }
+        // Framebuffer piping is handled once in SetupRenderGraph() and on resize.
+        // Only per-frame settings updates are needed here.
+
         if (s_Data.SSAOPass)
         {
             s_Data.SSAOPass->SetSettings(s_Data.PostProcess);
-            s_Data.SSAOPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
 
             // Upload projection matrices for SSAO position reconstruction
             s_Data.SSAOGPUData.Projection = s_Data.ProjectionMatrix;
             s_Data.SSAOGPUData.InverseProjection = glm::inverse(s_Data.ProjectionMatrix);
             s_Data.SSAOGPUData.DebugView = s_Data.PostProcess.SSAODebugView ? 1 : 0;
         }
+        if (s_Data.SSSPass)
+        {
+            s_Data.SSSPass->SetSettings(s_Data.Snow);
+        }
         if (s_Data.PostProcessPass)
         {
             s_Data.PostProcessPass->SetSettings(s_Data.PostProcess);
-            s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-            s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
             s_Data.PostProcessPass->SetPostProcessUBO(s_Data.PostProcessUBO, &s_Data.PostProcessGPUData);
 
             // Pass SSAO texture to PostProcessPass for application
@@ -550,6 +559,38 @@ namespace OloEngine
                 gpu.InverseScreenHeight = 1.0f / static_cast<f32>(spec.Height);
             }
             s_Data.PostProcessUBO->SetData(&gpu, PostProcessUBOData::GetSize());
+        }
+
+        // Upload snow settings to GPU
+        if (s_Data.Snow.Enabled)
+        {
+            auto& snow = s_Data.Snow;
+            auto& gpu = s_Data.SnowGPUData;
+            gpu.CoverageParams = glm::vec4(snow.HeightStart, snow.HeightFull, snow.SlopeStart, snow.SlopeFull);
+            gpu.AlbedoAndRoughness = glm::vec4(snow.Albedo, snow.Roughness);
+            gpu.SSSColorAndIntensity = glm::vec4(snow.SSSColor, snow.SSSIntensity);
+            gpu.SparkleParams = glm::vec4(snow.SparkleIntensity, snow.SparkleDensity, snow.SparkleScale, snow.NormalPerturbStrength);
+            gpu.Flags = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+            s_Data.SnowUBO->SetData(&gpu, SnowUBOData::GetSize());
+
+            // SSS blur parameters
+            auto& sssGpu = s_Data.SSSGPUData;
+            sssGpu.BlurParams = glm::vec4(snow.SSSBlurRadius, snow.SSSBlurFalloff, 0.0f, 0.0f);
+            sssGpu.Flags = glm::vec4(snow.SSSBlurEnabled ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+            if (s_Data.ScenePass && s_Data.ScenePass->GetTarget())
+            {
+                const auto& spec = s_Data.ScenePass->GetTarget()->GetSpecification();
+                sssGpu.BlurParams.z = static_cast<f32>(spec.Width);
+                sssGpu.BlurParams.w = static_cast<f32>(spec.Height);
+            }
+            s_Data.SSSUBO->SetData(&sssGpu, SSSUBOData::GetSize());
+        }
+        else
+        {
+            // Upload disabled state so shaders skip snow
+            auto& gpu = s_Data.SnowGPUData;
+            gpu.Flags = glm::vec4(0.0f);
+            s_Data.SnowUBO->SetData(&gpu, SnowUBOData::GetSize());
         }
 
         // Upload motion blur matrices
@@ -1117,6 +1158,12 @@ namespace OloEngine
     void Renderer3D::SetViewPosition(const glm::vec3& position)
     {
         s_Data.ViewPos = position;
+    }
+
+    void Renderer3D::SetCameraClipPlanes(f32 nearClip, f32 farClip)
+    {
+        s_Data.CameraNearClip = nearClip;
+        s_Data.CameraFarClip = farClip;
     }
 
     void Renderer3D::UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data)
@@ -1713,6 +1760,12 @@ namespace OloEngine
         s_Data.SSAOPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
         s_Data.SSAOPass->SetSSAOUBO(s_Data.SSAOUBO, &s_Data.SSAOGPUData);
 
+        s_Data.SSSPass = Ref<SSSRenderPass>::Create();
+        s_Data.SSSPass->SetName("SSSPass");
+        s_Data.SSSPass->Init(finalPassSpec);
+        s_Data.SSSPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
+        s_Data.SSSPass->SetSSSUBO(s_Data.SSSUBO, &s_Data.SSSGPUData);
+
         s_Data.PostProcessPass = Ref<PostProcessRenderPass>::Create();
         s_Data.PostProcessPass->SetName("PostProcessPass");
         s_Data.PostProcessPass->Init(finalPassSpec);
@@ -1726,6 +1779,7 @@ namespace OloEngine
         s_Data.RGraph->AddPass(s_Data.ScenePass);
         s_Data.RGraph->AddPass(s_Data.SSAOPass);
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
+        s_Data.RGraph->AddPass(s_Data.SSSPass);
         s_Data.RGraph->AddPass(s_Data.PostProcessPass);
         s_Data.RGraph->AddPass(s_Data.FinalPass);
 
@@ -1735,14 +1789,19 @@ namespace OloEngine
         s_Data.RGraph->AddExecutionDependency("ScenePass", "SSAOPass");
         // SSAOPass -> ParticlePass: ordering (SSAO must complete before particles render into scene FB)
         s_Data.RGraph->AddExecutionDependency("SSAOPass", "ParticlePass");
-        // ScenePass -> ParticlePass -> PostProcessPass -> FinalPass: ordering + framebuffer piping
-        s_Data.RGraph->ConnectPass("ScenePass", "ParticlePass");
-        s_Data.RGraph->ConnectPass("ParticlePass", "PostProcessPass");
+        // ParticlePass -> SSSPass: framebuffer piping (SSS reads scene color via SetInputFramebuffer)
+        s_Data.RGraph->ConnectPass("ParticlePass", "SSSPass");
+        // Graph connections: SSSPass -> PostProcessPass -> FinalPass use SetInputFramebuffer
+        // via the graph's Execute() piping. No manual calls needed for these.
+        s_Data.RGraph->ConnectPass("SSSPass", "PostProcessPass");
         s_Data.RGraph->ConnectPass("PostProcessPass", "FinalPass");
 
+        // PostProcessPass needs the scene depth for DOF/MotionBlur (not piped by graph).
+        s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
+        // PostProcessPass initial input is the scene FB (overridden by graph's SSSPass -> PostProcessPass
+        // piping each frame, which passes SSSPass::GetTarget() = scene FB when SSS is disabled).
         s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        s_Data.FinalPass->SetInputFramebuffer(s_Data.PostProcessPass->GetTarget());
-        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> SSAOPass -> ParticlePass -> PostProcessPass -> FinalPass");
+        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> SSAOPass -> ParticlePass -> SSSPass -> PostProcessPass -> FinalPass");
 
         s_Data.RGraph->SetFinalPass("FinalPass");
     }
@@ -2658,6 +2717,113 @@ namespace OloEngine
 
         // Submit packet
         SubmitPacket(packet);
+        return packet;
+    }
+
+    CommandPacket* Renderer3D::DrawTerrainPatch(
+        RendererID vaoID, u32 indexCount, u32 patchVertexCount,
+        const Ref<Shader>& shader,
+        RendererID heightmapID, RendererID splatmapID, RendererID splatmap1ID,
+        RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+        const glm::mat4& transform,
+        const ShaderBindingLayout::TerrainUBO& terrainUBO,
+        i32 entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawTerrainPatch: ScenePass is null!");
+            return nullptr;
+        }
+
+        if (vaoID == 0 || !shader)
+        {
+            return nullptr;
+        }
+
+        CommandPacket* packet = CreateDrawCall<DrawTerrainPatchCommand>();
+        auto* cmd = packet->GetCommandData<DrawTerrainPatchCommand>();
+        cmd->header.type = CommandType::DrawTerrainPatch;
+
+        cmd->vertexArrayID = vaoID;
+        cmd->indexCount = indexCount;
+        cmd->patchVertexCount = patchVertexCount;
+        cmd->shaderRendererID = shader->GetRendererID();
+        cmd->heightmapTextureID = heightmapID;
+        cmd->splatmapTextureID = splatmapID;
+        cmd->splatmap1TextureID = splatmap1ID;
+        cmd->albedoArrayTextureID = albedoArrayID;
+        cmd->normalArrayTextureID = normalArrayID;
+        cmd->armArrayTextureID = armArrayID;
+        cmd->transform = transform;
+        cmd->entityID = entityID;
+        cmd->terrainUBOData = terrainUBO;
+
+        // Terrain is opaque — depth test on, no blending, culling on
+        cmd->renderState = CreateDefaultPODRenderState();
+        cmd->renderState.blendEnabled = false;
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Sort key: group by shader for state efficiency
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = shader->GetRendererID() & 0xFFFF;
+        u32 depth = ComputeDepthForSortKey(transform);
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
+        metadata.m_IsStatic = true;
+        packet->SetMetadata(metadata);
+
+        return packet;
+    }
+
+    CommandPacket* Renderer3D::DrawVoxelMesh(
+        RendererID vaoID, u32 indexCount,
+        const Ref<Shader>& shader,
+        RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+        const glm::mat4& transform,
+        i32 entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.ScenePass)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawVoxelMesh: ScenePass is null!");
+            return nullptr;
+        }
+
+        if (vaoID == 0 || !shader)
+        {
+            return nullptr;
+        }
+
+        CommandPacket* packet = CreateDrawCall<DrawVoxelMeshCommand>();
+        auto* cmd = packet->GetCommandData<DrawVoxelMeshCommand>();
+        cmd->header.type = CommandType::DrawVoxelMesh;
+
+        cmd->vertexArrayID = vaoID;
+        cmd->indexCount = indexCount;
+        cmd->shaderRendererID = shader->GetRendererID();
+        cmd->albedoArrayTextureID = albedoArrayID;
+        cmd->normalArrayTextureID = normalArrayID;
+        cmd->armArrayTextureID = armArrayID;
+        cmd->transform = transform;
+        cmd->entityID = entityID;
+
+        cmd->renderState = CreateDefaultPODRenderState();
+        cmd->renderState.blendEnabled = false;
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = shader->GetRendererID() & 0xFFFF;
+        u32 depth = ComputeDepthForSortKey(transform);
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
+        metadata.m_IsStatic = true;
+        packet->SetMetadata(metadata);
+
         return packet;
     }
 

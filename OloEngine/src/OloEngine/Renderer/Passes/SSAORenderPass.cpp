@@ -2,8 +2,7 @@
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
-#include "OloEngine/Renderer/VertexBuffer.h"
-#include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include <array>
 #include <random>
@@ -19,7 +18,7 @@ namespace OloEngine
     {
         if (m_NoiseTexture != 0)
         {
-            glDeleteTextures(1, &m_NoiseTexture);
+            RenderCommand::DeleteTexture(m_NoiseTexture);
         }
     }
 
@@ -33,38 +32,6 @@ namespace OloEngine
         m_HalfHeight = std::max(1u, spec.Height / 2);
 
         CreateSSAOFramebuffers(m_HalfWidth, m_HalfHeight);
-
-        // Create fullscreen triangle (same pattern as PostProcessRenderPass)
-        struct FullscreenVertex
-        {
-            glm::vec3 Position;
-            glm::vec2 TexCoord;
-        };
-
-        static_assert(sizeof(FullscreenVertex) == sizeof(f32) * 5,
-                      "FullscreenVertex must be exactly 5 floats");
-
-        FullscreenVertex vertices[3] = {
-            { { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } },
-            { { 3.0f, -1.0f, 0.0f }, { 2.0f, 0.0f } },
-            { { -1.0f, 3.0f, 0.0f }, { 0.0f, 2.0f } }
-        };
-
-        u32 indices[3] = { 0, 1, 2 };
-
-        m_FullscreenTriangleVA = VertexArray::Create();
-
-        Ref<VertexBuffer> vertexBuffer = VertexBuffer::Create(
-            static_cast<const void*>(vertices),
-            static_cast<u32>(sizeof(vertices)));
-
-        vertexBuffer->SetLayout({ { ShaderDataType::Float3, "a_Position" },
-                                  { ShaderDataType::Float2, "a_TexCoord" } });
-
-        Ref<IndexBuffer> indexBuffer = IndexBuffer::Create(indices, 3);
-
-        m_FullscreenTriangleVA->AddVertexBuffer(vertexBuffer);
-        m_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);
 
         // Load SSAO shaders
         m_SSAOShader = Shader::Create("assets/shaders/SSAO.glsl");
@@ -111,20 +78,19 @@ namespace OloEngine
             n = (len > 1e-6f) ? v / len : glm::vec2(1.0f, 0.0f);
         }
 
-        glCreateTextures(GL_TEXTURE_2D, 1, &m_NoiseTexture);
-        glTextureStorage2D(m_NoiseTexture, 1, GL_RG16F, 4, 4);
-        glTextureSubImage2D(m_NoiseTexture, 0, 0, 0, 4, 4, GL_RG, GL_FLOAT, noise.data());
-        glTextureParameteri(m_NoiseTexture, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTextureParameteri(m_NoiseTexture, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTextureParameteri(m_NoiseTexture, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTextureParameteri(m_NoiseTexture, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        m_NoiseTexture = RenderCommand::CreateTexture2D(4, 4, GL_RG16F);
+        RenderCommand::UploadTextureSubImage2D(m_NoiseTexture, 4, 4, GL_RG, GL_FLOAT, noise.data());
+        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_WRAP_T, GL_REPEAT);
     }
 
     void SSAORenderPass::Execute()
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Settings.SSAOEnabled || !m_SceneFramebuffer || !m_SSAOShader || !m_SSAOBlurShader || !m_SSAOFramebuffer || !m_BlurFramebuffer || !m_FullscreenTriangleVA)
+        if (!m_Settings.SSAOEnabled || !m_SceneFramebuffer || !m_SSAOShader || !m_SSAOBlurShader || !m_SSAOFramebuffer || !m_BlurFramebuffer)
         {
             return;
         }
@@ -191,8 +157,9 @@ namespace OloEngine
 
     void SSAORenderPass::DrawFullscreenTriangle()
     {
-        m_FullscreenTriangleVA->Bind();
-        RenderCommand::DrawIndexed(m_FullscreenTriangleVA);
+        auto va = MeshPrimitives::GetFullscreenTriangle();
+        va->Bind();
+        RenderCommand::DrawIndexed(va);
     }
 
     u32 SSAORenderPass::GetSSAOTextureID() const
