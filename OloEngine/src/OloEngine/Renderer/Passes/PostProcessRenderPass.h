@@ -5,7 +5,6 @@
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
-#include "OloEngine/Renderer/VertexArray.h"
 
 namespace OloEngine
 {
@@ -73,8 +72,6 @@ namespace OloEngine
         Ref<Shader> m_DOFShader;
         Ref<Shader> m_MotionBlurShader;
         Ref<Shader> m_SSAOApplyShader;
-
-        Ref<VertexArray> m_FullscreenTriangleVA;
 
         PostProcessSettings m_Settings;
 

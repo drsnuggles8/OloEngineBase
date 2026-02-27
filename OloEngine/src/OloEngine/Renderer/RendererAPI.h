@@ -5,6 +5,7 @@
 
 #include <glm/glm.hpp>
 #include <glad/gl.h>
+#include <span>
 
 namespace OloEngine
 {
@@ -91,6 +92,25 @@ namespace OloEngine
         virtual void EnableMultisampling() = 0;
         virtual void DisableMultisampling() = 0;
         virtual void SetColorMask(bool red, bool green, bool blue, bool alpha) = 0;
+
+        // Per-attachment blend control (needed for mixed integer/float framebuffer attachments)
+        virtual void SetBlendStateForAttachment(u32 attachment, bool enabled) = 0;
+
+        // GPU-side image copy (used for staging textures to avoid read-write hazards)
+        virtual void CopyImageSubData(u32 srcID, u32 srcTarget, u32 dstID, u32 dstTarget,
+                                      u32 width, u32 height) = 0;
+
+        // Restrict which color attachments are written to
+        virtual void SetDrawBuffers(std::span<const u32> attachments) = 0;
+        // Restore all color attachments for drawing (convenience for post-pass cleanup)
+        virtual void RestoreAllDrawBuffers(u32 colorAttachmentCount) = 0;
+
+        // Texture lifecycle abstractions (avoid raw gl* calls in passes)
+        virtual u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat) = 0;
+        virtual void SetTextureParameter(u32 textureID, GLenum pname, GLint value) = 0;
+        virtual void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
+                                             GLenum format, GLenum type, const void* data) = 0;
+        virtual void DeleteTexture(u32 textureID) = 0;
 
         [[nodiscard("Store this!")]] static API GetAPI()
         {

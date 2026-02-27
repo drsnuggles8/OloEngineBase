@@ -519,4 +519,75 @@ namespace OloEngine
 
         glColorMask(red, green, blue, alpha);
     }
+
+    void OpenGLRendererAPI::SetBlendStateForAttachment(u32 attachment, bool enabled)
+    {
+        if (enabled)
+        {
+            glEnablei(GL_BLEND, attachment);
+        }
+        else
+        {
+            glDisablei(GL_BLEND, attachment);
+        }
+    }
+
+    void OpenGLRendererAPI::CopyImageSubData(u32 srcID, u32 srcTarget, u32 dstID, u32 dstTarget,
+                                             u32 width, u32 height)
+    {
+        glCopyImageSubData(
+            srcID, srcTarget, 0, 0, 0, 0,
+            dstID, dstTarget, 0, 0, 0, 0,
+            static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1);
+    }
+
+    void OpenGLRendererAPI::SetDrawBuffers(std::span<const u32> attachments)
+    {
+        // Convert attachment indices to GL enums
+        std::vector<GLenum> drawBuffers;
+        drawBuffers.reserve(attachments.size());
+        for (u32 a : attachments)
+        {
+            drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + a);
+        }
+        glDrawBuffers(static_cast<GLsizei>(drawBuffers.size()), drawBuffers.data());
+    }
+
+    void OpenGLRendererAPI::RestoreAllDrawBuffers(u32 colorAttachmentCount)
+    {
+        std::vector<GLenum> allBuffers;
+        allBuffers.reserve(colorAttachmentCount);
+        for (u32 i = 0; i < colorAttachmentCount; ++i)
+        {
+            allBuffers.push_back(GL_COLOR_ATTACHMENT0 + i);
+        }
+        glDrawBuffers(static_cast<GLsizei>(allBuffers.size()), allBuffers.data());
+    }
+
+    u32 OpenGLRendererAPI::CreateTexture2D(u32 width, u32 height, GLenum internalFormat)
+    {
+        u32 textureID = 0;
+        glCreateTextures(GL_TEXTURE_2D, 1, &textureID);
+        glTextureStorage2D(textureID, 1, internalFormat,
+                           static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+        return textureID;
+    }
+
+    void OpenGLRendererAPI::SetTextureParameter(u32 textureID, GLenum pname, GLint value)
+    {
+        glTextureParameteri(textureID, pname, value);
+    }
+
+    void OpenGLRendererAPI::UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
+                                                    GLenum format, GLenum type, const void* data)
+    {
+        glTextureSubImage2D(textureID, 0, 0, 0,
+                            static_cast<GLsizei>(width), static_cast<GLsizei>(height),
+                            format, type, data);
+    }
+
+    void OpenGLRendererAPI::DeleteTexture(u32 textureID)
+    {
+        glDeleteTextures(1, &textureID);
+    }
 } // namespace OloEngine

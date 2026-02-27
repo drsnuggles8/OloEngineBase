@@ -1,15 +1,15 @@
-Scene: SnowTest
+Scene: SnowTest.olo
 PostProcessSettings:
   TonemapOperator: 1
   Exposure: 1
-  Gamma: 2.20000005
+  Gamma: 2.2
   BloomEnabled: true
   BloomThreshold: 1
-  BloomIntensity: 0.300000012
+  BloomIntensity: 0.3
   BloomIterations: 5
   VignetteEnabled: false
   VignetteIntensity: 0.5
-  VignetteSmoothness: 0.200000003
+  VignetteSmoothness: 0.2
   ChromaticAberrationEnabled: false
   ChromaticAberrationIntensity: 0.5
   FXAAEnabled: true
@@ -21,9 +21,9 @@ PostProcessSettings:
   MotionBlurStrength: 0.5
   MotionBlurSamples: 8
   ColorGradingEnabled: false
-  SSAOEnabled: true
+  SSAOEnabled: false
   SSAORadius: 0.5
-  SSAOBias: 0.025000000000000001
+  SSAOBias: 0.025
   SSAOIntensity: 1
   SSAOSamples: 32
   SSAODebugView: false
@@ -31,55 +31,20 @@ SnowSettings:
   Enabled: true
   HeightStart: 2
   HeightFull: 10
-  SlopeStart: 0.699999988
-  SlopeFull: 0.300000012
-  Albedo: [0.949999988, 0.949999988, 0.980000019]
-  Roughness: 0.850000024
-  SSSColor: [0.400000006, 0.600000024, 0.899999976]
-  SSSIntensity: 0.600000024
-  SparkleIntensity: 0.800000012
+  SlopeStart: 0.7
+  SlopeFull: 0.3
+  Albedo: [0.95, 0.95, 0.98]
+  Roughness: 0.85
+  SSSColor: [0.4, 0.6, 0.9]
+  SSSIntensity: 0.6
+  SparkleIntensity: 0.8
   SparkleDensity: 80
   SparkleScale: 1
-  NormalPerturbStrength: 0.150000006
+  NormalPerturbStrength: 0.15
   SSSBlurEnabled: true
   SSSBlurRadius: 2
   SSSBlurFalloff: 1
 Entities:
-  - Entity: 200000000000001
-    TagComponent:
-      Tag: Main Camera
-    TransformComponent:
-      Translation: [25, 12, 30]
-      Rotation: [-0.349065840, 0.610865235, 0]
-      Scale: [1, 1, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 1
-        PerspectiveFOV: 0.785398185
-        PerspectiveNear: 0.100000001
-        PerspectiveFar: 1000
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
-  - Entity: 200000000000002
-    TagComponent:
-      Tag: Directional Light
-    TransformComponent:
-      Translation: [0, 20, 0]
-      Rotation: [-0.785398185, 0.392699093, 0]
-      Scale: [1, 1, 1]
-    DirectionalLightComponent:
-      Direction: [-0.5, -0.707106769, -0.5]
-      Color: [1, 0.960784316, 0.898039222]
-      Intensity: 2
-      CastShadows: true
-      ShadowBias: 0.00499999989
-      ShadowNormalBias: 0.00999999978
-      MaxShadowDistance: 500
-      CascadeSplitLambda: 0.5
-      CascadeDebugVisualization: false
   - Entity: 200000000000003
     TagComponent:
       Tag: Terrain
@@ -98,16 +63,51 @@ Entities:
       ProceduralOctaves: 6
       ProceduralFrequency: 3
       ProceduralLacunarity: 2
-      ProceduralPersistence: 0.449999988
+      ProceduralPersistence: 0.45
       TessellationEnabled: false
       TargetTriangleSize: 8
-      MorphRegion: 0.300000012
+      MorphRegion: 0.3
       StreamingEnabled: false
       TileDirectory: ""
-      TileFilePattern: "tile_%d_%d.raw"
+      TileFilePattern: tile_%d_%d.raw
       TileWorldSize: 256
       TileResolution: 513
       StreamingLoadRadius: 3
       StreamingMaxTiles: 25
       VoxelEnabled: false
       VoxelSize: 1
+  - Entity: 200000000000002
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 20, 0]
+      Rotation: [-0.7853982, 0.3926991, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.5, -0.70710677, -0.5]
+      Color: [1, 0.9607843, 0.8980392]
+      Intensity: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false
+  - Entity: 200000000000001
+    TagComponent:
+      Tag: Main Camera
+    TransformComponent:
+      Translation: [25, 12, 30]
+      Rotation: [-0.34906584, 0.61086524, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 1
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

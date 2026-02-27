@@ -388,6 +388,7 @@
 		"OloEngine/Renderer/Debug/DebugUtils.cpp"
 		
 		"OloEngine/Renderer/Passes/RenderPass.h"
+		"OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 		"OloEngine/Renderer/Passes/FinalRenderPass.h"
 		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
 		"OloEngine/Renderer/Passes/ParticleRenderPass.h"

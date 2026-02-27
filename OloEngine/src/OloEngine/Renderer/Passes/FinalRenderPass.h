@@ -3,7 +3,6 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Shader.h"
-#include "OloEngine/Renderer/VertexArray.h"
 
 namespace OloEngine
 {
@@ -28,8 +27,7 @@ namespace OloEngine
         [[nodiscard]] Ref<Framebuffer> GetInputFramebuffer() const;
 
       private:
-        Ref<Framebuffer> m_InputFramebuffer;     // The framebuffer to render to the screen
-        Ref<Shader> m_BlitShader;                // Shader for blitting the framebuffer to the screen
-        Ref<VertexArray> m_FullscreenTriangleVA; // Vertex array for the fullscreen triangle
+        Ref<Framebuffer> m_InputFramebuffer; // The framebuffer to render to the screen
+        Ref<Shader> m_BlitShader;            // Shader for blitting the framebuffer to the screen
     };
 } // namespace OloEngine

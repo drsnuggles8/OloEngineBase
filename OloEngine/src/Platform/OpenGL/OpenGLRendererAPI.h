@@ -63,6 +63,17 @@ namespace OloEngine
         void BindTexture(u32 slot, u32 textureID) override;
         void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format) override;
 
+        void SetBlendStateForAttachment(u32 attachment, bool enabled) override;
+        void CopyImageSubData(u32 srcID, u32 srcTarget, u32 dstID, u32 dstTarget,
+                              u32 width, u32 height) override;
+        void SetDrawBuffers(std::span<const u32> attachments) override;
+        void RestoreAllDrawBuffers(u32 colorAttachmentCount) override;
+        u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat) override;
+        void SetTextureParameter(u32 textureID, GLenum pname, GLint value) override;
+        void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
+                                     GLenum format, GLenum type, const void* data) override;
+        void DeleteTexture(u32 textureID) override;
+
       private:
         bool m_DepthTestEnabled = false;
         bool m_DepthMaskEnabled = true;

@@ -3,25 +3,16 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Framebuffer.h"
-#include "OloEngine/Renderer/Commands/CommandBucket.h"
-#include "OloEngine/Renderer/Commands/CommandMemoryManager.h"
 
 namespace OloEngine
 {
-    // @brief Base class for render passes that use the command-based rendering system.
+    // @brief Base class for all render passes.
     //
-    // This class integrates with the command bucket system,
-    // allowing render passes to efficiently build and execute rendering commands.
+    // Provides the minimal interface: name, framebuffer lifecycle, and execution.
+    // Passes that need a command bucket should inherit CommandBufferRenderPass instead.
     class RenderPass : public RefCounted
     {
       public:
-        RenderPass()
-        {
-            // Create owned allocator with default block size
-            m_OwnedAllocator = CreateScope<CommandAllocator>();
-            m_Allocator = m_OwnedAllocator.get();
-        }
-
         virtual ~RenderPass() = default;
 
         virtual void Init(const FramebufferSpecification& spec) = 0;
@@ -45,33 +36,9 @@ namespace OloEngine
         // Passes that accept an input framebuffer should override this.
         virtual void SetInputFramebuffer(const Ref<Framebuffer>& /*input*/) {}
 
-        void ResetCommandBucket()
-        {
-            OLO_CORE_ASSERT(m_Allocator, "RenderPass::ResetCommandBucket: No allocator available!");
-            m_CommandBucket.Reset(*m_Allocator);
-        }
-
-        void SetCommandAllocator(CommandAllocator* allocator)
-        {
-            m_Allocator = allocator ? allocator : m_OwnedAllocator.get();
-        }
-
-        void SubmitPacket(CommandPacket* packet)
-        {
-            m_CommandBucket.SubmitPacket(packet);
-        }
-
-        CommandBucket& GetCommandBucket()
-        {
-            return m_CommandBucket;
-        }
-
       protected:
         std::string m_Name = "RenderPass";
         Ref<Framebuffer> m_Target;
         FramebufferSpecification m_FramebufferSpec;
-        CommandBucket m_CommandBucket;
-        Scope<CommandAllocator> m_OwnedAllocator;
-        CommandAllocator* m_Allocator = nullptr;
     };
 } // namespace OloEngine

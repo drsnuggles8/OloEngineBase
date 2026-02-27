@@ -29,13 +29,18 @@ namespace OloEngine
     }
     void Renderer::Shutdown()
     {
+        // Renderer3D may have been lazily initialized (e.g. EditorLayer 3D mode)
+        // regardless of the preferred renderer type — always shut it down if active.
+        if (Renderer3D::IsInitialized())
+            Renderer3D::Shutdown();
+
         switch (s_RendererType)
         {
             case RendererType::Renderer2D:
                 Renderer2D::Shutdown();
                 break;
             case RendererType::Renderer3D:
-                Renderer3D::Shutdown();
+                // Already shut down above
                 break;
         }
 

@@ -1,9 +1,54 @@
 #include "OloEnginePCH.h"
 #include "MeshPrimitives.h"
 #include "MeshSource.h"
+#include "OloEngine/Renderer/VertexBuffer.h"
+#include "OloEngine/Renderer/IndexBuffer.h"
 
 namespace OloEngine
 {
+    // Static shared fullscreen triangle VAO (lazy-initialized)
+    static Ref<VertexArray> s_FullscreenTriangleVA;
+
+    Ref<VertexArray> MeshPrimitives::GetFullscreenTriangle()
+    {
+        if (s_FullscreenTriangleVA)
+        {
+            return s_FullscreenTriangleVA;
+        }
+
+        struct FullscreenVertex
+        {
+            glm::vec3 Position;
+            glm::vec2 TexCoord;
+        };
+
+        static_assert(sizeof(FullscreenVertex) == sizeof(f32) * 5,
+                      "FullscreenVertex must be exactly 5 floats");
+
+        FullscreenVertex vertices[3] = {
+            { { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } },
+            { { 3.0f, -1.0f, 0.0f }, { 2.0f, 0.0f } },
+            { { -1.0f, 3.0f, 0.0f }, { 0.0f, 2.0f } }
+        };
+
+        u32 indices[3] = { 0, 1, 2 };
+
+        s_FullscreenTriangleVA = VertexArray::Create();
+
+        Ref<VertexBuffer> vertexBuffer = VertexBuffer::Create(
+            static_cast<const void*>(vertices),
+            static_cast<u32>(sizeof(vertices)));
+
+        vertexBuffer->SetLayout({ { ShaderDataType::Float3, "a_Position" },
+                                  { ShaderDataType::Float2, "a_TexCoord" } });
+
+        Ref<IndexBuffer> indexBuffer = IndexBuffer::Create(indices, 3);
+
+        s_FullscreenTriangleVA->AddVertexBuffer(vertexBuffer);
+        s_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);
+
+        return s_FullscreenTriangleVA;
+    }
 
     Ref<Mesh> MeshPrimitives::CreateCube()
     {

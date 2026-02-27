@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/Camera/Camera.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
@@ -30,7 +30,7 @@ namespace OloEngine
     //   - Streaming tile management requires dynamic draw calls
     // This is a deliberate, documented deviation. If the command system is extended
     // to support tessellation/patches, terrain should migrate back to it.
-    class SceneRenderPass : public RenderPass
+    class SceneRenderPass : public CommandBufferRenderPass
     {
       public:
         // Callback invoked after command bucket execution, while the scene framebuffer is still bound.

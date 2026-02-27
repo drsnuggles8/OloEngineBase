@@ -5,7 +5,6 @@
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
-#include "OloEngine/Renderer/VertexArray.h"
 
 namespace OloEngine
 {
@@ -43,7 +42,6 @@ namespace OloEngine
         Ref<Framebuffer> m_SceneFramebuffer;
 
         Ref<Shader> m_SSSBlurShader;
-        Ref<VertexArray> m_FullscreenTriangleVA;
         Ref<UniformBuffer> m_SSSUBO;
         SSSUBOData* m_GPUData = nullptr;
 

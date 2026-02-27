@@ -2,8 +2,6 @@
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     ParticleRenderPass::ParticleRenderPass()
@@ -38,9 +36,9 @@ namespace OloEngine
         // Enable blending only on draw buffer 0 (color).
         // Draw buffer 1 is RED_INTEGER (entity ID) — blending is invalid on integer attachments.
         // Draw buffer 2 is view-space normals — no blending needed.
-        glEnablei(GL_BLEND, 0);
-        glDisablei(GL_BLEND, 1);
-        glDisablei(GL_BLEND, 2);
+        RenderCommand::SetBlendStateForAttachment(0, true);
+        RenderCommand::SetBlendStateForAttachment(1, false);
+        RenderCommand::SetBlendStateForAttachment(2, false);
         RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         m_RenderCallback();
@@ -48,8 +46,8 @@ namespace OloEngine
         // Restore defaults for subsequent passes
         RenderCommand::SetDepthFunc(GL_LESS);
         RenderCommand::SetDepthMask(true);
-        glDisablei(GL_BLEND, 0);
-        glDisable(GL_BLEND);
+        RenderCommand::SetBlendStateForAttachment(0, false);
+        RenderCommand::SetBlendState(false);
 
         m_SceneFramebuffer->Unbind();
 

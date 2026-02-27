@@ -244,6 +244,52 @@ namespace OloEngine
             s_RendererAPI->MemoryBarrier(flags);
         }
 
+        // Per-attachment blend control
+        static void SetBlendStateForAttachment(u32 attachment, bool enabled)
+        {
+            s_RendererAPI->SetBlendStateForAttachment(attachment, enabled);
+        }
+
+        // GPU-side image copy
+        static void CopyImageSubData(u32 srcID, u32 srcTarget, u32 dstID, u32 dstTarget,
+                                     u32 width, u32 height)
+        {
+            s_RendererAPI->CopyImageSubData(srcID, srcTarget, dstID, dstTarget, width, height);
+        }
+
+        // Draw buffer control
+        static void SetDrawBuffers(std::span<const u32> attachments)
+        {
+            s_RendererAPI->SetDrawBuffers(attachments);
+        }
+
+        static void RestoreAllDrawBuffers(u32 colorAttachmentCount)
+        {
+            s_RendererAPI->RestoreAllDrawBuffers(colorAttachmentCount);
+        }
+
+        // Texture lifecycle
+        static u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat)
+        {
+            return s_RendererAPI->CreateTexture2D(width, height, internalFormat);
+        }
+
+        static void SetTextureParameter(u32 textureID, GLenum pname, GLint value)
+        {
+            s_RendererAPI->SetTextureParameter(textureID, pname, value);
+        }
+
+        static void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
+                                            GLenum format, GLenum type, const void* data)
+        {
+            s_RendererAPI->UploadTextureSubImage2D(textureID, width, height, format, type, data);
+        }
+
+        static void DeleteTexture(u32 textureID)
+        {
+            s_RendererAPI->DeleteTexture(textureID);
+        }
+
         static RendererAPI& GetRendererAPI()
         {
             return *s_RendererAPI;

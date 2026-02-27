@@ -338,6 +338,17 @@ namespace OloEngine
         if (s_Data.RGraph)
             s_Data.RGraph->Shutdown();
 
+        // Release all render passes now while the GL context and RendererAPI are still alive.
+        // Their destructors call RenderCommand::DeleteTexture() which needs s_RendererAPI.
+        s_Data.ShadowPass.Reset();
+        s_Data.ScenePass.Reset();
+        s_Data.SSAOPass.Reset();
+        s_Data.ParticlePass.Reset();
+        s_Data.SSSPass.Reset();
+        s_Data.PostProcessPass.Reset();
+        s_Data.FinalPass.Reset();
+        s_Data.RGraph.Reset();
+
         FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
 
@@ -482,18 +493,12 @@ namespace OloEngine
             return;
         }
 
-        if (s_Data.PostProcessPass && s_Data.FinalPass)
-        {
-            s_Data.FinalPass->SetInputFramebuffer(s_Data.PostProcessPass->GetTarget());
-        }
-        if (s_Data.ScenePass && s_Data.ParticlePass)
-        {
-            s_Data.ParticlePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
-        }
+        // Framebuffer piping is handled once in SetupRenderGraph() and on resize.
+        // Only per-frame settings updates are needed here.
+
         if (s_Data.SSAOPass)
         {
             s_Data.SSAOPass->SetSettings(s_Data.PostProcess);
-            s_Data.SSAOPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
 
             // Upload projection matrices for SSAO position reconstruction
             s_Data.SSAOGPUData.Projection = s_Data.ProjectionMatrix;
@@ -503,13 +508,10 @@ namespace OloEngine
         if (s_Data.SSSPass)
         {
             s_Data.SSSPass->SetSettings(s_Data.Snow);
-            s_Data.SSSPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
         }
         if (s_Data.PostProcessPass)
         {
             s_Data.PostProcessPass->SetSettings(s_Data.PostProcess);
-            s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-            s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
             s_Data.PostProcessPass->SetPostProcessUBO(s_Data.PostProcessUBO, &s_Data.PostProcessGPUData);
 
             // Pass SSAO texture to PostProcessPass for application
@@ -1783,14 +1785,16 @@ namespace OloEngine
         s_Data.RGraph->AddExecutionDependency("SSAOPass", "ParticlePass");
         // ParticlePass -> SSSPass: ordering (SSS blur reads scene FB alpha for SSS mask)
         s_Data.RGraph->AddExecutionDependency("ParticlePass", "SSSPass");
-        // ScenePass -> ParticlePass -> SSSPass -> PostProcessPass -> FinalPass: ordering + framebuffer piping
-        s_Data.RGraph->ConnectPass("ScenePass", "ParticlePass");
-        s_Data.RGraph->ConnectPass("ParticlePass", "SSSPass");
+        // Graph connections: SSSPass -> PostProcessPass -> FinalPass use SetInputFramebuffer
+        // via the graph's Execute() piping. No manual calls needed for these.
         s_Data.RGraph->ConnectPass("SSSPass", "PostProcessPass");
         s_Data.RGraph->ConnectPass("PostProcessPass", "FinalPass");
 
+        // PostProcessPass needs the scene depth for DOF/MotionBlur (not piped by graph).
+        s_Data.PostProcessPass->SetSceneDepthFramebuffer(s_Data.ScenePass->GetTarget());
+        // PostProcessPass initial input is the scene FB (overridden by graph's SSSPass -> PostProcessPass
+        // piping each frame, which passes SSSPass::GetTarget() = scene FB when SSS is disabled).
         s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        s_Data.FinalPass->SetInputFramebuffer(s_Data.PostProcessPass->GetTarget());
         OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> SSAOPass -> ParticlePass -> SSSPass -> PostProcessPass -> FinalPass");
 
         s_Data.RGraph->SetFinalPass("FinalPass");
