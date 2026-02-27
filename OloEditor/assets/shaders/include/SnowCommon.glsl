@@ -2,6 +2,16 @@
 // SnowCommon.glsl - Snow BRDF, SSS, sparkle, and procedural coverage
 // =============================================================================
 // Include after PBRCommon.glsl (uses distributionGGX, geometrySmith, fresnelSchlick)
+//
+// --- ALPHA CHANNEL CONTRACT (SSS Mask) ---
+// Scene FB color attachment 0 (RGBA16F) alpha is used as a transient SSS mask:
+//   1. PRODUCED: PBR/Terrain fragment shaders write snowWeight to o_Color.a
+//   2. CONSUMED: SSSRenderPass (SSS_Blur.glsl) reads alpha as a bilateral blur mask
+//   3. RESET:    SSS_Blur always outputs alpha = 1.0, preventing downstream leaks
+//   4. SAFE:     All PostProcess shaders ignore input alpha and output alpha = 1.0
+// The alpha channel is NOT used for material transparency (engine is opaque-only).
+// If a forward transparency pass is added, it must use a separate framebuffer.
+// =============================================================================
 
 #ifndef SNOW_COMMON_GLSL
 #define SNOW_COMMON_GLSL

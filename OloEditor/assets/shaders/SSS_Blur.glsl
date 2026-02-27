@@ -18,6 +18,10 @@ void main()
 // SSS Blur Pass — screen-space Gaussian blur masked by alpha (SSS weight)
 // Reads the scene color attachment (RGBA16F), blurs only pixels with alpha > 0
 // and blends the result back using the alpha mask.
+//
+// This is the CONSUMER of the alpha-channel SSS mask produced by PBR shaders.
+// It ALWAYS resets alpha to 1.0 on output, completing the produce-consume-reset
+// lifecycle (see SnowCommon.glsl for the full contract).
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;

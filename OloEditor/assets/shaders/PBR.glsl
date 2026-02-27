@@ -269,6 +269,8 @@ void main()
 
     // Output linear HDR color — tone mapping and gamma handled in post-process pass
     o_Color = vec4(color, u_BaseColorFactor.a);
+    // SSS mask: write snow weight to alpha for SSSRenderPass bilateral blur.
+    // Alpha is reset to 1.0 by SSS_Blur before PostProcess (see SnowCommon.glsl contract).
     if (snowWeight > 0.001)
         o_Color.a = snowWeight;
     o_EntityID = u_EntityID;
