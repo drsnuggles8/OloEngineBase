@@ -107,7 +107,8 @@ namespace OloEngine
         u32 resolvedResolution = std::min(settings.GridResolution, kTextureSize);
         if (resolvedResolution == 0)
         {
-            resolvedResolution = kTextureSize;
+            OLO_CORE_ERROR("WindSystem::Update — GridResolution is 0, using minimum of 1");
+            resolvedResolution = 1;
         }
 
         // Pack UBO data

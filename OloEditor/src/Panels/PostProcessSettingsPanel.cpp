@@ -8,6 +8,8 @@ namespace OloEngine
 {
     void PostProcessSettingsPanel::OnImGuiRender()
     {
+        OLO_PROFILE_FUNCTION();
+
         ImGui::Begin("Post Processing");
 
         auto& settings = Renderer3D::GetPostProcessSettings();
@@ -283,16 +285,18 @@ namespace OloEngine
             if (settings.Enabled)
             {
                 ImGui::SeparatorText("Direction & Speed");
-                ImGui::DragFloat3("Direction##Wind", &settings.Direction.x, 0.01f, -1.0f, 1.0f, "%.2f");
-                // Auto-normalize direction if user changed it
-                float len = glm::length(settings.Direction);
-                if (len > 0.001f)
+                if (ImGui::DragFloat3("Direction##Wind", &settings.Direction.x, 0.01f, -1.0f, 1.0f, "%.2f"))
                 {
-                    settings.Direction /= len;
-                }
-                else
-                {
-                    settings.Direction = glm::vec3(1.0f, 0.0f, 0.0f);
+                    // Normalize direction only when the user actually edits it
+                    float len = glm::length(settings.Direction);
+                    if (len > 0.001f)
+                    {
+                        settings.Direction /= len;
+                    }
+                    else
+                    {
+                        settings.Direction = glm::vec3(1.0f, 0.0f, 0.0f);
+                    }
                 }
                 ImGui::DragFloat("Speed (m/s)##Wind", &settings.Speed, 0.1f, 0.0f, 50.0f, "%.1f");
 

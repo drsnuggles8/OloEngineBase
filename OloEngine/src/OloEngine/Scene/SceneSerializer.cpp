@@ -157,9 +157,30 @@ namespace OloEngine
             TrySet(wind.GridWorldSize, windNode["GridWorldSize"]);
             TrySet(wind.GridResolution, windNode["GridResolution"]);
 
-            // Clamp to safe bounds
+            // Validate and clamp wind scalar fields
+            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+            sanitizeFloat(wind.Speed, 0.0f, 1e4f, 0.0f);
+            sanitizeFloat(wind.GustStrength, 0.0f, 1e4f, 0.0f);
+            sanitizeFloat(wind.GustFrequency, 0.0f, 1e3f, 0.0f);
+            sanitizeFloat(wind.TurbulenceIntensity, 0.0f, 1.0f, 0.0f);
+            sanitizeFloat(wind.TurbulenceScale, 1e-6f, 1e6f, 1.0f);
+
+            // Clamp grid bounds
             wind.GridWorldSize = std::clamp(wind.GridWorldSize, 0.1f, 10000.0f);
-            wind.GridResolution = std::clamp(wind.GridResolution, 1u, 2048u);
+
+            // Normalize GridResolution to supported values {64, 128}
+            if (wind.GridResolution <= 96)
+                wind.GridResolution = 64;
+            else
+                wind.GridResolution = 128;
 
             // Validate direction: reject NaN/Inf/zero, normalize to unit length
             bool dirInvalid = !std::isfinite(wind.Direction.x) || !std::isfinite(wind.Direction.y) || !std::isfinite(wind.Direction.z);
@@ -2544,6 +2565,8 @@ namespace OloEngine
 
     std::string SceneSerializer::SerializeToYAML() const
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
@@ -2605,6 +2628,8 @@ namespace OloEngine
 
     bool SceneSerializer::DeserializeFromYAML(const std::string& yamlString)
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Node data;
         try
         {
