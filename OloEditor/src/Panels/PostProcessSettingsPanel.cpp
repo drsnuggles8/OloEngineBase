@@ -306,11 +306,11 @@ namespace OloEngine
                 ImGui::DragFloat("World Size (m)##Grid", &settings.GridWorldSize, 1.0f, 10.0f, 1000.0f, "%.0f");
 
                 // Grid resolution selector (power of 2)
-                const char* resItems[] = { "64", "128", "256" };
-                int current = (settings.GridResolution <= 64) ? 0 : (settings.GridResolution <= 128 ? 1 : 2);
+                const char* resItems[] = { "64", "128" };
+                int current = (settings.GridResolution <= 64) ? 0 : 1;
                 if (ImGui::Combo("Resolution##Grid", &current, resItems, IM_ARRAYSIZE(resItems)))
                 {
-                    static constexpr u32 resValues[] = { 64, 128, 256 };
+                    static constexpr u32 resValues[] = { 64, 128 };
                     settings.GridResolution = resValues[current];
                 }
             }

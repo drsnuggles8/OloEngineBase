@@ -9,6 +9,9 @@
 
 #include <glad/gl.h>
 
+#include <algorithm>
+#include <cmath>
+
 namespace OloEngine
 {
     WindSystem::WindSystemData WindSystem::s_Data;

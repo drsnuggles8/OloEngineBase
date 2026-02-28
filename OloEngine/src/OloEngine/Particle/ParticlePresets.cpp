@@ -2,6 +2,8 @@
 #include "OloEngine/Particle/ParticlePresets.h"
 #include "OloEngine/Particle/EmissionShape.h"
 
+#include <limits>
+
 namespace OloEngine
 {
     void ParticlePresets::ApplySnowfall(ParticleSystem& sys)
@@ -12,7 +14,7 @@ namespace OloEngine
         sys.SetMaxParticles(50000);
         sys.Playing = true;
         sys.Looping = true;
-        sys.Duration = 0.0f; // Continuous
+        sys.Duration = std::numeric_limits<f32>::max(); // Continuous
         sys.PlaybackSpeed = 1.0f;
         sys.SimulationSpace = ParticleSpace::World;
 

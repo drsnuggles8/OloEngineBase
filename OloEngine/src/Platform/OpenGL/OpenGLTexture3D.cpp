@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture3D.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Renderer.h"
 
 #include <glad/gl.h>
@@ -57,14 +58,17 @@ namespace OloEngine
         sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * m_Depth * bytesPerPixel;
         OLO_TRACK_GPU_ALLOC(this,
                             textureMemory,
-                            RendererMemoryTracker::ResourceType::Texture2D,
+                            RendererMemoryTracker::ResourceType::Other,
                             "OpenGL Texture3D (Wind Field)");
     }
 
     OpenGLTexture3D::~OpenGLTexture3D()
     {
         OLO_PROFILE_FUNCTION();
-        OLO_TRACK_DEALLOC(this);
+        if (m_RendererID != 0)
+        {
+            OLO_TRACK_DEALLOC(this);
+        }
         glDeleteTextures(1, &m_RendererID);
     }
 
@@ -72,6 +76,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         glBindTextureUnit(slot, m_RendererID);
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TextureBinds, 1);
     }
 
     // Factory

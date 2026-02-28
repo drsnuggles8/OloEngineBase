@@ -160,6 +160,22 @@ namespace OloEngine
             // Clamp to safe bounds
             wind.GridWorldSize = std::clamp(wind.GridWorldSize, 0.1f, 10000.0f);
             wind.GridResolution = std::clamp(wind.GridResolution, 1u, 2048u);
+
+            // Validate direction: reject NaN/zero, normalize to unit length
+            bool dirInvalid = std::isnan(wind.Direction.x) || std::isnan(wind.Direction.y) || std::isnan(wind.Direction.z);
+            if (!dirInvalid)
+            {
+                f32 len2 = glm::dot(wind.Direction, wind.Direction);
+                dirInvalid = (len2 < 1e-8f);
+            }
+            if (dirInvalid)
+            {
+                wind.Direction = glm::vec3(1.0f, 0.0f, 0.0f);
+            }
+            else
+            {
+                wind.Direction = glm::normalize(wind.Direction);
+            }
         }
     }
 
@@ -360,6 +376,13 @@ namespace OloEngine
         TrySet(sys.GPUGroundY, particleComponent["GPUGroundY"]);
         TrySet(sys.GPUCollisionBounce, particleComponent["GPUCollisionBounce"]);
         TrySet(sys.GPUCollisionFriction, particleComponent["GPUCollisionFriction"]);
+
+        // Clamp GPU simulation coefficients to safe ranges
+        sys.WindInfluence = std::max(sys.WindInfluence, 0.0f);
+        sys.GPUNoiseStrength = std::max(sys.GPUNoiseStrength, 0.0f);
+        sys.GPUNoiseFrequency = std::max(sys.GPUNoiseFrequency, 0.0f);
+        sys.GPUCollisionBounce = std::clamp(sys.GPUCollisionBounce, 0.0f, 1.0f);
+        sys.GPUCollisionFriction = std::clamp(sys.GPUCollisionFriction, 0.0f, 1.0f);
 
         // Texture sheet animation
         TrySet(sys.TextureSheetModule.Enabled, particleComponent["TextureSheetEnabled"]);

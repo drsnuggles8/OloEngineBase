@@ -181,7 +181,7 @@ void main()
     wind += turbulence;
 
     // ---- 4. Height-based wind increase (wind is stronger at altitude) ----
-    float heightFactor = clamp((worldPos.y - u_GridMin.y) / u_GridWorldSize, 0.0, 1.0);
+    float heightFactor = clamp((worldPos.y - u_GridMin.y) / safeWorldSize, 0.0, 1.0);
     wind *= mix(0.6, 1.4, heightFactor);
 
     // Store: RGB = velocity, A = magnitude (handy for debug visualization)

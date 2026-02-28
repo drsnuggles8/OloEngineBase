@@ -26,8 +26,12 @@ namespace OloEngine
         const std::string rawSource = FileSystem::ReadFileText(filepath);
         if (!rawSource.empty())
         {
+            // Extract directory for resolving #include paths
+            auto dirEnd = filepath.find_last_of("/\\");
+            std::string directory = (dirEnd != std::string::npos) ? filepath.substr(0, dirEnd) : "";
+
             // Resolve #include directives (reuse the regular shader include processor)
-            const std::string source = OpenGLShader::ProcessIncludes(rawSource);
+            const std::string source = OpenGLShader::ProcessIncludes(rawSource, directory);
 
             OLO_SHADER_COMPILATION_START(m_Name, filepath);
             Compile(source);
@@ -190,7 +194,11 @@ namespace OloEngine
             return;
         }
 
-        const std::string source = OpenGLShader::ProcessIncludes(rawSource);
+        // Extract directory for resolving #include paths
+        auto dirEnd = m_FilePath.find_last_of("/\\");
+        std::string directory = (dirEnd != std::string::npos) ? m_FilePath.substr(0, dirEnd) : "";
+
+        const std::string source = OpenGLShader::ProcessIncludes(rawSource, directory);
 
         // Clean up old program
         if (m_IsValid)
