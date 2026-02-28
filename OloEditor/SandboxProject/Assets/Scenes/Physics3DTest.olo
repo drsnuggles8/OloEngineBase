@@ -1,0 +1,936 @@
+Scene: Physics3DTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # ── Camera ──
+  - Entity: 750000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 8, 20]
+      Rotation: [-0.3, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox ──
+  - Entity: 750000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  # ── Directional Light ──
+  - Entity: 750000000000003
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.2]
+      Color: [1, 1, 1]
+      Intensity: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ══════════════════════════════════════════
+  # Static Ground Plane (Physics)
+  # ══════════════════════════════════════════
+  - Entity: 750000000000004
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [50, 1, 50]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.5, 0.5]
+      Metallic: 0.8
+      Roughness: 0.1
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 0
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [25, 0.5, 25]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.6
+      Restitution: 0.2
+  # ══════════════════════════════════════════
+  # Stacked Boxes (Stability Test)
+  # ══════════════════════════════════════════
+  - Entity: 750000000000010
+    TagComponent:
+      Tag: Stack Box 1
+    TransformComponent:
+      Translation: [-6, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.3, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.3
+  - Entity: 750000000000011
+    TagComponent:
+      Tag: Stack Box 2
+    TransformComponent:
+      Translation: [-6, 2.1, 0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.8, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.3
+  - Entity: 750000000000012
+    TagComponent:
+      Tag: Stack Box 3
+    TransformComponent:
+      Translation: [-6, 4.2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.3, 0.8]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.3
+  - Entity: 750000000000013
+    TagComponent:
+      Tag: Stack Box 4
+    TransformComponent:
+      Translation: [-6, 6.3, 0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.3
+  - Entity: 750000000000014
+    TagComponent:
+      Tag: Stack Box 5
+    TransformComponent:
+      Translation: [-6, 8.4, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.3, 0.8]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.3
+  - Entity: 750000000000015
+    TagComponent:
+      Tag: Stack Box 6
+    TransformComponent:
+      Translation: [-6, 10.5, 0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.8, 0.8]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.3
+  - Entity: 750000000000016
+    TagComponent:
+      Tag: Stack Box 7
+    TransformComponent:
+      Translation: [-6, 12.6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.5, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.3
+  - Entity: 750000000000017
+    TagComponent:
+      Tag: Stack Box 8
+    TransformComponent:
+      Translation: [-6, 14.7, 0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.8, 0.5]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.3
+  # ══════════════════════════════════════════
+  # Bouncing Spheres
+  # ══════════════════════════════════════════
+  - Entity: 750000000000020
+    TagComponent:
+      Tag: Bouncing Sphere 1
+    TransformComponent:
+      Translation: [0, 5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 0.6, 0.6]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.8, 0.3]
+      Metallic: 0.1
+      Roughness: 0.4
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 0.8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    SphereCollider3DComponent:
+      Radius: 0.3
+      Offset: [0, 0, 0]
+      StaticFriction: 0.5
+      DynamicFriction: 0.5
+      Restitution: 0.8
+  - Entity: 750000000000021
+    TagComponent:
+      Tag: Bouncing Sphere 2
+    TransformComponent:
+      Translation: [1.5, 8, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.8, 0.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.3, 0.3]
+      Metallic: 0.1
+      Roughness: 0.4
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 0.8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    SphereCollider3DComponent:
+      Radius: 0.4
+      Offset: [0, 0, 0]
+      StaticFriction: 0.5
+      DynamicFriction: 0.5
+      Restitution: 0.8
+  - Entity: 750000000000022
+    TagComponent:
+      Tag: Bouncing Sphere 3
+    TransformComponent:
+      Translation: [-1.5, 11, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.3, 0.8]
+      Metallic: 0.1
+      Roughness: 0.4
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 0.8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    SphereCollider3DComponent:
+      Radius: 0.5
+      Offset: [0, 0, 0]
+      StaticFriction: 0.5
+      DynamicFriction: 0.5
+      Restitution: 0.8
+  - Entity: 750000000000023
+    TagComponent:
+      Tag: Bouncing Sphere 4
+    TransformComponent:
+      Translation: [3, 7, 1]
+      Rotation: [0, 0, 0]
+      Scale: [1.4, 1.4, 1.4]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.3]
+      Metallic: 0.1
+      Roughness: 0.4
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 0.8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    SphereCollider3DComponent:
+      Radius: 0.7
+      Offset: [0, 0, 0]
+      StaticFriction: 0.5
+      DynamicFriction: 0.5
+      Restitution: 0.8
+  - Entity: 750000000000024
+    TagComponent:
+      Tag: Bouncing Sphere 5
+    TransformComponent:
+      Translation: [-3, 9, -1]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.3, 0.8]
+      Metallic: 0.1
+      Roughness: 0.4
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 0.8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    SphereCollider3DComponent:
+      Radius: 0.35
+      Offset: [0, 0, 0]
+      StaticFriction: 0.5
+      DynamicFriction: 0.5
+      Restitution: 0.8
+  # ══════════════════════════════════════════
+  # Basic Objects (center area, higher up)
+  # ══════════════════════════════════════════
+  - Entity: 750000000000030
+    TagComponent:
+      Tag: Falling Box
+    TransformComponent:
+      Translation: [6, 10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.3, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.3
+  - Entity: 750000000000031
+    TagComponent:
+      Tag: Falling Sphere
+    TransformComponent:
+      Translation: [9, 12, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.8, 0.3]
+      Metallic: 0.1
+      Roughness: 0.4
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 0.8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    SphereCollider3DComponent:
+      Radius: 0.5
+      Offset: [0, 0, 0]
+      StaticFriction: 0.5
+      DynamicFriction: 0.5
+      Restitution: 0.6
+  - Entity: 750000000000032
+    TagComponent:
+      Tag: Falling Capsule
+    TransformComponent:
+      Translation: [6, 14, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.3, 0.8]
+      Metallic: 0.1
+      Roughness: 0.5
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1.2
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    CapsuleCollider3DComponent:
+      Radius: 0.3
+      HalfHeight: 0.5
+      Offset: [0, 0, 0]
+      StaticFriction: 0.6
+      DynamicFriction: 0.6
+      Restitution: 0.4
+  # ══════════════════════════════════════════
+  # Pyramid Base Layer (5 boxes)
+  # ══════════════════════════════════════════
+  - Entity: 750000000000040
+    TagComponent:
+      Tag: Pyramid L0 B1
+    TransformComponent:
+      Translation: [0, 0, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.4, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  - Entity: 750000000000041
+    TagComponent:
+      Tag: Pyramid L0 B2
+    TransformComponent:
+      Translation: [1.1, 0, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.4, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  - Entity: 750000000000042
+    TagComponent:
+      Tag: Pyramid L0 B3
+    TransformComponent:
+      Translation: [2.2, 0, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.4, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  - Entity: 750000000000043
+    TagComponent:
+      Tag: Pyramid L0 B4
+    TransformComponent:
+      Translation: [-1.1, 0, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.4, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  - Entity: 750000000000044
+    TagComponent:
+      Tag: Pyramid L0 B5
+    TransformComponent:
+      Translation: [-2.2, 0, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.4, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  # Pyramid Layer 1 (4 boxes)
+  - Entity: 750000000000050
+    TagComponent:
+      Tag: Pyramid L1 B1
+    TransformComponent:
+      Translation: [-0.55, 1.1, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.5, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  - Entity: 750000000000051
+    TagComponent:
+      Tag: Pyramid L1 B2
+    TransformComponent:
+      Translation: [0.55, 1.1, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.5, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  - Entity: 750000000000052
+    TagComponent:
+      Tag: Pyramid L1 B3
+    TransformComponent:
+      Translation: [1.65, 1.1, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.5, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  - Entity: 750000000000053
+    TagComponent:
+      Tag: Pyramid L1 B4
+    TransformComponent:
+      Translation: [-1.65, 1.1, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.5, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  # Pyramid Layer 2 (3 boxes)
+  - Entity: 750000000000060
+    TagComponent:
+      Tag: Pyramid L2 B1
+    TransformComponent:
+      Translation: [0, 2.2, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.6, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  - Entity: 750000000000061
+    TagComponent:
+      Tag: Pyramid L2 B2
+    TransformComponent:
+      Translation: [1.1, 2.2, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.6, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  - Entity: 750000000000062
+    TagComponent:
+      Tag: Pyramid L2 B3
+    TransformComponent:
+      Translation: [-1.1, 2.2, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.6, 0.3]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  # Pyramid Layer 3 (2 boxes)
+  - Entity: 750000000000070
+    TagComponent:
+      Tag: Pyramid L3 B1
+    TransformComponent:
+      Translation: [-0.55, 3.3, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.4, 0.7, 0.4]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  - Entity: 750000000000071
+    TagComponent:
+      Tag: Pyramid L3 B2
+    TransformComponent:
+      Translation: [0.55, 3.3, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.4, 0.7, 0.4]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1
+  # Pyramid Top (1 box)
+  - Entity: 750000000000080
+    TagComponent:
+      Tag: Pyramid Top
+    TransformComponent:
+      Translation: [0, 4.4, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.8, 0.5]
+      Metallic: 0.1
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1
+      LinearDrag: 0.1
+      AngularDrag: 0.1
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.7
+      DynamicFriction: 0.7
+      Restitution: 0.1

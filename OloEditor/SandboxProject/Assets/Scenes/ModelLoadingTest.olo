@@ -1,0 +1,184 @@
+Scene: ModelLoadingTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # ── Camera ──
+  - Entity: 730000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 2, 5]
+      Rotation: [-0.2, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox ──
+  - Entity: 730000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  # ── Point Light (to illuminate the model from above-right) ──
+  - Entity: 730000000000003
+    TagComponent:
+      Tag: Point Light
+    TransformComponent:
+      Translation: [2, 3, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 1]
+      Intensity: 3
+      Range: 30
+      Attenuation: 1
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  # ── Directional Light (fill) ──
+  - Entity: 730000000000004
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.2]
+      Color: [1, 1, 1]
+      Intensity: 1
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── Ground Plane ──
+  - Entity: 730000000000005
+    TagComponent:
+      Tag: Ground Plane
+    TransformComponent:
+      Translation: [0, -1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [25, 0.1, 25]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.3, 0.3]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Backpack Model ──
+  - Entity: 730000000000010
+    TagComponent:
+      Tag: Backpack
+    TransformComponent:
+      Translation: [0, 1, 0]
+      Rotation: [0, 0.5, 0]
+      Scale: [0.5, 0.5, 0.5]
+    ModelComponent:
+      FilePath: assets/backpack/backpack.obj
+      Visible: true
+  # ── Cerberus Model (PBR gun) ──
+  - Entity: 730000000000011
+    TagComponent:
+      Tag: Cerberus
+    TransformComponent:
+      Translation: [4, 1, 0]
+      Rotation: [-1.5707963, 0, 0]
+      Scale: [0.02, 0.02, 0.02]
+    ModelComponent:
+      FilePath: assets/models/Cerberus/cerberus.fbx
+      Visible: true
+  # ── Animated Fox ──
+  - Entity: 730000000000012
+    TagComponent:
+      Tag: Animated Fox
+    TransformComponent:
+      Translation: [-4, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.01, 0.01, 0.01]
+    MeshComponent:
+      {}
+    MaterialComponent:
+      AlbedoColor: [1, 1, 1]
+      Metallic: 0
+      Roughness: 0.58
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: false
+      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      CurrentClipName: Survey
+    SkeletonComponent:
+      {}
+  # ── CesiumMan ──
+  - Entity: 730000000000013
+    TagComponent:
+      Tag: CesiumMan
+    TransformComponent:
+      Translation: [-8, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      {}
+    MaterialComponent:
+      AlbedoColor: [1, 1, 1]
+      Metallic: 0
+      Roughness: 0.5
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: false
+      SourceFilePath: ../../assets/models/CesiumMan/CesiumMan.gltf
+      CurrentClipName: ""
+    SkeletonComponent:
+      {}

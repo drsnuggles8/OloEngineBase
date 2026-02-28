@@ -1,0 +1,245 @@
+Scene: LightingTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # ── Camera ──
+  - Entity: 710000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 3, 10]
+      Rotation: [-0.2, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox ──
+  - Entity: 710000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  # ── Directional Light ──
+  - Entity: 710000000000003
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.2, -1, -0.3]
+      Color: [1, 1, 1]
+      Intensity: 1.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── Point Light ──
+  - Entity: 710000000000004
+    TagComponent:
+      Tag: Point Light
+    TransformComponent:
+      Translation: [3, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.6]
+      Intensity: 3
+      Range: 20
+      Attenuation: 1
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  # ── Spot Light ──
+  - Entity: 710000000000005
+    TagComponent:
+      Tag: Spot Light
+    TransformComponent:
+      Translation: [-3, 4, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0, -1, 0]
+      Color: [0.6, 0.8, 1]
+      Intensity: 5
+      Range: 25
+      InnerCutoff: 0.218166
+      OuterCutoff: 0.305433
+      Attenuation: 1
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  # ── Ground Plane ──
+  - Entity: 710000000000006
+    TagComponent:
+      Tag: Ground Plane
+    TransformComponent:
+      Translation: [0, -1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [25, 0.1, 25]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.3, 0.3]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Gold Cube (center) ──
+  - Entity: 710000000000010
+    TagComponent:
+      Tag: Gold Cube
+    TransformComponent:
+      Translation: [0, 0.5, 0]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [1, 0.765, 0.336]
+      Metallic: 1.0
+      Roughness: 0.1
+  # ── Silver Sphere (right) ──
+  - Entity: 710000000000011
+    TagComponent:
+      Tag: Silver Sphere
+    TransformComponent:
+      Translation: [3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.972, 0.96, 0.915]
+      Metallic: 1.0
+      Roughness: 0.1
+  # ── Copper Sphere (left) ──
+  - Entity: 710000000000012
+    TagComponent:
+      Tag: Copper Sphere
+    TransformComponent:
+      Translation: [-3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.955, 0.637, 0.538]
+      Metallic: 1.0
+      Roughness: 0.1
+  # ── Plastic Sphere (back) ──
+  - Entity: 710000000000013
+    TagComponent:
+      Tag: Plastic Sphere
+    TransformComponent:
+      Translation: [0, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.2, 0.2]
+      Metallic: 0.0
+      Roughness: 0.6
+  # ── Rough Cube (far right, under point light) ──
+  - Entity: 710000000000014
+    TagComponent:
+      Tag: Rough Cube
+    TransformComponent:
+      Translation: [3, 0.5, 3]
+      Rotation: [0, 0.8, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.4, 0.6, 0.3]
+      Metallic: 0.2
+      Roughness: 0.8
+  # ── Smooth Sphere (far left, under spot light) ──
+  - Entity: 710000000000015
+    TagComponent:
+      Tag: Smooth Sphere
+    TransformComponent:
+      Translation: [-3, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.2, 0.4, 0.8]
+      Metallic: 0.8
+      Roughness: 0.05
+  # ── Point Light Indicator Cube ──
+  - Entity: 710000000000020
+    TagComponent:
+      Tag: Point Light Indicator
+    TransformComponent:
+      Translation: [3, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.15, 0.15, 0.15]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [1, 0.8, 0.6]
+      Metallic: 0
+      Roughness: 1
+  # ── Spot Light Indicator Cube ──
+  - Entity: 710000000000021
+    TagComponent:
+      Tag: Spot Light Indicator
+    TransformComponent:
+      Translation: [-3, 4, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.15, 0.15, 0.15]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.8, 1]
+      Metallic: 0
+      Roughness: 1
