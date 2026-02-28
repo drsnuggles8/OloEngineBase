@@ -52,6 +52,9 @@ layout(std140, binding = 12) uniform FoliageParams
     float _foliagePad2;
 };
 
+// Wind field (optional — provides direction-aware wind when enabled)
+#include "include/WindSampling.glsl"
+
 // Outputs
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
@@ -80,13 +83,26 @@ void main()
     rotatedPos.y = localPos.y;
     rotatedPos.z = localPos.x * sinR + localPos.z * cosR;
 
-    // Wind animation — sine wave based on world position + time
-    // Only affects top vertices (higher y = more sway)
+    // Wind animation — direction-aware when WindSystem is enabled,
+    // otherwise falls back to legacy sine-wave model.
     float windInfluence = a_Position.y; // 0 at base, 1 at top
-    float windPhase = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_Time * u_WindSpeed;
-    float wind = sin(windPhase) * cos(windPhase * 0.7 + 1.3) * u_WindStrength * windInfluence;
-    rotatedPos.x += wind;
-    rotatedPos.z += wind * 0.5;
+
+    if (windEnabled())
+    {
+        // Sample wind field at blade root world position
+        vec3 bladeWorldPos = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
+        vec3 windVel = analyticalWind(bladeWorldPos); // Fast analytical path for vertex shader
+        // Displace blade tip along wind direction, scaled by per-layer strength
+        rotatedPos.xyz += windVel * u_WindStrength * windInfluence * 0.1;
+    }
+    else
+    {
+        // Legacy sine-wave wind
+        float windPhase = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_Time * u_WindSpeed;
+        float wind = sin(windPhase) * cos(windPhase * 0.7 + 1.3) * u_WindStrength * windInfluence;
+        rotatedPos.x += wind;
+        rotatedPos.z += wind * 0.5;
+    }
 
     // World position
     vec3 instancePos = a_PositionScale.xyz;

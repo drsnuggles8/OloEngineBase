@@ -68,8 +68,22 @@ namespace OloEngine
         // Module enable flags (sent as int uniforms)
         i32 EnableGravity = 0;
         i32 EnableDrag = 0;
-        i32 Pad2 = 0;
-        i32 Pad3 = 0;
+        i32 EnableWind = 0;  // Wind field sampling
+        i32 EnableNoise = 0; // Noise-based turbulence
+
+        // Wind influence
+        f32 WindInfluence = 1.0f; // 0–1 multiplier on sampled wind velocity
+
+        // Noise turbulence (per-particle procedural variation)
+        f32 NoiseStrength = 0.0f;  // Amplitude of noise force
+        f32 NoiseFrequency = 1.0f; // Spatial frequency of noise
+        f32 NoisePad = 0.0f;
+
+        // Collision
+        i32 EnableGroundCollision = 0; // Ground plane collision
+        f32 GroundY = 0.0f;            // Ground plane height
+        f32 CollisionBounce = 0.3f;    // Coefficient of restitution (0–1)
+        f32 CollisionFriction = 0.8f;  // Tangential velocity damping (0–1)
     };
 
 } // namespace OloEngine

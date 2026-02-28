@@ -230,6 +230,21 @@ namespace OloEngine
         m_SimulateShader->SetInt("u_EnableGravity", params.EnableGravity);
         m_SimulateShader->SetInt("u_EnableDrag", params.EnableDrag);
 
+        // Wind uniforms
+        m_SimulateShader->SetInt("u_EnableWind", params.EnableWind);
+        m_SimulateShader->SetFloat("u_WindInfluence", params.WindInfluence);
+
+        // Noise turbulence uniforms
+        m_SimulateShader->SetInt("u_EnableNoise", params.EnableNoise);
+        m_SimulateShader->SetFloat("u_NoiseStrength", params.NoiseStrength);
+        m_SimulateShader->SetFloat("u_NoiseFrequency", params.NoiseFrequency);
+
+        // Ground collision uniforms
+        m_SimulateShader->SetInt("u_EnableGroundCollision", params.EnableGroundCollision);
+        m_SimulateShader->SetFloat("u_GroundY", params.GroundY);
+        m_SimulateShader->SetFloat("u_CollisionBounce", params.CollisionBounce);
+        m_SimulateShader->SetFloat("u_CollisionFriction", params.CollisionFriction);
+
         u32 groups = (m_MaxParticles + SIM_WORKGROUP_SIZE - 1) / SIM_WORKGROUP_SIZE;
         RenderCommand::DispatchCompute(groups, 1, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);

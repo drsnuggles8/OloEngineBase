@@ -4,6 +4,7 @@
 #include <sol/sol.hpp>
 
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
 
 namespace OloEngine
 {
@@ -156,6 +157,7 @@ namespace OloEngine
                                          "looping", &ParticleSystem::Looping,
                                          "duration", &ParticleSystem::Duration,
                                          "playbackSpeed", &ParticleSystem::PlaybackSpeed,
+                                         "windInfluence", &ParticleSystem::WindInfluence,
                                          "getAliveCount", &ParticleSystem::GetAliveCount,
                                          "reset", &ParticleSystem::Reset);
 
@@ -171,5 +173,17 @@ namespace OloEngine
 
         lua.new_usertype<ParticleSystemComponent>("ParticleSystemComponent",
                                                   "system", &ParticleSystemComponent::System);
+
+        // --- WindSettings (scene-level) ---
+        lua.new_usertype<WindSettings>("WindSettings",
+                                       "enabled", &WindSettings::Enabled,
+                                       "direction", &WindSettings::Direction,
+                                       "speed", &WindSettings::Speed,
+                                       "gustStrength", &WindSettings::GustStrength,
+                                       "gustFrequency", &WindSettings::GustFrequency,
+                                       "turbulenceIntensity", &WindSettings::TurbulenceIntensity,
+                                       "turbulenceScale", &WindSettings::TurbulenceScale,
+                                       "gridWorldSize", &WindSettings::GridWorldSize,
+                                       "gridResolution", &WindSettings::GridResolution);
     }
 } // namespace OloEngine

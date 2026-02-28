@@ -92,6 +92,7 @@ namespace OloEngine
         out << YAML::Key << "SparkleDensity" << YAML::Value << snow.SparkleDensity;
         out << YAML::Key << "SparkleScale" << YAML::Value << snow.SparkleScale;
         out << YAML::Key << "NormalPerturbStrength" << YAML::Value << snow.NormalPerturbStrength;
+        out << YAML::Key << "WindDriftFactor" << YAML::Value << snow.WindDriftFactor;
         out << YAML::Key << "SSSBlurEnabled" << YAML::Value << snow.SSSBlurEnabled;
         out << YAML::Key << "SSSBlurRadius" << YAML::Value << snow.SSSBlurRadius;
         out << YAML::Key << "SSSBlurFalloff" << YAML::Value << snow.SSSBlurFalloff;
@@ -115,9 +116,87 @@ namespace OloEngine
             TrySet(snow.SparkleDensity, snowNode["SparkleDensity"]);
             TrySet(snow.SparkleScale, snowNode["SparkleScale"]);
             TrySet(snow.NormalPerturbStrength, snowNode["NormalPerturbStrength"]);
+            TrySet(snow.WindDriftFactor, snowNode["WindDriftFactor"]);
             TrySet(snow.SSSBlurEnabled, snowNode["SSSBlurEnabled"]);
             TrySet(snow.SSSBlurRadius, snowNode["SSSBlurRadius"]);
             TrySet(snow.SSSBlurFalloff, snowNode["SSSBlurFalloff"]);
+        }
+    }
+
+    static void SerializeWindSettings(YAML::Emitter& out, const WindSettings& wind)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        out << YAML::Key << "WindSettings";
+        out << YAML::BeginMap;
+        out << YAML::Key << "Enabled" << YAML::Value << wind.Enabled;
+        out << YAML::Key << "Direction" << YAML::Value << wind.Direction;
+        out << YAML::Key << "Speed" << YAML::Value << wind.Speed;
+        out << YAML::Key << "GustStrength" << YAML::Value << wind.GustStrength;
+        out << YAML::Key << "GustFrequency" << YAML::Value << wind.GustFrequency;
+        out << YAML::Key << "TurbulenceIntensity" << YAML::Value << wind.TurbulenceIntensity;
+        out << YAML::Key << "TurbulenceScale" << YAML::Value << wind.TurbulenceScale;
+        out << YAML::Key << "GridWorldSize" << YAML::Value << wind.GridWorldSize;
+        out << YAML::Key << "GridResolution" << YAML::Value << wind.GridResolution;
+        out << YAML::EndMap;
+    }
+
+    static void DeserializeWindSettings(const YAML::Node& data, WindSettings& wind)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (auto windNode = data["WindSettings"]; windNode)
+        {
+            TrySet(wind.Enabled, windNode["Enabled"]);
+            TrySet(wind.Direction, windNode["Direction"]);
+            TrySet(wind.Speed, windNode["Speed"]);
+            TrySet(wind.GustStrength, windNode["GustStrength"]);
+            TrySet(wind.GustFrequency, windNode["GustFrequency"]);
+            TrySet(wind.TurbulenceIntensity, windNode["TurbulenceIntensity"]);
+            TrySet(wind.TurbulenceScale, windNode["TurbulenceScale"]);
+            TrySet(wind.GridWorldSize, windNode["GridWorldSize"]);
+            TrySet(wind.GridResolution, windNode["GridResolution"]);
+
+            // Validate and clamp wind scalar fields
+            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+            sanitizeFloat(wind.Speed, 0.0f, 1e4f, 0.0f);
+            sanitizeFloat(wind.GustStrength, 0.0f, 1e4f, 0.0f);
+            sanitizeFloat(wind.GustFrequency, 0.0f, 1e3f, 0.0f);
+            sanitizeFloat(wind.TurbulenceIntensity, 0.0f, 1.0f, 0.0f);
+            sanitizeFloat(wind.TurbulenceScale, 1e-6f, 1e6f, 1.0f);
+
+            // Clamp grid bounds
+            wind.GridWorldSize = std::clamp(wind.GridWorldSize, 0.1f, 10000.0f);
+
+            // Normalize GridResolution to supported values {64, 128}
+            if (wind.GridResolution <= 96)
+                wind.GridResolution = 64;
+            else
+                wind.GridResolution = 128;
+
+            // Validate direction: reject NaN/Inf/zero, normalize to unit length
+            bool dirInvalid = !std::isfinite(wind.Direction.x) || !std::isfinite(wind.Direction.y) || !std::isfinite(wind.Direction.z);
+            if (!dirInvalid)
+            {
+                f32 len2 = glm::dot(wind.Direction, wind.Direction);
+                dirInvalid = !std::isfinite(len2) || (len2 < 1e-8f);
+            }
+            if (dirInvalid)
+            {
+                wind.Direction = glm::vec3(1.0f, 0.0f, 0.0f);
+            }
+            else
+            {
+                wind.Direction = glm::normalize(wind.Direction);
+            }
         }
     }
 
@@ -309,6 +388,34 @@ namespace OloEngine
         TrySet(sys.SoftParticlesEnabled, particleComponent["SoftParticlesEnabled"]);
         TrySet(sys.SoftParticleDistance, particleComponent["SoftParticleDistance"]);
         TrySet(sys.VelocityInheritance, particleComponent["VelocityInheritance"]);
+
+        // GPU Wind / Noise / Ground Collision
+        TrySet(sys.WindInfluence, particleComponent["WindInfluence"]);
+        TrySet(sys.GPUNoiseStrength, particleComponent["GPUNoiseStrength"]);
+        TrySet(sys.GPUNoiseFrequency, particleComponent["GPUNoiseFrequency"]);
+        TrySet(sys.GPUGroundCollision, particleComponent["GPUGroundCollision"]);
+        TrySet(sys.GPUGroundY, particleComponent["GPUGroundY"]);
+        TrySet(sys.GPUCollisionBounce, particleComponent["GPUCollisionBounce"]);
+        TrySet(sys.GPUCollisionFriction, particleComponent["GPUCollisionFriction"]);
+
+        // Clamp GPU simulation coefficients to safe ranges (reject non-finite first)
+        if (!std::isfinite(sys.WindInfluence))
+            sys.WindInfluence = 0.0f;
+        if (!std::isfinite(sys.GPUNoiseStrength))
+            sys.GPUNoiseStrength = 0.0f;
+        if (!std::isfinite(sys.GPUNoiseFrequency))
+            sys.GPUNoiseFrequency = 0.0f;
+        if (!std::isfinite(sys.GPUGroundY))
+            sys.GPUGroundY = 0.0f;
+        if (!std::isfinite(sys.GPUCollisionBounce))
+            sys.GPUCollisionBounce = 0.0f;
+        if (!std::isfinite(sys.GPUCollisionFriction))
+            sys.GPUCollisionFriction = 0.0f;
+        sys.WindInfluence = std::max(sys.WindInfluence, 0.0f);
+        sys.GPUNoiseStrength = std::max(sys.GPUNoiseStrength, 0.0f);
+        sys.GPUNoiseFrequency = std::max(sys.GPUNoiseFrequency, 0.0f);
+        sys.GPUCollisionBounce = std::clamp(sys.GPUCollisionBounce, 0.0f, 1.0f);
+        sys.GPUCollisionFriction = std::clamp(sys.GPUCollisionFriction, 0.0f, 1.0f);
 
         // Texture sheet animation
         TrySet(sys.TextureSheetModule.Enabled, particleComponent["TextureSheetEnabled"]);
@@ -1374,6 +1481,15 @@ namespace OloEngine
             out << YAML::Key << "SoftParticleDistance" << YAML::Value << sys.SoftParticleDistance;
             out << YAML::Key << "VelocityInheritance" << YAML::Value << sys.VelocityInheritance;
 
+            // GPU Wind / Noise / Ground Collision
+            out << YAML::Key << "WindInfluence" << YAML::Value << sys.WindInfluence;
+            out << YAML::Key << "GPUNoiseStrength" << YAML::Value << sys.GPUNoiseStrength;
+            out << YAML::Key << "GPUNoiseFrequency" << YAML::Value << sys.GPUNoiseFrequency;
+            out << YAML::Key << "GPUGroundCollision" << YAML::Value << sys.GPUGroundCollision;
+            out << YAML::Key << "GPUGroundY" << YAML::Value << sys.GPUGroundY;
+            out << YAML::Key << "GPUCollisionBounce" << YAML::Value << sys.GPUCollisionBounce;
+            out << YAML::Key << "GPUCollisionFriction" << YAML::Value << sys.GPUCollisionFriction;
+
             // Texture sheet animation
             out << YAML::Key << "TextureSheetEnabled" << YAML::Value << sys.TextureSheetModule.Enabled;
             out << YAML::Key << "TextureSheetGridX" << YAML::Value << sys.TextureSheetModule.GridX;
@@ -1556,6 +1672,8 @@ namespace OloEngine
 
     void SceneSerializer::Serialize(const std::filesystem::path& filepath) const
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
@@ -1595,6 +1713,7 @@ namespace OloEngine
         out << YAML::EndMap;
 
         SerializeSnowSettings(out, m_Scene->GetSnowSettings());
+        SerializeWindSettings(out, m_Scene->GetWindSettings());
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
@@ -1623,6 +1742,8 @@ namespace OloEngine
 
     bool SceneSerializer::Deserialize(const std::filesystem::path& filepath)
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Node data;
         try
         {
@@ -1676,6 +1797,7 @@ namespace OloEngine
         }
 
         DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
+        DeserializeWindSettings(data, m_Scene->GetWindSettings());
 
         if (const auto entities = data["Entities"]; entities)
         {
@@ -2443,6 +2565,8 @@ namespace OloEngine
 
     std::string SceneSerializer::SerializeToYAML() const
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
@@ -2482,6 +2606,7 @@ namespace OloEngine
         out << YAML::EndMap;
 
         SerializeSnowSettings(out, m_Scene->GetSnowSettings());
+        SerializeWindSettings(out, m_Scene->GetWindSettings());
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
@@ -2503,6 +2628,8 @@ namespace OloEngine
 
     bool SceneSerializer::DeserializeFromYAML(const std::string& yamlString)
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Node data;
         try
         {
@@ -2560,6 +2687,7 @@ namespace OloEngine
         }
 
         DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
+        DeserializeWindSettings(data, m_Scene->GetWindSettings());
 
         auto entities = data["Entities"];
         if (entities)

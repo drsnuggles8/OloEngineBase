@@ -1044,6 +1044,90 @@ namespace OloEngine
         GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.Emitter.RateOverTime = *v;
     }
 
+    // --- ParticleSystemComponent Wind ---
+
+    static void ParticleSystemComponent_GetWindInfluence(UUID entityID, f32* out)
+    {
+        *out = GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.WindInfluence;
+    }
+
+    static void ParticleSystemComponent_SetWindInfluence(UUID entityID, f32 const* v)
+    {
+        GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.WindInfluence = *v;
+    }
+
+    // --- Scene Wind Settings ---
+
+    static void Scene_GetWindEnabled(bool* out)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        *out = scene->GetWindSettings().Enabled;
+    }
+
+    static void Scene_SetWindEnabled(bool const* v)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetWindSettings().Enabled = *v;
+    }
+
+    static void Scene_GetWindDirection(glm::vec3* out)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        *out = scene->GetWindSettings().Direction;
+    }
+
+    static void Scene_SetWindDirection(glm::vec3 const* v)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetWindSettings().Direction = *v;
+    }
+
+    static void Scene_GetWindSpeed(f32* out)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        *out = scene->GetWindSettings().Speed;
+    }
+
+    static void Scene_SetWindSpeed(f32 const* v)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetWindSettings().Speed = *v;
+    }
+
+    static void Scene_GetWindGustStrength(f32* out)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        *out = scene->GetWindSettings().GustStrength;
+    }
+
+    static void Scene_SetWindGustStrength(f32 const* v)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetWindSettings().GustStrength = *v;
+    }
+
+    static void Scene_GetWindTurbulenceIntensity(f32* out)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        *out = scene->GetWindSettings().TurbulenceIntensity;
+    }
+
+    static void Scene_SetWindTurbulenceIntensity(f32 const* v)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetWindSettings().TurbulenceIntensity = *v;
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1266,6 +1350,20 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetLooping);
         OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_GetEmissionRate);
         OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetEmissionRate);
+
+        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_GetWindInfluence);
+        OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetWindInfluence);
+
+        OLO_ADD_INTERNAL_CALL(Scene_GetWindEnabled);
+        OLO_ADD_INTERNAL_CALL(Scene_SetWindEnabled);
+        OLO_ADD_INTERNAL_CALL(Scene_GetWindDirection);
+        OLO_ADD_INTERNAL_CALL(Scene_SetWindDirection);
+        OLO_ADD_INTERNAL_CALL(Scene_GetWindSpeed);
+        OLO_ADD_INTERNAL_CALL(Scene_SetWindSpeed);
+        OLO_ADD_INTERNAL_CALL(Scene_GetWindGustStrength);
+        OLO_ADD_INTERNAL_CALL(Scene_SetWindGustStrength);
+        OLO_ADD_INTERNAL_CALL(Scene_GetWindTurbulenceIntensity);
+        OLO_ADD_INTERNAL_CALL(Scene_SetWindTurbulenceIntensity);
     }
 
 } // namespace OloEngine

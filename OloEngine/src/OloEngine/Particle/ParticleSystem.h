@@ -135,6 +135,17 @@ namespace OloEngine
         // GPU compute simulation (requires Billboard render mode)
         bool UseGPU = false;
 
+        // GPU wind & turbulence settings
+        f32 WindInfluence = 1.0f;     // >=0 multiplier on wind field velocity; values >1 amplify wind
+        f32 GPUNoiseStrength = 0.0f;  // Per-particle noise turbulence amplitude
+        f32 GPUNoiseFrequency = 1.0f; // Spatial frequency of noise turbulence
+
+        // GPU ground collision
+        bool GPUGroundCollision = false;
+        f32 GPUGroundY = 0.0f;
+        f32 GPUCollisionBounce = 0.3f;
+        f32 GPUCollisionFriction = 0.8f;
+
         // Soft particles — alpha-fade near opaque surfaces using scene depth buffer
         bool SoftParticlesEnabled = false;
         f32 SoftParticleDistance = 1.0f; // Distance over which particles fade (world units)

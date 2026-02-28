@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
+#include "OloEngine/Particle/ParticlePresets.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Core/FastRandom.h"
 
@@ -872,6 +873,22 @@ namespace OloEngine
 
             // Particle System
             DisplayAddComponentEntry<ParticleSystemComponent>("Particle System");
+
+            if (!m_SelectionContext.HasComponent<ParticleSystemComponent>())
+            {
+                if (ImGui::MenuItem("Snowfall Particle System"))
+                {
+                    auto& comp = m_SelectionContext.AddComponent<ParticleSystemComponent>();
+                    ParticlePresets::ApplySnowfall(comp.System);
+                    ImGui::CloseCurrentPopup();
+                }
+                if (ImGui::MenuItem("Blizzard Particle System"))
+                {
+                    auto& comp = m_SelectionContext.AddComponent<ParticleSystemComponent>();
+                    ParticlePresets::ApplyBlizzard(comp.System);
+                    ImGui::CloseCurrentPopup();
+                }
+            }
 
             ImGui::Separator();
 

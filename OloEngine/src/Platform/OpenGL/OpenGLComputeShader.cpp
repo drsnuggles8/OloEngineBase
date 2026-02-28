@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLComputeShader.h"
+#include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -22,13 +23,29 @@ namespace OloEngine
         const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
         m_Name = filepath.substr(lastSlash, count);
 
-        const std::string source = FileSystem::ReadFileText(filepath);
-        if (!source.empty())
+        const std::string rawSource = FileSystem::ReadFileText(filepath);
+        if (rawSource.empty())
         {
-            OLO_SHADER_COMPILATION_START(m_Name, filepath);
-            Compile(source);
-            OLO_SHADER_COMPILATION_END(m_RendererID, m_IsValid, "", 0.0);
+            OLO_CORE_ERROR("Compute shader '{0}': failed to read source file '{1}'", m_Name, filepath);
+            m_IsValid = false;
+            return;
         }
+
+        // Extract directory for resolving #include paths
+        auto dirEnd = filepath.find_last_of("/\\");
+        std::string directory = (dirEnd != std::string::npos) ? filepath.substr(0, dirEnd) : "";
+
+        // Resolve #include directives (reuse the regular shader include processor)
+        const std::string source = OpenGLShader::ProcessIncludes(rawSource, directory);
+        if (source.empty())
+        {
+            OLO_CORE_ERROR("Compute shader '{0}': include processing returned empty source", m_Name);
+            return;
+        }
+
+        OLO_SHADER_COMPILATION_START(m_Name, filepath);
+        Compile(source);
+        OLO_SHADER_COMPILATION_END(m_RendererID, m_IsValid, "", 0.0);
     }
 
     OpenGLComputeShader::~OpenGLComputeShader()
@@ -178,10 +195,22 @@ namespace OloEngine
 
         OLO_SHADER_RELOAD_START(m_RendererID);
 
-        const std::string source = FileSystem::ReadFileText(m_FilePath);
-        if (source.empty())
+        const std::string rawSource = FileSystem::ReadFileText(m_FilePath);
+        if (rawSource.empty())
         {
             OLO_CORE_ERROR("Failed to reload compute shader '{0}': empty source", m_Name);
+            OLO_SHADER_RELOAD_END(m_RendererID, false);
+            return;
+        }
+
+        // Extract directory for resolving #include paths
+        auto dirEnd = m_FilePath.find_last_of("/\\");
+        std::string directory = (dirEnd != std::string::npos) ? m_FilePath.substr(0, dirEnd) : "";
+
+        const std::string source = OpenGLShader::ProcessIncludes(rawSource, directory);
+        if (source.empty())
+        {
+            OLO_CORE_ERROR("Compute shader '{0}': include processing returned empty source during reload", m_Name);
             OLO_SHADER_RELOAD_END(m_RendererID, false);
             return;
         }

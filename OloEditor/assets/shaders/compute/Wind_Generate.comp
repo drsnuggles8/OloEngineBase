@@ -1,0 +1,189 @@
+#version 460 core
+
+// ============================================================================
+// Wind_Generate.comp — Generates a 3D wind-field volume texture.
+//
+// Each invocation writes to one voxel of a 128³ (configurable) RGBA16F 3D
+// texture.  RGB = wind velocity (m/s), A = wind magnitude (for debug viz).
+//
+// The wind model combines:
+//   1) Base directional wind (uniform direction × speed)
+//   2) Gust modulation (time-based sine oscillation)
+//   3) Simplex-noise turbulence (spatially & temporally varying)
+//   4) Curl-noise divergence-free perturbation (natural look)
+// ============================================================================
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(rgba16f, binding = 0) writeonly uniform image3D u_WindField;
+
+// ---- Uniforms set by WindSystem::Update() ----
+uniform vec3  u_GridMin;              // World-space AABB minimum corner
+uniform float u_GridWorldSize;        // Side length of the cube (meters)
+uniform int   u_GridResolution;       // Voxels per axis (e.g. 128)
+uniform vec3  u_WindDirection;        // Normalized base wind direction
+uniform float u_WindSpeed;            // Base wind speed (m/s)
+uniform float u_GustStrength;         // 0–1 gust amplitude
+uniform float u_GustFrequency;        // Hz
+uniform float u_TurbulenceIntensity;  // Strength of noise-based perturbation
+uniform float u_TurbulenceScale;      // Spatial frequency of noise
+uniform float u_Time;                 // Accumulated time (seconds)
+
+// ============================================================================
+// Simplex-style 3D noise (based on Ashima Arts webgl-noise)
+// ============================================================================
+
+vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 permute(vec4 x) { return mod289(((x * 34.0) + 1.0) * x); }
+vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+float snoise(vec3 v)
+{
+    const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
+    const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+
+    // First corner
+    vec3 i  = floor(v + dot(v, C.yyy));
+    vec3 x0 = v - i + dot(i, C.xxx);
+
+    // Other corners
+    vec3 g  = step(x0.yzx, x0.xyz);
+    vec3 l  = 1.0 - g;
+    vec3 i1 = min(g.xyz, l.zxy);
+    vec3 i2 = max(g.xyz, l.zxy);
+
+    vec3 x1 = x0 - i1 + C.xxx;
+    vec3 x2 = x0 - i2 + C.yyy;
+    vec3 x3 = x0 - D.yyy;
+
+    // Permutations
+    i = mod289(i);
+    vec4 p = permute(permute(permute(
+        i.z + vec4(0.0, i1.z, i2.z, 1.0))
+      + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+      + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+
+    // Gradients
+    float n_ = 0.142857142857; // 1/7
+    vec3  ns = n_ * D.wyz - D.xzx;
+
+    vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+    vec4 x_ = floor(j * ns.z);
+    vec4 y_ = floor(j - 7.0 * x_);
+
+    vec4 x = x_ * ns.x + ns.yyyy;
+    vec4 y = y_ * ns.x + ns.yyyy;
+    vec4 h = 1.0 - abs(x) - abs(y);
+
+    vec4 b0 = vec4(x.xy, y.xy);
+    vec4 b1 = vec4(x.zw, y.zw);
+
+    vec4 s0 = floor(b0) * 2.0 + 1.0;
+    vec4 s1 = floor(b1) * 2.0 + 1.0;
+    vec4 sh = -step(h, vec4(0.0));
+
+    vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+    vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+
+    vec3 p0 = vec3(a0.xy, h.x);
+    vec3 p1 = vec3(a0.zw, h.y);
+    vec3 p2 = vec3(a1.xy, h.z);
+    vec3 p3 = vec3(a1.zw, h.w);
+
+    // Normalise gradients
+    vec4 norm = taylorInvSqrt(vec4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)));
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+
+    // Mix contributions
+    vec4 m = max(0.6 - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0);
+    m = m * m;
+    return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+}
+
+// ============================================================================
+// Curl noise — divergence-free 3D perturbation from finite-difference of noise
+// ============================================================================
+
+vec3 curlNoise(vec3 p)
+{
+    const float e = 0.01;
+
+    // Partial derivatives via central differences
+    float n1, n2;
+
+    // dF/dy, dF/dz for curl.x
+    n1 = snoise(p + vec3(0.0, e, 0.0));
+    n2 = snoise(p - vec3(0.0, e, 0.0));
+    float dFdy = (n1 - n2) / (2.0 * e);
+
+    n1 = snoise(p + vec3(0.0, 0.0, e));
+    n2 = snoise(p - vec3(0.0, 0.0, e));
+    float dFdz = (n1 - n2) / (2.0 * e);
+
+    // dF/dx, dF/dz for curl.y (use different offsets for variation)
+    n1 = snoise(p + vec3(e, 0.0, 0.0) + vec3(31.416));
+    n2 = snoise(p - vec3(e, 0.0, 0.0) + vec3(31.416));
+    float dGdx = (n1 - n2) / (2.0 * e);
+
+    n1 = snoise(p + vec3(0.0, 0.0, e) + vec3(31.416));
+    n2 = snoise(p - vec3(0.0, 0.0, e) + vec3(31.416));
+    float dGdz = (n1 - n2) / (2.0 * e);
+
+    // dF/dx, dF/dy for curl.z (another offset)
+    n1 = snoise(p + vec3(e, 0.0, 0.0) + vec3(67.123));
+    n2 = snoise(p - vec3(e, 0.0, 0.0) + vec3(67.123));
+    float dHdx = (n1 - n2) / (2.0 * e);
+
+    n1 = snoise(p + vec3(0.0, e, 0.0) + vec3(67.123));
+    n2 = snoise(p - vec3(0.0, e, 0.0) + vec3(67.123));
+    float dHdy = (n1 - n2) / (2.0 * e);
+
+    return vec3(dFdy - dFdz, dGdz - dGdx, dHdx - dHdy);
+}
+
+// ============================================================================
+// Main — one invocation per voxel
+// ============================================================================
+
+void main()
+{
+    ivec3 gid = ivec3(gl_GlobalInvocationID);
+
+    // Early-out for invocations beyond the grid
+    if (any(greaterThanEqual(gid, ivec3(u_GridResolution))))
+        return;
+
+    // Guard against invalid uniforms
+    int safeResolution = max(u_GridResolution, 1);
+    float safeWorldSize = max(u_GridWorldSize, 0.001);
+
+    // Map voxel index → world position (centre of voxel)
+    float voxelSize = safeWorldSize / float(safeResolution);
+    vec3 worldPos = u_GridMin + (vec3(gid) + 0.5) * voxelSize;
+
+    // ---- 1. Base directional wind ----
+    vec3 wind = u_WindDirection * u_WindSpeed;
+
+    // ---- 2. Gust modulation (time-varying, spatially coherent) ----
+    float gustPhase = u_Time * u_GustFrequency * 6.2831853; // 2π
+    float spatialPhase = dot(worldPos, u_WindDirection) * 0.05;
+    float gust = 1.0 + u_GustStrength * sin(gustPhase + spatialPhase);
+    wind *= gust;
+
+    // ---- 3. Turbulence (noise-driven spatial variation) ----
+    // Sample noise at scaled world position with slow time evolution
+    vec3 noiseCoord = worldPos * u_TurbulenceScale + vec3(u_Time * 0.3);
+    vec3 turbulence = curlNoise(noiseCoord) * u_TurbulenceIntensity * u_WindSpeed;
+    wind += turbulence;
+
+    // ---- 4. Height-based wind increase (wind is stronger at altitude) ----
+    float heightFactor = clamp((worldPos.y - u_GridMin.y) / safeWorldSize, 0.0, 1.0);
+    wind *= mix(0.6, 1.4, heightFactor);
+
+    // Store: RGB = velocity, A = magnitude (handy for debug visualization)
+    imageStore(u_WindField, gid, vec4(wind, length(wind)));
+}

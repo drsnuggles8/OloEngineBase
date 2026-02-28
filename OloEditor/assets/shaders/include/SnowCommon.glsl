@@ -16,6 +16,8 @@
 #ifndef SNOW_COMMON_GLSL
 #define SNOW_COMMON_GLSL
 
+#include "WindSampling.glsl"
+
 // =============================================================================
 // HASH NOISE UTILITIES
 // =============================================================================
@@ -182,6 +184,29 @@ float computeSnowWeight(float worldPosY, float normalY, float heightStart,
     float slopeWeight = smoothstep(slopeFull, slopeStart, normalY);
 
     return heightWeight * slopeWeight;
+}
+
+// Wind-drift-aware overload: windward surfaces accumulate more snow,
+// leeward surfaces accumulate less.  Requires WindSampling.glsl.
+float computeSnowWeight(float worldPosY, vec3 worldNormal, float heightStart,
+                        float heightFull, float slopeStart, float slopeFull,
+                        float windDriftFactor)
+{
+    float baseWeight = computeSnowWeight(worldPosY, worldNormal.y,
+                                         heightStart, heightFull,
+                                         slopeStart, slopeFull);
+
+    if (windDriftFactor > 0.001 && windEnabled())
+    {
+        // dot(normal, -windDir) > 0 for surfaces facing into the wind
+        vec3 windDir = normalize(windDirection());
+        float windFacing = dot(worldNormal, -windDir);
+        // Remap [-1, 1] to a multiplicative bias around 1.0
+        float driftBias = 1.0 + windFacing * windDriftFactor;
+        baseWeight *= clamp(driftBias, 0.0, 2.0);
+    }
+
+    return clamp(baseWeight, 0.0, 1.0);
 }
 
 // =============================================================================

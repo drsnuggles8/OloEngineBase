@@ -365,6 +365,33 @@ namespace OloEngine
 		internal static extern void ParticleSystemComponent_GetEmissionRate(ulong entityID, out float v);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void ParticleSystemComponent_SetEmissionRate(ulong entityID, ref float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ParticleSystemComponent_GetWindInfluence(ulong entityID, out float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ParticleSystemComponent_SetWindInfluence(ulong entityID, ref float v);
+		#endregion
+
+		#region WindSettings
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_GetWindEnabled(out bool v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_SetWindEnabled(ref bool v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_GetWindDirection(out Vector3 v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_SetWindDirection(ref Vector3 v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_GetWindSpeed(out float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_SetWindSpeed(ref float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_GetWindGustStrength(out float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_SetWindGustStrength(ref float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_GetWindTurbulenceIntensity(out float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_SetWindTurbulenceIntensity(ref float v);
 		#endregion
 	}
 }

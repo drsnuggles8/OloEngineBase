@@ -44,6 +44,17 @@ SnowSettings:
   SSSBlurEnabled: true
   SSSBlurRadius: 2
   SSSBlurFalloff: 1
+  WindDriftFactor: 0.4
+WindSettings:
+  Enabled: true
+  Direction: [1, 0, 0.3]
+  Speed: 5
+  GustStrength: 0.3
+  GustFrequency: 0.8
+  TurbulenceIntensity: 0.5
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
 Entities:
   - Entity: 200000000000003
     TagComponent:

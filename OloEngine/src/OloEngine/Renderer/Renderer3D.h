@@ -17,6 +17,7 @@
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
+#include "OloEngine/Wind/WindSystem.h"
 
 // Forward declarations
 namespace OloEngine
@@ -567,6 +568,11 @@ namespace OloEngine
             return s_Data.Snow;
         }
 
+        static WindSettings& GetWindSettings()
+        {
+            return s_Data.Wind;
+        }
+
         // Shader library access for PBR material shader selection
         static ShaderLibrary& GetShaderLibrary();
 
@@ -678,6 +684,7 @@ namespace OloEngine
             SnowSettings Snow;
             SnowUBOData SnowGPUData;
             SSSUBOData SSSGPUData;
+            WindSettings Wind;
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
 
             // Parallel submission state

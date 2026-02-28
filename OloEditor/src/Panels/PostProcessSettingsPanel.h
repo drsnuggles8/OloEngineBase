@@ -23,5 +23,6 @@ namespace OloEngine
         void DrawMotionBlurSection();
         void DrawSSAOSection();
         void DrawSnowSection();
+        void DrawWindSection();
     };
 } // namespace OloEngine

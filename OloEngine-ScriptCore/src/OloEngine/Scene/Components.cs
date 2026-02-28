@@ -830,5 +830,52 @@ namespace OloEngine
 			}
 			set => InternalCalls.ParticleSystemComponent_SetEmissionRate(Entity.ID, ref value);
 		}
+
+		public float WindInfluence
+		{
+			get
+			{
+				InternalCalls.ParticleSystemComponent_GetWindInfluence(Entity.ID, out float v);
+				return v;
+			}
+			set => InternalCalls.ParticleSystemComponent_SetWindInfluence(Entity.ID, ref value);
+		}
+	}
+
+	/// <summary>
+	/// Provides access to scene-level wind settings.
+	/// Not a component — use the static members directly.
+	/// </summary>
+	public static class Wind
+	{
+		public static bool Enabled
+		{
+			get { InternalCalls.Scene_GetWindEnabled(out bool v); return v; }
+			set => InternalCalls.Scene_SetWindEnabled(ref value);
+		}
+
+		public static Vector3 Direction
+		{
+			get { InternalCalls.Scene_GetWindDirection(out Vector3 v); return v; }
+			set => InternalCalls.Scene_SetWindDirection(ref value);
+		}
+
+		public static float Speed
+		{
+			get { InternalCalls.Scene_GetWindSpeed(out float v); return v; }
+			set => InternalCalls.Scene_SetWindSpeed(ref value);
+		}
+
+		public static float GustStrength
+		{
+			get { InternalCalls.Scene_GetWindGustStrength(out float v); return v; }
+			set => InternalCalls.Scene_SetWindGustStrength(ref value);
+		}
+
+		public static float TurbulenceIntensity
+		{
+			get { InternalCalls.Scene_GetWindTurbulenceIntensity(out float v); return v; }
+			set => InternalCalls.Scene_SetWindTurbulenceIntensity(ref value);
+		}
 	}
 }

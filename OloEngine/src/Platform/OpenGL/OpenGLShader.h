@@ -76,9 +76,11 @@ namespace OloEngine
             return m_ResourceRegistry.SetResource(name, input);
         }
 
+        // Include processing — public so compute shaders can reuse it
+        static std::string ProcessIncludes(const std::string& source, const std::string& directory = "");
+
       private:
         static std::string ReadFile(const std::string& filepath);
-        static std::string ProcessIncludes(const std::string& source, const std::string& directory = "");
         static std::string ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles);
         static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
 

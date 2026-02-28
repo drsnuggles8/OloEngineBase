@@ -28,6 +28,8 @@
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
+
+#include <chrono>
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Core/Application.h"
@@ -311,6 +313,10 @@ namespace OloEngine
         s_Data.Shadow.Init();
 
         ParticleBatchRenderer::Init();
+
+        // Initialize wind system (3D wind-field volume)
+        WindSystem::Init();
+
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
 
@@ -325,6 +331,9 @@ namespace OloEngine
         OLO_CORE_INFO("Shutting down Renderer3D.");
 
         ParticleBatchRenderer::Shutdown();
+
+        // Shutdown wind system
+        WindSystem::Shutdown();
 
         // Shutdown shadow mapping
         s_Data.Shadow.Shutdown();
@@ -570,7 +579,7 @@ namespace OloEngine
             gpu.AlbedoAndRoughness = glm::vec4(snow.Albedo, snow.Roughness);
             gpu.SSSColorAndIntensity = glm::vec4(snow.SSSColor, snow.SSSIntensity);
             gpu.SparkleParams = glm::vec4(snow.SparkleIntensity, snow.SparkleDensity, snow.SparkleScale, snow.NormalPerturbStrength);
-            gpu.Flags = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+            gpu.Flags = glm::vec4(1.0f, snow.WindDriftFactor, 0.0f, 0.0f);
             s_Data.SnowUBO->SetData(&gpu, SnowUBOData::GetSize());
 
             // SSS blur parameters
@@ -591,6 +600,19 @@ namespace OloEngine
             auto& gpu = s_Data.SnowGPUData;
             gpu.Flags = glm::vec4(0.0f);
             s_Data.SnowUBO->SetData(&gpu, SnowUBOData::GetSize());
+        }
+
+        // Update wind system (regenerate 3D wind field, upload wind UBO)
+        {
+            // TODO: Pass actual frame dt once Timestep is threaded through BeginScene
+            static auto lastTime = std::chrono::steady_clock::now();
+            auto now = std::chrono::steady_clock::now();
+            f32 dt = std::chrono::duration<f32>(now - lastTime).count();
+            dt = std::clamp(dt, 0.0f, 0.1f);
+            lastTime = now;
+
+            WindSystem::Update(s_Data.Wind, s_Data.ViewPos, Timestep(dt));
+            WindSystem::BindWindTexture();
         }
 
         // Upload motion blur matrices
