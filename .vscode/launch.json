@@ -3,43 +3,12 @@
       {
         "type": "cppvsdbg",
         "request": "launch",
-        "name": "Debug Sandbox3D",
-        "program": "${workspaceFolder}/bin/Debug/Sandbox3D/Sandbox3D.exe",
-        "args": [],
-        "cwd": "${workspaceFolder}/OloEditor",
-        "stopAtEntry": false,
-        "preLaunchTask": "build-sandbox3d-debug"
-      },
-      {
-        "type": "cppvsdbg",
-        "request": "launch",
         "name": "Debug OloEditor",
         "program": "${workspaceFolder}/bin/Debug/OloEditor/OloEditor.exe",
         "args": [],
         "cwd": "${workspaceFolder}/OloEditor",
         "stopAtEntry": false,
         "preLaunchTask": "build-oloeditor-debug"
-      },
-      {
-        "type": "cppvsdbg",
-        "request": "launch",
-        "name": "Debug Sandbox2D",
-        "program": "${workspaceFolder}/bin/Debug/Sandbox2D/Sandbox2D.exe",
-        "args": [],
-        "cwd": "${workspaceFolder}/OloEditor",
-        "stopAtEntry": false,
-        "preLaunchTask": "build-sandbox2d-debug"
-      }
-      ,
-      {
-        "type": "cppvsdbg",
-        "request": "launch",
-        "name": "Release Sandbox3D",
-        "program": "${workspaceFolder}/bin/Release/Sandbox3D/Sandbox3D.exe",
-        "args": [],
-        "cwd": "${workspaceFolder}/OloEditor",
-        "stopAtEntry": false,
-        "preLaunchTask": "build-sandbox3d-release"
       },
       {
         "type": "cppvsdbg",
@@ -54,42 +23,12 @@
       {
         "type": "cppvsdbg",
         "request": "launch",
-        "name": "Release Sandbox2D",
-        "program": "${workspaceFolder}/bin/Release/Sandbox2D/Sandbox2D.exe",
-        "args": [],
-        "cwd": "${workspaceFolder}/OloEditor",
-        "stopAtEntry": false,
-        "preLaunchTask": "build-sandbox2d-release"
-      },
-      {
-        "type": "cppvsdbg",
-        "request": "launch",
-        "name": "Dist Sandbox3D",
-        "program": "${workspaceFolder}/bin/Dist/Sandbox3D/Sandbox3D.exe",
-        "args": [],
-        "cwd": "${workspaceFolder}/OloEditor",
-        "stopAtEntry": false,
-        "preLaunchTask": "build-sandbox3d-dist"
-      },
-      {
-        "type": "cppvsdbg",
-        "request": "launch",
         "name": "Dist OloEditor",
         "program": "${workspaceFolder}/bin/Dist/OloEditor/OloEditor.exe",
         "args": [],
         "cwd": "${workspaceFolder}/OloEditor",
         "stopAtEntry": false,
         "preLaunchTask": "build-oloeditor-dist"
-      },
-      {
-        "type": "cppvsdbg",
-        "request": "launch",
-        "name": "Dist Sandbox2D",
-        "program": "${workspaceFolder}/bin/Dist/Sandbox2D/Sandbox2D.exe",
-        "args": [],
-        "cwd": "${workspaceFolder}/OloEditor",
-        "stopAtEntry": false,
-        "preLaunchTask": "build-sandbox2d-dist"
       }
     ]
   }

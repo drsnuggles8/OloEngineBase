@@ -1,7 +1,7 @@
 # OloEngine AI Agent Guide
 
 ## 1. Big Picture
-C++ based engine using modern OpenGL (4.6 with DSA). Core library in `OloEngine/` (Rendering, Scene/ECS, Physics 2D/3D, Asset, Scripting). Tooling/editor in `OloEditor/` (ImGui panels, content browser, gizmos). Example applications: `Sandbox3D/`, `Sandbox2D/`. Dual scripting runtimes: `OloEngine-ScriptCore/` (C# via Mono) + `OloEngine-LuaScriptCore/` (Lua via Sol2). Run-time asset + mono dependencies expect working directory = `OloEditor/`.
+C++ based engine using modern OpenGL (4.6 with DSA). Core library in `OloEngine/` (Rendering, Scene/ECS, Physics 2D/3D, Asset, Scripting). Tooling/editor in `OloEditor/` (ImGui panels, content browser, gizmos). Dual scripting runtimes: `OloEngine-ScriptCore/` (C# via Mono) + `OloEngine-LuaScriptCore/` (Lua via Sol2). Run-time asset + mono dependencies expect working directory = `OloEditor/`.
 
 ## 2. Build & Run Workflow
 Generate VS solutions with `scripts/Win-GenerateProject*.bat`. Clean by deleting `build/` or using `scripts/Win-DeleteStuff.bat`.

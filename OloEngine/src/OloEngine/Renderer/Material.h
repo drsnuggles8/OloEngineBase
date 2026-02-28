@@ -164,7 +164,7 @@ namespace OloEngine
         }
         virtual void SetFlag(MaterialFlag flag, bool value = true);
 
-        // IBL configuration method (for Sandbox3D compatibility)
+        // IBL configuration method
         void ConfigureIBL(const Ref<TextureCubemap>& environmentMap,
                           const Ref<TextureCubemap>& irradianceMap,
                           const Ref<TextureCubemap>& prefilterMap,
