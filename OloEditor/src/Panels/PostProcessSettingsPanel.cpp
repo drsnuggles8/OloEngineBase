@@ -15,6 +15,7 @@ namespace OloEngine
         DrawToneMappingSection();
         DrawSSAOSection();
         DrawSnowSection();
+        DrawWindSection();
         DrawBloomSection();
         DrawVignetteSection();
         DrawChromaticAberrationSection();
@@ -253,6 +254,63 @@ namespace OloEngine
 
                 ImGui::SeparatorText("Normal Detail");
                 ImGui::DragFloat("Perturbation##Snow", &settings.NormalPerturbStrength, 0.01f, 0.0f, 1.0f, "%.2f");
+
+                ImGui::SeparatorText("Wind Drift");
+                ImGui::DragFloat("Drift Factor##Snow", &settings.WindDriftFactor, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How much wind direction affects snow coverage.\n"
+                                      "Windward surfaces accumulate more snow, leeward less.");
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawWindSection()
+    {
+        auto& settings = Renderer3D::GetWindSettings();
+
+        if (ImGui::CollapsingHeader("Wind"))
+        {
+            ImGui::Indent();
+
+            ImGui::Checkbox("Enable##Wind", &settings.Enabled);
+
+            if (settings.Enabled)
+            {
+                ImGui::SeparatorText("Direction & Speed");
+                ImGui::DragFloat3("Direction##Wind", &settings.Direction.x, 0.01f, -1.0f, 1.0f, "%.2f");
+                // Auto-normalize direction if user changed it
+                float len = glm::length(settings.Direction);
+                if (len > 0.001f)
+                {
+                    settings.Direction /= len;
+                }
+                else
+                {
+                    settings.Direction = glm::vec3(1.0f, 0.0f, 0.0f);
+                }
+                ImGui::DragFloat("Speed (m/s)##Wind", &settings.Speed, 0.1f, 0.0f, 50.0f, "%.1f");
+
+                ImGui::SeparatorText("Gusts");
+                ImGui::DragFloat("Strength##Gust", &settings.GustStrength, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::DragFloat("Frequency (Hz)##Gust", &settings.GustFrequency, 0.01f, 0.01f, 5.0f, "%.2f");
+
+                ImGui::SeparatorText("Turbulence");
+                ImGui::DragFloat("Intensity##Turb", &settings.TurbulenceIntensity, 0.01f, 0.0f, 2.0f, "%.2f");
+                ImGui::DragFloat("Scale##Turb", &settings.TurbulenceScale, 0.005f, 0.01f, 1.0f, "%.3f");
+
+                ImGui::SeparatorText("Grid");
+                ImGui::DragFloat("World Size (m)##Grid", &settings.GridWorldSize, 1.0f, 10.0f, 1000.0f, "%.0f");
+
+                // Grid resolution selector (power of 2)
+                const char* resItems[] = { "64", "128", "256" };
+                int current = (settings.GridResolution <= 64) ? 0 : (settings.GridResolution <= 128 ? 1 : 2);
+                if (ImGui::Combo("Resolution##Grid", &current, resItems, IM_ARRAYSIZE(resItems)))
+                {
+                    static constexpr u32 resValues[] = { 64, 128, 256 };
+                    settings.GridResolution = resValues[current];
+                }
             }
 
             ImGui::Unindent();

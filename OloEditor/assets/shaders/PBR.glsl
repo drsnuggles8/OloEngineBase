@@ -232,9 +232,10 @@ void main()
     if (u_SnowFlags.x > 0.5)
     {
         vec3 worldNormal = normalize(v_Normal);
-        snowWeight = computeSnowWeight(v_WorldPos.y, worldNormal.y,
+        snowWeight = computeSnowWeight(v_WorldPos.y, worldNormal,
                                        u_SnowCoverageParams.x, u_SnowCoverageParams.y,
-                                       u_SnowCoverageParams.z, u_SnowCoverageParams.w);
+                                       u_SnowCoverageParams.z, u_SnowCoverageParams.w,
+                                       u_SnowFlags.y);
 
         if (snowWeight > 0.001)
         {

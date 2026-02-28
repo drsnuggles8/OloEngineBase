@@ -157,6 +157,9 @@ namespace OloEngine
         // Normal perturbation
         f32 NormalPerturbStrength = 0.25f;
 
+        // Wind drift (snow coverage responds to wind direction)
+        f32 WindDriftFactor = 0.0f; // 0 = no wind effect, 1 = full wind-driven accumulation bias
+
         // SSS blur pass
         bool SSSBlurEnabled = false;
         f32 SSSBlurRadius = 2.0f;
@@ -174,7 +177,7 @@ namespace OloEngine
         glm::vec4 SSSColorAndIntensity = glm::vec4(0.4f, 0.6f, 0.9f, 0.6f);
         // vec4(SparkleIntensity, SparkleDensity, SparkleScale, NormalPerturbStrength)
         glm::vec4 SparkleParams = glm::vec4(0.8f, 80.0f, 1.0f, 0.25f);
-        // vec4(Enabled, pad, pad, pad)
+        // vec4(Enabled, WindDriftFactor, pad, pad)
         glm::vec4 Flags = glm::vec4(0.0f);
 
         static constexpr u32 GetSize()
@@ -194,6 +197,46 @@ namespace OloEngine
         static constexpr u32 GetSize()
         {
             return sizeof(SSSUBOData);
+        }
+    };
+
+    // Wind simulation settings (scene-level, separate from PostProcess)
+    struct WindSettings
+    {
+        bool Enabled = false;
+
+        // Base wind
+        glm::vec3 Direction = glm::vec3(1.0f, 0.0f, 0.0f); // Normalized wind direction
+        f32 Speed = 5.0f;                                  // Wind speed in m/s
+
+        // Gust modulation
+        f32 GustStrength = 0.3f;  // 0–1 amplitude of gust modulation
+        f32 GustFrequency = 0.5f; // Hz — how rapidly gusts oscillate
+
+        // Turbulence (noise-driven spatial variation)
+        f32 TurbulenceIntensity = 0.5f; // Strength of turbulent fluctuations
+        f32 TurbulenceScale = 0.1f;     // Spatial frequency of turbulence noise
+
+        // 3D wind field grid
+        f32 GridWorldSize = 200.0f; // Side length of cube centered on camera (meters)
+        u32 GridResolution = 128;   // Voxels per axis (128³)
+    };
+
+    // GPU-side UBO layout for wind parameters (std140, binding 15)
+    struct WindUBOData
+    {
+        // vec4(Direction.xyz, Speed)
+        glm::vec4 DirectionAndSpeed = glm::vec4(1.0f, 0.0f, 0.0f, 5.0f);
+        // vec4(GustStrength, GustFrequency, TurbulenceIntensity, TurbulenceScale)
+        glm::vec4 GustAndTurbulence = glm::vec4(0.3f, 0.5f, 0.5f, 0.1f);
+        // vec4(GridMin.xyz, GridWorldSize)
+        glm::vec4 GridMinAndSize = glm::vec4(0.0f);
+        // vec4(Time, Enabled, GridResolution, pad)
+        glm::vec4 TimeAndFlags = glm::vec4(0.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(WindUBOData);
         }
     };
 } // namespace OloEngine

@@ -1,0 +1,170 @@
+Scene: SnowfallParticles.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.3
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 8
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+WindSettings:
+  Enabled: true
+  Direction: [1, 0, 0.3]
+  Speed: 5
+  GustStrength: 0.3
+  GustFrequency: 0.8
+  TurbulenceIntensity: 0.5
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+Entities:
+  - Entity: 300000000000001
+    TagComponent:
+      Tag: Main Camera
+    TransformComponent:
+      Translation: [0, 8, 20]
+      Rotation: [-0.3, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 1
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 300000000000002
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 20, 0]
+      Rotation: [-0.7853982, 0.3926991, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.5, -0.70710677, -0.5]
+      Color: [0.8, 0.85, 0.95]
+      Intensity: 1.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false
+  - Entity: 300000000000003
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [100, 0.1, 100]
+    MeshComponent:
+      MeshType: 1
+      MaterialData:
+        Albedo: [0.85, 0.87, 0.9]
+        Metallic: 0
+        Roughness: 0.9
+        AO: 1
+  - Entity: 300000000000004
+    TagComponent:
+      Tag: Snowfall Particles
+    TransformComponent:
+      Translation: [0, 25, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleSystemComponent:
+      MaxParticles: 50000
+      Playing: true
+      Looping: true
+      Duration: 60
+      PlaybackSpeed: 1
+      SimulationSpace: 1
+      RateOverTime: 5000
+      InitialSpeed: 0
+      SpeedVariance: 0.2
+      LifetimeMin: 8
+      LifetimeMax: 15
+      InitialSize: 0.04
+      SizeVariance: 0.03
+      InitialRotation: 0
+      RotationVariance: 6.283185
+      InitialColor: [0.95, 0.95, 0.98, 0.9]
+      EmissionShapeType: 2
+      EmissionBoxHalfExtents: [40, 0.5, 40]
+      Bursts: []
+      GravityEnabled: true
+      Gravity: [0, -0.8, 0]
+      DragEnabled: true
+      DragCoefficient: 0.3
+      ColorOverLifetimeEnabled: false
+      SizeOverLifetimeEnabled: false
+      RotationOverLifetimeEnabled: true
+      AngularVelocity: 0.523599
+      VelocityOverLifetimeEnabled: false
+      LinearAcceleration: [0, 0, 0]
+      SpeedMultiplier: 1
+      NoiseEnabled: false
+      NoiseStrength: 0
+      NoiseFrequency: 1
+      CollisionEnabled: false
+      CollisionMode: 0
+      CollisionPlaneNormal: [0, 1, 0]
+      CollisionPlaneOffset: 0
+      CollisionBounce: 0.5
+      CollisionLifetimeLoss: 0
+      CollisionKillOnCollide: false
+      ForceFields: []
+      TrailEnabled: false
+      TrailMaxPoints: 10
+      TrailLifetime: 1
+      TrailMinVertexDistance: 0.1
+      TrailWidthStart: 0.1
+      TrailWidthEnd: 0.01
+      TrailColorStart: [1, 1, 1, 1]
+      TrailColorEnd: [1, 1, 1, 0]
+      SubEmitterEnabled: false
+      LODDistance1: 50
+      LODMaxDistance: 100
+      WarmUpTime: 0
+      BlendMode: 0
+      RenderMode: 0
+      DepthSortEnabled: false
+      UseGPU: true
+      SoftParticlesEnabled: false
+      SoftParticleDistance: 1
+      VelocityInheritance: 0
+      WindInfluence: 1
+      GPUNoiseStrength: 0.8
+      GPUNoiseFrequency: 0.5
+      GPUGroundCollision: true
+      GPUGroundY: 0
+      GPUCollisionBounce: 0
+      GPUCollisionFriction: 0.5
+      TextureSheetEnabled: false
+      TextureSheetGridX: 1
+      TextureSheetGridY: 1
+      TextureSheetTotalFrames: 1
+      TextureSheetMode: 0
+      TextureSheetSpeedRange: [0, 0]

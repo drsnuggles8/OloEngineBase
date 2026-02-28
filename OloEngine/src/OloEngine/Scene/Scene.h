@@ -181,6 +181,19 @@ namespace OloEngine
             return m_SnowSettings;
         }
 
+        void SetWindSettings(const WindSettings& settings)
+        {
+            m_WindSettings = settings;
+        }
+        [[nodiscard]] const WindSettings& GetWindSettings() const
+        {
+            return m_WindSettings;
+        }
+        [[nodiscard]] WindSettings& GetWindSettings()
+        {
+            return m_WindSettings;
+        }
+
         // Asset interface
         static AssetType GetStaticType()
         {
@@ -221,6 +234,7 @@ namespace OloEngine
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
         PostProcessSettings m_PostProcessSettings;             // Post-processing settings
         SnowSettings m_SnowSettings;                           // Snow rendering settings
+        WindSettings m_WindSettings;                           // Wind simulation settings
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;

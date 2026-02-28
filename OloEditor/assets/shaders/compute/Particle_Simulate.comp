@@ -1,4 +1,4 @@
-#version 450 core
+#version 460 core
 
 layout(local_size_x = 256) in;
 
@@ -18,6 +18,7 @@ layout(std430, binding = 0) buffer ParticleBuffer
     GPUParticle particles[];
 };
 
+// --- Core simulation uniforms ---
 uniform float u_DeltaTime;
 uniform vec3 u_Gravity;
 uniform float u_DragCoefficient;
@@ -25,6 +26,44 @@ uniform uint u_MaxParticles;
 uniform int u_EnableGravity;
 uniform int u_EnableDrag;
 
+// --- Wind uniforms ---
+uniform int u_EnableWind;
+uniform float u_WindInfluence;
+
+// --- Noise turbulence uniforms ---
+uniform int u_EnableNoise;
+uniform float u_NoiseStrength;
+uniform float u_NoiseFrequency;
+
+// --- Ground collision uniforms ---
+uniform int u_EnableGroundCollision;
+uniform float u_GroundY;
+uniform float u_CollisionBounce;
+uniform float u_CollisionFriction;
+
+// --- Wind field sampling (shared include provides WindUBO + sampler) ---
+#include "include/WindSampling.glsl"
+
+// ============================================================================
+// Simple 3D hash noise for per-particle turbulence
+// ============================================================================
+vec3 hash3(vec3 p)
+{
+    p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
+             dot(p, vec3(269.5, 183.3, 246.1)),
+             dot(p, vec3(113.5, 271.9, 124.6)));
+    return fract(sin(p) * 43758.5453123) * 2.0 - 1.0;
+}
+
+vec3 noiseForce(vec3 pos, float freq, float time)
+{
+    vec3 p = pos * freq + vec3(time * 0.7);
+    return hash3(p);
+}
+
+// ============================================================================
+// Main
+// ============================================================================
 void main()
 {
     uint idx = gl_GlobalInvocationID.x;
@@ -62,8 +101,39 @@ void main()
         vel *= exp(-u_DragCoefficient * u_DeltaTime);
     }
 
+    // Apply wind field influence
+    if (u_EnableWind != 0)
+    {
+        vec3 windVel = sampleWindField(pos);
+        // Wind acts as an acceleration toward the wind velocity
+        vel += (windVel - vel) * u_WindInfluence * u_DeltaTime;
+    }
+
+    // Apply noise turbulence
+    if (u_EnableNoise != 0)
+    {
+        vec3 noise = noiseForce(pos, u_NoiseFrequency, windTime());
+        vel += noise * u_NoiseStrength * u_DeltaTime;
+    }
+
     // Integrate position
     pos += vel * u_DeltaTime;
+
+    // Ground collision
+    if (u_EnableGroundCollision != 0 && pos.y < u_GroundY)
+    {
+        pos.y = u_GroundY;
+        // Reflect vertical velocity with bounce coefficient
+        vel.y = abs(vel.y) * u_CollisionBounce;
+        // Apply friction to horizontal velocity
+        vel.xz *= u_CollisionFriction;
+
+        // Kill particles with very low bounce (settled)
+        if (abs(vel.y) < 0.05)
+        {
+            vel.y = 0.0;
+        }
+    }
 
     // Write back
     particles[idx].PositionLifetime = vec4(pos, lifetime);

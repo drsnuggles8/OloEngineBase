@@ -306,6 +306,7 @@ namespace OloEngine
         static constexpr u32 UBO_FOLIAGE = 12;       // Foliage instance rendering parameters
         static constexpr u32 UBO_SNOW = 13;          // Snow rendering parameters
         static constexpr u32 UBO_SSS = 14;           // SSS blur parameters
+        static constexpr u32 UBO_WIND = 15;          // Wind system parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -340,6 +341,7 @@ namespace OloEngine
         static constexpr u32 TEX_TERRAIN_NORMAL_ARRAY = 26; // Terrain normal map layer array (Texture2DArray)
         static constexpr u32 TEX_TERRAIN_ARM_ARRAY = 27;    // Terrain ARM layer array (Texture2DArray)
         static constexpr u32 TEX_TERRAIN_SPLATMAP_1 = 28;   // Terrain splatmap 1 (RGBA8, layers 4-7)
+        static constexpr u32 TEX_WIND_FIELD = 29;           // 3D wind velocity field (sampler3D, RGBA16F)
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS

@@ -13,6 +13,7 @@ add_executable(OloEngine-Tests
 		ShadowMapTest.cpp
 		PostProcessTest.cpp
 		SnowSettingsTest.cpp
+		WindSettingsTest.cpp
 
 		# ============================================================================
 		# Async - Threading primitives (ported from UE5.7 Tests/Async/)

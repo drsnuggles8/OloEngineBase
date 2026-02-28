@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLComputeShader.h"
+#include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -22,9 +23,12 @@ namespace OloEngine
         const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
         m_Name = filepath.substr(lastSlash, count);
 
-        const std::string source = FileSystem::ReadFileText(filepath);
-        if (!source.empty())
+        const std::string rawSource = FileSystem::ReadFileText(filepath);
+        if (!rawSource.empty())
         {
+            // Resolve #include directives (reuse the regular shader include processor)
+            const std::string source = OpenGLShader::ProcessIncludes(rawSource);
+
             OLO_SHADER_COMPILATION_START(m_Name, filepath);
             Compile(source);
             OLO_SHADER_COMPILATION_END(m_RendererID, m_IsValid, "", 0.0);

@@ -571,6 +571,21 @@ namespace OloEngine
         params.EnableGravity = GravityModule.Enabled ? 1 : 0;
         params.EnableDrag = DragModule.Enabled ? 1 : 0;
 
+        // Wind field influence
+        params.EnableWind = (WindInfluence > 0.001f) ? 1 : 0;
+        params.WindInfluence = WindInfluence;
+
+        // Per-particle noise turbulence
+        params.EnableNoise = (GPUNoiseStrength > 0.001f) ? 1 : 0;
+        params.NoiseStrength = GPUNoiseStrength;
+        params.NoiseFrequency = GPUNoiseFrequency;
+
+        // Ground collision
+        params.EnableGroundCollision = GPUGroundCollision ? 1 : 0;
+        params.GroundY = GPUGroundY;
+        params.CollisionBounce = GPUCollisionBounce;
+        params.CollisionFriction = GPUCollisionFriction;
+
         // Dispatch GPU pipeline: simulate → compact → build indirect draw
         m_GPUSystem->Simulate(params);
         m_GPUSystem->Compact();

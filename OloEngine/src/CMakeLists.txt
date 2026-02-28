@@ -407,6 +407,7 @@
 		"OloEngine/Renderer/Shadow/ShadowMap.h"
 		"OloEngine/Renderer/Shadow/ShadowMap.cpp"
 		"OloEngine/Renderer/Texture2DArray.h"
+		"OloEngine/Renderer/Texture3D.h"
 		"OloEngine/Renderer/Commands/CommandAllocator.cpp"
 		"OloEngine/Renderer/Commands/CommandAllocator.h"
 		"OloEngine/Renderer/Commands/CommandBucket.cpp"
@@ -489,6 +490,11 @@
 		"OloEngine/Particle/GPUParticleData.h"
 		"OloEngine/Particle/GPUParticleSystem.h"
 		"OloEngine/Particle/GPUParticleSystem.cpp"
+		"OloEngine/Particle/ParticlePresets.h"
+		"OloEngine/Particle/ParticlePresets.cpp"
+
+		"OloEngine/Wind/WindSystem.h"
+		"OloEngine/Wind/WindSystem.cpp"
 
 		"OloEngine/Terrain/TerrainVertex.h"
 		"OloEngine/Terrain/TerrainData.h"
@@ -628,6 +634,8 @@
 		"Platform/OpenGL/OpenGLTextureCubemap.h"
 		"Platform/OpenGL/OpenGLTexture2DArray.cpp"
 		"Platform/OpenGL/OpenGLTexture2DArray.h"
+		"Platform/OpenGL/OpenGLTexture3D.cpp"
+		"Platform/OpenGL/OpenGLTexture3D.h"
 		"Platform/OpenGL/OpenGLUniformBuffer.cpp"
 		"Platform/OpenGL/OpenGLUniformBuffer.h"
 		"Platform/OpenGL/OpenGLStorageBuffer.cpp"
