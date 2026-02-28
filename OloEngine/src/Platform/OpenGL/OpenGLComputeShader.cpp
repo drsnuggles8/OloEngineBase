@@ -32,6 +32,11 @@ namespace OloEngine
 
             // Resolve #include directives (reuse the regular shader include processor)
             const std::string source = OpenGLShader::ProcessIncludes(rawSource, directory);
+            if (source.empty())
+            {
+                OLO_CORE_ERROR("Compute shader '{0}': include processing returned empty source", m_Name);
+                return;
+            }
 
             OLO_SHADER_COMPILATION_START(m_Name, filepath);
             Compile(source);
@@ -199,6 +204,12 @@ namespace OloEngine
         std::string directory = (dirEnd != std::string::npos) ? m_FilePath.substr(0, dirEnd) : "";
 
         const std::string source = OpenGLShader::ProcessIncludes(rawSource, directory);
+        if (source.empty())
+        {
+            OLO_CORE_ERROR("Compute shader '{0}': include processing returned empty source during reload", m_Name);
+            OLO_SHADER_RELOAD_END(m_RendererID, false);
+            return;
+        }
 
         // Clean up old program
         if (m_IsValid)

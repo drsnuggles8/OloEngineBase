@@ -161,12 +161,12 @@ namespace OloEngine
             wind.GridWorldSize = std::clamp(wind.GridWorldSize, 0.1f, 10000.0f);
             wind.GridResolution = std::clamp(wind.GridResolution, 1u, 2048u);
 
-            // Validate direction: reject NaN/zero, normalize to unit length
-            bool dirInvalid = std::isnan(wind.Direction.x) || std::isnan(wind.Direction.y) || std::isnan(wind.Direction.z);
+            // Validate direction: reject NaN/Inf/zero, normalize to unit length
+            bool dirInvalid = !std::isfinite(wind.Direction.x) || !std::isfinite(wind.Direction.y) || !std::isfinite(wind.Direction.z);
             if (!dirInvalid)
             {
                 f32 len2 = glm::dot(wind.Direction, wind.Direction);
-                dirInvalid = (len2 < 1e-8f);
+                dirInvalid = !std::isfinite(len2) || (len2 < 1e-8f);
             }
             if (dirInvalid)
             {
@@ -377,7 +377,19 @@ namespace OloEngine
         TrySet(sys.GPUCollisionBounce, particleComponent["GPUCollisionBounce"]);
         TrySet(sys.GPUCollisionFriction, particleComponent["GPUCollisionFriction"]);
 
-        // Clamp GPU simulation coefficients to safe ranges
+        // Clamp GPU simulation coefficients to safe ranges (reject non-finite first)
+        if (!std::isfinite(sys.WindInfluence))
+            sys.WindInfluence = 0.0f;
+        if (!std::isfinite(sys.GPUNoiseStrength))
+            sys.GPUNoiseStrength = 0.0f;
+        if (!std::isfinite(sys.GPUNoiseFrequency))
+            sys.GPUNoiseFrequency = 0.0f;
+        if (!std::isfinite(sys.GPUGroundY))
+            sys.GPUGroundY = 0.0f;
+        if (!std::isfinite(sys.GPUCollisionBounce))
+            sys.GPUCollisionBounce = 0.0f;
+        if (!std::isfinite(sys.GPUCollisionFriction))
+            sys.GPUCollisionFriction = 0.0f;
         sys.WindInfluence = std::max(sys.WindInfluence, 0.0f);
         sys.GPUNoiseStrength = std::max(sys.GPUNoiseStrength, 0.0f);
         sys.GPUNoiseFrequency = std::max(sys.GPUNoiseFrequency, 0.0f);
@@ -1639,6 +1651,8 @@ namespace OloEngine
 
     void SceneSerializer::Serialize(const std::filesystem::path& filepath) const
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
@@ -1707,6 +1721,8 @@ namespace OloEngine
 
     bool SceneSerializer::Deserialize(const std::filesystem::path& filepath)
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Node data;
         try
         {

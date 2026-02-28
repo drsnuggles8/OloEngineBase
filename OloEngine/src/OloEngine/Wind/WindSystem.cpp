@@ -16,6 +16,15 @@ namespace OloEngine
 {
     WindSystem::WindSystemData WindSystem::s_Data;
 
+    static glm::vec3 NormalizeOrFallback(const glm::vec3& dir)
+    {
+        if (glm::dot(dir, dir) < 1e-8f)
+        {
+            return glm::vec3(1.0f, 0.0f, 0.0f);
+        }
+        return glm::normalize(dir);
+    }
+
     void WindSystem::Init()
     {
         OLO_PROFILE_FUNCTION();
@@ -39,6 +48,16 @@ namespace OloEngine
 
         // Load the wind generation compute shader
         s_Data.m_GenerateShader = ComputeShader::Create("assets/shaders/compute/Wind_Generate.comp");
+
+        // Verify all resources were created successfully
+        if (!s_Data.m_WindField || !s_Data.m_WindUBO || !s_Data.m_GenerateShader)
+        {
+            OLO_CORE_ERROR("WindSystem::Init failed — one or more GPU resources could not be created");
+            s_Data.m_GenerateShader = nullptr;
+            s_Data.m_WindField = nullptr;
+            s_Data.m_WindUBO = nullptr;
+            return;
+        }
 
         s_Data.m_AccumulatedTime = 0.0f;
         s_Data.m_Initialized = true;
@@ -81,15 +100,7 @@ namespace OloEngine
         glm::vec3 gridMin = cameraPos - glm::vec3(halfSize);
 
         // Safe-normalize direction (fallback to +X if zero-length)
-        glm::vec3 safeDir = settings.Direction;
-        if (glm::dot(safeDir, safeDir) < 1e-8f)
-        {
-            safeDir = glm::vec3(1.0f, 0.0f, 0.0f);
-        }
-        else
-        {
-            safeDir = glm::normalize(safeDir);
-        }
+        glm::vec3 safeDir = NormalizeOrFallback(settings.Direction);
 
         // Clamp resolution to the allocated texture size (128)
         constexpr u32 kTextureSize = 128;
@@ -166,15 +177,7 @@ namespace OloEngine
             return glm::vec3(0.0f);
         }
 
-        glm::vec3 dir;
-        if (glm::dot(settings.Direction, settings.Direction) < 1e-8f)
-        {
-            dir = glm::vec3(1.0f, 0.0f, 0.0f);
-        }
-        else
-        {
-            dir = glm::normalize(settings.Direction);
-        }
+        glm::vec3 dir = NormalizeOrFallback(settings.Direction);
         f32 speed = settings.Speed;
 
         // Gust modulation: sine wave with spatial offset
