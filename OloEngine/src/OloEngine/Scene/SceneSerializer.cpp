@@ -125,6 +125,8 @@ namespace OloEngine
 
     static void SerializeWindSettings(YAML::Emitter& out, const WindSettings& wind)
     {
+        OLO_PROFILE_FUNCTION();
+
         out << YAML::Key << "WindSettings";
         out << YAML::BeginMap;
         out << YAML::Key << "Enabled" << YAML::Value << wind.Enabled;
@@ -141,6 +143,8 @@ namespace OloEngine
 
     static void DeserializeWindSettings(const YAML::Node& data, WindSettings& wind)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (auto windNode = data["WindSettings"]; windNode)
         {
             TrySet(wind.Enabled, windNode["Enabled"]);
@@ -152,6 +156,10 @@ namespace OloEngine
             TrySet(wind.TurbulenceScale, windNode["TurbulenceScale"]);
             TrySet(wind.GridWorldSize, windNode["GridWorldSize"]);
             TrySet(wind.GridResolution, windNode["GridResolution"]);
+
+            // Clamp to safe bounds
+            wind.GridWorldSize = std::clamp(wind.GridWorldSize, 0.1f, 10000.0f);
+            wind.GridResolution = std::clamp(wind.GridResolution, 1u, 2048u);
         }
     }
 

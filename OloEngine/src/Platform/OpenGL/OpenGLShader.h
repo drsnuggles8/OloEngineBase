@@ -76,7 +76,7 @@ namespace OloEngine
             return m_ResourceRegistry.SetResource(name, input);
         }
 
-      // Include processing — public so compute shaders can reuse it
+        // Include processing — public so compute shaders can reuse it
         static std::string ProcessIncludes(const std::string& source, const std::string& directory = "");
 
       private:

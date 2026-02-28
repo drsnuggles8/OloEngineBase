@@ -136,7 +136,7 @@ namespace OloEngine
         bool UseGPU = false;
 
         // GPU wind & turbulence settings
-        f32 WindInfluence = 1.0f;     // 0–1 multiplier on wind field velocity
+        f32 WindInfluence = 1.0f;     // >=0 multiplier on wind field velocity; values >1 amplify wind
         f32 GPUNoiseStrength = 0.0f;  // Per-particle noise turbulence amplitude
         f32 GPUNoiseFrequency = 1.0f; // Spatial frequency of noise turbulence
 

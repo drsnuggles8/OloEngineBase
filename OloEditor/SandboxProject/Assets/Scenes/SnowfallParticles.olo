@@ -81,12 +81,11 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [100, 0.1, 100]
     MeshComponent:
-      MeshType: 1
-      MaterialData:
-        Albedo: [0.85, 0.87, 0.9]
-        Metallic: 0
-        Roughness: 0.9
-        AO: 1
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.87, 0.9]
+      Metallic: 0
+      Roughness: 0.9
   - Entity: 300000000000004
     TagComponent:
       Tag: Snowfall Particles

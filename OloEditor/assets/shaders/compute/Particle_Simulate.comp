@@ -128,10 +128,12 @@ void main()
         // Apply friction to horizontal velocity
         vel.xz *= u_CollisionFriction;
 
-        // Kill particles with very low bounce (settled)
+        // Kill settled particles (vertical bounce too small to matter)
         if (abs(vel.y) < 0.05)
         {
-            vel.y = 0.0;
+            particles[idx].Misc.z = 0.0;
+            particles[idx].PositionLifetime.w = 0.0;
+            return;
         }
     }
 

@@ -182,13 +182,15 @@ namespace OloEngine
 
         OLO_SHADER_RELOAD_START(m_RendererID);
 
-        const std::string source = FileSystem::ReadFileText(m_FilePath);
-        if (source.empty())
+        const std::string rawSource = FileSystem::ReadFileText(m_FilePath);
+        if (rawSource.empty())
         {
             OLO_CORE_ERROR("Failed to reload compute shader '{0}': empty source", m_Name);
             OLO_SHADER_RELOAD_END(m_RendererID, false);
             return;
         }
+
+        const std::string source = OpenGLShader::ProcessIncludes(rawSource);
 
         // Clean up old program
         if (m_IsValid)

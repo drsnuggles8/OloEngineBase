@@ -268,6 +268,8 @@ namespace OloEngine
 
     void PostProcessSettingsPanel::DrawWindSection()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& settings = Renderer3D::GetWindSettings();
 
         if (ImGui::CollapsingHeader("Wind"))

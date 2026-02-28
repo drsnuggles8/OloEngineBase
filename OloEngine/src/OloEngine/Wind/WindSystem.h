@@ -34,7 +34,7 @@ namespace OloEngine
      */
     class WindSystem
     {
-    public:
+      public:
         /// Initialize GPU resources (compute shader, 3D texture, UBO).
         static void Init();
 
@@ -74,19 +74,19 @@ namespace OloEngine
          * @return Approximate wind velocity vector at worldPos.
          */
         [[nodiscard]] static glm::vec3 GetWindAtPoint(const WindSettings& settings,
-                                                       const glm::vec3& worldPos,
-                                                       f32 time);
+                                                      const glm::vec3& worldPos,
+                                                      f32 time);
 
-    private:
+      private:
         struct WindSystemData
         {
-            Ref<ComputeShader> GenerateShader;
-            Ref<Texture3D> WindField;        // 128³ RGBA16F
-            Ref<UniformBuffer> WindUBO;       // binding 15
-            WindUBOData GPUData;
+            Ref<ComputeShader> m_GenerateShader;
+            Ref<Texture3D> m_WindField;   // 128³ RGBA16F
+            Ref<UniformBuffer> m_WindUBO; // binding 15
+            WindUBOData m_GPUData;
 
-            f32 AccumulatedTime = 0.0f;
-            bool Initialized = false;
+            f32 m_AccumulatedTime = 0.0f;
+            bool m_Initialized = false;
         };
 
         static WindSystemData s_Data;

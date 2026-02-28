@@ -416,6 +416,8 @@ namespace OloEngine
                     return name.contains("Snow") || name.contains("snow");
                 case UBO_SSS:
                     return name.contains("SSS") || name.contains("sss");
+                case UBO_WIND:
+                    return name.contains("Wind") || name.contains("wind");
                 default:
                     return false;
             }
@@ -460,6 +462,8 @@ namespace OloEngine
                     return name.contains("Environment") || name.contains("environment") ||
                            name.contains("Skybox") || name.contains("skybox") ||
                            name.contains("Cubemap");
+                case TEX_WIND_FIELD:
+                    return name.contains("Wind") || name.contains("wind");
                 default:
                     // Accept only explicitly defined engine texture slots (10–28)
                     return binding >= TEX_USER_0 && binding <= TEX_TERRAIN_SPLATMAP_1;

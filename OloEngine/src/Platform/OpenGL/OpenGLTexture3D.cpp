@@ -28,6 +28,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (m_Width == 0 || m_Height == 0 || m_Depth == 0)
+        {
+            OLO_CORE_ERROR("OpenGLTexture3D: Invalid dimensions ({}x{}x{}) — all must be > 0",
+                           m_Width, m_Height, m_Depth);
+            return;
+        }
+
         GLenum internalFormat = Texture3DFormatToGL(spec.Format);
 
         glCreateTextures(GL_TEXTURE_3D, 1, &m_RendererID);

@@ -605,9 +605,10 @@ namespace OloEngine
         // Update wind system (regenerate 3D wind field, upload wind UBO)
         {
             // TODO: Pass actual frame dt once Timestep is threaded through BeginScene
-            static auto lastTime = std::chrono::high_resolution_clock::now();
-            auto now = std::chrono::high_resolution_clock::now();
+            static auto lastTime = std::chrono::steady_clock::now();
+            auto now = std::chrono::steady_clock::now();
             f32 dt = std::chrono::duration<f32>(now - lastTime).count();
+            dt = std::clamp(dt, 0.0f, 0.1f);
             lastTime = now;
 
             WindSystem::Update(s_Data.Wind, s_Data.ViewPos, Timestep(dt));

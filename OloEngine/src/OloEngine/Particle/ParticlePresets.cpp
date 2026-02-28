@@ -32,7 +32,7 @@ namespace OloEngine
         sys.Emitter.SpeedVariance = 0.15f;
         sys.Emitter.LifetimeMin = 8.0f;
         sys.Emitter.LifetimeMax = 15.0f;
-        sys.Emitter.InitialSize = 0.04f;    // Small snowflakes
+        sys.Emitter.InitialSize = 0.04f; // Small snowflakes
         sys.Emitter.SizeVariance = 0.02f;
         sys.Emitter.InitialRotation = 0.0f;
         sys.Emitter.RotationVariance = 180.0f;
@@ -61,14 +61,14 @@ namespace OloEngine
         // ---- GPU Ground Collision ----
         sys.GPUGroundCollision = true;
         sys.GPUGroundY = 0.0f;
-        sys.GPUCollisionBounce = 0.0f;     // Snow doesn't bounce
-        sys.GPUCollisionFriction = 1.0f;   // Full stop on ground
+        sys.GPUCollisionBounce = 0.0f;   // Snow doesn't bounce
+        sys.GPUCollisionFriction = 1.0f; // Full stop on ground
 
         // ---- Color over lifetime (fade out) ----
         sys.ColorModule.Enabled = true;
         sys.ColorModule.ColorCurve = ParticleCurve4(
-            glm::vec4(1.0f, 1.0f, 1.0f, 0.9f),  // Start: bright, mostly opaque
-            glm::vec4(1.0f, 1.0f, 1.0f, 0.0f)   // End: fade to transparent
+            glm::vec4(1.0f, 1.0f, 1.0f, 0.9f), // Start: bright, mostly opaque
+            glm::vec4(1.0f, 1.0f, 1.0f, 0.0f)  // End: fade to transparent
         );
 
         // ---- Size over lifetime (slight shrink) ----

@@ -13,7 +13,7 @@ namespace OloEngine
      */
     class ParticlePresets
     {
-    public:
+      public:
         /**
          * @brief Configure a ParticleSystem as a realistic snowfall emitter.
          *

@@ -182,6 +182,8 @@ namespace OloEngine
                                        "gustStrength", &WindSettings::GustStrength,
                                        "gustFrequency", &WindSettings::GustFrequency,
                                        "turbulenceIntensity", &WindSettings::TurbulenceIntensity,
-                                       "turbulenceScale", &WindSettings::TurbulenceScale);
+                                       "turbulenceScale", &WindSettings::TurbulenceScale,
+                                       "gridWorldSize", &WindSettings::GridWorldSize,
+                                       "gridResolution", &WindSettings::GridResolution);
     }
 } // namespace OloEngine

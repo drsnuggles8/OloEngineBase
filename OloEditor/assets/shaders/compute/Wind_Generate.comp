@@ -157,8 +157,12 @@ void main()
     if (any(greaterThanEqual(gid, ivec3(u_GridResolution))))
         return;
 
+    // Guard against invalid uniforms
+    int safeResolution = max(u_GridResolution, 1);
+    float safeWorldSize = max(u_GridWorldSize, 0.001);
+
     // Map voxel index → world position (centre of voxel)
-    float voxelSize = u_GridWorldSize / float(u_GridResolution);
+    float voxelSize = safeWorldSize / float(safeResolution);
     vec3 worldPos = u_GridMin + (vec3(gid) + 0.5) * voxelSize;
 
     // ---- 1. Base directional wind ----
