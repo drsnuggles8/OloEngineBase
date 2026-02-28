@@ -1,0 +1,809 @@
+Scene: MaterialTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # ── Camera ──
+  - Entity: 700000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 3, 10]
+      Rotation: [-0.2, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox ──
+  - Entity: 700000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  # ── Directional Light ──
+  - Entity: 700000000000003
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.2, -1, -0.3]
+      Color: [1, 1, 1]
+      Intensity: 1.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── Ground Plane ──
+  - Entity: 700000000000004
+    TagComponent:
+      Tag: Ground Plane
+    TransformComponent:
+      Translation: [0, -1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [25, 0.1, 25]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.3, 0.3]
+      Metallic: 0
+      Roughness: 0.9
+  # ── PBR Sphere Grid: Row 0 (roughness 0.05) ──
+  - Entity: 700000000010000
+    TagComponent:
+      Tag: PBR Sphere M0.0 R0.05
+    TransformComponent:
+      Translation: [-9, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0
+      Roughness: 0.05
+  - Entity: 700000000010001
+    TagComponent:
+      Tag: PBR Sphere M0.17 R0.05
+    TransformComponent:
+      Translation: [-6, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.17
+      Roughness: 0.05
+  - Entity: 700000000010002
+    TagComponent:
+      Tag: PBR Sphere M0.33 R0.05
+    TransformComponent:
+      Translation: [-3, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.33
+      Roughness: 0.05
+  - Entity: 700000000010003
+    TagComponent:
+      Tag: PBR Sphere M0.5 R0.05
+    TransformComponent:
+      Translation: [0, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.5
+      Roughness: 0.05
+  - Entity: 700000000010004
+    TagComponent:
+      Tag: PBR Sphere M0.67 R0.05
+    TransformComponent:
+      Translation: [3, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.67
+      Roughness: 0.05
+  - Entity: 700000000010005
+    TagComponent:
+      Tag: PBR Sphere M0.83 R0.05
+    TransformComponent:
+      Translation: [6, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.83
+      Roughness: 0.05
+  - Entity: 700000000010006
+    TagComponent:
+      Tag: PBR Sphere M1.0 R0.05
+    TransformComponent:
+      Translation: [9, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 1.0
+      Roughness: 0.05
+  # ── PBR Sphere Grid: Row 1 (roughness 0.21) ──
+  - Entity: 700000000010010
+    TagComponent:
+      Tag: PBR Sphere M0.0 R0.21
+    TransformComponent:
+      Translation: [-9, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0
+      Roughness: 0.21
+  - Entity: 700000000010011
+    TagComponent:
+      Tag: PBR Sphere M0.17 R0.21
+    TransformComponent:
+      Translation: [-6, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.17
+      Roughness: 0.21
+  - Entity: 700000000010012
+    TagComponent:
+      Tag: PBR Sphere M0.33 R0.21
+    TransformComponent:
+      Translation: [-3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.33
+      Roughness: 0.21
+  - Entity: 700000000010013
+    TagComponent:
+      Tag: PBR Sphere M0.5 R0.21
+    TransformComponent:
+      Translation: [0, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.5
+      Roughness: 0.21
+  - Entity: 700000000010014
+    TagComponent:
+      Tag: PBR Sphere M0.67 R0.21
+    TransformComponent:
+      Translation: [3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.67
+      Roughness: 0.21
+  - Entity: 700000000010015
+    TagComponent:
+      Tag: PBR Sphere M0.83 R0.21
+    TransformComponent:
+      Translation: [6, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.83
+      Roughness: 0.21
+  - Entity: 700000000010016
+    TagComponent:
+      Tag: PBR Sphere M1.0 R0.21
+    TransformComponent:
+      Translation: [9, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 1.0
+      Roughness: 0.21
+  # ── PBR Sphere Grid: Row 2 (roughness 0.37) ──
+  - Entity: 700000000010020
+    TagComponent:
+      Tag: PBR Sphere M0.0 R0.37
+    TransformComponent:
+      Translation: [-9, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0
+      Roughness: 0.37
+  - Entity: 700000000010021
+    TagComponent:
+      Tag: PBR Sphere M0.17 R0.37
+    TransformComponent:
+      Translation: [-6, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.17
+      Roughness: 0.37
+  - Entity: 700000000010022
+    TagComponent:
+      Tag: PBR Sphere M0.33 R0.37
+    TransformComponent:
+      Translation: [-3, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.33
+      Roughness: 0.37
+  - Entity: 700000000010023
+    TagComponent:
+      Tag: PBR Sphere M0.5 R0.37
+    TransformComponent:
+      Translation: [0, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.5
+      Roughness: 0.37
+  - Entity: 700000000010024
+    TagComponent:
+      Tag: PBR Sphere M0.67 R0.37
+    TransformComponent:
+      Translation: [3, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.67
+      Roughness: 0.37
+  - Entity: 700000000010025
+    TagComponent:
+      Tag: PBR Sphere M0.83 R0.37
+    TransformComponent:
+      Translation: [6, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.83
+      Roughness: 0.37
+  - Entity: 700000000010026
+    TagComponent:
+      Tag: PBR Sphere M1.0 R0.37
+    TransformComponent:
+      Translation: [9, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 1.0
+      Roughness: 0.37
+  # ── PBR Sphere Grid: Row 3 (roughness 0.53) ──
+  - Entity: 700000000010030
+    TagComponent:
+      Tag: PBR Sphere M0.0 R0.53
+    TransformComponent:
+      Translation: [-9, 0.5, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0
+      Roughness: 0.53
+  - Entity: 700000000010031
+    TagComponent:
+      Tag: PBR Sphere M0.17 R0.53
+    TransformComponent:
+      Translation: [-6, 0.5, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.17
+      Roughness: 0.53
+  - Entity: 700000000010032
+    TagComponent:
+      Tag: PBR Sphere M0.33 R0.53
+    TransformComponent:
+      Translation: [-3, 0.5, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.33
+      Roughness: 0.53
+  - Entity: 700000000010033
+    TagComponent:
+      Tag: PBR Sphere M0.5 R0.53
+    TransformComponent:
+      Translation: [0, 0.5, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.5
+      Roughness: 0.53
+  - Entity: 700000000010034
+    TagComponent:
+      Tag: PBR Sphere M0.67 R0.53
+    TransformComponent:
+      Translation: [3, 0.5, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.67
+      Roughness: 0.53
+  - Entity: 700000000010035
+    TagComponent:
+      Tag: PBR Sphere M0.83 R0.53
+    TransformComponent:
+      Translation: [6, 0.5, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.83
+      Roughness: 0.53
+  - Entity: 700000000010036
+    TagComponent:
+      Tag: PBR Sphere M1.0 R0.53
+    TransformComponent:
+      Translation: [9, 0.5, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 1.0
+      Roughness: 0.53
+  # ── PBR Sphere Grid: Row 4 (roughness 0.69) ──
+  - Entity: 700000000010040
+    TagComponent:
+      Tag: PBR Sphere M0.0 R0.69
+    TransformComponent:
+      Translation: [-9, 0.5, 9]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0
+      Roughness: 0.69
+  - Entity: 700000000010041
+    TagComponent:
+      Tag: PBR Sphere M0.17 R0.69
+    TransformComponent:
+      Translation: [-6, 0.5, 9]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.17
+      Roughness: 0.69
+  - Entity: 700000000010042
+    TagComponent:
+      Tag: PBR Sphere M0.33 R0.69
+    TransformComponent:
+      Translation: [-3, 0.5, 9]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.33
+      Roughness: 0.69
+  - Entity: 700000000010043
+    TagComponent:
+      Tag: PBR Sphere M0.5 R0.69
+    TransformComponent:
+      Translation: [0, 0.5, 9]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.5
+      Roughness: 0.69
+  - Entity: 700000000010044
+    TagComponent:
+      Tag: PBR Sphere M0.67 R0.69
+    TransformComponent:
+      Translation: [3, 0.5, 9]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.67
+      Roughness: 0.69
+  - Entity: 700000000010045
+    TagComponent:
+      Tag: PBR Sphere M0.83 R0.69
+    TransformComponent:
+      Translation: [6, 0.5, 9]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.83
+      Roughness: 0.69
+  - Entity: 700000000010046
+    TagComponent:
+      Tag: PBR Sphere M1.0 R0.69
+    TransformComponent:
+      Translation: [9, 0.5, 9]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 1.0
+      Roughness: 0.69
+  # ── PBR Sphere Grid: Row 5 (roughness 0.85) ──
+  - Entity: 700000000010050
+    TagComponent:
+      Tag: PBR Sphere M0.0 R0.85
+    TransformComponent:
+      Translation: [-9, 0.5, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0
+      Roughness: 0.85
+  - Entity: 700000000010051
+    TagComponent:
+      Tag: PBR Sphere M0.17 R0.85
+    TransformComponent:
+      Translation: [-6, 0.5, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.17
+      Roughness: 0.85
+  - Entity: 700000000010052
+    TagComponent:
+      Tag: PBR Sphere M0.33 R0.85
+    TransformComponent:
+      Translation: [-3, 0.5, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.33
+      Roughness: 0.85
+  - Entity: 700000000010053
+    TagComponent:
+      Tag: PBR Sphere M0.5 R0.85
+    TransformComponent:
+      Translation: [0, 0.5, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.5
+      Roughness: 0.85
+  - Entity: 700000000010054
+    TagComponent:
+      Tag: PBR Sphere M0.67 R0.85
+    TransformComponent:
+      Translation: [3, 0.5, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.67
+      Roughness: 0.85
+  - Entity: 700000000010055
+    TagComponent:
+      Tag: PBR Sphere M0.83 R0.85
+    TransformComponent:
+      Translation: [6, 0.5, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.83
+      Roughness: 0.85
+  - Entity: 700000000010056
+    TagComponent:
+      Tag: PBR Sphere M1.0 R0.85
+    TransformComponent:
+      Translation: [9, 0.5, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 1.0
+      Roughness: 0.85
+  # ── PBR Sphere Grid: Row 6 (roughness 1.0) ──
+  - Entity: 700000000010060
+    TagComponent:
+      Tag: PBR Sphere M0.0 R1.0
+    TransformComponent:
+      Translation: [-9, 0.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0
+      Roughness: 1.0
+  - Entity: 700000000010061
+    TagComponent:
+      Tag: PBR Sphere M0.17 R1.0
+    TransformComponent:
+      Translation: [-6, 0.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.17
+      Roughness: 1.0
+  - Entity: 700000000010062
+    TagComponent:
+      Tag: PBR Sphere M0.33 R1.0
+    TransformComponent:
+      Translation: [-3, 0.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.33
+      Roughness: 1.0
+  - Entity: 700000000010063
+    TagComponent:
+      Tag: PBR Sphere M0.5 R1.0
+    TransformComponent:
+      Translation: [0, 0.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.5
+      Roughness: 1.0
+  - Entity: 700000000010064
+    TagComponent:
+      Tag: PBR Sphere M0.67 R1.0
+    TransformComponent:
+      Translation: [3, 0.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.67
+      Roughness: 1.0
+  - Entity: 700000000010065
+    TagComponent:
+      Tag: PBR Sphere M0.83 R1.0
+    TransformComponent:
+      Translation: [6, 0.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0.83
+      Roughness: 1.0
+  - Entity: 700000000010066
+    TagComponent:
+      Tag: PBR Sphere M1.0 R1.0
+    TransformComponent:
+      Translation: [9, 0.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 1.0
+      Roughness: 1.0
+  # ── Preset Material Spheres ──
+  - Entity: 700000000020001
+    TagComponent:
+      Tag: Gold Sphere
+    TransformComponent:
+      Translation: [-12, 2, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.765, 0.336]
+      Metallic: 1.0
+      Roughness: 0.1
+  - Entity: 700000000020002
+    TagComponent:
+      Tag: Silver Sphere
+    TransformComponent:
+      Translation: [12, 2, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.972, 0.96, 0.915]
+      Metallic: 1.0
+      Roughness: 0.1
+  - Entity: 700000000020003
+    TagComponent:
+      Tag: Copper Sphere
+    TransformComponent:
+      Translation: [0, 2, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.955, 0.637, 0.538]
+      Metallic: 1.0
+      Roughness: 0.1
+  - Entity: 700000000020004
+    TagComponent:
+      Tag: Plastic Sphere
+    TransformComponent:
+      Translation: [0, 2, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.2, 0.2]
+      Metallic: 0.0
+      Roughness: 0.6
+  # ── Center Cube (Gold PBR) ──
+  - Entity: 700000000020005
+    TagComponent:
+      Tag: Center Cube
+    TransformComponent:
+      Translation: [0, 0.5, 6]
+      Rotation: [0.3, 0.3, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [1, 0.765, 0.336]
+      Metallic: 1.0
+      Roughness: 0.1

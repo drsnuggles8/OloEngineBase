@@ -667,6 +667,7 @@ namespace OloEngine
             ShadowMap Shadow;
             Ref<Shader> ShadowDepthShader;
             Ref<Shader> ShadowDepthSkinnedShader;
+            Ref<Shader> ShadowDepthPointSkinnedShader;
 
             // Terrain
             Ref<Shader> TerrainPBRShader;

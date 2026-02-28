@@ -1,0 +1,186 @@
+Scene: PBRModelTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+Entities:
+  # ── Camera ──
+  - Entity: 740000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 2, 6]
+      Rotation: [-0.15, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox + IBL ──
+  - Entity: 740000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1.2
+      Tint: [1, 1, 1]
+  # ── Directional Light (PBR-optimized) ──
+  - Entity: 740000000000003
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.2]
+      Color: [1, 1, 1]
+      Intensity: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── Ground Plane ──
+  - Entity: 740000000000004
+    TagComponent:
+      Tag: Ground Plane
+    TransformComponent:
+      Translation: [0, -1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [25, 0.1, 25]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.25, 0.25]
+      Metallic: 0
+      Roughness: 0.95
+  # ── Backpack (OBJ, textures loaded from model) ──
+  - Entity: 740000000000010
+    TagComponent:
+      Tag: Backpack
+    TransformComponent:
+      Translation: [-3, 1.5, 0]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    ModelComponent:
+      FilePath: assets/backpack/backpack.obj
+      Visible: true
+  # ── Cerberus (FBX, advanced PBR) ──
+  - Entity: 740000000000011
+    TagComponent:
+      Tag: Cerberus Gun
+    TransformComponent:
+      Translation: [3, 1, 0]
+      Rotation: [-1.5707963, 0, 0]
+      Scale: [0.02, 0.02, 0.02]
+    ModelComponent:
+      FilePath: assets/models/Cerberus/cerberus.fbx
+      Visible: true
+  # ── PBR Reference Spheres (alongside models) ──
+  - Entity: 740000000000020
+    TagComponent:
+      Tag: Gold Reference
+    TransformComponent:
+      Translation: [-6, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.765, 0.336]
+      Metallic: 1
+      Roughness: 0.1
+  - Entity: 740000000000021
+    TagComponent:
+      Tag: Silver Reference
+    TransformComponent:
+      Translation: [-3, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.972, 0.96, 0.915]
+      Metallic: 1
+      Roughness: 0.1
+  - Entity: 740000000000022
+    TagComponent:
+      Tag: Copper Reference
+    TransformComponent:
+      Translation: [0, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.955, 0.637, 0.538]
+      Metallic: 1
+      Roughness: 0.1
+  - Entity: 740000000000023
+    TagComponent:
+      Tag: Rough Plastic Reference
+    TransformComponent:
+      Translation: [3, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.2, 0.2]
+      Metallic: 0
+      Roughness: 0.6
+  - Entity: 740000000000024
+    TagComponent:
+      Tag: Smooth Dielectric Reference
+    TransformComponent:
+      Translation: [6, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.2, 0.8, 0.3]
+      Metallic: 0
+      Roughness: 0.05

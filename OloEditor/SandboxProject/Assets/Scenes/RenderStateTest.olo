@@ -1,0 +1,280 @@
+Scene: RenderStateTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # ── Camera ──
+  - Entity: 720000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 4, 12]
+      Rotation: [-0.25, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox ──
+  - Entity: 720000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  # ── Directional Light ──
+  - Entity: 720000000000003
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0, -1, 0]
+      Color: [1, 1, 1]
+      Intensity: 1.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── Ground Plane ──
+  - Entity: 720000000000004
+    TagComponent:
+      Tag: Ground Plane
+    TransformComponent:
+      Translation: [0, -1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [25, 0.1, 25]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.3, 0.3]
+      Metallic: 0
+      Roughness: 0.9
+  # ──────────────────────────────────────────
+  # Wireframe Test Group (left cluster)
+  # ──────────────────────────────────────────
+  - Entity: 720000000000010
+    TagComponent:
+      Tag: Wireframe Cube 1
+    TransformComponent:
+      Translation: [-6, 0.5, -3]
+      Rotation: [0.3, 0.3, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.25, 0.25, 1]
+      Metallic: 0
+      Roughness: 0.5
+  - Entity: 720000000000011
+    TagComponent:
+      Tag: Wireframe Cube 2
+    TransformComponent:
+      Translation: [-6, 0.5, 0]
+      Rotation: [0.5, 0.5, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.5, 1]
+      Metallic: 0
+      Roughness: 0.5
+  - Entity: 720000000000012
+    TagComponent:
+      Tag: Wireframe Cube 3
+    TransformComponent:
+      Translation: [-6, 0.5, 3]
+      Rotation: [0.7, 0.7, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.75, 0.75, 1]
+      Metallic: 0
+      Roughness: 0.5
+  # ──────────────────────────────────────────
+  # Transparency Test Group (center cluster)
+  # ──────────────────────────────────────────
+  - Entity: 720000000000020
+    TagComponent:
+      Tag: Red Sphere (Transparent)
+    TransformComponent:
+      Translation: [0, 0.5, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0
+      Roughness: 0.5
+  - Entity: 720000000000021
+    TagComponent:
+      Tag: Green Sphere (Transparent)
+    TransformComponent:
+      Translation: [1.5, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0, 1, 0]
+      Metallic: 0
+      Roughness: 0.5
+  - Entity: 720000000000022
+    TagComponent:
+      Tag: Blue Sphere (Transparent)
+    TransformComponent:
+      Translation: [-1.5, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0, 0, 1]
+      Metallic: 0
+      Roughness: 0.5
+  # ──────────────────────────────────────────
+  # Polygon Offset / Z-Fighting Test (right cluster)
+  # ──────────────────────────────────────────
+  - Entity: 720000000000030
+    TagComponent:
+      Tag: Solid Cube (Offset Test)
+    TransformComponent:
+      Translation: [6, 0.5, 0]
+      Rotation: [0, 0.5, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [1, 0.843, 0]
+      Metallic: 0.8
+      Roughness: 0.2
+  - Entity: 720000000000031
+    TagComponent:
+      Tag: Wireframe Overlay (Offset Test)
+    TransformComponent:
+      Translation: [6, 0.5, 0]
+      Rotation: [0, 0.5, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0, 0, 0]
+      Metallic: 0
+      Roughness: 1
+  # ──────────────────────────────────────────
+  # Combined Effects (back area)
+  # ──────────────────────────────────────────
+  - Entity: 720000000000040
+    TagComponent:
+      Tag: Wireframe Sphere
+    TransformComponent:
+      Translation: [0, 1.5, -6]
+      Rotation: [0.5, 0.5, 0]
+      Scale: [1.2, 1.2, 1.2]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 1, 0]
+      Metallic: 0.5
+      Roughness: 0.3
+  - Entity: 720000000000041
+    TagComponent:
+      Tag: Orbit Cube 1
+    TransformComponent:
+      Translation: [2, 1.5, -6]
+      Rotation: [0.3, 0.3, 0.3]
+      Scale: [0.6, 0.6, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [1, 0.3, 0.3]
+      Metallic: 0.1
+      Roughness: 0.5
+  - Entity: 720000000000042
+    TagComponent:
+      Tag: Orbit Cube 2
+    TransformComponent:
+      Translation: [-1, 1.5, -4.3]
+      Rotation: [0.3, 0.3, 0.3]
+      Scale: [0.6, 0.6, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 1, 0.3]
+      Metallic: 0.1
+      Roughness: 0.5
+  - Entity: 720000000000043
+    TagComponent:
+      Tag: Orbit Cube 3
+    TransformComponent:
+      Translation: [-1, 1.5, -7.7]
+      Rotation: [0.3, 0.3, 0.3]
+      Scale: [0.6, 0.6, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.3, 1]
+      Metallic: 0.1
+      Roughness: 0.5
+  # ── State Marker ──
+  - Entity: 720000000000050
+    TagComponent:
+      Tag: State Marker
+    TransformComponent:
+      Translation: [0, 4, 3]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 0.3, 0.3]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0, 0]
+      Metallic: 0
+      Roughness: 0.5

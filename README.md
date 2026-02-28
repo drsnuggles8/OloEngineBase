@@ -24,7 +24,7 @@ You can clone the repository to a local destination using git:
 
 This project uses [CMake](https://cmake.org/download/) to build the project's solution files. There's a batch script `scripts/Win-GenerateProject.bat` that will generate the solution file for Visual Studio 2022.
 
-**Visual Studio Code Users:** The project includes predefined VS Code tasks for building and running. Use tasks like `build-sandbox3d-debug`, `run-oloeditor-release`, etc. from the Command Palette (Ctrl+Shift+P → "Tasks: Run Task").
+**Visual Studio Code Users:** The project includes predefined VS Code tasks for building and running. Use tasks like `build-oloeditor-debug`, `run-oloeditor-release`, etc. from the Command Palette (Ctrl+Shift+P → "Tasks: Run Task").
 
 **CLion Users:** Open the OloEngineBase folder, let CLion initialize the CMake project, then edit the run configurations by changing the working directory of the OloEditor application to be the OloEditor folder.
 

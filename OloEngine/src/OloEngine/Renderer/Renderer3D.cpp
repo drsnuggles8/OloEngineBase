@@ -240,6 +240,7 @@ namespace OloEngine
         m_ShaderLibrary.Load("assets/shaders/ShadowDepth.glsl");
         m_ShaderLibrary.Load("assets/shaders/ShadowDepthSkinned.glsl");
         m_ShaderLibrary.Load("assets/shaders/ShadowDepthPoint.glsl");
+        m_ShaderLibrary.Load("assets/shaders/ShadowDepthPointSkinned.glsl");
 
         m_ShaderLibrary.Load("assets/shaders/Terrain_PBR.glsl");
         m_ShaderLibrary.Load("assets/shaders/Terrain_Depth.glsl");
@@ -260,6 +261,7 @@ namespace OloEngine
         s_Data.InfiniteGridShader = m_ShaderLibrary.Get("InfiniteGrid");
         s_Data.ShadowDepthShader = m_ShaderLibrary.Get("ShadowDepth");
         s_Data.ShadowDepthSkinnedShader = m_ShaderLibrary.Get("ShadowDepthSkinned");
+        s_Data.ShadowDepthPointSkinnedShader = m_ShaderLibrary.Get("ShadowDepthPointSkinned");
         s_Data.TerrainPBRShader = m_ShaderLibrary.Get("Terrain_PBR");
         s_Data.TerrainDepthShader = m_ShaderLibrary.Get("Terrain_Depth");
         s_Data.VoxelPBRShader = m_ShaderLibrary.Get("Terrain_Voxel");

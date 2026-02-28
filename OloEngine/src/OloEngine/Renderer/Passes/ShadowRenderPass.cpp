@@ -216,7 +216,7 @@ namespace OloEngine
             {
                 skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthPointSkinned");
             }
-            if (!skinnedShadowShader)
+            else
             {
                 skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthSkinned");
             }

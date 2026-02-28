@@ -70,7 +70,7 @@ Add allocation tracking calls to your launch configuration for startup logging:
     "name": "OloEngine Debug with Allocation Tracking",
     "type": "cppvsdbg",
     "request": "launch",
-    "program": "${workspaceFolder}/bin/Debug/Sandbox3D/Sandbox3D.exe",
+    "program": "${workspaceFolder}/bin/Debug/OloEditor/OloEditor.exe",
     "cwd": "${workspaceFolder}/OloEditor",
     "setupCommands": [
         {
