@@ -22,6 +22,10 @@ namespace OloEngine
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+        // Disable dithering — legacy feature for 8-bit displays that triggers
+        // warnings when integer framebuffer attachments (e.g., entity ID) are bound.
+        glDisable(GL_DITHER);
+
         SetDepthTest(true);
         SetDepthFunc(GL_LESS);
         glEnable(GL_LINE_SMOOTH);

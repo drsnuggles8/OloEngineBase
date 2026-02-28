@@ -944,14 +944,13 @@ void Sandbox3D::RenderAnimationTestingUI()
         ImGui::Separator();
 
         // Model selection dropdown
-        if (ImGui::Combo("Select Model", &m_SelectedModelIndex, [](void* data, int idx, const char** out_text)
+        if (ImGui::Combo("Select Model", &m_SelectedModelIndex, [](void* data, int idx) -> const char*
                          {
                             auto* names = static_cast<std::vector<std::string>*>(data);
                             if (idx >= 0 && idx < static_cast<int>(names->size())) {
-                                *out_text = (*names)[idx].c_str();
-                                return true;
+                                return (*names)[idx].c_str();
                             }
-                            return false; }, &m_ModelDisplayNames, static_cast<int>(m_ModelDisplayNames.size())))
+                            return nullptr; }, &m_ModelDisplayNames, static_cast<int>(m_ModelDisplayNames.size())))
         {
             // Model selection changed, reload if needed
         }

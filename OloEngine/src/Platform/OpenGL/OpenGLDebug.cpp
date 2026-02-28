@@ -14,9 +14,21 @@ namespace OloEngine
         const char* const message,
         const void* const)
     {
-        if (id == 131185 || id == 131204) // Ignore these non-significant error codes
+        // Suppress non-significant or misleading NVIDIA driver debug messages:
+        // 131185: Buffer detailed info (memory usage notifications)
+        // 131204: Texture state usage warning
+        // 131220: "A fragment program/shader is required to correctly render to an integer framebuffer"
+        // 131140: "Blending/Dithering is enabled, but is not supported for integer framebuffers"
+        // The last two fire because our framebuffers use mixed attachments (e.g., RGBA8 color +
+        // R32I entity ID) and the NVIDIA debug layer checks aggregate blend state rather than
+        // per-buffer state managed via glEnablei/glDisablei.
+        constexpr unsigned int suppressedIDs[] = { 131185, 131204, 131220, 131140 };
+        for (const auto suppressed : suppressedIDs)
         {
-            return; // Suppress this specific message
+            if (id == suppressed)
+            {
+                return;
+            }
         }
 
         std::string sourceStr;
