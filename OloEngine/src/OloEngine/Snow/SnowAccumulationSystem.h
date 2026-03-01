@@ -41,11 +41,12 @@ namespace OloEngine
         [[nodiscard]] static bool IsInitialized();
 
         /**
-         * @brief Run accumulation & deformation for this frame.
+         * @brief Run accumulation for this frame.
          *
          * Recenters the clipmap on the camera, dispatches Snow_Accumulate
-         * compute, then Snow_Deform (if deformers exist). Uploads the
-         * SnowAccumulationUBOData so terrain/PBR shaders can sample.
+         * compute, and uploads SnowAccumulationUBOData so terrain/PBR
+         * shaders can sample. Deformation (Snow_Deform) is dispatched
+         * separately via SubmitDeformers().
          *
          * @param settings   Current scene-level snow accumulation parameters.
          * @param cameraPos  Camera world position (clipmap follows this).
@@ -72,7 +73,8 @@ namespace OloEngine
         /// @return OpenGL texture ID of the snow depth map (for debug overlay).
         [[nodiscard]] static u32 GetSnowDepthTextureID();
 
-        /// Clear the entire snow depth buffer to zero.
+        /// Mark the snow depth buffer for clearing; the actual zeroing
+        /// occurs during the next Update() pass (via Snow_Clear dispatch).
         static void Reset();
 
       private:
