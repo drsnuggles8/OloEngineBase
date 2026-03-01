@@ -45,15 +45,27 @@ void main()
 
     float growth = u_AccumulationRate * u_DeltaTime * slopeFactor * windBias;
 
+    // Snow compaction: denser snow accumulates more slowly
+    growth *= mix(1.0, 0.3, u_SnowDensity);
+
     // Melt
     float melt = u_MeltRate * u_DeltaTime;
 
-    // Restoration: deformed areas fill back toward the natural accumulation level
+    // Restoration: deformed areas fill back toward the natural accumulation level.
     // The "natural" level is what accumulation alone would produce.
-    // If currentDepth < naturalLevel, fill toward it.
+    // Only restore (fill back) when currentDepth is below that level.
     float naturalLevel = min(currentDepth + growth, u_MaxDepth);
-    float restoredDepth = currentDepth + u_RestorationRate * u_DeltaTime;
-    float newDepth = min(restoredDepth + growth, u_MaxDepth) - melt;
+    float newDepth;
+    if (currentDepth < naturalLevel)
+    {
+        float restoredDepth = currentDepth + u_RestorationRate * u_DeltaTime;
+        newDepth = min(restoredDepth, naturalLevel) + growth;
+    }
+    else
+    {
+        newDepth = currentDepth + growth;
+    }
+    newDepth = min(newDepth, u_MaxDepth) - melt;
     newDepth = max(newDepth, 0.0);
 
     imageStore(u_SnowDepth, texel, vec4(newDepth, 0.0, 0.0, 0.0));

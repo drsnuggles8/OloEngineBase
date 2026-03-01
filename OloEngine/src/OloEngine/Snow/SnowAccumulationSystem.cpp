@@ -14,6 +14,8 @@
 
 namespace OloEngine
 {
+    static constexpr u32 kSnowDepthResolution = 2048;
+
     SnowAccumulationSystem::SnowAccumulationData SnowAccumulationSystem::s_Data;
 
     void SnowAccumulationSystem::Init()
@@ -26,10 +28,10 @@ namespace OloEngine
             return;
         }
 
-        // Create R32F snow depth texture (2048x2048 default)
+        // Create R32F snow depth texture
         TextureSpecification spec;
-        spec.Width = 2048;
-        spec.Height = 2048;
+        spec.Width = kSnowDepthResolution;
+        spec.Height = kSnowDepthResolution;
         spec.Format = ImageFormat::R32F;
         spec.GenerateMips = false;
 
@@ -47,6 +49,16 @@ namespace OloEngine
 
         // Create deformer SSBO (binding 7) — start with space for 64 stamps
         glCreateBuffers(1, &s_Data.m_DeformerSSBO);
+        if (s_Data.m_DeformerSSBO == 0)
+        {
+            OLO_CORE_ERROR("SnowAccumulationSystem::Init — failed to create deformer SSBO");
+            s_Data.m_AccumulateShader = nullptr;
+            s_Data.m_ClearShader = nullptr;
+            s_Data.m_DeformShader = nullptr;
+            s_Data.m_SnowDepthTexture = nullptr;
+            s_Data.m_AccumulationUBO = nullptr;
+            return;
+        }
         constexpr u32 initialStampCapacity = 64;
         constexpr u32 stampSize = 2 * sizeof(glm::vec4); // 32 bytes per stamp
         glNamedBufferStorage(s_Data.m_DeformerSSBO,
@@ -190,7 +202,7 @@ namespace OloEngine
             s_Data.m_ClearShader->Bind();
             RenderCommand::BindImageTexture(0, s_Data.m_SnowDepthTexture->GetRendererID(),
                                             0, false, 0, GL_WRITE_ONLY, GL_R32F);
-            u32 groups = (settings.ClipmapResolution + 15) / 16;
+            u32 groups = (kSnowDepthResolution + 15) / 16;
             RenderCommand::DispatchCompute(groups, groups, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
             s_Data.m_NeedsClear = false;
@@ -205,7 +217,7 @@ namespace OloEngine
         s_Data.m_AccumulateShader->SetFloat("u_MeltRate", settings.MeltRate);
         s_Data.m_AccumulateShader->SetFloat("u_RestorationRate", settings.RestorationRate);
         s_Data.m_AccumulateShader->SetFloat("u_SnowDensity", settings.SnowDensity);
-        s_Data.m_AccumulateShader->SetInt("u_Resolution", static_cast<i32>(settings.ClipmapResolution));
+        s_Data.m_AccumulateShader->SetInt("u_Resolution", static_cast<i32>(kSnowDepthResolution));
 
         // Clipmap center and extent for ring 0 (innermost)
         const auto& ce = gpu.ClipmapCenterAndExtent[0];
@@ -215,7 +227,7 @@ namespace OloEngine
         RenderCommand::BindImageTexture(0, s_Data.m_SnowDepthTexture->GetRendererID(),
                                         0, false, 0, GL_READ_WRITE, GL_R32F);
 
-        u32 groups = (settings.ClipmapResolution + 15) / 16;
+        u32 groups = (kSnowDepthResolution + 15) / 16;
         RenderCommand::DispatchCompute(groups, groups, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 
@@ -246,7 +258,7 @@ namespace OloEngine
         // Dispatch deformation compute
         s_Data.m_DeformShader->Bind();
         s_Data.m_DeformShader->SetInt("u_StampCount", static_cast<i32>(std::min(count, 64u)));
-        s_Data.m_DeformShader->SetInt("u_Resolution", static_cast<i32>(s_Data.m_GPUData.DisplacementParams.w > 0.0f ? 2048 : 2048));
+        s_Data.m_DeformShader->SetInt("u_Resolution", static_cast<i32>(kSnowDepthResolution));
 
         const auto& ce = s_Data.m_GPUData.ClipmapCenterAndExtent[0];
         s_Data.m_DeformShader->SetFloat2("u_ClipmapCenter", glm::vec2(ce.x, ce.y));
@@ -255,7 +267,7 @@ namespace OloEngine
         RenderCommand::BindImageTexture(0, s_Data.m_SnowDepthTexture->GetRendererID(),
                                         0, false, 0, GL_READ_WRITE, GL_R32F);
 
-        u32 groups = (2048 + 15) / 16;
+        u32 groups = (kSnowDepthResolution + 15) / 16;
         RenderCommand::DispatchCompute(groups, groups, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
     }

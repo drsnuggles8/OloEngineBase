@@ -291,22 +291,22 @@ namespace OloEngine
         // UNIFORM BUFFER OBJECT (UBO) BINDINGS
         // =============================================================================
 
-        static constexpr u32 UBO_CAMERA = 0;         // Camera matrices (view, projection, etc.)
-        static constexpr u32 UBO_LIGHTS = 1;         // Lighting properties and data
-        static constexpr u32 UBO_MATERIAL = 2;       // Material properties
-        static constexpr u32 UBO_MODEL = 3;          // Model/transform matrices
-        static constexpr u32 UBO_ANIMATION = 4;      // Animation/bone matrices
-        static constexpr u32 UBO_MULTI_LIGHTS = 5;   // Multi-light buffer for advanced lighting
-        static constexpr u32 UBO_SHADOW = 6;         // Shadow mapping matrices and parameters
-        static constexpr u32 UBO_USER_0 = 7;         // User-defined buffer 0 (PostProcess)
-        static constexpr u32 UBO_USER_1 = 8;         // User-defined buffer 1 (MotionBlur)
-        static constexpr u32 UBO_SSAO = 9;           // SSAO parameters
-        static constexpr u32 UBO_TERRAIN = 10;       // Terrain parameters (height scale, world size, etc.)
-        static constexpr u32 UBO_BRUSH_PREVIEW = 11; // Brush preview overlay for terrain editing
-        static constexpr u32 UBO_FOLIAGE = 12;       // Foliage instance rendering parameters
-        static constexpr u32 UBO_SNOW = 13;          // Snow rendering parameters
-        static constexpr u32 UBO_SSS = 14;           // SSS blur parameters
-        static constexpr u32 UBO_WIND = 15;               // Wind system parameters
+        static constexpr u32 UBO_CAMERA = 0;             // Camera matrices (view, projection, etc.)
+        static constexpr u32 UBO_LIGHTS = 1;             // Lighting properties and data
+        static constexpr u32 UBO_MATERIAL = 2;           // Material properties
+        static constexpr u32 UBO_MODEL = 3;              // Model/transform matrices
+        static constexpr u32 UBO_ANIMATION = 4;          // Animation/bone matrices
+        static constexpr u32 UBO_MULTI_LIGHTS = 5;       // Multi-light buffer for advanced lighting
+        static constexpr u32 UBO_SHADOW = 6;             // Shadow mapping matrices and parameters
+        static constexpr u32 UBO_USER_0 = 7;             // User-defined buffer 0 (PostProcess)
+        static constexpr u32 UBO_USER_1 = 8;             // User-defined buffer 1 (MotionBlur)
+        static constexpr u32 UBO_SSAO = 9;               // SSAO parameters
+        static constexpr u32 UBO_TERRAIN = 10;           // Terrain parameters (height scale, world size, etc.)
+        static constexpr u32 UBO_BRUSH_PREVIEW = 11;     // Brush preview overlay for terrain editing
+        static constexpr u32 UBO_FOLIAGE = 12;           // Foliage instance rendering parameters
+        static constexpr u32 UBO_SNOW = 13;              // Snow rendering parameters
+        static constexpr u32 UBO_SSS = 14;               // SSS blur parameters
+        static constexpr u32 UBO_WIND = 15;              // Wind system parameters
         static constexpr u32 UBO_SNOW_ACCUMULATION = 16; // Snow accumulation clipmap parameters
 
         // =============================================================================
@@ -343,7 +343,7 @@ namespace OloEngine
         static constexpr u32 TEX_TERRAIN_ARM_ARRAY = 27;    // Terrain ARM layer array (Texture2DArray)
         static constexpr u32 TEX_TERRAIN_SPLATMAP_1 = 28;   // Terrain splatmap 1 (RGBA8, layers 4-7)
         static constexpr u32 TEX_WIND_FIELD = 29;           // 3D wind velocity field (sampler3D, RGBA16F)
-        static constexpr u32 TEX_SNOW_DEPTH = 30;            // Snow accumulation depth map (sampler2D, R32F)
+        static constexpr u32 TEX_SNOW_DEPTH = 30;           // Snow accumulation depth map (sampler2D, R32F)
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
@@ -472,8 +472,8 @@ namespace OloEngine
                 case TEX_SNOW_DEPTH:
                     return name.contains("SnowDepth") || name.contains("snowDepth");
                 default:
-                    // Accept only explicitly defined engine texture slots (10–28)
-                    return binding >= TEX_USER_0 && binding <= TEX_TERRAIN_SPLATMAP_1;
+                    // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_SNOW_DEPTH, i.e. 10–30)
+                    return binding >= TEX_USER_0 && binding <= TEX_SNOW_DEPTH;
             }
         }
 

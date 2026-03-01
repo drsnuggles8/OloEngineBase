@@ -80,9 +80,9 @@ namespace OloEngine
             Ref<ComputeShader> m_AccumulateShader;
             Ref<ComputeShader> m_DeformShader;
             Ref<ComputeShader> m_ClearShader;
-            Ref<Texture2D> m_SnowDepthTexture; // R32F, 2048×2048
+            Ref<Texture2D> m_SnowDepthTexture;    // R32F, 2048×2048
             Ref<UniformBuffer> m_AccumulationUBO; // binding 16
-            u32 m_DeformerSSBO = 0; // Raw GL SSBO for deformer stamps
+            u32 m_DeformerSSBO = 0;               // Raw GL SSBO for deformer stamps
             SnowAccumulationUBOData m_GPUData;
 
             glm::vec3 m_PrevClipmapCenter = glm::vec3(0.0f);

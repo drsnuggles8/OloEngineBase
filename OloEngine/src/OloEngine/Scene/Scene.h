@@ -246,6 +246,7 @@ namespace OloEngine
         void LoadAndRenderSkybox();
         void RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip);
         void RenderUIOverlay();
+        void ProcessSnowDeformers(Timestep ts, TMap<u64, glm::vec3>& prevPositions);
 
       private:
         entt::registry m_Registry;
@@ -261,8 +262,12 @@ namespace OloEngine
         PostProcessSettings m_PostProcessSettings;             // Post-processing settings
         SnowSettings m_SnowSettings;                           // Snow rendering settings
         WindSettings m_WindSettings;                           // Wind simulation settings
-        SnowAccumulationSettings m_SnowAccumulationSettings;  // Snow accumulation & deformation
-        SnowEjectaSettings m_SnowEjectaSettings;                // Snow ejecta particle settings
+        SnowAccumulationSettings m_SnowAccumulationSettings;   // Snow accumulation & deformation
+        SnowEjectaSettings m_SnowEjectaSettings;               // Snow ejecta particle settings
+
+        // Per-entity previous positions for velocity estimation (snow ejecta)
+        TMap<u64, glm::vec3> m_RuntimeSnowPrevPositions;
+        TMap<u64, glm::vec3> m_EditorSnowPrevPositions;
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;

@@ -247,20 +247,20 @@ namespace OloEngine
     // Snow ejecta particle settings (scene-level)
     struct SnowEjectaSettings
     {
-        bool Enabled = true;                                       // Whether snow deformers emit ejecta particles
-        u32 ParticlesPerDeform = 8;                                // Particles emitted per deformer stamp per frame
-        f32 EjectaSpeed = 2.5f;                                    // Base outward velocity (m/s)
-        f32 SpeedVariance = 0.8f;                                  // Random speed variation factor (0–1)
-        f32 UpwardBias = 0.6f;                                     // Fraction of velocity directed upward vs outward
-        f32 LifetimeMin = 0.4f;                                    // Minimum particle lifetime (seconds)
-        f32 LifetimeMax = 1.2f;                                    // Maximum particle lifetime (seconds)
-        f32 InitialSize = 0.04f;                                   // Starting particle size (meters)
-        f32 SizeVariance = 0.02f;                                  // Random size variation (meters)
-        f32 GravityScale = 0.3f;                                   // Gravity multiplier (snow falls slowly)
-        f32 DragCoefficient = 2.0f;                                // Air drag for quick deceleration
-        glm::vec4 Color = glm::vec4(0.95f, 0.97f, 1.0f, 0.7f);   // RGBA snow puff color
-        f32 VelocityThreshold = 0.1f;                              // Min deformer speed to emit (m/s)
-        u32 MaxParticles = 8192;                                   // Max GPU particles in the ejecta pool
+        bool Enabled = false;                                  // Whether snow deformers emit ejecta particles
+        u32 ParticlesPerDeform = 8;                            // Particles emitted per deformer stamp per frame
+        f32 EjectaSpeed = 2.5f;                                // Base outward velocity (m/s)
+        f32 SpeedVariance = 0.8f;                              // Random speed variation factor (0–1)
+        f32 UpwardBias = 0.6f;                                 // Fraction of velocity directed upward vs outward
+        f32 LifetimeMin = 0.4f;                                // Minimum particle lifetime (seconds)
+        f32 LifetimeMax = 1.2f;                                // Maximum particle lifetime (seconds)
+        f32 InitialSize = 0.04f;                               // Starting particle size (meters)
+        f32 SizeVariance = 0.02f;                              // Random size variation (meters)
+        f32 GravityScale = 0.3f;                               // Gravity multiplier (snow falls slowly)
+        f32 DragCoefficient = 2.0f;                            // Air drag for quick deceleration
+        glm::vec4 Color = glm::vec4(0.95f, 0.97f, 1.0f, 0.7f); // RGBA snow puff color
+        f32 VelocityThreshold = 0.1f;                          // Min deformer speed to emit (m/s)
+        u32 MaxParticles = 8192;                               // Max GPU particles in the ejecta pool
     };
 
     // Wind simulation settings (scene-level, separate from PostProcess)

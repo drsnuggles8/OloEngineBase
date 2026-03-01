@@ -84,10 +84,10 @@ namespace OloEngine
     }
 
     void SnowEjectaSystem::EmitAt(const glm::vec3& position,
-                                   const glm::vec3& deformerVelocity,
-                                   f32 deformRadius,
-                                   f32 deformDepth,
-                                   const SnowEjectaSettings& settings)
+                                  const glm::vec3& deformerVelocity,
+                                  f32 deformRadius,
+                                  f32 deformDepth,
+                                  const SnowEjectaSettings& settings)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -108,7 +108,7 @@ namespace OloEngine
         u32 count = static_cast<u32>(static_cast<f32>(settings.ParticlesPerDeform) * depthScale);
         count = std::min(count, 64u); // Cap per-stamp burst
 
-        // Compute outward direction (horizontal, perpendicular to deformer velocity)
+        // Compute movement direction for wake-biased emission
         glm::vec3 moveDir = speed > 0.001f ? deformerVelocity / speed : glm::vec3(0.0f, 0.0f, 1.0f);
 
         FastRandom rng;
@@ -125,12 +125,12 @@ namespace OloEngine
             f32 speedMult = settings.EjectaSpeed *
                             rng.GetFloat32InRange(1.0f - settings.SpeedVariance, 1.0f + settings.SpeedVariance);
 
-            // Radial outward direction in XZ plane
+            // Radial outward direction in XZ plane, biased away from movement direction
             glm::vec3 outward(cosA, 0.0f, sinA);
+            outward = glm::normalize(outward + moveDir * 0.4f);
 
             // Bias velocity: fraction upward, rest outward
-            glm::vec3 vel = outward * speedMult * (1.0f - settings.UpwardBias)
-                          + glm::vec3(0.0f, speedMult * settings.UpwardBias, 0.0f);
+            glm::vec3 vel = outward * speedMult * (1.0f - settings.UpwardBias) + glm::vec3(0.0f, speedMult * settings.UpwardBias, 0.0f);
 
             // Add a fraction of the deformer's velocity for momentum transfer
             vel += deformerVelocity * 0.3f;
@@ -172,15 +172,15 @@ namespace OloEngine
         simParams.MaxParticles = s_Data.m_GPUSystem->GetMaxParticles();
         simParams.EnableGravity = 1;
         simParams.EnableDrag = 1;
-        simParams.EnableWind = 1;      // Let wind affect snow puffs
+        simParams.EnableWind = 1;       // Let wind affect snow puffs
         simParams.WindInfluence = 0.5f; // Moderate wind sensitivity
-        simParams.EnableNoise = 1;     // Turbulence for organic feel
+        simParams.EnableNoise = 1;      // Turbulence for organic feel
         simParams.NoiseStrength = 0.3f;
         simParams.NoiseFrequency = 2.0f;
         simParams.EnableGroundCollision = 1;
         simParams.GroundY = 0.0f;
-        simParams.CollisionBounce = 0.0f;    // Snow doesn't bounce
-        simParams.CollisionFriction = 1.0f;  // Full friction on landing
+        simParams.CollisionBounce = 0.0f;   // Snow doesn't bounce
+        simParams.CollisionFriction = 1.0f; // Full friction on landing
 
         // Run the GPU compute pipeline
         s_Data.m_GPUSystem->Simulate(simParams);

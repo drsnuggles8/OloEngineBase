@@ -900,11 +900,11 @@ namespace OloEngine
 
     struct SnowDeformerComponent
     {
-        f32 m_DeformRadius = 0.5f;       // World-space radius of the deformation stamp
-        f32 m_DeformDepth = 0.1f;        // How deep the deformer stamps into snow (meters)
-        f32 m_FalloffExponent = 2.0f;    // Radial falloff curve (1=linear, 2=quadratic)
-        f32 m_CompactionFactor = 0.5f;   // 0=full removal, 1=compact only (no displacement)
-        bool m_EmitEjecta = true;        // Emit snow puff particles on deformation
+        f32 m_DeformRadius = 0.5f;     // World-space radius of the deformation stamp
+        f32 m_DeformDepth = 0.1f;      // How deep the deformer stamps into snow (meters)
+        f32 m_FalloffExponent = 2.0f;  // Radial falloff curve (1=linear, 2=quadratic)
+        f32 m_CompactionFactor = 0.5f; // 0=full removal, 1=compact only (no displacement)
+        bool m_EmitEjecta = true;      // Emit snow puff particles on deformation
 
         SnowDeformerComponent() = default;
         SnowDeformerComponent(const SnowDeformerComponent&) = default;

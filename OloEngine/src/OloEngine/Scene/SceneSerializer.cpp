@@ -202,6 +202,8 @@ namespace OloEngine
 
     static void SerializeSnowAccumulationSettings(YAML::Emitter& out, const SnowAccumulationSettings& sa)
     {
+        OLO_PROFILE_FUNCTION();
+
         out << YAML::Key << "SnowAccumulationSettings";
         out << YAML::BeginMap;
         out << YAML::Key << "Enabled" << YAML::Value << sa.Enabled;
@@ -219,6 +221,8 @@ namespace OloEngine
 
     static void DeserializeSnowAccumulationSettings(const YAML::Node& data, SnowAccumulationSettings& sa)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (auto saNode = data["SnowAccumulationSettings"]; saNode)
         {
             TrySet(sa.Enabled, saNode["Enabled"]);
@@ -232,21 +236,28 @@ namespace OloEngine
             TrySet(sa.NumClipmapRings, saNode["NumClipmapRings"]);
             TrySet(sa.SnowDensity, saNode["SnowDensity"]);
 
-            // Validate
-            sa.AccumulationRate = std::clamp(sa.AccumulationRate, 0.0f, 10.0f);
-            sa.MaxDepth = std::clamp(sa.MaxDepth, 0.01f, 10.0f);
-            sa.MeltRate = std::clamp(sa.MeltRate, 0.0f, 10.0f);
-            sa.RestorationRate = std::clamp(sa.RestorationRate, 0.0f, 10.0f);
-            sa.DisplacementScale = std::clamp(sa.DisplacementScale, 0.0f, 10.0f);
+            // Validate — sanitize NaN/Inf then clamp
+            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v)) { v = fallback; return; }
+                v = std::clamp(v, lo, hi);
+            };
+            sanitizeFloat(sa.AccumulationRate, 0.0f, 10.0f, 0.02f);
+            sanitizeFloat(sa.MaxDepth, 0.01f, 10.0f, 0.5f);
+            sanitizeFloat(sa.MeltRate, 0.0f, 10.0f, 0.005f);
+            sanitizeFloat(sa.RestorationRate, 0.0f, 10.0f, 0.01f);
+            sanitizeFloat(sa.DisplacementScale, 0.0f, 10.0f, 1.0f);
+            sanitizeFloat(sa.ClipmapExtent, 1.0f, 1000.0f, 128.0f);
+            sanitizeFloat(sa.SnowDensity, 0.0f, 1.0f, 0.3f);
             sa.ClipmapResolution = std::clamp(sa.ClipmapResolution, 256u, 4096u);
-            sa.ClipmapExtent = std::clamp(sa.ClipmapExtent, 1.0f, 1000.0f);
             sa.NumClipmapRings = std::clamp(sa.NumClipmapRings, 1u, 3u);
-            sa.SnowDensity = std::clamp(sa.SnowDensity, 0.0f, 1.0f);
         }
     }
 
     static void SerializeSnowEjectaSettings(YAML::Emitter& out, const SnowEjectaSettings& se)
     {
+        OLO_PROFILE_FUNCTION();
+
         out << YAML::Key << "SnowEjectaSettings";
         out << YAML::BeginMap;
         out << YAML::Key << "Enabled" << YAML::Value << se.Enabled;
@@ -268,6 +279,8 @@ namespace OloEngine
 
     static void DeserializeSnowEjectaSettings(const YAML::Node& data, SnowEjectaSettings& se)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (auto seNode = data["SnowEjectaSettings"]; seNode)
         {
             TrySet(se.Enabled, seNode["Enabled"]);
@@ -285,20 +298,35 @@ namespace OloEngine
             TrySet(se.VelocityThreshold, seNode["VelocityThreshold"]);
             TrySet(se.MaxParticles, seNode["MaxParticles"]);
 
-            // Validate
+            // Validate — sanitize NaN/Inf then clamp
+            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v)) { v = fallback; return; }
+                v = std::clamp(v, lo, hi);
+            };
             se.ParticlesPerDeform = std::clamp(se.ParticlesPerDeform, 1u, 128u);
-            se.EjectaSpeed = std::clamp(se.EjectaSpeed, 0.0f, 50.0f);
-            se.SpeedVariance = std::clamp(se.SpeedVariance, 0.0f, 1.0f);
-            se.UpwardBias = std::clamp(se.UpwardBias, 0.0f, 1.0f);
-            se.LifetimeMin = std::clamp(se.LifetimeMin, 0.01f, 10.0f);
-            se.LifetimeMax = std::clamp(se.LifetimeMax, se.LifetimeMin, 10.0f);
-            se.InitialSize = std::clamp(se.InitialSize, 0.001f, 1.0f);
-            se.SizeVariance = std::clamp(se.SizeVariance, 0.0f, 0.5f);
-            se.GravityScale = std::clamp(se.GravityScale, 0.0f, 5.0f);
-            se.DragCoefficient = std::clamp(se.DragCoefficient, 0.0f, 20.0f);
-            se.VelocityThreshold = std::clamp(se.VelocityThreshold, 0.0f, 10.0f);
+            sanitizeFloat(se.EjectaSpeed, 0.0f, 50.0f, 2.5f);
+            sanitizeFloat(se.SpeedVariance, 0.0f, 1.0f, 0.8f);
+            sanitizeFloat(se.UpwardBias, 0.0f, 1.0f, 0.6f);
+            sanitizeFloat(se.LifetimeMin, 0.01f, 10.0f, 0.4f);
+            sanitizeFloat(se.LifetimeMax, se.LifetimeMin, 10.0f, 1.2f);
+            sanitizeFloat(se.InitialSize, 0.001f, 1.0f, 0.04f);
+            sanitizeFloat(se.SizeVariance, 0.0f, 0.5f, 0.02f);
+            sanitizeFloat(se.GravityScale, 0.0f, 5.0f, 0.3f);
+            sanitizeFloat(se.DragCoefficient, 0.0f, 20.0f, 2.0f);
+            sanitizeFloat(se.VelocityThreshold, 0.0f, 10.0f, 0.1f);
             se.MaxParticles = std::clamp(se.MaxParticles, 256u, 65536u);
         }
+    }
+
+    static void DeserializeSnowDeformerComponent(Entity& entity, const YAML::Node& node)
+    {
+        auto& sd = entity.AddComponent<SnowDeformerComponent>();
+        TrySet(sd.m_DeformRadius, node["DeformRadius"]);
+        TrySet(sd.m_DeformDepth, node["DeformDepth"]);
+        TrySet(sd.m_FalloffExponent, node["FalloffExponent"]);
+        TrySet(sd.m_CompactionFactor, node["CompactionFactor"]);
+        TrySet(sd.m_EmitEjecta, node["EmitEjecta"]);
     }
 
     static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)
@@ -2568,12 +2596,7 @@ namespace OloEngine
 
                 if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
                 {
-                    auto& sd = deserializedEntity.AddComponent<SnowDeformerComponent>();
-                    TrySet(sd.m_DeformRadius, snowDeformerComponent["DeformRadius"]);
-                    TrySet(sd.m_DeformDepth, snowDeformerComponent["DeformDepth"]);
-                    TrySet(sd.m_FalloffExponent, snowDeformerComponent["FalloffExponent"]);
-                    TrySet(sd.m_CompactionFactor, snowDeformerComponent["CompactionFactor"]);
-                    TrySet(sd.m_EmitEjecta, snowDeformerComponent["EmitEjecta"]);
+                    DeserializeSnowDeformerComponent(deserializedEntity, snowDeformerComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
@@ -3476,12 +3499,7 @@ namespace OloEngine
 
                 if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
                 {
-                    auto& sd = deserializedEntity.AddComponent<SnowDeformerComponent>();
-                    TrySet(sd.m_DeformRadius, snowDeformerComponent["DeformRadius"]);
-                    TrySet(sd.m_DeformDepth, snowDeformerComponent["DeformDepth"]);
-                    TrySet(sd.m_FalloffExponent, snowDeformerComponent["FalloffExponent"]);
-                    TrySet(sd.m_CompactionFactor, snowDeformerComponent["CompactionFactor"]);
-                    TrySet(sd.m_EmitEjecta, snowDeformerComponent["EmitEjecta"]);
+                    DeserializeSnowDeformerComponent(deserializedEntity, snowDeformerComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
