@@ -44,6 +44,14 @@ namespace OloEngine
         {
             m_SSAOTextureID = textureID;
         }
+        void SetFogEnabled(bool enabled)
+        {
+            m_FogEnabled = enabled;
+        }
+        void SetShadowMapCSMTextureID(u32 textureID)
+        {
+            m_ShadowMapCSMTextureID = textureID;
+        }
 
       private:
         void CreatePingPongFramebuffers(u32 width, u32 height);
@@ -71,6 +79,7 @@ namespace OloEngine
         Ref<Shader> m_FXAAShader;
         Ref<Shader> m_DOFShader;
         Ref<Shader> m_MotionBlurShader;
+        Ref<Shader> m_FogShader;
         Ref<Shader> m_SSAOApplyShader;
 
         PostProcessSettings m_Settings;
@@ -80,6 +89,15 @@ namespace OloEngine
         PostProcessUBOData* m_GPUData = nullptr;
 
         u32 m_SSAOTextureID = 0;
+        u32 m_ShadowMapCSMTextureID = 0;
+        bool m_FogEnabled = false;
+
+        // Half-resolution volumetric fog framebuffers
+        Ref<Framebuffer> m_FogHalfResFB; // RGBA16F: RGB = inscatter, A = transmittance
+        Ref<Framebuffer> m_FogHistoryFB; // Temporal reprojection history
+        u32 m_FogHalfWidth = 0;
+        u32 m_FogHalfHeight = 0;
+        Ref<Shader> m_FogUpsampleShader; // Bilateral upsample + composite
 
         // Bloom mip chain framebuffers (RGBA16F, progressively smaller)
         static constexpr u32 MAX_BLOOM_MIPS = 5;

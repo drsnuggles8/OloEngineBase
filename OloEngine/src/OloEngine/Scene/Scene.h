@@ -181,6 +181,19 @@ namespace OloEngine
             return m_SnowSettings;
         }
 
+        void SetFogSettings(const FogSettings& settings)
+        {
+            m_FogSettings = settings;
+        }
+        [[nodiscard]] const FogSettings& GetFogSettings() const
+        {
+            return m_FogSettings;
+        }
+        [[nodiscard]] FogSettings& GetFogSettings()
+        {
+            return m_FogSettings;
+        }
+
         void SetWindSettings(const WindSettings& settings)
         {
             m_WindSettings = settings;
@@ -261,6 +274,7 @@ namespace OloEngine
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
         PostProcessSettings m_PostProcessSettings;             // Post-processing settings
         SnowSettings m_SnowSettings;                           // Snow rendering settings
+        FogSettings m_FogSettings;                             // Fog & atmospheric scattering settings
         WindSettings m_WindSettings;                           // Wind simulation settings
         SnowAccumulationSettings m_SnowAccumulationSettings;   // Snow accumulation & deformation
         SnowEjectaSettings m_SnowEjectaSettings;               // Snow ejecta particle settings

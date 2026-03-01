@@ -21,6 +21,8 @@
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
 
+#include <chrono>
+
 // Forward declarations
 namespace OloEngine
 {
@@ -570,6 +572,11 @@ namespace OloEngine
             return s_Data.Snow;
         }
 
+        static FogSettings& GetFogSettings()
+        {
+            return s_Data.Fog;
+        }
+
         static WindSettings& GetWindSettings()
         {
             return s_Data.Wind;
@@ -643,6 +650,7 @@ namespace OloEngine
             Ref<UniformBuffer> FoliageUBO;
             Ref<UniformBuffer> SnowUBO;
             Ref<UniformBuffer> SSSUBO;
+            Ref<UniformBuffer> FogUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -697,6 +705,11 @@ namespace OloEngine
             SnowSettings Snow;
             SnowUBOData SnowGPUData;
             SSSUBOData SSSGPUData;
+            FogSettings Fog;
+            FogUBOData FogGPUData;
+            u32 FogFrameIndex = 0;
+            std::chrono::steady_clock::time_point FogLastTime{};
+            f32 FogTime = 0.0f;
             WindSettings Wind;
             SnowAccumulationSettings SnowAccumulation;
             SnowEjectaSettings SnowEjecta;

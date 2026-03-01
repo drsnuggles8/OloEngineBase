@@ -3,6 +3,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
 
 namespace OloEngine
 {
@@ -24,13 +25,6 @@ namespace OloEngine
         // IBL (Image-Based Lighting)
         bool EnableIBL = true;
         float IBLIntensity = 1.0f;
-
-        // Fog settings
-        bool EnableFog = false;
-        glm::vec3 FogColor = glm::vec3(0.5f, 0.6f, 0.7f);
-        float FogDensity = 0.01f;
-        float FogStart = 10.0f;
-        float FogEnd = 100.0f;
 
         // Tone mapping
         enum class ToneMappingMode : int

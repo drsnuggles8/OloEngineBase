@@ -111,7 +111,7 @@ namespace OloEngine
                 }
             }
             OLO_CORE_ASSERT(false);
-            return nullptr;
+            return "Unknown";
         }
 
         [[nodiscard("Store this!")]] static const char* GetCacheDirectory()
@@ -493,7 +493,7 @@ namespace OloEngine
         // Thread-safe storage for compilation results
         struct CompilationResult
         {
-            GLenum Stage;
+            GLenum Stage = 0;
             std::vector<u32> SpirvData;
             bool Success = false;
             std::string ErrorMessage;
@@ -575,8 +575,9 @@ namespace OloEngine
         {
             if (!result.Success)
             {
-                OLO_CORE_ERROR(result.ErrorMessage);
-                OLO_CORE_ASSERT(false);
+                OLO_CORE_CRITICAL("[OpenGL] SPIR-V compilation failed for '{}' (stage {}): {}",
+                                  m_FilePath, Utils::GLShaderStageToString(result.Stage), result.ErrorMessage);
+                OLO_CORE_VERIFY(false, "Shader SPIR-V compilation failure");
                 continue;
             }
 
@@ -623,7 +624,7 @@ namespace OloEngine
         // Thread-safe storage for compilation results
         struct OpenGLCompilationResult
         {
-            GLenum Stage;
+            GLenum Stage = 0;
             std::vector<u32> SpirvData;
             std::string GlslSource;
             bool Success = false;
@@ -736,8 +737,9 @@ namespace OloEngine
         {
             if (!result.Success)
             {
-                OLO_CORE_ERROR(result.ErrorMessage);
-                OLO_CORE_ASSERT(false);
+                OLO_CORE_CRITICAL("[OpenGL] SPIR-V cross-compilation failed for '{}' (stage {}): {}",
+                                  m_FilePath, Utils::GLShaderStageToString(result.Stage), result.ErrorMessage);
+                OLO_CORE_VERIFY(false, "Shader SPIR-V cross-compilation failure");
                 continue;
             }
 
@@ -917,7 +919,8 @@ namespace OloEngine
 
             std::vector<GLchar> infoLog(maxLength);
             glGetProgramInfoLog(program, maxLength, &maxLength, infoLog.data());
-            OLO_CORE_ERROR("Shader linking failed ({0}):\n{1}", m_FilePath, infoLog.data());
+            OLO_CORE_CRITICAL("[OpenGL] Shader linking failed for '{}':\n{}", m_FilePath, infoLog.data());
+            OLO_CORE_VERIFY(false, "Shader program linking failure");
 
             glDeleteProgram(program);
 
@@ -967,7 +970,7 @@ namespace OloEngine
         FinalizeProgram(program, m_OpenGLSPIRV);
     }
 
-    static bool VerifyProgramLink(GLenum const& program)
+    static bool VerifyProgramLink(GLenum const& program, const std::string& filePath)
     {
         int isLinked = 0;
         glGetError();
@@ -980,10 +983,8 @@ namespace OloEngine
             std::vector<GLchar> infoLog(maxLength);
             glGetProgramInfoLog(program, maxLength, &maxLength, &infoLog[0]);
 
-            glDeleteProgram(program);
-
-            OLO_CORE_ERROR("{0}", infoLog.data());
-            OLO_CORE_ASSERT(false, "[OpenGL] Shader link failure!");
+            OLO_CORE_CRITICAL("[OpenGL] Shader link failure for '{}': {}", filePath, infoLog.data());
+            OLO_CORE_VERIFY(false, "Shader program linking failure");
             return false;
         }
         return true;
@@ -1014,17 +1015,15 @@ namespace OloEngine
                 in.read(data.data(), size);
                 glProgramBinary(program, format, data.data(), static_cast<GLsizei>(data.size()));
 
-                const bool linked = VerifyProgramLink(program);
-
-                if (!linked)
-                {
-                    OLO_CORE_WARN("Cached program binary failed to link, recompiling: {0}", shaderFilePath.string());
-                }
-                else
+                if (VerifyProgramLink(program, m_FilePath))
                 {
                     FinalizeProgram(program, m_VulkanSPIRV);
                     return;
                 }
+
+                OLO_CORE_WARN("Cached program binary failed to link, recompiling: {0}", shaderFilePath.string());
+                glDeleteProgram(program);
+                program = glCreateProgram();
             }
             else
             {
@@ -1036,7 +1035,16 @@ namespace OloEngine
         CompileOpenGLBinariesForAmd(program, glShadersIDs);
         glLinkProgram(program);
 
-        if (const bool linked = VerifyProgramLink(program))
+        if (!VerifyProgramLink(program, m_FilePath))
+        {
+            for (auto const& id : glShadersIDs)
+            {
+                glDetachShader(program, id);
+            }
+            glDeleteProgram(program);
+            return;
+        }
+
         {
             GLint formats = 0;
             glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
@@ -1118,8 +1126,9 @@ namespace OloEngine
 
                 glDeleteShader(shader);
 
-                OLO_CORE_ERROR("{0}", infoLog.data());
-                OLO_CORE_ASSERT(false, "[OpenGL] Shader compilation failure!");
+                OLO_CORE_CRITICAL("[OpenGL] Shader compilation failed for '{}' (stage {}): {}",
+                                  m_FilePath, Utils::GLShaderStageToString(stage), infoLog.data());
+                OLO_CORE_VERIFY(false, "Shader source compilation failure");
                 return;
             }
             glAttachShader(program, shader);

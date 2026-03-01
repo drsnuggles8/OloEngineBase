@@ -123,6 +123,120 @@ namespace OloEngine
         }
     }
 
+    static void SerializeFogSettings(YAML::Emitter& out, const FogSettings& fog)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        out << YAML::Key << "FogSettings";
+        out << YAML::BeginMap;
+        out << YAML::Key << "Enabled" << YAML::Value << fog.Enabled;
+        out << YAML::Key << "Mode" << YAML::Value << static_cast<i32>(fog.Mode);
+        out << YAML::Key << "Color" << YAML::Value << fog.Color;
+        out << YAML::Key << "Density" << YAML::Value << fog.Density;
+        out << YAML::Key << "Start" << YAML::Value << fog.Start;
+        out << YAML::Key << "End" << YAML::Value << fog.End;
+        out << YAML::Key << "HeightFalloff" << YAML::Value << fog.HeightFalloff;
+        out << YAML::Key << "HeightOffset" << YAML::Value << fog.HeightOffset;
+        out << YAML::Key << "MaxOpacity" << YAML::Value << fog.MaxOpacity;
+        out << YAML::Key << "EnableScattering" << YAML::Value << fog.EnableScattering;
+        out << YAML::Key << "RayleighStrength" << YAML::Value << fog.RayleighStrength;
+        out << YAML::Key << "MieStrength" << YAML::Value << fog.MieStrength;
+        out << YAML::Key << "MieDirectionality" << YAML::Value << fog.MieDirectionality;
+        out << YAML::Key << "RayleighColor" << YAML::Value << fog.RayleighColor;
+        out << YAML::Key << "SunIntensity" << YAML::Value << fog.SunIntensity;
+        out << YAML::Key << "EnableVolumetric" << YAML::Value << fog.EnableVolumetric;
+        out << YAML::Key << "VolumetricSamples" << YAML::Value << fog.VolumetricSamples;
+        out << YAML::Key << "AbsorptionCoefficient" << YAML::Value << fog.AbsorptionCoefficient;
+        out << YAML::Key << "EnableNoise" << YAML::Value << fog.EnableNoise;
+        out << YAML::Key << "NoiseScale" << YAML::Value << fog.NoiseScale;
+        out << YAML::Key << "NoiseSpeed" << YAML::Value << fog.NoiseSpeed;
+        out << YAML::Key << "NoiseIntensity" << YAML::Value << fog.NoiseIntensity;
+        out << YAML::Key << "EnableLightShafts" << YAML::Value << fog.EnableLightShafts;
+        out << YAML::Key << "LightShaftIntensity" << YAML::Value << fog.LightShaftIntensity;
+        out << YAML::EndMap;
+    }
+
+    static void DeserializeFogSettings(const YAML::Node& data, FogSettings& fog)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (auto fogNode = data["FogSettings"]; fogNode)
+        {
+            TrySet(fog.Enabled, fogNode["Enabled"]);
+            i32 mode = static_cast<i32>(fog.Mode);
+            TrySet(mode, fogNode["Mode"]);
+            mode = std::clamp(mode, static_cast<i32>(FogMode::Linear), static_cast<i32>(FogMode::ExponentialSquared));
+            fog.Mode = static_cast<FogMode>(mode);
+            TrySet(fog.Color, fogNode["Color"]);
+            TrySet(fog.Density, fogNode["Density"]);
+            TrySet(fog.Start, fogNode["Start"]);
+            TrySet(fog.End, fogNode["End"]);
+            TrySet(fog.HeightFalloff, fogNode["HeightFalloff"]);
+            TrySet(fog.HeightOffset, fogNode["HeightOffset"]);
+            TrySet(fog.MaxOpacity, fogNode["MaxOpacity"]);
+            TrySet(fog.EnableScattering, fogNode["EnableScattering"]);
+            TrySet(fog.RayleighStrength, fogNode["RayleighStrength"]);
+            TrySet(fog.MieStrength, fogNode["MieStrength"]);
+            TrySet(fog.MieDirectionality, fogNode["MieDirectionality"]);
+            TrySet(fog.RayleighColor, fogNode["RayleighColor"]);
+            TrySet(fog.SunIntensity, fogNode["SunIntensity"]);
+            TrySet(fog.EnableVolumetric, fogNode["EnableVolumetric"]);
+            TrySet(fog.VolumetricSamples, fogNode["VolumetricSamples"]);
+            TrySet(fog.AbsorptionCoefficient, fogNode["AbsorptionCoefficient"]);
+            TrySet(fog.EnableNoise, fogNode["EnableNoise"]);
+            TrySet(fog.NoiseScale, fogNode["NoiseScale"]);
+            TrySet(fog.NoiseSpeed, fogNode["NoiseSpeed"]);
+            TrySet(fog.NoiseIntensity, fogNode["NoiseIntensity"]);
+            TrySet(fog.EnableLightShafts, fogNode["EnableLightShafts"]);
+            TrySet(fog.LightShaftIntensity, fogNode["LightShaftIntensity"]);
+
+            // Validate and sanitize deserialized fog parameters
+            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+            auto sanitizeVec3 = [](glm::vec3& v, const glm::vec3& fallback)
+            {
+                for (int i = 0; i < 3; ++i)
+                {
+                    if (!std::isfinite(v[i]))
+                    {
+                        v = fallback;
+                        return;
+                    }
+                }
+            };
+
+            sanitizeFloat(fog.Density, 0.0f, 10.0f, 0.02f);
+            sanitizeFloat(fog.Start, 0.0f, 1e6f, 10.0f);
+            sanitizeFloat(fog.End, 0.0f, 1e6f, 300.0f);
+            if (fog.Start >= fog.End)
+            {
+                fog.End = fog.Start + 1.0f;
+            }
+            sanitizeFloat(fog.HeightFalloff, 0.0f, 100.0f, 0.1f);
+            sanitizeFloat(fog.HeightOffset, -1e5f, 1e5f, 0.0f);
+            sanitizeFloat(fog.MaxOpacity, 0.0f, 1.0f, 1.0f);
+            sanitizeFloat(fog.RayleighStrength, 0.0f, 100.0f, 1.0f);
+            sanitizeFloat(fog.MieStrength, 0.0f, 10.0f, 0.005f);
+            sanitizeFloat(fog.MieDirectionality, -1.0f, 1.0f, 0.76f);
+            sanitizeFloat(fog.SunIntensity, 0.0f, 1000.0f, 22.0f);
+            sanitizeFloat(fog.AbsorptionCoefficient, 0.0f, 10.0f, 0.02f);
+            sanitizeFloat(fog.NoiseScale, 0.0f, 100.0f, 0.01f);
+            sanitizeFloat(fog.NoiseSpeed, 0.0f, 100.0f, 0.1f);
+            sanitizeFloat(fog.NoiseIntensity, 0.0f, 10.0f, 0.3f);
+            sanitizeFloat(fog.LightShaftIntensity, 0.0f, 100.0f, 1.0f);
+            fog.VolumetricSamples = std::clamp(fog.VolumetricSamples, 4, 128);
+            sanitizeVec3(fog.Color, glm::vec3(0.5f, 0.6f, 0.7f));
+            sanitizeVec3(fog.RayleighColor, glm::vec3(0.27f, 0.51f, 0.83f));
+        }
+    }
+
     static void SerializeWindSettings(YAML::Emitter& out, const WindSettings& wind)
     {
         OLO_PROFILE_FUNCTION();
@@ -1900,6 +2014,7 @@ namespace OloEngine
         out << YAML::EndMap;
 
         SerializeSnowSettings(out, m_Scene->GetSnowSettings());
+        SerializeFogSettings(out, m_Scene->GetFogSettings());
         SerializeWindSettings(out, m_Scene->GetWindSettings());
         SerializeSnowAccumulationSettings(out, m_Scene->GetSnowAccumulationSettings());
         SerializeSnowEjectaSettings(out, m_Scene->GetSnowEjectaSettings());
@@ -1986,6 +2101,7 @@ namespace OloEngine
         }
 
         DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
+        DeserializeFogSettings(data, m_Scene->GetFogSettings());
         DeserializeWindSettings(data, m_Scene->GetWindSettings());
         DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
         DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
@@ -2802,6 +2918,7 @@ namespace OloEngine
         out << YAML::EndMap;
 
         SerializeSnowSettings(out, m_Scene->GetSnowSettings());
+        SerializeFogSettings(out, m_Scene->GetFogSettings());
         SerializeWindSettings(out, m_Scene->GetWindSettings());
         SerializeSnowAccumulationSettings(out, m_Scene->GetSnowAccumulationSettings());
         SerializeSnowEjectaSettings(out, m_Scene->GetSnowEjectaSettings());
@@ -2885,6 +3002,7 @@ namespace OloEngine
         }
 
         DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
+        DeserializeFogSettings(data, m_Scene->GetFogSettings());
         DeserializeWindSettings(data, m_Scene->GetWindSettings());
         DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
         DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());

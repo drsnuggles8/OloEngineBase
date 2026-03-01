@@ -282,6 +282,7 @@ namespace OloEngine
         s_Data.SSAOUBO = UniformBuffer::Create(SSAOUBOData::GetSize(), ShaderBindingLayout::UBO_SSAO);
         s_Data.SnowUBO = UniformBuffer::Create(SnowUBOData::GetSize(), ShaderBindingLayout::UBO_SNOW);
         s_Data.SSSUBO = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
+        s_Data.FogUBO = UniformBuffer::Create(FogUBOData::GetSize(), ShaderBindingLayout::UBO_FOG);
 
         CommandDispatch::SetUBOReferences(
             s_Data.CameraUBO,
@@ -323,6 +324,11 @@ namespace OloEngine
         SnowAccumulationSystem::Init();
         SnowEjectaSystem::Init(s_Data.SnowEjecta.MaxParticles);
 
+        // Initialize fog temporal state
+        s_Data.FogFrameIndex = 0;
+        s_Data.FogLastTime = std::chrono::steady_clock::now();
+        s_Data.FogTime = 0.0f;
+
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
 
@@ -353,6 +359,11 @@ namespace OloEngine
 
         // Clear shader registries
         s_Data.ShaderRegistries.clear();
+
+        // Reset fog temporal state
+        s_Data.FogFrameIndex = 0;
+        s_Data.FogLastTime = {};
+        s_Data.FogTime = 0.0f;
 
         if (s_Data.RGraph)
             s_Data.RGraph->Shutdown();
@@ -532,6 +543,8 @@ namespace OloEngine
         {
             s_Data.PostProcessPass->SetSettings(s_Data.PostProcess);
             s_Data.PostProcessPass->SetPostProcessUBO(s_Data.PostProcessUBO, &s_Data.PostProcessGPUData);
+            s_Data.PostProcessPass->SetFogEnabled(s_Data.Fog.Enabled);
+            s_Data.PostProcessPass->SetShadowMapCSMTextureID(s_Data.Shadow.GetCSMRendererID());
 
             // Pass SSAO texture to PostProcessPass for application
             if (s_Data.SSAOPass && s_Data.PostProcess.SSAOEnabled)
@@ -612,6 +625,50 @@ namespace OloEngine
             s_Data.SnowUBO->SetData(&gpu, SnowUBOData::GetSize());
         }
 
+        // Upload fog & atmospheric scattering settings to GPU
+        if (s_Data.Fog.Enabled)
+        {
+            auto& fog = s_Data.Fog;
+            auto& gpu = s_Data.FogGPUData;
+            gpu.ColorAndDensity = glm::vec4(fog.Color, fog.Density);
+            gpu.DistanceParams = glm::vec4(fog.Start, fog.End, fog.HeightFalloff, fog.HeightOffset);
+            gpu.ScatterParams = glm::vec4(fog.RayleighStrength, fog.MieStrength, fog.MieDirectionality, fog.SunIntensity);
+            gpu.RayleighColorAndMaxOpacity = glm::vec4(fog.RayleighColor, fog.MaxOpacity);
+            // Derive sun direction from the scene's primary directional light
+            // Guard against zero-length direction to prevent NaN from normalize
+            glm::vec3 sunDir(0.0f, -1.0f, 0.0f);
+            f32 const dirLen2 = glm::dot(s_Data.SceneLight.Direction, s_Data.SceneLight.Direction);
+            if (std::isfinite(dirLen2) && dirLen2 > 1e-8f)
+            {
+                sunDir = glm::normalize(s_Data.SceneLight.Direction);
+            }
+            // Pack fog frame index into SunDirection.w (bare uniforms fail SPIR-V)
+            // Wrap at 1024 to stay well within float32 integer-exact range
+            gpu.SunDirection = glm::vec4(sunDir, static_cast<f32>(s_Data.FogFrameIndex));
+            s_Data.FogFrameIndex = (s_Data.FogFrameIndex + 1u) & 0x3FFu;
+            gpu.Flags = glm::vec4(1.0f, static_cast<f32>(static_cast<i32>(fog.Mode)),
+                                  fog.EnableScattering ? 1.0f : 0.0f,
+                                  fog.EnableVolumetric ? 1.0f : 0.0f);
+
+            // Accumulate time for noise animation
+            auto fogNow = std::chrono::steady_clock::now();
+            f32 const fogDt = std::clamp(std::chrono::duration<f32>(fogNow - s_Data.FogLastTime).count(), 0.0f, 0.1f);
+            s_Data.FogLastTime = fogNow;
+            s_Data.FogTime += fogDt;
+
+            f32 const effectiveNoiseIntensity = fog.EnableNoise ? fog.NoiseIntensity : 0.0f;
+            gpu.NoiseParams = glm::vec4(fog.NoiseScale, fog.NoiseSpeed, effectiveNoiseIntensity, s_Data.FogTime);
+            gpu.VolumetricParams = glm::vec4(static_cast<f32>(fog.VolumetricSamples), fog.AbsorptionCoefficient,
+                                             fog.LightShaftIntensity, fog.EnableLightShafts ? 1.0f : 0.0f);
+            s_Data.FogUBO->SetData(&gpu, FogUBOData::GetSize());
+        }
+        else
+        {
+            auto& gpu = s_Data.FogGPUData;
+            gpu.Flags = glm::vec4(0.0f);
+            s_Data.FogUBO->SetData(&gpu, FogUBOData::GetSize());
+        }
+
         // Update wind system (regenerate 3D wind field, upload wind UBO)
         {
             // TODO: Pass actual frame dt once Timestep is threaded through BeginScene
@@ -639,8 +696,8 @@ namespace OloEngine
             }
         }
 
-        // Upload motion blur matrices
-        if (s_Data.PostProcess.MotionBlurEnabled)
+        // Upload motion blur / inverse VP matrices (needed by motion blur AND fog depth reconstruction)
+        if (s_Data.PostProcess.MotionBlurEnabled || s_Data.Fog.Enabled)
         {
             auto& mb = s_Data.MotionBlurGPUData;
             mb.InverseViewProjection = glm::inverse(s_Data.ViewProjectionMatrix);
@@ -687,8 +744,6 @@ namespace OloEngine
         FrameDataBufferManager::Get().PrepareForParallelSubmission();
 
         s_Data.ParallelSubmissionActive = true;
-
-        OLO_CORE_TRACE("Renderer3D: Parallel submission mode enabled");
     }
 
     void Renderer3D::EndParallelSubmission()
@@ -715,8 +770,6 @@ namespace OloEngine
         CommandMemoryManager::ReleaseWorkerAllocators();
 
         s_Data.ParallelSubmissionActive = false;
-
-        OLO_CORE_TRACE("Renderer3D: Parallel submission mode disabled");
     }
 
     WorkerSubmitContext Renderer3D::GetWorkerContext(u32 workerIndex)

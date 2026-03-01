@@ -34,10 +34,25 @@ namespace OloEngine
         m_FXAAShader = Shader::Create("assets/shaders/PostProcess_FXAA.glsl");
         m_DOFShader = Shader::Create("assets/shaders/PostProcess_DOF.glsl");
         m_MotionBlurShader = Shader::Create("assets/shaders/PostProcess_MotionBlur.glsl");
+        m_FogShader = Shader::Create("assets/shaders/PostProcess_Fog.glsl");
+        m_FogUpsampleShader = Shader::Create("assets/shaders/PostProcess_FogUpsample.glsl");
         m_SSAOApplyShader = Shader::Create("assets/shaders/PostProcess_SSAOApply.glsl");
 
         // Create bloom mip chain
         CreateBloomMipChain(spec.Width, spec.Height);
+
+        // Create half-res fog framebuffers
+        m_FogHalfWidth = std::max(1u, spec.Width / 2);
+        m_FogHalfHeight = std::max(1u, spec.Height / 2);
+        {
+            FramebufferSpecification fogSpec;
+            fogSpec.Width = m_FogHalfWidth;
+            fogSpec.Height = m_FogHalfHeight;
+            fogSpec.Samples = 1;
+            fogSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
+            m_FogHalfResFB = Framebuffer::Create(fogSpec);
+            m_FogHistoryFB = Framebuffer::Create(fogSpec);
+        }
 
         OLO_CORE_INFO("PostProcessRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
@@ -58,7 +73,7 @@ namespace OloEngine
         }
 
         // If no effects are enabled, skip — GetTarget() returns the input framebuffer directly
-        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.ColorGradingEnabled || (m_Settings.SSAOEnabled && m_SSAOTextureID != 0);
+        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.ColorGradingEnabled || m_FogEnabled || (m_Settings.SSAOEnabled && m_SSAOTextureID != 0);
 
         // Always run tone mapping if we have the shader (it's the core of post-processing)
         if (!anyEffectEnabled && !m_ToneMapShader)
@@ -192,6 +207,80 @@ namespace OloEngine
             writeToP = !writeToP;
         }
 
+        // 3.5. Volumetric Fog — half-res ray-march + temporal reprojection + bilateral upsample
+        if (m_FogEnabled && m_FogShader && m_FogUpsampleShader && m_SceneDepthFB && m_FogHalfResFB)
+        {
+            u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
+
+            // Pass A: Ray-march at half resolution into m_FogHalfResFB
+            //   Output: RGBA16F — RGB = accumulated inscatter, A = transmittance
+            m_FogHalfResFB->Bind();
+            RenderCommand::SetViewport(0, 0, m_FogHalfWidth, m_FogHalfHeight);
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetBlendState(false);
+
+            m_FogShader->Bind();
+
+            // Bind full-res depth (reads at half-res UV)
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+
+            // Bind temporal history for reprojection
+            if (m_FogHistoryFB)
+            {
+                u32 historyID = m_FogHistoryFB->GetColorAttachmentRendererID(0);
+                RenderCommand::BindTexture(3, historyID);
+            }
+
+            // Bind CSM shadow map for volumetric light shafts
+            if (m_ShadowMapCSMTextureID != 0)
+            {
+                RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW, m_ShadowMapCSMTextureID);
+            }
+
+            DrawFullscreenTriangle();
+            m_FogHalfResFB->Unbind();
+
+            // Copy current result to history for next frame's temporal reprojection
+            // (swap references — cheap, no GPU copy needed)
+            std::swap(m_FogHistoryFB, m_FogHalfResFB);
+            // After swap: m_FogHistoryFB has THIS frame's result (for next frame),
+            //             m_FogHalfResFB is the OLD history (will be overwritten next frame).
+            // We read from m_FogHistoryFB since it has the current frame's output.
+
+            // Pass B: Bilateral upsample half-res fog + composite onto full-res scene
+            RenderCommand::SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+            Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
+            dest->Bind();
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetBlendState(false);
+
+            m_FogUpsampleShader->Bind();
+
+            // Scene color (current source)
+            u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
+            RenderCommand::BindTexture(0, srcColorID);
+            m_FogUpsampleShader->SetInt("u_SceneColor", 0);
+
+            // Half-res fog result (from the swap, this is now m_FogHistoryFB)
+            u32 fogID = m_FogHistoryFB->GetColorAttachmentRendererID(0);
+            RenderCommand::BindTexture(1, fogID);
+            m_FogUpsampleShader->SetInt("u_FogTexture", 1);
+
+            // Full-res depth for bilateral edge detection
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+            m_FogUpsampleShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
+
+            DrawFullscreenTriangle();
+            dest->Unbind();
+
+            currentSource = dest;
+            writeToP = !writeToP;
+        }
+
         // 4. Chromatic Aberration
         if (m_Settings.ChromaticAberrationEnabled && m_ChromaticAberrationShader)
         {
@@ -311,6 +400,25 @@ namespace OloEngine
             m_PingFB->Resize(width, height);
             m_PongFB->Resize(width, height);
         }
+
+        // Setup or resize half-res fog framebuffers
+        m_FogHalfWidth = std::max(1u, width / 2);
+        m_FogHalfHeight = std::max(1u, height / 2);
+        if (!m_FogHalfResFB)
+        {
+            FramebufferSpecification fogSpec;
+            fogSpec.Width = m_FogHalfWidth;
+            fogSpec.Height = m_FogHalfHeight;
+            fogSpec.Samples = 1;
+            fogSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
+            m_FogHalfResFB = Framebuffer::Create(fogSpec);
+            m_FogHistoryFB = Framebuffer::Create(fogSpec);
+        }
+        else
+        {
+            m_FogHalfResFB->Resize(m_FogHalfWidth, m_FogHalfHeight);
+            m_FogHistoryFB->Resize(m_FogHalfWidth, m_FogHalfHeight);
+        }
     }
 
     void PostProcessRenderPass::ResizeFramebuffer(u32 width, u32 height)
@@ -335,6 +443,18 @@ namespace OloEngine
             m_PongFB->Resize(width, height);
         }
 
+        // Resize half-res fog framebuffers
+        m_FogHalfWidth = std::max(1u, width / 2);
+        m_FogHalfHeight = std::max(1u, height / 2);
+        if (m_FogHalfResFB)
+        {
+            m_FogHalfResFB->Resize(m_FogHalfWidth, m_FogHalfHeight);
+        }
+        if (m_FogHistoryFB)
+        {
+            m_FogHistoryFB->Resize(m_FogHalfWidth, m_FogHalfHeight);
+        }
+
         // Resize bloom mip chain
         CreateBloomMipChain(width, height);
 
@@ -349,6 +469,17 @@ namespace OloEngine
         {
             CreatePingPongFramebuffers(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
             CreateBloomMipChain(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+
+            m_FogHalfWidth = std::max(1u, m_FramebufferSpec.Width / 2);
+            m_FogHalfHeight = std::max(1u, m_FramebufferSpec.Height / 2);
+            FramebufferSpecification fogSpec;
+            fogSpec.Width = m_FogHalfWidth;
+            fogSpec.Height = m_FogHalfHeight;
+            fogSpec.Samples = 1;
+            fogSpec.Attachments = { FramebufferTextureFormat::RGBA16F };
+            m_FogHalfResFB = Framebuffer::Create(fogSpec);
+            m_FogHistoryFB = Framebuffer::Create(fogSpec);
+
             OLO_CORE_INFO("PostProcessRenderPass reset with dimensions {}x{}",
                           m_FramebufferSpec.Width, m_FramebufferSpec.Height);
         }
