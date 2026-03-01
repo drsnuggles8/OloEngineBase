@@ -172,15 +172,15 @@ namespace OloEngine
         simParams.MaxParticles = s_Data.m_GPUSystem->GetMaxParticles();
         simParams.EnableGravity = 1;
         simParams.EnableDrag = 1;
-        simParams.EnableWind = 1;       // Let wind affect snow puffs
-        simParams.WindInfluence = 0.5f; // Moderate wind sensitivity
-        simParams.EnableNoise = 1;      // Turbulence for organic feel
-        simParams.NoiseStrength = 0.3f;
-        simParams.NoiseFrequency = 2.0f;
+        simParams.EnableWind = 1; // Let wind affect snow puffs
+        simParams.WindInfluence = settings.WindInfluence;
+        simParams.EnableNoise = 1; // Turbulence for organic feel
+        simParams.NoiseStrength = settings.NoiseStrength;
+        simParams.NoiseFrequency = settings.NoiseFrequency;
         simParams.EnableGroundCollision = 1;
-        simParams.GroundY = 0.0f;
-        simParams.CollisionBounce = 0.0f;   // Snow doesn't bounce
-        simParams.CollisionFriction = 1.0f; // Full friction on landing
+        simParams.GroundY = settings.GroundY;
+        simParams.CollisionBounce = settings.CollisionBounce;
+        simParams.CollisionFriction = settings.CollisionFriction;
 
         // Run the GPU compute pipeline
         s_Data.m_GPUSystem->Simulate(simParams);

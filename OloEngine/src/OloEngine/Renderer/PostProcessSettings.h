@@ -261,6 +261,14 @@ namespace OloEngine
         glm::vec4 Color = glm::vec4(0.95f, 0.97f, 1.0f, 0.7f); // RGBA snow puff color
         f32 VelocityThreshold = 0.1f;                          // Min deformer speed to emit (m/s)
         u32 MaxParticles = 8192;                               // Max GPU particles in the ejecta pool
+
+        // --- Advanced Simulation (modify with care) ---
+        f32 WindInfluence = 0.5f;     // How strongly wind affects snow puffs (0–1)
+        f32 NoiseStrength = 0.3f;     // Turbulence intensity for organic motion
+        f32 NoiseFrequency = 2.0f;    // Spatial frequency of turbulence noise
+        f32 GroundY = 0.0f;           // Ground plane Y for collision
+        f32 CollisionBounce = 0.0f;   // Bounce factor on ground hit (0 = no bounce)
+        f32 CollisionFriction = 1.0f; // Friction on ground contact (1 = full stop)
     };
 
     // Wind simulation settings (scene-level, separate from PostProcess)

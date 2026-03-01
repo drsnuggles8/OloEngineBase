@@ -15,7 +15,7 @@ layout(r32f, binding = 0) uniform image2D u_SnowDepth;
 struct DeformerStamp
 {
     vec4 posAndRadius;       // xyz = world position, w = radius
-    vec4 depthAndFalloff;    // x = deform depth, y = falloff exponent, z = compaction, w = unused
+    vec4 depthAndFalloff;    // x = deform depth, y = falloff exponent, z = compaction (reserved, not yet used), w = unused
 };
 
 layout(std430, binding = 7) readonly buffer DeformerBuffer

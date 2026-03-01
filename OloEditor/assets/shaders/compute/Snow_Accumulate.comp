@@ -32,7 +32,6 @@ void main()
     float currentDepth = imageLoad(u_SnowDepth, texel).r;
 
     // Compute world XZ position for this texel
-    float halfExtent = u_ClipmapExtent * 0.5;
     vec2 uv = (vec2(texel) + 0.5) / float(u_Resolution);
     vec2 worldXZ = u_ClipmapCenter + (uv - 0.5) * u_ClipmapExtent;
 

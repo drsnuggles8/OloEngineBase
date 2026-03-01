@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -82,7 +83,7 @@ namespace OloEngine
             Ref<ComputeShader> m_ClearShader;
             Ref<Texture2D> m_SnowDepthTexture;    // R32F, 2048×2048
             Ref<UniformBuffer> m_AccumulationUBO; // binding 16
-            u32 m_DeformerSSBO = 0;               // Raw GL SSBO for deformer stamps
+            Ref<StorageBuffer> m_DeformerSSBO;    // SSBO for deformer stamps (binding 7)
             SnowAccumulationUBOData m_GPUData;
 
             glm::vec3 m_PrevClipmapCenter = glm::vec3(0.0f);

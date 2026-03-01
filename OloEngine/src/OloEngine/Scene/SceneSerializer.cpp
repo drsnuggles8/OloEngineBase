@@ -278,6 +278,12 @@ namespace OloEngine
         out << YAML::Key << "Color" << YAML::Value << se.Color;
         out << YAML::Key << "VelocityThreshold" << YAML::Value << se.VelocityThreshold;
         out << YAML::Key << "MaxParticles" << YAML::Value << se.MaxParticles;
+        out << YAML::Key << "WindInfluence" << YAML::Value << se.WindInfluence;
+        out << YAML::Key << "NoiseStrength" << YAML::Value << se.NoiseStrength;
+        out << YAML::Key << "NoiseFrequency" << YAML::Value << se.NoiseFrequency;
+        out << YAML::Key << "GroundY" << YAML::Value << se.GroundY;
+        out << YAML::Key << "CollisionBounce" << YAML::Value << se.CollisionBounce;
+        out << YAML::Key << "CollisionFriction" << YAML::Value << se.CollisionFriction;
         out << YAML::EndMap;
     }
 
@@ -301,6 +307,12 @@ namespace OloEngine
             TrySet(se.Color, seNode["Color"]);
             TrySet(se.VelocityThreshold, seNode["VelocityThreshold"]);
             TrySet(se.MaxParticles, seNode["MaxParticles"]);
+            TrySet(se.WindInfluence, seNode["WindInfluence"]);
+            TrySet(se.NoiseStrength, seNode["NoiseStrength"]);
+            TrySet(se.NoiseFrequency, seNode["NoiseFrequency"]);
+            TrySet(se.GroundY, seNode["GroundY"]);
+            TrySet(se.CollisionBounce, seNode["CollisionBounce"]);
+            TrySet(se.CollisionFriction, seNode["CollisionFriction"]);
 
             // Validate — sanitize NaN/Inf then clamp
             auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -324,17 +336,40 @@ namespace OloEngine
             sanitizeFloat(se.DragCoefficient, 0.0f, 20.0f, 2.0f);
             sanitizeFloat(se.VelocityThreshold, 0.0f, 10.0f, 0.1f);
             se.MaxParticles = std::clamp(se.MaxParticles, 256u, 65536u);
+            sanitizeFloat(se.WindInfluence, 0.0f, 1.0f, 0.5f);
+            sanitizeFloat(se.NoiseStrength, 0.0f, 5.0f, 0.3f);
+            sanitizeFloat(se.NoiseFrequency, 0.0f, 20.0f, 2.0f);
+            sanitizeFloat(se.GroundY, -1000.0f, 1000.0f, 0.0f);
+            sanitizeFloat(se.CollisionBounce, 0.0f, 1.0f, 0.0f);
+            sanitizeFloat(se.CollisionFriction, 0.0f, 1.0f, 1.0f);
         }
     }
 
     static void DeserializeSnowDeformerComponent(Entity& entity, const YAML::Node& node)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& sd = entity.AddComponent<SnowDeformerComponent>();
         TrySet(sd.m_DeformRadius, node["DeformRadius"]);
         TrySet(sd.m_DeformDepth, node["DeformDepth"]);
         TrySet(sd.m_FalloffExponent, node["FalloffExponent"]);
         TrySet(sd.m_CompactionFactor, node["CompactionFactor"]);
         TrySet(sd.m_EmitEjecta, node["EmitEjecta"]);
+
+        // Validate — sanitize NaN/Inf then clamp
+        auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
+        {
+            if (!std::isfinite(v))
+            {
+                v = fallback;
+                return;
+            }
+            v = std::clamp(v, lo, hi);
+        };
+        sanitizeFloat(sd.m_DeformRadius, 0.01f, 50.0f, 0.5f);
+        sanitizeFloat(sd.m_DeformDepth, 0.0f, 10.0f, 0.1f);
+        sanitizeFloat(sd.m_FalloffExponent, 0.1f, 10.0f, 2.0f);
+        sanitizeFloat(sd.m_CompactionFactor, 0.0f, 1.0f, 0.5f);
     }
 
     static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)

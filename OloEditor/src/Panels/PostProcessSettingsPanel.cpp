@@ -417,6 +417,21 @@ namespace OloEngine
                 ImGui::DragFloat("Gravity Scale##Ejecta", &settings.GravityScale, 0.01f, 0.0f, 5.0f, "%.2f");
                 ImGui::DragFloat("Drag##Ejecta", &settings.DragCoefficient, 0.1f, 0.0f, 20.0f, "%.1f");
 
+                ImGui::SeparatorText("Advanced Simulation");
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Modify with care — may cause visual artifacts");
+                ImGui::DragFloat("Wind Influence##Ejecta", &settings.WindInfluence, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How strongly wind affects snow puffs (0=none, 1=full)");
+                ImGui::DragFloat("Noise Strength##Ejecta", &settings.NoiseStrength, 0.01f, 0.0f, 5.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Turbulence intensity for organic motion");
+                ImGui::DragFloat("Noise Frequency##Ejecta", &settings.NoiseFrequency, 0.1f, 0.0f, 20.0f, "%.1f");
+                ImGui::DragFloat("Ground Y##Ejecta", &settings.GroundY, 0.1f, -1000.0f, 1000.0f, "%.1f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Y height of the ground plane for particle collision");
+                ImGui::DragFloat("Collision Bounce##Ejecta", &settings.CollisionBounce, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::DragFloat("Collision Friction##Ejecta", &settings.CollisionFriction, 0.01f, 0.0f, 1.0f, "%.2f");
+
                 if (ImGui::Button("Reset Ejecta##SnowEjecta"))
                 {
                     SnowEjectaSystem::Reset();

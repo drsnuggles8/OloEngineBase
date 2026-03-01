@@ -159,3 +159,64 @@ TEST(ShaderBindingLayout, SnowAndSSSBindingsExist)
     EXPECT_NE(ShaderBindingLayout::UBO_SSS, ShaderBindingLayout::UBO_SHADOW);
     EXPECT_NE(ShaderBindingLayout::UBO_SSS, ShaderBindingLayout::UBO_USER_0);
 }
+
+// =============================================================================
+// SnowAccumulationSettings Defaults
+// =============================================================================
+
+TEST(SnowAccumulationSettings, DefaultsAreReasonable)
+{
+    SnowAccumulationSettings sa;
+
+    EXPECT_FALSE(sa.Enabled);
+    EXPECT_GT(sa.AccumulationRate, 0.0f);
+    EXPECT_GT(sa.MaxDepth, 0.0f);
+    EXPECT_GE(sa.MeltRate, 0.0f);
+    EXPECT_GE(sa.RestorationRate, 0.0f);
+    EXPECT_GT(sa.DisplacementScale, 0.0f);
+    EXPECT_GT(sa.ClipmapResolution, 0u);
+    EXPECT_GT(sa.ClipmapExtent, 0.0f);
+    EXPECT_GE(sa.NumClipmapRings, 1u);
+    EXPECT_GE(sa.SnowDensity, 0.0f);
+    EXPECT_LE(sa.SnowDensity, 1.0f);
+}
+
+// =============================================================================
+// SnowEjectaSettings Defaults
+// =============================================================================
+
+TEST(SnowEjectaSettings, DefaultsAreReasonable)
+{
+    SnowEjectaSettings se;
+
+    EXPECT_FALSE(se.Enabled);
+    EXPECT_GT(se.ParticlesPerDeform, 0u);
+    EXPECT_GT(se.EjectaSpeed, 0.0f);
+    EXPECT_GE(se.SpeedVariance, 0.0f);
+    EXPECT_LE(se.SpeedVariance, 1.0f);
+    EXPECT_GE(se.UpwardBias, 0.0f);
+    EXPECT_LE(se.UpwardBias, 1.0f);
+    EXPECT_GT(se.LifetimeMin, 0.0f);
+    EXPECT_GE(se.LifetimeMax, se.LifetimeMin);
+    EXPECT_GT(se.InitialSize, 0.0f);
+    EXPECT_GE(se.SizeVariance, 0.0f);
+    EXPECT_GE(se.GravityScale, 0.0f);
+    EXPECT_GE(se.DragCoefficient, 0.0f);
+    EXPECT_GE(se.VelocityThreshold, 0.0f);
+    EXPECT_GT(se.MaxParticles, 0u);
+}
+
+TEST(SnowEjectaSettings, SimConstantsHaveSaneDefaults)
+{
+    SnowEjectaSettings se;
+
+    EXPECT_GE(se.WindInfluence, 0.0f);
+    EXPECT_LE(se.WindInfluence, 1.0f);
+    EXPECT_GE(se.NoiseStrength, 0.0f);
+    EXPECT_GT(se.NoiseFrequency, 0.0f);
+    EXPECT_FLOAT_EQ(se.GroundY, 0.0f);
+    EXPECT_GE(se.CollisionBounce, 0.0f);
+    EXPECT_LE(se.CollisionBounce, 1.0f);
+    EXPECT_GE(se.CollisionFriction, 0.0f);
+    EXPECT_LE(se.CollisionFriction, 1.0f);
+}

@@ -1250,17 +1250,32 @@ namespace OloEngine
         // Bind shadow textures (terrain PBR needs shadows too)
         if (s_Data.CSMShadowTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] != s_Data.CSMShadowTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] = s_Data.CSMShadowTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
         }
         if (s_Data.SpotShadowTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] != s_Data.SpotShadowTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] = s_Data.SpotShadowTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
         }
 
         // Bind snow depth texture for accumulation displacement
         if (s_Data.SnowDepthTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] != s_Data.SnowDepthTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] = s_Data.SnowDepthTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
         }
 
         // Draw with GL_PATCHES for tessellation

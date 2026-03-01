@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -48,27 +49,16 @@ namespace OloEngine
         s_Data.m_DeformShader = ComputeShader::Create("assets/shaders/compute/Snow_Deform.comp");
 
         // Create deformer SSBO (binding 7) — start with space for 64 stamps
-        glCreateBuffers(1, &s_Data.m_DeformerSSBO);
-        if (s_Data.m_DeformerSSBO == 0)
-        {
-            OLO_CORE_ERROR("SnowAccumulationSystem::Init — failed to create deformer SSBO");
-            s_Data.m_AccumulateShader = nullptr;
-            s_Data.m_ClearShader = nullptr;
-            s_Data.m_DeformShader = nullptr;
-            s_Data.m_SnowDepthTexture = nullptr;
-            s_Data.m_AccumulationUBO = nullptr;
-            return;
-        }
         constexpr u32 initialStampCapacity = 64;
         constexpr u32 stampSize = 2 * sizeof(glm::vec4); // 32 bytes per stamp
-        glNamedBufferStorage(s_Data.m_DeformerSSBO,
-                             initialStampCapacity * stampSize,
-                             nullptr,
-                             GL_DYNAMIC_STORAGE_BIT);
+        s_Data.m_DeformerSSBO = StorageBuffer::Create(
+            initialStampCapacity * stampSize,
+            ShaderBindingLayout::SSBO_SNOW_DEFORMERS);
 
         // Verify all resources were created successfully
         if (!s_Data.m_SnowDepthTexture || !s_Data.m_AccumulationUBO ||
-            !s_Data.m_AccumulateShader || !s_Data.m_ClearShader || !s_Data.m_DeformShader)
+            !s_Data.m_AccumulateShader || !s_Data.m_ClearShader || !s_Data.m_DeformShader ||
+            !s_Data.m_DeformerSSBO)
         {
             OLO_CORE_ERROR("SnowAccumulationSystem::Init failed — one or more GPU resources could not be created");
             s_Data.m_AccumulateShader = nullptr;
@@ -76,11 +66,7 @@ namespace OloEngine
             s_Data.m_DeformShader = nullptr;
             s_Data.m_SnowDepthTexture = nullptr;
             s_Data.m_AccumulationUBO = nullptr;
-            if (s_Data.m_DeformerSSBO)
-            {
-                glDeleteBuffers(1, &s_Data.m_DeformerSSBO);
-                s_Data.m_DeformerSSBO = 0;
-            }
+            s_Data.m_DeformerSSBO = nullptr;
             return;
         }
 
@@ -100,12 +86,7 @@ namespace OloEngine
         s_Data.m_DeformShader = nullptr;
         s_Data.m_SnowDepthTexture = nullptr;
         s_Data.m_AccumulationUBO = nullptr;
-
-        if (s_Data.m_DeformerSSBO)
-        {
-            glDeleteBuffers(1, &s_Data.m_DeformerSSBO);
-            s_Data.m_DeformerSSBO = 0;
-        }
+        s_Data.m_DeformerSSBO = nullptr;
 
         s_Data.m_Initialized = false;
 
@@ -246,14 +227,9 @@ namespace OloEngine
         constexpr u32 stampSize = 2 * sizeof(glm::vec4); // 32 bytes per stamp
         u32 dataSize = count * stampSize;
 
-        // Upload stamp data to SSBO
-        glNamedBufferSubData(s_Data.m_DeformerSSBO, 0,
-                             std::min(dataSize, 64u * stampSize), stamps);
-
-        // Bind SSBO at binding 7
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER,
-                         ShaderBindingLayout::SSBO_SNOW_DEFORMERS,
-                         s_Data.m_DeformerSSBO);
+        // Upload stamp data to SSBO and bind
+        s_Data.m_DeformerSSBO->SetData(stamps, std::min(dataSize, 64u * stampSize));
+        s_Data.m_DeformerSSBO->Bind();
 
         // Dispatch deformation compute
         s_Data.m_DeformShader->Bind();
@@ -284,6 +260,8 @@ namespace OloEngine
 
     u32 SnowAccumulationSystem::GetSnowDepthTextureID()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (s_Data.m_Initialized && s_Data.m_SnowDepthTexture)
         {
             return s_Data.m_SnowDepthTexture->GetRendererID();

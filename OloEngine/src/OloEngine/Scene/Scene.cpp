@@ -238,6 +238,9 @@ namespace OloEngine
         UUID entityUUID = entity.GetUUID();
         m_Registry.destroy(entity);
         m_EntityMap.Remove(entityUUID);
+
+        m_RuntimeSnowPrevPositions.Remove(entityUUID);
+        m_EditorSnowPrevPositions.Remove(entityUUID);
     }
 
     void Scene::OnRuntimeStart()
@@ -319,6 +322,7 @@ namespace OloEngine
         OnPhysics3DStop();
 
         m_RuntimeSnowPrevPositions.Empty();
+        m_EditorSnowPrevPositions.Empty();
     }
 
     void Scene::OnSimulationStart()
@@ -1094,17 +1098,25 @@ namespace OloEngine
 
     void Scene::ProcessSnowDeformers(Timestep ts, TMap<u64, glm::vec3>& prevPositions)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& accumSettings = Renderer3D::GetSnowAccumulationSettings();
         auto& ejectaSettings = Renderer3D::GetSnowEjectaSettings();
 
-        if (!accumSettings.Enabled || !SnowAccumulationSystem::IsInitialized())
+        bool const accumActive = accumSettings.Enabled && SnowAccumulationSystem::IsInitialized();
+        bool const ejectaActive = ejectaSettings.Enabled && SnowEjectaSystem::IsInitialized();
+
+        if (!accumActive && !ejectaActive)
         {
             return;
         }
 
         auto deformerView = m_Registry.view<TransformComponent, SnowDeformerComponent>();
         std::vector<glm::vec4> stamps;
-        stamps.reserve(deformerView.size_hint() * 2);
+        if (accumActive)
+        {
+            stamps.reserve(deformerView.size_hint() * 2);
+        }
 
         for (auto entity : deformerView)
         {
@@ -1113,10 +1125,13 @@ namespace OloEngine
 
             glm::vec3 pos = transform.Translation;
 
-            stamps.emplace_back(pos.x, pos.y, pos.z, deformer.m_DeformRadius);
-            stamps.emplace_back(deformer.m_DeformDepth, deformer.m_FalloffExponent, deformer.m_CompactionFactor, 0.0f);
+            if (accumActive)
+            {
+                stamps.emplace_back(pos.x, pos.y, pos.z, deformer.m_DeformRadius);
+                stamps.emplace_back(deformer.m_DeformDepth, deformer.m_FalloffExponent, deformer.m_CompactionFactor, 0.0f);
+            }
 
-            if (deformer.m_EmitEjecta && ejectaSettings.Enabled && SnowEjectaSystem::IsInitialized())
+            if (deformer.m_EmitEjecta && ejectaActive)
             {
                 auto entityObj = Entity{ entity, this };
                 u64 uuid = entityObj.GetUUID();
@@ -1143,7 +1158,7 @@ namespace OloEngine
             }
         }
 
-        if (!stamps.empty())
+        if (accumActive && !stamps.empty())
         {
             SnowAccumulationSystem::SubmitDeformers(stamps.data(),
                                                     static_cast<u32>(stamps.size() / 2));
