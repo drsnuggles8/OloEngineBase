@@ -87,7 +87,7 @@ namespace OloEngine
             SnowAccumulationUBOData m_GPUData;
 
             glm::vec3 m_PrevClipmapCenter = glm::vec3(0.0f);
-            u32 m_TextureResolution = 0;  // Allocated texture size (authoritative)
+            u32 m_TextureResolution = 0; // Allocated texture size (authoritative)
             f32 m_AccumulatedTime = 0.0f;
             bool m_Initialized = false;
             bool m_NeedsClear = true;
