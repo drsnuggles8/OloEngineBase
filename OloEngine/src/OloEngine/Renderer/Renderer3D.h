@@ -21,6 +21,8 @@
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
 
+#include <chrono>
+
 // Forward declarations
 namespace OloEngine
 {
@@ -705,6 +707,9 @@ namespace OloEngine
             SSSUBOData SSSGPUData;
             FogSettings Fog;
             FogUBOData FogGPUData;
+            u32 FogFrameIndex = 0;
+            std::chrono::steady_clock::time_point FogLastTime{};
+            f32 FogTime = 0.0f;
             WindSettings Wind;
             SnowAccumulationSettings SnowAccumulation;
             SnowEjectaSettings SnowEjecta;

@@ -324,6 +324,11 @@ namespace OloEngine
         SnowAccumulationSystem::Init();
         SnowEjectaSystem::Init(s_Data.SnowEjecta.MaxParticles);
 
+        // Initialize fog temporal state
+        s_Data.FogFrameIndex = 0;
+        s_Data.FogLastTime = std::chrono::steady_clock::now();
+        s_Data.FogTime = 0.0f;
+
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
 
@@ -354,6 +359,11 @@ namespace OloEngine
 
         // Clear shader registries
         s_Data.ShaderRegistries.clear();
+
+        // Reset fog temporal state
+        s_Data.FogFrameIndex = 0;
+        s_Data.FogLastTime = {};
+        s_Data.FogTime = 0.0f;
 
         if (s_Data.RGraph)
             s_Data.RGraph->Shutdown();
@@ -633,22 +643,21 @@ namespace OloEngine
                 sunDir = glm::normalize(s_Data.SceneLight.Direction);
             }
             // Pack fog frame index into SunDirection.w (bare uniforms fail SPIR-V)
-            static u32 s_FogFrameIndex = 0;
-            gpu.SunDirection = glm::vec4(sunDir, static_cast<f32>(s_FogFrameIndex++));
+            // Wrap at 1024 to stay well within float32 integer-exact range
+            gpu.SunDirection = glm::vec4(sunDir, static_cast<f32>(s_Data.FogFrameIndex));
+            s_Data.FogFrameIndex = (s_Data.FogFrameIndex + 1u) & 0x3FFu;
             gpu.Flags = glm::vec4(1.0f, static_cast<f32>(static_cast<i32>(fog.Mode)),
                                   fog.EnableScattering ? 1.0f : 0.0f,
                                   fog.EnableVolumetric ? 1.0f : 0.0f);
 
             // Accumulate time for noise animation
-            static auto s_FogLastTime = std::chrono::steady_clock::now();
-            static f32 s_FogTime = 0.0f;
             auto fogNow = std::chrono::steady_clock::now();
-            f32 const fogDt = std::clamp(std::chrono::duration<f32>(fogNow - s_FogLastTime).count(), 0.0f, 0.1f);
-            s_FogLastTime = fogNow;
-            s_FogTime += fogDt;
+            f32 const fogDt = std::clamp(std::chrono::duration<f32>(fogNow - s_Data.FogLastTime).count(), 0.0f, 0.1f);
+            s_Data.FogLastTime = fogNow;
+            s_Data.FogTime += fogDt;
 
             f32 const effectiveNoiseIntensity = fog.EnableNoise ? fog.NoiseIntensity : 0.0f;
-            gpu.NoiseParams = glm::vec4(fog.NoiseScale, fog.NoiseSpeed, effectiveNoiseIntensity, s_FogTime);
+            gpu.NoiseParams = glm::vec4(fog.NoiseScale, fog.NoiseSpeed, effectiveNoiseIntensity, s_Data.FogTime);
             gpu.VolumetricParams = glm::vec4(static_cast<f32>(fog.VolumetricSamples), fog.AbsorptionCoefficient,
                                              fog.LightShaftIntensity, fog.EnableLightShafts ? 1.0f : 0.0f);
             s_Data.FogUBO->SetData(&gpu, FogUBOData::GetSize());

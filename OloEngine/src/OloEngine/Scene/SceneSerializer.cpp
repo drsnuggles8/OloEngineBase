@@ -130,7 +130,7 @@ namespace OloEngine
         out << YAML::Key << "FogSettings";
         out << YAML::BeginMap;
         out << YAML::Key << "Enabled" << YAML::Value << fog.Enabled;
-        out << YAML::Key << "Mode" << YAML::Value << static_cast<int>(fog.Mode);
+        out << YAML::Key << "Mode" << YAML::Value << static_cast<i32>(fog.Mode);
         out << YAML::Key << "Color" << YAML::Value << fog.Color;
         out << YAML::Key << "Density" << YAML::Value << fog.Density;
         out << YAML::Key << "Start" << YAML::Value << fog.Start;
@@ -163,9 +163,9 @@ namespace OloEngine
         if (auto fogNode = data["FogSettings"]; fogNode)
         {
             TrySet(fog.Enabled, fogNode["Enabled"]);
-            int mode = static_cast<int>(fog.Mode);
+            i32 mode = static_cast<i32>(fog.Mode);
             TrySet(mode, fogNode["Mode"]);
-            mode = std::clamp(mode, static_cast<int>(FogMode::Linear), static_cast<int>(FogMode::ExponentialSquared));
+            mode = std::clamp(mode, static_cast<i32>(FogMode::Linear), static_cast<i32>(FogMode::ExponentialSquared));
             fog.Mode = static_cast<FogMode>(mode);
             TrySet(fog.Color, fogNode["Color"]);
             TrySet(fog.Density, fogNode["Density"]);

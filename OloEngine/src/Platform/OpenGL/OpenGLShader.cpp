@@ -1039,7 +1039,15 @@ namespace OloEngine
         CompileOpenGLBinariesForAmd(program, glShadersIDs);
         glLinkProgram(program);
 
-        if (const bool linked = VerifyProgramLink(program, m_FilePath))
+        if (!VerifyProgramLink(program, m_FilePath))
+        {
+            for (auto const& id : glShadersIDs)
+            {
+                glDetachShader(program, id);
+            }
+            return;
+        }
+
         {
             GLint formats = 0;
             glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
