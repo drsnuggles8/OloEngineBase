@@ -111,7 +111,7 @@ namespace OloEngine
                 }
             }
             OLO_CORE_ASSERT(false);
-            return nullptr;
+            return "Unknown";
         }
 
         [[nodiscard("Store this!")]] static const char* GetCacheDirectory()
@@ -493,7 +493,7 @@ namespace OloEngine
         // Thread-safe storage for compilation results
         struct CompilationResult
         {
-            GLenum Stage;
+            GLenum Stage = 0;
             std::vector<u32> SpirvData;
             bool Success = false;
             std::string ErrorMessage;
@@ -624,7 +624,7 @@ namespace OloEngine
         // Thread-safe storage for compilation results
         struct OpenGLCompilationResult
         {
-            GLenum Stage;
+            GLenum Stage = 0;
             std::vector<u32> SpirvData;
             std::string GlslSource;
             bool Success = false;
@@ -983,8 +983,6 @@ namespace OloEngine
             std::vector<GLchar> infoLog(maxLength);
             glGetProgramInfoLog(program, maxLength, &maxLength, &infoLog[0]);
 
-            glDeleteProgram(program);
-
             OLO_CORE_CRITICAL("[OpenGL] Shader link failure for '{}': {}", filePath, infoLog.data());
             OLO_CORE_VERIFY(false, "Shader program linking failure");
             return false;
@@ -1017,17 +1015,15 @@ namespace OloEngine
                 in.read(data.data(), size);
                 glProgramBinary(program, format, data.data(), static_cast<GLsizei>(data.size()));
 
-                const bool linked = VerifyProgramLink(program, m_FilePath);
-
-                if (!linked)
-                {
-                    OLO_CORE_WARN("Cached program binary failed to link, recompiling: {0}", shaderFilePath.string());
-                }
-                else
+                if (VerifyProgramLink(program, m_FilePath))
                 {
                     FinalizeProgram(program, m_VulkanSPIRV);
                     return;
                 }
+
+                OLO_CORE_WARN("Cached program binary failed to link, recompiling: {0}", shaderFilePath.string());
+                glDeleteProgram(program);
+                program = glCreateProgram();
             }
             else
             {
@@ -1045,6 +1041,7 @@ namespace OloEngine
             {
                 glDetachShader(program, id);
             }
+            glDeleteProgram(program);
             return;
         }
 
