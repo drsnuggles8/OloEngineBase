@@ -961,9 +961,6 @@ namespace OloEngine
         // Invalidate sorting and batching since we have new commands
         m_IsSorted = false;
         m_IsBatched = false;
-
-        OLO_CORE_TRACE("CommandBucket: Merged {} commands from parallel submission",
-                       m_CommandCount);
     }
 
     void CommandBucket::RemapBoneOffsets(FrameDataBuffer& frameDataBuffer)

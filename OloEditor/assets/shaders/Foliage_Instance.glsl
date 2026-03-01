@@ -206,5 +206,7 @@ void main()
     vec3 ambient = color.rgb * 0.3;
     vec3 diffuse = color.rgb * lightColor * NdotL;
 
-    FragColor = vec4(ambient + diffuse, color.a);
+    vec3 litColor = ambient + diffuse;
+
+    FragColor = vec4(litColor, color.a);
 }

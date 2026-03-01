@@ -575,8 +575,9 @@ namespace OloEngine
         {
             if (!result.Success)
             {
-                OLO_CORE_ERROR(result.ErrorMessage);
-                OLO_CORE_ASSERT(false);
+                OLO_CORE_CRITICAL("[OpenGL] SPIR-V compilation failed for '{}' (stage {}): {}",
+                                  m_FilePath, Utils::GLShaderStageToString(result.Stage), result.ErrorMessage);
+                OLO_CORE_VERIFY(false, "Shader SPIR-V compilation failure");
                 continue;
             }
 
@@ -736,8 +737,9 @@ namespace OloEngine
         {
             if (!result.Success)
             {
-                OLO_CORE_ERROR(result.ErrorMessage);
-                OLO_CORE_ASSERT(false);
+                OLO_CORE_CRITICAL("[OpenGL] SPIR-V cross-compilation failed for '{}' (stage {}): {}",
+                                  m_FilePath, Utils::GLShaderStageToString(result.Stage), result.ErrorMessage);
+                OLO_CORE_VERIFY(false, "Shader SPIR-V cross-compilation failure");
                 continue;
             }
 
@@ -917,7 +919,8 @@ namespace OloEngine
 
             std::vector<GLchar> infoLog(maxLength);
             glGetProgramInfoLog(program, maxLength, &maxLength, infoLog.data());
-            OLO_CORE_ERROR("Shader linking failed ({0}):\n{1}", m_FilePath, infoLog.data());
+            OLO_CORE_CRITICAL("[OpenGL] Shader linking failed for '{}':\n{}", m_FilePath, infoLog.data());
+            OLO_CORE_VERIFY(false, "Shader program linking failure");
 
             glDeleteProgram(program);
 
@@ -982,8 +985,8 @@ namespace OloEngine
 
             glDeleteProgram(program);
 
-            OLO_CORE_ERROR("{0}", infoLog.data());
-            OLO_CORE_ASSERT(false, "[OpenGL] Shader link failure!");
+            OLO_CORE_CRITICAL("[OpenGL] Shader link failure: {}", infoLog.data());
+            OLO_CORE_VERIFY(false, "Shader program linking failure");
             return false;
         }
         return true;
@@ -1118,8 +1121,8 @@ namespace OloEngine
 
                 glDeleteShader(shader);
 
-                OLO_CORE_ERROR("{0}", infoLog.data());
-                OLO_CORE_ASSERT(false, "[OpenGL] Shader compilation failure!");
+                OLO_CORE_CRITICAL("[OpenGL] Shader compilation failed for '{}': {}", m_FilePath, infoLog.data());
+                OLO_CORE_VERIFY(false, "Shader source compilation failure");
                 return;
             }
             glAttachShader(program, shader);

@@ -273,9 +273,6 @@ namespace OloEngine
             // Mark as available for use
             s_WorkerAllocators[i].inUse.store(false, std::memory_order_release);
         }
-
-        OLO_CORE_TRACE("CommandMemoryManager: Prepared {} worker allocators for frame",
-                       MAX_ALLOCATOR_WORKERS);
     }
 
     void CommandMemoryManager::ReleaseWorkerAllocators()
@@ -290,8 +287,6 @@ namespace OloEngine
         {
             s_WorkerAllocators[i].inUse.store(false, std::memory_order_release);
         }
-
-        OLO_CORE_TRACE("CommandMemoryManager: Released all worker allocators");
     }
 
     std::pair<u32, CommandAllocator*> CommandMemoryManager::GetWorkerAllocatorByIndex(u32 workerIndex)

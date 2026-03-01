@@ -570,6 +570,11 @@ namespace OloEngine
             return s_Data.Snow;
         }
 
+        static FogSettings& GetFogSettings()
+        {
+            return s_Data.Fog;
+        }
+
         static WindSettings& GetWindSettings()
         {
             return s_Data.Wind;
@@ -643,6 +648,7 @@ namespace OloEngine
             Ref<UniformBuffer> FoliageUBO;
             Ref<UniformBuffer> SnowUBO;
             Ref<UniformBuffer> SSSUBO;
+            Ref<UniformBuffer> FogUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -697,6 +703,8 @@ namespace OloEngine
             SnowSettings Snow;
             SnowUBOData SnowGPUData;
             SSSUBOData SSSGPUData;
+            FogSettings Fog;
+            FogUBOData FogGPUData;
             WindSettings Wind;
             SnowAccumulationSettings SnowAccumulation;
             SnowEjectaSettings SnowEjecta;

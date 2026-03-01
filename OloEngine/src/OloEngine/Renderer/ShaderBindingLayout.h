@@ -308,6 +308,7 @@ namespace OloEngine
         static constexpr u32 UBO_SSS = 14;               // SSS blur parameters
         static constexpr u32 UBO_WIND = 15;              // Wind system parameters
         static constexpr u32 UBO_SNOW_ACCUMULATION = 16; // Snow accumulation clipmap parameters
+        static constexpr u32 UBO_FOG = 17;               // Fog & atmospheric scattering parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -423,6 +424,8 @@ namespace OloEngine
                     return name.contains("Wind") || name.contains("wind");
                 case UBO_SNOW_ACCUMULATION:
                     return name.contains("SnowAccumulation") || name.contains("snowAccumulation");
+                case UBO_FOG:
+                    return name.contains("Fog") || name.contains("fog");
                 default:
                     return false;
             }

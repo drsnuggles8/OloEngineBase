@@ -271,6 +271,83 @@ namespace OloEngine
         f32 CollisionFriction = 1.0f; // Friction on ground contact (1 = full stop)
     };
 
+    // Fog mode constants (match FogCommon.glsl defines)
+    enum class FogMode : i32
+    {
+        Linear = 0,
+        Exponential = 1,
+        ExponentialSquared = 2
+    };
+
+    // Fog & atmospheric scattering settings (scene-level)
+    struct FogSettings
+    {
+        bool Enabled = false;
+        FogMode Mode = FogMode::ExponentialSquared;
+
+        // Base fog
+        glm::vec3 Color = glm::vec3(0.5f, 0.6f, 0.7f);
+        f32 Density = 0.02f; // For Exponential / Exponential² modes
+        f32 Start = 10.0f;   // For Linear mode (near plane)
+        f32 End = 300.0f;    // For Linear mode (far plane)
+
+        // Height fog
+        f32 HeightFalloff = 0.1f; // Density decay rate above reference height
+        f32 HeightOffset = 0.0f;  // Sea-level reference for height fog
+
+        // Opacity
+        f32 MaxOpacity = 1.0f; // Clamp fog factor (0 = no fog, 1 = fully opaque at distance)
+
+        // Atmospheric scattering
+        bool EnableScattering = false;
+        f32 RayleighStrength = 1.0f;
+        f32 MieStrength = 0.005f;
+        f32 MieDirectionality = 0.76f;                            // Henyey-Greenstein g (0 = isotropic, ~1 = full forward scatter)
+        glm::vec3 RayleighColor = glm::vec3(0.27f, 0.51f, 0.83f); // Sky blue
+        f32 SunIntensity = 22.0f;
+
+        // Volumetric ray-marching
+        bool EnableVolumetric = false;
+        i32 VolumetricSamples = 32;        // Ray-march steps (16-64)
+        f32 AbsorptionCoefficient = 0.02f; // Beer-Lambert absorption (separate from scatter density)
+
+        // Noise / turbulence (modulates fog density spatially)
+        bool EnableNoise = false;
+        f32 NoiseScale = 0.01f;    // 3D noise spatial frequency (world-space)
+        f32 NoiseSpeed = 0.1f;     // Animation speed (units/sec)
+        f32 NoiseIntensity = 0.3f; // Noise modulation strength (0 = uniform, 1 = full variation)
+
+        // Volumetric light shafts (god rays through shadow map)
+        bool EnableLightShafts = false;
+        f32 LightShaftIntensity = 1.0f; // In-scattering boost for lit volume samples
+    };
+
+    // GPU-side UBO layout for fog parameters (std140, binding 17)
+    struct FogUBOData
+    {
+        // vec4(Color.rgb, Density)
+        glm::vec4 ColorAndDensity = glm::vec4(0.5f, 0.6f, 0.7f, 0.02f);
+        // vec4(Start, End, HeightFalloff, HeightOffset)
+        glm::vec4 DistanceParams = glm::vec4(10.0f, 300.0f, 0.1f, 0.0f);
+        // vec4(RayleighStrength, MieStrength, MieG, SunIntensity)
+        glm::vec4 ScatterParams = glm::vec4(1.0f, 0.005f, 0.76f, 22.0f);
+        // vec4(RayleighColor.rgb, MaxOpacity)
+        glm::vec4 RayleighColorAndMaxOpacity = glm::vec4(0.27f, 0.51f, 0.83f, 1.0f);
+        // vec4(SunDirection.xyz, unused)
+        glm::vec4 SunDirection = glm::vec4(0.0f, -1.0f, 0.0f, 0.0f);
+        // vec4(Enabled, Mode, ScatteringEnabled, VolumetricEnabled)
+        glm::vec4 Flags = glm::vec4(0.0f);
+        // vec4(NoiseScale, NoiseSpeed, NoiseIntensity, Time)
+        glm::vec4 NoiseParams = glm::vec4(0.01f, 0.1f, 0.3f, 0.0f);
+        // vec4(VolumetricSamples, AbsorptionCoeff, LightShaftIntensity, LightShaftsEnabled)
+        glm::vec4 VolumetricParams = glm::vec4(32.0f, 0.02f, 1.0f, 0.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(FogUBOData);
+        }
+    };
+
     // Wind simulation settings (scene-level, separate from PostProcess)
     struct WindSettings
     {

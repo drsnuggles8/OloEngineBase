@@ -359,9 +359,6 @@ namespace OloEngine
         m_TransformOffset = currentTransformOffset;
 
         m_ParallelSubmissionActive = false;
-
-        OLO_CORE_TRACE("FrameDataBuffer: Merged {} bones and {} transforms from scratch buffers",
-                       totalBones, totalTransforms);
     }
 
     u32 FrameDataBuffer::GetGlobalBoneOffset(u32 workerIndex, u32 localOffset) const
