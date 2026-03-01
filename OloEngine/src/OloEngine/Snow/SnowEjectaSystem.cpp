@@ -61,6 +61,12 @@ namespace OloEngine
         spec.Format = ImageFormat::RGBA8;
         spec.GenerateMips = false;
         s_Data.m_EjectaTexture = Texture2D::Create(spec);
+        if (!s_Data.m_EjectaTexture)
+        {
+            OLO_CORE_ERROR("SnowEjectaSystem: failed to create ejecta texture");
+            s_Data.m_GPUSystem.reset();
+            return;
+        }
         s_Data.m_EjectaTexture->SetData(pixels.data(), texSize * texSize * sizeof(u32));
 
         s_Data.m_Initialized = true;

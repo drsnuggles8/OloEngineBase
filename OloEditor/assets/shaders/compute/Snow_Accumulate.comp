@@ -58,7 +58,7 @@ void main()
     if (currentDepth < naturalLevel)
     {
         float restoredDepth = currentDepth + u_RestorationRate * u_DeltaTime;
-        newDepth = min(restoredDepth, naturalLevel) + growth;
+        newDepth = min(restoredDepth, naturalLevel);
     }
     else
     {

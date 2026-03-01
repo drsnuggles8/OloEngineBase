@@ -329,7 +329,7 @@ namespace OloEngine
             sanitizeFloat(se.SpeedVariance, 0.0f, 1.0f, 0.8f);
             sanitizeFloat(se.UpwardBias, 0.0f, 1.0f, 0.6f);
             sanitizeFloat(se.LifetimeMin, 0.01f, 10.0f, 0.4f);
-            sanitizeFloat(se.LifetimeMax, se.LifetimeMin, 10.0f, 1.2f);
+            sanitizeFloat(se.LifetimeMax, se.LifetimeMin, 10.0f, std::max(se.LifetimeMin, 1.2f));
             sanitizeFloat(se.InitialSize, 0.001f, 1.0f, 0.04f);
             sanitizeFloat(se.SizeVariance, 0.0f, 0.5f, 0.02f);
             sanitizeFloat(se.GravityScale, 0.0f, 5.0f, 0.3f);

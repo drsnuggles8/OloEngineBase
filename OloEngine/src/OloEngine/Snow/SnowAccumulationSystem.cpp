@@ -37,6 +37,7 @@ namespace OloEngine
         spec.GenerateMips = false;
 
         s_Data.m_SnowDepthTexture = Texture2D::Create(spec);
+        s_Data.m_TextureResolution = kSnowDepthResolution;
 
         // Create accumulation UBO at binding 16
         s_Data.m_AccumulationUBO = UniformBuffer::Create(
@@ -109,7 +110,7 @@ namespace OloEngine
         auto& gpu = s_Data.m_GPUData;
         u32 numRings = std::clamp(settings.NumClipmapRings, 1u, SnowAccumulationUBOData::MAX_CLIPMAP_RINGS);
         f32 baseExtent = settings.ClipmapExtent;
-        f32 resolution = static_cast<f32>(settings.ClipmapResolution);
+        f32 resolution = static_cast<f32>(s_Data.m_TextureResolution);
 
         for (u32 ring = 0; ring < numRings; ++ring)
         {
@@ -198,7 +199,7 @@ namespace OloEngine
         s_Data.m_AccumulateShader->SetFloat("u_MeltRate", settings.MeltRate);
         s_Data.m_AccumulateShader->SetFloat("u_RestorationRate", settings.RestorationRate);
         s_Data.m_AccumulateShader->SetFloat("u_SnowDensity", settings.SnowDensity);
-        s_Data.m_AccumulateShader->SetInt("u_Resolution", static_cast<i32>(kSnowDepthResolution));
+        s_Data.m_AccumulateShader->SetInt("u_Resolution", static_cast<i32>(s_Data.m_TextureResolution));
 
         // Clipmap center and extent for ring 0 (innermost)
         const auto& ce = gpu.ClipmapCenterAndExtent[0];
@@ -208,8 +209,8 @@ namespace OloEngine
         RenderCommand::BindImageTexture(0, s_Data.m_SnowDepthTexture->GetRendererID(),
                                         0, false, 0, GL_READ_WRITE, GL_R32F);
 
-        u32 groups = (kSnowDepthResolution + 15) / 16;
-        RenderCommand::DispatchCompute(groups, groups, 1);
+        u32 accumGroups = (s_Data.m_TextureResolution + 15) / 16;
+        RenderCommand::DispatchCompute(accumGroups, accumGroups, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 
         s_Data.m_PrevClipmapCenter = cameraPos;
@@ -224,17 +225,26 @@ namespace OloEngine
             return;
         }
 
+        constexpr u32 maxStampsPerDispatch = 64;
         constexpr u32 stampSize = 2 * sizeof(glm::vec4); // 32 bytes per stamp
-        u32 dataSize = count * stampSize;
+
+        if (count > maxStampsPerDispatch)
+        {
+            OLO_CORE_WARN("SnowAccumulationSystem::SubmitDeformers — {} stamps exceed capacity ({}), truncating",
+                          count, maxStampsPerDispatch);
+        }
+
+        u32 clampedCount = std::min(count, maxStampsPerDispatch);
+        u32 dataSize = clampedCount * stampSize;
 
         // Upload stamp data to SSBO and bind
-        s_Data.m_DeformerSSBO->SetData(stamps, std::min(dataSize, 64u * stampSize));
+        s_Data.m_DeformerSSBO->SetData(stamps, dataSize);
         s_Data.m_DeformerSSBO->Bind();
 
         // Dispatch deformation compute
         s_Data.m_DeformShader->Bind();
-        s_Data.m_DeformShader->SetInt("u_StampCount", static_cast<i32>(std::min(count, 64u)));
-        s_Data.m_DeformShader->SetInt("u_Resolution", static_cast<i32>(kSnowDepthResolution));
+        s_Data.m_DeformShader->SetInt("u_StampCount", static_cast<i32>(clampedCount));
+        s_Data.m_DeformShader->SetInt("u_Resolution", static_cast<i32>(s_Data.m_TextureResolution));
 
         const auto& ce = s_Data.m_GPUData.ClipmapCenterAndExtent[0];
         s_Data.m_DeformShader->SetFloat2("u_ClipmapCenter", glm::vec2(ce.x, ce.y));
@@ -243,8 +253,8 @@ namespace OloEngine
         RenderCommand::BindImageTexture(0, s_Data.m_SnowDepthTexture->GetRendererID(),
                                         0, false, 0, GL_READ_WRITE, GL_R32F);
 
-        u32 groups = (kSnowDepthResolution + 15) / 16;
-        RenderCommand::DispatchCompute(groups, groups, 1);
+        u32 deformGroups = (s_Data.m_TextureResolution + 15) / 16;
+        RenderCommand::DispatchCompute(deformGroups, deformGroups, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
     }
 

@@ -393,7 +393,7 @@ namespace OloEngine
                 int ppd = static_cast<int>(settings.ParticlesPerDeform);
                 if (ImGui::DragInt("Particles/Stamp##Ejecta", &ppd, 1, 1, 128))
                 {
-                    settings.ParticlesPerDeform = static_cast<u32>(std::max(ppd, 1));
+                    settings.ParticlesPerDeform = static_cast<u32>(std::clamp(ppd, 1, 128));
                 }
                 ImGui::DragFloat("Speed (m/s)##Ejecta", &settings.EjectaSpeed, 0.1f, 0.0f, 50.0f, "%.1f");
                 ImGui::DragFloat("Speed Variance##Ejecta", &settings.SpeedVariance, 0.01f, 0.0f, 1.0f, "%.2f");

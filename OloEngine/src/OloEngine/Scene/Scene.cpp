@@ -1131,25 +1131,26 @@ namespace OloEngine
                 stamps.emplace_back(deformer.m_DeformDepth, deformer.m_FalloffExponent, deformer.m_CompactionFactor, 0.0f);
             }
 
+            // Always track position so toggling m_EmitEjecta doesn't cause velocity spikes
+            auto entityObj = Entity{ entity, this };
+            u64 uuid = entityObj.GetUUID();
+
+            glm::vec3 velocity(0.0f);
+            if (glm::vec3* prevPos = prevPositions.Find(uuid))
+            {
+                if (ts > 0.0f)
+                {
+                    velocity = (pos - *prevPos) / static_cast<f32>(ts);
+                }
+                *prevPos = pos;
+            }
+            else
+            {
+                prevPositions.FindOrAdd(uuid, pos);
+            }
+
             if (deformer.m_EmitEjecta && ejectaActive)
             {
-                auto entityObj = Entity{ entity, this };
-                u64 uuid = entityObj.GetUUID();
-
-                glm::vec3 velocity(0.0f);
-                if (glm::vec3* prevPos = prevPositions.Find(uuid))
-                {
-                    if (ts > 0.0f)
-                    {
-                        velocity = (pos - *prevPos) / static_cast<f32>(ts);
-                    }
-                    *prevPos = pos;
-                }
-                else
-                {
-                    prevPositions.FindOrAdd(uuid, pos);
-                }
-
                 SnowEjectaSystem::EmitAt(
                     pos, velocity,
                     deformer.m_DeformRadius,

@@ -45,8 +45,8 @@ void main()
     {
         vec3 stampPos = stamps[i].posAndRadius.xyz;
         float radius = stamps[i].posAndRadius.w;
-        float deformDepth = stamps[i].depthAndFalloff.x;
-        float falloff = stamps[i].depthAndFalloff.y;
+        float deformDepth = clamp(stamps[i].depthAndFalloff.x, 0.0, 10.0);
+        float falloff = max(stamps[i].depthAndFalloff.y, 0.0);
 
         vec2 diff = worldXZ - stampPos.xz;
         float dist = length(diff);
