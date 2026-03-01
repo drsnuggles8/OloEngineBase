@@ -496,6 +496,11 @@
 		"OloEngine/Wind/WindSystem.h"
 		"OloEngine/Wind/WindSystem.cpp"
 
+		"OloEngine/Snow/SnowAccumulationSystem.h"
+		"OloEngine/Snow/SnowAccumulationSystem.cpp"
+		"OloEngine/Snow/SnowEjectaSystem.h"
+		"OloEngine/Snow/SnowEjectaSystem.cpp"
+
 		"OloEngine/Terrain/TerrainVertex.h"
 		"OloEngine/Terrain/TerrainData.h"
 		"OloEngine/Terrain/TerrainData.cpp"

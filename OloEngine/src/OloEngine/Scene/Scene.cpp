@@ -41,6 +41,8 @@
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
+#include "OloEngine/Snow/SnowAccumulationSystem.h"
+#include "OloEngine/Snow/SnowEjectaSystem.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -567,6 +569,67 @@ namespace OloEngine
                     ProcessChildSubEmitters(psc, ts, transform.Translation);
                 }
             }
+
+            // Process snow deformer entities — submit deformation stamps and emit ejecta
+            {
+                auto& accumSettings = Renderer3D::GetSnowAccumulationSettings();
+                auto& ejectaSettings = Renderer3D::GetSnowEjectaSettings();
+
+                if (accumSettings.Enabled && SnowAccumulationSystem::IsInitialized())
+                {
+                    auto deformerView = m_Registry.view<TransformComponent, SnowDeformerComponent>();
+                    std::vector<glm::vec4> stamps;
+                    stamps.reserve(deformerView.size_hint() * 2);
+
+                    for (auto entity : deformerView)
+                    {
+                        auto& transform = deformerView.get<TransformComponent>(entity);
+                        auto& deformer = deformerView.get<SnowDeformerComponent>(entity);
+
+                        glm::vec3 pos = transform.Translation;
+
+                        // Pack stamp data: { vec4(posX, posY, posZ, radius), vec4(depth, falloff, compaction, 0) }
+                        stamps.emplace_back(pos.x, pos.y, pos.z, deformer.m_DeformRadius);
+                        stamps.emplace_back(deformer.m_DeformDepth, deformer.m_FalloffExponent, deformer.m_CompactionFactor, 0.0f);
+
+                        // Emit ejecta particles if enabled on this deformer
+                        if (deformer.m_EmitEjecta && ejectaSettings.Enabled && SnowEjectaSystem::IsInitialized())
+                        {
+                            // Estimate velocity from position change
+                            // We use the entity UUID to track previous position
+                            static TMap<u64, glm::vec3> s_PrevPositions;
+                            auto entityObj = Entity{ entity, this };
+                            u64 uuid = entityObj.GetUUID();
+
+                            glm::vec3 velocity(0.0f);
+                            if (glm::vec3* prevPos = s_PrevPositions.Find(uuid))
+                            {
+                                if (ts > 0.0f)
+                                {
+                                    velocity = (pos - *prevPos) / static_cast<f32>(ts);
+                                }
+                                *prevPos = pos;
+                            }
+                            else
+                            {
+                                s_PrevPositions.FindOrAdd(uuid, pos);
+                            }
+
+                            SnowEjectaSystem::EmitAt(
+                                pos, velocity,
+                                deformer.m_DeformRadius,
+                                deformer.m_DeformDepth,
+                                ejectaSettings);
+                        }
+                    }
+
+                    if (!stamps.empty())
+                    {
+                        SnowAccumulationSystem::SubmitDeformers(stamps.data(),
+                            static_cast<u32>(stamps.size() / 2));
+                    }
+                }
+            }
         }
 
         // Find the primary camera
@@ -775,6 +838,63 @@ namespace OloEngine
             }
         }
 
+        // Process snow deformer entities in editor preview
+        {
+            auto& accumSettings = Renderer3D::GetSnowAccumulationSettings();
+            auto& ejectaSettings = Renderer3D::GetSnowEjectaSettings();
+
+            if (accumSettings.Enabled && SnowAccumulationSystem::IsInitialized())
+            {
+                auto deformerView = m_Registry.view<TransformComponent, SnowDeformerComponent>();
+                std::vector<glm::vec4> stamps;
+                stamps.reserve(deformerView.size_hint() * 2);
+
+                for (auto entity : deformerView)
+                {
+                    auto& transform = deformerView.get<TransformComponent>(entity);
+                    auto& deformer = deformerView.get<SnowDeformerComponent>(entity);
+
+                    glm::vec3 pos = transform.Translation;
+
+                    stamps.emplace_back(pos.x, pos.y, pos.z, deformer.m_DeformRadius);
+                    stamps.emplace_back(deformer.m_DeformDepth, deformer.m_FalloffExponent, deformer.m_CompactionFactor, 0.0f);
+
+                    if (deformer.m_EmitEjecta && ejectaSettings.Enabled && SnowEjectaSystem::IsInitialized())
+                    {
+                        static TMap<u64, glm::vec3> s_EditorPrevPositions;
+                        auto entityObj = Entity{ entity, this };
+                        u64 uuid = entityObj.GetUUID();
+
+                        glm::vec3 velocity(0.0f);
+                        if (glm::vec3* prevPos = s_EditorPrevPositions.Find(uuid))
+                        {
+                            if (ts > 0.0f)
+                            {
+                                velocity = (pos - *prevPos) / static_cast<f32>(ts);
+                            }
+                            *prevPos = pos;
+                        }
+                        else
+                        {
+                            s_EditorPrevPositions.FindOrAdd(uuid, pos);
+                        }
+
+                        SnowEjectaSystem::EmitAt(
+                            pos, velocity,
+                            deformer.m_DeformRadius,
+                            deformer.m_DeformDepth,
+                            ejectaSettings);
+                    }
+                }
+
+                if (!stamps.empty())
+                {
+                    SnowAccumulationSystem::SubmitDeformers(stamps.data(),
+                        static_cast<u32>(stamps.size() / 2));
+                }
+            }
+        }
+
         // Render based on mode
         if (m_Is3DModeEnabled)
         {
@@ -867,6 +987,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<TerrainComponent>(Entity, TerrainComponent&) {}
     template<>
     void Scene::OnComponentAdded<FoliageComponent>(Entity, FoliageComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<SnowDeformerComponent>(Entity, SnowDeformerComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
@@ -2329,6 +2451,9 @@ namespace OloEngine
 
                 RenderParticleSystems(camPos, camera.GetNearClip(), camera.GetFarClip());
 
+                // Render snow ejecta particles
+                SnowEjectaSystem::Render();
+
                 ParticleBatchRenderer::EndBatch(); });
         }
 
@@ -2384,6 +2509,10 @@ namespace OloEngine
                                             {
                 ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
                 RenderParticleSystems(cameraPosition, cameraNearClip, cameraFarClip);
+
+                // Render snow ejecta particles
+                SnowEjectaSystem::Render();
+
                 ParticleBatchRenderer::EndBatch(); });
         }
 

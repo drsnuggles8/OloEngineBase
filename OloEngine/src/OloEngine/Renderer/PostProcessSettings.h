@@ -200,6 +200,69 @@ namespace OloEngine
         }
     };
 
+    // Snow accumulation & deformation settings (scene-level)
+    struct SnowAccumulationSettings
+    {
+        bool Enabled = false;
+
+        // Accumulation
+        f32 AccumulationRate = 0.02f; // Meters of snow per second when snowing
+        f32 MaxDepth = 0.5f;          // Maximum snow depth (meters)
+        f32 MeltRate = 0.005f;        // Meters of snow lost per second (temperature-driven)
+        f32 RestorationRate = 0.01f;  // How fast deformed snow fills back in (m/s)
+
+        // Displacement
+        f32 DisplacementScale = 1.0f; // Multiplier for vertex displacement from snow depth
+
+        // Clipmap
+        u32 ClipmapResolution = 2048; // Texels per axis for the snow depth texture
+        f32 ClipmapExtent = 128.0f;   // World-space side length of innermost clipmap ring (meters)
+        u32 NumClipmapRings = 3;      // Number of clipmap LOD rings
+
+        // Physics
+        f32 SnowDensity = 0.3f; // Density factor for compaction (0 = powder, 1 = packed ice)
+    };
+
+    // GPU-side UBO layout for snow accumulation (std140, binding 16)
+    // Contains clipmap matrices + accumulation parameters
+    struct SnowAccumulationUBOData
+    {
+        static constexpr u32 MAX_CLIPMAP_RINGS = 3;
+
+        // Orthographic view-projection for each clipmap ring (top-down)
+        glm::mat4 ClipmapViewProj[MAX_CLIPMAP_RINGS] = { glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f) };
+        // vec4(centerX, centerZ, extent, invExtent) per ring
+        glm::vec4 ClipmapCenterAndExtent[MAX_CLIPMAP_RINGS] = { glm::vec4(0.0f), glm::vec4(0.0f), glm::vec4(0.0f) };
+        // vec4(AccumulationRate, MaxDepth, MeltRate, RestorationRate)
+        glm::vec4 AccumulationParams = glm::vec4(0.02f, 0.5f, 0.005f, 0.01f);
+        // vec4(DisplacementScale, SnowDensity, Enabled, NumRings)
+        glm::vec4 DisplacementParams = glm::vec4(1.0f, 0.3f, 0.0f, 3.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(SnowAccumulationUBOData);
+        }
+    };
+
+    // Snow ejecta particle settings (scene-level)
+    struct SnowEjectaSettings
+    {
+        bool Enabled = true;                                       // Whether snow deformers emit ejecta particles
+        u32 ParticlesPerDeform = 8;                                // Particles emitted per deformer stamp per frame
+        f32 EjectaSpeed = 2.5f;                                    // Base outward velocity (m/s)
+        f32 SpeedVariance = 0.8f;                                  // Random speed variation factor (0–1)
+        f32 UpwardBias = 0.6f;                                     // Fraction of velocity directed upward vs outward
+        f32 LifetimeMin = 0.4f;                                    // Minimum particle lifetime (seconds)
+        f32 LifetimeMax = 1.2f;                                    // Maximum particle lifetime (seconds)
+        f32 InitialSize = 0.04f;                                   // Starting particle size (meters)
+        f32 SizeVariance = 0.02f;                                  // Random size variation (meters)
+        f32 GravityScale = 0.3f;                                   // Gravity multiplier (snow falls slowly)
+        f32 DragCoefficient = 2.0f;                                // Air drag for quick deceleration
+        glm::vec4 Color = glm::vec4(0.95f, 0.97f, 1.0f, 0.7f);   // RGBA snow puff color
+        f32 VelocityThreshold = 0.1f;                              // Min deformer speed to emit (m/s)
+        u32 MaxParticles = 8192;                                   // Max GPU particles in the ejecta pool
+    };
+
     // Wind simulation settings (scene-level, separate from PostProcess)
     struct WindSettings
     {

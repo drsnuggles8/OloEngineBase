@@ -1137,6 +1137,8 @@ namespace OloEngine
         Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
         Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
         Renderer3D::GetWindSettings() = newScene->GetWindSettings();
+        Renderer3D::GetSnowAccumulationSettings() = newScene->GetSnowAccumulationSettings();
+        Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
         return true;
     }
 
@@ -1147,6 +1149,8 @@ namespace OloEngine
             m_ActiveScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
             m_ActiveScene->SetSnowSettings(Renderer3D::GetSnowSettings());
             m_ActiveScene->SetWindSettings(Renderer3D::GetWindSettings());
+            m_ActiveScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
+            m_ActiveScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
             SerializeScene(m_ActiveScene, m_EditorScenePath);
         }
         else
@@ -1171,6 +1175,8 @@ namespace OloEngine
             m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
             m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
             m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
+            m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
+            m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
             SerializeScene(m_EditorScene, filepath);
             SyncWindowTitle();
         }

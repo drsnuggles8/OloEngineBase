@@ -319,6 +319,10 @@ namespace OloEngine
         // Initialize wind system (3D wind-field volume)
         WindSystem::Init();
 
+        // Initialize snow accumulation & ejecta systems
+        SnowAccumulationSystem::Init();
+        SnowEjectaSystem::Init(s_Data.SnowEjecta.MaxParticles);
+
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
 
@@ -336,6 +340,10 @@ namespace OloEngine
 
         // Shutdown wind system
         WindSystem::Shutdown();
+
+        // Shutdown snow systems
+        SnowEjectaSystem::Shutdown();
+        SnowAccumulationSystem::Shutdown();
 
         // Shutdown shadow mapping
         s_Data.Shadow.Shutdown();
@@ -615,6 +623,20 @@ namespace OloEngine
 
             WindSystem::Update(s_Data.Wind, s_Data.ViewPos, Timestep(dt));
             WindSystem::BindWindTexture();
+
+            // Update snow accumulation system
+            if (s_Data.SnowAccumulation.Enabled)
+            {
+                SnowAccumulationSystem::Update(s_Data.SnowAccumulation, s_Data.ViewPos, Timestep(dt));
+                SnowAccumulationSystem::BindSnowDepthTexture();
+                CommandDispatch::SetSnowDepthTextureID(SnowAccumulationSystem::GetSnowDepthTextureID());
+            }
+
+            // Update snow ejecta particle simulation
+            if (s_Data.SnowEjecta.Enabled)
+            {
+                SnowEjectaSystem::Update(s_Data.SnowEjecta, Timestep(dt));
+            }
         }
 
         // Upload motion blur matrices

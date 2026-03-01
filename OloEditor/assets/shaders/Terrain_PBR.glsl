@@ -148,6 +148,15 @@ layout(std140, binding = 10) uniform TerrainParams {
 };
 
 layout(binding = 23) uniform sampler2D u_TerrainHeightmap;
+layout(binding = 30) uniform sampler2D u_SnowDepthMap;
+
+// Snow Accumulation UBO (binding 16)
+layout(std140, binding = 16) uniform SnowAccumulationParams {
+    mat4 u_ClipmapViewProj[3];
+    vec4 u_ClipmapCenterAndExtent[3];
+    vec4 u_AccumulationParams;   // x=rate, y=maxDepth, z=meltRate, w=restorationRate
+    vec4 u_DisplacementParams;   // x=displacementScale, y=snowDensity, z=enabled, w=numRings
+};
 
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
@@ -174,6 +183,24 @@ void main()
 
     // Displace Y from heightmap
     pos.y = sampledHeight;
+
+    // Snow accumulation displacement
+    float snowDisplacement = 0.0;
+    if (u_DisplacementParams.z > 0.5)
+    {
+        // Convert world XZ to clipmap UV (ring 0)
+        vec2 clipCenter = u_ClipmapCenterAndExtent[0].xy;
+        float clipExtent = u_ClipmapCenterAndExtent[0].z;
+        // Compute world position for this vertex
+        vec3 worldP = (u_Model * vec4(pos, 1.0)).xyz;
+        vec2 snowUV = (worldP.xz - clipCenter) / clipExtent + 0.5;
+        if (snowUV.x >= 0.0 && snowUV.x <= 1.0 && snowUV.y >= 0.0 && snowUV.y <= 1.0)
+        {
+            float snowDepth = texture(u_SnowDepthMap, snowUV).r;
+            snowDisplacement = snowDepth * u_DisplacementParams.x;
+            pos.y += snowDisplacement;
+        }
+    }
 
     // Recompute normal from heightmap derivatives
     float texelSize = u_TerrainParams.x;
@@ -283,6 +310,16 @@ layout(std140, binding = 13) uniform SnowParams {
     vec4 u_SnowSparkleParams;
     vec4 u_SnowFlags;
 };
+
+// Snow Accumulation UBO (binding 16) — fragment access
+layout(std140, binding = 16) uniform SnowAccumulationParamsFS {
+    mat4 u_ClipmapViewProjFS[3];
+    vec4 u_ClipmapCenterAndExtentFS[3];
+    vec4 u_AccumulationParamsFS;
+    vec4 u_DisplacementParamsFS;
+};
+
+layout(binding = 30) uniform sampler2D u_SnowDepthMapFS;
 
 // Shadow maps
 layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM;
@@ -661,6 +698,22 @@ void main()
                                        u_SnowCoverageParams.x, u_SnowCoverageParams.y,
                                        u_SnowCoverageParams.z, u_SnowCoverageParams.w,
                                        u_SnowFlags.y);
+
+        // Boost snow weight from accumulation depth map
+        if (u_DisplacementParamsFS.z > 0.5)
+        {
+            vec2 clipCenterFS = u_ClipmapCenterAndExtentFS[0].xy;
+            float clipExtentFS = u_ClipmapCenterAndExtentFS[0].z;
+            vec2 snowUVFS = (v_WorldPos.xz - clipCenterFS) / clipExtentFS + 0.5;
+            if (snowUVFS.x >= 0.0 && snowUVFS.x <= 1.0 && snowUVFS.y >= 0.0 && snowUVFS.y <= 1.0)
+            {
+                float accumulatedDepth = texture(u_SnowDepthMapFS, snowUVFS).r;
+                float maxDepth = u_AccumulationParamsFS.y;
+                // Depth-based weight: thicker snow = stronger coverage
+                float depthFactor = clamp(accumulatedDepth / max(maxDepth, 0.01), 0.0, 1.0);
+                snowWeight = max(snowWeight, depthFactor);
+            }
+        }
 
         if (snowWeight > 0.001)
         {
