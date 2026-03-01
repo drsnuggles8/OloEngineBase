@@ -239,7 +239,11 @@ namespace OloEngine
             // Validate — sanitize NaN/Inf then clamp
             auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
             {
-                if (!std::isfinite(v)) { v = fallback; return; }
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
                 v = std::clamp(v, lo, hi);
             };
             sanitizeFloat(sa.AccumulationRate, 0.0f, 10.0f, 0.02f);
@@ -301,7 +305,11 @@ namespace OloEngine
             // Validate — sanitize NaN/Inf then clamp
             auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
             {
-                if (!std::isfinite(v)) { v = fallback; return; }
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
                 v = std::clamp(v, lo, hi);
             };
             se.ParticlesPerDeform = std::clamp(se.ParticlesPerDeform, 1u, 128u);
