@@ -116,6 +116,15 @@ layout(std140, binding = 10) uniform TerrainParams {
 };
 
 layout(binding = 23) uniform sampler2D u_TerrainHeightmap;
+layout(binding = 30) uniform sampler2D u_SnowDepthMap;
+
+// Snow Accumulation UBO (binding 16)
+layout(std140, binding = 16) uniform SnowAccumulationParams {
+    mat4 u_ClipmapViewProj[3];
+    vec4 u_ClipmapCenterAndExtent[3];
+    vec4 u_AccumulationParams;
+    vec4 u_DisplacementParams;
+};
 
 void main()
 {
@@ -129,6 +138,20 @@ void main()
     // Displace Y from heightmap
     float heightScale = u_WorldSizeAndHeightScale.z;
     pos.y = texture(u_TerrainHeightmap, uv).r * heightScale;
+
+    // Snow accumulation displacement (must match Terrain_PBR.glsl)
+    if (u_DisplacementParams.z > 0.5)
+    {
+        vec2 clipCenter = u_ClipmapCenterAndExtent[0].xy;
+        float clipExtent = u_ClipmapCenterAndExtent[0].z;
+        vec3 worldP = (u_Model * vec4(pos, 1.0)).xyz;
+        vec2 snowUV = (worldP.xz - clipCenter) / clipExtent + 0.5;
+        if (snowUV.x >= 0.0 && snowUV.x <= 1.0 && snowUV.y >= 0.0 && snowUV.y <= 1.0)
+        {
+            float snowDepth = texture(u_SnowDepthMap, snowUV).r;
+            pos.y += snowDepth * u_DisplacementParams.x;
+        }
+    }
 
     // Morph blend
     float morphFactor = u_TessFactors2.y;

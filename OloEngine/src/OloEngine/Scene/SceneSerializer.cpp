@@ -200,6 +200,178 @@ namespace OloEngine
         }
     }
 
+    static void SerializeSnowAccumulationSettings(YAML::Emitter& out, const SnowAccumulationSettings& sa)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        out << YAML::Key << "SnowAccumulationSettings";
+        out << YAML::BeginMap;
+        out << YAML::Key << "Enabled" << YAML::Value << sa.Enabled;
+        out << YAML::Key << "AccumulationRate" << YAML::Value << sa.AccumulationRate;
+        out << YAML::Key << "MaxDepth" << YAML::Value << sa.MaxDepth;
+        out << YAML::Key << "MeltRate" << YAML::Value << sa.MeltRate;
+        out << YAML::Key << "RestorationRate" << YAML::Value << sa.RestorationRate;
+        out << YAML::Key << "DisplacementScale" << YAML::Value << sa.DisplacementScale;
+        out << YAML::Key << "ClipmapResolution" << YAML::Value << sa.ClipmapResolution;
+        out << YAML::Key << "ClipmapExtent" << YAML::Value << sa.ClipmapExtent;
+        out << YAML::Key << "NumClipmapRings" << YAML::Value << sa.NumClipmapRings;
+        out << YAML::Key << "SnowDensity" << YAML::Value << sa.SnowDensity;
+        out << YAML::EndMap;
+    }
+
+    static void DeserializeSnowAccumulationSettings(const YAML::Node& data, SnowAccumulationSettings& sa)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (auto saNode = data["SnowAccumulationSettings"]; saNode)
+        {
+            TrySet(sa.Enabled, saNode["Enabled"]);
+            TrySet(sa.AccumulationRate, saNode["AccumulationRate"]);
+            TrySet(sa.MaxDepth, saNode["MaxDepth"]);
+            TrySet(sa.MeltRate, saNode["MeltRate"]);
+            TrySet(sa.RestorationRate, saNode["RestorationRate"]);
+            TrySet(sa.DisplacementScale, saNode["DisplacementScale"]);
+            TrySet(sa.ClipmapResolution, saNode["ClipmapResolution"]);
+            TrySet(sa.ClipmapExtent, saNode["ClipmapExtent"]);
+            TrySet(sa.NumClipmapRings, saNode["NumClipmapRings"]);
+            TrySet(sa.SnowDensity, saNode["SnowDensity"]);
+
+            // Validate — sanitize NaN/Inf then clamp
+            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+            sanitizeFloat(sa.AccumulationRate, 0.0f, 10.0f, 0.02f);
+            sanitizeFloat(sa.MaxDepth, 0.01f, 10.0f, 0.5f);
+            sanitizeFloat(sa.MeltRate, 0.0f, 10.0f, 0.005f);
+            sanitizeFloat(sa.RestorationRate, 0.0f, 10.0f, 0.01f);
+            sanitizeFloat(sa.DisplacementScale, 0.0f, 10.0f, 1.0f);
+            sanitizeFloat(sa.ClipmapExtent, 1.0f, 1000.0f, 128.0f);
+            sanitizeFloat(sa.SnowDensity, 0.0f, 1.0f, 0.3f);
+            sa.ClipmapResolution = std::clamp(sa.ClipmapResolution, 256u, 4096u);
+            sa.NumClipmapRings = std::clamp(sa.NumClipmapRings, 1u, 3u);
+        }
+    }
+
+    static void SerializeSnowEjectaSettings(YAML::Emitter& out, const SnowEjectaSettings& se)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        out << YAML::Key << "SnowEjectaSettings";
+        out << YAML::BeginMap;
+        out << YAML::Key << "Enabled" << YAML::Value << se.Enabled;
+        out << YAML::Key << "ParticlesPerDeform" << YAML::Value << se.ParticlesPerDeform;
+        out << YAML::Key << "EjectaSpeed" << YAML::Value << se.EjectaSpeed;
+        out << YAML::Key << "SpeedVariance" << YAML::Value << se.SpeedVariance;
+        out << YAML::Key << "UpwardBias" << YAML::Value << se.UpwardBias;
+        out << YAML::Key << "LifetimeMin" << YAML::Value << se.LifetimeMin;
+        out << YAML::Key << "LifetimeMax" << YAML::Value << se.LifetimeMax;
+        out << YAML::Key << "InitialSize" << YAML::Value << se.InitialSize;
+        out << YAML::Key << "SizeVariance" << YAML::Value << se.SizeVariance;
+        out << YAML::Key << "GravityScale" << YAML::Value << se.GravityScale;
+        out << YAML::Key << "DragCoefficient" << YAML::Value << se.DragCoefficient;
+        out << YAML::Key << "Color" << YAML::Value << se.Color;
+        out << YAML::Key << "VelocityThreshold" << YAML::Value << se.VelocityThreshold;
+        out << YAML::Key << "MaxParticles" << YAML::Value << se.MaxParticles;
+        out << YAML::Key << "WindInfluence" << YAML::Value << se.WindInfluence;
+        out << YAML::Key << "NoiseStrength" << YAML::Value << se.NoiseStrength;
+        out << YAML::Key << "NoiseFrequency" << YAML::Value << se.NoiseFrequency;
+        out << YAML::Key << "GroundY" << YAML::Value << se.GroundY;
+        out << YAML::Key << "CollisionBounce" << YAML::Value << se.CollisionBounce;
+        out << YAML::Key << "CollisionFriction" << YAML::Value << se.CollisionFriction;
+        out << YAML::EndMap;
+    }
+
+    static void DeserializeSnowEjectaSettings(const YAML::Node& data, SnowEjectaSettings& se)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (auto seNode = data["SnowEjectaSettings"]; seNode)
+        {
+            TrySet(se.Enabled, seNode["Enabled"]);
+            TrySet(se.ParticlesPerDeform, seNode["ParticlesPerDeform"]);
+            TrySet(se.EjectaSpeed, seNode["EjectaSpeed"]);
+            TrySet(se.SpeedVariance, seNode["SpeedVariance"]);
+            TrySet(se.UpwardBias, seNode["UpwardBias"]);
+            TrySet(se.LifetimeMin, seNode["LifetimeMin"]);
+            TrySet(se.LifetimeMax, seNode["LifetimeMax"]);
+            TrySet(se.InitialSize, seNode["InitialSize"]);
+            TrySet(se.SizeVariance, seNode["SizeVariance"]);
+            TrySet(se.GravityScale, seNode["GravityScale"]);
+            TrySet(se.DragCoefficient, seNode["DragCoefficient"]);
+            TrySet(se.Color, seNode["Color"]);
+            TrySet(se.VelocityThreshold, seNode["VelocityThreshold"]);
+            TrySet(se.MaxParticles, seNode["MaxParticles"]);
+            TrySet(se.WindInfluence, seNode["WindInfluence"]);
+            TrySet(se.NoiseStrength, seNode["NoiseStrength"]);
+            TrySet(se.NoiseFrequency, seNode["NoiseFrequency"]);
+            TrySet(se.GroundY, seNode["GroundY"]);
+            TrySet(se.CollisionBounce, seNode["CollisionBounce"]);
+            TrySet(se.CollisionFriction, seNode["CollisionFriction"]);
+
+            // Validate — sanitize NaN/Inf then clamp
+            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+            se.ParticlesPerDeform = std::clamp(se.ParticlesPerDeform, 1u, 128u);
+            sanitizeFloat(se.EjectaSpeed, 0.0f, 50.0f, 2.5f);
+            sanitizeFloat(se.SpeedVariance, 0.0f, 1.0f, 0.8f);
+            sanitizeFloat(se.UpwardBias, 0.0f, 1.0f, 0.6f);
+            sanitizeFloat(se.LifetimeMin, 0.01f, 10.0f, 0.4f);
+            sanitizeFloat(se.LifetimeMax, se.LifetimeMin, 10.0f, std::max(se.LifetimeMin, 1.2f));
+            sanitizeFloat(se.InitialSize, 0.001f, 1.0f, 0.04f);
+            sanitizeFloat(se.SizeVariance, 0.0f, 0.5f, 0.02f);
+            sanitizeFloat(se.GravityScale, 0.0f, 5.0f, 0.3f);
+            sanitizeFloat(se.DragCoefficient, 0.0f, 20.0f, 2.0f);
+            sanitizeFloat(se.VelocityThreshold, 0.0f, 10.0f, 0.1f);
+            se.MaxParticles = std::clamp(se.MaxParticles, 256u, 65536u);
+            sanitizeFloat(se.WindInfluence, 0.0f, 1.0f, 0.5f);
+            sanitizeFloat(se.NoiseStrength, 0.0f, 5.0f, 0.3f);
+            sanitizeFloat(se.NoiseFrequency, 0.0f, 20.0f, 2.0f);
+            sanitizeFloat(se.GroundY, -1000.0f, 1000.0f, 0.0f);
+            sanitizeFloat(se.CollisionBounce, 0.0f, 1.0f, 0.0f);
+            sanitizeFloat(se.CollisionFriction, 0.0f, 1.0f, 1.0f);
+        }
+    }
+
+    static void DeserializeSnowDeformerComponent(Entity& entity, const YAML::Node& node)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& sd = entity.AddComponent<SnowDeformerComponent>();
+        TrySet(sd.m_DeformRadius, node["DeformRadius"]);
+        TrySet(sd.m_DeformDepth, node["DeformDepth"]);
+        TrySet(sd.m_FalloffExponent, node["FalloffExponent"]);
+        TrySet(sd.m_CompactionFactor, node["CompactionFactor"]);
+        TrySet(sd.m_EmitEjecta, node["EmitEjecta"]);
+
+        // Validate — sanitize NaN/Inf then clamp
+        auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
+        {
+            if (!std::isfinite(v))
+            {
+                v = fallback;
+                return;
+            }
+            v = std::clamp(v, lo, hi);
+        };
+        sanitizeFloat(sd.m_DeformRadius, 0.01f, 50.0f, 0.5f);
+        sanitizeFloat(sd.m_DeformDepth, 0.0f, 10.0f, 0.1f);
+        sanitizeFloat(sd.m_FalloffExponent, 0.1f, 10.0f, 2.0f);
+        sanitizeFloat(sd.m_CompactionFactor, 0.0f, 1.0f, 0.5f);
+    }
+
     static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)
     {
         auto& sys = psc.System;
@@ -1611,6 +1783,21 @@ namespace OloEngine
             out << YAML::EndMap; // FoliageComponent
         }
 
+        if (entity.HasComponent<SnowDeformerComponent>())
+        {
+            out << YAML::Key << "SnowDeformerComponent";
+            out << YAML::BeginMap;
+
+            auto const& sd = entity.GetComponent<SnowDeformerComponent>();
+            out << YAML::Key << "DeformRadius" << YAML::Value << sd.m_DeformRadius;
+            out << YAML::Key << "DeformDepth" << YAML::Value << sd.m_DeformDepth;
+            out << YAML::Key << "FalloffExponent" << YAML::Value << sd.m_FalloffExponent;
+            out << YAML::Key << "CompactionFactor" << YAML::Value << sd.m_CompactionFactor;
+            out << YAML::Key << "EmitEjecta" << YAML::Value << sd.m_EmitEjecta;
+
+            out << YAML::EndMap; // SnowDeformerComponent
+        }
+
         if (entity.HasComponent<SubmeshComponent>())
         {
             out << YAML::Key << "SubmeshComponent";
@@ -1714,6 +1901,8 @@ namespace OloEngine
 
         SerializeSnowSettings(out, m_Scene->GetSnowSettings());
         SerializeWindSettings(out, m_Scene->GetWindSettings());
+        SerializeSnowAccumulationSettings(out, m_Scene->GetSnowAccumulationSettings());
+        SerializeSnowEjectaSettings(out, m_Scene->GetSnowEjectaSettings());
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
@@ -1798,6 +1987,8 @@ namespace OloEngine
 
         DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
         DeserializeWindSettings(data, m_Scene->GetWindSettings());
+        DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
+        DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
 
         if (const auto entities = data["Entities"]; entities)
         {
@@ -2446,6 +2637,11 @@ namespace OloEngine
                     DeserializeFoliageComponent(foliage, foliageComponent);
                 }
 
+                if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
+                {
+                    DeserializeSnowDeformerComponent(deserializedEntity, snowDeformerComponent);
+                }
+
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
                 {
                     auto& submesh = deserializedEntity.AddComponent<SubmeshComponent>();
@@ -2607,6 +2803,8 @@ namespace OloEngine
 
         SerializeSnowSettings(out, m_Scene->GetSnowSettings());
         SerializeWindSettings(out, m_Scene->GetWindSettings());
+        SerializeSnowAccumulationSettings(out, m_Scene->GetSnowAccumulationSettings());
+        SerializeSnowEjectaSettings(out, m_Scene->GetSnowEjectaSettings());
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
@@ -2688,6 +2886,8 @@ namespace OloEngine
 
         DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
         DeserializeWindSettings(data, m_Scene->GetWindSettings());
+        DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
+        DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
 
         auto entities = data["Entities"];
         if (entities)
@@ -3338,6 +3538,11 @@ namespace OloEngine
                 {
                     auto& foliage = deserializedEntity.AddComponent<FoliageComponent>();
                     DeserializeFoliageComponent(foliage, foliageComponent);
+                }
+
+                if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
+                {
+                    DeserializeSnowDeformerComponent(deserializedEntity, snowDeformerComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)

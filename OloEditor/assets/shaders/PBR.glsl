@@ -125,6 +125,16 @@ layout(std140, binding = 13) uniform SnowParams {
     vec4 u_SnowFlags;
 };
 
+// Snow Accumulation UBO (binding 16)
+layout(std140, binding = 16) uniform SnowAccumulationParams {
+    mat4 u_ClipmapViewProj[3];
+    vec4 u_ClipmapCenterAndExtent[3];
+    vec4 u_AccumulationParams;   // x=rate, y=maxDepth, z=meltRate, w=restorationRate
+    vec4 u_DisplacementParams;   // x=displacementScale, y=snowDensity, z=enabled, w=numRings
+};
+
+layout(binding = 30) uniform sampler2D u_SnowDepthMap;
+
 // Texture bindings following ShaderBindingLayout
 layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
 layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap; // TEX_SPECULAR (repurposed)
@@ -236,6 +246,23 @@ void main()
                                        u_SnowCoverageParams.x, u_SnowCoverageParams.y,
                                        u_SnowCoverageParams.z, u_SnowCoverageParams.w,
                                        u_SnowFlags.y);
+
+        // Snow accumulation depth projection onto mesh surfaces
+        if (u_DisplacementParams.z > 0.5 && worldNormal.y > 0.3)
+        {
+            vec2 clipCenter = u_ClipmapCenterAndExtent[0].xy;
+            float clipExtent = u_ClipmapCenterAndExtent[0].z;
+            vec2 snowUV = (v_WorldPos.xz - clipCenter) / clipExtent + 0.5;
+            if (snowUV.x >= 0.0 && snowUV.x <= 1.0 && snowUV.y >= 0.0 && snowUV.y <= 1.0)
+            {
+                float accumulatedDepth = texture(u_SnowDepthMap, snowUV).r;
+                float maxDepth = u_AccumulationParams.y;
+                float depthFactor = clamp(accumulatedDepth / max(maxDepth, 0.01), 0.0, 1.0);
+                // Upward-facing surfaces receive snow based on accumulation depth
+                float normalBias = smoothstep(0.3, 0.7, worldNormal.y);
+                snowWeight = max(snowWeight, depthFactor * normalBias);
+            }
+        }
 
         if (snowWeight > 0.001)
         {

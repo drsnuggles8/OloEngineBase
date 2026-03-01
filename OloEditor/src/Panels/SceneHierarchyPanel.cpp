@@ -895,6 +895,7 @@ namespace OloEngine
             // Terrain
             DisplayAddComponentEntry<TerrainComponent>("Terrain");
             DisplayAddComponentEntry<FoliageComponent>("Foliage");
+            DisplayAddComponentEntry<SnowDeformerComponent>("Snow Deformer");
 
             ImGui::Separator();
 
@@ -2707,6 +2708,18 @@ namespace OloEngine
                     ImGui::Text("Total Instances: %u", component.m_Renderer->GetTotalInstanceCount());
                     ImGui::Text("Visible Instances: %u", component.m_Renderer->GetVisibleInstanceCount());
                 } });
+
+        DrawComponent<SnowDeformerComponent>("Snow Deformer", entity, [](auto& component)
+                                             {
+                ImGui::DragFloat("Deform Radius", &component.m_DeformRadius, 0.01f, 0.01f, 10.0f, "%.2f");
+                ImGui::DragFloat("Deform Depth", &component.m_DeformDepth, 0.01f, 0.0f, 2.0f, "%.3f");
+                ImGui::DragFloat("Falloff Exponent", &component.m_FalloffExponent, 0.1f, 0.1f, 10.0f, "%.1f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("1 = linear, 2 = quadratic, higher = sharper edge");
+                ImGui::DragFloat("Compaction Factor", &component.m_CompactionFactor, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("0 = full removal, 1 = compact only");
+                ImGui::Checkbox("Emit Ejecta", &component.m_EmitEjecta); });
     }
 
     template<typename T>

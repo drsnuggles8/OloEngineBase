@@ -1,0 +1,72 @@
+#version 460 core
+
+// ============================================================================
+// Snow_Accumulate.comp — Per-texel snow depth accumulation & melt.
+//
+// Each invocation processes one texel of the R32F snow depth clipmap.
+// Snow grows over time (slope-aware, wind-biased), melts, and deformation
+// gradually restores toward the accumulation baseline.
+// ============================================================================
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(r32f, binding = 0) uniform image2D u_SnowDepth;
+
+// ---- Uniforms set by SnowAccumulationSystem::Update() ----
+uniform float u_DeltaTime;
+uniform float u_AccumulationRate;   // Meters of snow per second
+uniform float u_MaxDepth;           // Maximum snow depth (meters)
+uniform float u_MeltRate;           // Meters lost per second
+uniform float u_RestorationRate;    // Deformation fill-back speed (m/s)
+uniform float u_SnowDensity;        // 0=powder, 1=packed
+uniform int   u_Resolution;         // Texture resolution per axis
+uniform vec2  u_ClipmapCenter;      // World XZ center
+uniform float u_ClipmapExtent;      // World-space side length
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    if (texel.x >= u_Resolution || texel.y >= u_Resolution)
+        return;
+
+    float currentDepth = imageLoad(u_SnowDepth, texel).r;
+
+    // Compute world XZ position for this texel
+    vec2 uv = (vec2(texel) + 0.5) / float(u_Resolution);
+    vec2 worldXZ = u_ClipmapCenter + (uv - 0.5) * u_ClipmapExtent;
+
+    // Accumulation: simple time-based growth
+    // In a full implementation this would sample the terrain heightmap for
+    // slope rejection and the wind field for drift bias. For now, uniform
+    // accumulation rate everywhere.
+    float slopeFactor = 1.0; // TODO: sample terrain normal for slope-aware accumulation
+    float windBias = 1.0;    // TODO: sample wind field for drift bias
+
+    float growth = u_AccumulationRate * u_DeltaTime * slopeFactor * windBias;
+
+    // Snow compaction: denser snow accumulates more slowly
+    growth *= mix(1.0, 0.3, u_SnowDensity);
+
+    // Melt
+    float melt = u_MeltRate * u_DeltaTime;
+
+    // Restoration: deformed areas fill back toward the natural accumulation level.
+    // The "natural" level is what accumulation alone would produce.
+    // Only restore (fill back) when currentDepth is below that level.
+    float naturalLevel = min(currentDepth + growth, u_MaxDepth);
+    float newDepth;
+    if (currentDepth < naturalLevel)
+    {
+        float restoredDepth = currentDepth + u_RestorationRate * u_DeltaTime;
+        float accumulatedDepth = currentDepth + growth;
+        newDepth = min(max(restoredDepth, accumulatedDepth), naturalLevel);
+    }
+    else
+    {
+        newDepth = currentDepth + growth;
+    }
+    newDepth = min(newDepth, u_MaxDepth) - melt;
+    newDepth = max(newDepth, 0.0);
+
+    imageStore(u_SnowDepth, texel, vec4(newDepth, 0.0, 0.0, 0.0));
+}

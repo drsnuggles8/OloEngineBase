@@ -45,6 +45,9 @@ namespace OloEngine
         static void SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID);
         static void SetPointShadowTextureIDs(const std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS>& pointTextureIDs);
 
+        // Snow accumulation depth texture — set per-frame
+        static void SetSnowDepthTextureID(u32 textureID);
+
         // Getters for current frame state (used for sort key generation)
         static const glm::mat4& GetViewMatrix();
 

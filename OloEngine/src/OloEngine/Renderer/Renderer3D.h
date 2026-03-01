@@ -18,6 +18,8 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Wind/WindSystem.h"
+#include "OloEngine/Snow/SnowAccumulationSystem.h"
+#include "OloEngine/Snow/SnowEjectaSystem.h"
 
 // Forward declarations
 namespace OloEngine
@@ -573,6 +575,16 @@ namespace OloEngine
             return s_Data.Wind;
         }
 
+        static SnowAccumulationSettings& GetSnowAccumulationSettings()
+        {
+            return s_Data.SnowAccumulation;
+        }
+
+        static SnowEjectaSettings& GetSnowEjectaSettings()
+        {
+            return s_Data.SnowEjecta;
+        }
+
         // Shader library access for PBR material shader selection
         static ShaderLibrary& GetShaderLibrary();
 
@@ -686,6 +698,8 @@ namespace OloEngine
             SnowUBOData SnowGPUData;
             SSSUBOData SSSGPUData;
             WindSettings Wind;
+            SnowAccumulationSettings SnowAccumulation;
+            SnowEjectaSettings SnowEjecta;
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
 
             // Parallel submission state

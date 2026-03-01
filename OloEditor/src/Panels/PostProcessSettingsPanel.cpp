@@ -18,6 +18,8 @@ namespace OloEngine
         DrawSSAOSection();
         DrawSnowSection();
         DrawWindSection();
+        DrawSnowAccumulationSection();
+        DrawSnowEjectaSection();
         DrawBloomSection();
         DrawVignetteSection();
         DrawChromaticAberrationSection();
@@ -322,6 +324,117 @@ namespace OloEngine
                 if (ImGui::Combo("Resolution##Grid", &current, resItems, IM_ARRAYSIZE(resItems)))
                 {
                     settings.GridResolution = resValues[current];
+                }
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawSnowAccumulationSection()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& settings = Renderer3D::GetSnowAccumulationSettings();
+
+        if (ImGui::CollapsingHeader("Snow Accumulation"))
+        {
+            ImGui::Indent();
+
+            ImGui::Checkbox("Enable##SnowAccum", &settings.Enabled);
+
+            if (settings.Enabled)
+            {
+                ImGui::SeparatorText("Accumulation");
+                ImGui::DragFloat("Rate (m/s)##SnowAccum", &settings.AccumulationRate, 0.001f, 0.0f, 1.0f, "%.3f");
+                ImGui::DragFloat("Max Depth (m)##SnowAccum", &settings.MaxDepth, 0.01f, 0.01f, 5.0f, "%.2f");
+                ImGui::DragFloat("Melt Rate (m/s)##SnowAccum", &settings.MeltRate, 0.001f, 0.0f, 1.0f, "%.3f");
+                ImGui::DragFloat("Restoration Rate (m/s)##SnowAccum", &settings.RestorationRate, 0.001f, 0.0f, 1.0f, "%.3f");
+
+                ImGui::SeparatorText("Displacement");
+                ImGui::DragFloat("Scale##SnowDisp", &settings.DisplacementScale, 0.01f, 0.0f, 5.0f, "%.2f");
+                ImGui::DragFloat("Density##SnowDens", &settings.SnowDensity, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("0 = light powder, 1 = packed ice");
+
+                ImGui::SeparatorText("Clipmap");
+                ImGui::DragFloat("Extent (m)##SnowClip", &settings.ClipmapExtent, 1.0f, 1.0f, 500.0f, "%.0f");
+                int rings = static_cast<int>(settings.NumClipmapRings);
+                if (ImGui::SliderInt("Rings##SnowClip", &rings, 1, 3))
+                {
+                    settings.NumClipmapRings = static_cast<u32>(rings);
+                }
+
+                if (ImGui::Button("Reset Snow Depth##SnowAccum"))
+                {
+                    SnowAccumulationSystem::Reset();
+                }
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawSnowEjectaSection()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& settings = Renderer3D::GetSnowEjectaSettings();
+
+        if (ImGui::CollapsingHeader("Snow Ejecta"))
+        {
+            ImGui::Indent();
+
+            ImGui::Checkbox("Enable##SnowEjecta", &settings.Enabled);
+
+            if (settings.Enabled)
+            {
+                ImGui::SeparatorText("Emission");
+                int ppd = static_cast<int>(settings.ParticlesPerDeform);
+                if (ImGui::DragInt("Particles/Stamp##Ejecta", &ppd, 1, 1, 128))
+                {
+                    settings.ParticlesPerDeform = static_cast<u32>(std::clamp(ppd, 1, 128));
+                }
+                ImGui::DragFloat("Speed (m/s)##Ejecta", &settings.EjectaSpeed, 0.1f, 0.0f, 50.0f, "%.1f");
+                ImGui::DragFloat("Speed Variance##Ejecta", &settings.SpeedVariance, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::DragFloat("Upward Bias##Ejecta", &settings.UpwardBias, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Fraction of velocity directed upward vs outward");
+                ImGui::DragFloat("Velocity Threshold##Ejecta", &settings.VelocityThreshold, 0.01f, 0.0f, 10.0f, "%.2f");
+
+                ImGui::SeparatorText("Particle Properties");
+                ImGui::DragFloat("Lifetime Min##Ejecta", &settings.LifetimeMin, 0.01f, 0.01f, 10.0f, "%.2f");
+                ImGui::DragFloat("Lifetime Max##Ejecta", &settings.LifetimeMax, 0.01f, 0.01f, 10.0f, "%.2f");
+                if (settings.LifetimeMax < settings.LifetimeMin)
+                {
+                    settings.LifetimeMax = settings.LifetimeMin;
+                }
+                ImGui::DragFloat("Initial Size##Ejecta", &settings.InitialSize, 0.001f, 0.001f, 1.0f, "%.3f");
+                ImGui::DragFloat("Size Variance##Ejecta", &settings.SizeVariance, 0.001f, 0.0f, 0.5f, "%.3f");
+                ImGui::ColorEdit4("Color##Ejecta", &settings.Color.x);
+
+                ImGui::SeparatorText("Physics");
+                ImGui::DragFloat("Gravity Scale##Ejecta", &settings.GravityScale, 0.01f, 0.0f, 5.0f, "%.2f");
+                ImGui::DragFloat("Drag##Ejecta", &settings.DragCoefficient, 0.1f, 0.0f, 20.0f, "%.1f");
+
+                ImGui::SeparatorText("Advanced Simulation");
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Modify with care — may cause visual artifacts");
+                ImGui::DragFloat("Wind Influence##Ejecta", &settings.WindInfluence, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How strongly wind affects snow puffs (0=none, 1=full)");
+                ImGui::DragFloat("Noise Strength##Ejecta", &settings.NoiseStrength, 0.01f, 0.0f, 5.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Turbulence intensity for organic motion");
+                ImGui::DragFloat("Noise Frequency##Ejecta", &settings.NoiseFrequency, 0.1f, 0.0f, 20.0f, "%.1f");
+                ImGui::DragFloat("Ground Y##Ejecta", &settings.GroundY, 0.1f, -1000.0f, 1000.0f, "%.1f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Y height of the ground plane for particle collision");
+                ImGui::DragFloat("Collision Bounce##Ejecta", &settings.CollisionBounce, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::DragFloat("Collision Friction##Ejecta", &settings.CollisionFriction, 0.01f, 0.0f, 1.0f, "%.2f");
+
+                if (ImGui::Button("Reset Ejecta##SnowEjecta"))
+                {
+                    SnowEjectaSystem::Reset();
                 }
             }
 

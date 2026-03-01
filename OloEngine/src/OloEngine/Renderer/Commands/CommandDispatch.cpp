@@ -120,6 +120,9 @@ namespace OloEngine
         u32 SpotShadowTextureID = 0;
         std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> PointShadowTextureIDs = { 0 };
 
+        // Snow accumulation depth texture (set per-frame)
+        u32 SnowDepthTextureID = 0;
+
         CommandDispatch::Statistics Stats;
     };
 
@@ -217,6 +220,7 @@ namespace OloEngine
         s_Data.CSMShadowTextureID = 0;
         s_Data.SpotShadowTextureID = 0;
         s_Data.PointShadowTextureIDs.fill(0);
+        s_Data.SnowDepthTextureID = 0;
         s_Data.Stats.Reset();
     }
 
@@ -259,6 +263,11 @@ namespace OloEngine
     void CommandDispatch::SetPointShadowTextureIDs(const std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS>& pointTextureIDs)
     {
         s_Data.PointShadowTextureIDs = pointTextureIDs;
+    }
+
+    void CommandDispatch::SetSnowDepthTextureID(u32 textureID)
+    {
+        s_Data.SnowDepthTextureID = textureID;
     }
 
     CommandDispatch::Statistics& CommandDispatch::GetStatistics()
@@ -808,6 +817,17 @@ namespace OloEngine
                     }
                 }
             }
+
+            // Bind snow accumulation depth texture
+            if (s_Data.SnowDepthTextureID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] != s_Data.SnowDepthTextureID)
+                {
+                    glBindTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] = s_Data.SnowDepthTextureID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
         }
         else if (cmd->useTextureMaps)
         {
@@ -1230,11 +1250,32 @@ namespace OloEngine
         // Bind shadow textures (terrain PBR needs shadows too)
         if (s_Data.CSMShadowTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] != s_Data.CSMShadowTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] = s_Data.CSMShadowTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
         }
         if (s_Data.SpotShadowTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] != s_Data.SpotShadowTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] = s_Data.SpotShadowTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+
+        // Bind snow depth texture for accumulation displacement
+        if (s_Data.SnowDepthTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] != s_Data.SnowDepthTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] = s_Data.SnowDepthTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
         }
 
         // Draw with GL_PATCHES for tessellation

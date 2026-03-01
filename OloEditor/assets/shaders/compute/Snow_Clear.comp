@@ -1,0 +1,21 @@
+#version 460 core
+
+// ============================================================================
+// Snow_Clear.comp — Zeroes the entire R32F snow depth texture.
+//
+// Dispatched once on scene load or explicit reset.
+// ============================================================================
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(r32f, binding = 0) writeonly uniform image2D u_SnowDepth;
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(u_SnowDepth);
+    if (texel.x >= size.x || texel.y >= size.y)
+        return;
+
+    imageStore(u_SnowDepth, texel, vec4(0.0));
+}

@@ -42,7 +42,7 @@ uniform float u_CollisionBounce;
 uniform float u_CollisionFriction;
 
 // --- Wind field sampling (shared include provides WindUBO + sampler) ---
-#include "include/WindSampling.glsl"
+#include "../include/WindSampling.glsl"
 
 // ============================================================================
 // Simple 3D hash noise for per-particle turbulence

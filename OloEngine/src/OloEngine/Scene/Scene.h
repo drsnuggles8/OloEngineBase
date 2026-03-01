@@ -194,6 +194,32 @@ namespace OloEngine
             return m_WindSettings;
         }
 
+        void SetSnowAccumulationSettings(const SnowAccumulationSettings& settings)
+        {
+            m_SnowAccumulationSettings = settings;
+        }
+        [[nodiscard]] const SnowAccumulationSettings& GetSnowAccumulationSettings() const
+        {
+            return m_SnowAccumulationSettings;
+        }
+        [[nodiscard]] SnowAccumulationSettings& GetSnowAccumulationSettings()
+        {
+            return m_SnowAccumulationSettings;
+        }
+
+        void SetSnowEjectaSettings(const SnowEjectaSettings& settings)
+        {
+            m_SnowEjectaSettings = settings;
+        }
+        [[nodiscard]] const SnowEjectaSettings& GetSnowEjectaSettings() const
+        {
+            return m_SnowEjectaSettings;
+        }
+        [[nodiscard]] SnowEjectaSettings& GetSnowEjectaSettings()
+        {
+            return m_SnowEjectaSettings;
+        }
+
         // Asset interface
         static AssetType GetStaticType()
         {
@@ -220,6 +246,7 @@ namespace OloEngine
         void LoadAndRenderSkybox();
         void RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip);
         void RenderUIOverlay();
+        void ProcessSnowDeformers(Timestep ts, TMap<u64, glm::vec3>& prevPositions);
 
       private:
         entt::registry m_Registry;
@@ -235,6 +262,12 @@ namespace OloEngine
         PostProcessSettings m_PostProcessSettings;             // Post-processing settings
         SnowSettings m_SnowSettings;                           // Snow rendering settings
         WindSettings m_WindSettings;                           // Wind simulation settings
+        SnowAccumulationSettings m_SnowAccumulationSettings;   // Snow accumulation & deformation
+        SnowEjectaSettings m_SnowEjectaSettings;               // Snow ejecta particle settings
+
+        // Per-entity previous positions for velocity estimation (snow ejecta)
+        TMap<u64, glm::vec3> m_RuntimeSnowPrevPositions;
+        TMap<u64, glm::vec3> m_EditorSnowPrevPositions;
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;

@@ -1,0 +1,65 @@
+#version 460 core
+
+// ============================================================================
+// Snow_Deform.comp — Stamp-based snow deformation.
+//
+// Each invocation checks one texel against all deformer stamps and subtracts
+// snow depth within the stamp radius (radial falloff). Stamps are uploaded
+// to an SSBO by SnowAccumulationSystem::SubmitDeformers.
+// ============================================================================
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(r32f, binding = 0) uniform image2D u_SnowDepth;
+
+struct DeformerStamp
+{
+    vec4 posAndRadius;       // xyz = world position, w = radius
+    vec4 depthAndFalloff;    // x = deform depth, y = falloff exponent, z = compaction (reserved, not yet used), w = unused
+};
+
+layout(std430, binding = 7) readonly buffer DeformerBuffer
+{
+    DeformerStamp stamps[];
+};
+
+uniform int   u_StampCount;
+uniform int   u_Resolution;
+uniform vec2  u_ClipmapCenter;
+uniform float u_ClipmapExtent;
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    if (texel.x >= u_Resolution || texel.y >= u_Resolution)
+        return;
+
+    // Compute world XZ from texel
+    vec2 uv = (vec2(texel) + 0.5) / float(u_Resolution);
+    vec2 worldXZ = u_ClipmapCenter + (uv - 0.5) * u_ClipmapExtent;
+
+    float currentDepth = imageLoad(u_SnowDepth, texel).r;
+    float totalDeform = 0.0;
+
+    for (int i = 0; i < u_StampCount; ++i)
+    {
+        vec3 stampPos = stamps[i].posAndRadius.xyz;
+        float radius = stamps[i].posAndRadius.w;
+        float deformDepth = clamp(stamps[i].depthAndFalloff.x, 0.0, 10.0);
+        float falloff = max(stamps[i].depthAndFalloff.y, 0.0);
+
+        vec2 diff = worldXZ - stampPos.xz;
+        float dist = length(diff);
+        float normalizedDist = dist / max(radius, 0.001);
+
+        if (normalizedDist < 1.0)
+        {
+            // Radial falloff: 1 at center, 0 at edge
+            float factor = pow(1.0 - normalizedDist, falloff);
+            totalDeform += deformDepth * factor;
+        }
+    }
+
+    float newDepth = max(currentDepth - totalDeform, 0.0);
+    imageStore(u_SnowDepth, texel, vec4(newDepth, 0.0, 0.0, 0.0));
+}
