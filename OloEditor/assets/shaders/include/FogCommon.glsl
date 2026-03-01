@@ -35,7 +35,7 @@ layout(std140, binding = 17) uniform FogData
     vec4 u_FogDistanceParams;             // x = start, y = end, z = heightFalloff, w = heightOffset
     vec4 u_FogScatterParams;              // x = rayleighStrength, y = mieStrength, z = mieG, w = sunIntensity
     vec4 u_FogRayleighColorAndMaxOpacity; // rgb = rayleigh color, a = maxOpacity
-    vec4 u_FogSunDirection;               // xyz = normalized sun direction, w = unused
+    vec4 u_FogSunDirection;               // xyz = normalized sun direction, w = fogFrameIndex (temporal jitter)
     vec4 u_FogFlags;                      // x = enabled, y = mode, z = scatteringEnabled, w = volumetricEnabled
     vec4 u_FogNoiseParams;                // x = noiseScale, y = noiseSpeed, z = noiseIntensity, w = time
     vec4 u_FogVolumetricParams;           // x = volumetricSamples, y = absorptionCoeff, z = lightShaftIntensity, w = lightShaftsEnabled

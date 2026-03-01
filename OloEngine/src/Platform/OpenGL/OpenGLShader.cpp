@@ -970,7 +970,7 @@ namespace OloEngine
         FinalizeProgram(program, m_OpenGLSPIRV);
     }
 
-    static bool VerifyProgramLink(GLenum const& program)
+    static bool VerifyProgramLink(GLenum const& program, const std::string& filePath)
     {
         int isLinked = 0;
         glGetError();
@@ -985,7 +985,7 @@ namespace OloEngine
 
             glDeleteProgram(program);
 
-            OLO_CORE_CRITICAL("[OpenGL] Shader link failure: {}", infoLog.data());
+            OLO_CORE_CRITICAL("[OpenGL] Shader link failure for '{}': {}", filePath, infoLog.data());
             OLO_CORE_VERIFY(false, "Shader program linking failure");
             return false;
         }
@@ -1017,7 +1017,7 @@ namespace OloEngine
                 in.read(data.data(), size);
                 glProgramBinary(program, format, data.data(), static_cast<GLsizei>(data.size()));
 
-                const bool linked = VerifyProgramLink(program);
+                const bool linked = VerifyProgramLink(program, m_FilePath);
 
                 if (!linked)
                 {
@@ -1039,7 +1039,7 @@ namespace OloEngine
         CompileOpenGLBinariesForAmd(program, glShadersIDs);
         glLinkProgram(program);
 
-        if (const bool linked = VerifyProgramLink(program))
+        if (const bool linked = VerifyProgramLink(program, m_FilePath))
         {
             GLint formats = 0;
             glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
@@ -1121,7 +1121,8 @@ namespace OloEngine
 
                 glDeleteShader(shader);
 
-                OLO_CORE_CRITICAL("[OpenGL] Shader compilation failed for '{}': {}", m_FilePath, infoLog.data());
+                OLO_CORE_CRITICAL("[OpenGL] Shader compilation failed for '{}' (stage {}): {}",
+                                  m_FilePath, Utils::GLShaderStageToString(stage), infoLog.data());
                 OLO_CORE_VERIFY(false, "Shader source compilation failure");
                 return;
             }

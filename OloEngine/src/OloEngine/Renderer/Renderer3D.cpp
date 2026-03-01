@@ -625,7 +625,13 @@ namespace OloEngine
             gpu.ScatterParams = glm::vec4(fog.RayleighStrength, fog.MieStrength, fog.MieDirectionality, fog.SunIntensity);
             gpu.RayleighColorAndMaxOpacity = glm::vec4(fog.RayleighColor, fog.MaxOpacity);
             // Derive sun direction from the scene's primary directional light
-            glm::vec3 const sunDir = glm::normalize(s_Data.SceneLight.Direction);
+            // Guard against zero-length direction to prevent NaN from normalize
+            glm::vec3 sunDir(0.0f, -1.0f, 0.0f);
+            f32 const dirLen2 = glm::dot(s_Data.SceneLight.Direction, s_Data.SceneLight.Direction);
+            if (std::isfinite(dirLen2) && dirLen2 > 1e-8f)
+            {
+                sunDir = glm::normalize(s_Data.SceneLight.Direction);
+            }
             // Pack fog frame index into SunDirection.w (bare uniforms fail SPIR-V)
             static u32 s_FogFrameIndex = 0;
             gpu.SunDirection = glm::vec4(sunDir, static_cast<f32>(s_FogFrameIndex++));
@@ -641,7 +647,8 @@ namespace OloEngine
             s_FogLastTime = fogNow;
             s_FogTime += fogDt;
 
-            gpu.NoiseParams = glm::vec4(fog.NoiseScale, fog.NoiseSpeed, fog.NoiseIntensity, s_FogTime);
+            f32 const effectiveNoiseIntensity = fog.EnableNoise ? fog.NoiseIntensity : 0.0f;
+            gpu.NoiseParams = glm::vec4(fog.NoiseScale, fog.NoiseSpeed, effectiveNoiseIntensity, s_FogTime);
             gpu.VolumetricParams = glm::vec4(static_cast<f32>(fog.VolumetricSamples), fog.AbsorptionCoefficient,
                                              fog.LightShaftIntensity, fog.EnableLightShafts ? 1.0f : 0.0f);
             s_Data.FogUBO->SetData(&gpu, FogUBOData::GetSize());

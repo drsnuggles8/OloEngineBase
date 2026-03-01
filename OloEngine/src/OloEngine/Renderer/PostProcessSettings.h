@@ -333,7 +333,7 @@ namespace OloEngine
         glm::vec4 ScatterParams = glm::vec4(1.0f, 0.005f, 0.76f, 22.0f);
         // vec4(RayleighColor.rgb, MaxOpacity)
         glm::vec4 RayleighColorAndMaxOpacity = glm::vec4(0.27f, 0.51f, 0.83f, 1.0f);
-        // vec4(SunDirection.xyz, unused)
+        // vec4(SunDirection.xyz, fogFrameIndex) — w = temporal jitter frame counter
         glm::vec4 SunDirection = glm::vec4(0.0f, -1.0f, 0.0f, 0.0f);
         // vec4(Enabled, Mode, ScatteringEnabled, VolumetricEnabled)
         glm::vec4 Flags = glm::vec4(0.0f);

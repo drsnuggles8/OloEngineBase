@@ -208,7 +208,7 @@ namespace OloEngine
         }
 
         // 3.5. Volumetric Fog — half-res ray-march + temporal reprojection + bilateral upsample
-        if (m_FogEnabled && m_FogShader && m_SceneDepthFB && m_FogHalfResFB)
+        if (m_FogEnabled && m_FogShader && m_FogUpsampleShader && m_SceneDepthFB && m_FogHalfResFB)
         {
             u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
 
