@@ -309,6 +309,8 @@ namespace OloEngine
         static constexpr u32 UBO_WIND = 15;              // Wind system parameters
         static constexpr u32 UBO_SNOW_ACCUMULATION = 16; // Snow accumulation clipmap parameters
         static constexpr u32 UBO_FOG = 17;               // Fog & atmospheric scattering parameters
+        static constexpr u32 UBO_PRECIPITATION = 18;      // Precipitation system parameters
+        static constexpr u32 UBO_PRECIPITATION_SCREEN = 19; // Precipitation screen-space effects (streaks + lens)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -345,6 +347,7 @@ namespace OloEngine
         static constexpr u32 TEX_TERRAIN_SPLATMAP_1 = 28;   // Terrain splatmap 1 (RGBA8, layers 4-7)
         static constexpr u32 TEX_WIND_FIELD = 29;           // 3D wind velocity field (sampler3D, RGBA16F)
         static constexpr u32 TEX_SNOW_DEPTH = 30;           // Snow accumulation depth map (sampler2D, R32F)
+        static constexpr u32 TEX_PRECIPITATION_NOISE = 31;   // Precipitation streak/lens noise (sampler2D)
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
@@ -426,6 +429,10 @@ namespace OloEngine
                     return name.contains("SnowAccumulation") || name.contains("snowAccumulation");
                 case UBO_FOG:
                     return name.contains("Fog") || name.contains("fog");
+                case UBO_PRECIPITATION:
+                    return name.contains("Precipitation") || name.contains("precipitation");
+                case UBO_PRECIPITATION_SCREEN:
+                    return name.contains("PrecipitationScreen") || name.contains("precipitationScreen");
                 default:
                     return false;
             }
@@ -474,9 +481,12 @@ namespace OloEngine
                     return name.contains("Wind") || name.contains("wind");
                 case TEX_SNOW_DEPTH:
                     return name.contains("SnowDepth") || name.contains("snowDepth");
+                case TEX_PRECIPITATION_NOISE:
+                    return name.contains("Precipitation") || name.contains("precipitation") ||
+                           name.contains("StreakNoise") || name.contains("streakNoise");
                 default:
-                    // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_SNOW_DEPTH, i.e. 10–30)
-                    return binding >= TEX_USER_0 && binding <= TEX_SNOW_DEPTH;
+                    // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_PRECIPITATION_NOISE, i.e. 10–31)
+                    return binding >= TEX_USER_0 && binding <= TEX_PRECIPITATION_NOISE;
             }
         }
 

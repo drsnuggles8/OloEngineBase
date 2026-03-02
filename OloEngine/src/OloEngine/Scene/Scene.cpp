@@ -43,6 +43,7 @@
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
+#include "OloEngine/Precipitation/PrecipitationSystem.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -2418,6 +2419,9 @@ namespace OloEngine
                 // Render snow ejecta particles
                 SnowEjectaSystem::Render();
 
+                // Render precipitation particles
+                PrecipitationSystem::Render();
+
                 ParticleBatchRenderer::EndBatch(); });
         }
 
@@ -2476,6 +2480,9 @@ namespace OloEngine
 
                 // Render snow ejecta particles
                 SnowEjectaSystem::Render();
+
+                // Render precipitation particles
+                PrecipitationSystem::Render();
 
                 ParticleBatchRenderer::EndBatch(); });
         }

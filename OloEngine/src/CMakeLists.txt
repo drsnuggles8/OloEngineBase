@@ -501,6 +501,13 @@
 		"OloEngine/Snow/SnowEjectaSystem.h"
 		"OloEngine/Snow/SnowEjectaSystem.cpp"
 
+		"OloEngine/Precipitation/PrecipitationEmitter.h"
+		"OloEngine/Precipitation/PrecipitationEmitter.cpp"
+		"OloEngine/Precipitation/PrecipitationSystem.h"
+		"OloEngine/Precipitation/PrecipitationSystem.cpp"
+		"OloEngine/Precipitation/ScreenSpacePrecipitation.h"
+		"OloEngine/Precipitation/ScreenSpacePrecipitation.cpp"
+
 		"OloEngine/Terrain/TerrainVertex.h"
 		"OloEngine/Terrain/TerrainData.h"
 		"OloEngine/Terrain/TerrainData.cpp"

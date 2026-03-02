@@ -38,6 +38,8 @@
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Precipitation/PrecipitationSystem.h"
+#include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -324,6 +326,10 @@ namespace OloEngine
         SnowAccumulationSystem::Init();
         SnowEjectaSystem::Init(s_Data.SnowEjecta.MaxParticles);
 
+        // Initialize precipitation system
+        PrecipitationSystem::Init();
+        ScreenSpacePrecipitation::Init();
+
         // Initialize fog temporal state
         s_Data.FogFrameIndex = 0;
         s_Data.FogLastTime = std::chrono::steady_clock::now();
@@ -346,6 +352,10 @@ namespace OloEngine
 
         // Shutdown wind system
         WindSystem::Shutdown();
+
+        // Shutdown precipitation system
+        ScreenSpacePrecipitation::Shutdown();
+        PrecipitationSystem::Shutdown();
 
         // Shutdown snow systems
         SnowEjectaSystem::Shutdown();
@@ -544,6 +554,9 @@ namespace OloEngine
             s_Data.PostProcessPass->SetSettings(s_Data.PostProcess);
             s_Data.PostProcessPass->SetPostProcessUBO(s_Data.PostProcessUBO, &s_Data.PostProcessGPUData);
             s_Data.PostProcessPass->SetFogEnabled(s_Data.Fog.Enabled);
+            s_Data.PostProcessPass->SetPrecipitationScreenEffectsEnabled(
+                s_Data.Precipitation.Enabled &&
+                (s_Data.Precipitation.ScreenStreaksEnabled || s_Data.Precipitation.LensImpactsEnabled));
             s_Data.PostProcessPass->SetShadowMapCSMTextureID(s_Data.Shadow.GetCSMRendererID());
 
             // Pass SSAO texture to PostProcessPass for application
@@ -693,6 +706,18 @@ namespace OloEngine
             if (s_Data.SnowEjecta.Enabled)
             {
                 SnowEjectaSystem::Update(s_Data.SnowEjecta, Timestep(dt));
+            }
+
+            // Update precipitation system
+            if (s_Data.Precipitation.Enabled)
+            {
+                glm::vec3 windDir = glm::normalize(glm::vec3(s_Data.Wind.Direction.x, 0.0f, s_Data.Wind.Direction.z));
+                f32 windSpeed = s_Data.Wind.Speed;
+                PrecipitationSystem::Update(s_Data.Precipitation, s_Data.ViewPos, windDir, windSpeed, Timestep(dt));
+
+                glm::vec2 windDirScreen = glm::vec2(s_Data.Wind.Direction.x, -s_Data.Wind.Direction.z);
+                ScreenSpacePrecipitation::Update(s_Data.Precipitation, PrecipitationSystem::GetCurrentIntensity(), windDirScreen, windSpeed, dt);
+                PrecipitationSystem::UpdateScreenEffectsUBO(s_Data.Precipitation, windDirScreen, s_Data.FogTime);
             }
         }
 

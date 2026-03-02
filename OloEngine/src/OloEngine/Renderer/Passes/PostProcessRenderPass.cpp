@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 
 namespace OloEngine
 {
@@ -37,6 +38,8 @@ namespace OloEngine
         m_FogShader = Shader::Create("assets/shaders/PostProcess_Fog.glsl");
         m_FogUpsampleShader = Shader::Create("assets/shaders/PostProcess_FogUpsample.glsl");
         m_SSAOApplyShader = Shader::Create("assets/shaders/PostProcess_SSAOApply.glsl");
+        m_PrecipitationShader = Shader::Create("assets/shaders/PostProcess_Precipitation.glsl");
+        m_PrecipitationScreenUBO = UniformBuffer::Create(PrecipitationScreenUBOData::GetSize(), ShaderBindingLayout::UBO_PRECIPITATION_SCREEN);
 
         // Create bloom mip chain
         CreateBloomMipChain(spec.Width, spec.Height);
@@ -73,7 +76,7 @@ namespace OloEngine
         }
 
         // If no effects are enabled, skip — GetTarget() returns the input framebuffer directly
-        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.ColorGradingEnabled || m_FogEnabled || (m_Settings.SSAOEnabled && m_SSAOTextureID != 0);
+        bool anyEffectEnabled = m_Settings.BloomEnabled || m_Settings.VignetteEnabled || m_Settings.ChromaticAberrationEnabled || m_Settings.FXAAEnabled || m_Settings.DOFEnabled || m_Settings.MotionBlurEnabled || m_Settings.ColorGradingEnabled || m_FogEnabled || m_PrecipitationScreenEffectsEnabled || (m_Settings.SSAOEnabled && m_SSAOTextureID != 0);
 
         // Always run tone mapping if we have the shader (it's the core of post-processing)
         if (!anyEffectEnabled && !m_ToneMapShader)
@@ -199,6 +202,44 @@ namespace OloEngine
             u32 depthID = m_SceneDepthFB->GetDepthAttachmentRendererID();
             RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
             m_MotionBlurShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
+
+            DrawFullscreenTriangle();
+            dest->Unbind();
+
+            currentSource = dest;
+            writeToP = !writeToP;
+        }
+
+        // 3.25. Precipitation screen-space effects (streaks + lens impacts)
+        if (m_PrecipitationScreenEffectsEnabled && m_PrecipitationShader)
+        {
+            Ref<Framebuffer> dest = writeToP ? m_PingFB : m_PongFB;
+            dest->Bind();
+            RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+            RenderCommand::Clear();
+            RenderCommand::SetDepthTest(false);
+            RenderCommand::SetBlendState(false);
+
+            m_PrecipitationShader->Bind();
+
+            // Bind scene color at slot 0
+            u32 srcColorID = currentSource->GetColorAttachmentRendererID(0);
+            RenderCommand::BindTexture(0, srcColorID);
+            m_PrecipitationShader->SetInt("u_Texture", 0);
+
+            // Upload precipitation screen UBO
+            {
+                PrecipitationScreenUBOData uboData;
+                uboData.StreakParams = ScreenSpacePrecipitation::GetStreakParams();
+                auto lensData = ScreenSpacePrecipitation::GetLensImpactGPUData();
+                for (u32 i = 0; i < ScreenSpacePrecipitation::MAX_LENS_IMPACTS; ++i)
+                {
+                    uboData.LensImpacts[i].PositionAndSize = lensData[i].PositionAndSize;
+                    uboData.LensImpacts[i].TimeParams = lensData[i].TimeParams;
+                }
+                m_PrecipitationScreenUBO->SetData(&uboData, PrecipitationScreenUBOData::GetSize());
+                m_PrecipitationScreenUBO->Bind();
+            }
 
             DrawFullscreenTriangle();
             dest->Unbind();

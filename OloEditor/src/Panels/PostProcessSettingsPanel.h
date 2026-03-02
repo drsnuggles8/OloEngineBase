@@ -26,5 +26,6 @@ namespace OloEngine
         void DrawWindSection();
         void DrawSnowAccumulationSection();
         void DrawSnowEjectaSection();
+        void DrawPrecipitationSection();
     };
 } // namespace OloEngine

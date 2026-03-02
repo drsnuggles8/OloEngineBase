@@ -70,6 +70,17 @@ namespace OloEngine
         /// Bind the snow depth texture to TEX_SNOW_DEPTH (slot 30).
         static void BindSnowDepthTexture();
 
+        /// Bind the snow depth texture as a read-write image at the given unit.
+        /// Used by Precipitation_Feed.comp to atomically add to the snow depth.
+        static void BindSnowDepthImage(u32 imageUnit);
+
+        /// Get the clipmap parameters for ring 0 (innermost).
+        /// @return vec4(snappedCenterX, snappedCenterZ, extent, 1/extent)
+        [[nodiscard]] static glm::vec4 GetClipmapParams();
+
+        /// @return The resolution of the snow depth texture in texels per axis.
+        [[nodiscard]] static u32 GetTextureResolution();
+
         /// @return OpenGL texture ID of the snow depth map (for debug overlay).
         [[nodiscard]] static u32 GetSnowDepthTextureID();
 

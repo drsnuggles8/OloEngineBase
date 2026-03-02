@@ -52,6 +52,10 @@ namespace OloEngine
         {
             m_ShadowMapCSMTextureID = textureID;
         }
+        void SetPrecipitationScreenEffectsEnabled(bool enabled)
+        {
+            m_PrecipitationScreenEffectsEnabled = enabled;
+        }
 
       private:
         void CreatePingPongFramebuffers(u32 width, u32 height);
@@ -81,6 +85,7 @@ namespace OloEngine
         Ref<Shader> m_MotionBlurShader;
         Ref<Shader> m_FogShader;
         Ref<Shader> m_SSAOApplyShader;
+        Ref<Shader> m_PrecipitationShader;
 
         PostProcessSettings m_Settings;
 
@@ -91,6 +96,8 @@ namespace OloEngine
         u32 m_SSAOTextureID = 0;
         u32 m_ShadowMapCSMTextureID = 0;
         bool m_FogEnabled = false;
+        bool m_PrecipitationScreenEffectsEnabled = false;
+        Ref<UniformBuffer> m_PrecipitationScreenUBO;
 
         // Half-resolution volumetric fog framebuffers
         Ref<Framebuffer> m_FogHalfResFB; // RGBA16F: RGB = inscatter, A = transmittance

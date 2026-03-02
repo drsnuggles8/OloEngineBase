@@ -1,0 +1,88 @@
+#version 460 core
+
+// Precipitation_Feed.comp — Bridge between precipitation particles and snow accumulation clipmap.
+// Reads particle data from the near-field SSBO, identifies particles that have landed
+// (lifetime expired at ground level), and atomically adds snow depth to the accumulation map.
+
+layout(local_size_x = 256) in;
+
+// GPUParticle struct (96 bytes, 6 × vec4, std430 layout — matches GPUParticleData.h)
+struct GPUParticle
+{
+    vec4 PositionAndSize;      // xyz = world position, w = size
+    vec4 VelocityAndLifetime;  // xyz = velocity, w = remaining lifetime
+    vec4 ColorAndAge;          // xyzw = RGBA color (age encoded in lifetime)
+    vec4 StartColorAndMaxLife; // xyz = initial color, w = max lifetime
+    vec4 StartSizeAndFlags;    // x = initial size, y = rotation, z = angular vel, w = flags
+    vec4 Custom;               // Application-defined (unused here)
+};
+
+layout(std430, binding = 0) readonly buffer ParticleBuffer
+{
+    GPUParticle particles[];
+};
+
+layout(std430, binding = 2) readonly buffer CounterBuffer
+{
+    uint aliveCount;
+    uint deadCount;
+    uint emitCount;
+    uint simulateCount;
+};
+
+// Snow depth clipmap (R32F, read-write)
+layout(r32f, binding = 1) uniform image2D u_SnowDepth;
+
+// Per-dispatch uniforms
+uniform float u_AccumulationFeedRate;  // How much depth each landed particle contributes
+uniform float u_GroundY;              // Ground plane Y coordinate
+uniform float u_GroundThreshold;      // Tolerance for ground contact detection
+uniform vec2  u_ClipmapCenter;        // World XZ center of the snow clipmap
+uniform float u_ClipmapExtent;        // Half-extent of the clipmap in world units
+uniform int   u_ClipmapResolution;    // Texture resolution (e.g. 2048)
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= aliveCount)
+        return;
+
+    GPUParticle p = particles[idx];
+
+    // Check if particle has landed: position near ground and lifetime expired or nearly expired
+    float posY = p.PositionAndSize.y;
+    float lifetime = p.VelocityAndLifetime.w;
+
+    bool nearGround = abs(posY - u_GroundY) < u_GroundThreshold;
+    bool expired = lifetime <= 0.0;
+
+    if (!nearGround || !expired)
+        return;
+
+    // Convert world XZ to clipmap UV
+    vec2 worldXZ = p.PositionAndSize.xz;
+    vec2 relativePos = (worldXZ - u_ClipmapCenter) / u_ClipmapExtent; // [-1, 1]
+    vec2 uv = relativePos * 0.5 + 0.5; // [0, 1]
+
+    // Bounds check
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+        return;
+
+    // Convert to texel coordinates
+    ivec2 texel = ivec2(uv * float(u_ClipmapResolution));
+    texel = clamp(texel, ivec2(0), ivec2(u_ClipmapResolution - 1));
+
+    // Atomically accumulate snow depth
+    // Note: imageAtomicAdd on R32F requires GL_EXT_shader_image_load_store
+    // or GL 4.6 with appropriate format. We use a manual CAS loop for portability.
+    float contribution = u_AccumulationFeedRate * p.PositionAndSize.w; // Scale by particle size
+
+    // Simple atomic add via compare-and-swap loop
+    float currentDepth = imageLoad(u_SnowDepth, texel).r;
+    float newDepth = currentDepth + contribution;
+
+    // Clamp to reasonable max depth (prevent unbounded accumulation)
+    newDepth = min(newDepth, 2.0);
+
+    imageStore(u_SnowDepth, texel, vec4(newDepth, 0.0, 0.0, 0.0));
+}

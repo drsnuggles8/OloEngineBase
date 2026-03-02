@@ -348,6 +348,123 @@ namespace OloEngine
         }
     };
 
+    // Precipitation type constants
+    enum class PrecipitationType : i32
+    {
+        Snow = 0,
+        Rain = 1,
+        Hail = 2,
+        Sleet = 3
+    };
+
+    // Precipitation intensity presets (map to parameter sets)
+    enum class PrecipitationIntensity : i32
+    {
+        None = 0,
+        Light = 1,
+        Moderate = 2,
+        Heavy = 3,
+        Blizzard = 4
+    };
+
+    // Scene-global precipitation settings (camera-relative, multi-layer)
+    struct PrecipitationSettings
+    {
+        bool Enabled = false;
+        PrecipitationType Type = PrecipitationType::Snow;
+        f32 Intensity = 0.5f;            // 0–1 continuous
+        f32 TransitionSpeed = 1.0f;      // Interpolation speed toward target
+
+        // Emission
+        u32 BaseEmissionRate = 4000;      // Particles/sec at intensity=1
+        u32 MaxParticlesNearField = 100000;
+        u32 MaxParticlesFarField = 200000;
+
+        // Near-field layer (detailed, close to camera)
+        glm::vec3 NearFieldExtent = glm::vec3(15.0f, 20.0f, 15.0f);
+        f32 NearFieldParticleSize = 0.04f;
+        f32 NearFieldSizeVariance = 0.02f;
+        f32 NearFieldSpeedMin = 0.8f;
+        f32 NearFieldSpeedMax = 2.0f;
+        f32 NearFieldLifetime = 10.0f;
+
+        // Far-field layer (atmospheric, larger volume)
+        glm::vec3 FarFieldExtent = glm::vec3(60.0f, 30.0f, 60.0f);
+        f32 FarFieldParticleSize = 0.025f;
+        f32 FarFieldSpeedMin = 0.5f;
+        f32 FarFieldSpeedMax = 1.5f;
+        f32 FarFieldLifetime = 15.0f;
+        f32 FarFieldAlphaMultiplier = 0.5f;
+
+        // Physics
+        f32 GravityScale = 0.8f;
+        f32 WindInfluence = 1.0f;
+        f32 DragCoefficient = 0.3f;
+        f32 TurbulenceStrength = 0.8f;
+        f32 TurbulenceFrequency = 0.5f;
+
+        // Ground interaction
+        bool GroundCollisionEnabled = true;
+        f32 GroundY = 0.0f;
+        bool FeedAccumulation = true;
+        f32 AccumulationFeedRate = 0.0001f;
+
+        // Screen-space effects
+        bool ScreenStreaksEnabled = true;
+        f32 ScreenStreakIntensity = 0.3f;
+        f32 ScreenStreakLength = 0.15f;
+        bool LensImpactsEnabled = true;
+        f32 LensImpactRate = 3.0f;       // Impacts/sec at intensity=1
+        f32 LensImpactLifetime = 1.5f;
+        f32 LensImpactSize = 0.03f;
+
+        // LOD / performance budget
+        f32 LODNearDistance = 30.0f;
+        f32 LODFarDistance = 120.0f;
+        f32 FrameBudgetMs = 1.0f;
+
+        // Visual
+        glm::vec4 ParticleColor = glm::vec4(0.95f, 0.97f, 1.0f, 0.85f);
+        f32 ColorVariance = 0.05f;
+        f32 RotationSpeed = 30.0f;       // deg/s
+    };
+
+    // GPU-side UBO layout for precipitation parameters (std140, binding 18)
+    struct PrecipitationUBOData
+    {
+        // vec4(Intensity, WindInfluence, StreakIntensity, StreakLength)
+        glm::vec4 IntensityAndScreenFX = glm::vec4(0.5f, 1.0f, 0.3f, 0.15f);
+        // vec4(LensImpactRate, LensImpactLifetime, LensImpactSize, Enabled)
+        glm::vec4 LensParams = glm::vec4(3.0f, 1.5f, 0.03f, 0.0f);
+        // vec4(ScreenWindDirX, ScreenWindDirY, Time, StreaksEnabled)
+        glm::vec4 ScreenWindAndTime = glm::vec4(0.0f);
+        // vec4(ParticleColor rgba)
+        glm::vec4 ParticleColor = glm::vec4(0.95f, 0.97f, 1.0f, 0.85f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(PrecipitationUBOData);
+        }
+    };
+
+    // GPU-side UBO layout for precipitation screen-space effects (std140, binding 19)
+    struct PrecipitationScreenUBOData
+    {
+        // vec4(DirX, DirY, Intensity, Length)
+        glm::vec4 StreakParams = glm::vec4(0.0f);
+        // LensImpacts[16] — each element has 2 vec4 (PositionAndSize, TimeParams)
+        struct LensImpactGPU
+        {
+            glm::vec4 PositionAndSize{0.0f};
+            glm::vec4 TimeParams{0.0f};
+        } LensImpacts[16]{};
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(PrecipitationScreenUBOData);
+        }
+    };
+
     // Wind simulation settings (scene-level, separate from PostProcess)
     struct WindSettings
     {
