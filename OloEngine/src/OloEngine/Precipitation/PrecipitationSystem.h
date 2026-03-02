@@ -137,6 +137,7 @@ namespace OloEngine
             // Frame budget tracking
             f32 m_EmissionReductionFactor = 1.0f;
             f32 m_LastFrameTimeMs = 0.0f;
+            u32 m_LastAccumulationFeedCount = 0;
 
             // Drain timer: when precipitation is disabled, keep simulating
             // for long enough that all alive particles expire naturally.

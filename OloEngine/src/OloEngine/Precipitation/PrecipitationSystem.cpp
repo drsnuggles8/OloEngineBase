@@ -181,7 +181,7 @@ namespace OloEngine
         // Seed the emitter RNG for deterministic startup behavior
         PrecipitationEmitter::Seed(42u);
 
-        OLO_CORE_INFO("PrecipitationSystem initialized (100k near + 200k far particles)");
+        OLO_CORE_INFO("PrecipitationSystem initialized ({}k near + {}k far particles)", maxNearField / 1000, maxFarField / 1000);
     }
 
     void PrecipitationSystem::Shutdown()
@@ -233,6 +233,7 @@ namespace OloEngine
 
         f32 deltaTime = static_cast<f32>(dt);
         s_Data.m_AccumulatedTime += deltaTime;
+        s_Data.m_LastAccumulationFeedCount = 0;
 
         if (!settings.Enabled)
         {
@@ -373,6 +374,7 @@ namespace OloEngine
             // The compute shader reads from the particle SSBO (already bound)
             // and writes to the snow depth image
             u32 nearAlive = s_Data.m_NearFieldSystem->GetAliveCount();
+            s_Data.m_LastAccumulationFeedCount = nearAlive;
             if (nearAlive > 0)
             {
                 u32 groups = (nearAlive + 255) / 256;
@@ -508,6 +510,12 @@ namespace OloEngine
             s_Data.m_AccumulatedTime = 0.0f;
             s_Data.m_EmissionReductionFactor = 1.0f;
             s_Data.m_DrainTimeRemaining = 0.0f;
+
+            // Clear timer state so stale timing doesn't affect budget calculations
+            s_Data.m_TimerQueryActive = false;
+            s_Data.m_CurrentTimerQuery = 0;
+            s_Data.m_LastFrameTimeMs = 0.0f;
+            s_Data.m_LastAccumulationFeedCount = 0;
         }
     }
 
@@ -541,6 +549,9 @@ namespace OloEngine
         PrecipitationStats stats;
         if (s_Data.m_Initialized)
         {
+            stats.NearFieldAlive = s_Data.m_NearFieldSystem ? s_Data.m_NearFieldSystem->GetAliveCount() : 0;
+            stats.FarFieldAlive = s_Data.m_FarFieldSystem ? s_Data.m_FarFieldSystem->GetAliveCount() : 0;
+            stats.AccumulationFeedCount = s_Data.m_LastAccumulationFeedCount;
             stats.EffectiveEmissionRate = PrecipitationEmitter::CalculateEmissionRate(
                                               s_Data.m_LastBaseEmissionRate, s_Data.m_CurrentIntensity) *
                                           s_Data.m_EmissionReductionFactor;

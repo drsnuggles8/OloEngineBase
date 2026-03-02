@@ -31,20 +31,22 @@ namespace OloEngine
         SetDepthFunc(GL_LESS);
         glEnable(GL_LINE_SMOOTH);
 
-        // Validate that the GPU supports enough combined texture units for our highest binding slot
+        // Validate that the GPU supports enough combined texture units for our highest binding slot.
+        // OLO_CORE_VERIFY evaluates the condition in all configurations (including Release)
+        // and triggers a debugger break when the check fails.
         {
             GLint maxCombinedUnits = 0;
             glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxCombinedUnits);
-            OLO_CORE_ASSERT(static_cast<u32>(maxCombinedUnits) > ShaderBindingLayout::TEX_PRECIPITATION_NOISE,
-                            "GPU reports GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS={}, but highest binding slot is {} "
-                            "(TEX_PRECIPITATION_NOISE). Renderer cannot function correctly.",
-                            maxCombinedUnits, ShaderBindingLayout::TEX_PRECIPITATION_NOISE);
             if (static_cast<u32>(maxCombinedUnits) <= ShaderBindingLayout::TEX_PRECIPITATION_NOISE)
             {
-                OLO_CORE_ERROR("GPU reports GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS={}, but highest binding slot is {} (TEX_PRECIPITATION_NOISE). "
-                               "Some texture bindings may fail.",
+                OLO_CORE_ERROR("GPU reports GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS={}, but highest binding slot is {} "
+                               "(TEX_PRECIPITATION_NOISE). Renderer cannot function correctly.",
                                maxCombinedUnits, ShaderBindingLayout::TEX_PRECIPITATION_NOISE);
             }
+            OLO_CORE_VERIFY(static_cast<u32>(maxCombinedUnits) > ShaderBindingLayout::TEX_PRECIPITATION_NOISE,
+                            "GPU texture-unit count ({}) is insufficient for highest binding slot {} "
+                            "(TEX_PRECIPITATION_NOISE). Renderer cannot function correctly.",
+                            maxCombinedUnits, ShaderBindingLayout::TEX_PRECIPITATION_NOISE);
         }
 
         EnableStencilTest();
