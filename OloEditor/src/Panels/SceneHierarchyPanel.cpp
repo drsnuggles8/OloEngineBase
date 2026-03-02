@@ -899,6 +899,7 @@ namespace OloEngine
             DisplayAddComponentEntry<TerrainComponent>("Terrain");
             DisplayAddComponentEntry<FoliageComponent>("Foliage");
             DisplayAddComponentEntry<SnowDeformerComponent>("Snow Deformer");
+            DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
 
             ImGui::Separator();
 
@@ -2723,6 +2724,40 @@ namespace OloEngine
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("0 = full removal, 1 = compact only");
                 ImGui::Checkbox("Emit Ejecta", &component.m_EmitEjecta); });
+
+        DrawComponent<FogVolumeComponent>("Fog Volume", entity, [](auto& component)
+                                          {
+                ImGui::Checkbox("Enabled##FogVolume", &component.m_Enabled);
+
+                const char* shapeNames[] = { "Box", "Sphere", "Cylinder" };
+                int shape = static_cast<int>(component.m_Shape);
+                if (ImGui::Combo("Shape##FogVolume", &shape, shapeNames, IM_ARRAYSIZE(shapeNames)))
+                    component.m_Shape = static_cast<FogVolumeShape>(shape);
+
+                if (component.m_Shape == FogVolumeShape::Sphere)
+                {
+                    ImGui::DragFloat("Radius##FogVolume", &component.m_Extents.x, 0.1f, 0.1f, 500.0f, "%.1f");
+                }
+                else if (component.m_Shape == FogVolumeShape::Cylinder)
+                {
+                    ImGui::DragFloat("Radius##FogVolCyl", &component.m_Extents.x, 0.1f, 0.1f, 500.0f, "%.1f");
+                    ImGui::DragFloat("Half Height##FogVolCyl", &component.m_Extents.y, 0.1f, 0.1f, 500.0f, "%.1f");
+                }
+                else
+                {
+                    DrawVec3Control("Half Extents", component.m_Extents);
+                }
+
+                ImGui::ColorEdit3("Color##FogVolume", glm::value_ptr(component.m_Color));
+                ImGui::DragFloat("Density##FogVolume", &component.m_Density, 0.01f, 0.0f, 100.0f, "%.3f");
+                ImGui::DragFloat("Falloff Distance##FogVolume", &component.m_FalloffDistance, 0.05f, 0.0f, 100.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Boundary fade distance in world-space units");
+                ImGui::DragInt("Priority##FogVolume", &component.m_Priority, 1, -100, 100);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Higher priority volumes blend on top");
+                ImGui::DragFloat("Blend Weight##FogVolume", &component.m_BlendWeight, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::Checkbox("Affect Transparent##FogVolume", &component.m_AffectTransparent); });
     }
 
     template<typename T>

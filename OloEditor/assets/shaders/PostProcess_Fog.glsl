@@ -98,6 +98,9 @@ float sampleShadowForFog(vec3 worldPos)
 // Include fog UBO, noise functions, phase functions
 #include "include/FogCommon.glsl"
 
+// Include local fog volume evaluation
+#include "include/FogVolumeCommon.glsl"
+
 // ---------------------------------------------------------------------------
 // Dual-lobe Henyey-Greenstein phase function — more realistic than single HG.
 // Blends forward and back-scatter lobes (Frostbite/UE5 style).
@@ -191,6 +194,16 @@ void main()
         float distFog = computeDistanceFog(dist, mode, baseDensity, u_FogDistanceParams.x, u_FogDistanceParams.y);
         float heightFog = computeHeightFog(worldPos, cameraPos, baseDensity, heightFalloff, heightOffset);
         float fogFactor = clamp(max(distFog, heightFog), 0.0, maxOpacity);
+
+        // Add local fog volume contribution at the fragment position
+        FogVolumeResult volResult = evaluateFogVolumesAtPoint(worldPos);
+        if (volResult.density > 0.001)
+        {
+            float volFogFactor = clamp(volResult.density, 0.0, 1.0);
+            fogFactor = clamp(fogFactor + volFogFactor, 0.0, maxOpacity);
+            analyticFog = mix(analyticFog, volResult.color * volFogFactor, volFogFactor / max(fogFactor, 0.001));
+        }
+
         o_Color = vec4(analyticFog, 1.0 - fogFactor);
         return;
     }
@@ -249,7 +262,7 @@ void main()
 
         vec3 samplePos = cameraPos + rayDir * t;
 
-        // Height-modulated density
+        // Height-modulated global density
         float density = fogDensityAtPoint(samplePos, baseDensity, heightFalloff, heightOffset);
 
         // Animated noise modulation — multi-octave FBM with wind drift
@@ -263,14 +276,26 @@ void main()
             density *= mix(1.0, clamp(noiseFactor * 2.0, 0.0, 2.5), noiseIntensity);
         }
 
-        density = max(density, 0.0);
+        // Evaluate local fog volumes at this sample point
+        FogVolumeResult volResult = evaluateFogVolumesAtPoint(samplePos);
+        float combinedDensity = max(density, 0.0) + volResult.density;
+
+        // Blend fog color: mix global color with volume color based on relative contribution
+        vec3 sampleFogColor = fogColor;
+        if (volResult.density > 0.001 && combinedDensity > 0.001)
+        {
+            float volumeRatio = volResult.density / combinedDensity;
+            sampleFogColor = mix(fogColor, volResult.color, volumeRatio);
+        }
+
+        density = combinedDensity;
 
         // Beer-Lambert extinction for this step
         float extinction = (density + absorptionCoeff) * stepSize;
         float stepTransmittance = exp(-extinction);
 
         // In-scattering: ambient fog color + directional atmospheric scattering
-        vec3 stepLight = fogColor * density;
+        vec3 stepLight = sampleFogColor * density;
         if (scatterEnabled)
         {
             vec3 scatter = scatterCoeff * density;

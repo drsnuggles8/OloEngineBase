@@ -913,6 +913,39 @@ namespace OloEngine
         SnowDeformerComponent& operator=(SnowDeformerComponent&&) noexcept = default;
     };
 
+    // ── Local Fog Volume ─────────────────────────────────────────────────
+
+    enum class FogVolumeShape : i32
+    {
+        Box = 0,
+        Sphere = 1,
+        Cylinder = 2
+    };
+
+    struct FogVolumeComponent
+    {
+        // Shape & spatial parameters
+        FogVolumeShape m_Shape = FogVolumeShape::Box;
+        glm::vec3 m_Extents = { 5.0f, 5.0f, 5.0f }; // Half-extents for Box/Cylinder, radius for Sphere uses x
+
+        // Fog parameters
+        glm::vec3 m_Color = { 0.6f, 0.65f, 0.7f };
+        f32 m_Density = 0.5f;
+        f32 m_FalloffDistance = 1.0f; // Boundary fade distance (world-space)
+        i32 m_Priority = 0;           // Sorting priority for overlapping volumes
+        f32 m_BlendWeight = 1.0f;     // 0-1 blend strength
+
+        // Flags
+        bool m_Enabled = true;
+        bool m_AffectTransparent = false; // Whether to affect transparent objects
+
+        FogVolumeComponent() = default;
+        FogVolumeComponent(const FogVolumeComponent&) = default;
+        FogVolumeComponent& operator=(const FogVolumeComponent&) = default;
+        FogVolumeComponent(FogVolumeComponent&&) noexcept = default;
+        FogVolumeComponent& operator=(FogVolumeComponent&&) noexcept = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -967,5 +1000,6 @@ namespace OloEngine
         ParticleSystemComponent,
         TerrainComponent,
         FoliageComponent,
-        SnowDeformerComponent>;
+        SnowDeformerComponent,
+        FogVolumeComponent>;
 } // namespace OloEngine

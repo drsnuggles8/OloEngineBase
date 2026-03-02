@@ -577,6 +577,8 @@ namespace OloEngine
             return s_Data.Fog;
         }
 
+        static void UploadFogVolumes(const FogVolumesUBOData& data);
+
         static WindSettings& GetWindSettings()
         {
             return s_Data.Wind;
@@ -656,6 +658,7 @@ namespace OloEngine
             Ref<UniformBuffer> SnowUBO;
             Ref<UniformBuffer> SSSUBO;
             Ref<UniformBuffer> FogUBO;
+            Ref<UniformBuffer> FogVolumesUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -712,6 +715,7 @@ namespace OloEngine
             SSSUBOData SSSGPUData;
             FogSettings Fog;
             FogUBOData FogGPUData;
+            FogVolumesUBOData FogVolumesGPUData;
             u32 FogFrameIndex = 0;
             std::chrono::steady_clock::time_point FogLastTime{};
             f32 FogTime = 0.0f;
