@@ -592,7 +592,7 @@ namespace OloEngine
 
             // Build scaled transform for the decal projection box
             glm::mat4 decalTransform = transform.GetTransform() *
-                glm::scale(glm::mat4(1.0f), decal.Size);
+                                       glm::scale(glm::mat4(1.0f), decal.Size);
             glm::mat4 inverseDecalTransform = glm::inverse(decalTransform);
 
             // Update model UBO

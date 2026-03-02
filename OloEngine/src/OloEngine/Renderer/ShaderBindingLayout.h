@@ -327,7 +327,7 @@ namespace OloEngine
         static constexpr u32 UBO_PRECIPITATION = 18;        // Precipitation system parameters
         static constexpr u32 UBO_PRECIPITATION_SCREEN = 19; // Precipitation screen-space effects (streaks + lens)
         static constexpr u32 UBO_FOG_VOLUMES = 20;          // Local fog volume data (array of volumes)
-        static constexpr u32 UBO_DECAL = 21;                 // Decal projection parameters
+        static constexpr u32 UBO_DECAL = 21;                // Decal projection parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
