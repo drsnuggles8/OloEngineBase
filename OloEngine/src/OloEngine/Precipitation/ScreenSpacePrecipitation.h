@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 
 #include <glm/glm.hpp>
@@ -37,7 +38,7 @@ namespace OloEngine
     class ScreenSpacePrecipitation
     {
       public:
-        static constexpr u32 MAX_LENS_IMPACTS = 16;
+        static constexpr u32 MAX_LENS_IMPACTS = kMaxLensImpacts;
 
         static void Init();
         static void Shutdown();
@@ -79,6 +80,8 @@ namespace OloEngine
             glm::vec2 m_StreakDirection{ 0.0f, -1.0f };
             f32 m_StreakIntensity = 0.0f;
             f32 m_StreakLength = 0.0f;
+
+            FastRandom<PCG32Algorithm> m_Rng{ 42u }; // Deterministic RNG for lens impact spawning
 
             bool m_Initialized = false;
         };

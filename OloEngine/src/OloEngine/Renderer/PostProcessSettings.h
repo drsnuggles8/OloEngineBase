@@ -357,6 +357,10 @@ namespace OloEngine
         Sleet = 3
     };
 
+    /// Maximum number of simultaneous lens impacts for screen-space precipitation.
+    /// Shared between ScreenSpacePrecipitation and PrecipitationScreenUBOData.
+    inline constexpr u32 kMaxLensImpacts = 16;
+
     // Precipitation intensity presets (map to parameter sets)
     enum class PrecipitationIntensity : i32
     {
@@ -565,7 +569,7 @@ namespace OloEngine
         {
             glm::vec4 PositionAndSize{ 0.0f };
             glm::vec4 TimeParams{ 0.0f };
-        } LensImpacts[16]{};
+        } LensImpacts[kMaxLensImpacts]{};
 
         static constexpr u32 GetSize()
         {

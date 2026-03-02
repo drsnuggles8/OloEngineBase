@@ -608,6 +608,54 @@ namespace OloEngine
             sanitizeFloat(ps.FrameBudgetMs, 0.1f, 5.0f, 1.0f);
             sanitizeFloat(ps.ColorVariance, 0.0f, 1.0f, 0.05f);
             sanitizeFloat(ps.RotationSpeed, 0.0f, 10.0f, 1.0f);
+
+            // Sanitize vec3 extents: each component must be positive
+            auto sanitizeVec3 = [](glm::vec3& v, f32 lo, f32 hi, const glm::vec3& fallback)
+            {
+                for (int i = 0; i < 3; ++i)
+                {
+                    if (!std::isfinite(v[i]))
+                    {
+                        v[i] = fallback[i];
+                    }
+                    else
+                    {
+                        v[i] = std::clamp(v[i], lo, hi);
+                    }
+                }
+            };
+            sanitizeVec3(ps.NearFieldExtent, 1.0f, 200.0f, glm::vec3(15.0f, 25.0f, 15.0f));
+            sanitizeVec3(ps.FarFieldExtent, 10.0f, 500.0f, glm::vec3(60.0f, 40.0f, 60.0f));
+
+            // Sanitize speed ranges
+            sanitizeFloat(ps.NearFieldSpeedMin, 0.0f, 20.0f, 1.0f);
+            sanitizeFloat(ps.NearFieldSpeedMax, 0.0f, 20.0f, 3.0f);
+            ps.NearFieldSpeedMax = std::max(ps.NearFieldSpeedMax, ps.NearFieldSpeedMin);
+            sanitizeFloat(ps.FarFieldSpeedMin, 0.0f, 15.0f, 0.5f);
+            sanitizeFloat(ps.FarFieldSpeedMax, 0.0f, 15.0f, 2.0f);
+            ps.FarFieldSpeedMax = std::max(ps.FarFieldSpeedMax, ps.FarFieldSpeedMin);
+
+            // Sanitize lifetimes
+            sanitizeFloat(ps.NearFieldLifetime, 0.1f, 30.0f, 4.0f);
+            sanitizeFloat(ps.FarFieldLifetime, 0.1f, 60.0f, 8.0f);
+            sanitizeFloat(ps.FarFieldAlphaMultiplier, 0.0f, 1.0f, 0.5f);
+            sanitizeFloat(ps.NearFieldSizeVariance, 0.0f, 0.1f, 0.01f);
+
+            // Enforce LOD ordering: far >= near
+            ps.LODFarDistance = std::max(ps.LODFarDistance, ps.LODNearDistance + 1.0f);
+
+            // Sanitize particle color: clamp components to [0,1]
+            for (int i = 0; i < 4; ++i)
+            {
+                if (!std::isfinite(ps.ParticleColor[i]))
+                {
+                    ps.ParticleColor[i] = (i < 3) ? 0.95f : 0.85f;
+                }
+                else
+                {
+                    ps.ParticleColor[i] = std::clamp(ps.ParticleColor[i], 0.0f, 1.0f);
+                }
+            }
         }
     }
 

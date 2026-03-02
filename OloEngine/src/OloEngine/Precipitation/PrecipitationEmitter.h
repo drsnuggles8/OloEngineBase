@@ -69,6 +69,16 @@ namespace OloEngine
         [[nodiscard]] static f32 CalculateEmissionRate(u32 baseRate, f32 intensity);
 
         /**
+         * @brief Seed the internal RNG for reproducible emission.
+         *
+         * Call before first emission if deterministic output is desired
+         * (e.g. regression tests, replays).
+         *
+         * @param seed  32-bit seed value.
+         */
+        static void Seed(u32 seed);
+
+        /**
          * @brief Compute the spawn volume AABB for a layer.
          *
          * @param cameraPos  Camera world position.

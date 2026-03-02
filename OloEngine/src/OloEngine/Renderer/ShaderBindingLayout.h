@@ -349,6 +349,9 @@ namespace OloEngine
         static constexpr u32 TEX_SNOW_DEPTH = 30;           // Snow accumulation depth map (sampler2D, R32F)
         static constexpr u32 TEX_PRECIPITATION_NOISE = 31;  // Precipitation streak/lens noise (sampler2D)
 
+        // Ensure all texture slots fit within the GL 4.6 minimum guarantee (80 combined units).
+        static_assert(TEX_PRECIPITATION_NOISE < 80, "Texture slot exceeds GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
+
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
         // =============================================================================

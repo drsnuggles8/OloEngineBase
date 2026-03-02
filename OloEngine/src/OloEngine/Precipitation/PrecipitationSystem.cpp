@@ -241,9 +241,6 @@ namespace OloEngine
                                                       std::clamp(settings.TransitionSpeed * deltaTime, 0.0f, 1.0f));
 
                 s_Data.m_DrainTimeRemaining = std::max(s_Data.m_DrainTimeRemaining - deltaTime, 0.0f);
-                s_Data.m_TargetIntensity = 0.0f;
-                s_Data.m_CurrentIntensity = std::lerp(s_Data.m_CurrentIntensity, 0.0f,
-                                                      std::clamp(settings.TransitionSpeed * deltaTime, 0.0f, 1.0f));
 
                 GPUSimParams simParams = {};
                 simParams.DeltaTime = deltaTime;
@@ -360,7 +357,7 @@ namespace OloEngine
             // Feed from near-field system
             // The compute shader reads from the particle SSBO (already bound)
             // and writes to the snow depth image
-            u32 nearAlive = s_Data.m_NearFieldSystem->GetMaxParticles();
+            u32 nearAlive = s_Data.m_NearFieldSystem->GetAliveCount();
             u32 groups = (nearAlive + 255) / 256;
             RenderCommand::DispatchCompute(groups, 1, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);

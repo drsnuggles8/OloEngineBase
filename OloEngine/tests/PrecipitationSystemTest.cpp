@@ -23,7 +23,7 @@ TEST(PrecipitationStats, DefaultsAreZero)
 // Intensity Tests (no GPU context needed)
 // =============================================================================
 
-TEST(PrecipitationSystem, IntensityClampsTo01)
+TEST(PrecipitationSystem, IntensityClampLogic)
 {
     // SetIntensityImmediate / GetCurrentIntensity operate on static data
     // without requiring GPU Init(), so we can test the real API directly.

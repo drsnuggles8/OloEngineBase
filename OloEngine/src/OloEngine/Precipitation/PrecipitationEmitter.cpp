@@ -9,6 +9,11 @@ namespace OloEngine
 {
     FastRandom<PCG32Algorithm> PrecipitationEmitter::s_Rng;
 
+    void PrecipitationEmitter::Seed(u32 seed)
+    {
+        s_Rng = FastRandom<PCG32Algorithm>(seed);
+    }
+
     f32 PrecipitationEmitter::CalculateEmissionRate(u32 baseRate, f32 intensity)
     {
         // Quadratic scaling for perceptual linearity
@@ -140,7 +145,8 @@ namespace OloEngine
 
             // Height-stratified density: bias toward mid-height using triangle distribution
             // For snow/sleet: more at 40-60% height; for rain/hail: more uniform (top-biased)
-            f32 heightT = (py - aabbMin.y) / (aabbMax.y - aabbMin.y);
+            f32 heightRange = aabbMax.y - aabbMin.y;
+            f32 heightT = (heightRange > 1e-6f) ? (py - aabbMin.y) / heightRange : 0.5f;
             if (settings.Type == PrecipitationType::Snow || settings.Type == PrecipitationType::Sleet)
             {
                 f32 stratified = 1.0f - std::abs(heightT * 2.0f - 1.0f);

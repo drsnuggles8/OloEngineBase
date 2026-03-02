@@ -509,6 +509,7 @@ namespace OloEngine
                 ImGui::DragFloat("Size Variance##NearPrecip", &settings.NearFieldSizeVariance, 0.001f, 0.0f, 0.1f, "%.3f");
                 ImGui::DragFloat("Speed Min##NearPrecip", &settings.NearFieldSpeedMin, 0.1f, 0.0f, 20.0f, "%.1f");
                 ImGui::DragFloat("Speed Max##NearPrecip", &settings.NearFieldSpeedMax, 0.1f, 0.0f, 20.0f, "%.1f");
+                settings.NearFieldSpeedMax = std::max(settings.NearFieldSpeedMax, settings.NearFieldSpeedMin);
                 ImGui::DragFloat("Lifetime##NearPrecip", &settings.NearFieldLifetime, 0.1f, 0.1f, 30.0f, "%.1f");
 
                 ImGui::SeparatorText("Far Field");
@@ -516,6 +517,7 @@ namespace OloEngine
                 ImGui::DragFloat("Particle Size##FarPrecip", &settings.FarFieldParticleSize, 0.001f, 0.001f, 0.3f, "%.3f");
                 ImGui::DragFloat("Speed Min##FarPrecip", &settings.FarFieldSpeedMin, 0.1f, 0.0f, 15.0f, "%.1f");
                 ImGui::DragFloat("Speed Max##FarPrecip", &settings.FarFieldSpeedMax, 0.1f, 0.0f, 15.0f, "%.1f");
+                settings.FarFieldSpeedMax = std::max(settings.FarFieldSpeedMax, settings.FarFieldSpeedMin);
                 ImGui::DragFloat("Lifetime##FarPrecip", &settings.FarFieldLifetime, 0.1f, 0.1f, 60.0f, "%.1f");
                 ImGui::DragFloat("Alpha Multiplier##FarPrecip", &settings.FarFieldAlphaMultiplier, 0.01f, 0.0f, 1.0f, "%.2f");
 
@@ -550,6 +552,7 @@ namespace OloEngine
                 ImGui::SeparatorText("LOD & Budget");
                 ImGui::DragFloat("LOD Near##Precip", &settings.LODNearDistance, 1.0f, 1.0f, 100.0f, "%.0f");
                 ImGui::DragFloat("LOD Far##Precip", &settings.LODFarDistance, 1.0f, 10.0f, 500.0f, "%.0f");
+                settings.LODFarDistance = std::max(settings.LODFarDistance, settings.LODNearDistance + 1.0f);
                 ImGui::DragFloat("Frame Budget (ms)##Precip", &settings.FrameBudgetMs, 0.1f, 0.1f, 5.0f, "%.1f");
 
                 ImGui::SeparatorText("Visual");

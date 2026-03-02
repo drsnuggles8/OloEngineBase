@@ -79,7 +79,7 @@ namespace OloEngine
         }
 
         // --- Update lens impacts ---
-        static FastRandom<PCG32Algorithm> rng(42u);
+        auto& rng = s_Data.m_Rng;
 
         // Age existing impacts and deactivate expired ones
         for (auto& impact : s_Data.m_LensImpacts)

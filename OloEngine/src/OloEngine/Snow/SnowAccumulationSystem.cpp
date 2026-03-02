@@ -260,6 +260,8 @@ namespace OloEngine
 
     void SnowAccumulationSystem::BindSnowDepthImage(u32 imageUnit)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!s_Data.m_Initialized || !s_Data.m_SnowDepthTexture)
         {
             return;
@@ -270,6 +272,8 @@ namespace OloEngine
 
     void SnowAccumulationSystem::BindSnowDepthImageUint(u32 imageUnit)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!s_Data.m_Initialized || !s_Data.m_SnowDepthTexture)
         {
             return;
@@ -282,6 +286,8 @@ namespace OloEngine
 
     glm::vec4 SnowAccumulationSystem::GetClipmapParams()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!s_Data.m_Initialized)
         {
             return glm::vec4(0.0f);
@@ -291,6 +297,8 @@ namespace OloEngine
 
     u32 SnowAccumulationSystem::GetTextureResolution()
     {
+        OLO_PROFILE_FUNCTION();
+
         return s_Data.m_TextureResolution;
     }
 

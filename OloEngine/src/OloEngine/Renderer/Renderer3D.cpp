@@ -709,8 +709,7 @@ namespace OloEngine
                 SnowEjectaSystem::Update(s_Data.SnowEjecta, Timestep(dt));
             }
 
-            // Update precipitation system
-            if (s_Data.Precipitation.Enabled)
+            // Update precipitation system (always run so disabled particles can drain)
             {
                 glm::vec3 windXZ = glm::vec3(s_Data.Wind.Direction.x, 0.0f, s_Data.Wind.Direction.z);
                 f32 windXZLen = glm::length(windXZ);
@@ -718,9 +717,12 @@ namespace OloEngine
                 f32 windSpeed = s_Data.Wind.Speed;
                 PrecipitationSystem::Update(s_Data.Precipitation, s_Data.ViewPos, windDir, windSpeed, Timestep(dt));
 
-                glm::vec2 windDirScreen = glm::vec2(s_Data.Wind.Direction.x, -s_Data.Wind.Direction.z);
-                ScreenSpacePrecipitation::Update(s_Data.Precipitation, PrecipitationSystem::GetCurrentIntensity(), windDirScreen, windSpeed, dt);
-                PrecipitationSystem::UpdateScreenEffectsUBO(s_Data.Precipitation, windDirScreen, s_Data.FogTime);
+                if (s_Data.Precipitation.Enabled)
+                {
+                    glm::vec2 windDirScreen = glm::vec2(s_Data.Wind.Direction.x, -s_Data.Wind.Direction.z);
+                    ScreenSpacePrecipitation::Update(s_Data.Precipitation, PrecipitationSystem::GetCurrentIntensity(), windDirScreen, windSpeed, dt);
+                    PrecipitationSystem::UpdateScreenEffectsUBO(s_Data.Precipitation, windDirScreen, s_Data.FogTime);
+                }
             }
         }
 

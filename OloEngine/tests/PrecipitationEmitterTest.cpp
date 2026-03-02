@@ -279,26 +279,26 @@ TEST(PrecipitationEmitter, RainParticlesFallFasterThanSnow)
         cameraPos, cameraPos, rainSettings, 1.0f,
         PrecipitationLayer::NearField, glm::vec3(0.0f, 0.0f, 1.0f), 0.0f, 0.1f);
 
-    if (!snowParticles.empty() && !rainParticles.empty())
+    ASSERT_FALSE(snowParticles.empty()) << "Snow particles should be generated";
+    ASSERT_FALSE(rainParticles.empty()) << "Rain particles should be generated";
+
+    // Average fall speed (more negative = faster)
+    f32 snowAvgY = 0.0f;
+    for (const auto& p : snowParticles)
     {
-        // Average fall speed (more negative = faster)
-        f32 snowAvgY = 0.0f;
-        for (const auto& p : snowParticles)
-        {
-            snowAvgY += p.VelocityMaxLifetime.y;
-        }
-        snowAvgY /= static_cast<f32>(snowParticles.size());
-
-        f32 rainAvgY = 0.0f;
-        for (const auto& p : rainParticles)
-        {
-            rainAvgY += p.VelocityMaxLifetime.y;
-        }
-        rainAvgY /= static_cast<f32>(rainParticles.size());
-
-        // Rain should fall faster (more negative)
-        EXPECT_LT(rainAvgY, snowAvgY);
+        snowAvgY += p.VelocityMaxLifetime.y;
     }
+    snowAvgY /= static_cast<f32>(snowParticles.size());
+
+    f32 rainAvgY = 0.0f;
+    for (const auto& p : rainParticles)
+    {
+        rainAvgY += p.VelocityMaxLifetime.y;
+    }
+    rainAvgY /= static_cast<f32>(rainParticles.size());
+
+    // Rain should fall faster (more negative)
+    EXPECT_LT(rainAvgY, snowAvgY);
 }
 
 TEST(PrecipitationEmitter, AllTypesGenerateValidParticles)

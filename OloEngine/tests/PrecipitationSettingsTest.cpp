@@ -129,30 +129,8 @@ TEST(PrecipitationBindings, TextureBindingIsKnown)
 }
 
 // =============================================================================
-// Emission Rate Calculation
+// Emission Rate Calculation — covered by PrecipitationEmitterTest
 // =============================================================================
-
-TEST(PrecipitationSettings, EmissionRateQuadraticScaling)
-{
-    // effectiveRate = baseRate * intensity^2
-    u32 baseRate = 4000;
-
-    // At intensity 0.0, should be 0
-    f32 rate0 = static_cast<f32>(baseRate) * 0.0f * 0.0f;
-    EXPECT_FLOAT_EQ(rate0, 0.0f);
-
-    // At intensity 0.5, should be 25% of base
-    f32 rate05 = static_cast<f32>(baseRate) * 0.5f * 0.5f;
-    EXPECT_FLOAT_EQ(rate05, 1000.0f);
-
-    // At intensity 1.0, should be 100% of base
-    f32 rate1 = static_cast<f32>(baseRate) * 1.0f * 1.0f;
-    EXPECT_FLOAT_EQ(rate1, 4000.0f);
-
-    // At intensity 0.75, should be 56.25% of base
-    f32 rate075 = static_cast<f32>(baseRate) * 0.75f * 0.75f;
-    EXPECT_FLOAT_EQ(rate075, 2250.0f);
-}
 
 TEST(PrecipitationSettings, NearFieldExtentSmallerThanFarField)
 {

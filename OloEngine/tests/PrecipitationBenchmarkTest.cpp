@@ -33,9 +33,13 @@ TEST(PrecipitationBenchmark, EmissionGeneration1k)
     auto end = std::chrono::high_resolution_clock::now();
     auto durationUs = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
 
-    // Should complete in under 500ms even in Debug builds on slow machines
-    EXPECT_LT(durationUs, 500000);
     EXPECT_GT(particles.size(), 0u);
+
+    // Timing assertion is opt-in to avoid CI flakiness on shared runners
+    if (const char* env = std::getenv("OLO_BENCHMARK_TIMING"); env && std::string(env) == "1") // NOLINT(concurrency-mt-unsafe)
+    {
+        EXPECT_LT(durationUs, 500000); // Under 500ms even in Debug
+    }
 }
 
 TEST(PrecipitationBenchmark, EmissionGeneration10k)
@@ -54,9 +58,12 @@ TEST(PrecipitationBenchmark, EmissionGeneration10k)
     auto end = std::chrono::high_resolution_clock::now();
     auto durationUs = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
 
-    // Should complete in under 5s even in Debug builds on slow machines
-    EXPECT_LT(durationUs, 5000000);
     EXPECT_GT(particles.size(), 0u);
+
+    if (const char* env = std::getenv("OLO_BENCHMARK_TIMING"); env && std::string(env) == "1") // NOLINT(concurrency-mt-unsafe)
+    {
+        EXPECT_LT(durationUs, 5000000); // Under 5s even in Debug
+    }
 }
 
 // =============================================================================
@@ -82,7 +89,10 @@ TEST(PrecipitationBenchmark, IntensityInterpolation10kIterations)
     auto durationUs = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
 
     // 10k interpolations should be sub-millisecond
-    EXPECT_LT(durationUs, 1000);
+    if (const char* env = std::getenv("OLO_BENCHMARK_TIMING"); env && std::string(env) == "1") // NOLINT(concurrency-mt-unsafe)
+    {
+        EXPECT_LT(durationUs, 1000);
+    }
     EXPECT_NEAR(current, target, 0.001f);
 }
 
@@ -147,6 +157,9 @@ TEST(PrecipitationBenchmark, EmissionRateCalculationThroughput)
     auto durationUs = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
 
     // 100k calculations should be sub-10ms even in Debug
-    EXPECT_LT(durationUs, 10000);
+    if (const char* env = std::getenv("OLO_BENCHMARK_TIMING"); env && std::string(env) == "1") // NOLINT(concurrency-mt-unsafe)
+    {
+        EXPECT_LT(durationUs, 10000);
+    }
     EXPECT_GT(totalRate, 0.0f); // Prevent optimization
 }
