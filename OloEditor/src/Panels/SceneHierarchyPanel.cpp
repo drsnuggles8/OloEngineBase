@@ -2762,10 +2762,14 @@ namespace OloEngine
 
         DrawComponent<DecalComponent>("Decal", entity, [](auto& component)
                                       {
-                ImGui::ColorEdit4("Color##Decal", glm::value_ptr(component.Color));
-                DrawVec3Control("Size", component.Size);
-                ImGui::DragFloat("Fade Distance##Decal", &component.FadeDistance, 0.01f, 0.0f, 10.0f, "%.2f");
-                ImGui::SliderFloat("Normal Threshold##Decal", &component.NormalAngleThreshold, 0.0f, 1.0f, "%.2f");
+                ImGui::ColorEdit4("Color##Decal", glm::value_ptr(component.m_Color));
+                DrawVec3Control("Size", component.m_Size);
+                constexpr f32 kMinDecalAxis = 1e-3f;
+                component.m_Size.x = glm::max(component.m_Size.x, kMinDecalAxis);
+                component.m_Size.y = glm::max(component.m_Size.y, kMinDecalAxis);
+                component.m_Size.z = glm::max(component.m_Size.z, kMinDecalAxis);
+                ImGui::DragFloat("Fade Distance##Decal", &component.m_FadeDistance, 0.01f, 0.0f, 10.0f, "%.2f");
+                ImGui::SliderFloat("Normal Threshold##Decal", &component.m_NormalAngleThreshold, 0.0f, 1.0f, "%.2f");
 
                 ImGui::Button("Albedo Texture", ImVec2(100.0f, 0.0f));
                 if (ImGui::BeginDragDropTarget())
@@ -2777,7 +2781,7 @@ namespace OloEngine
                         Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
                         if (texture->IsLoaded())
                         {
-                            component.AlbedoTexture = texture;
+                            component.m_AlbedoTexture = texture;
                         }
                         else
                         {

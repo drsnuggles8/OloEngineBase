@@ -724,6 +724,7 @@ namespace OloEngine
             // Decals
             Ref<Shader> DecalShader;
             Ref<Mesh> DecalCubeMesh;
+            Ref<Texture2D> WhiteTexture; // 1x1 fallback for untextured decals
 
             // Post-processing
             PostProcessSettings PostProcess;

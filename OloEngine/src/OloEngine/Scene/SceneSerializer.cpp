@@ -740,17 +740,17 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         auto& dc = entity.AddComponent<DecalComponent>();
-        TrySet(dc.Color, node["Color"]);
-        TrySet(dc.Size, node["Size"]);
-        TrySet(dc.FadeDistance, node["FadeDistance"]);
-        TrySet(dc.NormalAngleThreshold, node["NormalAngleThreshold"]);
+        TrySet(dc.m_Color, node["Color"]);
+        TrySet(dc.m_Size, node["Size"]);
+        TrySet(dc.m_FadeDistance, node["FadeDistance"]);
+        TrySet(dc.m_NormalAngleThreshold, node["NormalAngleThreshold"]);
 
         if (node["AlbedoTexturePath"])
         {
             auto texPath = node["AlbedoTexturePath"].as<std::string>("");
             if (!texPath.empty())
             {
-                dc.AlbedoTexture = Texture2D::Create(texPath);
+                dc.m_AlbedoTexture = Texture2D::Create(texPath);
             }
         }
     }
@@ -2206,14 +2206,14 @@ namespace OloEngine
             out << YAML::BeginMap;
 
             auto const& dc = entity.GetComponent<DecalComponent>();
-            out << YAML::Key << "Color" << YAML::Value << dc.Color;
-            out << YAML::Key << "Size" << YAML::Value << dc.Size;
-            out << YAML::Key << "FadeDistance" << YAML::Value << dc.FadeDistance;
-            out << YAML::Key << "NormalAngleThreshold" << YAML::Value << dc.NormalAngleThreshold;
+            out << YAML::Key << "Color" << YAML::Value << dc.m_Color;
+            out << YAML::Key << "Size" << YAML::Value << dc.m_Size;
+            out << YAML::Key << "FadeDistance" << YAML::Value << dc.m_FadeDistance;
+            out << YAML::Key << "NormalAngleThreshold" << YAML::Value << dc.m_NormalAngleThreshold;
 
-            if (dc.AlbedoTexture)
+            if (dc.m_AlbedoTexture)
             {
-                out << YAML::Key << "AlbedoTexturePath" << YAML::Value << dc.AlbedoTexture->GetPath();
+                out << YAML::Key << "AlbedoTexturePath" << YAML::Value << dc.m_AlbedoTexture->GetPath();
             }
 
             out << YAML::EndMap; // DecalComponent

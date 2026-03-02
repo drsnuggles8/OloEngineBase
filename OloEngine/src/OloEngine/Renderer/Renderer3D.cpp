@@ -273,6 +273,9 @@ namespace OloEngine
         s_Data.FoliageDepthShader = m_ShaderLibrary.Get("Foliage_Depth");
         s_Data.DecalShader = m_ShaderLibrary.Get("Decal");
         s_Data.DecalCubeMesh = MeshPrimitives::CreateCube();
+        s_Data.WhiteTexture = Texture2D::Create(TextureSpecification());
+        u32 whiteTextureData = 0xffffffffU;
+        s_Data.WhiteTexture->SetData(&whiteTextureData, sizeof(u32));
 
         s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
         s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
@@ -566,12 +569,14 @@ namespace OloEngine
         }
         u32 depthTextureID = scenePass->GetTarget()->GetDepthAttachmentRendererID();
 
-        // Save render state
+        // Set render state for decal projection
         RenderCommand::SetBlendState(true);
         RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         RenderCommand::SetDepthMask(false);
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthFunc(GL_LEQUAL);
+        RenderCommand::EnableCulling();
+        RenderCommand::FrontCull();
 
         s_Data.DecalShader->Bind();
 
@@ -583,6 +588,7 @@ namespace OloEngine
         {
             RenderCommand::SetDepthMask(true);
             RenderCommand::SetBlendState(false);
+            RenderCommand::BackCull();
             return;
         }
 
@@ -592,7 +598,7 @@ namespace OloEngine
 
             // Build scaled transform for the decal projection box
             glm::mat4 decalTransform = transform.GetTransform() *
-                                       glm::scale(glm::mat4(1.0f), decal.Size);
+                                       glm::scale(glm::mat4(1.0f), decal.m_Size);
             glm::mat4 inverseDecalTransform = glm::inverse(decalTransform);
 
             // Update model UBO
@@ -605,14 +611,18 @@ namespace OloEngine
             // Update decal UBO
             ShaderBindingLayout::DecalUBO decalUBO{};
             decalUBO.InverseDecalTransform = inverseDecalTransform;
-            decalUBO.DecalColor = decal.Color;
-            decalUBO.DecalParams = glm::vec4(decal.FadeDistance, decal.NormalAngleThreshold, 0.0f, 0.0f);
+            decalUBO.DecalColor = decal.m_Color;
+            decalUBO.DecalParams = glm::vec4(decal.m_FadeDistance, decal.m_NormalAngleThreshold, 0.0f, 0.0f);
             s_Data.DecalUBO->SetData(&decalUBO, ShaderBindingLayout::DecalUBO::GetSize());
 
-            // Bind decal albedo texture
-            if (decal.AlbedoTexture)
+            // Bind decal albedo texture (fallback to white if none assigned)
+            if (decal.m_AlbedoTexture)
             {
-                decal.AlbedoTexture->Bind(ShaderBindingLayout::TEX_USER_0);
+                decal.m_AlbedoTexture->Bind(ShaderBindingLayout::TEX_USER_0);
+            }
+            else
+            {
+                s_Data.WhiteTexture->Bind(ShaderBindingLayout::TEX_USER_0);
             }
 
             // Draw the decal cube
@@ -623,6 +633,7 @@ namespace OloEngine
         RenderCommand::SetDepthMask(true);
         RenderCommand::SetBlendState(false);
         RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::BackCull();
     }
 
     void Renderer3D::EndScene()

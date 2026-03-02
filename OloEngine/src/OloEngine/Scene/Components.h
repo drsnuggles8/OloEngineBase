@@ -950,11 +950,11 @@ namespace OloEngine
 
     struct DecalComponent
     {
-        Ref<Texture2D> AlbedoTexture = nullptr;
-        glm::vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
-        glm::vec3 Size = { 1.0f, 1.0f, 1.0f };
-        f32 FadeDistance = 0.5f;
-        f32 NormalAngleThreshold = 0.5f;
+        Ref<Texture2D> m_AlbedoTexture = nullptr;
+        glm::vec4 m_Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        glm::vec3 m_Size = { 1.0f, 1.0f, 1.0f };
+        f32 m_FadeDistance = 0.5f;
+        f32 m_NormalAngleThreshold = 0.5f;
 
         DecalComponent() = default;
         DecalComponent(const DecalComponent&) = default;
