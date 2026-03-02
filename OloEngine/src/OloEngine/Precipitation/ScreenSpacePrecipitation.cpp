@@ -35,6 +35,8 @@ namespace OloEngine
 
     bool ScreenSpacePrecipitation::IsInitialized()
     {
+        OLO_PROFILE_FUNCTION();
+
         return s_Data.m_Initialized;
     }
 
@@ -170,6 +172,8 @@ namespace OloEngine
 
     glm::vec4 ScreenSpacePrecipitation::GetStreakParams()
     {
+        OLO_PROFILE_FUNCTION();
+
         return glm::vec4(
             s_Data.m_StreakDirection.x,
             s_Data.m_StreakDirection.y,
@@ -179,6 +183,8 @@ namespace OloEngine
 
     u32 ScreenSpacePrecipitation::GetActiveLensImpactCount()
     {
+        OLO_PROFILE_FUNCTION();
+
         u32 count = 0;
         for (const auto& impact : s_Data.m_LensImpacts)
         {

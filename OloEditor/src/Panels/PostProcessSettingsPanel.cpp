@@ -477,7 +477,7 @@ namespace OloEngine
                 ScreenSpacePrecipitation::Reset();
             }
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Reset all parameters to defaults for this type");
+                ImGui::SetTooltip("Reset parameters to defaults for this type (preserving Enabled and Intensity)");
 
             if (settings.Enabled)
             {
@@ -500,6 +500,7 @@ namespace OloEngine
                     ImGui::SetTooltip("How quickly intensity ramps to target (higher = faster)");
 
                 ImGui::SeparatorText("Emission");
+                settings.BaseEmissionRate = static_cast<u32>(std::clamp(static_cast<int>(settings.BaseEmissionRate), 100, 50000));
                 int baseRate = static_cast<int>(settings.BaseEmissionRate);
                 if (ImGui::DragInt("Base Rate##Precip", &baseRate, 50, 100, 50000))
                 {

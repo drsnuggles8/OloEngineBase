@@ -607,7 +607,7 @@ namespace OloEngine
             sanitizeFloat(ps.LODFarDistance, 10.0f, 500.0f, 120.0f);
             sanitizeFloat(ps.FrameBudgetMs, 0.1f, 5.0f, 1.0f);
             sanitizeFloat(ps.ColorVariance, 0.0f, 1.0f, 0.05f);
-            sanitizeFloat(ps.RotationSpeed, 0.0f, 10.0f, 1.0f);
+            sanitizeFloat(ps.RotationSpeed, 0.0f, 30.0f, 1.0f);
 
             // Sanitize vec3 extents: each component must be positive
             auto sanitizeVec3 = [](glm::vec3& v, f32 lo, f32 hi, const glm::vec3& fallback)

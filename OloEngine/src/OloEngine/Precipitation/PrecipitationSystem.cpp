@@ -213,6 +213,8 @@ namespace OloEngine
 
     bool PrecipitationSystem::IsInitialized()
     {
+        OLO_PROFILE_FUNCTION();
+
         return s_Data.m_Initialized;
     }
 
@@ -371,9 +373,12 @@ namespace OloEngine
             // The compute shader reads from the particle SSBO (already bound)
             // and writes to the snow depth image
             u32 nearAlive = s_Data.m_NearFieldSystem->GetAliveCount();
-            u32 groups = (nearAlive + 255) / 256;
-            RenderCommand::DispatchCompute(groups, 1, 1);
-            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
+            if (nearAlive > 0)
+            {
+                u32 groups = (nearAlive + 255) / 256;
+                RenderCommand::DispatchCompute(groups, 1, 1);
+                RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
+            }
         }
 
         // --- End GPU timer ---
@@ -508,11 +513,15 @@ namespace OloEngine
 
     void PrecipitationSystem::SetIntensity(f32 intensity)
     {
+        OLO_PROFILE_FUNCTION();
+
         s_Data.m_TargetIntensity = std::clamp(intensity, 0.0f, 1.0f);
     }
 
     void PrecipitationSystem::SetIntensityImmediate(f32 intensity)
     {
+        OLO_PROFILE_FUNCTION();
+
         f32 clamped = std::clamp(intensity, 0.0f, 1.0f);
         s_Data.m_CurrentIntensity = clamped;
         s_Data.m_TargetIntensity = clamped;
@@ -520,11 +529,15 @@ namespace OloEngine
 
     f32 PrecipitationSystem::GetCurrentIntensity()
     {
+        OLO_PROFILE_FUNCTION();
+
         return s_Data.m_CurrentIntensity;
     }
 
     PrecipitationStats PrecipitationSystem::GetStatistics()
     {
+        OLO_PROFILE_FUNCTION();
+
         PrecipitationStats stats;
         if (s_Data.m_Initialized)
         {

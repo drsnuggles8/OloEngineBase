@@ -35,6 +35,10 @@ namespace OloEngine
         {
             GLint maxCombinedUnits = 0;
             glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxCombinedUnits);
+            OLO_CORE_ASSERT(static_cast<u32>(maxCombinedUnits) > ShaderBindingLayout::TEX_PRECIPITATION_NOISE,
+                            "GPU reports GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS={}, but highest binding slot is {} "
+                            "(TEX_PRECIPITATION_NOISE). Renderer cannot function correctly.",
+                            maxCombinedUnits, ShaderBindingLayout::TEX_PRECIPITATION_NOISE);
             if (static_cast<u32>(maxCombinedUnits) <= ShaderBindingLayout::TEX_PRECIPITATION_NOISE)
             {
                 OLO_CORE_ERROR("GPU reports GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS={}, but highest binding slot is {} (TEX_PRECIPITATION_NOISE). "
