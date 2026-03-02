@@ -45,5 +45,47 @@ namespace OloEngine
          * @param[out] sys  ParticleSystem to configure.
          */
         static void ApplyBlizzard(ParticleSystem& sys);
+
+        /**
+         * @brief Configure a ParticleSystem as a standard smoke emitter.
+         *
+         * Settings:
+         *   - Cone shape pointing upward
+         *   - 75 particles/sec, lifetime 3–5 s
+         *   - Slight upward buoyancy, moderate drag (0.7)
+         *   - Noise turbulence for organic billowing
+         *   - Semi-transparent dark gray fading to transparent
+         *   - Size expands 2.5× over lifetime
+         *   - Alpha blend, soft particles, billboard render mode
+         *
+         * @param[out] sys  ParticleSystem to configure.
+         */
+        static void ApplySmoke(ParticleSystem& sys);
+
+        /**
+         * @brief Configure a ParticleSystem as a thick/heavy smoke emitter.
+         *
+         * Similar to Smoke but with:
+         *   - GPU compute path (UseGPU = true)
+         *   - 175 particles/sec, higher opacity
+         *   - Slower rise, more drag, larger particles
+         *   - Stronger noise for chaotic billowing
+         *
+         * @param[out] sys  ParticleSystem to configure.
+         */
+        static void ApplyThickSmoke(ParticleSystem& sys);
+
+        /**
+         * @brief Configure a ParticleSystem as a light/wispy smoke emitter.
+         *
+         * Similar to Smoke but with:
+         *   - Lower spawn rate (30/sec), longer lifetime (5–8 s)
+         *   - Faster rise, less drag, higher wind influence
+         *   - Lower opacity, smaller particles
+         *   - Additive blend for ethereal/glowing appearance
+         *
+         * @param[out] sys  ParticleSystem to configure.
+         */
+        static void ApplyLightSmoke(ParticleSystem& sys);
     };
 } // namespace OloEngine

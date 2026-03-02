@@ -876,18 +876,21 @@ namespace OloEngine
 
             if (!m_SelectionContext.HasComponent<ParticleSystemComponent>())
             {
-                if (ImGui::MenuItem("Snowfall Particle System"))
+                auto applyParticlePreset = [this](const char* label, void (*applyFn)(ParticleSystem&))
                 {
-                    auto& comp = m_SelectionContext.AddComponent<ParticleSystemComponent>();
-                    ParticlePresets::ApplySnowfall(comp.System);
-                    ImGui::CloseCurrentPopup();
-                }
-                if (ImGui::MenuItem("Blizzard Particle System"))
-                {
-                    auto& comp = m_SelectionContext.AddComponent<ParticleSystemComponent>();
-                    ParticlePresets::ApplyBlizzard(comp.System);
-                    ImGui::CloseCurrentPopup();
-                }
+                    if (ImGui::MenuItem(label))
+                    {
+                        auto& comp = m_SelectionContext.AddComponent<ParticleSystemComponent>();
+                        applyFn(comp.System);
+                        ImGui::CloseCurrentPopup();
+                    }
+                };
+
+                applyParticlePreset("Snowfall Particle System", ParticlePresets::ApplySnowfall);
+                applyParticlePreset("Blizzard Particle System", ParticlePresets::ApplyBlizzard);
+                applyParticlePreset("Smoke Particle System", ParticlePresets::ApplySmoke);
+                applyParticlePreset("Thick Smoke Particle System", ParticlePresets::ApplyThickSmoke);
+                applyParticlePreset("Light Smoke Particle System", ParticlePresets::ApplyLightSmoke);
             }
 
             ImGui::Separator();
