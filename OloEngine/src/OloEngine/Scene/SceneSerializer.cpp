@@ -520,7 +520,7 @@ namespace OloEngine
             TrySet(ps.Enabled, psNode["Enabled"]);
             if (auto typeNode = psNode["Type"]; typeNode)
             {
-                auto typeVal = typeNode.as<i32>();
+                auto typeVal = typeNode.as<i32>(static_cast<i32>(PrecipitationType::Snow));
                 if (typeVal >= 0 && typeVal <= static_cast<i32>(PrecipitationType::Sleet))
                 {
                     ps.Type = static_cast<PrecipitationType>(typeVal);
@@ -612,7 +612,7 @@ namespace OloEngine
             // Sanitize vec3 extents: each component must be positive
             auto sanitizeVec3 = [](glm::vec3& v, f32 lo, f32 hi, const glm::vec3& fallback)
             {
-                for (int i = 0; i < 3; ++i)
+                for (i32 i = 0; i < 3; ++i)
                 {
                     if (!std::isfinite(v[i]))
                     {
@@ -644,8 +644,11 @@ namespace OloEngine
             // Enforce LOD ordering: far >= near
             ps.LODFarDistance = std::max(ps.LODFarDistance, ps.LODNearDistance + 1.0f);
 
+            // Sanitize GroundY
+            sanitizeFloat(ps.GroundY, -1000.0f, 1000.0f, 0.0f);
+
             // Sanitize particle color: clamp components to [0,1]
-            for (int i = 0; i < 4; ++i)
+            for (i32 i = 0; i < 4; ++i)
             {
                 if (!std::isfinite(ps.ParticleColor[i]))
                 {

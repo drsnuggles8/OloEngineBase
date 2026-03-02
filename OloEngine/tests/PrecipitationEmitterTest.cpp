@@ -143,6 +143,7 @@ TEST(PrecipitationEmitter, ParticlesHaveFiniteValues)
         cameraPos, cameraPos, settings, 0.8f,
         PrecipitationLayer::NearField, glm::vec3(1.0f, 0.0f, 0.0f), 10.0f, 0.016f);
 
+    ASSERT_FALSE(particles.empty());
     for (const auto& p : particles)
     {
         EXPECT_TRUE(std::isfinite(p.PositionLifetime.x));
@@ -165,6 +166,7 @@ TEST(PrecipitationEmitter, ParticlesHaveDownwardVelocity)
         cameraPos, cameraPos, settings, 0.8f,
         PrecipitationLayer::NearField, glm::vec3(0.0f, 0.0f, 1.0f), 5.0f, 0.016f);
 
+    ASSERT_FALSE(particles.empty());
     for (const auto& p : particles)
     {
         // Snow should fall downward (negative Y velocity)
@@ -320,15 +322,15 @@ TEST(PrecipitationEmitter, AllTypesGenerateValidParticles)
             cameraPos, cameraPos, settings, 1.0f,
             PrecipitationLayer::NearField, glm::vec3(0.0f, 0.0f, 1.0f), 5.0f, 0.1f);
 
-        EXPECT_GT(particles.size(), 0u) << "Type " << static_cast<int>(type) << " produced no particles";
+        EXPECT_GT(particles.size(), 0u) << "Type " << static_cast<i32>(type) << " produced no particles";
 
         for (const auto& p : particles)
         {
-            EXPECT_TRUE(std::isfinite(p.PositionLifetime.x)) << "Type " << static_cast<int>(type);
-            EXPECT_TRUE(std::isfinite(p.PositionLifetime.y)) << "Type " << static_cast<int>(type);
-            EXPECT_TRUE(std::isfinite(p.PositionLifetime.z)) << "Type " << static_cast<int>(type);
-            EXPECT_GT(p.InitialVelocitySize.w, 0.0f) << "Type " << static_cast<int>(type);
-            EXPECT_LT(p.VelocityMaxLifetime.y, 0.0f) << "Type " << static_cast<int>(type); // Falls down
+            EXPECT_TRUE(std::isfinite(p.PositionLifetime.x)) << "Type " << static_cast<i32>(type);
+            EXPECT_TRUE(std::isfinite(p.PositionLifetime.y)) << "Type " << static_cast<i32>(type);
+            EXPECT_TRUE(std::isfinite(p.PositionLifetime.z)) << "Type " << static_cast<i32>(type);
+            EXPECT_GT(p.InitialVelocitySize.w, 0.0f) << "Type " << static_cast<i32>(type);
+            EXPECT_LT(p.VelocityMaxLifetime.y, 0.0f) << "Type " << static_cast<i32>(type); // Falls down
         }
     }
 }

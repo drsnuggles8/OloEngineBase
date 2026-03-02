@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
 #include "Platform/OpenGL/OpenGLDebug.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glad/gl.h>
 
@@ -29,6 +30,18 @@ namespace OloEngine
         SetDepthTest(true);
         SetDepthFunc(GL_LESS);
         glEnable(GL_LINE_SMOOTH);
+
+        // Validate that the GPU supports enough combined texture units for our highest binding slot
+        {
+            GLint maxCombinedUnits = 0;
+            glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxCombinedUnits);
+            if (static_cast<u32>(maxCombinedUnits) <= ShaderBindingLayout::TEX_PRECIPITATION_NOISE)
+            {
+                OLO_CORE_ERROR("GPU reports GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS={}, but highest binding slot is {} (TEX_PRECIPITATION_NOISE). "
+                               "Some texture bindings may fail.",
+                               maxCombinedUnits, ShaderBindingLayout::TEX_PRECIPITATION_NOISE);
+            }
+        }
 
         EnableStencilTest();
         SetStencilFunc(GL_ALWAYS, 1, 0xFF);

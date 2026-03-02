@@ -60,6 +60,10 @@ void main()
         return;
 
     // Convert world XZ to clipmap UV
+    // Guard against zero/negative extent or resolution
+    if (u_ClipmapExtent <= 0.0 || u_ClipmapResolution <= 0)
+        return;
+
     vec2 worldXZ = p.PositionLifetime.xz;
     vec2 relativePos = (worldXZ - u_ClipmapCenter) / u_ClipmapExtent; // [-1, 1]
     vec2 uv = relativePos * 0.5 + 0.5; // [0, 1]
@@ -78,7 +82,8 @@ void main()
     float contribution = u_AccumulationFeedRate * p.InitialVelocitySize.w; // Scale by current particle size
 
     // CAS loop: atomically add contribution to the current depth
-    const int MAX_CAS_ITERATIONS = 8;
+    const int MAX_CAS_ITERATIONS = 64;
+    bool committed = false;
     for (int attempt = 0; attempt < MAX_CAS_ITERATIONS; ++attempt)
     {
         uint currentBits = imageLoad(u_SnowDepth, texel).r;
@@ -88,6 +93,12 @@ void main()
 
         uint prevBits = imageAtomicCompSwap(u_SnowDepth, texel, currentBits, newBits);
         if (prevBits == currentBits)
+        {
+            committed = true;
             break; // Success
+        }
     }
+    // Note: if !committed, the contribution was silently dropped due to high contention.
+    // This is acceptable for visual snow accumulation but could be tracked via an atomic
+    // failure counter if observability is required.
 }

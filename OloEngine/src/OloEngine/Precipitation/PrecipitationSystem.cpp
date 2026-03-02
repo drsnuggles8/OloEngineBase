@@ -173,7 +173,13 @@ namespace OloEngine
         s_Data.m_TargetIntensity = 0.0f;
         s_Data.m_AccumulatedTime = 0.0f;
         s_Data.m_EmissionReductionFactor = 1.0f;
+        s_Data.m_TimerQueryActive = false;
+        s_Data.m_CurrentTimerQuery = 0;
+        s_Data.m_LastFrameTimeMs = 0.0f;
         s_Data.m_Initialized = true;
+
+        // Seed the emitter RNG for deterministic startup behavior
+        PrecipitationEmitter::Seed(42u);
 
         OLO_CORE_INFO("PrecipitationSystem initialized (100k near + 200k far particles)");
     }
@@ -188,6 +194,9 @@ namespace OloEngine
             s_Data.m_TimerQueries[0] = 0;
             s_Data.m_TimerQueries[1] = 0;
         }
+        s_Data.m_TimerQueryActive = false;
+        s_Data.m_CurrentTimerQuery = 0;
+        s_Data.m_LastFrameTimeMs = 0.0f;
 
         s_Data.m_NearFieldSystem.reset();
         s_Data.m_FarFieldSystem.reset();
@@ -353,6 +362,10 @@ namespace OloEngine
 
             // Bind snow depth texture as R32UI image for atomic CAS writes
             SnowAccumulationSystem::BindSnowDepthImageUint(1);
+
+            // Rebind near-field particle SSBO before dispatching feed compute,
+            // because far-field Simulate()/Compact() left the far-field SSBO bound.
+            s_Data.m_NearFieldSystem->GetParticleSSBO()->Bind();
 
             // Feed from near-field system
             // The compute shader reads from the particle SSBO (already bound)

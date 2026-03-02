@@ -11,11 +11,15 @@ namespace OloEngine
 
     void PrecipitationEmitter::Seed(u32 seed)
     {
+        OLO_PROFILE_FUNCTION();
+
         s_Rng = FastRandom<PCG32Algorithm>(seed);
     }
 
     f32 PrecipitationEmitter::CalculateEmissionRate(u32 baseRate, f32 intensity)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Quadratic scaling for perceptual linearity
         f32 clampedIntensity = std::clamp(intensity, 0.0f, 1.0f);
         return static_cast<f32>(baseRate) * clampedIntensity * clampedIntensity;
@@ -27,6 +31,8 @@ namespace OloEngine
         const glm::vec3& windDir,
         f32 windSpeed)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Shift spawn volume upwind so particles drift into view
         // Bias magnitude scales with wind speed (capped to half-extent)
         f32 biasMagnitude = std::min(windSpeed * 0.5f, extent.x * 0.5f);

@@ -719,7 +719,7 @@ namespace OloEngine
 
                 if (s_Data.Precipitation.Enabled)
                 {
-                    glm::vec2 windDirScreen = glm::vec2(s_Data.Wind.Direction.x, -s_Data.Wind.Direction.z);
+                    glm::vec2 windDirScreen = glm::vec2(windDir.x, -windDir.z);
                     ScreenSpacePrecipitation::Update(s_Data.Precipitation, PrecipitationSystem::GetCurrentIntensity(), windDirScreen, windSpeed, dt);
                     PrecipitationSystem::UpdateScreenEffectsUBO(s_Data.Precipitation, windDirScreen, s_Data.FogTime);
                 }

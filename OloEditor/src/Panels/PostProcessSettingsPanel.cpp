@@ -455,6 +455,9 @@ namespace OloEngine
 
             ImGui::Checkbox("Enable##Precipitation", &settings.Enabled);
 
+            // Normalize Type into valid range before any use
+            settings.Type = static_cast<PrecipitationType>(std::clamp(static_cast<int>(settings.Type), 0, 3));
+
             // Type selector
             const char* typeNames[] = { "Snow", "Rain", "Hail", "Sleet" };
             int typeIdx = static_cast<int>(settings.Type);

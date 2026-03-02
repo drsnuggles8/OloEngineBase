@@ -534,6 +534,10 @@ namespace OloEngine
                     s.ColorVariance = 0.06f;
                     s.RotationSpeed = 10.0f;
                     break;
+                default:
+                    // Unknown enum value — preserve Snow/baseline defaults
+                    OLO_CORE_WARN("GetDefaultsForType: unknown PrecipitationType {}", static_cast<i32>(type));
+                    break;
             }
             return s;
         }

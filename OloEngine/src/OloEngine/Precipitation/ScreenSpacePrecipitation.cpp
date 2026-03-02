@@ -135,6 +135,8 @@ namespace OloEngine
     std::array<LensImpactGPUData, ScreenSpacePrecipitation::MAX_LENS_IMPACTS>
     ScreenSpacePrecipitation::GetLensImpactGPUData()
     {
+        OLO_PROFILE_FUNCTION();
+
         std::array<LensImpactGPUData, MAX_LENS_IMPACTS> gpuData{};
 
         for (u32 i = 0; i < MAX_LENS_IMPACTS; ++i)
@@ -143,7 +145,9 @@ namespace OloEngine
             if (impact.Active)
             {
                 f32 age = s_Data.m_AccumulatedTime - impact.BirthTime;
-                f32 normalizedAge = std::clamp(age / impact.Lifetime, 0.0f, 1.0f);
+                f32 normalizedAge = (impact.Lifetime > 1e-6f)
+                                        ? std::clamp(age / impact.Lifetime, 0.0f, 1.0f)
+                                        : 1.0f; // Expired if lifetime is zero/negative
 
                 gpuData[i].PositionAndSize = glm::vec4(
                     impact.ScreenUV.x, impact.ScreenUV.y,
