@@ -57,26 +57,26 @@ namespace OloEngine
 
         // Select layer-specific parameters
         const glm::vec3& extent = (layer == PrecipitationLayer::NearField)
-            ? settings.NearFieldExtent
-            : settings.FarFieldExtent;
+                                      ? settings.NearFieldExtent
+                                      : settings.FarFieldExtent;
         f32 particleSize = (layer == PrecipitationLayer::NearField)
-            ? settings.NearFieldParticleSize
-            : settings.FarFieldParticleSize;
+                               ? settings.NearFieldParticleSize
+                               : settings.FarFieldParticleSize;
         f32 sizeVariance = (layer == PrecipitationLayer::NearField)
-            ? settings.NearFieldSizeVariance
-            : 0.01f; // Far-field: less variance
+                               ? settings.NearFieldSizeVariance
+                               : 0.01f; // Far-field: less variance
         f32 speedMin = (layer == PrecipitationLayer::NearField)
-            ? settings.NearFieldSpeedMin
-            : settings.FarFieldSpeedMin;
+                           ? settings.NearFieldSpeedMin
+                           : settings.FarFieldSpeedMin;
         f32 speedMax = (layer == PrecipitationLayer::NearField)
-            ? settings.NearFieldSpeedMax
-            : settings.FarFieldSpeedMax;
+                           ? settings.NearFieldSpeedMax
+                           : settings.FarFieldSpeedMax;
         f32 lifetime = (layer == PrecipitationLayer::NearField)
-            ? settings.NearFieldLifetime
-            : settings.FarFieldLifetime;
+                           ? settings.NearFieldLifetime
+                           : settings.FarFieldLifetime;
         f32 alphaMultiplier = (layer == PrecipitationLayer::NearField)
-            ? 1.0f
-            : settings.FarFieldAlphaMultiplier;
+                                  ? 1.0f
+                                  : settings.FarFieldAlphaMultiplier;
 
         // Calculate emission count for this frame
         f32 layerRateFraction = (layer == PrecipitationLayer::NearField) ? 0.4f : 0.6f;
@@ -112,19 +112,19 @@ namespace OloEngine
         switch (settings.Type)
         {
             case PrecipitationType::Snow:
-                horizontalJitter = 0.2f;  // Snow drifts
+                horizontalJitter = 0.2f;                        // Snow drifts
                 rotationRange = 2.0f * std::numbers::pi_v<f32>; // Full spin
                 break;
             case PrecipitationType::Rain:
-                horizontalJitter = 0.05f;  // Rain falls mostly straight
-                rotationRange = 0.0f;      // Raindrops don't spin
+                horizontalJitter = 0.05f; // Rain falls mostly straight
+                rotationRange = 0.0f;     // Raindrops don't spin
                 break;
             case PrecipitationType::Hail:
-                horizontalJitter = 0.03f;  // Hail falls very straight
-                rotationRange = 1.0f;      // Slight tumble
+                horizontalJitter = 0.03f; // Hail falls very straight
+                rotationRange = 1.0f;     // Slight tumble
                 break;
             case PrecipitationType::Sleet:
-                horizontalJitter = 0.12f;  // In between
+                horizontalJitter = 0.12f;                // In between
                 rotationRange = std::numbers::pi_v<f32>; // Some rotation
                 break;
         }
@@ -172,8 +172,7 @@ namespace OloEngine
             glm::vec3 vel(
                 s_Rng.GetFloat32InRange(-horizontalJitter, horizontalJitter),
                 -fallSpeed,
-                s_Rng.GetFloat32InRange(-horizontalJitter, horizontalJitter)
-            );
+                s_Rng.GetFloat32InRange(-horizontalJitter, horizontalJitter));
 
             // Lifetime with slight variance
             f32 lt = lifetime * s_Rng.GetFloat32InRange(0.8f, 1.2f);
@@ -189,8 +188,8 @@ namespace OloEngine
 
             // Rotation (type-dependent range)
             f32 rotation = (rotationRange > 0.001f)
-                ? s_Rng.GetFloat32InRange(0.0f, rotationRange)
-                : 0.0f;
+                               ? s_Rng.GetFloat32InRange(0.0f, rotationRange)
+                               : 0.0f;
 
             auto& p = particles[i];
             p.PositionLifetime = glm::vec4(pos, lt);

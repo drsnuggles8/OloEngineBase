@@ -82,7 +82,7 @@ namespace OloEngine
 
         // Snow: soft radial with 6-fold crystalline modulation
         s_Data.m_SnowflakeTexture = createTex([&](u32 x, u32 y) -> u32
-        {
+                                              {
             f32 dx = (static_cast<f32>(x) + 0.5f - center) * invRadius;
             f32 dy = (static_cast<f32>(y) + 0.5f - center) * invRadius;
             f32 dist = std::sqrt(dx * dx + dy * dy);
@@ -91,12 +91,11 @@ namespace OloEngine
             f32 alpha = std::clamp((1.0f - dist / crystalMod), 0.0f, 1.0f);
             alpha *= alpha;
             auto a = static_cast<u8>(std::min(alpha, 1.0f) * 255.0f);
-            return (static_cast<u32>(a) << 24u) | 0x00FFFFFFu;
-        });
+            return (static_cast<u32>(a) << 24u) | 0x00FFFFFFu; });
 
         // Rain: vertically elongated teardrop
         s_Data.m_RaindropTexture = createTex([&](u32 x, u32 y) -> u32
-        {
+                                             {
             f32 dx = (static_cast<f32>(x) + 0.5f - center) * invRadius;
             f32 dy = (static_cast<f32>(y) + 0.5f - center) * invRadius;
             // Stretch vertically: compress Y, widen X
@@ -113,12 +112,11 @@ namespace OloEngine
             auto g = static_cast<u8>(210);
             auto b = static_cast<u8>(240);
             return (static_cast<u32>(a) << 24u) | (static_cast<u32>(b) << 16u)
-                 | (static_cast<u32>(g) << 8u)  | static_cast<u32>(r);
-        });
+                 | (static_cast<u32>(g) << 8u)  | static_cast<u32>(r); });
 
         // Hail: hard-edged sphere (bright, opaque center)
         s_Data.m_HailstoneTexture = createTex([&](u32 x, u32 y) -> u32
-        {
+                                              {
             f32 dx = (static_cast<f32>(x) + 0.5f - center) * invRadius;
             f32 dy = (static_cast<f32>(y) + 0.5f - center) * invRadius;
             f32 dist = std::sqrt(dx * dx + dy * dy);
@@ -130,12 +128,11 @@ namespace OloEngine
             auto a = static_cast<u8>(std::min(alpha, 1.0f) * 255.0f);
             auto c = static_cast<u8>(luminance * 255.0f);
             return (static_cast<u32>(a) << 24u) | (static_cast<u32>(c) << 16u)
-                 | (static_cast<u32>(c) << 8u)  | static_cast<u32>(c);
-        });
+                 | (static_cast<u32>(c) << 8u)  | static_cast<u32>(c); });
 
         // Sleet: rounded flake — between snow and rain (less crystalline)
         s_Data.m_SleetTexture = createTex([&](u32 x, u32 y) -> u32
-        {
+                                          {
             f32 dx = (static_cast<f32>(x) + 0.5f - center) * invRadius;
             f32 dy = (static_cast<f32>(y) + 0.5f - center) * invRadius;
             // Slight 4-fold symmetry (less than snow's 6-fold)
@@ -147,11 +144,9 @@ namespace OloEngine
             alpha *= alpha;
             // Gray-white tint
             auto a = static_cast<u8>(std::min(alpha, 1.0f) * 255.0f);
-            return (static_cast<u32>(a) << 24u) | 0x00E8E8F0u;
-        });
+            return (static_cast<u32>(a) << 24u) | 0x00E8E8F0u; });
 
-        if (!s_Data.m_SnowflakeTexture || !s_Data.m_RaindropTexture
-            || !s_Data.m_HailstoneTexture || !s_Data.m_SleetTexture)
+        if (!s_Data.m_SnowflakeTexture || !s_Data.m_RaindropTexture || !s_Data.m_HailstoneTexture || !s_Data.m_SleetTexture)
         {
             OLO_CORE_ERROR("PrecipitationSystem: failed to create precipitation textures");
             s_Data.m_NearFieldSystem.reset();
@@ -235,7 +230,7 @@ namespace OloEngine
             {
                 s_Data.m_TargetIntensity = 0.0f;
                 s_Data.m_CurrentIntensity = std::lerp(s_Data.m_CurrentIntensity, 0.0f,
-                    std::clamp(settings.TransitionSpeed * deltaTime, 0.0f, 1.0f));
+                                                      std::clamp(settings.TransitionSpeed * deltaTime, 0.0f, 1.0f));
 
                 GPUSimParams simParams = {};
                 simParams.DeltaTime = deltaTime;
@@ -331,8 +326,7 @@ namespace OloEngine
 
         // 6. Accumulation bridge — feed landed particles to snow depth clipmap
         //    Only snow and sleet contribute to accumulation
-        bool typeCanAccumulate = (settings.Type == PrecipitationType::Snow
-                               || settings.Type == PrecipitationType::Sleet);
+        bool typeCanAccumulate = (settings.Type == PrecipitationType::Snow || settings.Type == PrecipitationType::Sleet);
         if (settings.FeedAccumulation && typeCanAccumulate && s_Data.m_FeedShader && SnowAccumulationSystem::IsInitialized())
         {
             s_Data.m_FeedShader->Bind();
@@ -404,10 +398,14 @@ namespace OloEngine
             i32 typeVal = static_cast<i32>(s_Data.m_GPUData.TypeParams.x);
             switch (static_cast<PrecipitationType>(typeVal))
             {
-                case PrecipitationType::Rain:  return s_Data.m_RaindropTexture;
-                case PrecipitationType::Hail:  return s_Data.m_HailstoneTexture;
-                case PrecipitationType::Sleet: return s_Data.m_SleetTexture;
-                default:                       return s_Data.m_SnowflakeTexture;
+                case PrecipitationType::Rain:
+                    return s_Data.m_RaindropTexture;
+                case PrecipitationType::Hail:
+                    return s_Data.m_HailstoneTexture;
+                case PrecipitationType::Sleet:
+                    return s_Data.m_SleetTexture;
+                default:
+                    return s_Data.m_SnowflakeTexture;
             }
         }();
 
@@ -500,7 +498,8 @@ namespace OloEngine
         if (s_Data.m_Initialized)
         {
             stats.EffectiveEmissionRate = PrecipitationEmitter::CalculateEmissionRate(
-                4000, s_Data.m_CurrentIntensity) * s_Data.m_EmissionReductionFactor;
+                                              4000, s_Data.m_CurrentIntensity) *
+                                          s_Data.m_EmissionReductionFactor;
             stats.GPUTimeMs = s_Data.m_LastFrameTimeMs;
         }
         return stats;

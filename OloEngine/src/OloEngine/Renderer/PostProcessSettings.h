@@ -372,11 +372,11 @@ namespace OloEngine
     {
         bool Enabled = false;
         PrecipitationType Type = PrecipitationType::Snow;
-        f32 Intensity = 0.5f;            // 0–1 continuous
-        f32 TransitionSpeed = 1.0f;      // Interpolation speed toward target
+        f32 Intensity = 0.5f;       // 0–1 continuous
+        f32 TransitionSpeed = 1.0f; // Interpolation speed toward target
 
         // Emission
-        u32 BaseEmissionRate = 4000;      // Particles/sec at intensity=1
+        u32 BaseEmissionRate = 4000; // Particles/sec at intensity=1
         u32 MaxParticlesNearField = 100000;
         u32 MaxParticlesFarField = 200000;
 
@@ -406,8 +406,8 @@ namespace OloEngine
         // Ground interaction
         bool GroundCollisionEnabled = true;
         f32 GroundY = 0.0f;
-        f32 CollisionBounce = 0.0f;       // 0=stick/splash, >0=bounce (hail)
-        f32 CollisionFriction = 1.0f;     // Friction on ground contact
+        f32 CollisionBounce = 0.0f;   // 0=stick/splash, >0=bounce (hail)
+        f32 CollisionFriction = 1.0f; // Friction on ground contact
         bool FeedAccumulation = true;
         f32 AccumulationFeedRate = 0.0001f;
 
@@ -416,7 +416,7 @@ namespace OloEngine
         f32 ScreenStreakIntensity = 0.3f;
         f32 ScreenStreakLength = 0.15f;
         bool LensImpactsEnabled = true;
-        f32 LensImpactRate = 3.0f;       // Impacts/sec at intensity=1
+        f32 LensImpactRate = 3.0f; // Impacts/sec at intensity=1
         f32 LensImpactLifetime = 1.5f;
         f32 LensImpactSize = 0.03f;
 
@@ -428,7 +428,7 @@ namespace OloEngine
         // Visual
         glm::vec4 ParticleColor = glm::vec4(0.95f, 0.97f, 1.0f, 0.85f);
         f32 ColorVariance = 0.05f;
-        f32 RotationSpeed = 30.0f;       // deg/s
+        f32 RotationSpeed = 30.0f; // deg/s
 
         /// @brief Return sensible default parameters for the given precipitation type.
         ///        The caller can further tweak individual fields after applying defaults.
@@ -563,8 +563,8 @@ namespace OloEngine
         // LensImpacts[16] — each element has 2 vec4 (PositionAndSize, TimeParams)
         struct LensImpactGPU
         {
-            glm::vec4 PositionAndSize{0.0f};
-            glm::vec4 TimeParams{0.0f};
+            glm::vec4 PositionAndSize{ 0.0f };
+            glm::vec4 TimeParams{ 0.0f };
         } LensImpacts[16]{};
 
         static constexpr u32 GetSize()

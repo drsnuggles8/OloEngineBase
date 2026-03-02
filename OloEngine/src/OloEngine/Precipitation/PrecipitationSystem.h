@@ -20,11 +20,11 @@ namespace OloEngine
      */
     struct PrecipitationStats
     {
-        u32 NearFieldAlive = 0;          ///< Number of live near-field particles
-        u32 FarFieldAlive = 0;           ///< Number of live far-field particles
+        u32 NearFieldAlive = 0;           ///< Number of live near-field particles
+        u32 FarFieldAlive = 0;            ///< Number of live far-field particles
         f32 EffectiveEmissionRate = 0.0f; ///< Current effective particles/sec
-        f32 GPUTimeMs = 0.0f;            ///< GPU time for sim+render (ms)
-        u32 AccumulationFeedCount = 0;   ///< Particles that fed accumulation this frame
+        f32 GPUTimeMs = 0.0f;             ///< GPU time for sim+render (ms)
+        u32 AccumulationFeedCount = 0;    ///< Particles that fed accumulation this frame
     };
 
     /**
@@ -124,7 +124,7 @@ namespace OloEngine
             Ref<Texture2D> m_HailstoneTexture;
             Ref<Texture2D> m_SleetTexture;
             Ref<UniformBuffer> m_PrecipitationUBO;
-            Ref<ComputeShader> m_FeedShader;         // Precipitation_Feed.comp
+            Ref<ComputeShader> m_FeedShader; // Precipitation_Feed.comp
 
             f32 m_CurrentIntensity = 0.0f;
             f32 m_TargetIntensity = 0.0f;

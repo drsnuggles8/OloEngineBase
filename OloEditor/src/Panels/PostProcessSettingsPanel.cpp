@@ -481,13 +481,17 @@ namespace OloEngine
                 // Intensity slider with preset buttons
                 ImGui::SeparatorText("Intensity");
                 ImGui::SliderFloat("Intensity##Precip", &settings.Intensity, 0.0f, 1.0f, "%.2f");
-                if (ImGui::Button("Light##Precip")) settings.Intensity = 0.15f;
+                if (ImGui::Button("Light##Precip"))
+                    settings.Intensity = 0.15f;
                 ImGui::SameLine();
-                if (ImGui::Button("Moderate##Precip")) settings.Intensity = 0.4f;
+                if (ImGui::Button("Moderate##Precip"))
+                    settings.Intensity = 0.4f;
                 ImGui::SameLine();
-                if (ImGui::Button("Heavy##Precip")) settings.Intensity = 0.7f;
+                if (ImGui::Button("Heavy##Precip"))
+                    settings.Intensity = 0.7f;
                 ImGui::SameLine();
-                if (ImGui::Button("Blizzard##Precip")) settings.Intensity = 1.0f;
+                if (ImGui::Button("Blizzard##Precip"))
+                    settings.Intensity = 1.0f;
                 ImGui::DragFloat("Transition Speed##Precip", &settings.TransitionSpeed, 0.01f, 0.01f, 10.0f, "%.2f");
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("How quickly intensity ramps to target (higher = faster)");
