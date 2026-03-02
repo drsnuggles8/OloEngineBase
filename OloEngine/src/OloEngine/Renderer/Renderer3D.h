@@ -549,6 +549,18 @@ namespace OloEngine
         {
             return s_Data.FoliageDepthShader;
         }
+        static Ref<Shader> GetDecalShader()
+        {
+            return s_Data.DecalShader;
+        }
+        static Ref<Mesh> GetDecalCubeMesh()
+        {
+            return s_Data.DecalCubeMesh;
+        }
+        static Ref<UniformBuffer> GetDecalUBO()
+        {
+            return s_Data.DecalUBO;
+        }
         static Ref<UniformBuffer> GetTerrainUBO()
         {
             return s_Data.TerrainUBO;
@@ -578,6 +590,9 @@ namespace OloEngine
         }
 
         static void UploadFogVolumes(const FogVolumesUBOData& data);
+
+        // Decal rendering (called from PostExecuteCallback while scene FB is bound)
+        static void RenderDecals(Scene* scene);
 
         static WindSettings& GetWindSettings()
         {
@@ -659,6 +674,7 @@ namespace OloEngine
             Ref<UniformBuffer> SSSUBO;
             Ref<UniformBuffer> FogUBO;
             Ref<UniformBuffer> FogVolumesUBO;
+            Ref<UniformBuffer> DecalUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -704,6 +720,10 @@ namespace OloEngine
             Ref<Shader> VoxelDepthShader;
             Ref<Shader> FoliageShader;
             Ref<Shader> FoliageDepthShader;
+
+            // Decals
+            Ref<Shader> DecalShader;
+            Ref<Mesh> DecalCubeMesh;
 
             // Post-processing
             PostProcessSettings PostProcess;

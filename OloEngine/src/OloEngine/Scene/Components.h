@@ -946,6 +946,23 @@ namespace OloEngine
         FogVolumeComponent& operator=(FogVolumeComponent&&) noexcept = default;
     };
 
+    // ── Deferred Decal ───────────────────────────────────────────────────
+
+    struct DecalComponent
+    {
+        Ref<Texture2D> AlbedoTexture = nullptr;
+        glm::vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        glm::vec3 Size = { 1.0f, 1.0f, 1.0f };
+        f32 FadeDistance = 0.5f;
+        f32 NormalAngleThreshold = 0.5f;
+
+        DecalComponent() = default;
+        DecalComponent(const DecalComponent&) = default;
+        DecalComponent& operator=(const DecalComponent&) = default;
+        DecalComponent(DecalComponent&&) noexcept = default;
+        DecalComponent& operator=(DecalComponent&&) noexcept = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -1001,5 +1018,6 @@ namespace OloEngine
         TerrainComponent,
         FoliageComponent,
         SnowDeformerComponent,
-        FogVolumeComponent>;
+        FogVolumeComponent,
+        DecalComponent>;
 } // namespace OloEngine

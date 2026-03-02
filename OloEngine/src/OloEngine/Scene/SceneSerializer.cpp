@@ -735,6 +735,26 @@ namespace OloEngine
         fv.m_Priority = std::clamp(fv.m_Priority, -100, 100);
     }
 
+    static void DeserializeDecalComponent(Entity& entity, const YAML::Node& node)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& dc = entity.AddComponent<DecalComponent>();
+        TrySet(dc.Color, node["Color"]);
+        TrySet(dc.Size, node["Size"]);
+        TrySet(dc.FadeDistance, node["FadeDistance"]);
+        TrySet(dc.NormalAngleThreshold, node["NormalAngleThreshold"]);
+
+        if (node["AlbedoTexturePath"])
+        {
+            auto texPath = node["AlbedoTexturePath"].as<std::string>("");
+            if (!texPath.empty())
+            {
+                dc.AlbedoTexture = Texture2D::Create(texPath);
+            }
+        }
+    }
+
     static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)
     {
         auto& sys = psc.System;
@@ -2180,6 +2200,25 @@ namespace OloEngine
             out << YAML::EndMap; // FogVolumeComponent
         }
 
+        if (entity.HasComponent<DecalComponent>())
+        {
+            out << YAML::Key << "DecalComponent";
+            out << YAML::BeginMap;
+
+            auto const& dc = entity.GetComponent<DecalComponent>();
+            out << YAML::Key << "Color" << YAML::Value << dc.Color;
+            out << YAML::Key << "Size" << YAML::Value << dc.Size;
+            out << YAML::Key << "FadeDistance" << YAML::Value << dc.FadeDistance;
+            out << YAML::Key << "NormalAngleThreshold" << YAML::Value << dc.NormalAngleThreshold;
+
+            if (dc.AlbedoTexture)
+            {
+                out << YAML::Key << "AlbedoTexturePath" << YAML::Value << dc.AlbedoTexture->GetPath();
+            }
+
+            out << YAML::EndMap; // DecalComponent
+        }
+
         if (entity.HasComponent<SubmeshComponent>())
         {
             out << YAML::Key << "SubmeshComponent";
@@ -3031,6 +3070,11 @@ namespace OloEngine
                 if (auto fogVolumeComponent = entity["FogVolumeComponent"]; fogVolumeComponent)
                 {
                     DeserializeFogVolumeComponent(deserializedEntity, fogVolumeComponent);
+                }
+
+                if (auto decalComponent = entity["DecalComponent"]; decalComponent)
+                {
+                    DeserializeDecalComponent(deserializedEntity, decalComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
@@ -3943,6 +3987,11 @@ namespace OloEngine
                 if (auto fogVolumeComponent = entity["FogVolumeComponent"]; fogVolumeComponent)
                 {
                     DeserializeFogVolumeComponent(deserializedEntity, fogVolumeComponent);
+                }
+
+                if (auto decalComponent = entity["DecalComponent"]; decalComponent)
+                {
+                    DeserializeDecalComponent(deserializedEntity, decalComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)

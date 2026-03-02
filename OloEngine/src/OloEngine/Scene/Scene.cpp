@@ -886,6 +886,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<SnowDeformerComponent>(Entity, SnowDeformerComponent&) {}
     template<>
     void Scene::OnComponentAdded<FogVolumeComponent>(Entity, FogVolumeComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<DecalComponent>(Entity, DecalComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
@@ -2096,7 +2098,10 @@ namespace OloEngine
                             foliage.m_Renderer->Render(
                                 Renderer3D::GetViewFrustum(), cameraPosition, foliageShader);
                         }
-                    } });
+                    }
+
+                    // Render decals after foliage, while the scene framebuffer is still bound
+                    Renderer3D::RenderDecals(this); });
             }
         }
 
