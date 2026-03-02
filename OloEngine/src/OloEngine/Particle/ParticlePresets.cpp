@@ -183,8 +183,7 @@ namespace OloEngine
         sys.ColorModule.Enabled = true;
         sys.ColorModule.ColorCurve = ParticleCurve4(
             glm::vec4(0.3f, 0.3f, 0.3f, 0.6f),
-            glm::vec4(0.4f, 0.4f, 0.4f, 0.0f)
-        );
+            glm::vec4(0.4f, 0.4f, 0.4f, 0.0f));
 
         // ---- Size over lifetime: expand 2.5× as smoke dissipates ----
         sys.SizeModule.Enabled = true;
@@ -221,8 +220,7 @@ namespace OloEngine
         sys.Emitter.InitialColor = glm::vec4(0.2f, 0.2f, 0.2f, 0.8f);
         sys.ColorModule.ColorCurve = ParticleCurve4(
             glm::vec4(0.25f, 0.25f, 0.25f, 0.8f),
-            glm::vec4(0.35f, 0.35f, 0.35f, 0.0f)
-        );
+            glm::vec4(0.35f, 0.35f, 0.35f, 0.0f));
 
         // Heavier, slower-rising smoke
         sys.GravityModule.Gravity = glm::vec3(0.0f, 0.3f, 0.0f);
@@ -275,8 +273,7 @@ namespace OloEngine
         sys.BlendMode = ParticleBlendMode::Additive;
         sys.ColorModule.ColorCurve = ParticleCurve4(
             glm::vec4(0.6f, 0.6f, 0.6f, 0.3f),
-            glm::vec4(0.7f, 0.7f, 0.7f, 0.0f)
-        );
+            glm::vec4(0.7f, 0.7f, 0.7f, 0.0f));
 
         // Moderate expansion
         sys.SizeModule.SizeCurve = ParticleCurve(1.0f, 2.0f);
