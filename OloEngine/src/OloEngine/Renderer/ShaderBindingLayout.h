@@ -311,6 +311,7 @@ namespace OloEngine
         static constexpr u32 UBO_FOG = 17;                  // Fog & atmospheric scattering parameters
         static constexpr u32 UBO_PRECIPITATION = 18;        // Precipitation system parameters
         static constexpr u32 UBO_PRECIPITATION_SCREEN = 19; // Precipitation screen-space effects (streaks + lens)
+        static constexpr u32 UBO_FOG_VOLUMES = 20;          // Local fog volume data (array of volumes)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -436,6 +437,8 @@ namespace OloEngine
                     return name.contains("Precipitation") || name.contains("precipitation");
                 case UBO_PRECIPITATION_SCREEN:
                     return name.contains("PrecipitationScreen") || name.contains("precipitationScreen");
+                case UBO_FOG_VOLUMES:
+                    return name.contains("FogVolumes") || name.contains("fogVolumes");
                 default:
                     return false;
             }

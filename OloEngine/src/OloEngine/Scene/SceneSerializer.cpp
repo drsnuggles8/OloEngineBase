@@ -689,6 +689,52 @@ namespace OloEngine
         sanitizeFloat(sd.m_CompactionFactor, 0.0f, 1.0f, 0.5f);
     }
 
+    static void DeserializeFogVolumeComponent(Entity& entity, const YAML::Node& node)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& fv = entity.AddComponent<FogVolumeComponent>();
+        i32 shape = static_cast<i32>(fv.m_Shape);
+        TrySet(shape, node["Shape"]);
+        fv.m_Shape = static_cast<FogVolumeShape>(std::clamp(shape, 0, 2));
+        TrySet(fv.m_Extents, node["Extents"]);
+        TrySet(fv.m_Color, node["Color"]);
+        TrySet(fv.m_Density, node["Density"]);
+        TrySet(fv.m_FalloffDistance, node["FalloffDistance"]);
+        TrySet(fv.m_Priority, node["Priority"]);
+        TrySet(fv.m_BlendWeight, node["BlendWeight"]);
+        TrySet(fv.m_Enabled, node["Enabled"]);
+        TrySet(fv.m_AffectTransparent, node["AffectTransparent"]);
+
+        // Validate
+        auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
+        {
+            if (!std::isfinite(v))
+            {
+                v = fallback;
+                return;
+            }
+            v = std::clamp(v, lo, hi);
+        };
+        auto sanitizeVec3 = [](glm::vec3& v, const glm::vec3& fallback)
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                if (!std::isfinite(v[i]))
+                {
+                    v = fallback;
+                    return;
+                }
+            }
+        };
+        sanitizeVec3(fv.m_Extents, glm::vec3(5.0f));
+        sanitizeVec3(fv.m_Color, glm::vec3(0.6f, 0.65f, 0.7f));
+        sanitizeFloat(fv.m_Density, 0.0f, 100.0f, 0.5f);
+        sanitizeFloat(fv.m_FalloffDistance, 0.0f, 100.0f, 1.0f);
+        sanitizeFloat(fv.m_BlendWeight, 0.0f, 1.0f, 1.0f);
+        fv.m_Priority = std::clamp(fv.m_Priority, -100, 100);
+    }
+
     static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)
     {
         auto& sys = psc.System;
@@ -2115,6 +2161,25 @@ namespace OloEngine
             out << YAML::EndMap; // SnowDeformerComponent
         }
 
+        if (entity.HasComponent<FogVolumeComponent>())
+        {
+            out << YAML::Key << "FogVolumeComponent";
+            out << YAML::BeginMap;
+
+            auto const& fv = entity.GetComponent<FogVolumeComponent>();
+            out << YAML::Key << "Shape" << YAML::Value << static_cast<i32>(fv.m_Shape);
+            out << YAML::Key << "Extents" << YAML::Value << fv.m_Extents;
+            out << YAML::Key << "Color" << YAML::Value << fv.m_Color;
+            out << YAML::Key << "Density" << YAML::Value << fv.m_Density;
+            out << YAML::Key << "FalloffDistance" << YAML::Value << fv.m_FalloffDistance;
+            out << YAML::Key << "Priority" << YAML::Value << fv.m_Priority;
+            out << YAML::Key << "BlendWeight" << YAML::Value << fv.m_BlendWeight;
+            out << YAML::Key << "Enabled" << YAML::Value << fv.m_Enabled;
+            out << YAML::Key << "AffectTransparent" << YAML::Value << fv.m_AffectTransparent;
+
+            out << YAML::EndMap; // FogVolumeComponent
+        }
+
         if (entity.HasComponent<SubmeshComponent>())
         {
             out << YAML::Key << "SubmeshComponent";
@@ -2961,6 +3026,11 @@ namespace OloEngine
                 if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
                 {
                     DeserializeSnowDeformerComponent(deserializedEntity, snowDeformerComponent);
+                }
+
+                if (auto fogVolumeComponent = entity["FogVolumeComponent"]; fogVolumeComponent)
+                {
+                    DeserializeFogVolumeComponent(deserializedEntity, fogVolumeComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
@@ -3868,6 +3938,11 @@ namespace OloEngine
                 if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
                 {
                     DeserializeSnowDeformerComponent(deserializedEntity, snowDeformerComponent);
+                }
+
+                if (auto fogVolumeComponent = entity["FogVolumeComponent"]; fogVolumeComponent)
+                {
+                    DeserializeFogVolumeComponent(deserializedEntity, fogVolumeComponent);
                 }
 
                 if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)

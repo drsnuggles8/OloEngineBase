@@ -884,6 +884,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<FoliageComponent>(Entity, FoliageComponent&) {}
     template<>
     void Scene::OnComponentAdded<SnowDeformerComponent>(Entity, SnowDeformerComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<FogVolumeComponent>(Entity, FogVolumeComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
@@ -1610,6 +1612,61 @@ namespace OloEngine
             // ShadowRenderPass::Execute() iterates them per cascade/face.
         }
 
+        // Collect local fog volumes and upload to GPU
+        {
+            FogVolumesUBOData fogVolumes{};
+
+            struct VolumeEntry
+            {
+                i32 priority;
+                const TransformComponent* tc;
+                const FogVolumeComponent* fv;
+            };
+            std::vector<VolumeEntry> entries;
+
+            auto fogVolumeView = m_Registry.view<TransformComponent, FogVolumeComponent>();
+            entries.reserve(fogVolumeView.size_hint());
+            for (auto entity : fogVolumeView)
+            {
+                const auto& fogVol = fogVolumeView.get<FogVolumeComponent>(entity);
+                if (!fogVol.m_Enabled)
+                {
+                    continue;
+                }
+                entries.push_back({ fogVol.m_Priority,
+                                    &fogVolumeView.get<TransformComponent>(entity),
+                                    &fogVol });
+            }
+
+            // Sort by priority (higher priority processed last for consistent blending)
+            std::sort(entries.begin(), entries.end(), [](const VolumeEntry& a, const VolumeEntry& b)
+                      { return a.priority < b.priority; });
+
+            u32 volumeIdx = 0;
+            for (const auto& entry : entries)
+            {
+                if (volumeIdx >= FogVolumesUBOData::MAX_FOG_VOLUMES)
+                {
+                    break;
+                }
+
+                auto& vol = fogVolumes.Volumes[volumeIdx];
+                glm::mat4 worldTransform = entry.tc->GetTransform();
+                vol.WorldToLocal = glm::inverse(worldTransform);
+                vol.ColorAndDensity = glm::vec4(entry.fv->m_Color, entry.fv->m_Density);
+                vol.ShapeAndFalloff = glm::vec4(
+                    static_cast<f32>(static_cast<i32>(entry.fv->m_Shape)),
+                    entry.fv->m_FalloffDistance,
+                    entry.fv->m_BlendWeight,
+                    entry.fv->m_AffectTransparent ? 1.0f : 0.0f);
+                vol.Extents = glm::vec4(entry.fv->m_Extents, 0.0f);
+                ++volumeIdx;
+            }
+
+            fogVolumes.VolumeCount = glm::ivec4(static_cast<i32>(volumeIdx), 0, 0, 0);
+            Renderer3D::UploadFogVolumes(fogVolumes);
+        }
+
         // Initialize terrain chunks if needed and set up terrain rendering
         {
             ++m_TerrainFrameCounter;
@@ -2329,6 +2386,36 @@ namespace OloEngine
                         audioSource.Config.MaxDistance,
                         glm::vec3(0.2f, 0.6f, 1.0f) // Blue color for audio
                     );
+                }
+            }
+        }
+
+        // Draw fog volume gizmos
+        {
+            auto view = m_Registry.view<TransformComponent, FogVolumeComponent>();
+            for (auto entity : view)
+            {
+                const auto& [tc, fogVol] = view.get<TransformComponent, FogVolumeComponent>(entity);
+                if (!fogVol.m_Enabled)
+                {
+                    continue;
+                }
+
+                glm::vec3 gizmoColor = fogVol.m_Color * 0.8f + glm::vec3(0.2f); // Brightened fog color for visibility
+                glm::quat rotation = glm::quat(tc.Rotation);
+
+                switch (fogVol.m_Shape)
+                {
+                    case FogVolumeShape::Box:
+                        Renderer3D::DrawBoxColliderGizmo(tc.Translation, fogVol.m_Extents, rotation, gizmoColor);
+                        break;
+                    case FogVolumeShape::Sphere:
+                        Renderer3D::DrawSphereColliderGizmo(tc.Translation, fogVol.m_Extents.x, gizmoColor);
+                        break;
+                    case FogVolumeShape::Cylinder:
+                        // Approximate cylinder with capsule gizmo (radius + half-height)
+                        Renderer3D::DrawCapsuleColliderGizmo(tc.Translation, fogVol.m_Extents.x, fogVol.m_Extents.y, rotation, gizmoColor);
+                        break;
                 }
             }
         }

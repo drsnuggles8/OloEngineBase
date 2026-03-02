@@ -285,6 +285,7 @@ namespace OloEngine
         s_Data.SnowUBO = UniformBuffer::Create(SnowUBOData::GetSize(), ShaderBindingLayout::UBO_SNOW);
         s_Data.SSSUBO = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
         s_Data.FogUBO = UniformBuffer::Create(FogUBOData::GetSize(), ShaderBindingLayout::UBO_FOG);
+        s_Data.FogVolumesUBO = UniformBuffer::Create(FogVolumesUBOData::GetSize(), ShaderBindingLayout::UBO_FOG_VOLUMES);
 
         CommandDispatch::SetUBOReferences(
             s_Data.CameraUBO,
@@ -524,6 +525,13 @@ namespace OloEngine
         BeginSceneCommon();
     }
 
+    void Renderer3D::UploadFogVolumes(const FogVolumesUBOData& data)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        s_Data.FogVolumesGPUData = data;
+    }
+
     void Renderer3D::EndScene()
     {
         OLO_PROFILE_FUNCTION();
@@ -682,6 +690,9 @@ namespace OloEngine
             gpu.Flags = glm::vec4(0.0f);
             s_Data.FogUBO->SetData(&gpu, FogUBOData::GetSize());
         }
+
+        // Upload fog volumes (collected by the scene)
+        s_Data.FogVolumesUBO->SetData(&s_Data.FogVolumesGPUData, FogVolumesUBOData::GetSize());
 
         // Update wind system (regenerate 3D wind field, upload wind UBO)
         {

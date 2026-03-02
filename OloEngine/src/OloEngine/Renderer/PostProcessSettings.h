@@ -620,4 +620,48 @@ namespace OloEngine
             return sizeof(WindUBOData);
         }
     };
+
+    // Local fog volume shape type (matches FogVolumeShape enum in Components.h)
+    static constexpr i32 FOG_VOLUME_SHAPE_BOX = 0;
+    static constexpr i32 FOG_VOLUME_SHAPE_SPHERE = 1;
+    static constexpr i32 FOG_VOLUME_SHAPE_CYLINDER = 2;
+
+    // GPU-side per-volume data (std140 aligned)
+    struct FogVolumeData
+    {
+        glm::mat4 WorldToLocal = glm::mat4(1.0f);                       // Inverse transform for local-space conversion
+        glm::vec4 ColorAndDensity = glm::vec4(0.6f, 0.65f, 0.7f, 0.5f); // rgb = color, a = density
+        glm::vec4 ShapeAndFalloff = glm::vec4(0.0f, 1.0f, 1.0f, 0.0f);  // x = shape, y = falloff, z = blendWeight, w = pad
+        glm::vec4 Extents = glm::vec4(5.0f, 5.0f, 5.0f, 0.0f);          // xyz = half-extents/radius, w = pad
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(FogVolumeData);
+        }
+    };
+
+    // GPU-side UBO layout for fog volumes (std140, binding 20)
+    struct FogVolumesUBOData
+    {
+        static constexpr u32 MAX_FOG_VOLUMES = 16;
+
+        FogVolumeData Volumes[MAX_FOG_VOLUMES];
+        glm::ivec4 VolumeCount = glm::ivec4(0); // x = active count, yzw = reserved
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(FogVolumesUBOData);
+        }
+    };
+
+    // Compile-time layout guards — must match GLSL std140 declaration in FogVolumeCommon.glsl
+    static_assert(std::is_standard_layout_v<FogVolumeData>, "FogVolumeData must be standard layout for GPU upload");
+    static_assert(std::is_standard_layout_v<FogVolumesUBOData>, "FogVolumesUBOData must be standard layout for GPU upload");
+    static_assert(sizeof(FogVolumeData) == 112, "FogVolumeData unexpected size — update GLSL layout");
+    static_assert(sizeof(FogVolumeData) % 16 == 0, "FogVolumeData size must be 16-byte aligned for std140");
+    static_assert(sizeof(FogVolumesUBOData) % 16 == 0, "FogVolumesUBOData size must be 16-byte aligned for std140");
+    static_assert(sizeof(FogVolumesUBOData) == FogVolumeData::GetSize() * FogVolumesUBOData::MAX_FOG_VOLUMES + sizeof(glm::ivec4),
+                  "FogVolumesUBOData unexpected size — update GLSL layout");
+    static_assert(offsetof(FogVolumesUBOData, VolumeCount) == FogVolumeData::GetSize() * FogVolumesUBOData::MAX_FOG_VOLUMES,
+                  "FogVolumesUBOData::VolumeCount offset mismatch — packing/alignment drift");
 } // namespace OloEngine
