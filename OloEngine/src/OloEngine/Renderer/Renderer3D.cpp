@@ -250,6 +250,7 @@ namespace OloEngine
         m_ShaderLibrary.Load("assets/shaders/Terrain_VoxelDepth.glsl");
         m_ShaderLibrary.Load("assets/shaders/Foliage_Instance.glsl");
         m_ShaderLibrary.Load("assets/shaders/Foliage_Depth.glsl");
+        m_ShaderLibrary.Load("assets/shaders/Decal.glsl");
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
         s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
@@ -270,6 +271,11 @@ namespace OloEngine
         s_Data.VoxelDepthShader = m_ShaderLibrary.Get("Terrain_VoxelDepth");
         s_Data.FoliageShader = m_ShaderLibrary.Get("Foliage_Instance");
         s_Data.FoliageDepthShader = m_ShaderLibrary.Get("Foliage_Depth");
+        s_Data.DecalShader = m_ShaderLibrary.Get("Decal");
+        s_Data.DecalCubeMesh = MeshPrimitives::CreateCube();
+        s_Data.WhiteTexture = Texture2D::Create(TextureSpecification());
+        u32 whiteTextureData = 0xffffffffU;
+        s_Data.WhiteTexture->SetData(&whiteTextureData, sizeof(u32));
 
         s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
         s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
@@ -286,6 +292,7 @@ namespace OloEngine
         s_Data.SSSUBO = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
         s_Data.FogUBO = UniformBuffer::Create(FogUBOData::GetSize(), ShaderBindingLayout::UBO_FOG);
         s_Data.FogVolumesUBO = UniformBuffer::Create(FogVolumesUBOData::GetSize(), ShaderBindingLayout::UBO_FOG_VOLUMES);
+        s_Data.DecalUBO = UniformBuffer::Create(ShaderBindingLayout::DecalUBO::GetSize(), ShaderBindingLayout::UBO_DECAL);
 
         CommandDispatch::SetUBOReferences(
             s_Data.CameraUBO,
@@ -530,6 +537,103 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         s_Data.FogVolumesGPUData = data;
+    }
+
+    void Renderer3D::RenderDecals(Scene* scene)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!scene || !s_Data.DecalShader || !s_Data.DecalCubeMesh)
+        {
+            return;
+        }
+
+        auto decalView = scene->GetAllEntitiesWith<TransformComponent, DecalComponent>();
+
+        bool hasDecals = false;
+        for ([[maybe_unused]] auto entity : decalView)
+        {
+            hasDecals = true;
+            break;
+        }
+        if (!hasDecals)
+        {
+            return;
+        }
+
+        // Get scene depth texture
+        auto scenePass = Renderer3D::GetScenePass();
+        if (!scenePass || !scenePass->GetTarget())
+        {
+            return;
+        }
+        u32 depthTextureID = scenePass->GetTarget()->GetDepthAttachmentRendererID();
+
+        // Set render state for decal projection
+        RenderCommand::SetBlendState(true);
+        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetDepthMask(false);
+        RenderCommand::SetDepthTest(true);
+        RenderCommand::SetDepthFunc(GL_LEQUAL);
+        RenderCommand::EnableCulling();
+        RenderCommand::FrontCull();
+
+        s_Data.DecalShader->Bind();
+
+        // Bind scene depth texture
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
+
+        auto va = s_Data.DecalCubeMesh->GetVertexArray();
+        if (!va)
+        {
+            RenderCommand::SetDepthMask(true);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::BackCull();
+            return;
+        }
+
+        for (auto entity : decalView)
+        {
+            auto const& [transform, decal] = decalView.get<TransformComponent, DecalComponent>(entity);
+
+            // Build scaled transform for the decal projection box
+            glm::mat4 decalTransform = transform.GetTransform() *
+                                       glm::scale(glm::mat4(1.0f), decal.m_Size);
+            glm::mat4 inverseDecalTransform = glm::inverse(decalTransform);
+
+            // Update model UBO
+            ShaderBindingLayout::ModelUBO modelUBO{};
+            modelUBO.Model = decalTransform;
+            modelUBO.Normal = glm::transpose(glm::inverse(decalTransform));
+            modelUBO.EntityID = static_cast<i32>(static_cast<u32>(entity));
+            s_Data.ModelMatrixUBO->SetData(&modelUBO, ShaderBindingLayout::ModelUBO::GetSize());
+
+            // Update decal UBO
+            ShaderBindingLayout::DecalUBO decalUBO{};
+            decalUBO.InverseDecalTransform = inverseDecalTransform;
+            decalUBO.DecalColor = decal.m_Color;
+            decalUBO.DecalParams = glm::vec4(decal.m_FadeDistance, decal.m_NormalAngleThreshold, 0.0f, 0.0f);
+            s_Data.DecalUBO->SetData(&decalUBO, ShaderBindingLayout::DecalUBO::GetSize());
+
+            // Bind decal albedo texture (fallback to white if none assigned)
+            if (decal.m_AlbedoTexture)
+            {
+                decal.m_AlbedoTexture->Bind(ShaderBindingLayout::TEX_USER_0);
+            }
+            else
+            {
+                s_Data.WhiteTexture->Bind(ShaderBindingLayout::TEX_USER_0);
+            }
+
+            // Draw the decal cube
+            RenderCommand::DrawIndexed(va, s_Data.DecalCubeMesh->GetIndexCount());
+        }
+
+        // Restore render state
+        RenderCommand::SetDepthMask(true);
+        RenderCommand::SetBlendState(false);
+        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::BackCull();
     }
 
     void Renderer3D::EndScene()

@@ -900,6 +900,7 @@ namespace OloEngine
             DisplayAddComponentEntry<FoliageComponent>("Foliage");
             DisplayAddComponentEntry<SnowDeformerComponent>("Snow Deformer");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
+            DisplayAddComponentEntry<DecalComponent>("Decal");
 
             ImGui::Separator();
 
@@ -2758,6 +2759,37 @@ namespace OloEngine
                     ImGui::SetTooltip("Higher priority volumes blend on top");
                 ImGui::DragFloat("Blend Weight##FogVolume", &component.m_BlendWeight, 0.01f, 0.0f, 1.0f, "%.2f");
                 ImGui::Checkbox("Affect Transparent##FogVolume", &component.m_AffectTransparent); });
+
+        DrawComponent<DecalComponent>("Decal", entity, [](auto& component)
+                                      {
+                ImGui::ColorEdit4("Color##Decal", glm::value_ptr(component.m_Color));
+                DrawVec3Control("Size", component.m_Size);
+                constexpr f32 kMinDecalAxis = 1e-3f;
+                component.m_Size.x = glm::max(component.m_Size.x, kMinDecalAxis);
+                component.m_Size.y = glm::max(component.m_Size.y, kMinDecalAxis);
+                component.m_Size.z = glm::max(component.m_Size.z, kMinDecalAxis);
+                ImGui::DragFloat("Fade Distance##Decal", &component.m_FadeDistance, 0.01f, 0.0f, 10.0f, "%.2f");
+                ImGui::SliderFloat("Normal Threshold##Decal", &component.m_NormalAngleThreshold, 0.0f, 1.0f, "%.2f");
+
+                ImGui::Button("Albedo Texture", ImVec2(100.0f, 0.0f));
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    {
+                        auto const* const path = static_cast<wchar_t const*>(payload->Data);
+                        std::filesystem::path texturePath(path);
+                        Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
+                        if (texture->IsLoaded())
+                        {
+                            component.m_AlbedoTexture = texture;
+                        }
+                        else
+                        {
+                            OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                } });
     }
 
     template<typename T>

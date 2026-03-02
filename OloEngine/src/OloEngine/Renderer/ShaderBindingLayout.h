@@ -271,6 +271,19 @@ namespace OloEngine
                 return sizeof(ShadowUBO);
             }
         };
+
+        // @brief Decal projection parameters
+        struct DecalUBO
+        {
+            glm::mat4 InverseDecalTransform;
+            glm::vec4 DecalColor;
+            glm::vec4 DecalParams; // x = fadeDistance, y = normalAngleThreshold, z/w = unused
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(DecalUBO);
+            }
+        };
     } // namespace UBOStructures
 
     // Alignment/size checks for terrain UBO structs (must match GLSL std140 layout)
@@ -280,6 +293,8 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::TerrainUBO) == 144, "TerrainUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::FoliageUBO) == 48, "FoliageUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::DecalUBO) == 96, "DecalUBO unexpected size — update GLSL layout");
 
     // Standardized shader binding layout for consistent resource sharing
     // across all shaders in the engine. This ensures efficient data sharing
@@ -312,6 +327,7 @@ namespace OloEngine
         static constexpr u32 UBO_PRECIPITATION = 18;        // Precipitation system parameters
         static constexpr u32 UBO_PRECIPITATION_SCREEN = 19; // Precipitation screen-space effects (streaks + lens)
         static constexpr u32 UBO_FOG_VOLUMES = 20;          // Local fog volume data (array of volumes)
+        static constexpr u32 UBO_DECAL = 21;                // Decal projection parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -383,6 +399,7 @@ namespace OloEngine
         using TerrainUBO = UBOStructures::TerrainUBO;
         using BrushPreviewUBO = UBOStructures::BrushPreviewUBO;
         using FoliageUBO = UBOStructures::FoliageUBO;
+        using DecalUBO = UBOStructures::DecalUBO;
 
         // =============================================================================
         // BINDING NAME VALIDATION
@@ -439,6 +456,8 @@ namespace OloEngine
                     return name.contains("PrecipitationScreen") || name.contains("precipitationScreen");
                 case UBO_FOG_VOLUMES:
                     return name.contains("FogVolumes") || name.contains("fogVolumes");
+                case UBO_DECAL:
+                    return name.contains("Decal") || name.contains("decal");
                 default:
                     return false;
             }
@@ -659,6 +678,16 @@ layout(std140, binding = 6) uniform ShadowData {
     int _shadowPad0;
     int _shadowPad1;
     int _shadowPad2;
+};)";
+        }
+
+        static const char* GetDecalUBOLayout()
+        {
+            return R"(
+layout(std140, binding = 21) uniform DecalData {
+    mat4 u_InverseDecalTransform;
+    vec4 u_DecalColor;
+    vec4 u_DecalParams; // x = fadeDistance, y = normalAngleThreshold, z/w = unused
 };)";
         }
     };
