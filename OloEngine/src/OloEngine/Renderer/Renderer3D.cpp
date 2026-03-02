@@ -38,6 +38,8 @@
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Precipitation/PrecipitationSystem.h"
+#include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -324,6 +326,11 @@ namespace OloEngine
         SnowAccumulationSystem::Init();
         SnowEjectaSystem::Init(s_Data.SnowEjecta.MaxParticles);
 
+        // Initialize precipitation system (use default max particle counts from settings)
+        PrecipitationSystem::Init(s_Data.Precipitation.MaxParticlesNearField,
+                                  s_Data.Precipitation.MaxParticlesFarField);
+        ScreenSpacePrecipitation::Init();
+
         // Initialize fog temporal state
         s_Data.FogFrameIndex = 0;
         s_Data.FogLastTime = std::chrono::steady_clock::now();
@@ -346,6 +353,10 @@ namespace OloEngine
 
         // Shutdown wind system
         WindSystem::Shutdown();
+
+        // Shutdown precipitation system
+        ScreenSpacePrecipitation::Shutdown();
+        PrecipitationSystem::Shutdown();
 
         // Shutdown snow systems
         SnowEjectaSystem::Shutdown();
@@ -544,6 +555,9 @@ namespace OloEngine
             s_Data.PostProcessPass->SetSettings(s_Data.PostProcess);
             s_Data.PostProcessPass->SetPostProcessUBO(s_Data.PostProcessUBO, &s_Data.PostProcessGPUData);
             s_Data.PostProcessPass->SetFogEnabled(s_Data.Fog.Enabled);
+            s_Data.PostProcessPass->SetPrecipitationScreenEffectsEnabled(
+                s_Data.Precipitation.Enabled &&
+                (s_Data.Precipitation.ScreenStreaksEnabled || s_Data.Precipitation.LensImpactsEnabled));
             s_Data.PostProcessPass->SetShadowMapCSMTextureID(s_Data.Shadow.GetCSMRendererID());
 
             // Pass SSAO texture to PostProcessPass for application
@@ -693,6 +707,22 @@ namespace OloEngine
             if (s_Data.SnowEjecta.Enabled)
             {
                 SnowEjectaSystem::Update(s_Data.SnowEjecta, Timestep(dt));
+            }
+
+            // Update precipitation system (always run so disabled particles can drain)
+            {
+                glm::vec3 windXZ = glm::vec3(s_Data.Wind.Direction.x, 0.0f, s_Data.Wind.Direction.z);
+                f32 windXZLen = glm::length(windXZ);
+                glm::vec3 windDir = (windXZLen > 1e-6f) ? (windXZ / windXZLen) : glm::vec3(1.0f, 0.0f, 0.0f);
+                f32 windSpeed = s_Data.Wind.Speed;
+                PrecipitationSystem::Update(s_Data.Precipitation, s_Data.ViewPos, windDir, windSpeed, Timestep(dt));
+
+                if (s_Data.Precipitation.Enabled)
+                {
+                    glm::vec2 windDirScreen = glm::vec2(windDir.x, -windDir.z);
+                    ScreenSpacePrecipitation::Update(s_Data.Precipitation, PrecipitationSystem::GetCurrentIntensity(), windDirScreen, windSpeed, dt);
+                    PrecipitationSystem::UpdateScreenEffectsUBO(s_Data.Precipitation, windDirScreen, s_Data.FogTime);
+                }
             }
         }
 

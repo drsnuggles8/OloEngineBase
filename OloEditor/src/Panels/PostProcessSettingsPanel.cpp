@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "PostProcessSettingsPanel.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Precipitation/PrecipitationSystem.h"
+#include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 
 #include <imgui.h>
 
@@ -12,14 +14,13 @@ namespace OloEngine
 
         ImGui::Begin("Post Processing");
 
-        auto& settings = Renderer3D::GetPostProcessSettings();
-
         DrawToneMappingSection();
         DrawSSAOSection();
         DrawSnowSection();
         DrawWindSection();
         DrawSnowAccumulationSection();
         DrawSnowEjectaSection();
+        DrawPrecipitationSection();
         DrawBloomSection();
         DrawVignetteSection();
         DrawChromaticAberrationSection();
@@ -435,6 +436,147 @@ namespace OloEngine
                 if (ImGui::Button("Reset Ejecta##SnowEjecta"))
                 {
                     SnowEjectaSystem::Reset();
+                }
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawPrecipitationSection()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& settings = Renderer3D::GetPrecipitationSettings();
+
+        if (ImGui::CollapsingHeader("Precipitation"))
+        {
+            ImGui::Indent();
+
+            ImGui::Checkbox("Enable##Precipitation", &settings.Enabled);
+
+            // Type selector
+            constexpr std::array typeNames = { "Snow", "Rain", "Hail", "Sleet" };
+            const int typeCount = static_cast<int>(typeNames.size());
+
+            // Normalize Type into valid range before any use
+            settings.Type = static_cast<PrecipitationType>(std::clamp(static_cast<int>(settings.Type), 0, typeCount - 1));
+
+            int typeIdx = static_cast<int>(settings.Type);
+            if (ImGui::Combo("Type##Precip", &typeIdx, typeNames.data(), typeCount))
+            {
+                settings.Type = static_cast<PrecipitationType>(std::clamp(typeIdx, 0, typeCount - 1));
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Apply Defaults##Precip"))
+            {
+                bool wasEnabled = settings.Enabled;
+                f32 prevIntensity = settings.Intensity;
+                settings = PrecipitationSettings::GetDefaultsForType(settings.Type);
+                settings.Enabled = wasEnabled;
+                settings.Intensity = prevIntensity;
+                PrecipitationSystem::Reset();
+                ScreenSpacePrecipitation::Reset();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Reset parameters to defaults for this type (preserving Enabled and Intensity)");
+
+            if (settings.Enabled)
+            {
+                // Intensity slider with preset buttons
+                ImGui::SeparatorText("Intensity");
+                ImGui::SliderFloat("Intensity##Precip", &settings.Intensity, 0.0f, 1.0f, "%.2f");
+                if (ImGui::Button("Light##Precip"))
+                    settings.Intensity = 0.15f;
+                ImGui::SameLine();
+                if (ImGui::Button("Moderate##Precip"))
+                    settings.Intensity = 0.4f;
+                ImGui::SameLine();
+                if (ImGui::Button("Heavy##Precip"))
+                    settings.Intensity = 0.7f;
+                ImGui::SameLine();
+                if (ImGui::Button("Blizzard##Precip"))
+                    settings.Intensity = 1.0f;
+                ImGui::DragFloat("Transition Speed##Precip", &settings.TransitionSpeed, 0.01f, 0.01f, 10.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How quickly intensity ramps to target (higher = faster)");
+
+                ImGui::SeparatorText("Emission");
+                settings.BaseEmissionRate = static_cast<u32>(std::clamp(static_cast<int>(settings.BaseEmissionRate), 100, 50000));
+                int baseRate = static_cast<int>(settings.BaseEmissionRate);
+                if (ImGui::DragInt("Base Rate##Precip", &baseRate, 50, 100, 50000))
+                {
+                    settings.BaseEmissionRate = static_cast<u32>(std::clamp(baseRate, 100, 50000));
+                }
+
+                ImGui::SeparatorText("Near Field");
+                ImGui::DragFloat3("Extent##NearPrecip", &settings.NearFieldExtent.x, 0.5f, 1.0f, 100.0f, "%.1f");
+                ImGui::DragFloat("Particle Size##NearPrecip", &settings.NearFieldParticleSize, 0.001f, 0.001f, 0.5f, "%.3f");
+                ImGui::DragFloat("Size Variance##NearPrecip", &settings.NearFieldSizeVariance, 0.001f, 0.0f, 0.1f, "%.3f");
+                ImGui::DragFloat("Speed Min##NearPrecip", &settings.NearFieldSpeedMin, 0.1f, 0.0f, 20.0f, "%.1f");
+                ImGui::DragFloat("Speed Max##NearPrecip", &settings.NearFieldSpeedMax, 0.1f, 0.0f, 20.0f, "%.1f");
+                settings.NearFieldSpeedMax = std::max(settings.NearFieldSpeedMax, settings.NearFieldSpeedMin);
+                ImGui::DragFloat("Lifetime##NearPrecip", &settings.NearFieldLifetime, 0.1f, 0.1f, 30.0f, "%.1f");
+
+                ImGui::SeparatorText("Far Field");
+                ImGui::DragFloat3("Extent##FarPrecip", &settings.FarFieldExtent.x, 1.0f, 10.0f, 500.0f, "%.0f");
+                ImGui::DragFloat("Particle Size##FarPrecip", &settings.FarFieldParticleSize, 0.001f, 0.001f, 0.3f, "%.3f");
+                ImGui::DragFloat("Speed Min##FarPrecip", &settings.FarFieldSpeedMin, 0.1f, 0.0f, 15.0f, "%.1f");
+                ImGui::DragFloat("Speed Max##FarPrecip", &settings.FarFieldSpeedMax, 0.1f, 0.0f, 15.0f, "%.1f");
+                settings.FarFieldSpeedMax = std::max(settings.FarFieldSpeedMax, settings.FarFieldSpeedMin);
+                ImGui::DragFloat("Lifetime##FarPrecip", &settings.FarFieldLifetime, 0.1f, 0.1f, 60.0f, "%.1f");
+                ImGui::DragFloat("Alpha Multiplier##FarPrecip", &settings.FarFieldAlphaMultiplier, 0.01f, 0.0f, 1.0f, "%.2f");
+
+                ImGui::SeparatorText("Physics");
+                ImGui::DragFloat("Gravity Scale##Precip", &settings.GravityScale, 0.01f, 0.0f, 5.0f, "%.2f");
+                ImGui::DragFloat("Wind Influence##Precip", &settings.WindInfluence, 0.01f, 0.0f, 2.0f, "%.2f");
+                ImGui::DragFloat("Drag##Precip", &settings.DragCoefficient, 0.1f, 0.0f, 10.0f, "%.1f");
+                ImGui::DragFloat("Turbulence##Precip", &settings.TurbulenceStrength, 0.01f, 0.0f, 5.0f, "%.2f");
+                ImGui::DragFloat("Turbulence Freq##Precip", &settings.TurbulenceFrequency, 0.1f, 0.0f, 20.0f, "%.1f");
+
+                ImGui::SeparatorText("Ground Interaction");
+                ImGui::Checkbox("Ground Collision##Precip", &settings.GroundCollisionEnabled);
+                ImGui::DragFloat("Ground Y##Precip", &settings.GroundY, 0.1f, -1000.0f, 1000.0f, "%.1f");
+                ImGui::DragFloat("Bounce##Precip", &settings.CollisionBounce, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("0 = stick/splash, >0 = bounce (hail)");
+                ImGui::DragFloat("Friction##Precip", &settings.CollisionFriction, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::Checkbox("Feed Accumulation##Precip", &settings.FeedAccumulation);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Landed particles contribute to snow depth clipmap (Snow/Sleet only)");
+                ImGui::DragFloat("Feed Rate##Precip", &settings.AccumulationFeedRate, 0.0001f, 0.0f, 1.0f, "%.4f");
+
+                ImGui::SeparatorText("Screen Effects");
+                ImGui::Checkbox("Screen Streaks##Precip", &settings.ScreenStreaksEnabled);
+                ImGui::DragFloat("Streak Intensity##Precip", &settings.ScreenStreakIntensity, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::DragFloat("Streak Length##Precip", &settings.ScreenStreakLength, 0.01f, 0.0f, 2.0f, "%.2f");
+                ImGui::Checkbox("Lens Impacts##Precip", &settings.LensImpactsEnabled);
+                ImGui::DragFloat("Impact Rate##Precip", &settings.LensImpactRate, 0.1f, 0.0f, 20.0f, "%.1f");
+                ImGui::DragFloat("Impact Lifetime##Precip", &settings.LensImpactLifetime, 0.1f, 0.1f, 10.0f, "%.1f");
+                ImGui::DragFloat("Impact Size##Precip", &settings.LensImpactSize, 0.001f, 0.001f, 0.3f, "%.3f");
+
+                ImGui::SeparatorText("LOD & Budget");
+                ImGui::DragFloat("LOD Near##Precip", &settings.LODNearDistance, 1.0f, 1.0f, 100.0f, "%.0f");
+                ImGui::DragFloat("LOD Far##Precip", &settings.LODFarDistance, 1.0f, 10.0f, 500.0f, "%.0f");
+                settings.LODFarDistance = std::max(settings.LODFarDistance, settings.LODNearDistance + 1.0f);
+                ImGui::DragFloat("Frame Budget (ms)##Precip", &settings.FrameBudgetMs, 0.1f, 0.1f, 5.0f, "%.1f");
+
+                ImGui::SeparatorText("Visual");
+                ImGui::ColorEdit4("Particle Color##Precip", &settings.ParticleColor.x);
+                ImGui::DragFloat("Color Variance##Precip", &settings.ColorVariance, 0.01f, 0.0f, 1.0f, "%.2f");
+                ImGui::DragFloat("Rotation Speed##Precip", &settings.RotationSpeed, 0.1f, 0.0f, 10.0f, "%.1f");
+
+                ImGui::SeparatorText("Statistics");
+                auto stats = PrecipitationSystem::GetStatistics();
+                ImGui::Text("Effective Emission Rate: %.0f", stats.EffectiveEmissionRate);
+                ImGui::Text("GPU Time: %.2f ms", stats.GPUTimeMs);
+                ImGui::Text("Current Intensity: %.2f", PrecipitationSystem::GetCurrentIntensity());
+                ImGui::Text("Active Lens Impacts: %u", ScreenSpacePrecipitation::GetActiveLensImpactCount());
+
+                if (ImGui::Button("Reset Precipitation##Precip"))
+                {
+                    PrecipitationSystem::Reset();
+                    ScreenSpacePrecipitation::Reset();
                 }
             }
 

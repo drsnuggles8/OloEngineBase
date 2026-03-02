@@ -459,6 +459,209 @@ namespace OloEngine
         }
     }
 
+    static void SerializePrecipitationSettings(YAML::Emitter& out, const PrecipitationSettings& ps)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        out << YAML::Key << "PrecipitationSettings";
+        out << YAML::BeginMap;
+        out << YAML::Key << "Enabled" << YAML::Value << ps.Enabled;
+        out << YAML::Key << "Type" << YAML::Value << static_cast<i32>(ps.Type);
+        out << YAML::Key << "Intensity" << YAML::Value << ps.Intensity;
+        out << YAML::Key << "TransitionSpeed" << YAML::Value << ps.TransitionSpeed;
+        out << YAML::Key << "BaseEmissionRate" << YAML::Value << ps.BaseEmissionRate;
+        out << YAML::Key << "MaxParticlesNearField" << YAML::Value << ps.MaxParticlesNearField;
+        out << YAML::Key << "MaxParticlesFarField" << YAML::Value << ps.MaxParticlesFarField;
+        out << YAML::Key << "NearFieldExtent" << YAML::Value << ps.NearFieldExtent;
+        out << YAML::Key << "NearFieldParticleSize" << YAML::Value << ps.NearFieldParticleSize;
+        out << YAML::Key << "NearFieldSizeVariance" << YAML::Value << ps.NearFieldSizeVariance;
+        out << YAML::Key << "NearFieldSpeedMin" << YAML::Value << ps.NearFieldSpeedMin;
+        out << YAML::Key << "NearFieldSpeedMax" << YAML::Value << ps.NearFieldSpeedMax;
+        out << YAML::Key << "NearFieldLifetime" << YAML::Value << ps.NearFieldLifetime;
+        out << YAML::Key << "FarFieldExtent" << YAML::Value << ps.FarFieldExtent;
+        out << YAML::Key << "FarFieldParticleSize" << YAML::Value << ps.FarFieldParticleSize;
+        out << YAML::Key << "FarFieldSpeedMin" << YAML::Value << ps.FarFieldSpeedMin;
+        out << YAML::Key << "FarFieldSpeedMax" << YAML::Value << ps.FarFieldSpeedMax;
+        out << YAML::Key << "FarFieldLifetime" << YAML::Value << ps.FarFieldLifetime;
+        out << YAML::Key << "FarFieldAlphaMultiplier" << YAML::Value << ps.FarFieldAlphaMultiplier;
+        out << YAML::Key << "GravityScale" << YAML::Value << ps.GravityScale;
+        out << YAML::Key << "WindInfluence" << YAML::Value << ps.WindInfluence;
+        out << YAML::Key << "DragCoefficient" << YAML::Value << ps.DragCoefficient;
+        out << YAML::Key << "TurbulenceStrength" << YAML::Value << ps.TurbulenceStrength;
+        out << YAML::Key << "TurbulenceFrequency" << YAML::Value << ps.TurbulenceFrequency;
+        out << YAML::Key << "GroundCollisionEnabled" << YAML::Value << ps.GroundCollisionEnabled;
+        out << YAML::Key << "GroundY" << YAML::Value << ps.GroundY;
+        out << YAML::Key << "CollisionBounce" << YAML::Value << ps.CollisionBounce;
+        out << YAML::Key << "CollisionFriction" << YAML::Value << ps.CollisionFriction;
+        out << YAML::Key << "FeedAccumulation" << YAML::Value << ps.FeedAccumulation;
+        out << YAML::Key << "AccumulationFeedRate" << YAML::Value << ps.AccumulationFeedRate;
+        out << YAML::Key << "ScreenStreaksEnabled" << YAML::Value << ps.ScreenStreaksEnabled;
+        out << YAML::Key << "ScreenStreakIntensity" << YAML::Value << ps.ScreenStreakIntensity;
+        out << YAML::Key << "ScreenStreakLength" << YAML::Value << ps.ScreenStreakLength;
+        out << YAML::Key << "LensImpactsEnabled" << YAML::Value << ps.LensImpactsEnabled;
+        out << YAML::Key << "LensImpactRate" << YAML::Value << ps.LensImpactRate;
+        out << YAML::Key << "LensImpactLifetime" << YAML::Value << ps.LensImpactLifetime;
+        out << YAML::Key << "LensImpactSize" << YAML::Value << ps.LensImpactSize;
+        out << YAML::Key << "LODNearDistance" << YAML::Value << ps.LODNearDistance;
+        out << YAML::Key << "LODFarDistance" << YAML::Value << ps.LODFarDistance;
+        out << YAML::Key << "FrameBudgetMs" << YAML::Value << ps.FrameBudgetMs;
+        out << YAML::Key << "ParticleColor" << YAML::Value << ps.ParticleColor;
+        out << YAML::Key << "ColorVariance" << YAML::Value << ps.ColorVariance;
+        out << YAML::Key << "RotationSpeed" << YAML::Value << ps.RotationSpeed;
+        out << YAML::EndMap;
+    }
+
+    static void DeserializePrecipitationSettings(const YAML::Node& data, PrecipitationSettings& ps)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (auto psNode = data["PrecipitationSettings"]; psNode)
+        {
+            TrySet(ps.Enabled, psNode["Enabled"]);
+            if (auto typeNode = psNode["Type"]; typeNode)
+            {
+                auto typeVal = typeNode.as<i32>(static_cast<i32>(PrecipitationType::Snow));
+                if (typeVal >= 0 && typeVal <= static_cast<i32>(PrecipitationType::Sleet))
+                {
+                    ps.Type = static_cast<PrecipitationType>(typeVal);
+                }
+                else
+                {
+                    OLO_CORE_WARN("PrecipitationSettings: invalid Type value {}, falling back to Snow", typeVal);
+                    ps.Type = PrecipitationType::Snow;
+                }
+            }
+            TrySet(ps.Intensity, psNode["Intensity"]);
+            TrySet(ps.TransitionSpeed, psNode["TransitionSpeed"]);
+            TrySet(ps.BaseEmissionRate, psNode["BaseEmissionRate"]);
+            TrySet(ps.MaxParticlesNearField, psNode["MaxParticlesNearField"]);
+            TrySet(ps.MaxParticlesFarField, psNode["MaxParticlesFarField"]);
+            TrySet(ps.NearFieldExtent, psNode["NearFieldExtent"]);
+            TrySet(ps.NearFieldParticleSize, psNode["NearFieldParticleSize"]);
+            TrySet(ps.NearFieldSizeVariance, psNode["NearFieldSizeVariance"]);
+            TrySet(ps.NearFieldSpeedMin, psNode["NearFieldSpeedMin"]);
+            TrySet(ps.NearFieldSpeedMax, psNode["NearFieldSpeedMax"]);
+            TrySet(ps.NearFieldLifetime, psNode["NearFieldLifetime"]);
+            TrySet(ps.FarFieldExtent, psNode["FarFieldExtent"]);
+            TrySet(ps.FarFieldParticleSize, psNode["FarFieldParticleSize"]);
+            TrySet(ps.FarFieldSpeedMin, psNode["FarFieldSpeedMin"]);
+            TrySet(ps.FarFieldSpeedMax, psNode["FarFieldSpeedMax"]);
+            TrySet(ps.FarFieldLifetime, psNode["FarFieldLifetime"]);
+            TrySet(ps.FarFieldAlphaMultiplier, psNode["FarFieldAlphaMultiplier"]);
+            TrySet(ps.GravityScale, psNode["GravityScale"]);
+            TrySet(ps.WindInfluence, psNode["WindInfluence"]);
+            TrySet(ps.DragCoefficient, psNode["DragCoefficient"]);
+            TrySet(ps.TurbulenceStrength, psNode["TurbulenceStrength"]);
+            TrySet(ps.TurbulenceFrequency, psNode["TurbulenceFrequency"]);
+            TrySet(ps.GroundCollisionEnabled, psNode["GroundCollisionEnabled"]);
+            TrySet(ps.GroundY, psNode["GroundY"]);
+            TrySet(ps.CollisionBounce, psNode["CollisionBounce"]);
+            TrySet(ps.CollisionFriction, psNode["CollisionFriction"]);
+            TrySet(ps.FeedAccumulation, psNode["FeedAccumulation"]);
+            TrySet(ps.AccumulationFeedRate, psNode["AccumulationFeedRate"]);
+            TrySet(ps.ScreenStreaksEnabled, psNode["ScreenStreaksEnabled"]);
+            TrySet(ps.ScreenStreakIntensity, psNode["ScreenStreakIntensity"]);
+            TrySet(ps.ScreenStreakLength, psNode["ScreenStreakLength"]);
+            TrySet(ps.LensImpactsEnabled, psNode["LensImpactsEnabled"]);
+            TrySet(ps.LensImpactRate, psNode["LensImpactRate"]);
+            TrySet(ps.LensImpactLifetime, psNode["LensImpactLifetime"]);
+            TrySet(ps.LensImpactSize, psNode["LensImpactSize"]);
+            TrySet(ps.LODNearDistance, psNode["LODNearDistance"]);
+            TrySet(ps.LODFarDistance, psNode["LODFarDistance"]);
+            TrySet(ps.FrameBudgetMs, psNode["FrameBudgetMs"]);
+            TrySet(ps.ParticleColor, psNode["ParticleColor"]);
+            TrySet(ps.ColorVariance, psNode["ColorVariance"]);
+            TrySet(ps.RotationSpeed, psNode["RotationSpeed"]);
+
+            // Validate
+            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+            sanitizeFloat(ps.Intensity, 0.0f, 1.0f, 0.5f);
+            sanitizeFloat(ps.TransitionSpeed, 0.01f, 10.0f, 0.5f);
+            ps.BaseEmissionRate = std::clamp(ps.BaseEmissionRate, 100u, 50000u);
+            ps.MaxParticlesNearField = std::clamp(ps.MaxParticlesNearField, 1000u, 500000u);
+            ps.MaxParticlesFarField = std::clamp(ps.MaxParticlesFarField, 1000u, 1000000u);
+            sanitizeFloat(ps.NearFieldParticleSize, 0.001f, 0.5f, 0.03f);
+            sanitizeFloat(ps.FarFieldParticleSize, 0.001f, 0.3f, 0.015f);
+            sanitizeFloat(ps.GravityScale, 0.0f, 5.0f, 0.3f);
+            sanitizeFloat(ps.WindInfluence, 0.0f, 2.0f, 0.7f);
+            sanitizeFloat(ps.DragCoefficient, 0.0f, 10.0f, 1.5f);
+            sanitizeFloat(ps.TurbulenceStrength, 0.0f, 5.0f, 0.4f);
+            sanitizeFloat(ps.TurbulenceFrequency, 0.0f, 20.0f, 1.2f);
+            sanitizeFloat(ps.CollisionBounce, 0.0f, 1.0f, 0.0f);
+            sanitizeFloat(ps.CollisionFriction, 0.0f, 1.0f, 1.0f);
+            sanitizeFloat(ps.AccumulationFeedRate, 0.0f, 1.0f, 0.001f);
+            sanitizeFloat(ps.ScreenStreakIntensity, 0.0f, 1.0f, 0.3f);
+            sanitizeFloat(ps.ScreenStreakLength, 0.0f, 2.0f, 0.5f);
+            sanitizeFloat(ps.LensImpactRate, 0.0f, 20.0f, 3.0f);
+            sanitizeFloat(ps.LensImpactLifetime, 0.1f, 10.0f, 2.0f);
+            sanitizeFloat(ps.LensImpactSize, 0.001f, 0.3f, 0.05f);
+            sanitizeFloat(ps.LODNearDistance, 1.0f, 100.0f, 30.0f);
+            sanitizeFloat(ps.LODFarDistance, 10.0f, 500.0f, 120.0f);
+            sanitizeFloat(ps.FrameBudgetMs, 0.1f, 5.0f, 1.0f);
+            sanitizeFloat(ps.ColorVariance, 0.0f, 1.0f, 0.05f);
+            sanitizeFloat(ps.RotationSpeed, 0.0f, 30.0f, 1.0f);
+
+            // Sanitize vec3 extents: each component must be positive
+            auto sanitizeVec3 = [](glm::vec3& v, f32 lo, f32 hi, const glm::vec3& fallback)
+            {
+                for (i32 i = 0; i < 3; ++i)
+                {
+                    if (!std::isfinite(v[i]))
+                    {
+                        v[i] = fallback[i];
+                    }
+                    else
+                    {
+                        v[i] = std::clamp(v[i], lo, hi);
+                    }
+                }
+            };
+            sanitizeVec3(ps.NearFieldExtent, 1.0f, 200.0f, glm::vec3(15.0f, 25.0f, 15.0f));
+            sanitizeVec3(ps.FarFieldExtent, 10.0f, 500.0f, glm::vec3(60.0f, 40.0f, 60.0f));
+
+            // Sanitize speed ranges
+            sanitizeFloat(ps.NearFieldSpeedMin, 0.0f, 20.0f, 1.0f);
+            sanitizeFloat(ps.NearFieldSpeedMax, 0.0f, 20.0f, 3.0f);
+            ps.NearFieldSpeedMax = std::max(ps.NearFieldSpeedMax, ps.NearFieldSpeedMin);
+            sanitizeFloat(ps.FarFieldSpeedMin, 0.0f, 15.0f, 0.5f);
+            sanitizeFloat(ps.FarFieldSpeedMax, 0.0f, 15.0f, 2.0f);
+            ps.FarFieldSpeedMax = std::max(ps.FarFieldSpeedMax, ps.FarFieldSpeedMin);
+
+            // Sanitize lifetimes
+            sanitizeFloat(ps.NearFieldLifetime, 0.1f, 30.0f, 4.0f);
+            sanitizeFloat(ps.FarFieldLifetime, 0.1f, 60.0f, 8.0f);
+            sanitizeFloat(ps.FarFieldAlphaMultiplier, 0.0f, 1.0f, 0.5f);
+            sanitizeFloat(ps.NearFieldSizeVariance, 0.0f, 0.1f, 0.01f);
+
+            // Enforce LOD ordering: far >= near
+            ps.LODFarDistance = std::max(ps.LODFarDistance, ps.LODNearDistance + 1.0f);
+
+            // Sanitize GroundY
+            sanitizeFloat(ps.GroundY, -1000.0f, 1000.0f, 0.0f);
+
+            // Sanitize particle color: clamp components to [0,1]
+            for (i32 i = 0; i < 4; ++i)
+            {
+                if (!std::isfinite(ps.ParticleColor[i]))
+                {
+                    ps.ParticleColor[i] = (i < 3) ? 0.95f : 0.85f;
+                }
+                else
+                {
+                    ps.ParticleColor[i] = std::clamp(ps.ParticleColor[i], 0.0f, 1.0f);
+                }
+            }
+        }
+    }
+
     static void DeserializeSnowDeformerComponent(Entity& entity, const YAML::Node& node)
     {
         OLO_PROFILE_FUNCTION();
@@ -2018,6 +2221,7 @@ namespace OloEngine
         SerializeWindSettings(out, m_Scene->GetWindSettings());
         SerializeSnowAccumulationSettings(out, m_Scene->GetSnowAccumulationSettings());
         SerializeSnowEjectaSettings(out, m_Scene->GetSnowEjectaSettings());
+        SerializePrecipitationSettings(out, m_Scene->GetPrecipitationSettings());
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
@@ -2105,6 +2309,7 @@ namespace OloEngine
         DeserializeWindSettings(data, m_Scene->GetWindSettings());
         DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
         DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
+        DeserializePrecipitationSettings(data, m_Scene->GetPrecipitationSettings());
 
         if (const auto entities = data["Entities"]; entities)
         {
@@ -2922,6 +3127,7 @@ namespace OloEngine
         SerializeWindSettings(out, m_Scene->GetWindSettings());
         SerializeSnowAccumulationSettings(out, m_Scene->GetSnowAccumulationSettings());
         SerializeSnowEjectaSettings(out, m_Scene->GetSnowEjectaSettings());
+        SerializePrecipitationSettings(out, m_Scene->GetPrecipitationSettings());
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
@@ -3006,6 +3212,7 @@ namespace OloEngine
         DeserializeWindSettings(data, m_Scene->GetWindSettings());
         DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
         DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
+        DeserializePrecipitationSettings(data, m_Scene->GetPrecipitationSettings());
 
         auto entities = data["Entities"];
         if (entities)

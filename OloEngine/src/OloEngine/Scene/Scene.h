@@ -233,6 +233,19 @@ namespace OloEngine
             return m_SnowEjectaSettings;
         }
 
+        void SetPrecipitationSettings(const PrecipitationSettings& settings)
+        {
+            m_PrecipitationSettings = settings;
+        }
+        [[nodiscard]] const PrecipitationSettings& GetPrecipitationSettings() const
+        {
+            return m_PrecipitationSettings;
+        }
+        [[nodiscard]] PrecipitationSettings& GetPrecipitationSettings()
+        {
+            return m_PrecipitationSettings;
+        }
+
         // Asset interface
         static AssetType GetStaticType()
         {
@@ -278,6 +291,7 @@ namespace OloEngine
         WindSettings m_WindSettings;                           // Wind simulation settings
         SnowAccumulationSettings m_SnowAccumulationSettings;   // Snow accumulation & deformation
         SnowEjectaSettings m_SnowEjectaSettings;               // Snow ejecta particle settings
+        PrecipitationSettings m_PrecipitationSettings;         // Precipitation system settings
 
         // Per-entity previous positions for velocity estimation (snow ejecta)
         TMap<u64, glm::vec3> m_RuntimeSnowPrevPositions;

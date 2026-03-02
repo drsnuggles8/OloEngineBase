@@ -5,6 +5,10 @@ add_executable(OloEngine-Tests
 		ContainerTest.cpp
 		SnowSettingsTest.cpp
 		WindSettingsTest.cpp
+		PrecipitationSettingsTest.cpp
+		PrecipitationEmitterTest.cpp
+		PrecipitationSystemTest.cpp
+		PrecipitationBenchmarkTest.cpp
 
 		Async/ParkingLotTest.cpp
 		Async/MutexTest.cpp

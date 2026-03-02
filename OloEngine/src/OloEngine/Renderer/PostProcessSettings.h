@@ -348,6 +348,239 @@ namespace OloEngine
         }
     };
 
+    // Precipitation type constants
+    enum class PrecipitationType : i32
+    {
+        Snow = 0,
+        Rain = 1,
+        Hail = 2,
+        Sleet = 3
+    };
+
+    /// Maximum number of simultaneous lens impacts for screen-space precipitation.
+    /// Shared between ScreenSpacePrecipitation and PrecipitationScreenUBOData.
+    inline constexpr u32 kMaxLensImpacts = 16;
+
+    // Precipitation intensity presets (map to parameter sets)
+    enum class PrecipitationIntensity : i32
+    {
+        None = 0,
+        Light = 1,
+        Moderate = 2,
+        Heavy = 3,
+        Blizzard = 4
+    };
+
+    // Scene-global precipitation settings (camera-relative, multi-layer)
+    struct PrecipitationSettings
+    {
+        bool Enabled = false;
+        PrecipitationType Type = PrecipitationType::Snow;
+        f32 Intensity = 0.5f;       // 0–1 continuous
+        f32 TransitionSpeed = 1.0f; // Interpolation speed toward target
+
+        // Emission
+        u32 BaseEmissionRate = 4000; // Particles/sec at intensity=1
+        u32 MaxParticlesNearField = 100000;
+        u32 MaxParticlesFarField = 200000;
+
+        // Near-field layer (detailed, close to camera)
+        glm::vec3 NearFieldExtent = glm::vec3(15.0f, 20.0f, 15.0f);
+        f32 NearFieldParticleSize = 0.04f;
+        f32 NearFieldSizeVariance = 0.02f;
+        f32 NearFieldSpeedMin = 0.8f;
+        f32 NearFieldSpeedMax = 2.0f;
+        f32 NearFieldLifetime = 10.0f;
+
+        // Far-field layer (atmospheric, larger volume)
+        glm::vec3 FarFieldExtent = glm::vec3(60.0f, 30.0f, 60.0f);
+        f32 FarFieldParticleSize = 0.025f;
+        f32 FarFieldSpeedMin = 0.5f;
+        f32 FarFieldSpeedMax = 1.5f;
+        f32 FarFieldLifetime = 15.0f;
+        f32 FarFieldAlphaMultiplier = 0.5f;
+
+        // Physics
+        f32 GravityScale = 0.8f;
+        f32 WindInfluence = 1.0f;
+        f32 DragCoefficient = 0.3f;
+        f32 TurbulenceStrength = 0.8f;
+        f32 TurbulenceFrequency = 0.5f;
+
+        // Ground interaction
+        bool GroundCollisionEnabled = true;
+        f32 GroundY = 0.0f;
+        f32 CollisionBounce = 0.0f;   // 0=stick/splash, >0=bounce (hail)
+        f32 CollisionFriction = 1.0f; // Friction on ground contact
+        bool FeedAccumulation = true;
+        f32 AccumulationFeedRate = 0.0001f;
+
+        // Screen-space effects
+        bool ScreenStreaksEnabled = true;
+        f32 ScreenStreakIntensity = 0.3f;
+        f32 ScreenStreakLength = 0.15f;
+        bool LensImpactsEnabled = true;
+        f32 LensImpactRate = 3.0f; // Impacts/sec at intensity=1
+        f32 LensImpactLifetime = 1.5f;
+        f32 LensImpactSize = 0.03f;
+
+        // LOD / performance budget
+        f32 LODNearDistance = 30.0f;
+        f32 LODFarDistance = 120.0f;
+        f32 FrameBudgetMs = 1.0f;
+
+        // Visual
+        glm::vec4 ParticleColor = glm::vec4(0.95f, 0.97f, 1.0f, 0.85f);
+        f32 ColorVariance = 0.05f;
+        f32 RotationSpeed = 30.0f; // deg/s
+
+        /// @brief Return sensible default parameters for the given precipitation type.
+        ///        The caller can further tweak individual fields after applying defaults.
+        [[nodiscard]] static PrecipitationSettings GetDefaultsForType(PrecipitationType type)
+        {
+            PrecipitationSettings s;
+            s.Enabled = true;
+            s.Type = type;
+            switch (type)
+            {
+                case PrecipitationType::Snow:
+                    // Already the struct defaults — snow is the baseline
+                    break;
+                case PrecipitationType::Rain:
+                    s.BaseEmissionRate = 8000;
+                    s.NearFieldParticleSize = 0.02f;
+                    s.NearFieldSizeVariance = 0.005f;
+                    s.NearFieldSpeedMin = 5.0f;
+                    s.NearFieldSpeedMax = 10.0f;
+                    s.NearFieldLifetime = 4.0f;
+                    s.FarFieldParticleSize = 0.015f;
+                    s.FarFieldSpeedMin = 4.0f;
+                    s.FarFieldSpeedMax = 8.0f;
+                    s.FarFieldLifetime = 6.0f;
+                    s.FarFieldAlphaMultiplier = 0.35f;
+                    s.GravityScale = 2.5f;
+                    s.WindInfluence = 0.6f;
+                    s.DragCoefficient = 0.05f;
+                    s.TurbulenceStrength = 0.1f;
+                    s.TurbulenceFrequency = 0.3f;
+                    s.CollisionBounce = 0.0f;
+                    s.CollisionFriction = 1.0f;
+                    s.FeedAccumulation = false;
+                    s.ScreenStreakIntensity = 0.5f;
+                    s.ScreenStreakLength = 0.35f;
+                    s.LensImpactRate = 5.0f;
+                    s.LensImpactLifetime = 1.0f;
+                    s.LensImpactSize = 0.025f;
+                    s.ParticleColor = glm::vec4(0.7f, 0.75f, 0.85f, 0.45f);
+                    s.ColorVariance = 0.08f;
+                    s.RotationSpeed = 0.0f;
+                    break;
+                case PrecipitationType::Hail:
+                    s.BaseEmissionRate = 2000;
+                    s.NearFieldParticleSize = 0.05f;
+                    s.NearFieldSizeVariance = 0.02f;
+                    s.NearFieldSpeedMin = 8.0f;
+                    s.NearFieldSpeedMax = 15.0f;
+                    s.NearFieldLifetime = 3.0f;
+                    s.FarFieldParticleSize = 0.03f;
+                    s.FarFieldSpeedMin = 6.0f;
+                    s.FarFieldSpeedMax = 12.0f;
+                    s.FarFieldLifetime = 5.0f;
+                    s.FarFieldAlphaMultiplier = 0.4f;
+                    s.GravityScale = 3.0f;
+                    s.WindInfluence = 0.3f;
+                    s.DragCoefficient = 0.02f;
+                    s.TurbulenceStrength = 0.05f;
+                    s.TurbulenceFrequency = 0.2f;
+                    s.CollisionBounce = 0.35f;
+                    s.CollisionFriction = 0.6f;
+                    s.FeedAccumulation = false;
+                    s.ScreenStreakIntensity = 0.15f;
+                    s.ScreenStreakLength = 0.05f;
+                    s.LensImpactRate = 2.0f;
+                    s.LensImpactLifetime = 2.5f;
+                    s.LensImpactSize = 0.06f;
+                    s.ParticleColor = glm::vec4(0.9f, 0.92f, 0.95f, 0.9f);
+                    s.ColorVariance = 0.03f;
+                    s.RotationSpeed = 5.0f;
+                    break;
+                case PrecipitationType::Sleet:
+                    s.BaseEmissionRate = 5000;
+                    s.NearFieldParticleSize = 0.03f;
+                    s.NearFieldSizeVariance = 0.01f;
+                    s.NearFieldSpeedMin = 3.0f;
+                    s.NearFieldSpeedMax = 6.0f;
+                    s.NearFieldLifetime = 6.0f;
+                    s.FarFieldParticleSize = 0.02f;
+                    s.FarFieldSpeedMin = 2.0f;
+                    s.FarFieldSpeedMax = 5.0f;
+                    s.FarFieldLifetime = 9.0f;
+                    s.FarFieldAlphaMultiplier = 0.4f;
+                    s.GravityScale = 1.5f;
+                    s.WindInfluence = 0.8f;
+                    s.DragCoefficient = 0.15f;
+                    s.TurbulenceStrength = 0.3f;
+                    s.TurbulenceFrequency = 0.4f;
+                    s.CollisionBounce = 0.05f;
+                    s.CollisionFriction = 0.9f;
+                    s.FeedAccumulation = true;
+                    s.AccumulationFeedRate = 0.00005f;
+                    s.ScreenStreakIntensity = 0.35f;
+                    s.ScreenStreakLength = 0.2f;
+                    s.LensImpactRate = 4.0f;
+                    s.LensImpactLifetime = 1.2f;
+                    s.LensImpactSize = 0.03f;
+                    s.ParticleColor = glm::vec4(0.82f, 0.85f, 0.9f, 0.6f);
+                    s.ColorVariance = 0.06f;
+                    s.RotationSpeed = 10.0f;
+                    break;
+                default:
+                    // Unknown enum value — preserve Snow/baseline defaults
+                    OLO_CORE_WARN("GetDefaultsForType: unknown PrecipitationType {}", static_cast<i32>(type));
+                    break;
+            }
+            return s;
+        }
+    };
+
+    // GPU-side UBO layout for precipitation parameters (std140, binding 18)
+    struct PrecipitationUBOData
+    {
+        // vec4(Intensity, WindInfluence, StreakIntensity, StreakLength)
+        glm::vec4 IntensityAndScreenFX = glm::vec4(0.5f, 1.0f, 0.3f, 0.15f);
+        // vec4(LensImpactRate, LensImpactLifetime, LensImpactSize, Enabled)
+        glm::vec4 LensParams = glm::vec4(3.0f, 1.5f, 0.03f, 0.0f);
+        // vec4(ScreenWindDirX, ScreenWindDirY, Time, StreaksEnabled)
+        glm::vec4 ScreenWindAndTime = glm::vec4(0.0f);
+        // vec4(ParticleColor rgba)
+        glm::vec4 ParticleColor = glm::vec4(0.95f, 0.97f, 1.0f, 0.85f);
+        // vec4(Type, 0, 0, 0) — x: 0=Snow, 1=Rain, 2=Hail, 3=Sleet
+        glm::vec4 TypeParams = glm::vec4(0.0f);
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(PrecipitationUBOData);
+        }
+    };
+
+    // GPU-side UBO layout for precipitation screen-space effects (std140, binding 19)
+    struct PrecipitationScreenUBOData
+    {
+        // vec4(DirX, DirY, Intensity, Length)
+        glm::vec4 StreakParams = glm::vec4(0.0f);
+        // LensImpacts[16] — each element has 2 vec4 (PositionAndSize, TimeParams)
+        struct LensImpactGPU
+        {
+            glm::vec4 PositionAndSize{ 0.0f };
+            glm::vec4 TimeParams{ 0.0f };
+        } LensImpacts[kMaxLensImpacts]{};
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(PrecipitationScreenUBOData);
+        }
+    };
+
     // Wind simulation settings (scene-level, separate from PostProcess)
     struct WindSettings
     {

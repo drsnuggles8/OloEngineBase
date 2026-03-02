@@ -1139,6 +1139,7 @@ namespace OloEngine
         Renderer3D::GetWindSettings() = newScene->GetWindSettings();
         Renderer3D::GetSnowAccumulationSettings() = newScene->GetSnowAccumulationSettings();
         Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
+        Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
         Renderer3D::GetFogSettings() = newScene->GetFogSettings();
         return true;
     }
@@ -1152,6 +1153,7 @@ namespace OloEngine
             m_ActiveScene->SetWindSettings(Renderer3D::GetWindSettings());
             m_ActiveScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
             m_ActiveScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
+            m_ActiveScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
             m_ActiveScene->SetFogSettings(Renderer3D::GetFogSettings());
             SerializeScene(m_ActiveScene, m_EditorScenePath);
         }
@@ -1179,6 +1181,7 @@ namespace OloEngine
             m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
             m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
             m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
+            m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
             m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
             SerializeScene(m_EditorScene, filepath);
             SyncWindowTitle();

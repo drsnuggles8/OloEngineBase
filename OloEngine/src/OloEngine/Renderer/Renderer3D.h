@@ -592,6 +592,11 @@ namespace OloEngine
             return s_Data.SnowEjecta;
         }
 
+        static PrecipitationSettings& GetPrecipitationSettings()
+        {
+            return s_Data.Precipitation;
+        }
+
         // Shader library access for PBR material shader selection
         static ShaderLibrary& GetShaderLibrary();
 
@@ -713,6 +718,7 @@ namespace OloEngine
             WindSettings Wind;
             SnowAccumulationSettings SnowAccumulation;
             SnowEjectaSettings SnowEjecta;
+            PrecipitationSettings Precipitation;
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
 
             // Parallel submission state

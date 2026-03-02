@@ -1,0 +1,104 @@
+#version 460 core
+
+// Precipitation_Feed.comp — Bridge between precipitation particles and snow accumulation clipmap.
+// Reads particle data from the near-field SSBO, identifies particles that have landed
+// (lifetime expired at ground level), and atomically adds snow depth to the accumulation map.
+
+layout(local_size_x = 256) in;
+
+// GPUParticle struct (96 bytes, 6 × vec4, std430 layout — matches GPUParticleData.h)
+struct GPUParticle
+{
+    vec4 PositionLifetime;     // xyz = world position, w = remaining lifetime
+    vec4 VelocityMaxLifetime;  // xyz = velocity, w = max lifetime
+    vec4 Color;                // rgba
+    vec4 InitialColor;         // rgba (at emission time)
+    vec4 InitialVelocitySize;  // xyz = initial velocity, w = current size
+    vec4 Misc;                 // x = initial size, y = rotation, z = alive (1/0), w = entityID
+};
+
+layout(std430, binding = 0) readonly buffer ParticleBuffer
+{
+    GPUParticle particles[];
+};
+
+layout(std430, binding = 2) readonly buffer CounterBuffer
+{
+    uint aliveCount;
+    uint deadCount;
+    uint emitCount;
+    uint pad;
+};
+
+// Snow depth clipmap (R32UI for atomic CAS — stores float bits reinterpreted as uint)
+layout(r32ui, binding = 1) coherent uniform uimage2D u_SnowDepth;
+
+// Per-dispatch uniforms
+uniform float u_AccumulationFeedRate;  // How much depth each landed particle contributes
+uniform float u_GroundY;              // Ground plane Y coordinate
+uniform float u_GroundThreshold;      // Tolerance for ground contact detection
+uniform vec2  u_ClipmapCenter;        // World XZ center of the snow clipmap
+uniform float u_ClipmapExtent;        // Half-extent of the clipmap in world units
+uniform int   u_ClipmapResolution;    // Texture resolution (e.g. 2048)
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= aliveCount)
+        return;
+
+    GPUParticle p = particles[idx];
+
+    // Check if particle has landed: position near ground and lifetime expired or nearly expired
+    float posY = p.PositionLifetime.y;
+    float lifetime = p.PositionLifetime.w; // Remaining lifetime (stored in PositionLifetime.w)
+
+    bool nearGround = abs(posY - u_GroundY) < u_GroundThreshold;
+    bool expired = lifetime <= 0.0;
+
+    if (!nearGround || !expired)
+        return;
+
+    // Convert world XZ to clipmap UV
+    // Guard against zero/negative extent or resolution
+    if (u_ClipmapExtent <= 0.0 || u_ClipmapResolution <= 0)
+        return;
+
+    vec2 worldXZ = p.PositionLifetime.xz;
+    vec2 relativePos = (worldXZ - u_ClipmapCenter) / u_ClipmapExtent; // [-1, 1]
+    vec2 uv = relativePos * 0.5 + 0.5; // [0, 1]
+
+    // Bounds check
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+        return;
+
+    // Convert to texel coordinates
+    ivec2 texel = ivec2(uv * float(u_ClipmapResolution));
+    texel = clamp(texel, ivec2(0), ivec2(u_ClipmapResolution - 1));
+
+    // Atomically accumulate snow depth via compare-and-swap loop.
+    // The R32F texture is bound as R32UI so we can use imageAtomicCompSwap.
+    // Float bits are reinterpreted as uint for the CAS operation.
+    float contribution = u_AccumulationFeedRate * p.InitialVelocitySize.w; // Scale by current particle size
+
+    // CAS loop: atomically add contribution to the current depth
+    const int MAX_CAS_ITERATIONS = 64;
+    bool committed = false;
+    for (int attempt = 0; attempt < MAX_CAS_ITERATIONS; ++attempt)
+    {
+        uint currentBits = imageLoad(u_SnowDepth, texel).r;
+        float currentDepth = uintBitsToFloat(currentBits);
+        float newDepth = min(currentDepth + contribution, 2.0); // Clamp to max depth
+        uint newBits = floatBitsToUint(newDepth);
+
+        uint prevBits = imageAtomicCompSwap(u_SnowDepth, texel, currentBits, newBits);
+        if (prevBits == currentBits)
+        {
+            committed = true;
+            break; // Success
+        }
+    }
+    // Note: if !committed, the contribution was silently dropped due to high contention.
+    // This is acceptable for visual snow accumulation but could be tracked via an atomic
+    // failure counter if observability is required.
+}
