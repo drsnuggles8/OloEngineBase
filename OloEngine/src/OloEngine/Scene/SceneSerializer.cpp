@@ -716,6 +716,19 @@ namespace OloEngine
             }
             v = std::clamp(v, lo, hi);
         };
+        auto sanitizeVec3 = [](glm::vec3& v, const glm::vec3& fallback)
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                if (!std::isfinite(v[i]))
+                {
+                    v = fallback;
+                    return;
+                }
+            }
+        };
+        sanitizeVec3(fv.m_Extents, glm::vec3(5.0f));
+        sanitizeVec3(fv.m_Color, glm::vec3(0.6f, 0.65f, 0.7f));
         sanitizeFloat(fv.m_Density, 0.0f, 100.0f, 0.5f);
         sanitizeFloat(fv.m_FalloffDistance, 0.0f, 100.0f, 1.0f);
         sanitizeFloat(fv.m_BlendWeight, 0.0f, 1.0f, 1.0f);

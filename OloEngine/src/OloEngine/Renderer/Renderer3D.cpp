@@ -527,6 +527,8 @@ namespace OloEngine
 
     void Renderer3D::UploadFogVolumes(const FogVolumesUBOData& data)
     {
+        OLO_PROFILE_FUNCTION();
+
         s_Data.FogVolumesGPUData = data;
     }
 

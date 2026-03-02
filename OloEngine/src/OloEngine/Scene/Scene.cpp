@@ -1614,23 +1614,28 @@ namespace OloEngine
 
         // Collect local fog volumes and upload to GPU
         {
-            FogVolumesUBOData fogVolumes;
+            FogVolumesUBOData fogVolumes{};
+
             struct VolumeEntry
             {
                 i32 priority;
-                u32 index;
+                const TransformComponent* tc;
+                const FogVolumeComponent* fv;
             };
             std::vector<VolumeEntry> entries;
 
             auto fogVolumeView = m_Registry.view<TransformComponent, FogVolumeComponent>();
+            entries.reserve(fogVolumeView.size_hint());
             for (auto entity : fogVolumeView)
             {
-                const auto& [transform, fogVol] = fogVolumeView.get<TransformComponent, FogVolumeComponent>(entity);
+                const auto& fogVol = fogVolumeView.get<FogVolumeComponent>(entity);
                 if (!fogVol.m_Enabled)
                 {
                     continue;
                 }
-                entries.push_back({ fogVol.m_Priority, static_cast<u32>(entries.size()) });
+                entries.push_back({ fogVol.m_Priority,
+                                    &fogVolumeView.get<TransformComponent>(entity),
+                                    &fogVol });
             }
 
             // Sort by priority (higher priority processed last for consistent blending)
@@ -1645,39 +1650,16 @@ namespace OloEngine
                     break;
                 }
 
-                u32 viewIdx = 0;
-                const TransformComponent* tc = nullptr;
-                const FogVolumeComponent* fv = nullptr;
-                for (auto entity : fogVolumeView)
-                {
-                    if (!fogVolumeView.get<FogVolumeComponent>(entity).m_Enabled)
-                    {
-                        continue;
-                    }
-                    if (viewIdx == entry.index)
-                    {
-                        tc = &fogVolumeView.get<TransformComponent>(entity);
-                        fv = &fogVolumeView.get<FogVolumeComponent>(entity);
-                        break;
-                    }
-                    ++viewIdx;
-                }
-
-                if (!tc || !fv)
-                {
-                    continue;
-                }
-
                 auto& vol = fogVolumes.Volumes[volumeIdx];
-                glm::mat4 worldTransform = tc->GetTransform();
+                glm::mat4 worldTransform = entry.tc->GetTransform();
                 vol.WorldToLocal = glm::inverse(worldTransform);
-                vol.ColorAndDensity = glm::vec4(fv->m_Color, fv->m_Density);
+                vol.ColorAndDensity = glm::vec4(entry.fv->m_Color, entry.fv->m_Density);
                 vol.ShapeAndFalloff = glm::vec4(
-                    static_cast<f32>(static_cast<i32>(fv->m_Shape)),
-                    fv->m_FalloffDistance,
-                    fv->m_BlendWeight,
-                    0.0f);
-                vol.Extents = glm::vec4(fv->m_Extents, 0.0f);
+                    static_cast<f32>(static_cast<i32>(entry.fv->m_Shape)),
+                    entry.fv->m_FalloffDistance,
+                    entry.fv->m_BlendWeight,
+                    entry.fv->m_AffectTransparent ? 1.0f : 0.0f);
+                vol.Extents = glm::vec4(entry.fv->m_Extents, 0.0f);
                 ++volumeIdx;
             }
 
@@ -2420,7 +2402,7 @@ namespace OloEngine
                 }
 
                 glm::vec3 gizmoColor = fogVol.m_Color * 0.8f + glm::vec3(0.2f); // Brightened fog color for visibility
-                glm::quat rotation = glm::quat(glm::radians(tc.Rotation));
+                glm::quat rotation = glm::quat(tc.Rotation);
 
                 switch (fogVol.m_Shape)
                 {

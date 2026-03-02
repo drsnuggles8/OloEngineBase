@@ -653,4 +653,15 @@ namespace OloEngine
             return sizeof(FogVolumesUBOData);
         }
     };
+
+    // Compile-time layout guards — must match GLSL std140 declaration in FogVolumeCommon.glsl
+    static_assert(std::is_standard_layout_v<FogVolumeData>, "FogVolumeData must be standard layout for GPU upload");
+    static_assert(std::is_standard_layout_v<FogVolumesUBOData>, "FogVolumesUBOData must be standard layout for GPU upload");
+    static_assert(sizeof(FogVolumeData) == 112, "FogVolumeData unexpected size — update GLSL layout");
+    static_assert(sizeof(FogVolumeData) % 16 == 0, "FogVolumeData size must be 16-byte aligned for std140");
+    static_assert(sizeof(FogVolumesUBOData) % 16 == 0, "FogVolumesUBOData size must be 16-byte aligned for std140");
+    static_assert(sizeof(FogVolumesUBOData) == FogVolumeData::GetSize() * FogVolumesUBOData::MAX_FOG_VOLUMES + sizeof(glm::ivec4),
+                  "FogVolumesUBOData unexpected size — update GLSL layout");
+    static_assert(offsetof(FogVolumesUBOData, VolumeCount) == FogVolumeData::GetSize() * FogVolumesUBOData::MAX_FOG_VOLUMES,
+                  "FogVolumesUBOData::VolumeCount offset mismatch — packing/alignment drift");
 } // namespace OloEngine
