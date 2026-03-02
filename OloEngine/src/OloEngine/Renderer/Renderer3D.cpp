@@ -326,8 +326,9 @@ namespace OloEngine
         SnowAccumulationSystem::Init();
         SnowEjectaSystem::Init(s_Data.SnowEjecta.MaxParticles);
 
-        // Initialize precipitation system
-        PrecipitationSystem::Init();
+        // Initialize precipitation system (use default max particle counts from settings)
+        PrecipitationSystem::Init(s_Data.Precipitation.MaxParticlesNearField,
+                                  s_Data.Precipitation.MaxParticlesFarField);
         ScreenSpacePrecipitation::Init();
 
         // Initialize fog temporal state
@@ -711,7 +712,9 @@ namespace OloEngine
             // Update precipitation system
             if (s_Data.Precipitation.Enabled)
             {
-                glm::vec3 windDir = glm::normalize(glm::vec3(s_Data.Wind.Direction.x, 0.0f, s_Data.Wind.Direction.z));
+                glm::vec3 windXZ = glm::vec3(s_Data.Wind.Direction.x, 0.0f, s_Data.Wind.Direction.z);
+                f32 windXZLen = glm::length(windXZ);
+                glm::vec3 windDir = (windXZLen > 1e-6f) ? (windXZ / windXZLen) : glm::vec3(1.0f, 0.0f, 0.0f);
                 f32 windSpeed = s_Data.Wind.Speed;
                 PrecipitationSystem::Update(s_Data.Precipitation, s_Data.ViewPos, windDir, windSpeed, Timestep(dt));
 

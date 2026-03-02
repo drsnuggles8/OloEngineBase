@@ -23,7 +23,7 @@ namespace OloEngine
 {
     PrecipitationSystem::PrecipitationData PrecipitationSystem::s_Data;
 
-    void PrecipitationSystem::Init()
+    void PrecipitationSystem::Init(u32 maxNearField, u32 maxFarField)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -33,8 +33,8 @@ namespace OloEngine
             return;
         }
 
-        // Create near-field GPU particle system (100k particles)
-        s_Data.m_NearFieldSystem = CreateScope<GPUParticleSystem>(100000u);
+        // Create near-field GPU particle system
+        s_Data.m_NearFieldSystem = CreateScope<GPUParticleSystem>(maxNearField);
         if (!s_Data.m_NearFieldSystem->IsInitialized())
         {
             OLO_CORE_ERROR("PrecipitationSystem: Near-field GPUParticleSystem failed to initialize");
@@ -42,8 +42,8 @@ namespace OloEngine
             return;
         }
 
-        // Create far-field GPU particle system (200k particles)
-        s_Data.m_FarFieldSystem = CreateScope<GPUParticleSystem>(200000u);
+        // Create far-field GPU particle system
+        s_Data.m_FarFieldSystem = CreateScope<GPUParticleSystem>(maxFarField);
         if (!s_Data.m_FarFieldSystem->IsInitialized())
         {
             OLO_CORE_ERROR("PrecipitationSystem: Far-field GPUParticleSystem failed to initialize");
@@ -225,9 +225,22 @@ namespace OloEngine
 
         if (!settings.Enabled)
         {
-            // Still simulate existing particles to let them die naturally
+            // Still simulate existing particles to let them die naturally.
+            // Use a drain timer to ensure we don't stop while particles are alive.
             if (s_Data.m_CurrentIntensity > 0.001f)
             {
+                // Start/extend drain: worst-case particle lifetime plus some margin
+                f32 maxLifetime = std::max(settings.NearFieldLifetime, settings.FarFieldLifetime) * 1.2f;
+                s_Data.m_DrainTimeRemaining = std::max(s_Data.m_DrainTimeRemaining, maxLifetime);
+            }
+
+            if (s_Data.m_CurrentIntensity > 0.001f || s_Data.m_DrainTimeRemaining > 0.0f)
+            {
+                s_Data.m_TargetIntensity = 0.0f;
+                s_Data.m_CurrentIntensity = std::lerp(s_Data.m_CurrentIntensity, 0.0f,
+                                                      std::clamp(settings.TransitionSpeed * deltaTime, 0.0f, 1.0f));
+
+                s_Data.m_DrainTimeRemaining = std::max(s_Data.m_DrainTimeRemaining - deltaTime, 0.0f);
                 s_Data.m_TargetIntensity = 0.0f;
                 s_Data.m_CurrentIntensity = std::lerp(s_Data.m_CurrentIntensity, 0.0f,
                                                       std::clamp(settings.TransitionSpeed * deltaTime, 0.0f, 1.0f));
@@ -268,6 +281,7 @@ namespace OloEngine
         glBeginQuery(GL_TIME_ELAPSED, s_Data.m_TimerQueries[queryIdx]);
 
         // 1. Intensity interpolation
+        s_Data.m_LastBaseEmissionRate = settings.BaseEmissionRate;
         s_Data.m_TargetIntensity = settings.Intensity;
         f32 lerpFactor = std::clamp(settings.TransitionSpeed * deltaTime, 0.0f, 1.0f);
         s_Data.m_CurrentIntensity = std::lerp(s_Data.m_CurrentIntensity, s_Data.m_TargetIntensity, lerpFactor);
@@ -338,10 +352,10 @@ namespace OloEngine
             glm::vec4 clipmapParams = SnowAccumulationSystem::GetClipmapParams();
             s_Data.m_FeedShader->SetFloat2("u_ClipmapCenter", glm::vec2(clipmapParams.x, clipmapParams.y));
             s_Data.m_FeedShader->SetFloat("u_ClipmapExtent", clipmapParams.z);
-            s_Data.m_FeedShader->SetInt("u_Resolution", static_cast<i32>(SnowAccumulationSystem::GetTextureResolution()));
+            s_Data.m_FeedShader->SetInt("u_ClipmapResolution", static_cast<i32>(SnowAccumulationSystem::GetTextureResolution()));
 
-            // Bind snow depth texture as image for atomic writes via the clean API
-            SnowAccumulationSystem::BindSnowDepthImage(1);
+            // Bind snow depth texture as R32UI image for atomic CAS writes
+            SnowAccumulationSystem::BindSnowDepthImageUint(1);
 
             // Feed from near-field system
             // The compute shader reads from the particle SSBO (already bound)
@@ -355,13 +369,19 @@ namespace OloEngine
         // --- End GPU timer ---
         glEndQuery(GL_TIME_ELAPSED);
 
-        // Read back previous frame's timer result (async, no stall)
+        // Read back previous frame's timer result (double-buffered to avoid stalls)
         u32 prevQueryIdx = 1 - queryIdx;
         if (s_Data.m_TimerQueryActive)
         {
-            GLuint64 elapsedNs = 0;
-            glGetQueryObjectui64v(s_Data.m_TimerQueries[prevQueryIdx], GL_QUERY_RESULT, &elapsedNs);
-            s_Data.m_LastFrameTimeMs = static_cast<f32>(elapsedNs) / 1000000.0f;
+            GLint available = GL_FALSE;
+            glGetQueryObjectiv(s_Data.m_TimerQueries[prevQueryIdx], GL_QUERY_RESULT_AVAILABLE, &available);
+            if (available == GL_TRUE)
+            {
+                GLuint64 elapsedNs = 0;
+                glGetQueryObjectui64v(s_Data.m_TimerQueries[prevQueryIdx], GL_QUERY_RESULT, &elapsedNs);
+                s_Data.m_LastFrameTimeMs = static_cast<f32>(elapsedNs) / 1000000.0f;
+            }
+            // If not available yet, keep the previous value — avoids CPU stall
         }
         s_Data.m_CurrentTimerQuery = prevQueryIdx;
         s_Data.m_TimerQueryActive = true;
@@ -472,6 +492,7 @@ namespace OloEngine
             s_Data.m_TargetIntensity = 0.0f;
             s_Data.m_AccumulatedTime = 0.0f;
             s_Data.m_EmissionReductionFactor = 1.0f;
+            s_Data.m_DrainTimeRemaining = 0.0f;
         }
     }
 
@@ -498,7 +519,7 @@ namespace OloEngine
         if (s_Data.m_Initialized)
         {
             stats.EffectiveEmissionRate = PrecipitationEmitter::CalculateEmissionRate(
-                                              4000, s_Data.m_CurrentIntensity) *
+                                              s_Data.m_LastBaseEmissionRate, s_Data.m_CurrentIntensity) *
                                           s_Data.m_EmissionReductionFactor;
             stats.GPUTimeMs = s_Data.m_LastFrameTimeMs;
         }

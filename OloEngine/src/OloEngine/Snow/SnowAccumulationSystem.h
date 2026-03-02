@@ -74,6 +74,10 @@ namespace OloEngine
         /// Used by Precipitation_Feed.comp to atomically add to the snow depth.
         static void BindSnowDepthImage(u32 imageUnit);
 
+        /// Bind the snow depth texture as a read-write R32UI image for atomic CAS operations.
+        /// The float bits are reinterpreted as uint for imageAtomicCompSwap.
+        static void BindSnowDepthImageUint(u32 imageUnit);
+
         /// Get the clipmap parameters for ring 0 (innermost).
         /// @return vec4(snappedCenterX, snappedCenterZ, extent, 1/extent)
         [[nodiscard]] static glm::vec4 GetClipmapParams();

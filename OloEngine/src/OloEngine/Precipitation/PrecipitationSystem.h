@@ -50,7 +50,9 @@ namespace OloEngine
     {
       public:
         /// Initialize GPU particle systems, textures, UBO, and compute shaders.
-        static void Init();
+        /// @param maxNearField  Max near-field particles (default: 100000).
+        /// @param maxFarField   Max far-field particles (default: 200000).
+        static void Init(u32 maxNearField = 100000u, u32 maxFarField = 200000u);
 
         /// Release all GPU resources.
         static void Shutdown();
@@ -128,12 +130,17 @@ namespace OloEngine
 
             f32 m_CurrentIntensity = 0.0f;
             f32 m_TargetIntensity = 0.0f;
+            u32 m_LastBaseEmissionRate = 4000;
             glm::vec3 m_LastCameraPos = glm::vec3(0.0f);
             f32 m_AccumulatedTime = 0.0f;
 
             // Frame budget tracking
             f32 m_EmissionReductionFactor = 1.0f;
             f32 m_LastFrameTimeMs = 0.0f;
+
+            // Drain timer: when precipitation is disabled, keep simulating
+            // for long enough that all alive particles expire naturally.
+            f32 m_DrainTimeRemaining = 0.0f;
 
             // GPU timer query objects
             u32 m_TimerQueries[2] = { 0, 0 };

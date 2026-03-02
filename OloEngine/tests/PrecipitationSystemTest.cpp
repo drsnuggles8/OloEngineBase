@@ -25,16 +25,19 @@ TEST(PrecipitationStats, DefaultsAreZero)
 
 TEST(PrecipitationSystem, IntensityClampsTo01)
 {
-    // SetIntensity should clamp
-    // We can't test this without Init() (which needs GPU), so test the clamp logic directly
-    f32 intensity = std::clamp(-0.5f, 0.0f, 1.0f);
-    EXPECT_FLOAT_EQ(intensity, 0.0f);
+    // SetIntensityImmediate / GetCurrentIntensity operate on static data
+    // without requiring GPU Init(), so we can test the real API directly.
+    PrecipitationSystem::SetIntensityImmediate(-0.5f);
+    EXPECT_FLOAT_EQ(PrecipitationSystem::GetCurrentIntensity(), 0.0f);
 
-    intensity = std::clamp(1.5f, 0.0f, 1.0f);
-    EXPECT_FLOAT_EQ(intensity, 1.0f);
+    PrecipitationSystem::SetIntensityImmediate(1.5f);
+    EXPECT_FLOAT_EQ(PrecipitationSystem::GetCurrentIntensity(), 1.0f);
 
-    intensity = std::clamp(0.7f, 0.0f, 1.0f);
-    EXPECT_FLOAT_EQ(intensity, 0.7f);
+    PrecipitationSystem::SetIntensityImmediate(0.7f);
+    EXPECT_FLOAT_EQ(PrecipitationSystem::GetCurrentIntensity(), 0.7f);
+
+    // Clean up static state
+    PrecipitationSystem::SetIntensityImmediate(0.0f);
 }
 
 // =============================================================================

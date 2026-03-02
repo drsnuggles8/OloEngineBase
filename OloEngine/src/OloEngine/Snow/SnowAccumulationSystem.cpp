@@ -268,6 +268,18 @@ namespace OloEngine
                                         0, false, 0, GL_READ_WRITE, GL_R32F);
     }
 
+    void SnowAccumulationSystem::BindSnowDepthImageUint(u32 imageUnit)
+    {
+        if (!s_Data.m_Initialized || !s_Data.m_SnowDepthTexture)
+        {
+            return;
+        }
+        // Bind as R32UI so the feed shader can use imageAtomicCompSwap for race-free float accumulation.
+        // The float bits are reinterpreted as uint; the shader uses floatBitsToUint/uintBitsToFloat.
+        RenderCommand::BindImageTexture(imageUnit, s_Data.m_SnowDepthTexture->GetRendererID(),
+                                        0, false, 0, GL_READ_WRITE, GL_R32UI);
+    }
+
     glm::vec4 SnowAccumulationSystem::GetClipmapParams()
     {
         if (!s_Data.m_Initialized)

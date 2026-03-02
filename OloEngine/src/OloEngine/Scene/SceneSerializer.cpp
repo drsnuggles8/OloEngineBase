@@ -520,7 +520,16 @@ namespace OloEngine
             TrySet(ps.Enabled, psNode["Enabled"]);
             if (auto typeNode = psNode["Type"]; typeNode)
             {
-                ps.Type = static_cast<PrecipitationType>(typeNode.as<i32>());
+                auto typeVal = typeNode.as<i32>();
+                if (typeVal >= 0 && typeVal <= static_cast<i32>(PrecipitationType::Sleet))
+                {
+                    ps.Type = static_cast<PrecipitationType>(typeVal);
+                }
+                else
+                {
+                    OLO_CORE_WARN("PrecipitationSettings: invalid Type value {}, falling back to Snow", typeVal);
+                    ps.Type = PrecipitationType::Snow;
+                }
             }
             TrySet(ps.Intensity, psNode["Intensity"]);
             TrySet(ps.TransitionSpeed, psNode["TransitionSpeed"]);
