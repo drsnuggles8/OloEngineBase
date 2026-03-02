@@ -208,6 +208,7 @@ namespace OloEngine
         sys.SetMaxParticles(20000);
         sys.UseGPU = true;
         sys.DepthSortEnabled = false;
+        sys.NoiseModule.Enabled = false; // CPU noise unused in GPU mode; use GPUNoise* instead
 
         // Higher emission rate for denser coverage
         sys.Emitter.RateOverTime = 175.0f;
