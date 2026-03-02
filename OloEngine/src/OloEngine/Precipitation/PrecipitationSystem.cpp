@@ -21,6 +21,28 @@
 
 namespace OloEngine
 {
+    // Populate common GPUSimParams fields from PrecipitationSettings.
+    // Caller must set MaxParticles (layer-specific) after this call.
+    static GPUSimParams CreateSimParams(f32 deltaTime, const PrecipitationSettings& settings)
+    {
+        GPUSimParams p = {};
+        p.DeltaTime = deltaTime;
+        p.Gravity = glm::vec3(0.0f, -9.81f * settings.GravityScale, 0.0f);
+        p.DragCoefficient = settings.DragCoefficient;
+        p.EnableGravity = 1;
+        p.EnableDrag = 1;
+        p.EnableWind = 1;
+        p.WindInfluence = settings.WindInfluence;
+        p.EnableNoise = 1;
+        p.NoiseStrength = settings.TurbulenceStrength;
+        p.NoiseFrequency = settings.TurbulenceFrequency;
+        p.EnableGroundCollision = settings.GroundCollisionEnabled ? 1 : 0;
+        p.GroundY = settings.GroundY;
+        p.CollisionBounce = settings.CollisionBounce;
+        p.CollisionFriction = settings.CollisionFriction;
+        return p;
+    }
+
     PrecipitationSystem::PrecipitationData PrecipitationSystem::s_Data;
 
     void PrecipitationSystem::Init(u32 maxNearField, u32 maxFarField)
@@ -159,6 +181,14 @@ namespace OloEngine
             PrecipitationUBOData::GetSize(),
             ShaderBindingLayout::UBO_PRECIPITATION);
 
+        if (!s_Data.m_PrecipitationUBO)
+        {
+            OLO_CORE_ERROR("PrecipitationSystem: failed to create precipitation UBO");
+            s_Data.m_NearFieldSystem.reset();
+            s_Data.m_FarFieldSystem.reset();
+            return;
+        }
+
         // Load accumulation feed compute shader (optional — may not exist yet)
         s_Data.m_FeedShader = ComputeShader::Create("assets/shaders/compute/Precipitation_Feed.comp");
         if (!s_Data.m_FeedShader)
@@ -254,19 +284,8 @@ namespace OloEngine
 
                 s_Data.m_DrainTimeRemaining = std::max(s_Data.m_DrainTimeRemaining - deltaTime, 0.0f);
 
-                GPUSimParams simParams = {};
-                simParams.DeltaTime = deltaTime;
-                simParams.Gravity = glm::vec3(0.0f, -9.81f * settings.GravityScale, 0.0f);
-                simParams.DragCoefficient = settings.DragCoefficient;
-                simParams.EnableGravity = 1;
-                simParams.EnableDrag = 1;
-                simParams.EnableWind = 1;
-                simParams.WindInfluence = settings.WindInfluence;
-                simParams.EnableNoise = 1;
-                simParams.NoiseStrength = settings.TurbulenceStrength;
-                simParams.NoiseFrequency = settings.TurbulenceFrequency;
-                simParams.EnableGroundCollision = settings.GroundCollisionEnabled ? 1 : 0;
-                simParams.GroundY = settings.GroundY;
+                GPUSimParams simParams = CreateSimParams(deltaTime, settings);
+                // During drain, zero bounce and full friction to let particles settle
                 simParams.CollisionBounce = 0.0f;
                 simParams.CollisionFriction = 1.0f;
 
@@ -319,21 +338,7 @@ namespace OloEngine
         }
 
         // 5. GPU simulation for both layers
-        GPUSimParams simParams = {};
-        simParams.DeltaTime = deltaTime;
-        simParams.Gravity = glm::vec3(0.0f, -9.81f * settings.GravityScale, 0.0f);
-        simParams.DragCoefficient = settings.DragCoefficient;
-        simParams.EnableGravity = 1;
-        simParams.EnableDrag = 1;
-        simParams.EnableWind = 1;
-        simParams.WindInfluence = settings.WindInfluence;
-        simParams.EnableNoise = 1;
-        simParams.NoiseStrength = settings.TurbulenceStrength;
-        simParams.NoiseFrequency = settings.TurbulenceFrequency;
-        simParams.EnableGroundCollision = settings.GroundCollisionEnabled ? 1 : 0;
-        simParams.GroundY = settings.GroundY;
-        simParams.CollisionBounce = settings.CollisionBounce;
-        simParams.CollisionFriction = settings.CollisionFriction;
+        GPUSimParams simParams = CreateSimParams(deltaTime, settings);
 
         // Near-field
         simParams.MaxParticles = s_Data.m_NearFieldSystem->GetMaxParticles();

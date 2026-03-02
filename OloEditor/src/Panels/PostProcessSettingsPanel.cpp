@@ -456,14 +456,14 @@ namespace OloEngine
             ImGui::Checkbox("Enable##Precipitation", &settings.Enabled);
 
             // Type selector
-            const char* typeNames[] = { "Snow", "Rain", "Hail", "Sleet" };
-            const int typeCount = IM_ARRAYSIZE(typeNames);
+            constexpr std::array typeNames = { "Snow", "Rain", "Hail", "Sleet" };
+            const int typeCount = static_cast<int>(typeNames.size());
 
             // Normalize Type into valid range before any use
             settings.Type = static_cast<PrecipitationType>(std::clamp(static_cast<int>(settings.Type), 0, typeCount - 1));
 
             int typeIdx = static_cast<int>(settings.Type);
-            if (ImGui::Combo("Type##Precip", &typeIdx, typeNames, typeCount))
+            if (ImGui::Combo("Type##Precip", &typeIdx, typeNames.data(), typeCount))
             {
                 settings.Type = static_cast<PrecipitationType>(std::clamp(typeIdx, 0, typeCount - 1));
             }
