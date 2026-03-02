@@ -14,8 +14,6 @@ namespace OloEngine
 
         ImGui::Begin("Post Processing");
 
-        auto& settings = Renderer3D::GetPostProcessSettings();
-
         DrawToneMappingSection();
         DrawSSAOSection();
         DrawSnowSection();
@@ -457,13 +455,26 @@ namespace OloEngine
 
             ImGui::Checkbox("Enable##Precipitation", &settings.Enabled);
 
-            // Type selector (only Snow functional)
-            const char* typeNames[] = { "Snow", "Rain (N/A)", "Hail (N/A)", "Sleet (N/A)" };
+            // Type selector
+            const char* typeNames[] = { "Snow", "Rain", "Hail", "Sleet" };
             int typeIdx = static_cast<int>(settings.Type);
             if (ImGui::Combo("Type##Precip", &typeIdx, typeNames, 4))
             {
                 settings.Type = static_cast<PrecipitationType>(std::clamp(typeIdx, 0, 3));
             }
+            ImGui::SameLine();
+            if (ImGui::Button("Apply Defaults##Precip"))
+            {
+                bool wasEnabled = settings.Enabled;
+                f32 prevIntensity = settings.Intensity;
+                settings = PrecipitationSettings::GetDefaultsForType(settings.Type);
+                settings.Enabled = wasEnabled;
+                settings.Intensity = prevIntensity;
+                PrecipitationSystem::Reset();
+                ScreenSpacePrecipitation::Reset();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Reset all parameters to defaults for this type");
 
             if (settings.Enabled)
             {
@@ -492,15 +503,15 @@ namespace OloEngine
                 ImGui::DragFloat3("Extent##NearPrecip", &settings.NearFieldExtent.x, 0.5f, 1.0f, 100.0f, "%.1f");
                 ImGui::DragFloat("Particle Size##NearPrecip", &settings.NearFieldParticleSize, 0.001f, 0.001f, 0.5f, "%.3f");
                 ImGui::DragFloat("Size Variance##NearPrecip", &settings.NearFieldSizeVariance, 0.001f, 0.0f, 0.1f, "%.3f");
-                ImGui::DragFloat("Speed Min##NearPrecip", &settings.NearFieldSpeedMin, 0.1f, 0.0f, 10.0f, "%.1f");
-                ImGui::DragFloat("Speed Max##NearPrecip", &settings.NearFieldSpeedMax, 0.1f, 0.0f, 10.0f, "%.1f");
+                ImGui::DragFloat("Speed Min##NearPrecip", &settings.NearFieldSpeedMin, 0.1f, 0.0f, 20.0f, "%.1f");
+                ImGui::DragFloat("Speed Max##NearPrecip", &settings.NearFieldSpeedMax, 0.1f, 0.0f, 20.0f, "%.1f");
                 ImGui::DragFloat("Lifetime##NearPrecip", &settings.NearFieldLifetime, 0.1f, 0.1f, 30.0f, "%.1f");
 
                 ImGui::SeparatorText("Far Field");
                 ImGui::DragFloat3("Extent##FarPrecip", &settings.FarFieldExtent.x, 1.0f, 10.0f, 500.0f, "%.0f");
                 ImGui::DragFloat("Particle Size##FarPrecip", &settings.FarFieldParticleSize, 0.001f, 0.001f, 0.3f, "%.3f");
-                ImGui::DragFloat("Speed Min##FarPrecip", &settings.FarFieldSpeedMin, 0.1f, 0.0f, 10.0f, "%.1f");
-                ImGui::DragFloat("Speed Max##FarPrecip", &settings.FarFieldSpeedMax, 0.1f, 0.0f, 10.0f, "%.1f");
+                ImGui::DragFloat("Speed Min##FarPrecip", &settings.FarFieldSpeedMin, 0.1f, 0.0f, 15.0f, "%.1f");
+                ImGui::DragFloat("Speed Max##FarPrecip", &settings.FarFieldSpeedMax, 0.1f, 0.0f, 15.0f, "%.1f");
                 ImGui::DragFloat("Lifetime##FarPrecip", &settings.FarFieldLifetime, 0.1f, 0.1f, 60.0f, "%.1f");
                 ImGui::DragFloat("Alpha Multiplier##FarPrecip", &settings.FarFieldAlphaMultiplier, 0.01f, 0.0f, 1.0f, "%.2f");
 
@@ -514,9 +525,13 @@ namespace OloEngine
                 ImGui::SeparatorText("Ground Interaction");
                 ImGui::Checkbox("Ground Collision##Precip", &settings.GroundCollisionEnabled);
                 ImGui::DragFloat("Ground Y##Precip", &settings.GroundY, 0.1f, -1000.0f, 1000.0f, "%.1f");
+                ImGui::DragFloat("Bounce##Precip", &settings.CollisionBounce, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("0 = stick/splash, >0 = bounce (hail)");
+                ImGui::DragFloat("Friction##Precip", &settings.CollisionFriction, 0.01f, 0.0f, 1.0f, "%.2f");
                 ImGui::Checkbox("Feed Accumulation##Precip", &settings.FeedAccumulation);
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Landed particles contribute to snow depth clipmap");
+                    ImGui::SetTooltip("Landed particles contribute to snow depth clipmap (Snow/Sleet only)");
                 ImGui::DragFloat("Feed Rate##Precip", &settings.AccumulationFeedRate, 0.0001f, 0.0f, 1.0f, "%.4f");
 
                 ImGui::SeparatorText("Screen Effects");

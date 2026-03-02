@@ -491,6 +491,8 @@ namespace OloEngine
         out << YAML::Key << "TurbulenceFrequency" << YAML::Value << ps.TurbulenceFrequency;
         out << YAML::Key << "GroundCollisionEnabled" << YAML::Value << ps.GroundCollisionEnabled;
         out << YAML::Key << "GroundY" << YAML::Value << ps.GroundY;
+        out << YAML::Key << "CollisionBounce" << YAML::Value << ps.CollisionBounce;
+        out << YAML::Key << "CollisionFriction" << YAML::Value << ps.CollisionFriction;
         out << YAML::Key << "FeedAccumulation" << YAML::Value << ps.FeedAccumulation;
         out << YAML::Key << "AccumulationFeedRate" << YAML::Value << ps.AccumulationFeedRate;
         out << YAML::Key << "ScreenStreaksEnabled" << YAML::Value << ps.ScreenStreaksEnabled;
@@ -544,6 +546,8 @@ namespace OloEngine
             TrySet(ps.TurbulenceFrequency, psNode["TurbulenceFrequency"]);
             TrySet(ps.GroundCollisionEnabled, psNode["GroundCollisionEnabled"]);
             TrySet(ps.GroundY, psNode["GroundY"]);
+            TrySet(ps.CollisionBounce, psNode["CollisionBounce"]);
+            TrySet(ps.CollisionFriction, psNode["CollisionFriction"]);
             TrySet(ps.FeedAccumulation, psNode["FeedAccumulation"]);
             TrySet(ps.AccumulationFeedRate, psNode["AccumulationFeedRate"]);
             TrySet(ps.ScreenStreaksEnabled, psNode["ScreenStreaksEnabled"]);
@@ -582,6 +586,8 @@ namespace OloEngine
             sanitizeFloat(ps.DragCoefficient, 0.0f, 10.0f, 1.5f);
             sanitizeFloat(ps.TurbulenceStrength, 0.0f, 5.0f, 0.4f);
             sanitizeFloat(ps.TurbulenceFrequency, 0.0f, 20.0f, 1.2f);
+            sanitizeFloat(ps.CollisionBounce, 0.0f, 1.0f, 0.0f);
+            sanitizeFloat(ps.CollisionFriction, 0.0f, 1.0f, 1.0f);
             sanitizeFloat(ps.AccumulationFeedRate, 0.0f, 1.0f, 0.001f);
             sanitizeFloat(ps.ScreenStreakIntensity, 0.0f, 1.0f, 0.3f);
             sanitizeFloat(ps.ScreenStreakLength, 0.0f, 2.0f, 0.5f);

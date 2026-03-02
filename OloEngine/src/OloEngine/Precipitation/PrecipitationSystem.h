@@ -120,6 +120,9 @@ namespace OloEngine
             Scope<GPUParticleSystem> m_NearFieldSystem;
             Scope<GPUParticleSystem> m_FarFieldSystem;
             Ref<Texture2D> m_SnowflakeTexture;
+            Ref<Texture2D> m_RaindropTexture;
+            Ref<Texture2D> m_HailstoneTexture;
+            Ref<Texture2D> m_SleetTexture;
             Ref<UniformBuffer> m_PrecipitationUBO;
             Ref<ComputeShader> m_FeedShader;         // Precipitation_Feed.comp
 

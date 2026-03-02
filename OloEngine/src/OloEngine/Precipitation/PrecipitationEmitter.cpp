@@ -38,7 +38,7 @@ namespace OloEngine
         return { aabbMin, aabbMax };
     }
 
-    std::vector<GPUParticle> PrecipitationEmitter::GenerateSnowParticles(
+    std::vector<GPUParticle> PrecipitationEmitter::GenerateParticles(
         const glm::vec3& cameraPos,
         const glm::vec3& lastCameraPos,
         const PrecipitationSettings& settings,
@@ -97,16 +97,37 @@ namespace OloEngine
         }
 
         // Cap per-frame emission to avoid overflow
-        u32 maxPerFrame = (layer == PrecipitationLayer::NearField)
-            ? std::min(particlesToEmit, 4096u)
-            : std::min(particlesToEmit, 4096u);
-        particlesToEmit = maxPerFrame;
+        particlesToEmit = std::min(particlesToEmit, 4096u);
 
         // Compute spawn volume
         auto [aabbMin, aabbMax] = ComputeSpawnVolume(cameraPos, extent, windDir, windSpeed);
 
         // Velocity-compensated spawning: offset to counteract camera motion
         glm::vec3 cameraDelta = cameraPos - lastCameraPos;
+
+        // Type-dependent velocity jitter parameters
+        f32 horizontalJitter = 0.2f;
+        f32 rotationRange = 2.0f * std::numbers::pi_v<f32>;
+
+        switch (settings.Type)
+        {
+            case PrecipitationType::Snow:
+                horizontalJitter = 0.2f;  // Snow drifts
+                rotationRange = 2.0f * std::numbers::pi_v<f32>; // Full spin
+                break;
+            case PrecipitationType::Rain:
+                horizontalJitter = 0.05f;  // Rain falls mostly straight
+                rotationRange = 0.0f;      // Raindrops don't spin
+                break;
+            case PrecipitationType::Hail:
+                horizontalJitter = 0.03f;  // Hail falls very straight
+                rotationRange = 1.0f;      // Slight tumble
+                break;
+            case PrecipitationType::Sleet:
+                horizontalJitter = 0.12f;  // In between
+                rotationRange = std::numbers::pi_v<f32>; // Some rotation
+                break;
+        }
 
         std::vector<GPUParticle> particles(particlesToEmit);
 
@@ -118,28 +139,40 @@ namespace OloEngine
             f32 pz = s_Rng.GetFloat32InRange(aabbMin.z, aabbMax.z);
 
             // Height-stratified density: bias toward mid-height using triangle distribution
-            // Remap py to have more particles at 40-60% height
+            // For snow/sleet: more at 40-60% height; for rain/hail: more uniform (top-biased)
             f32 heightT = (py - aabbMin.y) / (aabbMax.y - aabbMin.y);
-            f32 stratified = 1.0f - std::abs(heightT * 2.0f - 1.0f);
-            stratified = stratified * stratified; // Cubic falloff at extremes
-            if (s_Rng.GetFloat32() > (0.3f + 0.7f * stratified))
+            if (settings.Type == PrecipitationType::Snow || settings.Type == PrecipitationType::Sleet)
             {
-                // Re-roll position toward center height
-                py = s_Rng.GetFloat32InRange(
-                    aabbMin.y + (aabbMax.y - aabbMin.y) * 0.3f,
-                    aabbMin.y + (aabbMax.y - aabbMin.y) * 0.7f);
+                f32 stratified = 1.0f - std::abs(heightT * 2.0f - 1.0f);
+                stratified = stratified * stratified;
+                if (s_Rng.GetFloat32() > (0.3f + 0.7f * stratified))
+                {
+                    py = s_Rng.GetFloat32InRange(
+                        aabbMin.y + (aabbMax.y - aabbMin.y) * 0.3f,
+                        aabbMin.y + (aabbMax.y - aabbMin.y) * 0.7f);
+                }
+            }
+            else
+            {
+                // Rain/hail: bias toward top of volume (spawn high, fall fast)
+                if (s_Rng.GetFloat32() > 0.4f)
+                {
+                    py = s_Rng.GetFloat32InRange(
+                        aabbMin.y + (aabbMax.y - aabbMin.y) * 0.6f,
+                        aabbMax.y);
+                }
             }
 
             // Compensate for camera motion — spread particles along motion vector
             f32 motionT = s_Rng.GetFloat32();
             glm::vec3 pos = glm::vec3(px, py, pz) - cameraDelta * motionT;
 
-            // Downward velocity with jitter + wind influence
+            // Downward velocity with type-dependent jitter
             f32 fallSpeed = s_Rng.GetFloat32InRange(speedMin, speedMax) * settings.GravityScale;
             glm::vec3 vel(
-                s_Rng.GetFloat32InRange(-0.2f, 0.2f), // Horizontal jitter
+                s_Rng.GetFloat32InRange(-horizontalJitter, horizontalJitter),
                 -fallSpeed,
-                s_Rng.GetFloat32InRange(-0.2f, 0.2f)  // Horizontal jitter
+                s_Rng.GetFloat32InRange(-horizontalJitter, horizontalJitter)
             );
 
             // Lifetime with slight variance
@@ -154,8 +187,10 @@ namespace OloEngine
             color.a *= alphaMultiplier;
             color.a *= s_Rng.GetFloat32InRange(1.0f - settings.ColorVariance, 1.0f);
 
-            // Rotation
-            f32 rotation = s_Rng.GetFloat32InRange(0.0f, 2.0f * std::numbers::pi_v<f32>);
+            // Rotation (type-dependent range)
+            f32 rotation = (rotationRange > 0.001f)
+                ? s_Rng.GetFloat32InRange(0.0f, rotationRange)
+                : 0.0f;
 
             auto& p = particles[i];
             p.PositionLifetime = glm::vec4(pos, lt);

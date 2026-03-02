@@ -87,11 +87,11 @@ TEST(PrecipitationSettings, IntensityEnumValues)
 // PrecipitationUBOData Layout (std140 alignment)
 // =============================================================================
 
-TEST(PrecipitationUBOData, SizeIs64Bytes)
+TEST(PrecipitationUBOData, SizeIs80Bytes)
 {
-	// 4 vec4s = 4 * 16 = 64 bytes
-	EXPECT_EQ(PrecipitationUBOData::GetSize(), 64u);
-	EXPECT_EQ(sizeof(PrecipitationUBOData), 64u);
+	// 5 vec4s = 5 * 16 = 80 bytes
+	EXPECT_EQ(PrecipitationUBOData::GetSize(), 80u);
+	EXPECT_EQ(sizeof(PrecipitationUBOData), 80u);
 }
 
 TEST(PrecipitationUBOData, FieldOffsetsMatchStd140)
@@ -101,6 +101,7 @@ TEST(PrecipitationUBOData, FieldOffsetsMatchStd140)
 	EXPECT_EQ(offsetof(PrecipitationUBOData, LensParams), 16u);
 	EXPECT_EQ(offsetof(PrecipitationUBOData, ScreenWindAndTime), 32u);
 	EXPECT_EQ(offsetof(PrecipitationUBOData, ParticleColor), 48u);
+	EXPECT_EQ(offsetof(PrecipitationUBOData, TypeParams), 64u);
 }
 
 // =============================================================================

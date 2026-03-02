@@ -42,7 +42,7 @@ void main()
     vec3 sceneColor = texture(u_Texture, v_TexCoord).rgb;
 
     // ────────────────────────────────────────────────
-    // 1. Directional snow streaks
+    // 1. Directional precipitation streaks
     // ────────────────────────────────────────────────
     vec3 streakContribution = vec3(0.0);
     if (precipStreaksEnabled() && u_StreakParams.z > 0.001)
@@ -51,15 +51,16 @@ void main()
         float streakIntensity = u_StreakParams.z;
         float streakLen = u_StreakParams.w;
 
-        // Compute streak UV: project screen position onto streak direction
         float time = precipTime();
+        int pType = precipType();
 
-        // Animated directional noise — scrolls with wind
-        vec2 scrollUV = v_TexCoord * 8.0; // Tile frequency
-        scrollUV += streakDir * time * 2.0; // Scroll speed
+        // Tile frequency — rain uses finer tiling for more streaks
+        float tileFreq = (pType == PRECIP_RAIN) ? 16.0 : 8.0;
+        vec2 scrollUV = v_TexCoord * tileFreq;
+        float scrollSpeed = (pType == PRECIP_RAIN) ? 4.0 : 2.0;
+        scrollUV += streakDir * time * scrollSpeed;
 
-        // Elongate noise along wind direction (streak effect)
-        // Rotate UV so wind direction aligns with one axis, then scale
+        // Elongate noise along wind direction
         float angle = atan(streakDir.y, streakDir.x);
         float cosA = cos(angle);
         float sinA = sin(angle);
@@ -68,13 +69,24 @@ void main()
             centered.x * cosA + centered.y * sinA,
             -centered.x * sinA + centered.y * cosA
         );
-        // Stretch along streak direction
-        rotatedUV.x *= 1.0;
-        rotatedUV.y *= max(streakLen * 4.0, 1.0);
 
-        float streakNoise = precipFBM(rotatedUV * 12.0 + streakDir * time * 3.0);
+        // Stretch factor — rain much more elongated than snow
+        float stretchMult = (pType == PRECIP_RAIN) ? 8.0
+                          : (pType == PRECIP_HAIL) ? 2.0
+                          : (pType == PRECIP_SLEET) ? 5.0
+                          : 4.0; // snow
+        rotatedUV.x *= 1.0;
+        rotatedUV.y *= max(streakLen * stretchMult, 1.0);
+
+        float fbmFreq = (pType == PRECIP_RAIN) ? 18.0 : 12.0;
+        float fbmScroll = (pType == PRECIP_RAIN) ? 6.0 : 3.0;
+        float streakNoise = precipFBM(rotatedUV * fbmFreq + streakDir * time * fbmScroll);
         streakNoise = max(streakNoise, 0.0);
-        streakNoise = pow(streakNoise, 2.0); // Sharpen
+        // Rain: sharper, thinner streaks; Snow: softer; Hail: weakest
+        float sharpness = (pType == PRECIP_RAIN) ? 3.0
+                        : (pType == PRECIP_HAIL) ? 1.5
+                        : 2.0;
+        streakNoise = pow(streakNoise, sharpness);
 
         // Fade out near screen edges
         vec2 edgeFade = smoothstep(vec2(0.0), vec2(0.15), v_TexCoord)
@@ -85,10 +97,11 @@ void main()
     }
 
     // ────────────────────────────────────────────────
-    // 2. Lens snowflake impacts
+    // 2. Lens impacts (type-dependent pattern)
     // ────────────────────────────────────────────────
     vec3 lensContribution = vec3(0.0);
     float lensDistortion = 0.0;
+    int pType = precipType();
 
     for (int i = 0; i < MAX_LENS_IMPACTS; ++i)
     {
@@ -101,7 +114,6 @@ void main()
         float normalizedAge = u_LensImpacts[i].TimeParams.x;
         float fadeFactor = u_LensImpacts[i].TimeParams.y;
 
-        // Distance from this fragment to impact center
         vec2 delta = v_TexCoord - impactPos;
         float dist = length(delta);
 
@@ -110,24 +122,62 @@ void main()
 
         // Radial falloff
         float spotAlpha = precipLensSpotFalloff(dist, impactSize);
-
-        // 6-fold snowflake crystal pattern
-        float impactAngle = atan(delta.y, delta.x) - impactRotation;
-        float crystalPattern = 0.7 + 0.3 * cos(impactAngle * 6.0);
-        crystalPattern *= 0.8 + 0.2 * cos(impactAngle * 12.0); // Detail
         float normalizedDist = dist / impactSize;
-        crystalPattern = mix(1.0, crystalPattern, smoothstep(0.2, 0.8, normalizedDist));
 
-        // Melt animation: impact shrinks and gets more transparent over lifetime
+        float patternMod = 1.0;
+        vec3 impactColor;
+
+        if (pType == PRECIP_SNOW)
+        {
+            // 6-fold snowflake crystal
+            float impactAngle = atan(delta.y, delta.x) - impactRotation;
+            patternMod = 0.7 + 0.3 * cos(impactAngle * 6.0);
+            patternMod *= 0.8 + 0.2 * cos(impactAngle * 12.0);
+            patternMod = mix(1.0, patternMod, smoothstep(0.2, 0.8, normalizedDist));
+            impactColor = mix(vec3(0.85, 0.9, 1.0), vec3(1.0), normalizedAge);
+        }
+        else if (pType == PRECIP_RAIN)
+        {
+            // Circular water droplet — ring pattern with refraction
+            float ring = 1.0 - abs(normalizedDist - 0.6) * 4.0;
+            ring = max(ring, 0.0);
+            patternMod = mix(1.0, 0.5 + 0.5 * ring, smoothstep(0.1, 0.5, normalizedDist));
+            impactColor = vec3(0.65, 0.72, 0.88); // Blue-ish water
+            spotAlpha *= 0.7; // More transparent
+            lensDistortion += spotAlpha * 0.04 * fadeFactor; // Stronger refraction
+        }
+        else if (pType == PRECIP_HAIL)
+        {
+            // Ice crack pattern — radial lines from center
+            float impactAngle = atan(delta.y, delta.x);
+            float crackBase = abs(sin(impactAngle * 8.0)); // 8 radial cracks
+            float crack = pow(crackBase, 0.3); // Widen cracks
+            float crackFade = smoothstep(0.0, 0.7, normalizedDist);
+            patternMod = mix(1.0, 0.3 + 0.7 * crack, crackFade);
+            impactColor = vec3(0.9, 0.93, 0.97); // Icy white
+            spotAlpha *= 1.2; // More visible — hard ice
+        }
+        else // Sleet
+        {
+            // Mild 4-fold pattern between crystal and droplet
+            float impactAngle = atan(delta.y, delta.x) - impactRotation;
+            patternMod = 0.85 + 0.15 * cos(impactAngle * 4.0);
+            patternMod = mix(1.0, patternMod, smoothstep(0.3, 0.8, normalizedDist));
+            impactColor = mix(vec3(0.75, 0.8, 0.9), vec3(0.95), normalizedAge);
+            lensDistortion += spotAlpha * 0.025 * fadeFactor;
+        }
+
+        // Melt/evaporation animation
         float meltScale = mix(1.0, 0.3, normalizedAge * normalizedAge);
-        spotAlpha *= crystalPattern * fadeFactor * meltScale;
+        spotAlpha *= patternMod * fadeFactor * meltScale;
         spotAlpha = max(spotAlpha, 0.0);
 
-        // Slight refraction/distortion through the ice
-        lensDistortion += spotAlpha * 0.02 * fadeFactor;
+        // Common refraction for snow (minimal)
+        if (pType == PRECIP_SNOW)
+        {
+            lensDistortion += spotAlpha * 0.02 * fadeFactor;
+        }
 
-        // White-ish tint with slight blue for ice
-        vec3 impactColor = mix(vec3(0.85, 0.9, 1.0), vec3(1.0), normalizedAge);
         lensContribution += impactColor * spotAlpha * 0.3;
     }
 

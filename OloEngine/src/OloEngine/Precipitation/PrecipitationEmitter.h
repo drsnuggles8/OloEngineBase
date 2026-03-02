@@ -31,7 +31,10 @@ namespace OloEngine
     {
       public:
         /**
-         * @brief Generate snow particles for one layer.
+         * @brief Generate precipitation particles for one layer.
+         *
+         * Particle velocity, jitter, and rotation are adjusted per
+         * PrecipitationType (Snow, Rain, Hail, Sleet).
          *
          * @param cameraPos    Current camera world position.
          * @param lastCameraPos Previous frame camera position (for motion compensation).
@@ -43,7 +46,7 @@ namespace OloEngine
          * @param dt           Frame delta time.
          * @return             Vector of GPUParticle structs ready for upload.
          */
-        static std::vector<GPUParticle> GenerateSnowParticles(
+        static std::vector<GPUParticle> GenerateParticles(
             const glm::vec3& cameraPos,
             const glm::vec3& lastCameraPos,
             const PrecipitationSettings& settings,

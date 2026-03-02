@@ -15,7 +15,15 @@ layout(std140, binding = 18) uniform PrecipitationUBO
     vec4 u_PrecipScreenWindAndTime;
     // vec4 3: particle color (RGBA)
     vec4 u_PrecipParticleColor;
+    // vec4 4: x = type (0=Snow, 1=Rain, 2=Hail, 3=Sleet)
+    vec4 u_PrecipTypeParams;
 };
+
+// Precipitation type constants
+const int PRECIP_SNOW  = 0;
+const int PRECIP_RAIN  = 1;
+const int PRECIP_HAIL  = 2;
+const int PRECIP_SLEET = 3;
 
 // Convenience accessors
 float precipIntensity()     { return u_PrecipIntensityAndScreenFX.x; }
@@ -33,6 +41,11 @@ float precipTime()              { return u_PrecipScreenWindAndTime.z; }
 bool  precipStreaksEnabled()    { return u_PrecipScreenWindAndTime.w > 0.5; }
 
 vec4  precipParticleColor()     { return u_PrecipParticleColor; }
+int   precipType()              { return int(u_PrecipTypeParams.x + 0.5); }
+bool  precipIsSnow()            { return precipType() == PRECIP_SNOW; }
+bool  precipIsRain()            { return precipType() == PRECIP_RAIN; }
+bool  precipIsHail()            { return precipType() == PRECIP_HAIL; }
+bool  precipIsSleet()           { return precipType() == PRECIP_SLEET; }
 
 // ── Hash / noise helpers for screen-space effects ──
 

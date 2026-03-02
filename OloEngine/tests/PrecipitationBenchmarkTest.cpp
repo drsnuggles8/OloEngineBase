@@ -26,7 +26,7 @@ TEST(PrecipitationBenchmark, EmissionGeneration1k)
 
 	auto start = std::chrono::high_resolution_clock::now();
 
-	auto particles = PrecipitationEmitter::GenerateSnowParticles(
+	auto particles = PrecipitationEmitter::GenerateParticles(
 		cameraPos, cameraPos, settings, 1.0f,
 		PrecipitationLayer::NearField, glm::vec3(1.0f, 0.0f, 0.0f), 10.0f, 1.0f);
 
@@ -47,7 +47,7 @@ TEST(PrecipitationBenchmark, EmissionGeneration10k)
 
 	auto start = std::chrono::high_resolution_clock::now();
 
-	auto particles = PrecipitationEmitter::GenerateSnowParticles(
+	auto particles = PrecipitationEmitter::GenerateParticles(
 		cameraPos, cameraPos, settings, 1.0f,
 		PrecipitationLayer::NearField, glm::vec3(1.0f, 0.0f, 0.0f), 10.0f, 1.0f);
 

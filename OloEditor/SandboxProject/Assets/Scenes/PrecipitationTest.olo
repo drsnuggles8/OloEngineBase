@@ -1,13 +1,13 @@
 Scene: PrecipitationTest.olo
 PostProcessSettings:
   TonemapOperator: 1
-  Exposure: 1.0
+  Exposure: 1
   Gamma: 2.2
   BloomEnabled: true
   BloomThreshold: 1.2
   BloomIntensity: 0.2
   BloomIterations: 5
-  VignetteEnabled: true
+  VignetteEnabled: false
   VignetteIntensity: 0.25
   VignetteSmoothness: 0.3
   ChromaticAberrationEnabled: false
@@ -41,10 +41,10 @@ SnowSettings:
   SparkleDensity: 100
   SparkleScale: 1
   NormalPerturbStrength: 0.2
+  WindDriftFactor: 0.5
   SSSBlurEnabled: true
   SSSBlurRadius: 2
   SSSBlurFalloff: 1
-  WindDriftFactor: 0.5
 FogSettings:
   Enabled: true
   Mode: 0
@@ -70,6 +70,16 @@ FogSettings:
   NoiseIntensity: 0.25
   EnableLightShafts: true
   LightShaftIntensity: 0.4
+WindSettings:
+  Enabled: true
+  Direction: [0.8, 0, 0.6]
+  Speed: 8
+  GustStrength: 0.5
+  GustFrequency: 0.3
+  TurbulenceIntensity: 0.5
+  TurbulenceScale: 0.08
+  GridWorldSize: 200
+  GridResolution: 128
 SnowAccumulationSettings:
   Enabled: true
   AccumulationRate: 0.8
@@ -84,11 +94,11 @@ SnowAccumulationSettings:
 SnowEjectaSettings:
   Enabled: true
   ParticlesPerDeform: 16
-  EjectaSpeed: 3.0
+  EjectaSpeed: 3
   SpeedVariance: 0.8
   UpwardBias: 0.7
   LifetimeMin: 0.3
-  LifetimeMax: 1.0
+  LifetimeMax: 1
   InitialSize: 0.04
   SizeVariance: 0.02
   GravityScale: 0.3
@@ -102,21 +112,11 @@ SnowEjectaSettings:
   GroundY: 0
   CollisionBounce: 0.2
   CollisionFriction: 0.5
-WindSettings:
-  Enabled: true
-  Direction: [0.8, 0, 0.6]
-  Speed: 8
-  GustStrength: 0.5
-  GustFrequency: 0.3
-  TurbulenceIntensity: 0.5
-  TurbulenceScale: 0.08
-  GridWorldSize: 200
-  GridResolution: 128
 PrecipitationSettings:
   Enabled: true
   Type: 0
   Intensity: 0.75
-  TransitionSpeed: 1.0
+  TransitionSpeed: 1
   BaseEmissionRate: 4000
   MaxParticlesNearField: 100000
   MaxParticlesFarField: 200000
@@ -124,7 +124,7 @@ PrecipitationSettings:
   NearFieldParticleSize: 0.04
   NearFieldSizeVariance: 0.02
   NearFieldSpeedMin: 0.8
-  NearFieldSpeedMax: 2.0
+  NearFieldSpeedMax: 2
   NearFieldLifetime: 10
   FarFieldExtent: [60, 30, 60]
   FarFieldParticleSize: 0.025
@@ -133,28 +133,100 @@ PrecipitationSettings:
   FarFieldLifetime: 15
   FarFieldAlphaMultiplier: 0.5
   GravityScale: 0.8
-  WindInfluence: 1.0
+  WindInfluence: 1
   DragCoefficient: 0.3
   TurbulenceStrength: 0.8
   TurbulenceFrequency: 0.5
   GroundCollisionEnabled: true
   GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
   FeedAccumulation: true
   AccumulationFeedRate: 0.0002
   ScreenStreaksEnabled: true
   ScreenStreakIntensity: 0.35
   ScreenStreakLength: 0.18
   LensImpactsEnabled: true
-  LensImpactRate: 4.0
+  LensImpactRate: 4
   LensImpactLifetime: 1.8
   LensImpactSize: 0.035
   LODNearDistance: 30
   LODFarDistance: 120
   FrameBudgetMs: 1.5
-  ParticleColor: [0.95, 0.97, 1.0, 0.85]
+  ParticleColor: [0.95, 0.97, 1, 0.85]
   ColorVariance: 0.05
-  RotationSpeed: 30
+  RotationSpeed: 10
 Entities:
+  - Entity: 400000000000005
+    TagComponent:
+      Tag: Overhang Structure
+    TransformComponent:
+      Translation: [-5, 3, 0]
+      Rotation: [0, 0.3926991, 0]
+      Scale: [6, 0.3, 4]
+    MeshComponent:
+      {}
+  - Entity: 400000000000004
+    TagComponent:
+      Tag: Snow Deformer
+    TransformComponent:
+      Translation: [8, 5, 8]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 0.5, 0.5]
+    SnowDeformerComponent:
+      DeformRadius: 1.5
+      DeformDepth: 0.8
+      FalloffExponent: 2
+      CompactionFactor: 0.5
+      EmitEjecta: true
+  - Entity: 400000000000003
+    TagComponent:
+      Tag: Snow Terrain
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 256
+      WorldSizeZ: 256
+      HeightScale: 64
+      ProceduralEnabled: false
+      ProceduralSeed: 42
+      ProceduralResolution: 512
+      ProceduralOctaves: 6
+      ProceduralFrequency: 3
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.45
+      TessellationEnabled: true
+      TargetTriangleSize: 8
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+  - Entity: 400000000000002
+    TagComponent:
+      Tag: Winter Sun
+    TransformComponent:
+      Translation: [0, 50, 0]
+      Rotation: [-1.0471976, 0.5235988, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.43, -0.75, -0.5]
+      Color: [1, 0.92, 0.82]
+      Intensity: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false
   - Entity: 400000000000001
     TagComponent:
       Tag: Main Camera
@@ -173,68 +245,3 @@ Entities:
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
-  - Entity: 400000000000002
-    TagComponent:
-      Tag: Winter Sun
-    TransformComponent:
-      Translation: [0, 50, 0]
-      Rotation: [-1.0471976, 0.5235988, 0]
-      Scale: [1, 1, 1]
-    DirectionalLightComponent:
-      Direction: [-0.43, -0.75, -0.5]
-      Color: [1.0, 0.92, 0.82]
-      Intensity: 2.0
-      CastShadows: true
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.01
-      MaxShadowDistance: 500
-      CascadeSplitLambda: 0.5
-      CascadeDebugVisualization: false
-  - Entity: 400000000000003
-    TagComponent:
-      Tag: Snow Terrain
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    TerrainComponent:
-      HeightmapPath: ""
-      WorldSizeX: 256
-      WorldSizeZ: 256
-      MaxHeight: 30
-      MinHeight: -5
-      Seed: 42
-      Octaves: 6
-      Frequency: 0.008
-      Amplitude: 1
-      Lacunarity: 2.1
-      Persistence: 0.45
-      ChunkSize: 64
-      LODLevels: 4
-      TessellationFactor: 16
-      TessellationSlope: 0.5
-      TessellationShift: 0
-      SnowEnabled: true
-  - Entity: 400000000000004
-    TagComponent:
-      Tag: Snow Deformer
-    TransformComponent:
-      Translation: [8, 5, 8]
-      Rotation: [0, 0, 0]
-      Scale: [0.5, 0.5, 0.5]
-    SnowDeformerComponent:
-      DeformRadius: 1.5
-      DeformDepth: 0.8
-      FalloffExponent: 2
-      CompactionFactor: 0.5
-      EmitEjecta: true
-  - Entity: 400000000000005
-    TagComponent:
-      Tag: Overhang Structure
-    TransformComponent:
-      Translation: [-5, 3, 0]
-      Rotation: [0, 0.3926991, 0]
-      Scale: [6, 0.3, 4]
-    MeshComponent:
-      MeshSource: "assets/meshes/primitives/Cube.obj"
-      CastShadows: true
