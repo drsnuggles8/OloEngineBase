@@ -888,6 +888,24 @@ namespace OloEngine
                     ParticlePresets::ApplyBlizzard(comp.System);
                     ImGui::CloseCurrentPopup();
                 }
+                if (ImGui::MenuItem("Smoke Particle System"))
+                {
+                    auto& comp = m_SelectionContext.AddComponent<ParticleSystemComponent>();
+                    ParticlePresets::ApplySmoke(comp.System);
+                    ImGui::CloseCurrentPopup();
+                }
+                if (ImGui::MenuItem("Thick Smoke Particle System"))
+                {
+                    auto& comp = m_SelectionContext.AddComponent<ParticleSystemComponent>();
+                    ParticlePresets::ApplyThickSmoke(comp.System);
+                    ImGui::CloseCurrentPopup();
+                }
+                if (ImGui::MenuItem("Light Smoke Particle System"))
+                {
+                    auto& comp = m_SelectionContext.AddComponent<ParticleSystemComponent>();
+                    ParticlePresets::ApplyLightSmoke(comp.System);
+                    ImGui::CloseCurrentPopup();
+                }
             }
 
             ImGui::Separator();
