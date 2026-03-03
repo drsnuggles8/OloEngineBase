@@ -92,7 +92,7 @@ TEST(DrawKey, OpaqueBeforeTransparent)
         DrawKey opaque = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shader, material, depth);
         DrawKey transparent = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shader, material, depth);
 
-        std::vector<DrawKey> keys = {transparent, opaque};
+        std::vector<DrawKey> keys = { transparent, opaque };
         std::sort(keys.begin(), keys.end());
 
         // Opaque (lower raw key) must sort before transparent
@@ -118,7 +118,7 @@ TEST(DrawKey, OpaqueDepthFrontToBack)
     DrawKey nearKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, 1, 1, 100);
     DrawKey farKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, 1, 1, 1000);
 
-    std::vector<DrawKey> keys = {farKey, nearKey};
+    std::vector<DrawKey> keys = { farKey, nearKey };
     std::sort(keys.begin(), keys.end());
 
     // Near (depth=100) has lower raw key → sorts first → front-to-back
@@ -146,7 +146,7 @@ TEST(DrawKey, TransparentDepthBackToFront)
     DrawKey nearKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, 1, 1, 100);
     DrawKey farKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, 1, 1, 1000);
 
-    std::vector<DrawKey> keys = {nearKey, farKey};
+    std::vector<DrawKey> keys = { nearKey, farKey };
     std::sort(keys.begin(), keys.end());
 
     // Far object (lower stored depth) sorts first
@@ -337,7 +337,7 @@ TEST(DrawKey, HigherViewportSortsLast)
     DrawKey vp0 = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, 1, 1, 100);
     DrawKey vp7 = DrawKey::CreateOpaque(7, ViewLayerType::ThreeD, 1, 1, 100);
 
-    std::vector<DrawKey> keys = {vp7, vp0};
+    std::vector<DrawKey> keys = { vp7, vp0 };
     std::sort(keys.begin(), keys.end());
 
     // Lower viewport ID sorts first in ascending order
@@ -360,7 +360,7 @@ TEST(DrawKey, ViewLayerOrderingWithinViewport)
     DrawKey ui = DrawKey::CreateOpaque(0, ViewLayerType::UI, 1, 1, 100);
     DrawKey skybox = DrawKey::CreateOpaque(0, ViewLayerType::Skybox, 1, 1, 100);
 
-    std::vector<DrawKey> keys = {twoD, skybox, threeD, ui};
+    std::vector<DrawKey> keys = { twoD, skybox, threeD, ui };
     std::sort(keys.begin(), keys.end());
 
     // Lower ViewLayer enum value sorts first (ascending)

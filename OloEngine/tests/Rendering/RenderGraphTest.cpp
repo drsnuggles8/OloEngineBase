@@ -20,17 +20,29 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 class StubRenderPass : public RenderPass
 {
   public:
-    explicit StubRenderPass(const std::string& name) { m_Name = name; }
+    explicit StubRenderPass(const std::string& name)
+    {
+        m_Name = name;
+    }
     ~StubRenderPass() override = default;
 
     void Init(const FramebufferSpecification& /*spec*/) override {}
-    void Execute() override { m_ExecuteCount++; }
-    [[nodiscard]] Ref<Framebuffer> GetTarget() const override { return nullptr; }
+    void Execute() override
+    {
+        m_ExecuteCount++;
+    }
+    [[nodiscard]] Ref<Framebuffer> GetTarget() const override
+    {
+        return nullptr;
+    }
     void SetupFramebuffer(u32 /*w*/, u32 /*h*/) override {}
     void ResizeFramebuffer(u32 /*w*/, u32 /*h*/) override {}
     void OnReset() override {}
 
-    u32 GetExecuteCount() const { return m_ExecuteCount; }
+    u32 GetExecuteCount() const
+    {
+        return m_ExecuteCount;
+    }
 
   private:
     u32 m_ExecuteCount = 0;
@@ -173,7 +185,7 @@ TEST(RenderGraph, ExecutionDependencyOrdering)
 TEST(RenderGraph, AllPassesPresentInOrder)
 {
     RenderGraph graph;
-    std::vector<std::string> names = {"GBuffer", "Lighting", "PostProcess", "UI", "Final"};
+    std::vector<std::string> names = { "GBuffer", "Lighting", "PostProcess", "UI", "Final" };
 
     for (const auto& n : names)
     {

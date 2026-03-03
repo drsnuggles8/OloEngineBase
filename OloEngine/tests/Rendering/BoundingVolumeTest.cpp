@@ -54,8 +54,7 @@ TEST(BoundingBox, ContainsCorners)
     BoundingBox box(glm::vec3(-1.0f), glm::vec3(1.0f));
     // All 8 corners should be on the boundary (min <= corner <= max)
     glm::vec3 corners[8] = {
-        {-1, -1, -1}, {1, -1, -1}, {-1, 1, -1}, {1, 1, -1},
-        {-1, -1, 1},  {1, -1, 1},  {-1, 1, 1},  {1, 1, 1}
+        { -1, -1, -1 }, { 1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 }, { -1, -1, 1 }, { 1, -1, 1 }, { -1, 1, 1 }, { 1, 1, 1 }
     };
     for (int i = 0; i < 8; ++i)
     {
@@ -111,9 +110,9 @@ TEST(BoundingBox, TransformPreservesContainment)
 TEST(BoundingBox, ConstructFromPoints)
 {
     glm::vec3 points[] = {
-        {1.0f, 2.0f, 3.0f},
-        {-5.0f, 0.0f, 10.0f},
-        {3.0f, -1.0f, -2.0f}
+        { 1.0f, 2.0f, 3.0f },
+        { -5.0f, 0.0f, 10.0f },
+        { 3.0f, -1.0f, -2.0f }
     };
     BoundingBox box(points, 3);
 
@@ -176,10 +175,10 @@ TEST(BoundingSphere, ConstructFromBoundingBox)
 TEST(BoundingSphere, ConstructFromPoints)
 {
     glm::vec3 points[] = {
-        {0.0f, 0.0f, 0.0f},
-        {2.0f, 0.0f, 0.0f},
-        {0.0f, 2.0f, 0.0f},
-        {0.0f, 0.0f, 2.0f}
+        { 0.0f, 0.0f, 0.0f },
+        { 2.0f, 0.0f, 0.0f },
+        { 0.0f, 2.0f, 0.0f },
+        { 0.0f, 0.0f, 2.0f }
     };
     BoundingSphere sphere(points, 4);
 

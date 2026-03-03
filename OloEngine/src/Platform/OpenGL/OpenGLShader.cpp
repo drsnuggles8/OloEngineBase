@@ -363,7 +363,11 @@ namespace OloEngine
             const std::string includeToken = "#include";
             const auto pos = line.find(includeToken);
 
-            if (pos != std::string::npos)
+            // Skip #include directives that appear inside line comments
+            const auto commentPos = line.find("//");
+            const bool isCommented = (commentPos != std::string::npos && pos != std::string::npos && commentPos < pos);
+
+            if (pos != std::string::npos && !isCommented)
             {
                 // Extract the include file path
                 const auto start = line.find_first_of("\"<", pos + includeToken.length());

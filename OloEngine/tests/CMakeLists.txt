@@ -48,6 +48,7 @@ add_executable(OloEngine-Tests
 		Rendering/FramePipelineTest.cpp
 		Rendering/FrameCaptureTest.cpp
 		Rendering/CommandBucketBenchmarkTest.cpp
+		Rendering/RenderStateTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

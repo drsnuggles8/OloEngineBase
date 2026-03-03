@@ -1169,7 +1169,10 @@ namespace OloEngine
         f32 normalizedDepth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH);
         u32 depthKey = static_cast<u32>(normalizedDepth * 0xFFFFFF);
 
-        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
+        if (material.GetFlag(MaterialFlag::Blend))
+            metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
+        else
+            metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
 
@@ -1326,7 +1329,10 @@ namespace OloEngine
         f32 normalizedDepth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH);
         u32 depthKey = static_cast<u32>(normalizedDepth * 0xFFFFFF);
 
-        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
+        if (material.GetFlag(MaterialFlag::Blend))
+            metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
+        else
+            metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
 
@@ -1724,7 +1730,10 @@ namespace OloEngine
         u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF; // 16-bit shader ID
         u32 materialID = ComputeMaterialID(material);
         u32 depth = ComputeDepthForSortKey(modelMatrix);
-        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
+        if (material.GetFlag(MaterialFlag::Blend))
+            metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
+        else
+            metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
 
@@ -1879,7 +1888,10 @@ namespace OloEngine
         u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
         u32 depth = transforms.empty() ? 0 : ComputeDepthForSortKey(transforms[0]);
-        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
+        if (material.GetFlag(MaterialFlag::Blend))
+            metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
+        else
+            metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
 
@@ -2327,7 +2339,10 @@ namespace OloEngine
         u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
         u32 depth = ComputeDepthForSortKey(modelMatrix);
-        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
+        if (material.GetFlag(MaterialFlag::Blend))
+            metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
+        else
+            metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         metadata.m_IsStatic = isStatic;
         packet->SetMetadata(metadata);
 
@@ -3020,16 +3035,16 @@ namespace OloEngine
         cmd->renderState.blendSrcFactor = GL_SRC_ALPHA;
         cmd->renderState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
         cmd->renderState.depthTestEnabled = true;
-        cmd->renderState.depthWriteMask = true;
+        cmd->renderState.depthWriteMask = false;
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 
-        // Set sort key for grid (rendered in opaque layer, low priority)
+        // Set sort key for grid (transparent layer — renders after all opaques
+        // so the depth buffer is fully populated for correct depth testing)
         PacketMetadata metadata = packet->GetMetadata();
         u32 shaderID = s_Data.InfiniteGridShader->GetRendererID() & 0xFFFF;
-        // Grid renders at medium depth, after opaque geometry
-        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, 0x800000);
+        metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, 0, 0x800000);
         packet->SetMetadata(metadata);
 
         // Submit packet

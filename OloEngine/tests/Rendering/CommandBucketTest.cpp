@@ -227,7 +227,7 @@ TEST_F(CommandBucketTest, SortReducesStateChanges)
 
     // Submit commands with 3 different shaders in random order
     // This ensures sorting groups same shaders together
-    std::vector<u32> shaderIds = {1, 2, 3, 1, 2, 3, 1, 2, 3, 1};
+    std::vector<u32> shaderIds = { 1, 2, 3, 1, 2, 3, 1, 2, 3, 1 };
     std::shuffle(shaderIds.begin(), shaderIds.end(), GetTestRNG());
 
     for (u32 sid : shaderIds)

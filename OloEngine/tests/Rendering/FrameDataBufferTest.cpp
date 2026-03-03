@@ -238,7 +238,7 @@ TEST(FrameDataBuffer, PrepareAndMergeCycle)
         for (u32 w = 0; w < 3; ++w)
         {
             u32 offset = buffer.AllocateBoneMatricesParallel(w, 2);
-            glm::mat4 data[2] = {glm::mat4(1.0f), glm::mat4(2.0f)};
+            glm::mat4 data[2] = { glm::mat4(1.0f), glm::mat4(2.0f) };
             buffer.WriteBoneMatricesParallel(w, offset, data, 2);
         }
 

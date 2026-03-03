@@ -50,7 +50,7 @@ TEST(CommandAllocator, AlignmentIs16Byte)
     CommandAllocator allocator;
 
     // Allocate many objects of varying sizes and check alignment
-    for (sizet size : {1, 7, 16, 33, 64, 128, 255, 512, 1024})
+    for (sizet size : { 1, 7, 16, 33, 64, 128, 255, 512, 1024 })
     {
         void* mem = allocator.AllocateCommandMemory(size);
         ASSERT_NE(mem, nullptr) << "Failed to allocate " << size << " bytes";

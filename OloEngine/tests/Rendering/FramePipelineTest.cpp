@@ -9,7 +9,7 @@
 #include <vector>
 #include <algorithm>
 
-using namespace OloEngine;         // NOLINT(google-build-using-namespace)
+using namespace OloEngine;          // NOLINT(google-build-using-namespace)
 using namespace OloEngine::Testing; // NOLINT(google-build-using-namespace)
 
 // =============================================================================
@@ -228,7 +228,7 @@ TEST_F(FramePipelineTest, ViewLayerSortingPriority)
     CommandBucket bucket(config);
 
     // Submit commands from different view layers in reverse priority
-    ViewLayerType layers[] = {ViewLayerType::UI, ViewLayerType::TwoD, ViewLayerType::Skybox, ViewLayerType::ThreeD};
+    ViewLayerType layers[] = { ViewLayerType::UI, ViewLayerType::TwoD, ViewLayerType::Skybox, ViewLayerType::ThreeD };
 
     for (auto layer : layers)
     {

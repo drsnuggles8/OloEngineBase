@@ -51,7 +51,9 @@ using Clock = std::chrono::high_resolution_clock;
 // Sort Scaling (1K, 10K, 100K)
 // =============================================================================
 
-class SortScalingTest : public ::testing::TestWithParam<u32> {};
+class SortScalingTest : public ::testing::TestWithParam<u32>
+{
+};
 
 TEST_P(SortScalingTest, SortCompletesAndOrderIsValid)
 {
@@ -102,7 +104,8 @@ INSTANTIATE_TEST_SUITE_P(
     SortScaling,
     SortScalingTest,
     ::testing::Values(1000u, 10000u, 100000u),
-    [](const ::testing::TestParamInfo<u32>& info) {
+    [](const ::testing::TestParamInfo<u32>& info)
+    {
         return "N" + std::to_string(info.param);
     });
 

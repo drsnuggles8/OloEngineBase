@@ -7,7 +7,7 @@
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandAllocator.h"
 
-using namespace OloEngine;         // NOLINT(google-build-using-namespace)
+using namespace OloEngine;          // NOLINT(google-build-using-namespace)
 using namespace OloEngine::Testing; // NOLINT(google-build-using-namespace)
 
 // =============================================================================
