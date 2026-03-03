@@ -276,6 +276,7 @@ namespace OloEngine
         struct DecalUBO
         {
             glm::mat4 InverseDecalTransform;
+            glm::mat4 InverseViewProjection; // Precomputed on CPU to avoid per-fragment inverse()
             glm::vec4 DecalColor;
             glm::vec4 DecalParams; // x = fadeDistance, y = normalAngleThreshold, z/w = unused
 
@@ -294,7 +295,7 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::FoliageUBO) == 48, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
-    static_assert(sizeof(UBOStructures::DecalUBO) == 96, "DecalUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
 
     // Standardized shader binding layout for consistent resource sharing
     // across all shaders in the engine. This ensures efficient data sharing

@@ -271,6 +271,8 @@ namespace OloEngine
         sys.WindInfluence = 0.7f;
 
         // Lower opacity, ethereal appearance
+        // Deliberately uses Additive blending (unlike Alpha in ApplySmoke/ApplyThickSmoke)
+        // to achieve a wispy, translucent look — may wash out on bright backgrounds.
         sys.BlendMode = ParticleBlendMode::Additive;
         sys.ColorModule.ColorCurve = ParticleCurve4(
             glm::vec4(0.6f, 0.6f, 0.6f, 0.3f),
@@ -280,6 +282,9 @@ namespace OloEngine
         sys.SizeModule.SizeCurve = ParticleCurve(1.0f, 2.0f);
 
         // Subtle, delicate noise
+        // NOTE: Uses CPU noise path (UseGPU = false, inherited from ApplySmoke).
+        // If ApplySmoke switches to the GPU path, these NoiseModule settings will have
+        // no effect — update accordingly.
         sys.NoiseModule.Strength = 0.3f;
         sys.NoiseModule.Frequency = 0.6f;
 

@@ -3,13 +3,7 @@
 
 layout(location = 0) in vec3 a_Position;
 
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-};
+#include "include/CameraCommon.glsl"
 
 layout(std140, binding = 3) uniform ModelMatrices {
     mat4 u_Model;
@@ -40,16 +34,11 @@ layout(location = 1) in flat int v_EntityID;
 layout(location = 0) out vec4 FragColor;
 layout(location = 1) out int EntityID;
 
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-};
+#include "include/CameraCommon.glsl"
 
 layout(std140, binding = 21) uniform DecalParams {
     mat4 u_InverseDecalTransform;
+    mat4 u_InverseViewProjection; // Precomputed on CPU to avoid per-fragment inverse()
     vec4 u_DecalColor;
     vec4 u_DecalParams; // x = fadeDistance, y = normalAngleThreshold, z = unused, w = unused
 };
@@ -67,8 +56,7 @@ void main()
 
     // Reconstruct world position from depth
     vec4 clipPos = vec4(screenUV * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-    mat4 invVP = inverse(u_ViewProjection);
-    vec4 worldPos4 = invVP * clipPos;
+    vec4 worldPos4 = u_InverseViewProjection * clipPos;
     vec3 worldPos = worldPos4.xyz / worldPos4.w;
 
     // Transform world position into decal local space

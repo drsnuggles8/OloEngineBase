@@ -292,6 +292,7 @@ namespace OloEngine
         s_Data.SSSUBO = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
         s_Data.FogUBO = UniformBuffer::Create(FogUBOData::GetSize(), ShaderBindingLayout::UBO_FOG);
         s_Data.FogVolumesUBO = UniformBuffer::Create(FogVolumesUBOData::GetSize(), ShaderBindingLayout::UBO_FOG_VOLUMES);
+        s_Data.FogVolumesGPUData = FogVolumesUBOData{};
         s_Data.DecalUBO = UniformBuffer::Create(ShaderBindingLayout::DecalUBO::GetSize(), ShaderBindingLayout::UBO_DECAL);
 
         CommandDispatch::SetUBOReferences(
@@ -397,6 +398,24 @@ namespace OloEngine
         s_Data.PostProcessPass.Reset();
         s_Data.FinalPass.Reset();
         s_Data.RGraph.Reset();
+
+        // Release UBOs explicitly while the GL context is still alive
+        s_Data.CameraUBO.Reset();
+        s_Data.LightPropertiesUBO.Reset();
+        s_Data.MaterialUBO.Reset();
+        s_Data.MultiLightBuffer.Reset();
+        s_Data.ModelMatrixUBO.Reset();
+        s_Data.BoneMatricesUBO.Reset();
+        s_Data.TerrainUBO.Reset();
+        s_Data.FoliageUBO.Reset();
+        s_Data.PostProcessUBO.Reset();
+        s_Data.MotionBlurUBO.Reset();
+        s_Data.SSAOUBO.Reset();
+        s_Data.SnowUBO.Reset();
+        s_Data.SSSUBO.Reset();
+        s_Data.FogUBO.Reset();
+        s_Data.FogVolumesUBO.Reset();
+        s_Data.DecalUBO.Reset();
 
         FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
@@ -592,6 +611,9 @@ namespace OloEngine
             return;
         }
 
+        // Precompute inverse view-projection once for all decals
+        glm::mat4 inverseVP = glm::inverse(s_Data.ViewProjectionMatrix);
+
         for (auto entity : decalView)
         {
             auto const& [transform, decal] = decalView.get<TransformComponent, DecalComponent>(entity);
@@ -611,6 +633,7 @@ namespace OloEngine
             // Update decal UBO
             ShaderBindingLayout::DecalUBO decalUBO{};
             decalUBO.InverseDecalTransform = inverseDecalTransform;
+            decalUBO.InverseViewProjection = inverseVP;
             decalUBO.DecalColor = decal.m_Color;
             decalUBO.DecalParams = glm::vec4(decal.m_FadeDistance, decal.m_NormalAngleThreshold, 0.0f, 0.0f);
             s_Data.DecalUBO->SetData(&decalUBO, ShaderBindingLayout::DecalUBO::GetSize());

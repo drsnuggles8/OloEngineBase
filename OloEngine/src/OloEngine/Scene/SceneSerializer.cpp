@@ -52,6 +52,48 @@ namespace OloEngine
         return value;
     }
 
+    // ---------- Sanitization helpers (shared across all Deserialize* functions) ----------
+
+    /// Replace non-finite values with \p fallback, then clamp to [lo, hi].
+    static void SanitizeFloat(f32& v, f32 lo, f32 hi, f32 fallback)
+    {
+        if (!std::isfinite(v))
+        {
+            v = fallback;
+            return;
+        }
+        v = std::clamp(v, lo, hi);
+    }
+
+    /// Replace any vec3 that contains a non-finite component with \p fallback.
+    static void SanitizeVec3(glm::vec3& v, const glm::vec3& fallback)
+    {
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!std::isfinite(v[i]))
+            {
+                v = fallback;
+                return;
+            }
+        }
+    }
+
+    /// Per-component: replace non-finite with fallback component, then clamp to [lo, hi].
+    static void SanitizeVec3Clamped(glm::vec3& v, f32 lo, f32 hi, const glm::vec3& fallback)
+    {
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!std::isfinite(v[i]))
+            {
+                v[i] = fallback[i];
+            }
+            else
+            {
+                v[i] = std::clamp(v[i], lo, hi);
+            }
+        }
+    }
+
     static Ref<Mesh> CreateMeshFromPrimitive(MeshPrimitive primitive)
     {
         switch (primitive)
@@ -191,49 +233,28 @@ namespace OloEngine
             TrySet(fog.LightShaftIntensity, fogNode["LightShaftIntensity"]);
 
             // Validate and sanitize deserialized fog parameters
-            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
-            {
-                if (!std::isfinite(v))
-                {
-                    v = fallback;
-                    return;
-                }
-                v = std::clamp(v, lo, hi);
-            };
-            auto sanitizeVec3 = [](glm::vec3& v, const glm::vec3& fallback)
-            {
-                for (int i = 0; i < 3; ++i)
-                {
-                    if (!std::isfinite(v[i]))
-                    {
-                        v = fallback;
-                        return;
-                    }
-                }
-            };
-
-            sanitizeFloat(fog.Density, 0.0f, 10.0f, 0.02f);
-            sanitizeFloat(fog.Start, 0.0f, 1e6f, 10.0f);
-            sanitizeFloat(fog.End, 0.0f, 1e6f, 300.0f);
+            SanitizeFloat(fog.Density, 0.0f, 10.0f, 0.02f);
+            SanitizeFloat(fog.Start, 0.0f, 1e6f, 10.0f);
+            SanitizeFloat(fog.End, 0.0f, 1e6f, 300.0f);
             if (fog.Start >= fog.End)
             {
                 fog.End = fog.Start + 1.0f;
             }
-            sanitizeFloat(fog.HeightFalloff, 0.0f, 100.0f, 0.1f);
-            sanitizeFloat(fog.HeightOffset, -1e5f, 1e5f, 0.0f);
-            sanitizeFloat(fog.MaxOpacity, 0.0f, 1.0f, 1.0f);
-            sanitizeFloat(fog.RayleighStrength, 0.0f, 100.0f, 1.0f);
-            sanitizeFloat(fog.MieStrength, 0.0f, 10.0f, 0.005f);
-            sanitizeFloat(fog.MieDirectionality, -1.0f, 1.0f, 0.76f);
-            sanitizeFloat(fog.SunIntensity, 0.0f, 1000.0f, 22.0f);
-            sanitizeFloat(fog.AbsorptionCoefficient, 0.0f, 10.0f, 0.02f);
-            sanitizeFloat(fog.NoiseScale, 0.0f, 100.0f, 0.01f);
-            sanitizeFloat(fog.NoiseSpeed, 0.0f, 100.0f, 0.1f);
-            sanitizeFloat(fog.NoiseIntensity, 0.0f, 10.0f, 0.3f);
-            sanitizeFloat(fog.LightShaftIntensity, 0.0f, 100.0f, 1.0f);
+            SanitizeFloat(fog.HeightFalloff, 0.0f, 100.0f, 0.1f);
+            SanitizeFloat(fog.HeightOffset, -1e5f, 1e5f, 0.0f);
+            SanitizeFloat(fog.MaxOpacity, 0.0f, 1.0f, 1.0f);
+            SanitizeFloat(fog.RayleighStrength, 0.0f, 100.0f, 1.0f);
+            SanitizeFloat(fog.MieStrength, 0.0f, 10.0f, 0.005f);
+            SanitizeFloat(fog.MieDirectionality, -1.0f, 1.0f, 0.76f);
+            SanitizeFloat(fog.SunIntensity, 0.0f, 1000.0f, 22.0f);
+            SanitizeFloat(fog.AbsorptionCoefficient, 0.0f, 10.0f, 0.02f);
+            SanitizeFloat(fog.NoiseScale, 0.0f, 100.0f, 0.01f);
+            SanitizeFloat(fog.NoiseSpeed, 0.0f, 100.0f, 0.1f);
+            SanitizeFloat(fog.NoiseIntensity, 0.0f, 10.0f, 0.3f);
+            SanitizeFloat(fog.LightShaftIntensity, 0.0f, 100.0f, 1.0f);
             fog.VolumetricSamples = std::clamp(fog.VolumetricSamples, 4, 128);
-            sanitizeVec3(fog.Color, glm::vec3(0.5f, 0.6f, 0.7f));
-            sanitizeVec3(fog.RayleighColor, glm::vec3(0.27f, 0.51f, 0.83f));
+            SanitizeVec3(fog.Color, glm::vec3(0.5f, 0.6f, 0.7f));
+            SanitizeVec3(fog.RayleighColor, glm::vec3(0.27f, 0.51f, 0.83f));
         }
     }
 
@@ -272,20 +293,11 @@ namespace OloEngine
             TrySet(wind.GridResolution, windNode["GridResolution"]);
 
             // Validate and clamp wind scalar fields
-            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
-            {
-                if (!std::isfinite(v))
-                {
-                    v = fallback;
-                    return;
-                }
-                v = std::clamp(v, lo, hi);
-            };
-            sanitizeFloat(wind.Speed, 0.0f, 1e4f, 0.0f);
-            sanitizeFloat(wind.GustStrength, 0.0f, 1e4f, 0.0f);
-            sanitizeFloat(wind.GustFrequency, 0.0f, 1e3f, 0.0f);
-            sanitizeFloat(wind.TurbulenceIntensity, 0.0f, 1.0f, 0.0f);
-            sanitizeFloat(wind.TurbulenceScale, 1e-6f, 1e6f, 1.0f);
+            SanitizeFloat(wind.Speed, 0.0f, 1e4f, 0.0f);
+            SanitizeFloat(wind.GustStrength, 0.0f, 1e4f, 0.0f);
+            SanitizeFloat(wind.GustFrequency, 0.0f, 1e3f, 0.0f);
+            SanitizeFloat(wind.TurbulenceIntensity, 0.0f, 1.0f, 0.0f);
+            SanitizeFloat(wind.TurbulenceScale, 1e-6f, 1e6f, 1.0f);
 
             // Clamp grid bounds
             wind.GridWorldSize = std::clamp(wind.GridWorldSize, 0.1f, 10000.0f);
@@ -351,22 +363,13 @@ namespace OloEngine
             TrySet(sa.SnowDensity, saNode["SnowDensity"]);
 
             // Validate — sanitize NaN/Inf then clamp
-            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
-            {
-                if (!std::isfinite(v))
-                {
-                    v = fallback;
-                    return;
-                }
-                v = std::clamp(v, lo, hi);
-            };
-            sanitizeFloat(sa.AccumulationRate, 0.0f, 10.0f, 0.02f);
-            sanitizeFloat(sa.MaxDepth, 0.01f, 10.0f, 0.5f);
-            sanitizeFloat(sa.MeltRate, 0.0f, 10.0f, 0.005f);
-            sanitizeFloat(sa.RestorationRate, 0.0f, 10.0f, 0.01f);
-            sanitizeFloat(sa.DisplacementScale, 0.0f, 10.0f, 1.0f);
-            sanitizeFloat(sa.ClipmapExtent, 1.0f, 1000.0f, 128.0f);
-            sanitizeFloat(sa.SnowDensity, 0.0f, 1.0f, 0.3f);
+            SanitizeFloat(sa.AccumulationRate, 0.0f, 10.0f, 0.02f);
+            SanitizeFloat(sa.MaxDepth, 0.01f, 10.0f, 0.5f);
+            SanitizeFloat(sa.MeltRate, 0.0f, 10.0f, 0.005f);
+            SanitizeFloat(sa.RestorationRate, 0.0f, 10.0f, 0.01f);
+            SanitizeFloat(sa.DisplacementScale, 0.0f, 10.0f, 1.0f);
+            SanitizeFloat(sa.ClipmapExtent, 1.0f, 1000.0f, 128.0f);
+            SanitizeFloat(sa.SnowDensity, 0.0f, 1.0f, 0.3f);
             sa.ClipmapResolution = std::clamp(sa.ClipmapResolution, 256u, 4096u);
             sa.NumClipmapRings = std::clamp(sa.NumClipmapRings, 1u, 3u);
         }
@@ -429,33 +432,24 @@ namespace OloEngine
             TrySet(se.CollisionFriction, seNode["CollisionFriction"]);
 
             // Validate — sanitize NaN/Inf then clamp
-            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
-            {
-                if (!std::isfinite(v))
-                {
-                    v = fallback;
-                    return;
-                }
-                v = std::clamp(v, lo, hi);
-            };
             se.ParticlesPerDeform = std::clamp(se.ParticlesPerDeform, 1u, 128u);
-            sanitizeFloat(se.EjectaSpeed, 0.0f, 50.0f, 2.5f);
-            sanitizeFloat(se.SpeedVariance, 0.0f, 1.0f, 0.8f);
-            sanitizeFloat(se.UpwardBias, 0.0f, 1.0f, 0.6f);
-            sanitizeFloat(se.LifetimeMin, 0.01f, 10.0f, 0.4f);
-            sanitizeFloat(se.LifetimeMax, se.LifetimeMin, 10.0f, std::max(se.LifetimeMin, 1.2f));
-            sanitizeFloat(se.InitialSize, 0.001f, 1.0f, 0.04f);
-            sanitizeFloat(se.SizeVariance, 0.0f, 0.5f, 0.02f);
-            sanitizeFloat(se.GravityScale, 0.0f, 5.0f, 0.3f);
-            sanitizeFloat(se.DragCoefficient, 0.0f, 20.0f, 2.0f);
-            sanitizeFloat(se.VelocityThreshold, 0.0f, 10.0f, 0.1f);
+            SanitizeFloat(se.EjectaSpeed, 0.0f, 50.0f, 2.5f);
+            SanitizeFloat(se.SpeedVariance, 0.0f, 1.0f, 0.8f);
+            SanitizeFloat(se.UpwardBias, 0.0f, 1.0f, 0.6f);
+            SanitizeFloat(se.LifetimeMin, 0.01f, 10.0f, 0.4f);
+            SanitizeFloat(se.LifetimeMax, se.LifetimeMin, 10.0f, std::max(se.LifetimeMin, 1.2f));
+            SanitizeFloat(se.InitialSize, 0.001f, 1.0f, 0.04f);
+            SanitizeFloat(se.SizeVariance, 0.0f, 0.5f, 0.02f);
+            SanitizeFloat(se.GravityScale, 0.0f, 5.0f, 0.3f);
+            SanitizeFloat(se.DragCoefficient, 0.0f, 20.0f, 2.0f);
+            SanitizeFloat(se.VelocityThreshold, 0.0f, 10.0f, 0.1f);
             se.MaxParticles = std::clamp(se.MaxParticles, 256u, 65536u);
-            sanitizeFloat(se.WindInfluence, 0.0f, 1.0f, 0.5f);
-            sanitizeFloat(se.NoiseStrength, 0.0f, 5.0f, 0.3f);
-            sanitizeFloat(se.NoiseFrequency, 0.0f, 20.0f, 2.0f);
-            sanitizeFloat(se.GroundY, -1000.0f, 1000.0f, 0.0f);
-            sanitizeFloat(se.CollisionBounce, 0.0f, 1.0f, 0.0f);
-            sanitizeFloat(se.CollisionFriction, 0.0f, 1.0f, 1.0f);
+            SanitizeFloat(se.WindInfluence, 0.0f, 1.0f, 0.5f);
+            SanitizeFloat(se.NoiseStrength, 0.0f, 5.0f, 0.3f);
+            SanitizeFloat(se.NoiseFrequency, 0.0f, 20.0f, 2.0f);
+            SanitizeFloat(se.GroundY, -1000.0f, 1000.0f, 0.0f);
+            SanitizeFloat(se.CollisionBounce, 0.0f, 1.0f, 0.0f);
+            SanitizeFloat(se.CollisionFriction, 0.0f, 1.0f, 1.0f);
         }
     }
 
@@ -574,78 +568,55 @@ namespace OloEngine
             TrySet(ps.RotationSpeed, psNode["RotationSpeed"]);
 
             // Validate
-            auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
-            {
-                if (!std::isfinite(v))
-                {
-                    v = fallback;
-                    return;
-                }
-                v = std::clamp(v, lo, hi);
-            };
-            sanitizeFloat(ps.Intensity, 0.0f, 1.0f, 0.5f);
-            sanitizeFloat(ps.TransitionSpeed, 0.01f, 10.0f, 0.5f);
+            SanitizeFloat(ps.Intensity, 0.0f, 1.0f, 0.5f);
+            SanitizeFloat(ps.TransitionSpeed, 0.01f, 10.0f, 0.5f);
             ps.BaseEmissionRate = std::clamp(ps.BaseEmissionRate, 100u, 50000u);
             ps.MaxParticlesNearField = std::clamp(ps.MaxParticlesNearField, 1000u, 500000u);
             ps.MaxParticlesFarField = std::clamp(ps.MaxParticlesFarField, 1000u, 1000000u);
-            sanitizeFloat(ps.NearFieldParticleSize, 0.001f, 0.5f, 0.03f);
-            sanitizeFloat(ps.FarFieldParticleSize, 0.001f, 0.3f, 0.015f);
-            sanitizeFloat(ps.GravityScale, 0.0f, 5.0f, 0.3f);
-            sanitizeFloat(ps.WindInfluence, 0.0f, 2.0f, 0.7f);
-            sanitizeFloat(ps.DragCoefficient, 0.0f, 10.0f, 1.5f);
-            sanitizeFloat(ps.TurbulenceStrength, 0.0f, 5.0f, 0.4f);
-            sanitizeFloat(ps.TurbulenceFrequency, 0.0f, 20.0f, 1.2f);
-            sanitizeFloat(ps.CollisionBounce, 0.0f, 1.0f, 0.0f);
-            sanitizeFloat(ps.CollisionFriction, 0.0f, 1.0f, 1.0f);
-            sanitizeFloat(ps.AccumulationFeedRate, 0.0f, 1.0f, 0.001f);
-            sanitizeFloat(ps.ScreenStreakIntensity, 0.0f, 1.0f, 0.3f);
-            sanitizeFloat(ps.ScreenStreakLength, 0.0f, 2.0f, 0.5f);
-            sanitizeFloat(ps.LensImpactRate, 0.0f, 20.0f, 3.0f);
-            sanitizeFloat(ps.LensImpactLifetime, 0.1f, 10.0f, 2.0f);
-            sanitizeFloat(ps.LensImpactSize, 0.001f, 0.3f, 0.05f);
-            sanitizeFloat(ps.LODNearDistance, 1.0f, 100.0f, 30.0f);
-            sanitizeFloat(ps.LODFarDistance, 10.0f, 500.0f, 120.0f);
-            sanitizeFloat(ps.FrameBudgetMs, 0.1f, 5.0f, 1.0f);
-            sanitizeFloat(ps.ColorVariance, 0.0f, 1.0f, 0.05f);
-            sanitizeFloat(ps.RotationSpeed, 0.0f, 30.0f, 1.0f);
+            SanitizeFloat(ps.NearFieldParticleSize, 0.001f, 0.5f, 0.03f);
+            SanitizeFloat(ps.FarFieldParticleSize, 0.001f, 0.3f, 0.015f);
+            SanitizeFloat(ps.GravityScale, 0.0f, 5.0f, 0.3f);
+            SanitizeFloat(ps.WindInfluence, 0.0f, 2.0f, 0.7f);
+            SanitizeFloat(ps.DragCoefficient, 0.0f, 10.0f, 1.5f);
+            SanitizeFloat(ps.TurbulenceStrength, 0.0f, 5.0f, 0.4f);
+            SanitizeFloat(ps.TurbulenceFrequency, 0.0f, 20.0f, 1.2f);
+            SanitizeFloat(ps.CollisionBounce, 0.0f, 1.0f, 0.0f);
+            SanitizeFloat(ps.CollisionFriction, 0.0f, 1.0f, 1.0f);
+            SanitizeFloat(ps.AccumulationFeedRate, 0.0f, 1.0f, 0.001f);
+            SanitizeFloat(ps.ScreenStreakIntensity, 0.0f, 1.0f, 0.3f);
+            SanitizeFloat(ps.ScreenStreakLength, 0.0f, 2.0f, 0.5f);
+            SanitizeFloat(ps.LensImpactRate, 0.0f, 20.0f, 3.0f);
+            SanitizeFloat(ps.LensImpactLifetime, 0.1f, 10.0f, 2.0f);
+            SanitizeFloat(ps.LensImpactSize, 0.001f, 0.3f, 0.05f);
+            SanitizeFloat(ps.LODNearDistance, 1.0f, 100.0f, 30.0f);
+            SanitizeFloat(ps.LODFarDistance, 10.0f, 500.0f, 120.0f);
+            SanitizeFloat(ps.FrameBudgetMs, 0.1f, 5.0f, 1.0f);
+            SanitizeFloat(ps.ColorVariance, 0.0f, 1.0f, 0.05f);
+            SanitizeFloat(ps.RotationSpeed, 0.0f, 30.0f, 1.0f);
 
             // Sanitize vec3 extents: each component must be positive
-            auto sanitizeVec3 = [](glm::vec3& v, f32 lo, f32 hi, const glm::vec3& fallback)
-            {
-                for (i32 i = 0; i < 3; ++i)
-                {
-                    if (!std::isfinite(v[i]))
-                    {
-                        v[i] = fallback[i];
-                    }
-                    else
-                    {
-                        v[i] = std::clamp(v[i], lo, hi);
-                    }
-                }
-            };
-            sanitizeVec3(ps.NearFieldExtent, 1.0f, 200.0f, glm::vec3(15.0f, 25.0f, 15.0f));
-            sanitizeVec3(ps.FarFieldExtent, 10.0f, 500.0f, glm::vec3(60.0f, 40.0f, 60.0f));
+            SanitizeVec3Clamped(ps.NearFieldExtent, 1.0f, 200.0f, glm::vec3(15.0f, 25.0f, 15.0f));
+            SanitizeVec3Clamped(ps.FarFieldExtent, 10.0f, 500.0f, glm::vec3(60.0f, 40.0f, 60.0f));
 
             // Sanitize speed ranges
-            sanitizeFloat(ps.NearFieldSpeedMin, 0.0f, 20.0f, 1.0f);
-            sanitizeFloat(ps.NearFieldSpeedMax, 0.0f, 20.0f, 3.0f);
+            SanitizeFloat(ps.NearFieldSpeedMin, 0.0f, 20.0f, 1.0f);
+            SanitizeFloat(ps.NearFieldSpeedMax, 0.0f, 20.0f, 3.0f);
             ps.NearFieldSpeedMax = std::max(ps.NearFieldSpeedMax, ps.NearFieldSpeedMin);
-            sanitizeFloat(ps.FarFieldSpeedMin, 0.0f, 15.0f, 0.5f);
-            sanitizeFloat(ps.FarFieldSpeedMax, 0.0f, 15.0f, 2.0f);
+            SanitizeFloat(ps.FarFieldSpeedMin, 0.0f, 15.0f, 0.5f);
+            SanitizeFloat(ps.FarFieldSpeedMax, 0.0f, 15.0f, 2.0f);
             ps.FarFieldSpeedMax = std::max(ps.FarFieldSpeedMax, ps.FarFieldSpeedMin);
 
             // Sanitize lifetimes
-            sanitizeFloat(ps.NearFieldLifetime, 0.1f, 30.0f, 4.0f);
-            sanitizeFloat(ps.FarFieldLifetime, 0.1f, 60.0f, 8.0f);
-            sanitizeFloat(ps.FarFieldAlphaMultiplier, 0.0f, 1.0f, 0.5f);
-            sanitizeFloat(ps.NearFieldSizeVariance, 0.0f, 0.1f, 0.01f);
+            SanitizeFloat(ps.NearFieldLifetime, 0.1f, 30.0f, 4.0f);
+            SanitizeFloat(ps.FarFieldLifetime, 0.1f, 60.0f, 8.0f);
+            SanitizeFloat(ps.FarFieldAlphaMultiplier, 0.0f, 1.0f, 0.5f);
+            SanitizeFloat(ps.NearFieldSizeVariance, 0.0f, 0.1f, 0.01f);
 
             // Enforce LOD ordering: far >= near
             ps.LODFarDistance = std::max(ps.LODFarDistance, ps.LODNearDistance + 1.0f);
 
             // Sanitize GroundY
-            sanitizeFloat(ps.GroundY, -1000.0f, 1000.0f, 0.0f);
+            SanitizeFloat(ps.GroundY, -1000.0f, 1000.0f, 0.0f);
 
             // Sanitize particle color: clamp components to [0,1]
             for (i32 i = 0; i < 4; ++i)
@@ -674,19 +645,10 @@ namespace OloEngine
         TrySet(sd.m_EmitEjecta, node["EmitEjecta"]);
 
         // Validate — sanitize NaN/Inf then clamp
-        auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
-        {
-            if (!std::isfinite(v))
-            {
-                v = fallback;
-                return;
-            }
-            v = std::clamp(v, lo, hi);
-        };
-        sanitizeFloat(sd.m_DeformRadius, 0.01f, 50.0f, 0.5f);
-        sanitizeFloat(sd.m_DeformDepth, 0.0f, 10.0f, 0.1f);
-        sanitizeFloat(sd.m_FalloffExponent, 0.1f, 10.0f, 2.0f);
-        sanitizeFloat(sd.m_CompactionFactor, 0.0f, 1.0f, 0.5f);
+        SanitizeFloat(sd.m_DeformRadius, 0.01f, 50.0f, 0.5f);
+        SanitizeFloat(sd.m_DeformDepth, 0.0f, 10.0f, 0.1f);
+        SanitizeFloat(sd.m_FalloffExponent, 0.1f, 10.0f, 2.0f);
+        SanitizeFloat(sd.m_CompactionFactor, 0.0f, 1.0f, 0.5f);
     }
 
     static void DeserializeFogVolumeComponent(Entity& entity, const YAML::Node& node)
@@ -707,31 +669,11 @@ namespace OloEngine
         TrySet(fv.m_AffectTransparent, node["AffectTransparent"]);
 
         // Validate
-        auto sanitizeFloat = [](f32& v, f32 lo, f32 hi, f32 fallback)
-        {
-            if (!std::isfinite(v))
-            {
-                v = fallback;
-                return;
-            }
-            v = std::clamp(v, lo, hi);
-        };
-        auto sanitizeVec3 = [](glm::vec3& v, const glm::vec3& fallback)
-        {
-            for (int i = 0; i < 3; ++i)
-            {
-                if (!std::isfinite(v[i]))
-                {
-                    v = fallback;
-                    return;
-                }
-            }
-        };
-        sanitizeVec3(fv.m_Extents, glm::vec3(5.0f));
-        sanitizeVec3(fv.m_Color, glm::vec3(0.6f, 0.65f, 0.7f));
-        sanitizeFloat(fv.m_Density, 0.0f, 100.0f, 0.5f);
-        sanitizeFloat(fv.m_FalloffDistance, 0.0f, 100.0f, 1.0f);
-        sanitizeFloat(fv.m_BlendWeight, 0.0f, 1.0f, 1.0f);
+        SanitizeVec3(fv.m_Extents, glm::vec3(5.0f));
+        SanitizeVec3(fv.m_Color, glm::vec3(0.6f, 0.65f, 0.7f));
+        SanitizeFloat(fv.m_Density, 0.0f, 100.0f, 0.5f);
+        SanitizeFloat(fv.m_FalloffDistance, 0.0f, 100.0f, 1.0f);
+        SanitizeFloat(fv.m_BlendWeight, 0.0f, 1.0f, 1.0f);
         fv.m_Priority = std::clamp(fv.m_Priority, -100, 100);
     }
 
@@ -753,6 +695,22 @@ namespace OloEngine
                 dc.m_AlbedoTexture = Texture2D::Create(texPath);
             }
         }
+
+        // Validate
+        SanitizeVec3(dc.m_Size, glm::vec3(1.0f));
+        for (int i = 0; i < 4; ++i)
+        {
+            if (!std::isfinite(dc.m_Color[i]))
+            {
+                dc.m_Color[i] = 1.0f;
+            }
+            else
+            {
+                dc.m_Color[i] = std::clamp(dc.m_Color[i], 0.0f, 1.0f);
+            }
+        }
+        SanitizeFloat(dc.m_FadeDistance, 0.0f, 100.0f, 0.5f);
+        SanitizeFloat(dc.m_NormalAngleThreshold, 0.0f, 1.0f, 0.5f);
     }
 
     static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)
@@ -1120,6 +1078,759 @@ namespace OloEngine
 
         OLO_CORE_ASSERT(false, "Unknown body type");
         return Static;
+    }
+
+    static void DeserializeEntityComponents(Entity& deserializedEntity, const YAML::Node& entity)
+    {
+        if (auto transformComponent = entity["TransformComponent"]; transformComponent)
+        {
+            // Entities always have transforms
+            auto& tc = deserializedEntity.GetComponent<TransformComponent>();
+            tc.Translation = transformComponent["Translation"].as<glm::vec3>();
+            tc.Rotation = transformComponent["Rotation"].as<glm::vec3>();
+            tc.Scale = transformComponent["Scale"].as<glm::vec3>();
+        }
+
+        if (auto cameraComponent = entity["CameraComponent"]; cameraComponent)
+        {
+            auto& cc = deserializedEntity.AddComponent<CameraComponent>();
+
+            auto cameraProps = cameraComponent["Camera"];
+            cc.Camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>(cameraProps["ProjectionType"].as<int>()));
+
+            cc.Camera.SetPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<f32>());
+            cc.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<f32>());
+            cc.Camera.SetPerspectiveFarClip(cameraProps["PerspectiveFar"].as<f32>());
+
+            cc.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<f32>());
+            cc.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<f32>());
+            cc.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<f32>());
+
+            cc.Primary = cameraComponent["Primary"].as<bool>();
+            cc.FixedAspectRatio = cameraComponent["FixedAspectRatio"].as<bool>();
+        }
+
+        if (auto scriptComponent = entity["ScriptComponent"])
+        {
+            auto& sc = deserializedEntity.AddComponent<ScriptComponent>();
+            sc.ClassName = scriptComponent["ClassName"].as<std::string>();
+
+            if (auto scriptFields = scriptComponent["ScriptFields"]; scriptFields)
+            {
+                if (Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(sc.ClassName))
+                {
+                    const auto& fields = entityClass->GetFields();
+                    auto& entityFields = ScriptEngine::GetScriptFieldMap(deserializedEntity);
+
+                    for (auto scriptField : scriptFields)
+                    {
+                        std::string fieldName = scriptField["Name"].as<std::string>();
+                        auto typeString = scriptField["Type"].as<std::string>();
+                        ScriptFieldType type = Utils::ScriptFieldTypeFromString(typeString);
+
+                        ScriptFieldInstance& fieldInstance = entityFields[fieldName];
+
+                        OLO_CORE_ASSERT(fields.contains(fieldName));
+
+                        if (!fields.contains(fieldName))
+                        {
+                            continue;
+                        }
+
+                        fieldInstance.Field = fields.at(fieldName);
+
+                        switch (type)
+                        {
+                            READ_SCRIPT_FIELD(Float, f32)
+                            READ_SCRIPT_FIELD(Double, f64)
+                            READ_SCRIPT_FIELD(Bool, bool)
+                            READ_SCRIPT_FIELD(Char, char)
+                            READ_SCRIPT_FIELD(Byte, i8)
+                            READ_SCRIPT_FIELD(Short, i16)
+                            READ_SCRIPT_FIELD(Int, i32)
+                            READ_SCRIPT_FIELD(Long, i64)
+                            READ_SCRIPT_FIELD(UByte, u8)
+                            READ_SCRIPT_FIELD(UShort, u16)
+                            READ_SCRIPT_FIELD(UInt, u32)
+                            READ_SCRIPT_FIELD(ULong, u64)
+                            READ_SCRIPT_FIELD(Vector2, glm::vec2)
+                            READ_SCRIPT_FIELD(Vector3, glm::vec3)
+                            READ_SCRIPT_FIELD(Vector4, glm::vec4)
+                            READ_SCRIPT_FIELD(Entity, UUID)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (const auto& audioSourceComponent = entity["AudioSourceComponent"])
+        {
+            auto& src = deserializedEntity.AddComponent<AudioSourceComponent>();
+            std::string audioFilepath;
+            TrySet(audioFilepath, audioSourceComponent["Filepath"]);
+            TrySet(src.Config.VolumeMultiplier, audioSourceComponent["VolumeMultiplier"]);
+            TrySet(src.Config.PitchMultiplier, audioSourceComponent["PitchMultiplier"]);
+            TrySet(src.Config.PlayOnAwake, audioSourceComponent["PlayOnAwake"]);
+            TrySet(src.Config.Looping, audioSourceComponent["Looping"]);
+            TrySet(src.Config.Spatialization, audioSourceComponent["Spatialization"]);
+            TrySetEnum(src.Config.AttenuationModel, audioSourceComponent["AttenuationModel"]);
+            TrySet(src.Config.RollOff, audioSourceComponent["RollOff"]);
+            TrySet(src.Config.MinGain, audioSourceComponent["MinGain"]);
+            TrySet(src.Config.MaxGain, audioSourceComponent["MaxGain"]);
+            TrySet(src.Config.MinDistance, audioSourceComponent["MinDistance"]);
+            TrySet(src.Config.MaxDistance, audioSourceComponent["MaxDistance"]);
+            TrySet(src.Config.ConeInnerAngle, audioSourceComponent["ConeInnerAngle"]);
+            TrySet(src.Config.ConeOuterAngle, audioSourceComponent["ConeOuterAngle"]);
+            TrySet(src.Config.ConeOuterGain, audioSourceComponent["ConeOuterGain"]);
+            TrySet(src.Config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
+
+            if (!audioFilepath.empty())
+            {
+                std::filesystem::path path = audioFilepath.c_str();
+                path = Project::GetAssetFileSystemPath(path);
+                src.Source = Ref<AudioSource>::Create(path.string().c_str());
+            }
+        }
+
+        if (const auto& audioListenerComponent = entity["AudioListenerComponent"])
+        {
+            auto& src = deserializedEntity.AddComponent<AudioListenerComponent>();
+            TrySet(src.Active, audioListenerComponent["Active"]);
+            TrySet(src.Config.ConeInnerAngle, audioListenerComponent["ConeInnerAngle"]);
+            TrySet(src.Config.ConeOuterAngle, audioListenerComponent["ConeOuterAngle"]);
+            TrySet(src.Config.ConeOuterGain, audioListenerComponent["ConeOuterGain"]);
+        }
+
+        if (auto spriteRendererComponent = entity["SpriteRendererComponent"]; spriteRendererComponent)
+        {
+            auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
+            src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
+            if (spriteRendererComponent["TexturePath"])
+            {
+                src.Texture = Texture2D::Create(spriteRendererComponent["TexturePath"].as<std::string>());
+            }
+
+            if (spriteRendererComponent["TilingFactor"])
+            {
+                src.TilingFactor = spriteRendererComponent["TilingFactor"].as<f32>();
+            }
+        }
+
+        if (auto circleRendererComponent = entity["CircleRendererComponent"]; circleRendererComponent)
+        {
+            auto& crc = deserializedEntity.AddComponent<CircleRendererComponent>();
+            crc.Color = circleRendererComponent["Color"].as<glm::vec4>();
+            crc.Thickness = circleRendererComponent["Thickness"].as<f32>();
+            crc.Fade = circleRendererComponent["Fade"].as<f32>();
+        }
+
+        if (auto rigidbody2DComponent = entity["Rigidbody2DComponent"]; rigidbody2DComponent)
+        {
+            auto& rb2d = deserializedEntity.AddComponent<Rigidbody2DComponent>();
+            rb2d.Type = RigidBody2DBodyTypeFromString(rigidbody2DComponent["BodyType"].as<std::string>());
+            rb2d.FixedRotation = rigidbody2DComponent["FixedRotation"].as<bool>();
+        }
+
+        if (auto boxCollider2DComponent = entity["BoxCollider2DComponent"]; boxCollider2DComponent)
+        {
+            auto& bc2d = deserializedEntity.AddComponent<BoxCollider2DComponent>();
+            bc2d.Offset = boxCollider2DComponent["Offset"].as<glm::vec2>();
+            bc2d.Size = boxCollider2DComponent["Size"].as<glm::vec2>();
+            bc2d.Density = boxCollider2DComponent["Density"].as<f32>();
+            bc2d.Friction = boxCollider2DComponent["Friction"].as<f32>();
+            bc2d.Restitution = boxCollider2DComponent["Restitution"].as<f32>();
+            bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<f32>();
+        }
+
+        if (auto circleCollider2DComponent = entity["CircleCollider2DComponent"]; circleCollider2DComponent)
+        {
+            auto& cc2d = deserializedEntity.AddComponent<CircleCollider2DComponent>();
+            cc2d.Offset = circleCollider2DComponent["Offset"].as<glm::vec2>();
+            cc2d.Radius = circleCollider2DComponent["Radius"].as<f32>();
+            cc2d.Density = circleCollider2DComponent["Density"].as<f32>();
+            cc2d.Friction = circleCollider2DComponent["Friction"].as<f32>();
+            cc2d.Restitution = circleCollider2DComponent["Restitution"].as<f32>();
+            cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<f32>();
+        }
+
+        if (auto textComponent = entity["TextComponent"]; textComponent)
+        {
+            auto& tc = deserializedEntity.AddComponent<TextComponent>();
+            tc.TextString = textComponent["TextString"].as<std::string>();
+            if (textComponent["FontPath"])
+            {
+                tc.FontAsset = Font::Create(textComponent["FontPath"].as<std::string>());
+            }
+            tc.Color = textComponent["Color"].as<glm::vec4>();
+            tc.Kerning = textComponent["Kerning"].as<float>();
+            tc.LineSpacing = textComponent["LineSpacing"].as<float>();
+        }
+
+        if (auto meshComponent = entity["MeshComponent"]; meshComponent)
+        {
+            auto& mc = deserializedEntity.AddComponent<MeshComponent>();
+            if (meshComponent["MeshSourceHandle"])
+            {
+                u64 handle = meshComponent["MeshSourceHandle"].as<u64>();
+                mc.m_MeshSource = AssetManager::GetAsset<MeshSource>(handle);
+            }
+            if (meshComponent["Primitive"])
+            {
+                const auto primitiveInt = meshComponent["Primitive"].as<i32>();
+                if (primitiveInt >= static_cast<i32>(MeshPrimitive::None) && primitiveInt <= static_cast<i32>(MeshPrimitive::Torus))
+                {
+                    mc.m_Primitive = static_cast<MeshPrimitive>(primitiveInt);
+                }
+                else
+                {
+                    OLO_CORE_WARN("SceneSerializer: Invalid MeshPrimitive value {}, defaulting to None", primitiveInt);
+                    mc.m_Primitive = MeshPrimitive::None;
+                }
+                if (!mc.m_MeshSource && mc.m_Primitive != MeshPrimitive::None)
+                {
+                    if (auto mesh = CreateMeshFromPrimitive(mc.m_Primitive))
+                    {
+                        mc.m_MeshSource = mesh->GetMeshSource();
+                    }
+                }
+            }
+        }
+
+        if (auto modelComponent = entity["ModelComponent"]; modelComponent)
+        {
+            auto& mc = deserializedEntity.AddComponent<ModelComponent>();
+            if (modelComponent["FilePath"])
+            {
+                mc.m_FilePath = modelComponent["FilePath"].as<std::string>();
+                if (!mc.m_FilePath.empty())
+                {
+                    mc.Reload(); // Load the model from file
+                }
+            }
+            if (modelComponent["Visible"])
+            {
+                mc.m_Visible = modelComponent["Visible"].as<bool>();
+            }
+        }
+
+        if (auto materialComponent = entity["MaterialComponent"]; materialComponent)
+        {
+            auto& matc = deserializedEntity.AddComponent<MaterialComponent>();
+            if (materialComponent["AlbedoColor"])
+            {
+                auto albedo = materialComponent["AlbedoColor"].as<glm::vec3>();
+                matc.m_Material.SetBaseColorFactor(glm::vec4(albedo, 1.0f));
+            }
+            if (materialComponent["Metallic"])
+            {
+                matc.m_Material.SetMetallicFactor(materialComponent["Metallic"].as<f32>());
+            }
+            if (materialComponent["Roughness"])
+            {
+                matc.m_Material.SetRoughnessFactor(materialComponent["Roughness"].as<f32>());
+            }
+        }
+
+        if (auto dirLightComponent = entity["DirectionalLightComponent"]; dirLightComponent)
+        {
+            auto& dirLight = deserializedEntity.AddComponent<DirectionalLightComponent>();
+            dirLight.m_Direction = dirLightComponent["Direction"].as<glm::vec3>(dirLight.m_Direction);
+            dirLight.m_Color = dirLightComponent["Color"].as<glm::vec3>(dirLight.m_Color);
+            dirLight.m_Intensity = dirLightComponent["Intensity"].as<f32>(dirLight.m_Intensity);
+            dirLight.m_CastShadows = dirLightComponent["CastShadows"].as<bool>(dirLight.m_CastShadows);
+            dirLight.m_ShadowBias = dirLightComponent["ShadowBias"].as<f32>(dirLight.m_ShadowBias);
+            dirLight.m_ShadowNormalBias = dirLightComponent["ShadowNormalBias"].as<f32>(dirLight.m_ShadowNormalBias);
+            dirLight.m_MaxShadowDistance = dirLightComponent["MaxShadowDistance"].as<f32>(dirLight.m_MaxShadowDistance);
+            dirLight.m_CascadeSplitLambda = dirLightComponent["CascadeSplitLambda"].as<f32>(dirLight.m_CascadeSplitLambda);
+            dirLight.m_CascadeDebugVisualization = dirLightComponent["CascadeDebugVisualization"].as<bool>(dirLight.m_CascadeDebugVisualization);
+        }
+
+        if (auto pointLightComponent = entity["PointLightComponent"]; pointLightComponent)
+        {
+            auto& pointLight = deserializedEntity.AddComponent<PointLightComponent>();
+            pointLight.m_Color = pointLightComponent["Color"].as<glm::vec3>(pointLight.m_Color);
+            pointLight.m_Intensity = pointLightComponent["Intensity"].as<f32>(pointLight.m_Intensity);
+            pointLight.m_Range = pointLightComponent["Range"].as<f32>(pointLight.m_Range);
+            pointLight.m_Attenuation = pointLightComponent["Attenuation"].as<f32>(pointLight.m_Attenuation);
+            pointLight.m_CastShadows = pointLightComponent["CastShadows"].as<bool>(pointLight.m_CastShadows);
+            pointLight.m_ShadowBias = pointLightComponent["ShadowBias"].as<f32>(pointLight.m_ShadowBias);
+            pointLight.m_ShadowNormalBias = pointLightComponent["ShadowNormalBias"].as<f32>(pointLight.m_ShadowNormalBias);
+        }
+
+        if (auto spotLightComponent = entity["SpotLightComponent"]; spotLightComponent)
+        {
+            auto& spotLight = deserializedEntity.AddComponent<SpotLightComponent>();
+            spotLight.m_Direction = spotLightComponent["Direction"].as<glm::vec3>(spotLight.m_Direction);
+            spotLight.m_Color = spotLightComponent["Color"].as<glm::vec3>(spotLight.m_Color);
+            spotLight.m_Intensity = spotLightComponent["Intensity"].as<f32>(spotLight.m_Intensity);
+            spotLight.m_Range = spotLightComponent["Range"].as<f32>(spotLight.m_Range);
+            spotLight.m_InnerCutoff = spotLightComponent["InnerCutoff"].as<f32>(spotLight.m_InnerCutoff);
+            spotLight.m_OuterCutoff = spotLightComponent["OuterCutoff"].as<f32>(spotLight.m_OuterCutoff);
+            spotLight.m_Attenuation = spotLightComponent["Attenuation"].as<f32>(spotLight.m_Attenuation);
+            spotLight.m_CastShadows = spotLightComponent["CastShadows"].as<bool>(spotLight.m_CastShadows);
+            spotLight.m_ShadowBias = spotLightComponent["ShadowBias"].as<f32>(spotLight.m_ShadowBias);
+            spotLight.m_ShadowNormalBias = spotLightComponent["ShadowNormalBias"].as<f32>(spotLight.m_ShadowNormalBias);
+        }
+
+        if (auto envMapComponent = entity["EnvironmentMapComponent"]; envMapComponent)
+        {
+            auto& envMap = deserializedEntity.AddComponent<EnvironmentMapComponent>();
+            envMap.m_FilePath = envMapComponent["FilePath"].as<std::string>(envMap.m_FilePath);
+            envMap.m_IsCubemapFolder = envMapComponent["IsCubemapFolder"].as<bool>(envMap.m_IsCubemapFolder);
+            envMap.m_EnableSkybox = envMapComponent["EnableSkybox"].as<bool>(envMap.m_EnableSkybox);
+            envMap.m_Rotation = envMapComponent["Rotation"].as<f32>(envMap.m_Rotation);
+            envMap.m_Exposure = envMapComponent["Exposure"].as<f32>(envMap.m_Exposure);
+            envMap.m_BlurAmount = envMapComponent["BlurAmount"].as<f32>(envMap.m_BlurAmount);
+            envMap.m_EnableIBL = envMapComponent["EnableIBL"].as<bool>(envMap.m_EnableIBL);
+            envMap.m_IBLIntensity = envMapComponent["IBLIntensity"].as<f32>(envMap.m_IBLIntensity);
+            envMap.m_Tint = envMapComponent["Tint"].as<glm::vec3>(envMap.m_Tint);
+        }
+
+        if (auto rb3dComponent = entity["Rigidbody3DComponent"]; rb3dComponent)
+        {
+            auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
+            rb3d.m_Type = static_cast<BodyType3D>(rb3dComponent["BodyType"].as<int>(static_cast<int>(rb3d.m_Type)));
+            rb3d.m_Mass = rb3dComponent["Mass"].as<f32>(rb3d.m_Mass);
+            rb3d.m_LinearDrag = rb3dComponent["LinearDrag"].as<f32>(rb3d.m_LinearDrag);
+            rb3d.m_AngularDrag = rb3dComponent["AngularDrag"].as<f32>(rb3d.m_AngularDrag);
+            rb3d.m_DisableGravity = rb3dComponent["DisableGravity"].as<bool>(rb3d.m_DisableGravity);
+            rb3d.m_IsTrigger = rb3dComponent["IsTrigger"].as<bool>(rb3d.m_IsTrigger);
+        }
+
+        if (auto bc3dComponent = entity["BoxCollider3DComponent"]; bc3dComponent)
+        {
+            auto& bc3d = deserializedEntity.AddComponent<BoxCollider3DComponent>();
+            bc3d.m_HalfExtents = bc3dComponent["HalfExtents"].as<glm::vec3>(bc3d.m_HalfExtents);
+            bc3d.m_Offset = bc3dComponent["Offset"].as<glm::vec3>(bc3d.m_Offset);
+            if (bc3dComponent["StaticFriction"])
+                bc3d.m_Material.SetStaticFriction(bc3dComponent["StaticFriction"].as<f32>());
+            if (bc3dComponent["DynamicFriction"])
+                bc3d.m_Material.SetDynamicFriction(bc3dComponent["DynamicFriction"].as<f32>());
+            if (bc3dComponent["Restitution"])
+                bc3d.m_Material.SetRestitution(bc3dComponent["Restitution"].as<f32>());
+        }
+
+        if (auto sc3dComponent = entity["SphereCollider3DComponent"]; sc3dComponent)
+        {
+            auto& sc3d = deserializedEntity.AddComponent<SphereCollider3DComponent>();
+            sc3d.m_Radius = sc3dComponent["Radius"].as<f32>(sc3d.m_Radius);
+            sc3d.m_Offset = sc3dComponent["Offset"].as<glm::vec3>(sc3d.m_Offset);
+            if (sc3dComponent["StaticFriction"])
+                sc3d.m_Material.SetStaticFriction(sc3dComponent["StaticFriction"].as<f32>());
+            if (sc3dComponent["DynamicFriction"])
+                sc3d.m_Material.SetDynamicFriction(sc3dComponent["DynamicFriction"].as<f32>());
+            if (sc3dComponent["Restitution"])
+                sc3d.m_Material.SetRestitution(sc3dComponent["Restitution"].as<f32>());
+        }
+
+        if (auto cc3dComponent = entity["CapsuleCollider3DComponent"]; cc3dComponent)
+        {
+            auto& cc3d = deserializedEntity.AddComponent<CapsuleCollider3DComponent>();
+            cc3d.m_Radius = cc3dComponent["Radius"].as<f32>(cc3d.m_Radius);
+            cc3d.m_HalfHeight = cc3dComponent["HalfHeight"].as<f32>(cc3d.m_HalfHeight);
+            cc3d.m_Offset = cc3dComponent["Offset"].as<glm::vec3>(cc3d.m_Offset);
+            if (cc3dComponent["StaticFriction"])
+                cc3d.m_Material.SetStaticFriction(cc3dComponent["StaticFriction"].as<f32>());
+            if (cc3dComponent["DynamicFriction"])
+                cc3d.m_Material.SetDynamicFriction(cc3dComponent["DynamicFriction"].as<f32>());
+            if (cc3dComponent["Restitution"])
+                cc3d.m_Material.SetRestitution(cc3dComponent["Restitution"].as<f32>());
+        }
+
+        if (auto prefabComponent = entity["PrefabComponent"]; prefabComponent)
+        {
+            auto& pc = deserializedEntity.AddComponent<PrefabComponent>();
+            pc.m_PrefabID = prefabComponent["PrefabID"].as<u64>();
+            pc.m_PrefabEntityID = prefabComponent["PrefabEntityID"].as<u64>();
+        }
+
+        if (auto mc3dComponent = entity["MeshCollider3DComponent"]; mc3dComponent)
+        {
+            auto& mc3d = deserializedEntity.AddComponent<MeshCollider3DComponent>();
+            if (mc3dComponent["ColliderAsset"])
+                mc3d.m_ColliderAsset = mc3dComponent["ColliderAsset"].as<u64>();
+            mc3d.m_Offset = mc3dComponent["Offset"].as<glm::vec3>(mc3d.m_Offset);
+            mc3d.m_Scale = mc3dComponent["Scale"].as<glm::vec3>(mc3d.m_Scale);
+            mc3d.m_UseComplexAsSimple = mc3dComponent["UseComplexAsSimple"].as<bool>(mc3d.m_UseComplexAsSimple);
+            if (mc3dComponent["StaticFriction"])
+                mc3d.m_Material.SetStaticFriction(mc3dComponent["StaticFriction"].as<f32>());
+            if (mc3dComponent["DynamicFriction"])
+                mc3d.m_Material.SetDynamicFriction(mc3dComponent["DynamicFriction"].as<f32>());
+            if (mc3dComponent["Restitution"])
+                mc3d.m_Material.SetRestitution(mc3dComponent["Restitution"].as<f32>());
+        }
+
+        if (auto cmc3dComponent = entity["ConvexMeshCollider3DComponent"]; cmc3dComponent)
+        {
+            auto& cmc3d = deserializedEntity.AddComponent<ConvexMeshCollider3DComponent>();
+            if (cmc3dComponent["ColliderAsset"])
+                cmc3d.m_ColliderAsset = cmc3dComponent["ColliderAsset"].as<u64>();
+            cmc3d.m_Offset = cmc3dComponent["Offset"].as<glm::vec3>(cmc3d.m_Offset);
+            cmc3d.m_Scale = cmc3dComponent["Scale"].as<glm::vec3>(cmc3d.m_Scale);
+            cmc3d.m_ConvexRadius = cmc3dComponent["ConvexRadius"].as<f32>(cmc3d.m_ConvexRadius);
+            cmc3d.m_MaxVertices = cmc3dComponent["MaxVertices"].as<u32>(cmc3d.m_MaxVertices);
+            if (cmc3dComponent["StaticFriction"])
+                cmc3d.m_Material.SetStaticFriction(cmc3dComponent["StaticFriction"].as<f32>());
+            if (cmc3dComponent["DynamicFriction"])
+                cmc3d.m_Material.SetDynamicFriction(cmc3dComponent["DynamicFriction"].as<f32>());
+            if (cmc3dComponent["Restitution"])
+                cmc3d.m_Material.SetRestitution(cmc3dComponent["Restitution"].as<f32>());
+        }
+
+        if (auto tmc3dComponent = entity["TriangleMeshCollider3DComponent"]; tmc3dComponent)
+        {
+            auto& tmc3d = deserializedEntity.AddComponent<TriangleMeshCollider3DComponent>();
+            if (tmc3dComponent["ColliderAsset"])
+                tmc3d.m_ColliderAsset = tmc3dComponent["ColliderAsset"].as<u64>();
+            tmc3d.m_Offset = tmc3dComponent["Offset"].as<glm::vec3>(tmc3d.m_Offset);
+            tmc3d.m_Scale = tmc3dComponent["Scale"].as<glm::vec3>(tmc3d.m_Scale);
+            if (tmc3dComponent["StaticFriction"])
+                tmc3d.m_Material.SetStaticFriction(tmc3dComponent["StaticFriction"].as<f32>());
+            if (tmc3dComponent["DynamicFriction"])
+                tmc3d.m_Material.SetDynamicFriction(tmc3dComponent["DynamicFriction"].as<f32>());
+            if (tmc3dComponent["Restitution"])
+                tmc3d.m_Material.SetRestitution(tmc3dComponent["Restitution"].as<f32>());
+        }
+
+        if (auto cc3dComponent = entity["CharacterController3DComponent"]; cc3dComponent)
+        {
+            auto& cc3d = deserializedEntity.AddComponent<CharacterController3DComponent>();
+            cc3d.m_SlopeLimitDeg = cc3dComponent["SlopeLimitDeg"].as<f32>(cc3d.m_SlopeLimitDeg);
+            cc3d.m_StepOffset = cc3dComponent["StepOffset"].as<f32>(cc3d.m_StepOffset);
+            cc3d.m_JumpPower = cc3dComponent["JumpPower"].as<f32>(cc3d.m_JumpPower);
+            cc3d.m_LayerID = cc3dComponent["LayerID"].as<u32>(cc3d.m_LayerID);
+            cc3d.m_DisableGravity = cc3dComponent["DisableGravity"].as<bool>(cc3d.m_DisableGravity);
+            cc3d.m_ControlMovementInAir = cc3dComponent["ControlMovementInAir"].as<bool>(cc3d.m_ControlMovementInAir);
+            cc3d.m_ControlRotationInAir = cc3dComponent["ControlRotationInAir"].as<bool>(cc3d.m_ControlRotationInAir);
+        }
+
+        if (auto relComponent = entity["RelationshipComponent"]; relComponent)
+        {
+            auto& rel = deserializedEntity.AddComponent<RelationshipComponent>();
+            if (relComponent["ParentHandle"])
+                rel.m_ParentHandle = relComponent["ParentHandle"].as<u64>();
+            if (auto children = relComponent["Children"]; children)
+            {
+                for (auto child : children)
+                {
+                    rel.m_Children.push_back(child.as<u64>());
+                }
+            }
+        }
+
+        if (auto uiCanvasComponent = entity["UICanvasComponent"]; uiCanvasComponent)
+        {
+            auto& canvas = deserializedEntity.AddComponent<UICanvasComponent>();
+            TrySetEnum(canvas.m_RenderMode, uiCanvasComponent["RenderMode"]);
+            TrySetEnum(canvas.m_ScaleMode, uiCanvasComponent["ScaleMode"]);
+            TrySet(canvas.m_SortOrder, uiCanvasComponent["SortOrder"]);
+            TrySet(canvas.m_ReferenceResolution, uiCanvasComponent["ReferenceResolution"]);
+        }
+
+        if (auto uiRectTransformComponent = entity["UIRectTransformComponent"]; uiRectTransformComponent)
+        {
+            auto& rt = deserializedEntity.AddComponent<UIRectTransformComponent>();
+            TrySet(rt.m_AnchorMin, uiRectTransformComponent["AnchorMin"]);
+            TrySet(rt.m_AnchorMax, uiRectTransformComponent["AnchorMax"]);
+            TrySet(rt.m_AnchoredPosition, uiRectTransformComponent["AnchoredPosition"]);
+            TrySet(rt.m_SizeDelta, uiRectTransformComponent["SizeDelta"]);
+            TrySet(rt.m_Pivot, uiRectTransformComponent["Pivot"]);
+            TrySet(rt.m_Rotation, uiRectTransformComponent["Rotation"]);
+            TrySet(rt.m_Scale, uiRectTransformComponent["Scale"]);
+        }
+
+        if (auto uiImageComponent = entity["UIImageComponent"]; uiImageComponent)
+        {
+            auto& image = deserializedEntity.AddComponent<UIImageComponent>();
+            if (uiImageComponent["TexturePath"])
+            {
+                image.m_Texture = Texture2D::Create(uiImageComponent["TexturePath"].as<std::string>());
+            }
+            TrySet(image.m_Color, uiImageComponent["Color"]);
+            TrySet(image.m_BorderInsets, uiImageComponent["BorderInsets"]);
+        }
+
+        if (auto uiPanelComponent = entity["UIPanelComponent"]; uiPanelComponent)
+        {
+            auto& panel = deserializedEntity.AddComponent<UIPanelComponent>();
+            TrySet(panel.m_BackgroundColor, uiPanelComponent["BackgroundColor"]);
+            if (uiPanelComponent["BackgroundTexturePath"])
+            {
+                panel.m_BackgroundTexture = Texture2D::Create(uiPanelComponent["BackgroundTexturePath"].as<std::string>());
+            }
+        }
+
+        if (auto uiTextComponent = entity["UITextComponent"]; uiTextComponent)
+        {
+            auto& text = deserializedEntity.AddComponent<UITextComponent>();
+            TrySet(text.m_Text, uiTextComponent["Text"]);
+            if (uiTextComponent["FontPath"])
+            {
+                text.m_FontAsset = Font::Create(uiTextComponent["FontPath"].as<std::string>());
+            }
+            TrySet(text.m_FontSize, uiTextComponent["FontSize"]);
+            TrySet(text.m_Color, uiTextComponent["Color"]);
+            TrySetEnum(text.m_Alignment, uiTextComponent["Alignment"]);
+            TrySet(text.m_Kerning, uiTextComponent["Kerning"]);
+            TrySet(text.m_LineSpacing, uiTextComponent["LineSpacing"]);
+        }
+
+        if (auto uiButtonComponent = entity["UIButtonComponent"]; uiButtonComponent)
+        {
+            auto& button = deserializedEntity.AddComponent<UIButtonComponent>();
+            TrySet(button.m_NormalColor, uiButtonComponent["NormalColor"]);
+            TrySet(button.m_HoveredColor, uiButtonComponent["HoveredColor"]);
+            TrySet(button.m_PressedColor, uiButtonComponent["PressedColor"]);
+            TrySet(button.m_DisabledColor, uiButtonComponent["DisabledColor"]);
+            TrySet(button.m_Interactable, uiButtonComponent["Interactable"]);
+        }
+
+        if (auto uiSliderComponent = entity["UISliderComponent"]; uiSliderComponent)
+        {
+            auto& slider = deserializedEntity.AddComponent<UISliderComponent>();
+            TrySet(slider.m_Value, uiSliderComponent["Value"]);
+            TrySet(slider.m_MinValue, uiSliderComponent["MinValue"]);
+            TrySet(slider.m_MaxValue, uiSliderComponent["MaxValue"]);
+            TrySetEnum(slider.m_Direction, uiSliderComponent["Direction"]);
+            TrySet(slider.m_BackgroundColor, uiSliderComponent["BackgroundColor"]);
+            TrySet(slider.m_FillColor, uiSliderComponent["FillColor"]);
+            TrySet(slider.m_HandleColor, uiSliderComponent["HandleColor"]);
+            TrySet(slider.m_Interactable, uiSliderComponent["Interactable"]);
+        }
+
+        if (auto uiCheckboxComponent = entity["UICheckboxComponent"]; uiCheckboxComponent)
+        {
+            auto& checkbox = deserializedEntity.AddComponent<UICheckboxComponent>();
+            TrySet(checkbox.m_IsChecked, uiCheckboxComponent["IsChecked"]);
+            TrySet(checkbox.m_UncheckedColor, uiCheckboxComponent["UncheckedColor"]);
+            TrySet(checkbox.m_CheckedColor, uiCheckboxComponent["CheckedColor"]);
+            TrySet(checkbox.m_CheckmarkColor, uiCheckboxComponent["CheckmarkColor"]);
+            TrySet(checkbox.m_Interactable, uiCheckboxComponent["Interactable"]);
+        }
+
+        if (auto uiProgressBarComponent = entity["UIProgressBarComponent"]; uiProgressBarComponent)
+        {
+            auto& progress = deserializedEntity.AddComponent<UIProgressBarComponent>();
+            TrySet(progress.m_Value, uiProgressBarComponent["Value"]);
+            TrySet(progress.m_MinValue, uiProgressBarComponent["MinValue"]);
+            TrySet(progress.m_MaxValue, uiProgressBarComponent["MaxValue"]);
+            TrySetEnum(progress.m_FillMethod, uiProgressBarComponent["FillMethod"]);
+            TrySet(progress.m_BackgroundColor, uiProgressBarComponent["BackgroundColor"]);
+            TrySet(progress.m_FillColor, uiProgressBarComponent["FillColor"]);
+        }
+
+        if (auto uiInputFieldComponent = entity["UIInputFieldComponent"]; uiInputFieldComponent)
+        {
+            auto& input = deserializedEntity.AddComponent<UIInputFieldComponent>();
+            TrySet(input.m_Text, uiInputFieldComponent["Text"]);
+            TrySet(input.m_Placeholder, uiInputFieldComponent["Placeholder"]);
+            if (uiInputFieldComponent["FontPath"])
+            {
+                input.m_FontAsset = Font::Create(uiInputFieldComponent["FontPath"].as<std::string>());
+            }
+            TrySet(input.m_FontSize, uiInputFieldComponent["FontSize"]);
+            TrySet(input.m_TextColor, uiInputFieldComponent["TextColor"]);
+            TrySet(input.m_PlaceholderColor, uiInputFieldComponent["PlaceholderColor"]);
+            TrySet(input.m_BackgroundColor, uiInputFieldComponent["BackgroundColor"]);
+            TrySet(input.m_CharacterLimit, uiInputFieldComponent["CharacterLimit"]);
+            TrySet(input.m_Interactable, uiInputFieldComponent["Interactable"]);
+        }
+
+        if (auto uiScrollViewComponent = entity["UIScrollViewComponent"]; uiScrollViewComponent)
+        {
+            auto& scrollView = deserializedEntity.AddComponent<UIScrollViewComponent>();
+            TrySet(scrollView.m_ScrollPosition, uiScrollViewComponent["ScrollPosition"]);
+            TrySet(scrollView.m_ContentSize, uiScrollViewComponent["ContentSize"]);
+            TrySetEnum(scrollView.m_ScrollDirection, uiScrollViewComponent["ScrollDirection"]);
+            TrySet(scrollView.m_ScrollSpeed, uiScrollViewComponent["ScrollSpeed"]);
+            TrySet(scrollView.m_ShowHorizontalScrollbar, uiScrollViewComponent["ShowHorizontalScrollbar"]);
+            TrySet(scrollView.m_ShowVerticalScrollbar, uiScrollViewComponent["ShowVerticalScrollbar"]);
+            TrySet(scrollView.m_ScrollbarColor, uiScrollViewComponent["ScrollbarColor"]);
+            TrySet(scrollView.m_ScrollbarTrackColor, uiScrollViewComponent["ScrollbarTrackColor"]);
+        }
+
+        if (auto uiDropdownComponent = entity["UIDropdownComponent"]; uiDropdownComponent)
+        {
+            auto& dropdown = deserializedEntity.AddComponent<UIDropdownComponent>();
+            if (uiDropdownComponent["Options"])
+            {
+                for (const auto& optionNode : uiDropdownComponent["Options"])
+                {
+                    UIDropdownOption option;
+                    option.m_Label = optionNode.as<std::string>("");
+                    dropdown.m_Options.push_back(option);
+                }
+            }
+            TrySet(dropdown.m_SelectedIndex, uiDropdownComponent["SelectedIndex"]);
+            TrySet(dropdown.m_BackgroundColor, uiDropdownComponent["BackgroundColor"]);
+            TrySet(dropdown.m_HighlightColor, uiDropdownComponent["HighlightColor"]);
+            TrySet(dropdown.m_TextColor, uiDropdownComponent["TextColor"]);
+            if (uiDropdownComponent["FontPath"])
+            {
+                dropdown.m_FontAsset = Font::Create(uiDropdownComponent["FontPath"].as<std::string>());
+            }
+            TrySet(dropdown.m_FontSize, uiDropdownComponent["FontSize"]);
+            TrySet(dropdown.m_ItemHeight, uiDropdownComponent["ItemHeight"]);
+            TrySet(dropdown.m_Interactable, uiDropdownComponent["Interactable"]);
+        }
+
+        if (auto uiGridLayoutComponent = entity["UIGridLayoutComponent"]; uiGridLayoutComponent)
+        {
+            auto& grid = deserializedEntity.AddComponent<UIGridLayoutComponent>();
+            TrySet(grid.m_CellSize, uiGridLayoutComponent["CellSize"]);
+            TrySet(grid.m_Spacing, uiGridLayoutComponent["Spacing"]);
+            TrySet(grid.m_Padding, uiGridLayoutComponent["Padding"]);
+            TrySetEnum(grid.m_StartCorner, uiGridLayoutComponent["StartCorner"]);
+            TrySetEnum(grid.m_StartAxis, uiGridLayoutComponent["StartAxis"]);
+            TrySet(grid.m_ConstraintCount, uiGridLayoutComponent["ConstraintCount"]);
+        }
+
+        if (auto uiToggleComponent = entity["UIToggleComponent"]; uiToggleComponent)
+        {
+            auto& toggle = deserializedEntity.AddComponent<UIToggleComponent>();
+            TrySet(toggle.m_IsOn, uiToggleComponent["IsOn"]);
+            TrySet(toggle.m_OffColor, uiToggleComponent["OffColor"]);
+            TrySet(toggle.m_OnColor, uiToggleComponent["OnColor"]);
+            TrySet(toggle.m_KnobColor, uiToggleComponent["KnobColor"]);
+            TrySet(toggle.m_Interactable, uiToggleComponent["Interactable"]);
+        }
+
+        if (auto particleComponent = entity["ParticleSystemComponent"]; particleComponent)
+        {
+            auto& psc = deserializedEntity.AddComponent<ParticleSystemComponent>();
+            DeserializeParticleSystemComponent(psc, particleComponent);
+        }
+
+        if (auto terrainComponent = entity["TerrainComponent"]; terrainComponent)
+        {
+            auto& terrain = deserializedEntity.AddComponent<TerrainComponent>();
+            DeserializeTerrainComponent(terrain, terrainComponent);
+        }
+
+        if (auto foliageComponent = entity["FoliageComponent"]; foliageComponent)
+        {
+            auto& foliage = deserializedEntity.AddComponent<FoliageComponent>();
+            DeserializeFoliageComponent(foliage, foliageComponent);
+        }
+
+        if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
+        {
+            DeserializeSnowDeformerComponent(deserializedEntity, snowDeformerComponent);
+        }
+
+        if (auto fogVolumeComponent = entity["FogVolumeComponent"]; fogVolumeComponent)
+        {
+            DeserializeFogVolumeComponent(deserializedEntity, fogVolumeComponent);
+        }
+
+        if (auto decalComponent = entity["DecalComponent"]; decalComponent)
+        {
+            DeserializeDecalComponent(deserializedEntity, decalComponent);
+        }
+
+        if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
+        {
+            auto& submesh = deserializedEntity.AddComponent<SubmeshComponent>();
+            submesh.m_SubmeshIndex = submeshComponent["SubmeshIndex"].as<u32>(submesh.m_SubmeshIndex);
+            submesh.m_Visible = submeshComponent["Visible"].as<bool>(submesh.m_Visible);
+            // Note: m_Mesh is reconstructed from parent MeshComponent at runtime
+        }
+
+        if (auto animComponent = entity["AnimationStateComponent"]; animComponent)
+        {
+            auto& anim = deserializedEntity.AddComponent<AnimationStateComponent>();
+            anim.m_State = static_cast<AnimationStateComponent::State>(animComponent["State"].as<int>(static_cast<int>(anim.m_State)));
+            anim.m_CurrentTime = animComponent["CurrentTime"].as<f32>(anim.m_CurrentTime);
+            anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
+            anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
+            anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
+
+            // Load source file path (stored as relative, convert to absolute) and reload animated model if available
+            if (animComponent["SourceFilePath"])
+            {
+                auto relativePathStr = animComponent["SourceFilePath"].as<std::string>();
+                if (!relativePathStr.empty())
+                {
+                    // Convert relative path back to absolute
+                    std::filesystem::path relativePath(relativePathStr);
+                    auto assetDirectory = Project::GetAssetDirectory();
+                    auto absolutePath = assetDirectory / relativePath;
+                    anim.m_SourceFilePath = absolutePath.string();
+
+                    auto animatedModel = Ref<AnimatedModel>::Create(anim.m_SourceFilePath);
+                    if (animatedModel)
+                    {
+                        // Load animations
+                        if (animatedModel->HasAnimations())
+                        {
+                            anim.m_AvailableClips = animatedModel->GetAnimations();
+                            if (anim.m_CurrentClipIndex >= 0 && anim.m_CurrentClipIndex < static_cast<int>(anim.m_AvailableClips.size()))
+                            {
+                                anim.m_CurrentClip = anim.m_AvailableClips[anim.m_CurrentClipIndex];
+                            }
+                            else if (!anim.m_AvailableClips.empty())
+                            {
+                                anim.m_CurrentClip = anim.m_AvailableClips[0];
+                                anim.m_CurrentClipIndex = 0;
+                            }
+                            OLO_CORE_INFO("Deserialized AnimationStateComponent: loaded {} clips from '{}'",
+                                          anim.m_AvailableClips.size(), anim.m_SourceFilePath);
+                        }
+
+                        // Update or add MeshComponent with loaded mesh data
+                        if (!animatedModel->GetMeshes().empty())
+                        {
+                            if (!deserializedEntity.HasComponent<MeshComponent>())
+                            {
+                                deserializedEntity.AddComponent<MeshComponent>();
+                            }
+                            auto& meshComp = deserializedEntity.GetComponent<MeshComponent>();
+                            meshComp.m_MeshSource = animatedModel->GetMeshes()[0];
+                            OLO_CORE_INFO("Deserialized MeshComponent: loaded mesh from animated model");
+                        }
+
+                        // Update or add SkeletonComponent with loaded skeleton data
+                        if (animatedModel->HasSkeleton())
+                        {
+                            if (!deserializedEntity.HasComponent<SkeletonComponent>())
+                            {
+                                deserializedEntity.AddComponent<SkeletonComponent>();
+                            }
+                            auto& skelComp = deserializedEntity.GetComponent<SkeletonComponent>();
+                            skelComp.m_Skeleton = animatedModel->GetSkeleton();
+                            OLO_CORE_INFO("Deserialized SkeletonComponent: loaded {} bones from animated model",
+                                          skelComp.m_Skeleton ? skelComp.m_Skeleton->m_BoneNames.size() : 0);
+                        }
+
+                        // Update MaterialComponent if model has materials
+                        if (!animatedModel->GetMaterials().empty())
+                        {
+                            if (!deserializedEntity.HasComponent<MaterialComponent>())
+                            {
+                                deserializedEntity.AddComponent<MaterialComponent>();
+                            }
+                            auto& matComp = deserializedEntity.GetComponent<MaterialComponent>();
+                            matComp.m_Material = animatedModel->GetMaterials()[0];
+                            OLO_CORE_INFO("Deserialized MaterialComponent: loaded material from animated model");
+                        }
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("Failed to load animated model from '{}'", anim.m_SourceFilePath);
+                    }
+                }
+            }
+        }
+
+        if (auto skelComponent = entity["SkeletonComponent"]; skelComponent)
+        {
+            // Only add if not already added by AnimationStateComponent deserialization
+            if (!deserializedEntity.HasComponent<SkeletonComponent>())
+            {
+                deserializedEntity.AddComponent<SkeletonComponent>();
+            }
+            // Note: Skeleton data is loaded from AnimationStateComponent's source file
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -2431,755 +3142,7 @@ namespace OloEngine
 
                 Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
 
-                if (auto transformComponent = entity["TransformComponent"]; transformComponent)
-                {
-                    // Entities always have transforms
-                    auto& tc = deserializedEntity.GetComponent<TransformComponent>();
-                    tc.Translation = transformComponent["Translation"].as<glm::vec3>();
-                    tc.Rotation = transformComponent["Rotation"].as<glm::vec3>();
-                    tc.Scale = transformComponent["Scale"].as<glm::vec3>();
-                }
-
-                if (auto cameraComponent = entity["CameraComponent"]; cameraComponent)
-                {
-                    auto& cc = deserializedEntity.AddComponent<CameraComponent>();
-
-                    auto cameraProps = cameraComponent["Camera"];
-                    cc.Camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>(cameraProps["ProjectionType"].as<int>()));
-
-                    cc.Camera.SetPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<f32>());
-                    cc.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<f32>());
-                    cc.Camera.SetPerspectiveFarClip(cameraProps["PerspectiveFar"].as<f32>());
-
-                    cc.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<f32>());
-                    cc.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<f32>());
-                    cc.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<f32>());
-
-                    cc.Primary = cameraComponent["Primary"].as<bool>();
-                    cc.FixedAspectRatio = cameraComponent["FixedAspectRatio"].as<bool>();
-                }
-
-                if (auto scriptComponent = entity["ScriptComponent"])
-                {
-                    auto& sc = deserializedEntity.AddComponent<ScriptComponent>();
-                    sc.ClassName = scriptComponent["ClassName"].as<std::string>();
-
-                    if (auto scriptFields = scriptComponent["ScriptFields"]; scriptFields)
-                    {
-                        if (Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(sc.ClassName))
-                        {
-                            const auto& fields = entityClass->GetFields();
-                            auto& entityFields = ScriptEngine::GetScriptFieldMap(deserializedEntity);
-
-                            for (auto scriptField : scriptFields)
-                            {
-                                name = scriptField["Name"].as<std::string>();
-                                auto typeString = scriptField["Type"].as<std::string>();
-                                ScriptFieldType type = Utils::ScriptFieldTypeFromString(typeString);
-
-                                ScriptFieldInstance& fieldInstance = entityFields[name];
-
-                                OLO_CORE_ASSERT(fields.contains(name));
-
-                                if (!fields.contains(name))
-                                {
-                                    continue;
-                                }
-
-                                fieldInstance.Field = fields.at(name);
-
-                                switch (type)
-                                {
-                                    READ_SCRIPT_FIELD(Float, f32)
-                                    READ_SCRIPT_FIELD(Double, f64)
-                                    READ_SCRIPT_FIELD(Bool, bool)
-                                    READ_SCRIPT_FIELD(Char, char)
-                                    READ_SCRIPT_FIELD(Byte, i8)
-                                    READ_SCRIPT_FIELD(Short, i16)
-                                    READ_SCRIPT_FIELD(Int, i32)
-                                    READ_SCRIPT_FIELD(Long, i64)
-                                    READ_SCRIPT_FIELD(UByte, u8)
-                                    READ_SCRIPT_FIELD(UShort, u16)
-                                    READ_SCRIPT_FIELD(UInt, u32)
-                                    READ_SCRIPT_FIELD(ULong, u64)
-                                    READ_SCRIPT_FIELD(Vector2, glm::vec2)
-                                    READ_SCRIPT_FIELD(Vector3, glm::vec3)
-                                    READ_SCRIPT_FIELD(Vector4, glm::vec4)
-                                    READ_SCRIPT_FIELD(Entity, UUID)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (const auto& audioSourceComponent = entity["AudioSourceComponent"])
-                {
-                    auto& src = deserializedEntity.AddComponent<AudioSourceComponent>();
-                    std::string audioFilepath;
-                    TrySet(audioFilepath, audioSourceComponent["Filepath"]);
-                    TrySet(src.Config.VolumeMultiplier, audioSourceComponent["VolumeMultiplier"]);
-                    TrySet(src.Config.PitchMultiplier, audioSourceComponent["PitchMultiplier"]);
-                    TrySet(src.Config.PlayOnAwake, audioSourceComponent["PlayOnAwake"]);
-                    TrySet(src.Config.Looping, audioSourceComponent["Looping"]);
-                    TrySet(src.Config.Spatialization, audioSourceComponent["Spatialization"]);
-                    TrySetEnum(src.Config.AttenuationModel, audioSourceComponent["AttenuationModel"]);
-                    TrySet(src.Config.RollOff, audioSourceComponent["RollOff"]);
-                    TrySet(src.Config.MinGain, audioSourceComponent["MinGain"]);
-                    TrySet(src.Config.MaxGain, audioSourceComponent["MaxGain"]);
-                    TrySet(src.Config.MinDistance, audioSourceComponent["MinDistance"]);
-                    TrySet(src.Config.MaxDistance, audioSourceComponent["MaxDistance"]);
-                    TrySet(src.Config.ConeInnerAngle, audioSourceComponent["ConeInnerAngle"]);
-                    TrySet(src.Config.ConeOuterAngle, audioSourceComponent["ConeOuterAngle"]);
-                    TrySet(src.Config.ConeOuterGain, audioSourceComponent["ConeOuterGain"]);
-                    TrySet(src.Config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
-
-                    if (!audioFilepath.empty())
-                    {
-                        std::filesystem::path path = audioFilepath.c_str();
-                        path = Project::GetAssetFileSystemPath(path);
-                        src.Source = Ref<AudioSource>::Create(path.string().c_str());
-                    }
-                }
-
-                if (const auto& audioListenerComponent = entity["AudioListenerComponent"])
-                {
-                    auto& src = deserializedEntity.AddComponent<AudioListenerComponent>();
-                    TrySet(src.Active, audioListenerComponent["Active"]);
-                    TrySet(src.Config.ConeInnerAngle, audioListenerComponent["ConeInnerAngle"]);
-                    TrySet(src.Config.ConeOuterAngle, audioListenerComponent["ConeOuterAngle"]);
-                    TrySet(src.Config.ConeOuterGain, audioListenerComponent["ConeOuterGain"]);
-                }
-
-                if (auto spriteRendererComponent = entity["SpriteRendererComponent"]; spriteRendererComponent)
-                {
-                    auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
-                    src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
-                    if (spriteRendererComponent["TexturePath"])
-                    {
-                        src.Texture = Texture2D::Create(spriteRendererComponent["TexturePath"].as<std::string>());
-                    }
-
-                    if (spriteRendererComponent["TilingFactor"])
-                    {
-                        src.TilingFactor = spriteRendererComponent["TilingFactor"].as<f32>();
-                    }
-                }
-
-                if (auto circleRendererComponent = entity["CircleRendererComponent"]; circleRendererComponent)
-                {
-                    auto& crc = deserializedEntity.AddComponent<CircleRendererComponent>();
-                    crc.Color = circleRendererComponent["Color"].as<glm::vec4>();
-                    crc.Thickness = circleRendererComponent["Thickness"].as<f32>();
-                    crc.Fade = circleRendererComponent["Fade"].as<f32>();
-                }
-
-                if (auto rigidbody2DComponent = entity["Rigidbody2DComponent"]; rigidbody2DComponent)
-                {
-                    auto& rb2d = deserializedEntity.AddComponent<Rigidbody2DComponent>();
-                    rb2d.Type = RigidBody2DBodyTypeFromString(rigidbody2DComponent["BodyType"].as<std::string>());
-                    rb2d.FixedRotation = rigidbody2DComponent["FixedRotation"].as<bool>();
-                }
-
-                if (auto boxCollider2DComponent = entity["BoxCollider2DComponent"]; boxCollider2DComponent)
-                {
-                    auto& bc2d = deserializedEntity.AddComponent<BoxCollider2DComponent>();
-                    bc2d.Offset = boxCollider2DComponent["Offset"].as<glm::vec2>();
-                    bc2d.Size = boxCollider2DComponent["Size"].as<glm::vec2>();
-                    bc2d.Density = boxCollider2DComponent["Density"].as<f32>();
-                    bc2d.Friction = boxCollider2DComponent["Friction"].as<f32>();
-                    bc2d.Restitution = boxCollider2DComponent["Restitution"].as<f32>();
-                    bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<f32>();
-                }
-
-                if (auto circleCollider2DComponent = entity["CircleCollider2DComponent"]; circleCollider2DComponent)
-                {
-                    auto& cc2d = deserializedEntity.AddComponent<CircleCollider2DComponent>();
-                    cc2d.Offset = circleCollider2DComponent["Offset"].as<glm::vec2>();
-                    cc2d.Radius = circleCollider2DComponent["Radius"].as<f32>();
-                    cc2d.Density = circleCollider2DComponent["Density"].as<f32>();
-                    cc2d.Friction = circleCollider2DComponent["Friction"].as<f32>();
-                    cc2d.Restitution = circleCollider2DComponent["Restitution"].as<f32>();
-                    cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<f32>();
-                }
-
-                if (auto textComponent = entity["TextComponent"]; textComponent)
-                {
-                    auto& tc = deserializedEntity.AddComponent<TextComponent>();
-                    tc.TextString = textComponent["TextString"].as<std::string>();
-                    if (textComponent["FontPath"])
-                    {
-                        tc.FontAsset = Font::Create(textComponent["FontPath"].as<std::string>());
-                    }
-                    tc.Color = textComponent["Color"].as<glm::vec4>();
-                    tc.Kerning = textComponent["Kerning"].as<float>();
-                    tc.LineSpacing = textComponent["LineSpacing"].as<float>();
-                }
-
-                if (auto meshComponent = entity["MeshComponent"]; meshComponent)
-                {
-                    auto& mc = deserializedEntity.AddComponent<MeshComponent>();
-                    if (meshComponent["MeshSourceHandle"])
-                    {
-                        u64 handle = meshComponent["MeshSourceHandle"].as<u64>();
-                        mc.m_MeshSource = AssetManager::GetAsset<MeshSource>(handle);
-                    }
-                    if (meshComponent["Primitive"])
-                    {
-                        const auto primitiveInt = meshComponent["Primitive"].as<i32>();
-                        if (primitiveInt >= static_cast<i32>(MeshPrimitive::None) && primitiveInt <= static_cast<i32>(MeshPrimitive::Torus))
-                        {
-                            mc.m_Primitive = static_cast<MeshPrimitive>(primitiveInt);
-                        }
-                        else
-                        {
-                            OLO_CORE_WARN("SceneSerializer: Invalid MeshPrimitive value {}, defaulting to None", primitiveInt);
-                            mc.m_Primitive = MeshPrimitive::None;
-                        }
-                        if (!mc.m_MeshSource && mc.m_Primitive != MeshPrimitive::None)
-                        {
-                            if (auto mesh = CreateMeshFromPrimitive(mc.m_Primitive))
-                            {
-                                mc.m_MeshSource = mesh->GetMeshSource();
-                            }
-                        }
-                    }
-                }
-
-                if (auto modelComponent = entity["ModelComponent"]; modelComponent)
-                {
-                    auto& mc = deserializedEntity.AddComponent<ModelComponent>();
-                    if (modelComponent["FilePath"])
-                    {
-                        mc.m_FilePath = modelComponent["FilePath"].as<std::string>();
-                        if (!mc.m_FilePath.empty())
-                        {
-                            mc.Reload(); // Load the model from file
-                        }
-                    }
-                    if (modelComponent["Visible"])
-                    {
-                        mc.m_Visible = modelComponent["Visible"].as<bool>();
-                    }
-                }
-
-                if (auto materialComponent = entity["MaterialComponent"]; materialComponent)
-                {
-                    auto& matc = deserializedEntity.AddComponent<MaterialComponent>();
-                    if (materialComponent["AlbedoColor"])
-                    {
-                        auto albedo = materialComponent["AlbedoColor"].as<glm::vec3>();
-                        matc.m_Material.SetBaseColorFactor(glm::vec4(albedo, 1.0f));
-                    }
-                    if (materialComponent["Metallic"])
-                    {
-                        matc.m_Material.SetMetallicFactor(materialComponent["Metallic"].as<f32>());
-                    }
-                    if (materialComponent["Roughness"])
-                    {
-                        matc.m_Material.SetRoughnessFactor(materialComponent["Roughness"].as<f32>());
-                    }
-                }
-
-                if (auto dirLightComponent = entity["DirectionalLightComponent"]; dirLightComponent)
-                {
-                    auto& dirLight = deserializedEntity.AddComponent<DirectionalLightComponent>();
-                    dirLight.m_Direction = dirLightComponent["Direction"].as<glm::vec3>(dirLight.m_Direction);
-                    dirLight.m_Color = dirLightComponent["Color"].as<glm::vec3>(dirLight.m_Color);
-                    dirLight.m_Intensity = dirLightComponent["Intensity"].as<f32>(dirLight.m_Intensity);
-                    dirLight.m_CastShadows = dirLightComponent["CastShadows"].as<bool>(dirLight.m_CastShadows);
-                    dirLight.m_ShadowBias = dirLightComponent["ShadowBias"].as<f32>(dirLight.m_ShadowBias);
-                    dirLight.m_ShadowNormalBias = dirLightComponent["ShadowNormalBias"].as<f32>(dirLight.m_ShadowNormalBias);
-                    dirLight.m_MaxShadowDistance = dirLightComponent["MaxShadowDistance"].as<f32>(dirLight.m_MaxShadowDistance);
-                    dirLight.m_CascadeSplitLambda = dirLightComponent["CascadeSplitLambda"].as<f32>(dirLight.m_CascadeSplitLambda);
-                    dirLight.m_CascadeDebugVisualization = dirLightComponent["CascadeDebugVisualization"].as<bool>(dirLight.m_CascadeDebugVisualization);
-                }
-
-                if (auto pointLightComponent = entity["PointLightComponent"]; pointLightComponent)
-                {
-                    auto& pointLight = deserializedEntity.AddComponent<PointLightComponent>();
-                    pointLight.m_Color = pointLightComponent["Color"].as<glm::vec3>(pointLight.m_Color);
-                    pointLight.m_Intensity = pointLightComponent["Intensity"].as<f32>(pointLight.m_Intensity);
-                    pointLight.m_Range = pointLightComponent["Range"].as<f32>(pointLight.m_Range);
-                    pointLight.m_Attenuation = pointLightComponent["Attenuation"].as<f32>(pointLight.m_Attenuation);
-                    pointLight.m_CastShadows = pointLightComponent["CastShadows"].as<bool>(pointLight.m_CastShadows);
-                    pointLight.m_ShadowBias = pointLightComponent["ShadowBias"].as<f32>(pointLight.m_ShadowBias);
-                    pointLight.m_ShadowNormalBias = pointLightComponent["ShadowNormalBias"].as<f32>(pointLight.m_ShadowNormalBias);
-                }
-
-                if (auto spotLightComponent = entity["SpotLightComponent"]; spotLightComponent)
-                {
-                    auto& spotLight = deserializedEntity.AddComponent<SpotLightComponent>();
-                    spotLight.m_Direction = spotLightComponent["Direction"].as<glm::vec3>(spotLight.m_Direction);
-                    spotLight.m_Color = spotLightComponent["Color"].as<glm::vec3>(spotLight.m_Color);
-                    spotLight.m_Intensity = spotLightComponent["Intensity"].as<f32>(spotLight.m_Intensity);
-                    spotLight.m_Range = spotLightComponent["Range"].as<f32>(spotLight.m_Range);
-                    spotLight.m_InnerCutoff = spotLightComponent["InnerCutoff"].as<f32>(spotLight.m_InnerCutoff);
-                    spotLight.m_OuterCutoff = spotLightComponent["OuterCutoff"].as<f32>(spotLight.m_OuterCutoff);
-                    spotLight.m_Attenuation = spotLightComponent["Attenuation"].as<f32>(spotLight.m_Attenuation);
-                    spotLight.m_CastShadows = spotLightComponent["CastShadows"].as<bool>(spotLight.m_CastShadows);
-                    spotLight.m_ShadowBias = spotLightComponent["ShadowBias"].as<f32>(spotLight.m_ShadowBias);
-                    spotLight.m_ShadowNormalBias = spotLightComponent["ShadowNormalBias"].as<f32>(spotLight.m_ShadowNormalBias);
-                }
-
-                if (auto envMapComponent = entity["EnvironmentMapComponent"]; envMapComponent)
-                {
-                    auto& envMap = deserializedEntity.AddComponent<EnvironmentMapComponent>();
-                    envMap.m_FilePath = envMapComponent["FilePath"].as<std::string>(envMap.m_FilePath);
-                    envMap.m_IsCubemapFolder = envMapComponent["IsCubemapFolder"].as<bool>(envMap.m_IsCubemapFolder);
-                    envMap.m_EnableSkybox = envMapComponent["EnableSkybox"].as<bool>(envMap.m_EnableSkybox);
-                    envMap.m_Rotation = envMapComponent["Rotation"].as<f32>(envMap.m_Rotation);
-                    envMap.m_Exposure = envMapComponent["Exposure"].as<f32>(envMap.m_Exposure);
-                    envMap.m_BlurAmount = envMapComponent["BlurAmount"].as<f32>(envMap.m_BlurAmount);
-                    envMap.m_EnableIBL = envMapComponent["EnableIBL"].as<bool>(envMap.m_EnableIBL);
-                    envMap.m_IBLIntensity = envMapComponent["IBLIntensity"].as<f32>(envMap.m_IBLIntensity);
-                    envMap.m_Tint = envMapComponent["Tint"].as<glm::vec3>(envMap.m_Tint);
-                }
-
-                if (auto rb3dComponent = entity["Rigidbody3DComponent"]; rb3dComponent)
-                {
-                    auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
-                    rb3d.m_Type = static_cast<BodyType3D>(rb3dComponent["BodyType"].as<int>(static_cast<int>(rb3d.m_Type)));
-                    rb3d.m_Mass = rb3dComponent["Mass"].as<f32>(rb3d.m_Mass);
-                    rb3d.m_LinearDrag = rb3dComponent["LinearDrag"].as<f32>(rb3d.m_LinearDrag);
-                    rb3d.m_AngularDrag = rb3dComponent["AngularDrag"].as<f32>(rb3d.m_AngularDrag);
-                    rb3d.m_DisableGravity = rb3dComponent["DisableGravity"].as<bool>(rb3d.m_DisableGravity);
-                    rb3d.m_IsTrigger = rb3dComponent["IsTrigger"].as<bool>(rb3d.m_IsTrigger);
-                }
-
-                if (auto bc3dComponent = entity["BoxCollider3DComponent"]; bc3dComponent)
-                {
-                    auto& bc3d = deserializedEntity.AddComponent<BoxCollider3DComponent>();
-                    bc3d.m_HalfExtents = bc3dComponent["HalfExtents"].as<glm::vec3>(bc3d.m_HalfExtents);
-                    bc3d.m_Offset = bc3dComponent["Offset"].as<glm::vec3>(bc3d.m_Offset);
-                    if (bc3dComponent["StaticFriction"])
-                        bc3d.m_Material.SetStaticFriction(bc3dComponent["StaticFriction"].as<f32>());
-                    if (bc3dComponent["DynamicFriction"])
-                        bc3d.m_Material.SetDynamicFriction(bc3dComponent["DynamicFriction"].as<f32>());
-                    if (bc3dComponent["Restitution"])
-                        bc3d.m_Material.SetRestitution(bc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto sc3dComponent = entity["SphereCollider3DComponent"]; sc3dComponent)
-                {
-                    auto& sc3d = deserializedEntity.AddComponent<SphereCollider3DComponent>();
-                    sc3d.m_Radius = sc3dComponent["Radius"].as<f32>(sc3d.m_Radius);
-                    sc3d.m_Offset = sc3dComponent["Offset"].as<glm::vec3>(sc3d.m_Offset);
-                    if (sc3dComponent["StaticFriction"])
-                        sc3d.m_Material.SetStaticFriction(sc3dComponent["StaticFriction"].as<f32>());
-                    if (sc3dComponent["DynamicFriction"])
-                        sc3d.m_Material.SetDynamicFriction(sc3dComponent["DynamicFriction"].as<f32>());
-                    if (sc3dComponent["Restitution"])
-                        sc3d.m_Material.SetRestitution(sc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto cc3dComponent = entity["CapsuleCollider3DComponent"]; cc3dComponent)
-                {
-                    auto& cc3d = deserializedEntity.AddComponent<CapsuleCollider3DComponent>();
-                    cc3d.m_Radius = cc3dComponent["Radius"].as<f32>(cc3d.m_Radius);
-                    cc3d.m_HalfHeight = cc3dComponent["HalfHeight"].as<f32>(cc3d.m_HalfHeight);
-                    cc3d.m_Offset = cc3dComponent["Offset"].as<glm::vec3>(cc3d.m_Offset);
-                    if (cc3dComponent["StaticFriction"])
-                        cc3d.m_Material.SetStaticFriction(cc3dComponent["StaticFriction"].as<f32>());
-                    if (cc3dComponent["DynamicFriction"])
-                        cc3d.m_Material.SetDynamicFriction(cc3dComponent["DynamicFriction"].as<f32>());
-                    if (cc3dComponent["Restitution"])
-                        cc3d.m_Material.SetRestitution(cc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto prefabComponent = entity["PrefabComponent"]; prefabComponent)
-                {
-                    auto& pc = deserializedEntity.AddComponent<PrefabComponent>();
-                    pc.m_PrefabID = prefabComponent["PrefabID"].as<u64>();
-                    pc.m_PrefabEntityID = prefabComponent["PrefabEntityID"].as<u64>();
-                }
-
-                if (auto mc3dComponent = entity["MeshCollider3DComponent"]; mc3dComponent)
-                {
-                    auto& mc3d = deserializedEntity.AddComponent<MeshCollider3DComponent>();
-                    if (mc3dComponent["ColliderAsset"])
-                        mc3d.m_ColliderAsset = mc3dComponent["ColliderAsset"].as<u64>();
-                    mc3d.m_Offset = mc3dComponent["Offset"].as<glm::vec3>(mc3d.m_Offset);
-                    mc3d.m_Scale = mc3dComponent["Scale"].as<glm::vec3>(mc3d.m_Scale);
-                    mc3d.m_UseComplexAsSimple = mc3dComponent["UseComplexAsSimple"].as<bool>(mc3d.m_UseComplexAsSimple);
-                    if (mc3dComponent["StaticFriction"])
-                        mc3d.m_Material.SetStaticFriction(mc3dComponent["StaticFriction"].as<f32>());
-                    if (mc3dComponent["DynamicFriction"])
-                        mc3d.m_Material.SetDynamicFriction(mc3dComponent["DynamicFriction"].as<f32>());
-                    if (mc3dComponent["Restitution"])
-                        mc3d.m_Material.SetRestitution(mc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto cmc3dComponent = entity["ConvexMeshCollider3DComponent"]; cmc3dComponent)
-                {
-                    auto& cmc3d = deserializedEntity.AddComponent<ConvexMeshCollider3DComponent>();
-                    if (cmc3dComponent["ColliderAsset"])
-                        cmc3d.m_ColliderAsset = cmc3dComponent["ColliderAsset"].as<u64>();
-                    cmc3d.m_Offset = cmc3dComponent["Offset"].as<glm::vec3>(cmc3d.m_Offset);
-                    cmc3d.m_Scale = cmc3dComponent["Scale"].as<glm::vec3>(cmc3d.m_Scale);
-                    cmc3d.m_ConvexRadius = cmc3dComponent["ConvexRadius"].as<f32>(cmc3d.m_ConvexRadius);
-                    cmc3d.m_MaxVertices = cmc3dComponent["MaxVertices"].as<u32>(cmc3d.m_MaxVertices);
-                    if (cmc3dComponent["StaticFriction"])
-                        cmc3d.m_Material.SetStaticFriction(cmc3dComponent["StaticFriction"].as<f32>());
-                    if (cmc3dComponent["DynamicFriction"])
-                        cmc3d.m_Material.SetDynamicFriction(cmc3dComponent["DynamicFriction"].as<f32>());
-                    if (cmc3dComponent["Restitution"])
-                        cmc3d.m_Material.SetRestitution(cmc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto tmc3dComponent = entity["TriangleMeshCollider3DComponent"]; tmc3dComponent)
-                {
-                    auto& tmc3d = deserializedEntity.AddComponent<TriangleMeshCollider3DComponent>();
-                    if (tmc3dComponent["ColliderAsset"])
-                        tmc3d.m_ColliderAsset = tmc3dComponent["ColliderAsset"].as<u64>();
-                    tmc3d.m_Offset = tmc3dComponent["Offset"].as<glm::vec3>(tmc3d.m_Offset);
-                    tmc3d.m_Scale = tmc3dComponent["Scale"].as<glm::vec3>(tmc3d.m_Scale);
-                    if (tmc3dComponent["StaticFriction"])
-                        tmc3d.m_Material.SetStaticFriction(tmc3dComponent["StaticFriction"].as<f32>());
-                    if (tmc3dComponent["DynamicFriction"])
-                        tmc3d.m_Material.SetDynamicFriction(tmc3dComponent["DynamicFriction"].as<f32>());
-                    if (tmc3dComponent["Restitution"])
-                        tmc3d.m_Material.SetRestitution(tmc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto cc3dComponent = entity["CharacterController3DComponent"]; cc3dComponent)
-                {
-                    auto& cc3d = deserializedEntity.AddComponent<CharacterController3DComponent>();
-                    cc3d.m_SlopeLimitDeg = cc3dComponent["SlopeLimitDeg"].as<f32>(cc3d.m_SlopeLimitDeg);
-                    cc3d.m_StepOffset = cc3dComponent["StepOffset"].as<f32>(cc3d.m_StepOffset);
-                    cc3d.m_JumpPower = cc3dComponent["JumpPower"].as<f32>(cc3d.m_JumpPower);
-                    cc3d.m_LayerID = cc3dComponent["LayerID"].as<u32>(cc3d.m_LayerID);
-                    cc3d.m_DisableGravity = cc3dComponent["DisableGravity"].as<bool>(cc3d.m_DisableGravity);
-                    cc3d.m_ControlMovementInAir = cc3dComponent["ControlMovementInAir"].as<bool>(cc3d.m_ControlMovementInAir);
-                    cc3d.m_ControlRotationInAir = cc3dComponent["ControlRotationInAir"].as<bool>(cc3d.m_ControlRotationInAir);
-                }
-
-                if (auto relComponent = entity["RelationshipComponent"]; relComponent)
-                {
-                    auto& rel = deserializedEntity.AddComponent<RelationshipComponent>();
-                    if (relComponent["ParentHandle"])
-                        rel.m_ParentHandle = relComponent["ParentHandle"].as<u64>();
-                    if (auto children = relComponent["Children"]; children)
-                    {
-                        for (auto child : children)
-                        {
-                            rel.m_Children.push_back(child.as<u64>());
-                        }
-                    }
-                }
-
-                if (auto uiCanvasComponent = entity["UICanvasComponent"]; uiCanvasComponent)
-                {
-                    auto& canvas = deserializedEntity.AddComponent<UICanvasComponent>();
-                    TrySetEnum(canvas.m_RenderMode, uiCanvasComponent["RenderMode"]);
-                    TrySetEnum(canvas.m_ScaleMode, uiCanvasComponent["ScaleMode"]);
-                    TrySet(canvas.m_SortOrder, uiCanvasComponent["SortOrder"]);
-                    TrySet(canvas.m_ReferenceResolution, uiCanvasComponent["ReferenceResolution"]);
-                }
-
-                if (auto uiRectTransformComponent = entity["UIRectTransformComponent"]; uiRectTransformComponent)
-                {
-                    auto& rt = deserializedEntity.AddComponent<UIRectTransformComponent>();
-                    TrySet(rt.m_AnchorMin, uiRectTransformComponent["AnchorMin"]);
-                    TrySet(rt.m_AnchorMax, uiRectTransformComponent["AnchorMax"]);
-                    TrySet(rt.m_AnchoredPosition, uiRectTransformComponent["AnchoredPosition"]);
-                    TrySet(rt.m_SizeDelta, uiRectTransformComponent["SizeDelta"]);
-                    TrySet(rt.m_Pivot, uiRectTransformComponent["Pivot"]);
-                    TrySet(rt.m_Rotation, uiRectTransformComponent["Rotation"]);
-                    TrySet(rt.m_Scale, uiRectTransformComponent["Scale"]);
-                }
-
-                if (auto uiImageComponent = entity["UIImageComponent"]; uiImageComponent)
-                {
-                    auto& image = deserializedEntity.AddComponent<UIImageComponent>();
-                    if (uiImageComponent["TexturePath"])
-                    {
-                        image.m_Texture = Texture2D::Create(uiImageComponent["TexturePath"].as<std::string>());
-                    }
-                    TrySet(image.m_Color, uiImageComponent["Color"]);
-                    TrySet(image.m_BorderInsets, uiImageComponent["BorderInsets"]);
-                }
-
-                if (auto uiPanelComponent = entity["UIPanelComponent"]; uiPanelComponent)
-                {
-                    auto& panel = deserializedEntity.AddComponent<UIPanelComponent>();
-                    TrySet(panel.m_BackgroundColor, uiPanelComponent["BackgroundColor"]);
-                    if (uiPanelComponent["BackgroundTexturePath"])
-                    {
-                        panel.m_BackgroundTexture = Texture2D::Create(uiPanelComponent["BackgroundTexturePath"].as<std::string>());
-                    }
-                }
-
-                if (auto uiTextComponent = entity["UITextComponent"]; uiTextComponent)
-                {
-                    auto& text = deserializedEntity.AddComponent<UITextComponent>();
-                    TrySet(text.m_Text, uiTextComponent["Text"]);
-                    if (uiTextComponent["FontPath"])
-                    {
-                        text.m_FontAsset = Font::Create(uiTextComponent["FontPath"].as<std::string>());
-                    }
-                    TrySet(text.m_FontSize, uiTextComponent["FontSize"]);
-                    TrySet(text.m_Color, uiTextComponent["Color"]);
-                    TrySetEnum(text.m_Alignment, uiTextComponent["Alignment"]);
-                    TrySet(text.m_Kerning, uiTextComponent["Kerning"]);
-                    TrySet(text.m_LineSpacing, uiTextComponent["LineSpacing"]);
-                }
-
-                if (auto uiButtonComponent = entity["UIButtonComponent"]; uiButtonComponent)
-                {
-                    auto& button = deserializedEntity.AddComponent<UIButtonComponent>();
-                    TrySet(button.m_NormalColor, uiButtonComponent["NormalColor"]);
-                    TrySet(button.m_HoveredColor, uiButtonComponent["HoveredColor"]);
-                    TrySet(button.m_PressedColor, uiButtonComponent["PressedColor"]);
-                    TrySet(button.m_DisabledColor, uiButtonComponent["DisabledColor"]);
-                    TrySet(button.m_Interactable, uiButtonComponent["Interactable"]);
-                }
-
-                if (auto uiSliderComponent = entity["UISliderComponent"]; uiSliderComponent)
-                {
-                    auto& slider = deserializedEntity.AddComponent<UISliderComponent>();
-                    TrySet(slider.m_Value, uiSliderComponent["Value"]);
-                    TrySet(slider.m_MinValue, uiSliderComponent["MinValue"]);
-                    TrySet(slider.m_MaxValue, uiSliderComponent["MaxValue"]);
-                    TrySetEnum(slider.m_Direction, uiSliderComponent["Direction"]);
-                    TrySet(slider.m_BackgroundColor, uiSliderComponent["BackgroundColor"]);
-                    TrySet(slider.m_FillColor, uiSliderComponent["FillColor"]);
-                    TrySet(slider.m_HandleColor, uiSliderComponent["HandleColor"]);
-                    TrySet(slider.m_Interactable, uiSliderComponent["Interactable"]);
-                }
-
-                if (auto uiCheckboxComponent = entity["UICheckboxComponent"]; uiCheckboxComponent)
-                {
-                    auto& checkbox = deserializedEntity.AddComponent<UICheckboxComponent>();
-                    TrySet(checkbox.m_IsChecked, uiCheckboxComponent["IsChecked"]);
-                    TrySet(checkbox.m_UncheckedColor, uiCheckboxComponent["UncheckedColor"]);
-                    TrySet(checkbox.m_CheckedColor, uiCheckboxComponent["CheckedColor"]);
-                    TrySet(checkbox.m_CheckmarkColor, uiCheckboxComponent["CheckmarkColor"]);
-                    TrySet(checkbox.m_Interactable, uiCheckboxComponent["Interactable"]);
-                }
-
-                if (auto uiProgressBarComponent = entity["UIProgressBarComponent"]; uiProgressBarComponent)
-                {
-                    auto& progress = deserializedEntity.AddComponent<UIProgressBarComponent>();
-                    TrySet(progress.m_Value, uiProgressBarComponent["Value"]);
-                    TrySet(progress.m_MinValue, uiProgressBarComponent["MinValue"]);
-                    TrySet(progress.m_MaxValue, uiProgressBarComponent["MaxValue"]);
-                    TrySetEnum(progress.m_FillMethod, uiProgressBarComponent["FillMethod"]);
-                    TrySet(progress.m_BackgroundColor, uiProgressBarComponent["BackgroundColor"]);
-                    TrySet(progress.m_FillColor, uiProgressBarComponent["FillColor"]);
-                }
-
-                if (auto uiInputFieldComponent = entity["UIInputFieldComponent"]; uiInputFieldComponent)
-                {
-                    auto& input = deserializedEntity.AddComponent<UIInputFieldComponent>();
-                    TrySet(input.m_Text, uiInputFieldComponent["Text"]);
-                    TrySet(input.m_Placeholder, uiInputFieldComponent["Placeholder"]);
-                    if (uiInputFieldComponent["FontPath"])
-                    {
-                        input.m_FontAsset = Font::Create(uiInputFieldComponent["FontPath"].as<std::string>());
-                    }
-                    TrySet(input.m_FontSize, uiInputFieldComponent["FontSize"]);
-                    TrySet(input.m_TextColor, uiInputFieldComponent["TextColor"]);
-                    TrySet(input.m_PlaceholderColor, uiInputFieldComponent["PlaceholderColor"]);
-                    TrySet(input.m_BackgroundColor, uiInputFieldComponent["BackgroundColor"]);
-                    TrySet(input.m_CharacterLimit, uiInputFieldComponent["CharacterLimit"]);
-                    TrySet(input.m_Interactable, uiInputFieldComponent["Interactable"]);
-                }
-
-                if (auto uiScrollViewComponent = entity["UIScrollViewComponent"]; uiScrollViewComponent)
-                {
-                    auto& scrollView = deserializedEntity.AddComponent<UIScrollViewComponent>();
-                    TrySet(scrollView.m_ScrollPosition, uiScrollViewComponent["ScrollPosition"]);
-                    TrySet(scrollView.m_ContentSize, uiScrollViewComponent["ContentSize"]);
-                    TrySetEnum(scrollView.m_ScrollDirection, uiScrollViewComponent["ScrollDirection"]);
-                    TrySet(scrollView.m_ScrollSpeed, uiScrollViewComponent["ScrollSpeed"]);
-                    TrySet(scrollView.m_ShowHorizontalScrollbar, uiScrollViewComponent["ShowHorizontalScrollbar"]);
-                    TrySet(scrollView.m_ShowVerticalScrollbar, uiScrollViewComponent["ShowVerticalScrollbar"]);
-                    TrySet(scrollView.m_ScrollbarColor, uiScrollViewComponent["ScrollbarColor"]);
-                    TrySet(scrollView.m_ScrollbarTrackColor, uiScrollViewComponent["ScrollbarTrackColor"]);
-                }
-
-                if (auto uiDropdownComponent = entity["UIDropdownComponent"]; uiDropdownComponent)
-                {
-                    auto& dropdown = deserializedEntity.AddComponent<UIDropdownComponent>();
-                    if (uiDropdownComponent["Options"])
-                    {
-                        for (const auto& optionNode : uiDropdownComponent["Options"])
-                        {
-                            UIDropdownOption option;
-                            option.m_Label = optionNode.as<std::string>("");
-                            dropdown.m_Options.push_back(option);
-                        }
-                    }
-                    TrySet(dropdown.m_SelectedIndex, uiDropdownComponent["SelectedIndex"]);
-                    TrySet(dropdown.m_BackgroundColor, uiDropdownComponent["BackgroundColor"]);
-                    TrySet(dropdown.m_HighlightColor, uiDropdownComponent["HighlightColor"]);
-                    TrySet(dropdown.m_TextColor, uiDropdownComponent["TextColor"]);
-                    if (uiDropdownComponent["FontPath"])
-                    {
-                        dropdown.m_FontAsset = Font::Create(uiDropdownComponent["FontPath"].as<std::string>());
-                    }
-                    TrySet(dropdown.m_FontSize, uiDropdownComponent["FontSize"]);
-                    TrySet(dropdown.m_ItemHeight, uiDropdownComponent["ItemHeight"]);
-                    TrySet(dropdown.m_Interactable, uiDropdownComponent["Interactable"]);
-                }
-
-                if (auto uiGridLayoutComponent = entity["UIGridLayoutComponent"]; uiGridLayoutComponent)
-                {
-                    auto& grid = deserializedEntity.AddComponent<UIGridLayoutComponent>();
-                    TrySet(grid.m_CellSize, uiGridLayoutComponent["CellSize"]);
-                    TrySet(grid.m_Spacing, uiGridLayoutComponent["Spacing"]);
-                    TrySet(grid.m_Padding, uiGridLayoutComponent["Padding"]);
-                    TrySetEnum(grid.m_StartCorner, uiGridLayoutComponent["StartCorner"]);
-                    TrySetEnum(grid.m_StartAxis, uiGridLayoutComponent["StartAxis"]);
-                    TrySet(grid.m_ConstraintCount, uiGridLayoutComponent["ConstraintCount"]);
-                }
-
-                if (auto uiToggleComponent = entity["UIToggleComponent"]; uiToggleComponent)
-                {
-                    auto& toggle = deserializedEntity.AddComponent<UIToggleComponent>();
-                    TrySet(toggle.m_IsOn, uiToggleComponent["IsOn"]);
-                    TrySet(toggle.m_OffColor, uiToggleComponent["OffColor"]);
-                    TrySet(toggle.m_OnColor, uiToggleComponent["OnColor"]);
-                    TrySet(toggle.m_KnobColor, uiToggleComponent["KnobColor"]);
-                    TrySet(toggle.m_Interactable, uiToggleComponent["Interactable"]);
-                }
-
-                if (auto particleComponent = entity["ParticleSystemComponent"]; particleComponent)
-                {
-                    auto& psc = deserializedEntity.AddComponent<ParticleSystemComponent>();
-                    DeserializeParticleSystemComponent(psc, particleComponent);
-                }
-
-                if (auto terrainComponent = entity["TerrainComponent"]; terrainComponent)
-                {
-                    auto& terrain = deserializedEntity.AddComponent<TerrainComponent>();
-                    DeserializeTerrainComponent(terrain, terrainComponent);
-                }
-
-                if (auto foliageComponent = entity["FoliageComponent"]; foliageComponent)
-                {
-                    auto& foliage = deserializedEntity.AddComponent<FoliageComponent>();
-                    DeserializeFoliageComponent(foliage, foliageComponent);
-                }
-
-                if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
-                {
-                    DeserializeSnowDeformerComponent(deserializedEntity, snowDeformerComponent);
-                }
-
-                if (auto fogVolumeComponent = entity["FogVolumeComponent"]; fogVolumeComponent)
-                {
-                    DeserializeFogVolumeComponent(deserializedEntity, fogVolumeComponent);
-                }
-
-                if (auto decalComponent = entity["DecalComponent"]; decalComponent)
-                {
-                    DeserializeDecalComponent(deserializedEntity, decalComponent);
-                }
-
-                if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
-                {
-                    auto& submesh = deserializedEntity.AddComponent<SubmeshComponent>();
-                    submesh.m_SubmeshIndex = submeshComponent["SubmeshIndex"].as<u32>(submesh.m_SubmeshIndex);
-                    submesh.m_Visible = submeshComponent["Visible"].as<bool>(submesh.m_Visible);
-                    // Note: m_Mesh is reconstructed from parent MeshComponent at runtime
-                }
-
-                if (auto animComponent = entity["AnimationStateComponent"]; animComponent)
-                {
-                    auto& anim = deserializedEntity.AddComponent<AnimationStateComponent>();
-                    anim.m_State = static_cast<AnimationStateComponent::State>(animComponent["State"].as<int>(static_cast<int>(anim.m_State)));
-                    anim.m_CurrentTime = animComponent["CurrentTime"].as<f32>(anim.m_CurrentTime);
-                    anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
-                    anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
-                    anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
-
-                    // Load source file path (stored as relative, convert to absolute) and reload animated model if available
-                    if (animComponent["SourceFilePath"])
-                    {
-                        auto relativePathStr = animComponent["SourceFilePath"].as<std::string>();
-                        if (!relativePathStr.empty())
-                        {
-                            // Convert relative path back to absolute
-                            std::filesystem::path relativePath(relativePathStr);
-                            auto assetDirectory = Project::GetAssetDirectory();
-                            auto absolutePath = assetDirectory / relativePath;
-                            anim.m_SourceFilePath = absolutePath.string();
-
-                            auto animatedModel = Ref<AnimatedModel>::Create(anim.m_SourceFilePath);
-                            if (animatedModel)
-                            {
-                                // Load animations
-                                if (animatedModel->HasAnimations())
-                                {
-                                    anim.m_AvailableClips = animatedModel->GetAnimations();
-                                    if (anim.m_CurrentClipIndex >= 0 && anim.m_CurrentClipIndex < static_cast<int>(anim.m_AvailableClips.size()))
-                                    {
-                                        anim.m_CurrentClip = anim.m_AvailableClips[anim.m_CurrentClipIndex];
-                                    }
-                                    else if (!anim.m_AvailableClips.empty())
-                                    {
-                                        anim.m_CurrentClip = anim.m_AvailableClips[0];
-                                        anim.m_CurrentClipIndex = 0;
-                                    }
-                                    OLO_CORE_INFO("Deserialized AnimationStateComponent: loaded {} clips from '{}'",
-                                                  anim.m_AvailableClips.size(), anim.m_SourceFilePath);
-                                }
-
-                                // Update or add MeshComponent with loaded mesh data
-                                if (!animatedModel->GetMeshes().empty())
-                                {
-                                    if (!deserializedEntity.HasComponent<MeshComponent>())
-                                    {
-                                        deserializedEntity.AddComponent<MeshComponent>();
-                                    }
-                                    auto& meshComp = deserializedEntity.GetComponent<MeshComponent>();
-                                    meshComp.m_MeshSource = animatedModel->GetMeshes()[0];
-                                    OLO_CORE_INFO("Deserialized MeshComponent: loaded mesh from animated model");
-                                }
-
-                                // Update or add SkeletonComponent with loaded skeleton data
-                                if (animatedModel->HasSkeleton())
-                                {
-                                    if (!deserializedEntity.HasComponent<SkeletonComponent>())
-                                    {
-                                        deserializedEntity.AddComponent<SkeletonComponent>();
-                                    }
-                                    auto& skelComp = deserializedEntity.GetComponent<SkeletonComponent>();
-                                    skelComp.m_Skeleton = animatedModel->GetSkeleton();
-                                    OLO_CORE_INFO("Deserialized SkeletonComponent: loaded {} bones from animated model",
-                                                  skelComp.m_Skeleton ? skelComp.m_Skeleton->m_BoneNames.size() : 0);
-                                }
-
-                                // Update MaterialComponent if model has materials
-                                if (!animatedModel->GetMaterials().empty())
-                                {
-                                    if (!deserializedEntity.HasComponent<MaterialComponent>())
-                                    {
-                                        deserializedEntity.AddComponent<MaterialComponent>();
-                                    }
-                                    auto& matComp = deserializedEntity.GetComponent<MaterialComponent>();
-                                    matComp.m_Material = animatedModel->GetMaterials()[0];
-                                    OLO_CORE_INFO("Deserialized MaterialComponent: loaded material from animated model");
-                                }
-                            }
-                            else
-                            {
-                                OLO_CORE_ERROR("Failed to load animated model from '{}'", anim.m_SourceFilePath);
-                            }
-                        }
-                    }
-                }
-
-                if (auto skelComponent = entity["SkeletonComponent"]; skelComponent)
-                {
-                    // Only add if not already added by AnimationStateComponent deserialization
-                    if (!deserializedEntity.HasComponent<SkeletonComponent>())
-                    {
-                        deserializedEntity.AddComponent<SkeletonComponent>();
-                    }
-                    // Note: Skeleton data is loaded from AnimationStateComponent's source file
-                }
+                DeserializeEntityComponents(deserializedEntity, entity);
             }
         }
         m_Scene->SetName(std::filesystem::path(filepath).filename().string());
@@ -3346,747 +3309,7 @@ namespace OloEngine
 
                 Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
 
-                auto transformComponent = entity["TransformComponent"];
-                if (transformComponent)
-                {
-                    // Entities always have transforms
-                    auto& tc = deserializedEntity.GetComponent<TransformComponent>();
-                    tc.Translation = transformComponent["Translation"].as<glm::vec3>();
-                    tc.Rotation = transformComponent["Rotation"].as<glm::vec3>();
-                    tc.Scale = transformComponent["Scale"].as<glm::vec3>();
-                }
-
-                if (auto cameraComponent = entity["CameraComponent"]; cameraComponent)
-                {
-                    auto& cc = deserializedEntity.AddComponent<CameraComponent>();
-
-                    auto cameraProps = cameraComponent["Camera"];
-                    cc.Camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>(cameraProps["ProjectionType"].as<int>()));
-
-                    cc.Camera.SetPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<f32>());
-                    cc.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<f32>());
-                    cc.Camera.SetPerspectiveFarClip(cameraProps["PerspectiveFar"].as<f32>());
-
-                    cc.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<f32>());
-                    cc.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<f32>());
-                    cc.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<f32>());
-
-                    cc.Primary = cameraComponent["Primary"].as<bool>();
-                    cc.FixedAspectRatio = cameraComponent["FixedAspectRatio"].as<bool>();
-                }
-
-                if (auto scriptComponent = entity["ScriptComponent"])
-                {
-                    auto& sc = deserializedEntity.AddComponent<ScriptComponent>();
-                    sc.ClassName = scriptComponent["ClassName"].as<std::string>();
-
-                    if (auto scriptFields = scriptComponent["ScriptFields"]; scriptFields)
-                    {
-                        if (Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(sc.ClassName))
-                        {
-                            const auto& fields = entityClass->GetFields();
-                            auto& entityFields = ScriptEngine::GetScriptFieldMap(deserializedEntity);
-
-                            for (auto scriptField : scriptFields)
-                            {
-                                std::string fieldName = scriptField["Name"].as<std::string>();
-                                auto typeString = scriptField["Type"].as<std::string>();
-                                ScriptFieldType type = Utils::ScriptFieldTypeFromString(typeString);
-
-                                ScriptFieldInstance& fieldInstance = entityFields[fieldName];
-
-                                OLO_CORE_ASSERT(fields.contains(fieldName));
-
-                                if (!fields.contains(fieldName))
-                                {
-                                    continue;
-                                }
-
-                                fieldInstance.Field = fields.at(fieldName);
-
-                                switch (type)
-                                {
-                                    READ_SCRIPT_FIELD(Float, f32)
-                                    READ_SCRIPT_FIELD(Double, f64)
-                                    READ_SCRIPT_FIELD(Bool, bool)
-                                    READ_SCRIPT_FIELD(Char, char)
-                                    READ_SCRIPT_FIELD(Byte, i8)
-                                    READ_SCRIPT_FIELD(Short, i16)
-                                    READ_SCRIPT_FIELD(Int, i32)
-                                    READ_SCRIPT_FIELD(Long, i64)
-                                    READ_SCRIPT_FIELD(UByte, u8)
-                                    READ_SCRIPT_FIELD(UShort, u16)
-                                    READ_SCRIPT_FIELD(UInt, u32)
-                                    READ_SCRIPT_FIELD(ULong, u64)
-                                    READ_SCRIPT_FIELD(Vector2, glm::vec2)
-                                    READ_SCRIPT_FIELD(Vector3, glm::vec3)
-                                    READ_SCRIPT_FIELD(Vector4, glm::vec4)
-                                    READ_SCRIPT_FIELD(Entity, UUID)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (const auto& audioSourceComponent = entity["AudioSourceComponent"])
-                {
-                    auto& src = deserializedEntity.AddComponent<AudioSourceComponent>();
-                    std::string audioFilepath;
-                    TrySet(audioFilepath, audioSourceComponent["Filepath"]);
-                    TrySet(src.Config.VolumeMultiplier, audioSourceComponent["VolumeMultiplier"]);
-                    TrySet(src.Config.PitchMultiplier, audioSourceComponent["PitchMultiplier"]);
-                    TrySet(src.Config.PlayOnAwake, audioSourceComponent["PlayOnAwake"]);
-                    TrySet(src.Config.Looping, audioSourceComponent["Looping"]);
-                    TrySet(src.Config.Spatialization, audioSourceComponent["Spatialization"]);
-                    TrySetEnum(src.Config.AttenuationModel, audioSourceComponent["AttenuationModel"]);
-                    TrySet(src.Config.RollOff, audioSourceComponent["RollOff"]);
-                    TrySet(src.Config.MinGain, audioSourceComponent["MinGain"]);
-                    TrySet(src.Config.MaxGain, audioSourceComponent["MaxGain"]);
-                    TrySet(src.Config.MinDistance, audioSourceComponent["MinDistance"]);
-                    TrySet(src.Config.MaxDistance, audioSourceComponent["MaxDistance"]);
-                    TrySet(src.Config.ConeInnerAngle, audioSourceComponent["ConeInnerAngle"]);
-                    TrySet(src.Config.ConeOuterAngle, audioSourceComponent["ConeOuterAngle"]);
-                    TrySet(src.Config.ConeOuterGain, audioSourceComponent["ConeOuterGain"]);
-                    TrySet(src.Config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
-
-                    if (!audioFilepath.empty())
-                    {
-                        std::filesystem::path path = audioFilepath.c_str();
-                        path = Project::GetAssetFileSystemPath(path);
-                        src.Source = Ref<AudioSource>::Create(path.string().c_str());
-                    }
-                }
-
-                if (const auto& audioListenerComponent = entity["AudioListenerComponent"])
-                {
-                    auto& src = deserializedEntity.AddComponent<AudioListenerComponent>();
-                    TrySet(src.Active, audioListenerComponent["Active"]);
-                    TrySet(src.Config.ConeInnerAngle, audioListenerComponent["ConeInnerAngle"]);
-                    TrySet(src.Config.ConeOuterAngle, audioListenerComponent["ConeOuterAngle"]);
-                    TrySet(src.Config.ConeOuterGain, audioListenerComponent["ConeOuterGain"]);
-                }
-
-                if (auto spriteRendererComponent = entity["SpriteRendererComponent"]; spriteRendererComponent)
-                {
-                    auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
-                    src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
-                    if (spriteRendererComponent["TexturePath"])
-                    {
-                        src.Texture = Texture2D::Create(spriteRendererComponent["TexturePath"].as<std::string>());
-                    }
-
-                    if (spriteRendererComponent["TilingFactor"])
-                    {
-                        src.TilingFactor = spriteRendererComponent["TilingFactor"].as<f32>();
-                    }
-                }
-
-                if (auto circleRendererComponent = entity["CircleRendererComponent"]; circleRendererComponent)
-                {
-                    auto& crc = deserializedEntity.AddComponent<CircleRendererComponent>();
-                    crc.Color = circleRendererComponent["Color"].as<glm::vec4>();
-                    crc.Thickness = circleRendererComponent["Thickness"].as<f32>();
-                    crc.Fade = circleRendererComponent["Fade"].as<f32>();
-                }
-
-                if (auto rigidbody2DComponent = entity["Rigidbody2DComponent"]; rigidbody2DComponent)
-                {
-                    auto& rb2d = deserializedEntity.AddComponent<Rigidbody2DComponent>();
-                    rb2d.Type = RigidBody2DBodyTypeFromString(rigidbody2DComponent["BodyType"].as<std::string>());
-                    rb2d.FixedRotation = rigidbody2DComponent["FixedRotation"].as<bool>();
-                }
-
-                if (auto boxCollider2DComponent = entity["BoxCollider2DComponent"]; boxCollider2DComponent)
-                {
-                    auto& bc2d = deserializedEntity.AddComponent<BoxCollider2DComponent>();
-                    bc2d.Offset = boxCollider2DComponent["Offset"].as<glm::vec2>();
-                    bc2d.Size = boxCollider2DComponent["Size"].as<glm::vec2>();
-                    bc2d.Density = boxCollider2DComponent["Density"].as<f32>();
-                    bc2d.Friction = boxCollider2DComponent["Friction"].as<f32>();
-                    bc2d.Restitution = boxCollider2DComponent["Restitution"].as<f32>();
-                    bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<f32>();
-                }
-
-                if (auto circleCollider2DComponent = entity["CircleCollider2DComponent"]; circleCollider2DComponent)
-                {
-                    auto& cc2d = deserializedEntity.AddComponent<CircleCollider2DComponent>();
-                    cc2d.Offset = circleCollider2DComponent["Offset"].as<glm::vec2>();
-                    cc2d.Radius = circleCollider2DComponent["Radius"].as<f32>();
-                    cc2d.Density = circleCollider2DComponent["Density"].as<f32>();
-                    cc2d.Friction = circleCollider2DComponent["Friction"].as<f32>();
-                    cc2d.Restitution = circleCollider2DComponent["Restitution"].as<f32>();
-                    cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<f32>();
-                }
-
-                if (auto textComponent = entity["TextComponent"]; textComponent)
-                {
-                    auto& tc = deserializedEntity.AddComponent<TextComponent>();
-                    tc.TextString = textComponent["TextString"].as<std::string>();
-                    if (textComponent["FontPath"])
-                    {
-                        tc.FontAsset = Font::Create(textComponent["FontPath"].as<std::string>());
-                    }
-                    tc.Color = textComponent["Color"].as<glm::vec4>();
-                    tc.Kerning = textComponent["Kerning"].as<float>();
-                    tc.LineSpacing = textComponent["LineSpacing"].as<float>();
-                }
-
-                if (auto prefabComponent = entity["PrefabComponent"]; prefabComponent)
-                {
-                    auto& pc = deserializedEntity.AddComponent<PrefabComponent>();
-                    pc.m_PrefabID = prefabComponent["PrefabID"].as<u64>();
-                    pc.m_PrefabEntityID = prefabComponent["PrefabEntityID"].as<u64>();
-                }
-
-                // 3D Components (matching Deserialize method)
-                if (auto meshComponent = entity["MeshComponent"]; meshComponent)
-                {
-                    auto& mc = deserializedEntity.AddComponent<MeshComponent>();
-                    if (meshComponent["MeshSourceHandle"])
-                    {
-                        u64 handle = meshComponent["MeshSourceHandle"].as<u64>();
-                        mc.m_MeshSource = AssetManager::GetAsset<MeshSource>(handle);
-                    }
-                    if (meshComponent["Primitive"])
-                    {
-                        const auto primitiveInt = meshComponent["Primitive"].as<i32>();
-                        if (primitiveInt >= static_cast<i32>(MeshPrimitive::None) && primitiveInt <= static_cast<i32>(MeshPrimitive::Torus))
-                        {
-                            mc.m_Primitive = static_cast<MeshPrimitive>(primitiveInt);
-                        }
-                        else
-                        {
-                            OLO_CORE_WARN("SceneSerializer: Invalid MeshPrimitive value {}, defaulting to None", primitiveInt);
-                            mc.m_Primitive = MeshPrimitive::None;
-                        }
-                        if (!mc.m_MeshSource && mc.m_Primitive != MeshPrimitive::None)
-                        {
-                            if (auto mesh = CreateMeshFromPrimitive(mc.m_Primitive))
-                            {
-                                mc.m_MeshSource = mesh->GetMeshSource();
-                            }
-                        }
-                    }
-                }
-
-                if (auto modelComponent = entity["ModelComponent"]; modelComponent)
-                {
-                    auto& mc = deserializedEntity.AddComponent<ModelComponent>();
-                    if (modelComponent["FilePath"])
-                    {
-                        mc.m_FilePath = modelComponent["FilePath"].as<std::string>();
-                        if (!mc.m_FilePath.empty())
-                        {
-                            mc.Reload();
-                        }
-                    }
-                    if (modelComponent["Visible"])
-                    {
-                        mc.m_Visible = modelComponent["Visible"].as<bool>();
-                    }
-                }
-
-                if (auto materialComponent = entity["MaterialComponent"]; materialComponent)
-                {
-                    auto& matc = deserializedEntity.AddComponent<MaterialComponent>();
-                    if (materialComponent["AlbedoColor"])
-                    {
-                        auto albedo = materialComponent["AlbedoColor"].as<glm::vec3>();
-                        matc.m_Material.SetBaseColorFactor(glm::vec4(albedo, 1.0f));
-                    }
-                    if (materialComponent["Metallic"])
-                    {
-                        matc.m_Material.SetMetallicFactor(materialComponent["Metallic"].as<f32>());
-                    }
-                    if (materialComponent["Roughness"])
-                    {
-                        matc.m_Material.SetRoughnessFactor(materialComponent["Roughness"].as<f32>());
-                    }
-                }
-
-                if (auto dirLightComponent = entity["DirectionalLightComponent"]; dirLightComponent)
-                {
-                    auto& dirLight = deserializedEntity.AddComponent<DirectionalLightComponent>();
-                    dirLight.m_Direction = dirLightComponent["Direction"].as<glm::vec3>(dirLight.m_Direction);
-                    dirLight.m_Color = dirLightComponent["Color"].as<glm::vec3>(dirLight.m_Color);
-                    dirLight.m_Intensity = dirLightComponent["Intensity"].as<f32>(dirLight.m_Intensity);
-                    dirLight.m_CastShadows = dirLightComponent["CastShadows"].as<bool>(dirLight.m_CastShadows);
-                    dirLight.m_ShadowBias = dirLightComponent["ShadowBias"].as<f32>(dirLight.m_ShadowBias);
-                    dirLight.m_ShadowNormalBias = dirLightComponent["ShadowNormalBias"].as<f32>(dirLight.m_ShadowNormalBias);
-                    dirLight.m_MaxShadowDistance = dirLightComponent["MaxShadowDistance"].as<f32>(dirLight.m_MaxShadowDistance);
-                    dirLight.m_CascadeSplitLambda = dirLightComponent["CascadeSplitLambda"].as<f32>(dirLight.m_CascadeSplitLambda);
-                    dirLight.m_CascadeDebugVisualization = dirLightComponent["CascadeDebugVisualization"].as<bool>(dirLight.m_CascadeDebugVisualization);
-                }
-
-                if (auto pointLightComponent = entity["PointLightComponent"]; pointLightComponent)
-                {
-                    auto& pointLight = deserializedEntity.AddComponent<PointLightComponent>();
-                    pointLight.m_Color = pointLightComponent["Color"].as<glm::vec3>(pointLight.m_Color);
-                    pointLight.m_Intensity = pointLightComponent["Intensity"].as<f32>(pointLight.m_Intensity);
-                    pointLight.m_Range = pointLightComponent["Range"].as<f32>(pointLight.m_Range);
-                    pointLight.m_Attenuation = pointLightComponent["Attenuation"].as<f32>(pointLight.m_Attenuation);
-                    pointLight.m_CastShadows = pointLightComponent["CastShadows"].as<bool>(pointLight.m_CastShadows);
-                    pointLight.m_ShadowBias = pointLightComponent["ShadowBias"].as<f32>(pointLight.m_ShadowBias);
-                    pointLight.m_ShadowNormalBias = pointLightComponent["ShadowNormalBias"].as<f32>(pointLight.m_ShadowNormalBias);
-                }
-
-                if (auto spotLightComponent = entity["SpotLightComponent"]; spotLightComponent)
-                {
-                    auto& spotLight = deserializedEntity.AddComponent<SpotLightComponent>();
-                    spotLight.m_Direction = spotLightComponent["Direction"].as<glm::vec3>(spotLight.m_Direction);
-                    spotLight.m_Color = spotLightComponent["Color"].as<glm::vec3>(spotLight.m_Color);
-                    spotLight.m_Intensity = spotLightComponent["Intensity"].as<f32>(spotLight.m_Intensity);
-                    spotLight.m_Range = spotLightComponent["Range"].as<f32>(spotLight.m_Range);
-                    spotLight.m_InnerCutoff = spotLightComponent["InnerCutoff"].as<f32>(spotLight.m_InnerCutoff);
-                    spotLight.m_OuterCutoff = spotLightComponent["OuterCutoff"].as<f32>(spotLight.m_OuterCutoff);
-                    spotLight.m_Attenuation = spotLightComponent["Attenuation"].as<f32>(spotLight.m_Attenuation);
-                    spotLight.m_CastShadows = spotLightComponent["CastShadows"].as<bool>(spotLight.m_CastShadows);
-                    spotLight.m_ShadowBias = spotLightComponent["ShadowBias"].as<f32>(spotLight.m_ShadowBias);
-                    spotLight.m_ShadowNormalBias = spotLightComponent["ShadowNormalBias"].as<f32>(spotLight.m_ShadowNormalBias);
-                }
-
-                if (auto envMapComponent = entity["EnvironmentMapComponent"]; envMapComponent)
-                {
-                    auto& envMap = deserializedEntity.AddComponent<EnvironmentMapComponent>();
-                    envMap.m_FilePath = envMapComponent["FilePath"].as<std::string>(envMap.m_FilePath);
-                    envMap.m_IsCubemapFolder = envMapComponent["IsCubemapFolder"].as<bool>(envMap.m_IsCubemapFolder);
-                    envMap.m_EnableSkybox = envMapComponent["EnableSkybox"].as<bool>(envMap.m_EnableSkybox);
-                    envMap.m_Rotation = envMapComponent["Rotation"].as<f32>(envMap.m_Rotation);
-                    envMap.m_Exposure = envMapComponent["Exposure"].as<f32>(envMap.m_Exposure);
-                    envMap.m_BlurAmount = envMapComponent["BlurAmount"].as<f32>(envMap.m_BlurAmount);
-                    envMap.m_EnableIBL = envMapComponent["EnableIBL"].as<bool>(envMap.m_EnableIBL);
-                    envMap.m_IBLIntensity = envMapComponent["IBLIntensity"].as<f32>(envMap.m_IBLIntensity);
-                    envMap.m_Tint = envMapComponent["Tint"].as<glm::vec3>(envMap.m_Tint);
-                }
-
-                if (auto rb3dComponent = entity["Rigidbody3DComponent"]; rb3dComponent)
-                {
-                    auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
-                    rb3d.m_Type = static_cast<BodyType3D>(rb3dComponent["BodyType"].as<int>(static_cast<int>(rb3d.m_Type)));
-                    rb3d.m_Mass = rb3dComponent["Mass"].as<f32>(rb3d.m_Mass);
-                    rb3d.m_LinearDrag = rb3dComponent["LinearDrag"].as<f32>(rb3d.m_LinearDrag);
-                    rb3d.m_AngularDrag = rb3dComponent["AngularDrag"].as<f32>(rb3d.m_AngularDrag);
-                    rb3d.m_DisableGravity = rb3dComponent["DisableGravity"].as<bool>(rb3d.m_DisableGravity);
-                    rb3d.m_IsTrigger = rb3dComponent["IsTrigger"].as<bool>(rb3d.m_IsTrigger);
-                }
-
-                if (auto bc3dComponent = entity["BoxCollider3DComponent"]; bc3dComponent)
-                {
-                    auto& bc3d = deserializedEntity.AddComponent<BoxCollider3DComponent>();
-                    bc3d.m_HalfExtents = bc3dComponent["HalfExtents"].as<glm::vec3>(bc3d.m_HalfExtents);
-                    bc3d.m_Offset = bc3dComponent["Offset"].as<glm::vec3>(bc3d.m_Offset);
-                    if (bc3dComponent["StaticFriction"])
-                        bc3d.m_Material.SetStaticFriction(bc3dComponent["StaticFriction"].as<f32>());
-                    if (bc3dComponent["DynamicFriction"])
-                        bc3d.m_Material.SetDynamicFriction(bc3dComponent["DynamicFriction"].as<f32>());
-                    if (bc3dComponent["Restitution"])
-                        bc3d.m_Material.SetRestitution(bc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto sc3dComponent = entity["SphereCollider3DComponent"]; sc3dComponent)
-                {
-                    auto& sc3d = deserializedEntity.AddComponent<SphereCollider3DComponent>();
-                    sc3d.m_Radius = sc3dComponent["Radius"].as<f32>(sc3d.m_Radius);
-                    sc3d.m_Offset = sc3dComponent["Offset"].as<glm::vec3>(sc3d.m_Offset);
-                    if (sc3dComponent["StaticFriction"])
-                        sc3d.m_Material.SetStaticFriction(sc3dComponent["StaticFriction"].as<f32>());
-                    if (sc3dComponent["DynamicFriction"])
-                        sc3d.m_Material.SetDynamicFriction(sc3dComponent["DynamicFriction"].as<f32>());
-                    if (sc3dComponent["Restitution"])
-                        sc3d.m_Material.SetRestitution(sc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto cc3dComponent = entity["CapsuleCollider3DComponent"]; cc3dComponent)
-                {
-                    auto& cc3d = deserializedEntity.AddComponent<CapsuleCollider3DComponent>();
-                    cc3d.m_Radius = cc3dComponent["Radius"].as<f32>(cc3d.m_Radius);
-                    cc3d.m_HalfHeight = cc3dComponent["HalfHeight"].as<f32>(cc3d.m_HalfHeight);
-                    cc3d.m_Offset = cc3dComponent["Offset"].as<glm::vec3>(cc3d.m_Offset);
-                    if (cc3dComponent["StaticFriction"])
-                        cc3d.m_Material.SetStaticFriction(cc3dComponent["StaticFriction"].as<f32>());
-                    if (cc3dComponent["DynamicFriction"])
-                        cc3d.m_Material.SetDynamicFriction(cc3dComponent["DynamicFriction"].as<f32>());
-                    if (cc3dComponent["Restitution"])
-                        cc3d.m_Material.SetRestitution(cc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto mc3dComponent = entity["MeshCollider3DComponent"]; mc3dComponent)
-                {
-                    auto& mc3d = deserializedEntity.AddComponent<MeshCollider3DComponent>();
-                    if (mc3dComponent["ColliderAsset"])
-                        mc3d.m_ColliderAsset = mc3dComponent["ColliderAsset"].as<u64>();
-                    mc3d.m_Offset = mc3dComponent["Offset"].as<glm::vec3>(mc3d.m_Offset);
-                    mc3d.m_Scale = mc3dComponent["Scale"].as<glm::vec3>(mc3d.m_Scale);
-                    mc3d.m_UseComplexAsSimple = mc3dComponent["UseComplexAsSimple"].as<bool>(mc3d.m_UseComplexAsSimple);
-                    if (mc3dComponent["StaticFriction"])
-                        mc3d.m_Material.SetStaticFriction(mc3dComponent["StaticFriction"].as<f32>());
-                    if (mc3dComponent["DynamicFriction"])
-                        mc3d.m_Material.SetDynamicFriction(mc3dComponent["DynamicFriction"].as<f32>());
-                    if (mc3dComponent["Restitution"])
-                        mc3d.m_Material.SetRestitution(mc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto cmc3dComponent = entity["ConvexMeshCollider3DComponent"]; cmc3dComponent)
-                {
-                    auto& cmc3d = deserializedEntity.AddComponent<ConvexMeshCollider3DComponent>();
-                    if (cmc3dComponent["ColliderAsset"])
-                        cmc3d.m_ColliderAsset = cmc3dComponent["ColliderAsset"].as<u64>();
-                    cmc3d.m_Offset = cmc3dComponent["Offset"].as<glm::vec3>(cmc3d.m_Offset);
-                    cmc3d.m_Scale = cmc3dComponent["Scale"].as<glm::vec3>(cmc3d.m_Scale);
-                    cmc3d.m_ConvexRadius = cmc3dComponent["ConvexRadius"].as<f32>(cmc3d.m_ConvexRadius);
-                    cmc3d.m_MaxVertices = cmc3dComponent["MaxVertices"].as<u32>(cmc3d.m_MaxVertices);
-                    if (cmc3dComponent["StaticFriction"])
-                        cmc3d.m_Material.SetStaticFriction(cmc3dComponent["StaticFriction"].as<f32>());
-                    if (cmc3dComponent["DynamicFriction"])
-                        cmc3d.m_Material.SetDynamicFriction(cmc3dComponent["DynamicFriction"].as<f32>());
-                    if (cmc3dComponent["Restitution"])
-                        cmc3d.m_Material.SetRestitution(cmc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto tmc3dComponent = entity["TriangleMeshCollider3DComponent"]; tmc3dComponent)
-                {
-                    auto& tmc3d = deserializedEntity.AddComponent<TriangleMeshCollider3DComponent>();
-                    if (tmc3dComponent["ColliderAsset"])
-                        tmc3d.m_ColliderAsset = tmc3dComponent["ColliderAsset"].as<u64>();
-                    tmc3d.m_Offset = tmc3dComponent["Offset"].as<glm::vec3>(tmc3d.m_Offset);
-                    tmc3d.m_Scale = tmc3dComponent["Scale"].as<glm::vec3>(tmc3d.m_Scale);
-                    if (tmc3dComponent["StaticFriction"])
-                        tmc3d.m_Material.SetStaticFriction(tmc3dComponent["StaticFriction"].as<f32>());
-                    if (tmc3dComponent["DynamicFriction"])
-                        tmc3d.m_Material.SetDynamicFriction(tmc3dComponent["DynamicFriction"].as<f32>());
-                    if (tmc3dComponent["Restitution"])
-                        tmc3d.m_Material.SetRestitution(tmc3dComponent["Restitution"].as<f32>());
-                }
-
-                if (auto cc3dComponent = entity["CharacterController3DComponent"]; cc3dComponent)
-                {
-                    auto& cc3d = deserializedEntity.AddComponent<CharacterController3DComponent>();
-                    cc3d.m_SlopeLimitDeg = cc3dComponent["SlopeLimitDeg"].as<f32>(cc3d.m_SlopeLimitDeg);
-                    cc3d.m_StepOffset = cc3dComponent["StepOffset"].as<f32>(cc3d.m_StepOffset);
-                    cc3d.m_JumpPower = cc3dComponent["JumpPower"].as<f32>(cc3d.m_JumpPower);
-                    cc3d.m_LayerID = cc3dComponent["LayerID"].as<u32>(cc3d.m_LayerID);
-                    cc3d.m_DisableGravity = cc3dComponent["DisableGravity"].as<bool>(cc3d.m_DisableGravity);
-                    cc3d.m_ControlMovementInAir = cc3dComponent["ControlMovementInAir"].as<bool>(cc3d.m_ControlMovementInAir);
-                    cc3d.m_ControlRotationInAir = cc3dComponent["ControlRotationInAir"].as<bool>(cc3d.m_ControlRotationInAir);
-                }
-
-                if (auto relComponent = entity["RelationshipComponent"]; relComponent)
-                {
-                    auto& rel = deserializedEntity.AddComponent<RelationshipComponent>();
-                    if (relComponent["ParentHandle"])
-                        rel.m_ParentHandle = relComponent["ParentHandle"].as<u64>();
-                    if (auto children = relComponent["Children"]; children)
-                    {
-                        for (auto child : children)
-                        {
-                            rel.m_Children.push_back(child.as<u64>());
-                        }
-                    }
-                }
-
-                if (auto uiCanvasComponent = entity["UICanvasComponent"]; uiCanvasComponent)
-                {
-                    auto& canvas = deserializedEntity.AddComponent<UICanvasComponent>();
-                    TrySetEnum(canvas.m_RenderMode, uiCanvasComponent["RenderMode"]);
-                    TrySetEnum(canvas.m_ScaleMode, uiCanvasComponent["ScaleMode"]);
-                    TrySet(canvas.m_SortOrder, uiCanvasComponent["SortOrder"]);
-                    TrySet(canvas.m_ReferenceResolution, uiCanvasComponent["ReferenceResolution"]);
-                }
-
-                if (auto uiRectTransformComponent = entity["UIRectTransformComponent"]; uiRectTransformComponent)
-                {
-                    auto& rt = deserializedEntity.AddComponent<UIRectTransformComponent>();
-                    TrySet(rt.m_AnchorMin, uiRectTransformComponent["AnchorMin"]);
-                    TrySet(rt.m_AnchorMax, uiRectTransformComponent["AnchorMax"]);
-                    TrySet(rt.m_AnchoredPosition, uiRectTransformComponent["AnchoredPosition"]);
-                    TrySet(rt.m_SizeDelta, uiRectTransformComponent["SizeDelta"]);
-                    TrySet(rt.m_Pivot, uiRectTransformComponent["Pivot"]);
-                    TrySet(rt.m_Rotation, uiRectTransformComponent["Rotation"]);
-                    TrySet(rt.m_Scale, uiRectTransformComponent["Scale"]);
-                }
-
-                if (auto uiImageComponent = entity["UIImageComponent"]; uiImageComponent)
-                {
-                    auto& image = deserializedEntity.AddComponent<UIImageComponent>();
-                    if (uiImageComponent["TexturePath"])
-                    {
-                        image.m_Texture = Texture2D::Create(uiImageComponent["TexturePath"].as<std::string>());
-                    }
-                    TrySet(image.m_Color, uiImageComponent["Color"]);
-                    TrySet(image.m_BorderInsets, uiImageComponent["BorderInsets"]);
-                }
-
-                if (auto uiPanelComponent = entity["UIPanelComponent"]; uiPanelComponent)
-                {
-                    auto& panel = deserializedEntity.AddComponent<UIPanelComponent>();
-                    TrySet(panel.m_BackgroundColor, uiPanelComponent["BackgroundColor"]);
-                    if (uiPanelComponent["BackgroundTexturePath"])
-                    {
-                        panel.m_BackgroundTexture = Texture2D::Create(uiPanelComponent["BackgroundTexturePath"].as<std::string>());
-                    }
-                }
-
-                if (auto uiTextComponent = entity["UITextComponent"]; uiTextComponent)
-                {
-                    auto& text = deserializedEntity.AddComponent<UITextComponent>();
-                    TrySet(text.m_Text, uiTextComponent["Text"]);
-                    if (uiTextComponent["FontPath"])
-                    {
-                        text.m_FontAsset = Font::Create(uiTextComponent["FontPath"].as<std::string>());
-                    }
-                    TrySet(text.m_FontSize, uiTextComponent["FontSize"]);
-                    TrySet(text.m_Color, uiTextComponent["Color"]);
-                    TrySetEnum(text.m_Alignment, uiTextComponent["Alignment"]);
-                    TrySet(text.m_Kerning, uiTextComponent["Kerning"]);
-                    TrySet(text.m_LineSpacing, uiTextComponent["LineSpacing"]);
-                }
-
-                if (auto uiButtonComponent = entity["UIButtonComponent"]; uiButtonComponent)
-                {
-                    auto& button = deserializedEntity.AddComponent<UIButtonComponent>();
-                    TrySet(button.m_NormalColor, uiButtonComponent["NormalColor"]);
-                    TrySet(button.m_HoveredColor, uiButtonComponent["HoveredColor"]);
-                    TrySet(button.m_PressedColor, uiButtonComponent["PressedColor"]);
-                    TrySet(button.m_DisabledColor, uiButtonComponent["DisabledColor"]);
-                    TrySet(button.m_Interactable, uiButtonComponent["Interactable"]);
-                }
-
-                if (auto uiSliderComponent = entity["UISliderComponent"]; uiSliderComponent)
-                {
-                    auto& slider = deserializedEntity.AddComponent<UISliderComponent>();
-                    TrySet(slider.m_Value, uiSliderComponent["Value"]);
-                    TrySet(slider.m_MinValue, uiSliderComponent["MinValue"]);
-                    TrySet(slider.m_MaxValue, uiSliderComponent["MaxValue"]);
-                    TrySetEnum(slider.m_Direction, uiSliderComponent["Direction"]);
-                    TrySet(slider.m_BackgroundColor, uiSliderComponent["BackgroundColor"]);
-                    TrySet(slider.m_FillColor, uiSliderComponent["FillColor"]);
-                    TrySet(slider.m_HandleColor, uiSliderComponent["HandleColor"]);
-                    TrySet(slider.m_Interactable, uiSliderComponent["Interactable"]);
-                }
-
-                if (auto uiCheckboxComponent = entity["UICheckboxComponent"]; uiCheckboxComponent)
-                {
-                    auto& checkbox = deserializedEntity.AddComponent<UICheckboxComponent>();
-                    TrySet(checkbox.m_IsChecked, uiCheckboxComponent["IsChecked"]);
-                    TrySet(checkbox.m_UncheckedColor, uiCheckboxComponent["UncheckedColor"]);
-                    TrySet(checkbox.m_CheckedColor, uiCheckboxComponent["CheckedColor"]);
-                    TrySet(checkbox.m_CheckmarkColor, uiCheckboxComponent["CheckmarkColor"]);
-                    TrySet(checkbox.m_Interactable, uiCheckboxComponent["Interactable"]);
-                }
-
-                if (auto uiProgressBarComponent = entity["UIProgressBarComponent"]; uiProgressBarComponent)
-                {
-                    auto& progress = deserializedEntity.AddComponent<UIProgressBarComponent>();
-                    TrySet(progress.m_Value, uiProgressBarComponent["Value"]);
-                    TrySet(progress.m_MinValue, uiProgressBarComponent["MinValue"]);
-                    TrySet(progress.m_MaxValue, uiProgressBarComponent["MaxValue"]);
-                    TrySetEnum(progress.m_FillMethod, uiProgressBarComponent["FillMethod"]);
-                    TrySet(progress.m_BackgroundColor, uiProgressBarComponent["BackgroundColor"]);
-                    TrySet(progress.m_FillColor, uiProgressBarComponent["FillColor"]);
-                }
-
-                if (auto uiInputFieldComponent = entity["UIInputFieldComponent"]; uiInputFieldComponent)
-                {
-                    auto& input = deserializedEntity.AddComponent<UIInputFieldComponent>();
-                    TrySet(input.m_Text, uiInputFieldComponent["Text"]);
-                    TrySet(input.m_Placeholder, uiInputFieldComponent["Placeholder"]);
-                    if (uiInputFieldComponent["FontPath"])
-                    {
-                        input.m_FontAsset = Font::Create(uiInputFieldComponent["FontPath"].as<std::string>());
-                    }
-                    TrySet(input.m_FontSize, uiInputFieldComponent["FontSize"]);
-                    TrySet(input.m_TextColor, uiInputFieldComponent["TextColor"]);
-                    TrySet(input.m_PlaceholderColor, uiInputFieldComponent["PlaceholderColor"]);
-                    TrySet(input.m_BackgroundColor, uiInputFieldComponent["BackgroundColor"]);
-                    TrySet(input.m_CharacterLimit, uiInputFieldComponent["CharacterLimit"]);
-                    TrySet(input.m_Interactable, uiInputFieldComponent["Interactable"]);
-                }
-
-                if (auto uiScrollViewComponent = entity["UIScrollViewComponent"]; uiScrollViewComponent)
-                {
-                    auto& scrollView = deserializedEntity.AddComponent<UIScrollViewComponent>();
-                    TrySet(scrollView.m_ScrollPosition, uiScrollViewComponent["ScrollPosition"]);
-                    TrySet(scrollView.m_ContentSize, uiScrollViewComponent["ContentSize"]);
-                    TrySetEnum(scrollView.m_ScrollDirection, uiScrollViewComponent["ScrollDirection"]);
-                    TrySet(scrollView.m_ScrollSpeed, uiScrollViewComponent["ScrollSpeed"]);
-                    TrySet(scrollView.m_ShowHorizontalScrollbar, uiScrollViewComponent["ShowHorizontalScrollbar"]);
-                    TrySet(scrollView.m_ShowVerticalScrollbar, uiScrollViewComponent["ShowVerticalScrollbar"]);
-                    TrySet(scrollView.m_ScrollbarColor, uiScrollViewComponent["ScrollbarColor"]);
-                    TrySet(scrollView.m_ScrollbarTrackColor, uiScrollViewComponent["ScrollbarTrackColor"]);
-                }
-
-                if (auto uiDropdownComponent = entity["UIDropdownComponent"]; uiDropdownComponent)
-                {
-                    auto& dropdown = deserializedEntity.AddComponent<UIDropdownComponent>();
-                    if (uiDropdownComponent["Options"])
-                    {
-                        for (const auto& optionNode : uiDropdownComponent["Options"])
-                        {
-                            UIDropdownOption option;
-                            option.m_Label = optionNode.as<std::string>("");
-                            dropdown.m_Options.push_back(option);
-                        }
-                    }
-                    TrySet(dropdown.m_SelectedIndex, uiDropdownComponent["SelectedIndex"]);
-                    TrySet(dropdown.m_BackgroundColor, uiDropdownComponent["BackgroundColor"]);
-                    TrySet(dropdown.m_HighlightColor, uiDropdownComponent["HighlightColor"]);
-                    TrySet(dropdown.m_TextColor, uiDropdownComponent["TextColor"]);
-                    if (uiDropdownComponent["FontPath"])
-                    {
-                        dropdown.m_FontAsset = Font::Create(uiDropdownComponent["FontPath"].as<std::string>());
-                    }
-                    TrySet(dropdown.m_FontSize, uiDropdownComponent["FontSize"]);
-                    TrySet(dropdown.m_ItemHeight, uiDropdownComponent["ItemHeight"]);
-                    TrySet(dropdown.m_Interactable, uiDropdownComponent["Interactable"]);
-                }
-
-                if (auto uiGridLayoutComponent = entity["UIGridLayoutComponent"]; uiGridLayoutComponent)
-                {
-                    auto& grid = deserializedEntity.AddComponent<UIGridLayoutComponent>();
-                    TrySet(grid.m_CellSize, uiGridLayoutComponent["CellSize"]);
-                    TrySet(grid.m_Spacing, uiGridLayoutComponent["Spacing"]);
-                    TrySet(grid.m_Padding, uiGridLayoutComponent["Padding"]);
-                    TrySetEnum(grid.m_StartCorner, uiGridLayoutComponent["StartCorner"]);
-                    TrySetEnum(grid.m_StartAxis, uiGridLayoutComponent["StartAxis"]);
-                    TrySet(grid.m_ConstraintCount, uiGridLayoutComponent["ConstraintCount"]);
-                }
-
-                if (auto uiToggleComponent = entity["UIToggleComponent"]; uiToggleComponent)
-                {
-                    auto& toggle = deserializedEntity.AddComponent<UIToggleComponent>();
-                    TrySet(toggle.m_IsOn, uiToggleComponent["IsOn"]);
-                    TrySet(toggle.m_OffColor, uiToggleComponent["OffColor"]);
-                    TrySet(toggle.m_OnColor, uiToggleComponent["OnColor"]);
-                    TrySet(toggle.m_KnobColor, uiToggleComponent["KnobColor"]);
-                    TrySet(toggle.m_Interactable, uiToggleComponent["Interactable"]);
-                }
-
-                if (auto particleComponent = entity["ParticleSystemComponent"]; particleComponent)
-                {
-                    auto& psc = deserializedEntity.AddComponent<ParticleSystemComponent>();
-                    DeserializeParticleSystemComponent(psc, particleComponent);
-                }
-
-                if (auto terrainComponent = entity["TerrainComponent"]; terrainComponent)
-                {
-                    auto& terrain = deserializedEntity.AddComponent<TerrainComponent>();
-                    DeserializeTerrainComponent(terrain, terrainComponent);
-                }
-
-                if (auto foliageComponent = entity["FoliageComponent"]; foliageComponent)
-                {
-                    auto& foliage = deserializedEntity.AddComponent<FoliageComponent>();
-                    DeserializeFoliageComponent(foliage, foliageComponent);
-                }
-
-                if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
-                {
-                    DeserializeSnowDeformerComponent(deserializedEntity, snowDeformerComponent);
-                }
-
-                if (auto fogVolumeComponent = entity["FogVolumeComponent"]; fogVolumeComponent)
-                {
-                    DeserializeFogVolumeComponent(deserializedEntity, fogVolumeComponent);
-                }
-
-                if (auto decalComponent = entity["DecalComponent"]; decalComponent)
-                {
-                    DeserializeDecalComponent(deserializedEntity, decalComponent);
-                }
-
-                if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
-                {
-                    auto& submesh = deserializedEntity.AddComponent<SubmeshComponent>();
-                    submesh.m_SubmeshIndex = submeshComponent["SubmeshIndex"].as<u32>(submesh.m_SubmeshIndex);
-                    submesh.m_Visible = submeshComponent["Visible"].as<bool>(submesh.m_Visible);
-                }
-
-                if (auto animComponent = entity["AnimationStateComponent"]; animComponent)
-                {
-                    auto& anim = deserializedEntity.AddComponent<AnimationStateComponent>();
-                    anim.m_State = static_cast<AnimationStateComponent::State>(animComponent["State"].as<int>(static_cast<int>(anim.m_State)));
-                    anim.m_CurrentTime = animComponent["CurrentTime"].as<f32>(anim.m_CurrentTime);
-                    anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
-                    anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
-                    anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
-
-                    // Load source file path (stored as relative, convert to absolute) and reload animated model if available
-                    if (animComponent["SourceFilePath"])
-                    {
-                        auto relativePathStr = animComponent["SourceFilePath"].as<std::string>();
-                        if (!relativePathStr.empty())
-                        {
-                            // Convert relative path back to absolute
-                            std::filesystem::path relativePath(relativePathStr);
-                            auto assetDirectory = Project::GetAssetDirectory();
-                            auto absolutePath = assetDirectory / relativePath;
-                            anim.m_SourceFilePath = absolutePath.string();
-
-                            auto animatedModel = Ref<AnimatedModel>::Create(anim.m_SourceFilePath);
-                            if (animatedModel)
-                            {
-                                // Load animations
-                                if (animatedModel->HasAnimations())
-                                {
-                                    anim.m_AvailableClips = animatedModel->GetAnimations();
-                                    if (anim.m_CurrentClipIndex >= 0 && anim.m_CurrentClipIndex < static_cast<int>(anim.m_AvailableClips.size()))
-                                    {
-                                        anim.m_CurrentClip = anim.m_AvailableClips[anim.m_CurrentClipIndex];
-                                    }
-                                    else if (!anim.m_AvailableClips.empty())
-                                    {
-                                        anim.m_CurrentClip = anim.m_AvailableClips[0];
-                                        anim.m_CurrentClipIndex = 0;
-                                    }
-                                    OLO_CORE_INFO("Deserialized AnimationStateComponent: loaded {} clips from '{}'",
-                                                  anim.m_AvailableClips.size(), anim.m_SourceFilePath);
-                                }
-
-                                // Update or add MeshComponent with loaded mesh data
-                                if (!animatedModel->GetMeshes().empty())
-                                {
-                                    if (!deserializedEntity.HasComponent<MeshComponent>())
-                                    {
-                                        deserializedEntity.AddComponent<MeshComponent>();
-                                    }
-                                    auto& meshComp = deserializedEntity.GetComponent<MeshComponent>();
-                                    meshComp.m_MeshSource = animatedModel->GetMeshes()[0];
-                                }
-
-                                // Update or add SkeletonComponent with loaded skeleton data
-                                if (animatedModel->HasSkeleton())
-                                {
-                                    if (!deserializedEntity.HasComponent<SkeletonComponent>())
-                                    {
-                                        deserializedEntity.AddComponent<SkeletonComponent>();
-                                    }
-                                    auto& skelComp = deserializedEntity.GetComponent<SkeletonComponent>();
-                                    skelComp.m_Skeleton = animatedModel->GetSkeleton();
-                                }
-
-                                // Update MaterialComponent if model has materials
-                                if (!animatedModel->GetMaterials().empty())
-                                {
-                                    if (!deserializedEntity.HasComponent<MaterialComponent>())
-                                    {
-                                        deserializedEntity.AddComponent<MaterialComponent>();
-                                    }
-                                    auto& matComp = deserializedEntity.GetComponent<MaterialComponent>();
-                                    matComp.m_Material = animatedModel->GetMaterials()[0];
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (auto skelComponent = entity["SkeletonComponent"]; skelComponent)
-                {
-                    if (!deserializedEntity.HasComponent<SkeletonComponent>())
-                    {
-                        deserializedEntity.AddComponent<SkeletonComponent>();
-                    }
-                    // Note: Skeleton data is loaded from AnimationStateComponent's source file
-                }
+                DeserializeEntityComponents(deserializedEntity, entity);
             }
         }
 

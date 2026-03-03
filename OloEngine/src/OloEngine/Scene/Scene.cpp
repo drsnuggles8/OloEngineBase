@@ -2421,6 +2421,9 @@ namespace OloEngine
                         // Approximate cylinder with capsule gizmo (radius + half-height)
                         Renderer3D::DrawCapsuleColliderGizmo(tc.Translation, fogVol.m_Extents.x, fogVol.m_Extents.y, rotation, gizmoColor);
                         break;
+                    default:
+                        OLO_CORE_ASSERT(false, "Unknown FogVolumeShape");
+                        break;
                 }
             }
         }
