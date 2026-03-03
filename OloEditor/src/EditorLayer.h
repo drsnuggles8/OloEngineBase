@@ -4,7 +4,6 @@
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/AnimationPanel.h"
-#include "Panels/EnvironmentSettingsPanel.h"
 #include "Panels/PostProcessSettingsPanel.h"
 #include "Panels/TerrainEditorPanel.h"
 
@@ -146,11 +145,9 @@ namespace OloEngine
         Scope<ContentBrowserPanel> m_ContentBrowserPanel;
         Scope<AssetPackBuilderPanel> m_AssetPackBuilderPanel;
         AnimationPanel m_AnimationPanel;
-        EnvironmentSettingsPanel m_EnvironmentSettingsPanel;
         PostProcessSettingsPanel m_PostProcessSettingsPanel;
         TerrainEditorPanel m_TerrainEditorPanel;
         bool m_ShowAnimationPanel = true;
-        bool m_ShowEnvironmentSettings = false;
         bool m_ShowPostProcessSettings = true;
         bool m_ShowTerrainEditor = false;
 
