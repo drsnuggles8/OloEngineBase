@@ -42,7 +42,13 @@ namespace OloEngine
 
     void FrameCaptureManager::StopRecording()
     {
+        // Stop from Recording state
         auto expected = CaptureState::Recording;
+        if (m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
+            return;
+
+        // Also stop from CaptureNextFrame state
+        expected = CaptureState::CaptureNextFrame;
         m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
     }
 

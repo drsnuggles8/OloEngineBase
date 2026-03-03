@@ -303,9 +303,19 @@ namespace OloEngine
         // Internal sort implementation — caller must hold m_Mutex
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Config.EnableSorting || m_IsSorted || m_CommandCount <= 1)
+        if (!m_Config.EnableSorting || m_IsSorted)
         {
             m_LastSortTimeMs = 0.0;
+            return;
+        }
+
+        if (m_CommandCount <= 1)
+        {
+            m_LastSortTimeMs = 0.0;
+            m_IsSorted = true;
+            m_SortedCommands.clear();
+            if (m_Head)
+                m_SortedCommands.push_back(m_Head);
             return;
         }
 

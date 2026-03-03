@@ -164,16 +164,20 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Allocate memory for a new command packet
-        void* packetMemory = allocator.AllocateCommandMemory(sizeof(CommandPacket));
-        if (!packetMemory)
+        // Allocate memory for packet + command data together
+        void* block = allocator.AllocateCommandMemory(sizeof(CommandPacket) + m_CommandSize);
+        if (!block)
         {
             OLO_CORE_ERROR("CommandPacket: Failed to allocate memory for clone");
             return nullptr;
         }
 
         // Construct a new CommandPacket in the allocated memory
-        auto* clone = new (packetMemory) CommandPacket();
+        auto* clone = new (block) CommandPacket();
+
+        // Point command data to the memory region right after the packet
+        void* commandMem = static_cast<u8*>(block) + sizeof(CommandPacket);
+        clone->SetCommandData(commandMem, m_CommandSize);
 
         // Copy command data
         std::memcpy(clone->m_CommandData, m_CommandData, m_CommandSize);

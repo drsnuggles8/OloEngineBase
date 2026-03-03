@@ -45,15 +45,21 @@ namespace OloEngine
                           "CreateCommandPacket() uses memcpy and requires trivially copyable types. "
                           "For non-trivial types, use AllocatePacketWithCommand() instead.");
 
-            // Allocate memory for the CommandPacket
-            void* packetMemory = AllocateCommandMemory(sizeof(CommandPacket));
-            if (!packetMemory)
+            // Allocate memory for the CommandPacket + command data together
+            constexpr sizet packetSize = sizeof(CommandPacket);
+            constexpr sizet commandSize = sizeof(T);
+            void* block = AllocateCommandMemory(packetSize + commandSize);
+            if (!block)
                 return nullptr;
 
             // Construct a new CommandPacket in the allocated memory
-            auto* packet = new (packetMemory) CommandPacket();
+            auto* packet = new (block) CommandPacket();
 
-            // Initialize the packet with the command data
+            // Point command data to the memory region right after the packet
+            void* commandMem = static_cast<u8*>(block) + packetSize;
+            packet->SetCommandData(commandMem, commandSize);
+
+            // Initialize the packet with the command data (copies into the allocated region)
             packet->Initialize(commandData, metadata);
 
             return packet;

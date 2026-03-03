@@ -5,11 +5,7 @@
 
 TEST(LoggerTest, InitTest)
 {
-    ASSERT_EQ(OloEngine::Log::GetCoreLogger(), nullptr);
-    ASSERT_EQ(OloEngine::Log::GetClientLogger(), nullptr);
-
-    OloEngine::Log::Init();
-
+    // Log::Init() is called in main(), so loggers are already initialized
     EXPECT_NE(OloEngine::Log::GetCoreLogger(), nullptr);
     EXPECT_NE(OloEngine::Log::GetClientLogger(), nullptr);
 }

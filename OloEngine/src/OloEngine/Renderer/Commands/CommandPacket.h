@@ -100,7 +100,8 @@ namespace OloEngine
                     // Improved 64-bit mixing using FNV-like hash before folding to 32 bits
                     u64 hash = diffuseID;
                     hash ^= specularID + 0x9e3779b9 + (hash << 6) + (hash >> 2);
-                    u32 materialID = static_cast<u32>(hash ^ (hash >> 32));
+                    // Fold to 16 bits to fit the DrawKey material field
+                    u32 materialID = static_cast<u32>(hash ^ (hash >> 32)) & 0xFFFF;
 
                     m_Metadata.m_SortKey.SetMaterialID(materialID);
                 }
