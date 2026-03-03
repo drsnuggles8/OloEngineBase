@@ -137,6 +137,12 @@ namespace OloEngine
         DrawTerrainPatch,
         DrawVoxelMesh,
 
+        // Decal commands
+        DrawDecal,
+
+        // Foliage commands
+        DrawFoliageLayer,
+
         // Sentinel — always keep last for dispatch table sizing
         COUNT
     };
@@ -222,6 +228,10 @@ namespace OloEngine
                 return "DrawTerrainPatch";
             case CommandType::DrawVoxelMesh:
                 return "DrawVoxelMesh";
+            case CommandType::DrawDecal:
+                return "DrawDecal";
+            case CommandType::DrawFoliageLayer:
+                return "DrawFoliageLayer";
             case CommandType::COUNT:
                 return "COUNT";
             default:
@@ -676,6 +686,77 @@ namespace OloEngine
     };
 
     static_assert(std::is_trivially_copyable_v<DrawVoxelMeshCommand>, "DrawVoxelMeshCommand must be trivially copyable for radix sort");
+
+    // Decal projection command — deferred projected decals
+    struct DrawDecalCommand
+    {
+        CommandHeader header;
+
+        // Mesh data (decal projection cube)
+        RendererID vertexArrayID = 0;
+        u32 indexCount = 0;
+
+        // Shader
+        RendererID shaderRendererID = 0;
+
+        // Decal transform
+        glm::mat4 decalTransform = glm::mat4(1.0f);        // Scaled transform for geometry
+        glm::mat4 inverseDecalTransform = glm::mat4(1.0f); // For world->decal-space projection
+        glm::mat4 inverseViewProjection = glm::mat4(1.0f); // Precomputed per-frame
+
+        // Decal appearance
+        glm::vec4 decalColor = glm::vec4(1.0f);
+        glm::vec4 decalParams = glm::vec4(0.0f); // x = fadeDistance, y = normalAngleThreshold, z/w = unused
+        RendererID albedoTextureID = 0;
+
+        // Entity ID for picking
+        i32 entityID = -1;
+
+        // Render state
+        PODRenderState renderState;
+    };
+
+    static_assert(std::is_trivially_copyable_v<DrawDecalCommand>, "DrawDecalCommand must be trivially copyable for radix sort");
+
+    // Foliage instanced layer command — one command per foliage layer
+    struct DrawFoliageLayerCommand
+    {
+        CommandHeader header;
+
+        // Mesh data (instanced quad)
+        RendererID vertexArrayID = 0;
+        u32 indexCount = 0;
+        u32 instanceCount = 0;
+
+        // Shader
+        RendererID shaderRendererID = 0;
+
+        // Model transform (parent terrain entity)
+        glm::mat4 modelTransform = glm::mat4(1.0f);
+        glm::mat4 normalMatrix = glm::mat4(1.0f);
+
+        // Per-layer foliage parameters (inlined, fully POD)
+        f32 time = 0.0f;
+        f32 windStrength = 0.3f;
+        f32 windSpeed = 1.0f;
+        f32 viewDistance = 100.0f;
+        f32 fadeStart = 80.0f;
+        f32 alphaCutoff = 0.5f;
+        f32 _pad0 = 0.0f;
+        f32 _pad1 = 0.0f;
+        glm::vec4 baseColor = glm::vec4(1.0f); // xyz = color, w = unused
+
+        // Albedo texture (0 = no texture)
+        RendererID albedoTextureID = 0;
+
+        // Entity ID for picking
+        i32 entityID = -1;
+
+        // Render state
+        PODRenderState renderState;
+    };
+
+    static_assert(std::is_trivially_copyable_v<DrawFoliageLayerCommand>, "DrawFoliageLayerCommand must be trivially copyable for radix sort");
 
     // Maximum command size for allocation purposes - increased for PBR and bone matrices
     constexpr sizet MAX_COMMAND_SIZE = 1024;

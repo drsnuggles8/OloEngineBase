@@ -102,6 +102,12 @@ namespace OloEngine
         static void DrawTerrainPatch(const void* data, RendererAPI& api);
         static void DrawVoxelMesh(const void* data, RendererAPI& api);
 
+        // Decal dispatch function
+        static void DrawDecal(const void* data, RendererAPI& api);
+
+        // Foliage dispatch function
+        static void DrawFoliageLayer(const void* data, RendererAPI& api);
+
         static Statistics& GetStatistics();
 
       private:

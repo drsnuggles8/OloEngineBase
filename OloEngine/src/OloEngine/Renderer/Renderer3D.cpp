@@ -471,6 +471,8 @@ namespace OloEngine
         CommandDispatch::SetViewPosition(s_Data.ViewPos);
 
         s_Data.ScenePass->ResetCommandBucket();
+        s_Data.DecalPass->ResetCommandBucket();
+        s_Data.FoliagePass->ResetCommandBucket();
 
         CommandDispatch::ResetState();
 
@@ -558,105 +560,137 @@ namespace OloEngine
         s_Data.FogVolumesGPUData = data;
     }
 
-    void Renderer3D::RenderDecals(Scene* scene)
+    CommandPacket* Renderer3D::DrawDecal(
+        const glm::mat4& decalTransform,
+        const glm::mat4& inverseDecalTransform,
+        const glm::vec4& decalColor,
+        const glm::vec4& decalParams,
+        RendererID albedoTextureID,
+        i32 entityID)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!scene || !s_Data.DecalShader || !s_Data.DecalCubeMesh)
+        if (!s_Data.DecalPass)
         {
-            return;
+            OLO_CORE_ERROR("Renderer3D::DrawDecal: DecalPass is null!");
+            return nullptr;
         }
 
-        auto decalView = scene->GetAllEntitiesWith<TransformComponent, DecalComponent>();
-
-        bool hasDecals = false;
-        for ([[maybe_unused]] auto entity : decalView)
+        if (!s_Data.DecalShader || !s_Data.DecalCubeMesh)
         {
-            hasDecals = true;
-            break;
+            return nullptr;
         }
-        if (!hasDecals)
-        {
-            return;
-        }
-
-        // Get scene depth texture
-        auto scenePass = Renderer3D::GetScenePass();
-        if (!scenePass || !scenePass->GetTarget())
-        {
-            return;
-        }
-        u32 depthTextureID = scenePass->GetTarget()->GetDepthAttachmentRendererID();
-
-        // Set render state for decal projection
-        RenderCommand::SetBlendState(true);
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        RenderCommand::SetDepthMask(false);
-        RenderCommand::SetDepthTest(true);
-        RenderCommand::SetDepthFunc(GL_LEQUAL);
-        RenderCommand::EnableCulling();
-        RenderCommand::FrontCull();
-
-        s_Data.DecalShader->Bind();
-
-        // Bind scene depth texture
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
 
         auto va = s_Data.DecalCubeMesh->GetVertexArray();
         if (!va)
         {
-            RenderCommand::SetDepthMask(true);
-            RenderCommand::SetBlendState(false);
-            RenderCommand::BackCull();
-            return;
+            return nullptr;
         }
 
-        // Precompute inverse view-projection once for all decals
-        glm::mat4 inverseVP = glm::inverse(s_Data.ViewProjectionMatrix);
+        CommandPacket* packet = CreateDecalDrawCall<DrawDecalCommand>();
+        auto* cmd = packet->GetCommandData<DrawDecalCommand>();
+        cmd->header.type = CommandType::DrawDecal;
 
-        for (auto entity : decalView)
+        cmd->vertexArrayID = va->GetRendererID();
+        cmd->indexCount = s_Data.DecalCubeMesh->GetIndexCount();
+        cmd->shaderRendererID = s_Data.DecalShader->GetRendererID();
+        cmd->decalTransform = decalTransform;
+        cmd->inverseDecalTransform = inverseDecalTransform;
+        cmd->inverseViewProjection = glm::inverse(s_Data.ViewProjectionMatrix);
+        cmd->decalColor = decalColor;
+        cmd->decalParams = decalParams;
+        cmd->albedoTextureID = albedoTextureID;
+        cmd->entityID = entityID;
+
+        // Decal render state: blend on, depth read-only, front-face culling
+        cmd->renderState = CreateDefaultPODRenderState();
+        cmd->renderState.blendEnabled = true;
+        cmd->renderState.blendSrcFactor = GL_SRC_ALPHA;
+        cmd->renderState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+        cmd->renderState.depthTestEnabled = true;
+        cmd->renderState.depthFunction = GL_LEQUAL;
+        cmd->renderState.depthWriteMask = false;
+        cmd->renderState.cullingEnabled = true;
+        cmd->renderState.cullFace = GL_FRONT;
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Sort key: decals are rendered after opaque as transparent geometry
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = s_Data.DecalShader->GetRendererID() & 0xFFFF;
+        u32 depth = ComputeDepthForSortKey(decalTransform);
+        metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, 0, depth);
+        metadata.m_IsStatic = false;
+        packet->SetMetadata(metadata);
+
+        return packet;
+    }
+
+    CommandPacket* Renderer3D::DrawFoliageLayer(
+        RendererID vertexArrayID, u32 indexCount, u32 instanceCount,
+        RendererID albedoTextureID,
+        const glm::mat4& modelTransform,
+        f32 time,
+        f32 windStrength, f32 windSpeed,
+        f32 viewDistance, f32 fadeStart, f32 alphaCutoff,
+        const glm::vec4& baseColor,
+        i32 entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.FoliagePass)
         {
-            auto const& [transform, decal] = decalView.get<TransformComponent, DecalComponent>(entity);
-
-            // Build scaled transform for the decal projection box
-            glm::mat4 decalTransform = transform.GetTransform() *
-                                       glm::scale(glm::mat4(1.0f), decal.m_Size);
-            glm::mat4 inverseDecalTransform = glm::inverse(decalTransform);
-
-            // Update model UBO
-            ShaderBindingLayout::ModelUBO modelUBO{};
-            modelUBO.Model = decalTransform;
-            modelUBO.Normal = glm::transpose(glm::inverse(decalTransform));
-            modelUBO.EntityID = static_cast<i32>(static_cast<u32>(entity));
-            s_Data.ModelMatrixUBO->SetData(&modelUBO, ShaderBindingLayout::ModelUBO::GetSize());
-
-            // Update decal UBO
-            ShaderBindingLayout::DecalUBO decalUBO{};
-            decalUBO.InverseDecalTransform = inverseDecalTransform;
-            decalUBO.InverseViewProjection = inverseVP;
-            decalUBO.DecalColor = decal.m_Color;
-            decalUBO.DecalParams = glm::vec4(decal.m_FadeDistance, decal.m_NormalAngleThreshold, 0.0f, 0.0f);
-            s_Data.DecalUBO->SetData(&decalUBO, ShaderBindingLayout::DecalUBO::GetSize());
-
-            // Bind decal albedo texture (fallback to white if none assigned)
-            if (decal.m_AlbedoTexture)
-            {
-                decal.m_AlbedoTexture->Bind(ShaderBindingLayout::TEX_USER_0);
-            }
-            else
-            {
-                s_Data.WhiteTexture->Bind(ShaderBindingLayout::TEX_USER_0);
-            }
-
-            // Draw the decal cube
-            RenderCommand::DrawIndexed(va, s_Data.DecalCubeMesh->GetIndexCount());
+            OLO_CORE_ERROR("Renderer3D::DrawFoliageLayer: FoliagePass is null!");
+            return nullptr;
         }
 
-        // Restore render state
-        RenderCommand::SetDepthMask(true);
-        RenderCommand::SetBlendState(false);
-        RenderCommand::SetDepthFunc(GL_LESS);
-        RenderCommand::BackCull();
+        if (!s_Data.FoliageShader)
+        {
+            return nullptr;
+        }
+
+        CommandPacket* packet = CreateFoliageDrawCall<DrawFoliageLayerCommand>();
+        auto* cmd = packet->GetCommandData<DrawFoliageLayerCommand>();
+        cmd->header.type = CommandType::DrawFoliageLayer;
+
+        cmd->vertexArrayID = vertexArrayID;
+        cmd->indexCount = indexCount;
+        cmd->instanceCount = instanceCount;
+        cmd->shaderRendererID = s_Data.FoliageShader->GetRendererID();
+        cmd->modelTransform = modelTransform;
+        cmd->normalMatrix = glm::transpose(glm::inverse(modelTransform));
+        cmd->time = time;
+        cmd->windStrength = windStrength;
+        cmd->windSpeed = windSpeed;
+        cmd->viewDistance = viewDistance;
+        cmd->fadeStart = fadeStart;
+        cmd->alphaCutoff = alphaCutoff;
+        cmd->baseColor = baseColor;
+        cmd->albedoTextureID = albedoTextureID;
+        cmd->entityID = entityID;
+
+        // Foliage render state: opaque alpha-tested, depth test + write, no blend
+        cmd->renderState = CreateDefaultPODRenderState();
+        cmd->renderState.depthTestEnabled = true;
+        cmd->renderState.depthFunction = GL_LEQUAL;
+        cmd->renderState.depthWriteMask = true;
+        cmd->renderState.blendEnabled = false;
+        cmd->renderState.cullingEnabled = true;
+        cmd->renderState.cullFace = GL_BACK;
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Sort key: opaque, sorted by shader then depth (front-to-back)
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = s_Data.FoliageShader->GetRendererID() & 0xFFFF;
+        u32 depth = ComputeDepthForSortKey(modelTransform);
+        metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
+        metadata.m_IsStatic = false;
+        packet->SetMetadata(metadata);
+
+        return packet;
     }
 
     void Renderer3D::EndScene()
@@ -2021,6 +2055,16 @@ namespace OloEngine
         s_Data.ParticlePass->Init(finalPassSpec);
         s_Data.ParticlePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
 
+        s_Data.FoliagePass = Ref<FoliageRenderPass>::Create();
+        s_Data.FoliagePass->SetName("FoliagePass");
+        s_Data.FoliagePass->Init(finalPassSpec);
+        s_Data.FoliagePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+
+        s_Data.DecalPass = Ref<DecalRenderPass>::Create();
+        s_Data.DecalPass->SetName("DecalPass");
+        s_Data.DecalPass->Init(finalPassSpec);
+        s_Data.DecalPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+
         s_Data.SSAOPass = Ref<SSAORenderPass>::Create();
         s_Data.SSAOPass->SetName("SSAOPass");
         s_Data.SSAOPass->Init(scenePassSpec);
@@ -2044,6 +2088,8 @@ namespace OloEngine
 
         s_Data.RGraph->AddPass(s_Data.ShadowPass);
         s_Data.RGraph->AddPass(s_Data.ScenePass);
+        s_Data.RGraph->AddPass(s_Data.FoliagePass);
+        s_Data.RGraph->AddPass(s_Data.DecalPass);
         s_Data.RGraph->AddPass(s_Data.SSAOPass);
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
         s_Data.RGraph->AddPass(s_Data.SSSPass);
@@ -2052,8 +2098,12 @@ namespace OloEngine
 
         // ShadowPass -> ScenePass: ordering only (shadow textures are bound via UBO/texture slots)
         s_Data.RGraph->AddExecutionDependency("ShadowPass", "ScenePass");
-        // ScenePass -> SSAOPass: ordering only (SSAO reads scene depth/normals via texture slots)
-        s_Data.RGraph->AddExecutionDependency("ScenePass", "SSAOPass");
+        // ScenePass -> FoliagePass: ordering (foliage renders into scene FB after opaque geometry)
+        s_Data.RGraph->AddExecutionDependency("ScenePass", "FoliagePass");
+        // FoliagePass -> DecalPass: ordering (decals need complete depth including foliage)
+        s_Data.RGraph->AddExecutionDependency("FoliagePass", "DecalPass");
+        // DecalPass -> SSAOPass: ordering (SSAO reads scene depth/normals via texture slots)
+        s_Data.RGraph->AddExecutionDependency("DecalPass", "SSAOPass");
         // SSAOPass -> ParticlePass: ordering (SSAO must complete before particles render into scene FB)
         s_Data.RGraph->AddExecutionDependency("SSAOPass", "ParticlePass");
         // ParticlePass -> SSSPass: framebuffer piping (SSS reads scene color via SetInputFramebuffer)
@@ -2068,7 +2118,7 @@ namespace OloEngine
         // PostProcessPass initial input is the scene FB (overridden by graph's SSSPass -> PostProcessPass
         // piping each frame, which passes SSSPass::GetTarget() = scene FB when SSS is disabled).
         s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> SSAOPass -> ParticlePass -> SSSPass -> PostProcessPass -> FinalPass");
+        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> FoliagePass -> DecalPass -> SSAOPass -> ParticlePass -> SSSPass -> PostProcessPass -> FinalPass");
 
         s_Data.RGraph->SetFinalPass("FinalPass");
     }

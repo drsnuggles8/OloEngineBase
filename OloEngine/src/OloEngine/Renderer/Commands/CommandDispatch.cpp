@@ -182,6 +182,12 @@ namespace OloEngine
         s_DispatchTable[static_cast<sizet>(CommandType::DrawTerrainPatch)] = CommandDispatch::DrawTerrainPatch;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawVoxelMesh)] = CommandDispatch::DrawVoxelMesh;
 
+        // Decal commands
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawDecal)] = CommandDispatch::DrawDecal;
+
+        // Foliage commands
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawFoliageLayer)] = CommandDispatch::DrawFoliageLayer;
+
         s_Data.CurrentBoundShaderID = 0;
         std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
         s_Data.Stats.Reset();
@@ -1369,6 +1375,129 @@ namespace OloEngine
         // Draw with GL_TRIANGLES
         glBindVertexArray(cmd->vertexArrayID);
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        ++s_Data.Stats.DrawCalls;
+    }
+
+    void CommandDispatch::DrawDecal(const void* data, RendererAPI& api)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto const* cmd = static_cast<const DrawDecalCommand*>(data);
+
+        if (cmd->vertexArrayID == 0 || cmd->shaderRendererID == 0)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawDecal: Invalid vertex array ID or shader ID");
+            return;
+        }
+
+        // Apply render state (blend on, depth write off, front-face culling)
+        ApplyPODRenderState(cmd->renderState, api);
+
+        // Bind shader (cached)
+        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        {
+            glUseProgram(cmd->shaderRendererID);
+            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            ++s_Data.Stats.ShaderBinds;
+        }
+
+        // Upload model UBO
+        if (s_Data.ModelMatrixUBO)
+        {
+            ShaderBindingLayout::ModelUBO modelData{};
+            modelData.Model = cmd->decalTransform;
+            modelData.Normal = glm::transpose(glm::inverse(cmd->decalTransform));
+            modelData.EntityID = cmd->entityID;
+            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+        }
+
+        // Upload decal UBO
+        auto decalUBO = Renderer3D::GetDecalUBO();
+        if (decalUBO)
+        {
+            ShaderBindingLayout::DecalUBO decalData{};
+            decalData.InverseDecalTransform = cmd->inverseDecalTransform;
+            decalData.InverseViewProjection = cmd->inverseViewProjection;
+            decalData.DecalColor = cmd->decalColor;
+            decalData.DecalParams = cmd->decalParams;
+            decalUBO->SetData(&decalData, ShaderBindingLayout::DecalUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_DECAL, decalUBO->GetRendererID());
+        }
+
+        // Bind albedo texture (with redundancy check)
+        if (cmd->albedoTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] != cmd->albedoTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_USER_0, cmd->albedoTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = cmd->albedoTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+
+        // Draw the decal projection cube
+        glBindVertexArray(cmd->vertexArrayID);
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        ++s_Data.Stats.DrawCalls;
+    }
+
+    void CommandDispatch::DrawFoliageLayer(const void* data, RendererAPI& api)
+    {
+        const auto* cmd = static_cast<const DrawFoliageLayerCommand*>(data);
+
+        // Apply render state (opaque alpha-tested: depth test + write, no blend)
+        ApplyPODRenderState(cmd->renderState, api);
+
+        // Bind shader (cached)
+        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        {
+            glUseProgram(cmd->shaderRendererID);
+            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            ++s_Data.Stats.ShaderBinds;
+        }
+
+        // Upload model UBO (parent terrain transform)
+        if (s_Data.ModelMatrixUBO)
+        {
+            ShaderBindingLayout::ModelUBO modelData{};
+            modelData.Model = cmd->modelTransform;
+            modelData.Normal = cmd->normalMatrix;
+            modelData.EntityID = cmd->entityID;
+            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+        }
+
+        // Upload foliage UBO (per-layer parameters)
+        auto foliageUBO = Renderer3D::GetFoliageUBO();
+        if (foliageUBO)
+        {
+            ShaderBindingLayout::FoliageUBO foliageData{};
+            foliageData.Time = cmd->time;
+            foliageData.WindStrength = cmd->windStrength;
+            foliageData.WindSpeed = cmd->windSpeed;
+            foliageData.ViewDistance = cmd->viewDistance;
+            foliageData.FadeStart = cmd->fadeStart;
+            foliageData.AlphaCutoff = cmd->alphaCutoff;
+            foliageData.BaseColor = cmd->baseColor;
+            foliageUBO->SetData(&foliageData, ShaderBindingLayout::FoliageUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_FOLIAGE, foliageUBO->GetRendererID());
+        }
+
+        // Bind albedo texture (with redundancy check)
+        if (cmd->albedoTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != cmd->albedoTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_DIFFUSE, cmd->albedoTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->albedoTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+
+        // Draw instanced foliage quads
+        glBindVertexArray(cmd->vertexArrayID);
+        glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(cmd->instanceCount));
         ++s_Data.Stats.DrawCalls;
     }
 } // namespace OloEngine

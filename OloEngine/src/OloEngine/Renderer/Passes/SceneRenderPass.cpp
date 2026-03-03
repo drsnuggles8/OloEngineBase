@@ -95,12 +95,6 @@ namespace OloEngine
                 m_CommandBucket.GetLastExecuteTimeMs());
         }
 
-        // Invoke post-execute callback (terrain, decals, etc.) while framebuffer is still bound
-        if (m_PostExecuteCallback)
-        {
-            m_PostExecuteCallback();
-        }
-
         m_Target->Unbind();
     }
 

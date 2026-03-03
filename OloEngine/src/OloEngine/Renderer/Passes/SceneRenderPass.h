@@ -10,8 +10,6 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Shader.h"
 
-#include <functional>
-
 namespace OloEngine
 {
     // @brief Render pass for the main 3D scene.
@@ -19,24 +17,15 @@ namespace OloEngine
     // This pass handles the rendering of 3D scene objects to an offscreen framebuffer
     // using the command bucket system for efficient batching and sorting.
     //
-    // DESIGN NOTE — PostExecuteCallback:
-    // The engine's core rendering philosophy is "stateless layered command queue;
-    // queue population separated from execution" (Molecular Matters style). All
-    // standard meshes go through CommandBucket for sorting and batching.
+    // All standard meshes, terrain, voxels, and skybox go through the CommandBucket
+    // for DrawKey-based sorting and dispatch (Molecular Matters style).
     //
-    // Terrain rendering bypasses the command bucket via PostExecuteCallback because:
-    //   - It uses tessellation shaders (GL_PATCHES) not supported by the packet system
-    //   - Per-chunk UBO updates (LOD tess factors) are inherently stateful
-    //   - Streaming tile management requires dynamic draw calls
-    // This is a deliberate, documented deviation. If the command system is extended
-    // to support tessellation/patches, terrain should migrate back to it.
+    // Foliage and decals are handled by their own dedicated render passes
+    // (FoliageRenderPass, DecalRenderPass) that execute after this pass in the
+    // render graph.
     class SceneRenderPass : public CommandBufferRenderPass
     {
       public:
-        // Callback invoked after command bucket execution, while the scene framebuffer is still bound.
-        // Used for terrain, decals, and other custom geometry that bypasses the command packet system.
-        using PostExecuteCallback = std::function<void()>;
-
         SceneRenderPass();
         ~SceneRenderPass() override = default;
 
@@ -46,13 +35,5 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
-
-        void SetPostExecuteCallback(PostExecuteCallback callback)
-        {
-            m_PostExecuteCallback = std::move(callback);
-        }
-
-      private:
-        PostExecuteCallback m_PostExecuteCallback;
     };
 } // namespace OloEngine
