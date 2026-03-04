@@ -46,13 +46,12 @@ namespace OloEngine
         CommandPacket() = default;
         ~CommandPacket();
 
-        // Disallow copying
+        // Non-copyable, non-movable — packets live in bump-allocated memory
+        // with inline command data appended right after sizeof(CommandPacket).
         CommandPacket(const CommandPacket&) = delete;
         CommandPacket& operator=(const CommandPacket&) = delete;
-
-        // Allow moving
-        CommandPacket(CommandPacket&& other) noexcept;
-        CommandPacket& operator=(CommandPacket&& other) noexcept;
+        CommandPacket(CommandPacket&&) = delete;
+        CommandPacket& operator=(CommandPacket&&) = delete;
 
         // Initialize a command packet with a specific command
         // WARNING: This uses memcpy which is only safe for trivially copyable types.
@@ -67,8 +66,8 @@ namespace OloEngine
                           "For non-trivial types like DrawMeshInstancedCommand, use "
                           "CommandAllocator::AllocatePacketWithCommand() instead.");
 
-            // Copy the command data (safe for trivially copyable types)
-            std::memcpy(m_CommandData, &commandData, sizeof(T));
+            // Copy the command data into inline storage right after the packet header
+            std::memcpy(GetInlineData(), &commandData, sizeof(T));
             m_CommandSize = sizeof(T);
             m_CommandType = commandData.header.type;
 
@@ -81,14 +80,14 @@ namespace OloEngine
             m_Metadata = metadata; // Set default keys if not specified in metadata
             if (m_Metadata.m_SortKey.GetShaderID() == 0 && m_CommandType == CommandType::DrawMesh)
             {
-                const auto* cmd = reinterpret_cast<const DrawMeshCommand*>(m_CommandData);
+                const auto* cmd = reinterpret_cast<const DrawMeshCommand*>(GetInlineData());
                 if (cmd->shaderRendererID != 0)
                     m_Metadata.m_SortKey.SetShaderID(cmd->shaderRendererID);
             }
 
             if (m_Metadata.m_SortKey.GetMaterialID() == 0 && m_CommandType == CommandType::DrawMesh)
             {
-                const auto* cmd = reinterpret_cast<const DrawMeshCommand*>(m_CommandData);
+                const auto* cmd = reinterpret_cast<const DrawMeshCommand*>(GetInlineData());
                 if (cmd->useTextureMaps)
                 {
                     // Use POD renderer IDs for material hashing
@@ -109,16 +108,6 @@ namespace OloEngine
         // Execute the command with a RendererAPI
         void Execute(RendererAPI& rendererAPI) const;
 
-        // Linked list functionality
-        void SetNext(CommandPacket* next)
-        {
-            m_Next = next;
-        }
-        CommandPacket* GetNext() const
-        {
-            return m_Next;
-        }
-
         // Packet comparison for sorting
         bool operator<(const CommandPacket& other) const;
 
@@ -135,33 +124,32 @@ namespace OloEngine
         // Returns true if this packet can be batched with another packet
         bool CanBatchWith(const CommandPacket& other) const;
 
-        // Set external command data pointer and size
-        void SetCommandData(void* data, sizet size)
+        // Set command data size (inline data lives at this + sizeof(CommandPacket))
+        void SetCommandSize(sizet size)
         {
-            m_CommandData = data;
             m_CommandSize = size;
         }
 
         template<typename T>
         T* GetCommandData()
         {
-            return reinterpret_cast<T*>(m_CommandData);
+            return reinterpret_cast<T*>(GetInlineData());
         }
 
         template<typename T>
         const T* GetCommandData() const
         {
-            return reinterpret_cast<const T*>(m_CommandData);
+            return reinterpret_cast<const T*>(GetInlineData());
         }
 
         // Get raw command data as void pointer (for operations that don't need to know the type)
         const void* GetRawCommandData() const
         {
-            return m_CommandData;
+            return GetInlineData();
         }
         void* GetRawCommandData()
         {
-            return m_CommandData;
+            return GetInlineData();
         }
 
         // Return command size for memory management
@@ -203,12 +191,21 @@ namespace OloEngine
         static void SetDispatchResolver(DispatchResolverFn resolver);
 
       private:
+        // Inline command data lives in the allocation immediately after the packet header.
+        // Eliminates pointer indirection — data is always at (u8*)this + sizeof(CommandPacket).
+        void* GetInlineData()
+        {
+            return reinterpret_cast<u8*>(this) + sizeof(CommandPacket);
+        }
+        const void* GetInlineData() const
+        {
+            return reinterpret_cast<const u8*>(this) + sizeof(CommandPacket);
+        }
+
         static DispatchResolverFn s_DispatchResolver;
-        void* m_CommandData = nullptr;
         sizet m_CommandSize = 0;
         CommandType m_CommandType = CommandType::Invalid;
         CommandDispatchFn m_DispatchFn = nullptr;
         PacketMetadata m_Metadata;
-        CommandPacket* m_Next = nullptr;
     };
 } // namespace OloEngine

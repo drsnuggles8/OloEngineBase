@@ -48,8 +48,11 @@ namespace OloEngine
         // Snow accumulation depth texture — set per-frame
         static void SetSnowDepthTextureID(u32 textureID);
 
-        // Getters for current frame state (used for sort key generation)
+        // Getters for current frame state (used for sort key generation and per-bucket view state)
         static const glm::mat4& GetViewMatrix();
+        static const glm::mat4& GetProjectionMatrix();
+        static const glm::mat4& GetViewProjectionMatrix();
+        static const glm::vec3& GetViewPosition();
 
         // UBO access - Renderer3D provides these, CommandDispatch uses them
         static void SetUBOReferences(

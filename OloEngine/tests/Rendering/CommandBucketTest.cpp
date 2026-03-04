@@ -241,9 +241,9 @@ TEST_F(CommandBucketTest, SortReducesStateChanges)
     // Count shader changes before sort
     u32 changesBefore = 0;
     {
-        CommandPacket* pkt = bucket.GetCommandHead();
+        const auto& packets = bucket.GetPackets();
         u32 lastShader = 0;
-        while (pkt)
+        for (const auto* pkt : packets)
         {
             u32 s = pkt->GetMetadata().m_SortKey.GetShaderID();
             if (s != lastShader)
@@ -251,7 +251,6 @@ TEST_F(CommandBucketTest, SortReducesStateChanges)
                 changesBefore++;
                 lastShader = s;
             }
-            pkt = pkt->GetNext();
         }
     }
 

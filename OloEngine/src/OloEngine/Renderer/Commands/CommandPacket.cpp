@@ -18,46 +18,6 @@ namespace OloEngine
         // No dynamic resources to clean up
     }
 
-    CommandPacket::CommandPacket(CommandPacket&& other) noexcept
-        : m_CommandSize(other.m_CommandSize),
-          m_CommandType(other.m_CommandType),
-          m_DispatchFn(other.m_DispatchFn),
-          m_Metadata(other.m_Metadata),
-          m_Next(other.m_Next)
-    {
-        // Copy command data
-        std::memcpy(m_CommandData, other.m_CommandData, other.m_CommandSize);
-
-        // Reset the source object
-        other.m_CommandSize = 0;
-        other.m_CommandType = CommandType::Invalid;
-        other.m_DispatchFn = nullptr;
-        other.m_Next = nullptr;
-    }
-
-    CommandPacket& CommandPacket::operator=(CommandPacket&& other) noexcept
-    {
-        if (this != &other)
-        {
-            // Copy command data
-            std::memcpy(m_CommandData, other.m_CommandData, other.m_CommandSize);
-
-            // Copy metadata
-            m_CommandSize = other.m_CommandSize;
-            m_CommandType = other.m_CommandType;
-            m_DispatchFn = other.m_DispatchFn;
-            m_Metadata = other.m_Metadata;
-            m_Next = other.m_Next;
-
-            // Reset the source object
-            other.m_CommandSize = 0;
-            other.m_CommandType = CommandType::Invalid;
-            other.m_DispatchFn = nullptr;
-            other.m_Next = nullptr;
-        }
-        return *this;
-    }
-
     void CommandPacket::Execute(RendererAPI& rendererAPI) const
     {
         OLO_PROFILE_FUNCTION();
@@ -74,7 +34,7 @@ namespace OloEngine
 
             if (dispatchFn)
             {
-                dispatchFn(m_CommandData, rendererAPI);
+                dispatchFn(GetInlineData(), rendererAPI);
             }
             else
             {
@@ -108,8 +68,8 @@ namespace OloEngine
         {
             case CommandType::DrawMesh:
             {
-                auto* cmd1 = reinterpret_cast<const DrawMeshCommand*>(m_CommandData);
-                auto* cmd2 = reinterpret_cast<const DrawMeshCommand*>(other.m_CommandData);
+                auto* cmd1 = reinterpret_cast<const DrawMeshCommand*>(GetInlineData());
+                auto* cmd2 = reinterpret_cast<const DrawMeshCommand*>(other.GetInlineData());
 
                 // Check if mesh handles are the same (POD)
                 if (cmd1->meshHandle != cmd2->meshHandle)
@@ -149,8 +109,8 @@ namespace OloEngine
 
             case CommandType::DrawQuad:
             {
-                auto* cmd1 = reinterpret_cast<const DrawQuadCommand*>(m_CommandData);
-                auto* cmd2 = reinterpret_cast<const DrawQuadCommand*>(other.m_CommandData);
+                auto* cmd1 = reinterpret_cast<const DrawQuadCommand*>(GetInlineData());
+                auto* cmd2 = reinterpret_cast<const DrawQuadCommand*>(other.GetInlineData());
 
                 // Quads can be batched if they use the same texture and shader (POD renderer IDs)
                 return cmd1->textureID == cmd2->textureID &&
@@ -171,7 +131,7 @@ namespace OloEngine
             return false;
         }
 
-        std::memcpy(m_CommandData, data, size);
+        std::memcpy(GetInlineData(), data, size);
         m_CommandSize = size;
         return true;
     }
@@ -191,19 +151,14 @@ namespace OloEngine
         // Construct a new CommandPacket in the allocated memory
         auto* clone = new (block) CommandPacket();
 
-        // Point command data to the memory region right after the packet
-        void* commandMem = static_cast<u8*>(block) + sizeof(CommandPacket);
-        clone->SetCommandData(commandMem, m_CommandSize);
-
-        // Copy command data
-        std::memcpy(clone->m_CommandData, m_CommandData, m_CommandSize);
+        // Copy command data into clone's inline storage
+        clone->m_CommandSize = m_CommandSize;
+        std::memcpy(clone->GetInlineData(), GetInlineData(), m_CommandSize);
 
         // Copy metadata
-        clone->m_CommandSize = m_CommandSize;
         clone->m_CommandType = m_CommandType;
         clone->m_DispatchFn = m_DispatchFn;
         clone->m_Metadata = m_Metadata;
-        clone->m_Next = nullptr; // The clone doesn't inherit the linked list position
 
         return clone;
     }

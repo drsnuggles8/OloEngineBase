@@ -239,25 +239,28 @@ namespace OloEngine
         }
         else
         {
-            // Traverse linked list (submission order)
-            outCommands.reserve(bucket.GetCommandCount());
-            u32 index = 0;
-            CommandPacket* current = bucket.GetCommandHead();
-            while (current)
+            // Iterate flat packet array (submission order before sorting)
+            const auto& packets = bucket.GetPackets();
+            outCommands.reserve(packets.size());
+
+            for (u32 i = 0; i < static_cast<u32>(packets.size()); ++i)
             {
-                const auto& meta = current->GetMetadata();
+                const CommandPacket* packet = packets[i];
+                if (!packet)
+                    continue;
+
+                const auto& meta = packet->GetMetadata();
                 outCommands.emplace_back(
-                    current->GetCommandType(),
-                    current->GetRawCommandData(),
-                    current->GetCommandSize(),
+                    packet->GetCommandType(),
+                    packet->GetRawCommandData(),
+                    packet->GetCommandSize(),
                     meta.m_SortKey,
                     meta.m_GroupID,
                     meta.m_ExecutionOrder,
                     meta.m_IsStatic,
                     meta.m_DependsOnPrevious,
                     meta.m_DebugName,
-                    index++);
-                current = current->GetNext();
+                    i);
             }
         }
     }

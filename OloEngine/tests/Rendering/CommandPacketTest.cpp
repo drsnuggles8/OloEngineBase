@@ -89,10 +89,10 @@ TEST(CommandPacket, CommandSizeMatchesType)
 }
 
 // =============================================================================
-// Linked List Functionality
+// Multiple Packets Can Be Created Independently
 // =============================================================================
 
-TEST(CommandPacket, LinkedListTraversal)
+TEST(CommandPacket, MultiplePacketsAreIndependent)
 {
     CommandAllocator allocator;
 
@@ -108,24 +108,15 @@ TEST(CommandPacket, LinkedListTraversal)
     ASSERT_NE(p2, nullptr);
     ASSERT_NE(p3, nullptr);
 
-    p1->SetNext(p2);
-    p2->SetNext(p3);
-    p3->SetNext(nullptr);
+    // Each packet is independent — no linked list coupling
+    EXPECT_EQ(p1->GetCommandType(), CommandType::Clear);
+    EXPECT_EQ(p2->GetCommandType(), CommandType::SetViewport);
+    EXPECT_EQ(p3->GetCommandType(), CommandType::SetDepthTest);
 
-    // Traverse and count
-    u32 count = 0;
-    CommandPacket* current = p1;
-    while (current)
-    {
-        count++;
-        current = current->GetNext();
-    }
-    EXPECT_EQ(count, 3u);
-
-    // Verify ordering
-    EXPECT_EQ(p1->GetNext(), p2);
-    EXPECT_EQ(p2->GetNext(), p3);
-    EXPECT_EQ(p3->GetNext(), nullptr);
+    // All are distinct objects
+    EXPECT_NE(p1, p2);
+    EXPECT_NE(p2, p3);
+    EXPECT_NE(p1, p3);
 }
 
 // =============================================================================
@@ -234,9 +225,6 @@ TEST(CommandPacket, CloneDeepCopiesData)
     ASSERT_NE(cloneData, nullptr);
     EXPECT_EQ(cloneData->shaderRendererID, origData->shaderRendererID);
     EXPECT_EQ(cloneData->entityID, origData->entityID);
-
-    // Clone's linked list should be independent
-    EXPECT_EQ(clone->GetNext(), nullptr);
 }
 
 // =============================================================================

@@ -10,6 +10,8 @@
 
 #include "OloEngine/Threading/Mutex.h"
 
+#include <optional>
+
 namespace OloEngine
 {
     // Forward declarations
@@ -23,6 +25,22 @@ namespace OloEngine
     // Batch size for thread-local slot claiming (reduces atomic operations)
     // Following Molecular Matters Version 7: claim 32 entries at a time
     static constexpr u32 TLS_BATCH_SIZE = 32;
+
+    // Per-bucket view state — enables multiple cameras/viewpoints per frame
+    // (split-screen, minimaps, reflection probes) without full BeginScene/EndScene cycles.
+    struct BucketViewState
+    {
+        glm::mat4 ViewMatrix = glm::mat4(1.0f);
+        glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
+        glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+        glm::vec3 ViewPosition = glm::vec3(0.0f);
+    };
+
+    // Callback type for reading/writing view state without depending on CommandDispatch.
+    // ReadFn fills a BucketViewState from the current global state.
+    // WriteFn applies a BucketViewState to the global state.
+    using ViewStateReadFn = void (*)(BucketViewState& out);
+    using ViewStateWriteFn = void (*)(const BucketViewState& in);
 
     // Configuration for command bucket processing
     struct CommandBucketConfig
@@ -68,27 +86,13 @@ namespace OloEngine
         template<typename T>
         CommandPacket* Submit(const T& commandData, const PacketMetadata& metadata = {}, CommandAllocator* allocator = nullptr)
         {
-            // Temporarily disable strict requirements for command data while we use object references
-            // TODO: Restore this check when implementing a proper resource manager with handles
-            // static_assert(std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value,
-            // 	"Command data must be trivially copyable and have standard layout");
             TUniqueLock<FMutex> lock(m_Mutex);
 
             CommandPacket* packet = allocator->CreateCommandPacket(commandData, metadata);
             if (packet)
             {
-                // The rest of your code remains the same
-                if (!m_Head)
-                {
-                    m_Head = packet;
-                    m_Tail = packet;
-                }
-                else
-                {
-                    m_Tail->SetNext(packet);
-                    m_Tail = packet;
-                }
-
+                m_Keys.push_back(metadata.m_SortKey.GetKey());
+                m_Packets.push_back(packet);
                 m_CommandCount++;
                 m_Stats.TotalCommands++;
 
@@ -147,14 +151,14 @@ namespace OloEngine
             return m_CommandCount;
         }
 
-        // Debugging methods to access commands for analysis
+        // Debugging/analysis methods to access commands
         const std::vector<CommandPacket*>& GetSortedCommands() const
         {
-            return m_SortedCommands;
+            return m_Packets;
         }
-        CommandPacket* GetCommandHead() const
+        const std::vector<CommandPacket*>& GetPackets() const
         {
-            return m_Head;
+            return m_Packets;
         }
         bool IsSorted() const
         {
@@ -178,7 +182,13 @@ namespace OloEngine
             OLO_CORE_ASSERT(packet, "CommandBucket::SubmitPacket: Null packet!");
             TUniqueLock<FMutex> lock(m_Mutex);
 
-            AddCommand(packet);
+            m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
+            m_Packets.push_back(packet);
+            m_CommandCount++;
+            m_Stats.TotalCommands++;
+
+            m_IsSorted = false;
+            m_IsBatched = false;
         }
 
         // Thread-safe packet submission for parallel command generation
@@ -230,7 +240,32 @@ namespace OloEngine
             return m_LastExecuteTimeMs;
         }
 
+        // Per-bucket view state — if set, bound to CommandDispatch before execution.
+        // Enables multiple cameras per frame (split-screen, minimaps, reflections).
+        void SetViewState(const BucketViewState& viewState)
+        {
+            m_ViewState = viewState;
+        }
+        void ClearViewState()
+        {
+            m_ViewState.reset();
+        }
+        bool HasViewState() const
+        {
+            return m_ViewState.has_value();
+        }
+        const std::optional<BucketViewState>& GetViewState() const
+        {
+            return m_ViewState;
+        }
+
+        // Register callbacks so Execute() can save/bind/restore view state
+        // without a compile-time dependency on CommandDispatch.
+        static void SetViewStateCallbacks(ViewStateReadFn readFn, ViewStateWriteFn writeFn);
+
       private:
+        static inline ViewStateReadFn s_ViewStateReader = nullptr;
+        static inline ViewStateWriteFn s_ViewStateWriter = nullptr;
         // Transform buffer for instanced rendering
         class InstancedTransformBuffer
         {
@@ -297,8 +332,8 @@ namespace OloEngine
         // Maps for tracking instanced command transform buffers
         std::unordered_map<CommandPacket*, u32> m_PacketToBufferIndex;
 
-        // Try to merge compatible commands for batching
-        bool TryMergeCommands(CommandPacket* target, CommandPacket* source, CommandAllocator& allocator);
+        // Try to merge compatible commands for batching (works on array indices)
+        bool TryMergeCommands(sizet targetIdx, sizet sourceIdx, CommandAllocator& allocator);
 
         // Convert a DrawMeshCommand to DrawMeshInstancedCommand for batching
         CommandPacket* ConvertToInstanced(CommandPacket* meshPacket, CommandAllocator& allocator);
@@ -306,17 +341,14 @@ namespace OloEngine
         // Internal sort implementation — caller must hold m_Mutex
         void SortCommandsInternal();
 
-        // Head of the linked list of commands
-        CommandPacket* m_Head = nullptr;
-
-        // Tail of the linked list for O(1) append
-        CommandPacket* m_Tail = nullptr;
+        // ——— Flat array storage (replaces linked list) ———
+        // Keys and packets are stored in 1:1 correspondence.
+        // Keys are pre-extracted once during AddCommand for cache-friendly sorting.
+        std::vector<u64> m_Keys;
+        std::vector<CommandPacket*> m_Packets;
 
         // Count of commands in the bucket
         sizet m_CommandCount = 0;
-
-        // Cached sorted array of commands (built during SortCommands)
-        std::vector<CommandPacket*> m_SortedCommands;
 
         // Configuration
         CommandBucketConfig m_Config;
@@ -335,6 +367,9 @@ namespace OloEngine
         f64 m_LastSortTimeMs = 0.0;
         f64 m_LastBatchTimeMs = 0.0;
         f64 m_LastExecuteTimeMs = 0.0;
+
+        // Optional per-bucket view state for multi-camera rendering
+        std::optional<BucketViewState> m_ViewState;
 
         mutable FMutex m_Mutex;
 

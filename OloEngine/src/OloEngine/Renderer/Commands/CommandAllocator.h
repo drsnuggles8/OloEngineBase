@@ -51,9 +51,8 @@ namespace OloEngine
             // Construct a new CommandPacket in the allocated memory
             auto* packet = new (block) CommandPacket();
 
-            // Point command data to the memory region right after the packet
-            void* commandMem = static_cast<u8*>(block) + packetSize;
-            packet->SetCommandData(commandMem, commandSize);
+            // Set command data size (inline data lives right after the packet header)
+            packet->SetCommandSize(commandSize);
 
             // Initialize the packet with the command data (copies into the allocated region)
             packet->Initialize(commandData, metadata);
@@ -71,11 +70,11 @@ namespace OloEngine
             OLO_CORE_ASSERT(block, "CommandAllocator::AllocatePacketWithCommand: Allocation failed!");
             // Placement-new the packet at the start
             auto* packet = new (block) CommandPacket();
-            // Placement-new the command immediately after
+            // Placement-new the command immediately after (in the inline data region)
             void* commandMem = static_cast<u8*>(block) + packetSize;
-            T* cmd = new (commandMem) T();
+            new (commandMem) T();
 
-            packet->SetCommandData(cmd, commandSize);
+            packet->SetCommandSize(commandSize);
             packet->SetMetadata(metadata);
             return packet;
         }

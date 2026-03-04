@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -196,6 +197,26 @@ namespace OloEngine
         // up dispatch functions without a compile-time dependency on this TU.
         CommandPacket::SetDispatchResolver(CommandDispatch::GetDispatchFunction);
 
+        // Register view state callbacks so CommandBucket::Execute() can
+        // save/bind/restore view state without depending on this TU.
+        CommandBucket::SetViewStateCallbacks(
+            // Read: capture current global view state
+            [](BucketViewState& out)
+            {
+                out.ViewMatrix = s_Data.ViewMatrix;
+                out.ProjectionMatrix = s_Data.ProjectionMatrix;
+                out.ViewProjectionMatrix = s_Data.ViewProjectionMatrix;
+                out.ViewPosition = s_Data.ViewPos;
+            },
+            // Write: apply a view state to global state
+            [](const BucketViewState& in)
+            {
+                CommandDispatch::SetViewMatrix(in.ViewMatrix);
+                CommandDispatch::SetProjectionMatrix(in.ProjectionMatrix);
+                CommandDispatch::SetViewProjectionMatrix(in.ViewProjectionMatrix);
+                CommandDispatch::SetViewPosition(in.ViewPosition);
+            });
+
         OLO_CORE_INFO("CommandDispatch: Initialized (UBOs managed by Renderer3D)");
     }
 
@@ -252,6 +273,21 @@ namespace OloEngine
     const glm::mat4& CommandDispatch::GetViewMatrix()
     {
         return s_Data.ViewMatrix;
+    }
+
+    const glm::mat4& CommandDispatch::GetProjectionMatrix()
+    {
+        return s_Data.ProjectionMatrix;
+    }
+
+    const glm::mat4& CommandDispatch::GetViewProjectionMatrix()
+    {
+        return s_Data.ViewProjectionMatrix;
+    }
+
+    const glm::vec3& CommandDispatch::GetViewPosition()
+    {
+        return s_Data.ViewPos;
     }
 
     void CommandDispatch::SetSceneLight(const Light& light)
