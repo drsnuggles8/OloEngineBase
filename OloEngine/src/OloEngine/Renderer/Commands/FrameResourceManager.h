@@ -6,50 +6,50 @@
 #include <array>
 #include <atomic>
 #include <memory>
-#include <vector>
 
 namespace OloEngine
 {
     /**
-     * @brief Double-buffered frame resource management
+     * @brief Double-buffered frame resource management with per-worker allocators.
      *
-     * This class manages two sets of command buckets and allocators,
+     * Manages two sets of command allocators (one main-thread + MAX_WORKERS per frame),
      * allowing the CPU to build frame N+1 commands while the GPU executes frame N.
-     * This hides CPU/GPU latency at the cost of increased memory usage.
+     * GPU fence synchronization prevents reusing memory before the GPU is done.
+     *
+     * This class replaces the old FrameResourceManager + CommandMemoryManager split,
+     * following Molecular Matters' design: each thread gets its own allocator with
+     * zero synchronization on the allocation hot path.
      *
      * Usage:
-     *   1. At frame start, call BeginFrame() to get the current frame's resources
-     *   2. Submit commands to the current frame's buckets
-     *   3. At frame end, call EndFrame() to mark resources as ready for GPU
-     *   4. GPU execution and fencing handled internally
+     *   1. BeginFrame() — waits for GPU fence, resets current frame's allocators
+     *   2. GetMainAllocator() — main-thread allocator for command recording
+     *   3. GetWorkerAllocator(i) — per-worker allocator for parallel submission
+     *   4. EndFrame() — inserts GPU fence, advances frame index
      *
      * Thread Safety:
      *   - BeginFrame()/EndFrame() must be called from the main thread only
-     *   - Frame resources can be used by multiple threads between Begin/End
+     *   - Each allocator must only be used by its owning thread
      */
     class FrameResourceManager
     {
       public:
         static constexpr u32 NUM_BUFFERED_FRAMES = 2;
-        static constexpr u32 ALLOCATORS_PER_FRAME = 16; // Per-worker allocators
+        static constexpr u32 MAX_WORKERS = 16;
 
         struct FrameResources
         {
-            std::vector<std::unique_ptr<CommandAllocator>> Allocators;
-            u32 AllocatorIndex = 0; // Next allocator to assign
+            CommandAllocator MainAllocator;
+            std::array<CommandAllocator, MAX_WORKERS> WorkerAllocators;
 
             // GPU fence for synchronization
-            u64 FenceId = 0; // Changed from u32 to u64 to avoid pointer truncation on 64-bit systems
+            u64 FenceId = 0;
             bool FenceSignaled = true;
 
             void Reset()
             {
-                for (auto& alloc : Allocators)
-                {
-                    if (alloc)
-                        alloc->Reset();
-                }
-                AllocatorIndex = 0;
+                MainAllocator.Reset();
+                for (auto& alloc : WorkerAllocators)
+                    alloc.Reset();
             }
         };
 
@@ -70,15 +70,14 @@ namespace OloEngine
         void EndFrame();
 
         // Get the current frame index (thread-safe)
-        // Worker threads call this to get the current frame for allocation
         u32 GetCurrentFrameIndex() const;
 
-        // Get an allocator for the current frame
-        // Thread-safe: uses atomic index to assign allocators to threads
-        CommandAllocator* GetFrameAllocator();
+        // Get the main-thread allocator for the current frame
+        CommandAllocator* GetMainAllocator();
 
-        // Get current frame's resources directly
-        FrameResources& GetCurrentFrameResources();
+        // Get a per-worker allocator for the current frame
+        // @param workerIndex The worker index [0, MAX_WORKERS)
+        CommandAllocator* GetWorkerAllocator(u32 workerIndex);
 
         // Query if double-buffering is active
         bool IsDoubleBufferingEnabled() const
@@ -128,14 +127,10 @@ namespace OloEngine
 
         std::array<FrameResources, NUM_BUFFERED_FRAMES> m_FrameResources;
         // Atomic frame index: main thread writes with release, worker threads read with acquire
-        // to synchronize access to m_FrameResources and frame-local allocators
         std::atomic<u32> m_CurrentFrameIndex{ 0 };
         u64 m_TotalFrameCount = 0;
         bool m_DoubleBufferingEnabled = true;
         bool m_Initialized = false;
-
-        // Atomic allocator index for thread-safe allocator assignment
-        std::atomic<u32> m_CurrentAllocatorIndex{ 0 };
     };
 
 } // namespace OloEngine

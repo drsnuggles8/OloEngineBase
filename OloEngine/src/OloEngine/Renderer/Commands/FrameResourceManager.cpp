@@ -21,23 +21,16 @@ namespace OloEngine
             return;
         }
 
-        OLO_CORE_INFO("FrameResourceManager: Initializing with {} buffered frames, {} allocators per frame",
-                      NUM_BUFFERED_FRAMES, ALLOCATORS_PER_FRAME);
+        OLO_CORE_INFO("FrameResourceManager: Initializing with {} buffered frames, 1 main + {} worker allocators per frame",
+                      NUM_BUFFERED_FRAMES, MAX_WORKERS);
 
-        // Initialize frame resources for each buffer
+        // FrameResources are default-constructed (CommandAllocator uses DEFAULT_BLOCK_SIZE).
+        // Just reset fence state.
         for (u32 frameIdx = 0; frameIdx < NUM_BUFFERED_FRAMES; ++frameIdx)
         {
             auto& frame = m_FrameResources[frameIdx];
-            frame.Allocators.reserve(ALLOCATORS_PER_FRAME);
-
-            for (u32 i = 0; i < ALLOCATORS_PER_FRAME; ++i)
-            {
-                frame.Allocators.push_back(std::make_unique<CommandAllocator>());
-            }
-
             frame.FenceId = 0;
             frame.FenceSignaled = true;
-            frame.AllocatorIndex = 0;
         }
 
         m_CurrentFrameIndex = 0;
@@ -67,8 +60,6 @@ namespace OloEngine
                 DeleteFence(frame.FenceId);
                 frame.FenceId = 0;
             }
-
-            frame.Allocators.clear();
         }
 
         m_Initialized = false;
@@ -90,17 +81,12 @@ namespace OloEngine
         // When double-buffering, we need to wait for the frame we're about to reuse
         if (m_DoubleBufferingEnabled && m_TotalFrameCount >= NUM_BUFFERED_FRAMES)
         {
-            // Wait for the frame that's about to be reused
             WaitForFrame(currentIndex);
         }
 
-        // Reset the current frame's resources
-        auto& frame = m_FrameResources[currentIndex];
-        frame.Reset();
-        frame.FenceSignaled = false;
-
-        // Reset atomic allocator index for this frame
-        m_CurrentAllocatorIndex.store(0, std::memory_order_relaxed);
+        // Reset ALL allocators (main + workers) for this frame
+        m_FrameResources[currentIndex].Reset();
+        m_FrameResources[currentIndex].FenceSignaled = false;
 
         return currentIndex;
     }
@@ -128,7 +114,6 @@ namespace OloEngine
         if (m_DoubleBufferingEnabled)
         {
             frame.FenceId = CreateFence();
-            // If fence creation fails, treat frame as immediately signaled
             if (frame.FenceId == 0)
             {
                 OLO_CORE_ERROR("FrameResourceManager::EndFrame: Failed to create GPU fence!");
@@ -140,50 +125,38 @@ namespace OloEngine
             frame.FenceSignaled = true;
         }
 
-        // Advance to the next frame buffer with release semantics
-        // Workers read this with acquire to ensure they see the updated frame state
+        // Advance to the next frame buffer
         u32 nextIndex = (currentIndex + 1) % NUM_BUFFERED_FRAMES;
         m_CurrentFrameIndex.store(nextIndex, std::memory_order_release);
         m_TotalFrameCount++;
     }
 
-    CommandAllocator* FrameResourceManager::GetFrameAllocator()
+    CommandAllocator* FrameResourceManager::GetMainAllocator()
     {
         if (!m_Initialized)
         {
-            OLO_CORE_ERROR("FrameResourceManager::GetFrameAllocator: Not initialized!");
+            OLO_CORE_ERROR("FrameResourceManager::GetMainAllocator: Not initialized!");
             return nullptr;
         }
 
         u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
-        auto& frame = m_FrameResources[currentIndex];
-
-        // Atomically get the next allocator index
-        u32 index = m_CurrentAllocatorIndex.fetch_add(1, std::memory_order_relaxed);
-
-        // Diagnostic logging for allocator index wrapping
-        if (index >= ALLOCATORS_PER_FRAME)
-        {
-            OLO_CORE_WARN("FrameResourceManager: Allocator index wrapped ({} -> {})",
-                          index, index % ALLOCATORS_PER_FRAME);
-        }
-
-        // Wrap around if we exceed the number of allocators
-        index = index % ALLOCATORS_PER_FRAME;
-
-        if (index < frame.Allocators.size())
-        {
-            return frame.Allocators[index].get();
-        }
-
-        OLO_CORE_ERROR("FrameResourceManager::GetFrameAllocator: No allocator available (index {})", index);
-        return nullptr;
+        return &m_FrameResources[currentIndex].MainAllocator;
     }
 
-    FrameResourceManager::FrameResources& FrameResourceManager::GetCurrentFrameResources()
+    CommandAllocator* FrameResourceManager::GetWorkerAllocator(u32 workerIndex)
     {
+        if (!m_Initialized)
+        {
+            OLO_CORE_ERROR("FrameResourceManager::GetWorkerAllocator: Not initialized!");
+            return nullptr;
+        }
+
+        OLO_CORE_ASSERT(workerIndex < MAX_WORKERS,
+                        "FrameResourceManager::GetWorkerAllocator: Worker index {} exceeds max {}!",
+                        workerIndex, MAX_WORKERS);
+
         u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
-        return m_FrameResources[currentIndex];
+        return &m_FrameResources[currentIndex].WorkerAllocators[workerIndex];
     }
 
     bool FrameResourceManager::IsFrameComplete(u32 frameIndex) const
@@ -234,7 +207,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // glFenceSync returns a GLsync which we cast to u64 to preserve the full pointer value
         GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
         if (!sync)
         {
@@ -242,8 +214,6 @@ namespace OloEngine
             return 0;
         }
 
-        // Store the sync object as a pointer cast to u64 for the fence ID
-        // u64 preserves the full pointer value on both 32-bit and 64-bit platforms
         return static_cast<u64>(reinterpret_cast<uptr>(sync));
     }
 
@@ -256,7 +226,6 @@ namespace OloEngine
 
         GLsync sync = reinterpret_cast<GLsync>(static_cast<uptr>(fenceId));
 
-        // Wait for the fence with a 1-second timeout
         constexpr GLuint64 TIMEOUT_NS = 1000000000ULL; // 1 second
         GLenum result = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, TIMEOUT_NS);
 
@@ -268,7 +237,6 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("FrameResourceManager::WaitForFence: Fence wait failed!");
         }
-        // GL_ALREADY_SIGNALED or GL_CONDITION_SATISFIED means success
     }
 
     bool FrameResourceManager::IsFenceSignaled(u64 fenceId) const

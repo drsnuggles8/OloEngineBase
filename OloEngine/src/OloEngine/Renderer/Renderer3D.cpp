@@ -17,7 +17,6 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
-#include "OloEngine/Renderer/Commands/CommandMemoryManager.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/GPUResourceQueue.h"
 #include "OloEngine/Renderer/Material.h"
@@ -169,7 +168,6 @@ namespace OloEngine
 
         RendererProfiler::GetInstance().Initialize();
 
-        CommandMemoryManager::Init();
         FrameDataBufferManager::Init();
         FrameResourceManager::Get().Init();
 
@@ -446,13 +444,8 @@ namespace OloEngine
         // Reset frame data buffer for new frame
         FrameDataBufferManager::Get().Reset();
 
-        // Use frame resource manager's allocator for double-buffering
-        CommandAllocator* frameAllocator = FrameResourceManager::Get().GetFrameAllocator();
-        if (!frameAllocator)
-        {
-            // Fallback to legacy allocator if double-buffering is disabled
-            frameAllocator = CommandMemoryManager::GetFrameAllocator();
-        }
+        // Get main-thread allocator for this frame (already reset by BeginFrame)
+        CommandAllocator* frameAllocator = FrameResourceManager::Get().GetMainAllocator();
         s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
 
         CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
@@ -939,8 +932,7 @@ namespace OloEngine
         // Prepare command bucket for parallel submission
         s_Data.ScenePass->GetCommandBucket().PrepareForParallelSubmission();
 
-        // Prepare worker allocators
-        CommandMemoryManager::PrepareWorkerAllocatorsForFrame();
+        // Worker allocators already reset in BeginFrame — no separate prepare needed
 
         // Prepare frame data buffer for parallel submission
         FrameDataBufferManager::Get().PrepareForParallelSubmission();
@@ -968,9 +960,6 @@ namespace OloEngine
         // Must be done after both MergeScratchBuffers() and MergeThreadLocalCommands()
         s_Data.ScenePass->GetCommandBucket().RemapBoneOffsets(FrameDataBufferManager::Get());
 
-        // Release worker allocators
-        CommandMemoryManager::ReleaseWorkerAllocators();
-
         s_Data.ParallelSubmissionActive = false;
     }
 
@@ -980,10 +969,9 @@ namespace OloEngine
 
         WorkerSubmitContext ctx;
 
-        // Get worker allocator by explicit index - no thread ID lookup needed
-        auto [index, allocator] = CommandMemoryManager::GetWorkerAllocatorByIndex(workerIndex);
-        ctx.WorkerIndex = index;
-        ctx.Allocator = allocator;
+        // Get worker allocator directly from FrameResourceManager — zero overhead
+        ctx.WorkerIndex = workerIndex;
+        ctx.Allocator = FrameResourceManager::Get().GetWorkerAllocator(workerIndex);
 
         // Get command bucket
         if (s_Data.ScenePass)

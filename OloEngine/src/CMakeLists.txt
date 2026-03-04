@@ -418,8 +418,6 @@
 		"OloEngine/Renderer/Commands/CommandBucket.h"
 		"OloEngine/Renderer/Commands/CommandDispatch.cpp"
 		"OloEngine/Renderer/Commands/CommandDispatch.h"
-		"OloEngine/Renderer/Commands/CommandMemoryManager.cpp"
-		"OloEngine/Renderer/Commands/CommandMemoryManager.h"
 		"OloEngine/Renderer/Commands/CommandPacket.cpp"
 		"OloEngine/Renderer/Commands/CommandPacket.h"
 		"OloEngine/Renderer/Commands/DrawKey.h"

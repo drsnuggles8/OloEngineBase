@@ -7,7 +7,6 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 
 #include <vector>
-#include <thread>
 #include <numeric>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
@@ -361,13 +360,13 @@ TEST(ThreadLocalCache, AllocateReturnsAlignedPointers)
 }
 
 // =============================================================================
-// CommandAllocator — Thread Cache Stability Across Reset
+// CommandAllocator — Reuse Stability Across Reset
 // =============================================================================
 
 TEST(CommandAllocator, ThreadCacheIsReusedAfterReset)
 {
-    // Verify that the same thread reuses its cache across Reset() calls,
-    // rather than creating new caches every frame.
+    // Verify that the allocator reuses its memory blocks across Reset() calls,
+    // rather than growing memory every frame.
     CommandAllocator allocator;
 
     // First allocation creates a thread cache
@@ -379,9 +378,9 @@ TEST(CommandAllocator, ThreadCacheIsReusedAfterReset)
     allocator.AllocateCommandMemory(64);
     sizet allocated2 = allocator.GetTotalAllocated();
 
-    // Total allocated should be roughly the same (same blocks reused)
+    // Total allocated should be roughly the same (blocks reused)
     EXPECT_LE(allocated2, allocated1)
-        << "Thread cache was not reused after Reset — possible cache recreation";
+        << "Allocator blocks were not reused after Reset";
 }
 
 TEST(CommandAllocator, MultiBlockResetDoesNotLeak)

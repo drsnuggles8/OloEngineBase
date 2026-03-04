@@ -2,17 +2,13 @@
 
 #include "OloEngine/Core/Base.h"
 #include "CommandPacket.h"
-#include "ThreadLocalCache.h" // Added include for ThreadLocalCache
-#include <thread>
-#include <unordered_map>
-#include <vector>
-#include <atomic>
-
-#include "OloEngine/Threading/Mutex.h"
+#include "ThreadLocalCache.h"
 
 namespace OloEngine
 {
-    // Command allocator for efficient command packet memory management
+    // Linear bump allocator for command packet memory.
+    // NOT thread-safe — each thread must use its own instance.
+    // Following Molecular Matters' design: zero synchronization on the hot path.
     class CommandAllocator
     {
       public:
@@ -95,12 +91,7 @@ namespace OloEngine
         }
 
       private:
-        // Get the thread-local cache for the current thread
-        ThreadLocalCache& GetThreadLocalCache();
-
-        sizet m_BlockSize;
-        std::unordered_map<std::thread::id, ThreadLocalCache> m_ThreadCaches;
-        mutable FMutex m_CachesLock;
-        std::atomic<sizet> m_AllocationCount{ 0 };
+        ThreadLocalCache m_Cache;    // Owned linear allocator — no map, no mutex
+        sizet m_AllocationCount = 0; // Plain counter — single-thread access only
     };
 } // namespace OloEngine
