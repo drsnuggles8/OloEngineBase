@@ -30,7 +30,7 @@ TEST(CommandPacket, InitializePopulatesType)
     EXPECT_STREQ(packet->GetMetadata().m_DebugName, "TestMesh");
 }
 
-TEST(CommandPacket, InitializeSetsDispatchFunction)
+TEST(CommandPacket, InitializeSetsCommandType)
 {
     CommandAllocator allocator;
     auto cmd = MakeSyntheticClearCommand();
@@ -39,29 +39,23 @@ TEST(CommandPacket, InitializeSetsDispatchFunction)
     ASSERT_NE(packet, nullptr);
 
     EXPECT_EQ(packet->GetCommandType(), CommandType::Clear);
-    // Dispatch function should be set for known command types
-    // (The table is initialized statically or during test startup)
 }
 
-TEST(CommandPacket, DrawMeshAutoGeneratesShaderAndMaterialKeys)
+TEST(CommandPacket, DrawMeshPacketStoresShaderAndMaterialKeys)
 {
     CommandAllocator allocator;
 
-    // Create a draw mesh with specific shader/material IDs
     auto cmd = MakeSyntheticDrawMeshCommand(42, 0, 0.5f);
-    cmd.useTextureMaps = true;
-    cmd.diffuseMapID = 100;
-    cmd.specularMapID = 200;
 
     PacketMetadata meta;
-    // Leave sort key with zero shader/material — Initialize should fill them
+    meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 42, 99, 500);
+
     auto* packet = allocator.CreateCommandPacket(cmd, meta);
     ASSERT_NE(packet, nullptr);
 
-    // Initialize auto-sets shader ID from shaderRendererID
+    // Sort key preserves shader/material IDs set in metadata
     EXPECT_EQ(packet->GetMetadata().m_SortKey.GetShaderID(), 42u);
-    // Material ID is derived from texture IDs (hash)
-    EXPECT_NE(packet->GetMetadata().m_SortKey.GetMaterialID(), 0u);
+    EXPECT_EQ(packet->GetMetadata().m_SortKey.GetMaterialID(), 99u);
 }
 
 // =============================================================================

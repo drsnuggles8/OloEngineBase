@@ -192,6 +192,10 @@ namespace OloEngine
         std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
         s_Data.Stats.Reset();
 
+        // Register the dispatch resolver so CommandPacket::Execute() can look
+        // up dispatch functions without a compile-time dependency on this TU.
+        CommandPacket::SetDispatchResolver(CommandDispatch::GetDispatchFunction);
+
         OLO_CORE_INFO("CommandDispatch: Initialized (UBOs managed by Renderer3D)");
     }
 

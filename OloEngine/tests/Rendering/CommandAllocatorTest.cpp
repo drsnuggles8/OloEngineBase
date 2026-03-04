@@ -3,6 +3,7 @@
 
 #include "RenderingTestUtils.h"
 #include "OloEngine/Renderer/Commands/CommandAllocator.h"
+#include "OloEngine/Renderer/Commands/ThreadLocalCache.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 
 #include <vector>
@@ -245,4 +246,163 @@ TEST(CommandAllocator, ConstantsAreSensible)
         << "MAX_COMMAND_SIZE must fit the largest command";
     EXPECT_EQ(CommandAllocator::COMMAND_ALIGNMENT % 16, 0u)
         << "Alignment should be a multiple of 16";
+}
+
+// =============================================================================
+// ThreadLocalCache — Block Reuse After Reset
+// =============================================================================
+
+TEST(ThreadLocalCache, SingleBlockForSmallAllocations)
+{
+    ThreadLocalCache cache(256); // Small blocks for testing
+
+    // Allocate less than one block — should stay at 1 block
+    cache.Allocate(64);
+    cache.Allocate(64);
+    EXPECT_EQ(cache.GetBlockCount(), 1u);
+}
+
+TEST(ThreadLocalCache, MultiBlockAllocationGrows)
+{
+    ThreadLocalCache cache(128); // Tiny blocks to force multiple blocks
+
+    // Fill the first block
+    cache.Allocate(100);
+    EXPECT_EQ(cache.GetBlockCount(), 1u);
+
+    // This should spill into a second block
+    cache.Allocate(100);
+    EXPECT_EQ(cache.GetBlockCount(), 2u);
+
+    // And a third
+    cache.Allocate(100);
+    EXPECT_EQ(cache.GetBlockCount(), 3u);
+}
+
+TEST(ThreadLocalCache, ResetReusesBlocksWithoutLeaking)
+{
+    // BUG REGRESSION: AddBlock used to overwrite m_CurrentBlock->Next,
+    // orphaning existing blocks in the chain after Reset().
+    ThreadLocalCache cache(128);
+
+    // Fill 3 blocks
+    cache.Allocate(100);
+    cache.Allocate(100);
+    cache.Allocate(100);
+    EXPECT_EQ(cache.GetBlockCount(), 3u) << "Should have 3 blocks after initial allocations";
+
+    // Reset — rewinds to first block, all offsets zeroed
+    cache.Reset();
+    EXPECT_EQ(cache.GetBlockCount(), 3u) << "Reset must not free blocks";
+
+    // Re-allocate the same pattern — must REUSE existing blocks, not create new ones
+    cache.Allocate(100);
+    cache.Allocate(100);
+    cache.Allocate(100);
+    EXPECT_EQ(cache.GetBlockCount(), 3u)
+        << "Block count should remain 3 after Reset + re-allocation.\n"
+        << "If it grew, AddBlock is leaking blocks by overwriting Next pointers.";
+
+    // Do it again to verify stability across multiple Reset cycles
+    cache.Reset();
+    cache.Allocate(100);
+    cache.Allocate(100);
+    cache.Allocate(100);
+    EXPECT_EQ(cache.GetBlockCount(), 3u)
+        << "Block count must remain stable across multiple Reset cycles";
+}
+
+TEST(ThreadLocalCache, ResetAndReallocateSameMemoryFootprint)
+{
+    // Verify that reuse after Reset doesn't grow memory footprint.
+    ThreadLocalCache cache(256);
+
+    // First round: allocate enough to span 2 blocks
+    for (int i = 0; i < 4; ++i)
+        cache.Allocate(128);
+    u32 blockCountAfterFirstRound = cache.GetBlockCount();
+    EXPECT_GE(blockCountAfterFirstRound, 2u);
+
+    // Multiple Reset + re-allocate cycles
+    for (int cycle = 0; cycle < 5; ++cycle)
+    {
+        cache.Reset();
+        for (int i = 0; i < 4; ++i)
+            cache.Allocate(128);
+        EXPECT_EQ(cache.GetBlockCount(), blockCountAfterFirstRound)
+            << "Block count grew on cycle " << cycle << " — memory leak!";
+    }
+}
+
+TEST(ThreadLocalCache, OversizedAllocationGetsLargerBlock)
+{
+    ThreadLocalCache cache(128);
+
+    // Request something larger than the default block size
+    void* mem = cache.Allocate(256);
+    ASSERT_NE(mem, nullptr);
+
+    // Should have 2 blocks: the initial 128-byte block + one 256-byte block
+    EXPECT_EQ(cache.GetBlockCount(), 2u);
+}
+
+TEST(ThreadLocalCache, AllocateReturnsAlignedPointers)
+{
+    ThreadLocalCache cache(512);
+
+    for (sizet alignment : { 8, 16, 32 })
+    {
+        void* mem = cache.Allocate(64, alignment);
+        ASSERT_NE(mem, nullptr);
+        auto addr = reinterpret_cast<std::uintptr_t>(mem);
+        EXPECT_EQ(addr % alignment, 0u)
+            << "Allocation not aligned to " << alignment << " bytes";
+    }
+}
+
+// =============================================================================
+// CommandAllocator — Thread Cache Stability Across Reset
+// =============================================================================
+
+TEST(CommandAllocator, ThreadCacheIsReusedAfterReset)
+{
+    // Verify that the same thread reuses its cache across Reset() calls,
+    // rather than creating new caches every frame.
+    CommandAllocator allocator;
+
+    // First allocation creates a thread cache
+    allocator.AllocateCommandMemory(64);
+    sizet allocated1 = allocator.GetTotalAllocated();
+
+    // Reset and allocate again — should reuse the same thread cache
+    allocator.Reset();
+    allocator.AllocateCommandMemory(64);
+    sizet allocated2 = allocator.GetTotalAllocated();
+
+    // Total allocated should be roughly the same (same blocks reused)
+    EXPECT_LE(allocated2, allocated1)
+        << "Thread cache was not reused after Reset — possible cache recreation";
+}
+
+TEST(CommandAllocator, MultiBlockResetDoesNotLeak)
+{
+    // Test the multi-block scenario through the CommandAllocator interface
+    CommandAllocator allocator(256); // Small blocks to force multi-block
+
+    // Fill multiple blocks
+    for (int i = 0; i < 10; ++i)
+        allocator.AllocateCommandMemory(128);
+
+    sizet allocated1 = allocator.GetTotalAllocated();
+
+    // Reset and re-allocate — should reuse blocks
+    allocator.Reset();
+    for (int i = 0; i < 10; ++i)
+        allocator.AllocateCommandMemory(128);
+
+    sizet allocated2 = allocator.GetTotalAllocated();
+
+    // Memory footprint should not grow (blocks are reused)
+    EXPECT_LE(allocated2, allocated1)
+        << "Memory grew after Reset — AddBlock may be leaking blocks";
 }

@@ -5,6 +5,14 @@
 
 namespace OloEngine
 {
+    // Static dispatch resolver — set at engine startup by CommandDispatch::Initialize().
+    CommandPacket::DispatchResolverFn CommandPacket::s_DispatchResolver = nullptr;
+
+    void CommandPacket::SetDispatchResolver(DispatchResolverFn resolver)
+    {
+        s_DispatchResolver = resolver;
+    }
+
     CommandPacket::~CommandPacket()
     {
         // No dynamic resources to clean up
@@ -56,9 +64,17 @@ namespace OloEngine
 
         if (m_CommandSize > 0)
         {
-            if (m_DispatchFn)
+            // Resolve dispatch function: prefer per-packet fn, fallback to
+            // global resolver (set at engine startup by CommandDispatch::Initialize).
+            CommandDispatchFn dispatchFn = m_DispatchFn;
+            if (!dispatchFn && s_DispatchResolver)
             {
-                m_DispatchFn(m_CommandData, rendererAPI);
+                dispatchFn = s_DispatchResolver(m_CommandType);
+            }
+
+            if (dispatchFn)
+            {
+                dispatchFn(m_CommandData, rendererAPI);
             }
             else
             {

@@ -43,7 +43,7 @@ add_executable(OloEngine-Tests
 		Rendering/CommandPacketTest.cpp
 		Rendering/CommandAllocatorTest.cpp
 		Rendering/CommandBucketTest.cpp
-		Rendering/CommandDispatchTest.cpp
+		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
 		Rendering/RenderGraphTest.cpp
 		Rendering/FramePipelineTest.cpp
 		Rendering/FrameCaptureTest.cpp

@@ -466,9 +466,8 @@ namespace OloEngine
         // Copy POD render state
         instancedCmd->renderState = meshCmd->renderState;
 
-        // Set command type and dispatch function
+        // Set command type and dispatch function (via runtime resolver)
         instancedPacket->SetCommandType(instancedCmd->header.type);
-        instancedPacket->SetDispatchFunction(CommandDispatch::GetDispatchFunction(instancedCmd->header.type));
 
         return instancedPacket;
     }

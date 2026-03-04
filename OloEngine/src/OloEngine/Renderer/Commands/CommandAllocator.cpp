@@ -98,7 +98,7 @@ namespace OloEngine
         if (inserted)
         {
             OLO_CORE_TRACE("CommandAllocator: Created new thread cache for thread ID {0}",
-                           static_cast<void*>(&threadId));
+                           std::hash<std::thread::id>{}(threadId));
         }
 
         // Return reference to the cache (either existing or newly created)

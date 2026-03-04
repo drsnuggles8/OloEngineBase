@@ -127,24 +127,44 @@ namespace OloEngine
 
     void ThreadLocalCache::AddBlock(sizet minSize)
     {
+        // After Reset(), m_CurrentBlock is rewound to m_FirstBlock while the
+        // subsequent blocks still exist.  Before allocating a brand-new block,
+        // check whether the NEXT block in the existing chain is large enough.
+        if (m_CurrentBlock && m_CurrentBlock->Next)
+        {
+            MemoryBlock* reusable = m_CurrentBlock->Next;
+            if (reusable->Size >= minSize)
+            {
+                reusable->Offset = 0;
+                m_CurrentBlock = reusable;
+                return;
+            }
+        }
+
         // Create a new memory block
         auto* newBlock = new MemoryBlock();
         newBlock->Size = std::max(minSize, m_DefaultBlockSize);
         newBlock->Offset = 0;
         newBlock->Data = new u8[newBlock->Size];
-        newBlock->Next = nullptr;
+
+        // Preserve the rest of the chain so existing blocks aren't orphaned.
+        if (m_CurrentBlock)
+        {
+            newBlock->Next = m_CurrentBlock->Next;
+            m_CurrentBlock->Next = newBlock;
+        }
+        else
+        {
+            newBlock->Next = nullptr;
+        }
 
         // Add to the linked list
         if (!m_FirstBlock)
         {
             m_FirstBlock = newBlock;
-            m_CurrentBlock = newBlock;
         }
-        else
-        {
-            m_CurrentBlock->Next = newBlock;
-            m_CurrentBlock = newBlock;
-        }
+
+        m_CurrentBlock = newBlock;
 
         OLO_CORE_TRACE("ThreadLocalCache: Added new block of size {0} bytes", newBlock->Size);
     }

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "RenderCommand.h"
-#include "CommandDispatch.h"
 #include "DrawKey.h"
 #include "OloEngine/Core/Base.h"
 #include <glm/glm.hpp>
@@ -72,12 +71,11 @@ namespace OloEngine
             std::memcpy(m_CommandData, &commandData, sizeof(T));
             m_CommandSize = sizeof(T);
             m_CommandType = commandData.header.type;
-            m_DispatchFn = CommandDispatch::GetDispatchFunction(m_CommandType);
 
-            if (!m_DispatchFn && m_CommandType != CommandType::Invalid)
-            {
-                OLO_CORE_WARN("No dispatch function found for command type {}", static_cast<int>(m_CommandType));
-            }
+            // NOTE: Dispatch function is resolved lazily in Execute() rather than
+            // here, to avoid a compile-time dependency on CommandDispatch.cpp
+            // (which transitively includes Application, Renderer3D, AssetManager,
+            //  glad, etc. — heavy statics that crash test executables).
 
             // Set metadata
             m_Metadata = metadata; // Set default keys if not specified in metadata
@@ -198,7 +196,14 @@ namespace OloEngine
             m_Metadata = metadata;
         }
 
+        // Runtime dispatch resolver — set once during engine init
+        // (e.g. CommandDispatch::Initialize sets this to CommandDispatch::GetDispatchFunction).
+        // Keeps CommandPacket.obj free of any link-time dependency on CommandDispatch.obj.
+        using DispatchResolverFn = CommandDispatchFn (*)(CommandType);
+        static void SetDispatchResolver(DispatchResolverFn resolver);
+
       private:
+        static DispatchResolverFn s_DispatchResolver;
         void* m_CommandData = nullptr;
         sizet m_CommandSize = 0;
         CommandType m_CommandType = CommandType::Invalid;
