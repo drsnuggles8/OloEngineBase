@@ -251,6 +251,8 @@ namespace OloEngine
         if (!packet)
             return;
 
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
         m_Packets.push_back(packet);
 

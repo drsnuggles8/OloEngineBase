@@ -63,10 +63,8 @@ namespace OloEngine
     // @param boundingSphereCenter Optional world-space bounding sphere center. If provided,
     //        uses this for more accurate depth sorting for off-center meshes. If nullptr,
     //        falls back to using modelMatrix[3] (the origin of the transformed object).
-    static u32 ComputeDepthForSortKey(const glm::mat4& modelMatrix, const glm::vec3* boundingSphereCenter = nullptr)
+    static u32 ComputeDepthForSortKeyWithView(const glm::mat4& viewMatrix, const glm::mat4& modelMatrix, const glm::vec3* boundingSphereCenter = nullptr)
     {
-        // Transform object center to view space using CommandDispatch's cached view matrix
-        const glm::mat4& viewMatrix = CommandDispatch::GetViewMatrix();
 
         // Use bounding sphere center if provided, otherwise use model origin
         glm::vec4 worldPos = boundingSphereCenter
@@ -83,6 +81,11 @@ namespace OloEngine
         depth = glm::clamp(depth, MIN_DEPTH, MAX_DEPTH);
         f32 normalizedDepth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH);
         return static_cast<u32>(normalizedDepth * 0xFFFFFF);
+    }
+
+    static u32 ComputeDepthForSortKey(const glm::mat4& modelMatrix, const glm::vec3* boundingSphereCenter = nullptr)
+    {
+        return ComputeDepthForSortKeyWithView(CommandDispatch::GetViewMatrix(), modelMatrix, boundingSphereCenter);
     }
 
     // Helper to generate material ID hash for sort key
@@ -1197,13 +1200,7 @@ namespace OloEngine
         u32 materialID = ComputeMaterialID(material);
 
         // Compute depth using parallel context's view matrix
-        glm::vec4 viewPos = ctx.SceneContext->ViewMatrix * modelMatrix[3];
-        f32 depth = -viewPos.z;
-        constexpr f32 MIN_DEPTH = 0.1f;
-        constexpr f32 MAX_DEPTH = 1000.0f;
-        depth = glm::clamp(depth, MIN_DEPTH, MAX_DEPTH);
-        f32 normalizedDepth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH);
-        u32 depthKey = static_cast<u32>(normalizedDepth * 0xFFFFFF);
+        u32 depthKey = ComputeDepthForSortKeyWithView(ctx.SceneContext->ViewMatrix, modelMatrix);
 
         if (material.GetFlag(MaterialFlag::Blend))
             metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
@@ -1332,13 +1329,7 @@ namespace OloEngine
         u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
 
-        glm::vec4 viewPos = ctx.SceneContext->ViewMatrix * modelMatrix[3];
-        f32 depth = -viewPos.z;
-        constexpr f32 MIN_DEPTH = 0.1f;
-        constexpr f32 MAX_DEPTH = 1000.0f;
-        depth = glm::clamp(depth, MIN_DEPTH, MAX_DEPTH);
-        f32 normalizedDepth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH);
-        u32 depthKey = static_cast<u32>(normalizedDepth * 0xFFFFFF);
+        u32 depthKey = ComputeDepthForSortKeyWithView(ctx.SceneContext->ViewMatrix, modelMatrix);
 
         if (material.GetFlag(MaterialFlag::Blend))
             metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);

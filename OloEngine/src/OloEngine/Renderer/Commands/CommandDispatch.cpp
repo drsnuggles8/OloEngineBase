@@ -960,7 +960,7 @@ namespace OloEngine
         UploadMaterialState(mat, cmd->materialDataIndex);
 
         // Get transforms from FrameDataBuffer
-        const sizet maxInstances = 100;
+        constexpr sizet maxInstances = CommandBucketConfig{}.MaxMeshInstances;
         sizet instanceCount = static_cast<sizet>(cmd->transformCount);
         if (instanceCount > maxInstances)
         {
