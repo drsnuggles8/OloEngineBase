@@ -543,8 +543,10 @@ namespace OloEngine
         CommandDispatch::SetViewPosition(s_Data.ViewPos);
 
         s_Data.ScenePass->ResetCommandBucket();
-        s_Data.DecalPass->ResetCommandBucket();
-        s_Data.FoliagePass->ResetCommandBucket();
+        if (s_Data.DecalPass)
+            s_Data.DecalPass->ResetCommandBucket();
+        if (s_Data.FoliagePass)
+            s_Data.FoliagePass->ResetCommandBucket();
 
         CommandDispatch::ResetState();
 
@@ -993,6 +995,10 @@ namespace OloEngine
         // Don't return the allocator to the pool - it's managed by FrameResourceManager
         // The allocator will be reset at the start of the next frame when this buffer is reused
         s_Data.ScenePass->GetCommandBucket().SetAllocator(nullptr);
+        if (s_Data.DecalPass)
+            s_Data.DecalPass->GetCommandBucket().SetAllocator(nullptr);
+        if (s_Data.FoliagePass)
+            s_Data.FoliagePass->GetCommandBucket().SetAllocator(nullptr);
 
         profiler.EndFrame();
 

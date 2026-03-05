@@ -181,7 +181,9 @@ inline void ExpectCommandOrder(const std::vector<DrawKey>& keys)
 inline u32 CountShaderChanges(const std::vector<DrawKey>& keys)
 {
     if (keys.empty())
+    {
         return 0;
+    }
 
     u32 changes = 0;
     u32 lastShader = keys[0].GetShaderID();

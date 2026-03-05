@@ -69,6 +69,26 @@ namespace OloEngine
     // Helper to apply POD render state to the renderer API (skips if same index as last)
     static void ApplyPODRenderState(u16 renderStateIndex, RendererAPI& api)
     {
+        if (renderStateIndex == INVALID_RENDER_STATE_INDEX)
+        {
+            // Apply safe defaults so no stale GL state persists
+            s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+            static const PODRenderState s_Default{};
+            api.SetBlendState(s_Default.blendEnabled);
+            api.SetDepthTest(s_Default.depthTestEnabled);
+            if (s_Default.depthTestEnabled)
+            {
+                api.SetDepthFunc(s_Default.depthFunction);
+            }
+            api.SetDepthMask(s_Default.depthWriteMask);
+            api.DisableStencilTest();
+            api.DisableCulling();
+            api.SetLineWidth(s_Default.lineWidth);
+            api.SetPolygonMode(s_Default.polygonFace, s_Default.polygonMode);
+            api.DisableScissorTest();
+            return;
+        }
+
         if (renderStateIndex == s_Data.LastRenderStateIndex)
             return;
         s_Data.LastRenderStateIndex = renderStateIndex;
