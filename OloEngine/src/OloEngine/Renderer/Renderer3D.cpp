@@ -662,6 +662,11 @@ namespace OloEngine
         }
 
         CommandPacket* packet = CreateDecalDrawCall<DrawDecalCommand>();
+        if (!packet)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawDecal: Failed to allocate decal command packet!");
+            return nullptr;
+        }
         auto* cmd = packet->GetCommandData<DrawDecalCommand>();
         cmd->header.type = CommandType::DrawDecal;
 
@@ -728,6 +733,11 @@ namespace OloEngine
         }
 
         CommandPacket* packet = CreateFoliageDrawCall<DrawFoliageLayerCommand>();
+        if (!packet)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawFoliageLayer: Failed to allocate foliage command packet!");
+            return nullptr;
+        }
         auto* cmd = packet->GetCommandData<DrawFoliageLayerCommand>();
         cmd->header.type = CommandType::DrawFoliageLayer;
 

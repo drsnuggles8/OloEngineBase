@@ -86,6 +86,12 @@ namespace OloEngine
             api.SetLineWidth(s_Default.lineWidth);
             api.SetPolygonMode(s_Default.polygonFace, s_Default.polygonMode);
             api.DisableScissorTest();
+            api.SetColorMask(s_Default.colorMaskR, s_Default.colorMaskG, s_Default.colorMaskB, s_Default.colorMaskA);
+            api.SetPolygonOffset(0.0f, 0.0f);
+            if (s_Default.multisamplingEnabled)
+                api.EnableMultisampling();
+            else
+                api.DisableMultisampling();
             return;
         }
 
@@ -1397,8 +1403,11 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         const auto* cmd = static_cast<const DrawFoliageLayerCommand*>(data);
 
-        if (!cmd || cmd->vertexArrayID == 0 || cmd->shaderRendererID == 0 || cmd->instanceCount == 0)
+        if (!cmd || cmd->vertexArrayID == 0 || cmd->shaderRendererID == 0 || cmd->instanceCount == 0 || cmd->indexCount == 0)
         {
+            OLO_CORE_ERROR("CommandDispatch::DrawFoliageLayer: Invalid foliage command (VAO={}, shader={}, instances={}, indices={})",
+                           cmd ? cmd->vertexArrayID : 0, cmd ? cmd->shaderRendererID : 0,
+                           cmd ? cmd->instanceCount : 0, cmd ? cmd->indexCount : 0);
             return;
         }
 

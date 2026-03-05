@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Frustum.h"
 
 #include <cmath>
+#include <limits>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
@@ -26,9 +27,9 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test util
 /// Optionally checks that the determinant is non-zero (invertible).
 inline void ValidateTransform(const glm::mat4& m, bool checkInvertible = false)
 {
-    for (int col = 0; col < 4; ++col)
+    for (i32 col = 0; col < 4; ++col)
     {
-        for (int row = 0; row < 4; ++row)
+        for (i32 row = 0; row < 4; ++row)
         {
             EXPECT_FALSE(std::isnan(m[col][row]))
                 << "NaN at [" << col << "][" << row << "]";
@@ -47,7 +48,7 @@ inline void ValidateTransform(const glm::mat4& m, bool checkInvertible = false)
 /// Asserts no NaN or Inf in a vec3.
 inline void ValidateVec3(const glm::vec3& v, const char* label = "vec3")
 {
-    for (int i = 0; i < 3; ++i)
+    for (i32 i = 0; i < 3; ++i)
     {
         EXPECT_FALSE(std::isnan(v[i])) << label << "[" << i << "] is NaN";
         EXPECT_FALSE(std::isinf(v[i])) << label << "[" << i << "] is Inf";
@@ -57,7 +58,7 @@ inline void ValidateVec3(const glm::vec3& v, const char* label = "vec3")
 /// Asserts no NaN or Inf in a vec4.
 inline void ValidateVec4(const glm::vec4& v, const char* label = "vec4")
 {
-    for (int i = 0; i < 4; ++i)
+    for (i32 i = 0; i < 4; ++i)
     {
         EXPECT_FALSE(std::isnan(v[i])) << label << "[" << i << "] is NaN";
         EXPECT_FALSE(std::isinf(v[i])) << label << "[" << i << "] is Inf";
@@ -209,8 +210,8 @@ inline std::string PrintKeyBits(const DrawKey& key)
     std::ostringstream oss;
     oss << "DrawKey{raw=0x" << std::hex << key.GetKey() << std::dec
         << " viewport=" << key.GetViewportID()
-        << " layer=" << static_cast<int>(key.GetViewLayer())
-        << " mode=" << static_cast<int>(key.GetRenderMode())
+        << " layer=" << static_cast<u32>(key.GetViewLayer())
+        << " mode=" << static_cast<u32>(key.GetRenderMode())
         << " shader=" << key.GetShaderID()
         << " material=" << key.GetMaterialID()
         << " depth=" << key.GetDepth()
