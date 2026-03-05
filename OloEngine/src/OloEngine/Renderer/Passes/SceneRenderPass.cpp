@@ -66,13 +66,23 @@ namespace OloEngine
         if (capturing)
             captureManager.OnPreSort(m_CommandBucket);
 
-        m_CommandBucket.SortCommands();
+        // BatchCommands uses hash-table grouping (O(n)) which doesn't require
+        // pre-sorted input, and sorts internally afterward. Skipping the separate
+        // SortCommands() call avoids a redundant sort pass.
+        // When batching is disabled, fall back to sort-only.
+        if (m_CommandBucket.GetCommandCount() > 0)
+        {
+            m_CommandBucket.BatchCommands(*m_Allocator);
+
+            // If batching was disabled or no-op, ensure we're still sorted
+            if (!m_CommandBucket.IsSorted())
+                m_CommandBucket.SortCommands();
+        }
 
         if (capturing)
             captureManager.OnPostSort(m_CommandBucket);
 
-        // Instance grouping via hash table (O(n) — groups all matching DrawMesh commands)
-        m_CommandBucket.BatchCommands(*m_Allocator);
+        // (Batching already done above)
 
         if (capturing)
             captureManager.OnPostBatch(m_CommandBucket);

@@ -320,6 +320,7 @@ namespace OloEngine
         std::array<PODRenderState, MAX_RENDER_STATES_PER_FRAME> m_RenderStates{};
         u16 m_RenderStateCount = 0;
         mutable FMutex m_RenderStateMutex;
+        bool m_RenderStateOverflowLogged = false; // Once-per-frame overflow warning
 
         // ====================================================================
         // MaterialData Table Storage
@@ -328,6 +329,7 @@ namespace OloEngine
         std::vector<PODMaterialData> m_MaterialData;
         u16 m_MaterialDataCount = 0;
         mutable FMutex m_MaterialDataMutex;
+        bool m_MaterialDataOverflowLogged = false; // Once-per-frame overflow warning
 
         // ====================================================================
         // Thread-Local Scratch Buffer Storage

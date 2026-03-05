@@ -33,9 +33,11 @@ namespace OloEngine
 
         // Reset render state table
         m_RenderStateCount = 0;
+        m_RenderStateOverflowLogged = false;
 
         // Reset material data table
         m_MaterialDataCount = 0;
+        m_MaterialDataOverflowLogged = false;
 
         // Reset worker scratch buffers
         for (auto& scratch : m_WorkerScratchBuffers)
@@ -174,8 +176,13 @@ namespace OloEngine
         // New unique state — allocate
         if (m_RenderStateCount >= MAX_RENDER_STATES_PER_FRAME)
         {
-            OLO_CORE_ERROR("FrameDataBuffer: RenderState table overflow! Max {} unique states per frame",
-                           MAX_RENDER_STATES_PER_FRAME);
+            if (!m_RenderStateOverflowLogged)
+            {
+                OLO_CORE_ERROR("FrameDataBuffer: RenderState table overflow! Max {} unique states per frame. "
+                               "Subsequent overflows this frame will be silent.",
+                               MAX_RENDER_STATES_PER_FRAME);
+                m_RenderStateOverflowLogged = true;
+            }
             return INVALID_RENDER_STATE_INDEX;
         }
 
@@ -212,8 +219,13 @@ namespace OloEngine
         // New unique material — allocate
         if (m_MaterialDataCount >= MAX_MATERIAL_DATA_PER_FRAME)
         {
-            OLO_CORE_ERROR("FrameDataBuffer: MaterialData table overflow! Max {} unique materials per frame",
-                           MAX_MATERIAL_DATA_PER_FRAME);
+            if (!m_MaterialDataOverflowLogged)
+            {
+                OLO_CORE_ERROR("FrameDataBuffer: MaterialData table overflow! Max {} unique materials per frame. "
+                               "Subsequent overflows this frame will be silent.",
+                               MAX_MATERIAL_DATA_PER_FRAME);
+                m_MaterialDataOverflowLogged = true;
+            }
             return INVALID_MATERIAL_DATA_INDEX;
         }
 

@@ -5,7 +5,6 @@
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Debug/GPUTimerQueryPool.h"
 #include "OloEngine/Task/ParallelFor.h"
-#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Threading/UniqueLock.h"
 #include <algorithm>
 #include <array>
@@ -82,13 +81,7 @@ namespace OloEngine
         // Falls back to single-threaded for small arrays.
 
         constexpr sizet PARALLEL_SORT_THRESHOLD = 1024; // Min elements for parallel sort
-        constexpr i32 PARALLEL_SORT_BATCH_SIZE = 256;   // Elements per batch for histogram
-
-        // Per-worker histogram accumulator
-        struct alignas(OLO_PLATFORM_CACHE_LINE_SIZE) WorkerHistogram
-        {
-            std::array<sizet, RADIX_SIZE> counts{};
-        };
+        constexpr i32 PARALLEL_SORT_BATCH_SIZE = 256;   // Elements per chunk for parallel radix sort
 
         void ParallelRadixSort64(std::vector<u64>& keys, std::vector<CommandPacket*>& packets)
         {
@@ -106,9 +99,20 @@ namespace OloEngine
                 return;
             }
 
+            // Divide input into deterministic fixed-size chunks.
+            // Each chunk has a fixed range of input elements, enabling
+            // per-chunk histograms and parallel scatter with no conflicts.
+            i32 numChunks = static_cast<i32>((count + PARALLEL_SORT_BATCH_SIZE - 1) / PARALLEL_SORT_BATCH_SIZE);
+
             // Temporary buffers for swapping
             std::vector<CommandPacket*> tempPackets(count);
             std::vector<u64> tempKeys(count);
+
+            // Per-chunk histograms (indexed by chunk ID, deterministic)
+            std::vector<std::array<sizet, RADIX_SIZE>> chunkHistograms(numChunks);
+
+            // Per-chunk scatter offsets
+            std::vector<std::array<sizet, RADIX_SIZE>> chunkOffsets(numChunks);
 
             // Process each byte from LSB to MSB
             for (sizet pass = 0; pass < NUM_PASSES; ++pass)
@@ -116,61 +120,85 @@ namespace OloEngine
                 OLO_PROFILE_SCOPE("RadixPass");
                 sizet shift = pass * RADIX_BITS;
 
-                // Phase 1: Parallel histogram building
-                // Each worker builds a local histogram, then we reduce
-                TArray<WorkerHistogram> workerHistograms;
+                // Phase 1: Build per-chunk histograms in parallel.
+                // Each chunk is a deterministic range of input elements.
                 {
                     OLO_PROFILE_SCOPE("ParallelHistogram");
-                    ParallelForWithTaskContext(
+                    ParallelFor(
                         "RadixHistogram",
-                        workerHistograms,
-                        static_cast<i32>(count),
-                        PARALLEL_SORT_BATCH_SIZE,
-                        [&keys, shift](WorkerHistogram& hist, i32 i)
+                        numChunks,
+                        1,
+                        [&keys, &chunkHistograms, shift, count](i32 c)
                         {
-                            u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
-                            hist.counts[digit]++;
+                            auto& hist = chunkHistograms[c];
+                            hist = {};
+                            sizet start = static_cast<sizet>(c) * PARALLEL_SORT_BATCH_SIZE;
+                            sizet end = std::min(start + PARALLEL_SORT_BATCH_SIZE, count);
+                            for (sizet i = start; i < end; ++i)
+                            {
+                                u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
+                                hist[digit]++;
+                            }
                         });
                 }
 
-                // Phase 2: Reduce worker histograms into global histogram
-                std::array<sizet, RADIX_SIZE> globalHistogram{};
+                // Phase 2: Compute per-chunk scatter offsets.
+                // chunkOffsets[c][d] = globalPrefixSum[d] + sum of chunkHistograms[0..c-1][d]
+                // Each chunk writes to non-overlapping destination ranges per digit.
                 {
-                    OLO_PROFILE_SCOPE("ReduceHistogram");
-                    for (i32 w = 0; w < workerHistograms.Num(); ++w)
+                    OLO_PROFILE_SCOPE("ChunkOffsets");
+                    // Reduce into global histogram and compute prefix sums
+                    std::array<sizet, RADIX_SIZE> globalHistogram{};
+                    for (i32 c = 0; c < numChunks; ++c)
                     {
-                        for (sizet b = 0; b < RADIX_SIZE; ++b)
+                        for (sizet d = 0; d < RADIX_SIZE; ++d)
                         {
-                            globalHistogram[b] += workerHistograms[w].counts[b];
+                            globalHistogram[d] += chunkHistograms[c][d];
+                        }
+                    }
+
+                    std::array<sizet, RADIX_SIZE> prefixSum{};
+                    sizet total = 0;
+                    for (sizet d = 0; d < RADIX_SIZE; ++d)
+                    {
+                        prefixSum[d] = total;
+                        total += globalHistogram[d];
+                    }
+
+                    // Compute per-chunk offsets
+                    for (sizet d = 0; d < RADIX_SIZE; ++d)
+                    {
+                        sizet running = prefixSum[d];
+                        for (i32 c = 0; c < numChunks; ++c)
+                        {
+                            chunkOffsets[c][d] = running;
+                            running += chunkHistograms[c][d];
                         }
                     }
                 }
 
-                // Phase 3: Compute prefix sums (exclusive scan) for offsets
-                std::array<sizet, RADIX_SIZE> offsets{};
+                // Phase 3: Parallel scatter.
+                // Each chunk scatters its deterministic range of elements using
+                // its own offset table. Writes are non-overlapping across chunks.
                 {
-                    OLO_PROFILE_SCOPE("PrefixSum");
-                    sizet total = 0;
-                    for (sizet i = 0; i < RADIX_SIZE; ++i)
-                    {
-                        offsets[i] = total;
-                        total += globalHistogram[i];
-                    }
-                }
-
-                // Phase 4: Scatter phase (sequential for correctness)
-                // Note: Parallel scatter requires careful write conflict handling.
-                // For now, we do sequential scatter which is still fast due to
-                // prefetched destination addresses and sequential reads.
-                {
-                    OLO_PROFILE_SCOPE("Scatter");
-                    for (sizet i = 0; i < count; ++i)
-                    {
-                        u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
-                        sizet destIdx = offsets[digit]++;
-                        tempPackets[destIdx] = packets[i];
-                        tempKeys[destIdx] = keys[i];
-                    }
+                    OLO_PROFILE_SCOPE("ParallelScatter");
+                    ParallelFor(
+                        "RadixScatter",
+                        numChunks,
+                        1,
+                        [&keys, &packets, &tempKeys, &tempPackets, &chunkOffsets, shift, count](i32 c)
+                        {
+                            auto offsets = chunkOffsets[c]; // Local copy to avoid false sharing
+                            sizet start = static_cast<sizet>(c) * PARALLEL_SORT_BATCH_SIZE;
+                            sizet end = std::min(start + PARALLEL_SORT_BATCH_SIZE, count);
+                            for (sizet i = start; i < end; ++i)
+                            {
+                                u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
+                                sizet destIdx = offsets[digit]++;
+                                tempPackets[destIdx] = packets[i];
+                                tempKeys[destIdx] = keys[i];
+                            }
+                        });
                 }
 
                 // Swap buffers
@@ -643,10 +671,10 @@ namespace OloEngine
         m_IsBatched = true;
 
         // ── Phase 4: Sort for optimal execution order ─────────────────
-        // Hash-table grouping doesn't require prior sorting, so sort after
-        // batching to minimize state changes during execution.
-        if (!m_IsSorted)
-            SortCommandsInternal();
+        // Batching invalidated sort order (packets were removed/replaced).
+        // Always re-sort to minimize state changes during execution.
+        m_IsSorted = false;
+        SortCommandsInternal();
 
         auto batchEnd = std::chrono::high_resolution_clock::now();
         m_LastBatchTimeMs = std::chrono::duration<f64, std::milli>(batchEnd - batchStart).count();
@@ -658,11 +686,10 @@ namespace OloEngine
 
         auto execStart = std::chrono::high_resolution_clock::now();
 
-        {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            m_Stats.DrawCalls = 0;
-            m_Stats.StateChanges = 0;
-        }
+        // No lock needed — Execute runs exclusively on the main thread
+        // during EndScene, after all submission is complete.
+        m_Stats.DrawCalls = 0;
+        m_Stats.StateChanges = 0;
 
         // Bind per-bucket view state if set, saving the previous state for restoration
         BucketViewState savedState;
@@ -702,10 +729,7 @@ namespace OloEngine
         }
 
         auto execEnd = std::chrono::high_resolution_clock::now();
-        {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
-        }
+        m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
     }
 
     void CommandBucket::ExecuteWithGPUTiming(RendererAPI& rendererAPI)
@@ -721,11 +745,9 @@ namespace OloEngine
 
         auto execStart = std::chrono::high_resolution_clock::now();
 
-        {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            m_Stats.DrawCalls = 0;
-            m_Stats.StateChanges = 0;
-        }
+        // No lock needed — ExecuteWithGPUTiming runs exclusively on the main thread
+        m_Stats.DrawCalls = 0;
+        m_Stats.StateChanges = 0;
 
         // Bind per-bucket view state if set
         BucketViewState savedState;
@@ -778,10 +800,7 @@ namespace OloEngine
         gpuTimer.EndFrame();
 
         auto execEnd = std::chrono::high_resolution_clock::now();
-        {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
-        }
+        m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
     }
 
     void CommandBucket::Clear()
