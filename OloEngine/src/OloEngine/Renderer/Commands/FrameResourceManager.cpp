@@ -151,11 +151,20 @@ namespace OloEngine
             return nullptr;
         }
 
-        OLO_CORE_ASSERT(workerIndex < MAX_WORKERS,
-                        "FrameResourceManager::GetWorkerAllocator: Worker index {} exceeds max {}!",
-                        workerIndex, MAX_WORKERS);
+        if (workerIndex >= MAX_WORKERS)
+        {
+            OLO_CORE_ERROR("FrameResourceManager::GetWorkerAllocator: Worker index {} exceeds max {}!",
+                           workerIndex, MAX_WORKERS);
+            return nullptr;
+        }
 
         u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
+        if (currentIndex >= NUM_BUFFERED_FRAMES)
+        {
+            OLO_CORE_ERROR("FrameResourceManager::GetWorkerAllocator: Invalid frame index {}!", currentIndex);
+            return nullptr;
+        }
+
         return &m_FrameResources[currentIndex].WorkerAllocators[workerIndex];
     }
 
@@ -188,10 +197,19 @@ namespace OloEngine
 
         if (frame.FenceId != 0)
         {
-            WaitForFence(frame.FenceId);
+            if (WaitForFence(frame.FenceId))
+            {
+                frame.FenceSignaled = true;
+            }
+            else
+            {
+                OLO_CORE_WARN("FrameResourceManager::WaitForFrame: Fence wait did not succeed for frame {}, skipping reset", frameIndex);
+            }
         }
-
-        frame.FenceSignaled = true;
+        else
+        {
+            frame.FenceSignaled = true;
+        }
     }
 
     u32 FrameResourceManager::GetCurrentFrameIndex() const
@@ -217,12 +235,12 @@ namespace OloEngine
         return static_cast<u64>(reinterpret_cast<uptr>(sync));
     }
 
-    void FrameResourceManager::WaitForFence(u64 fenceId)
+    bool FrameResourceManager::WaitForFence(u64 fenceId)
     {
         OLO_PROFILE_FUNCTION();
 
         if (fenceId == 0)
-            return;
+            return true;
 
         GLsync sync = reinterpret_cast<GLsync>(static_cast<uptr>(fenceId));
 
@@ -232,11 +250,15 @@ namespace OloEngine
         if (result == GL_TIMEOUT_EXPIRED)
         {
             OLO_CORE_WARN("FrameResourceManager::WaitForFence: Fence wait timed out!");
+            return false;
         }
         else if (result == GL_WAIT_FAILED)
         {
             OLO_CORE_ERROR("FrameResourceManager::WaitForFence: Fence wait failed!");
+            return false;
         }
+
+        return true;
     }
 
     bool FrameResourceManager::IsFenceSignaled(u64 fenceId) const

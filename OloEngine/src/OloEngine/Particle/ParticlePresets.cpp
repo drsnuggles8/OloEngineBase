@@ -281,10 +281,8 @@ namespace OloEngine
         // Moderate expansion
         sys.SizeModule.SizeCurve = ParticleCurve(1.0f, 2.0f);
 
-        // Subtle, delicate noise
-        // NOTE: Uses CPU noise path (UseGPU = false, inherited from ApplySmoke).
-        // If ApplySmoke switches to the GPU path, these NoiseModule settings will have
-        // no effect — update accordingly.
+        // Subtle, delicate noise — explicitly use CPU noise path
+        sys.UseGPU = false;
         sys.NoiseModule.Strength = 0.3f;
         sys.NoiseModule.Frequency = 0.6f;
 

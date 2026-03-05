@@ -91,6 +91,7 @@ namespace OloEngine::Testing
             c.ParamU32_2 = w;
             c.ParamU32_3 = h;
             m_Calls.push_back(c);
+            m_Viewport = { x, y, w, h };
         }
         void SetClearColor(const glm::vec4& color) override
         {
@@ -230,10 +231,12 @@ namespace OloEngine::Testing
         }
         void EnableStencilTest() override
         {
+            m_StencilEnabled = true;
             Record("EnableStencilTest");
         }
         void DisableStencilTest() override
         {
+            m_StencilEnabled = false;
             Record("DisableStencilTest");
         }
         bool IsStencilTestEnabled() const override

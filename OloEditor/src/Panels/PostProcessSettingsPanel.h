@@ -28,5 +28,7 @@ namespace OloEngine
         void DrawSnowEjectaSection();
         void DrawPrecipitationSection();
         void DrawFogSection();
+        static void DrawAtmosphericScatteringSection(FogSettings& fog);
+        static void DrawVolumetricFogSection(FogSettings& fog);
     };
 } // namespace OloEngine

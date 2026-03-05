@@ -112,7 +112,9 @@ namespace OloEngine
         {
             TUniqueLock<FMutex> lock(m_Mutex);
 
-            CommandPacket* packet = allocator->CreateCommandPacket(commandData, metadata);
+            CommandAllocator* alloc = allocator ? allocator : m_Allocator;
+            OLO_CORE_ASSERT(alloc, "CommandBucket::Submit: No allocator available (neither passed nor set on bucket)!");
+            CommandPacket* packet = alloc->CreateCommandPacket(commandData, metadata);
             if (packet)
             {
                 m_Keys.push_back(metadata.m_SortKey.GetKey());

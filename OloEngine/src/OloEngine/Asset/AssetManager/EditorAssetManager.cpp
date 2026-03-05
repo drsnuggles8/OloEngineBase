@@ -551,6 +551,9 @@ namespace OloEngine
         // Remove dependencies
         DeregisterDependencies(handle);
 
+        // Remove stale generation counter
+        ResetAssetGeneration(handle);
+
         OLO_CORE_TRACE("Removed asset: {}", (u64)handle);
     }
 

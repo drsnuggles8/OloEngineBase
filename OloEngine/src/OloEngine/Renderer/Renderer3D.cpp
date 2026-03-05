@@ -63,7 +63,7 @@ namespace OloEngine
     // @param boundingSphereCenter Optional world-space bounding sphere center. If provided,
     //        uses this for more accurate depth sorting for off-center meshes. If nullptr,
     //        falls back to using modelMatrix[3] (the origin of the transformed object).
-    static u32 ComputeDepthForSortKeyWithView(const glm::mat4& viewMatrix, const glm::mat4& modelMatrix, const glm::vec3* boundingSphereCenter = nullptr)
+    static u32 ComputeDepthForSortKeyWithView(const glm::mat4& modelMatrix, const glm::mat4& viewMatrix, const glm::vec3* boundingSphereCenter = nullptr)
     {
 
         // Use bounding sphere center if provided, otherwise use model origin
@@ -85,7 +85,7 @@ namespace OloEngine
 
     static u32 ComputeDepthForSortKey(const glm::mat4& modelMatrix, const glm::vec3* boundingSphereCenter = nullptr)
     {
-        return ComputeDepthForSortKeyWithView(CommandDispatch::GetViewMatrix(), modelMatrix, boundingSphereCenter);
+        return ComputeDepthForSortKeyWithView(modelMatrix, CommandDispatch::GetViewMatrix(), boundingSphereCenter);
     }
 
     // Helper to generate material ID hash for sort key
@@ -1200,7 +1200,7 @@ namespace OloEngine
         u32 materialID = ComputeMaterialID(material);
 
         // Compute depth using parallel context's view matrix
-        u32 depthKey = ComputeDepthForSortKeyWithView(ctx.SceneContext->ViewMatrix, modelMatrix);
+        u32 depthKey = ComputeDepthForSortKeyWithView(modelMatrix, ctx.SceneContext->ViewMatrix);
 
         if (material.GetFlag(MaterialFlag::Blend))
             metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);
@@ -1329,7 +1329,7 @@ namespace OloEngine
         u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
 
-        u32 depthKey = ComputeDepthForSortKeyWithView(ctx.SceneContext->ViewMatrix, modelMatrix);
+        u32 depthKey = ComputeDepthForSortKeyWithView(modelMatrix, ctx.SceneContext->ViewMatrix);
 
         if (material.GetFlag(MaterialFlag::Blend))
             metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depthKey);

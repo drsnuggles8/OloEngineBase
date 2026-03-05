@@ -7,6 +7,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <cmath>
 #include <random>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file, brevity preferred
@@ -201,7 +202,7 @@ TEST(Frustum, PlaneNormalsAreNormalized)
 {
     Frustum frustum = MakePerspectiveFrustum();
 
-    for (int i = 0; i < static_cast<int>(Frustum::Planes::Count); ++i)
+    for (i32 i = 0; i < static_cast<i32>(Frustum::Planes::Count); ++i)
     {
         const Plane& plane = frustum.GetPlane(static_cast<Frustum::Planes>(i));
         f32 normalLength = glm::length(plane.Normal);
@@ -222,32 +223,38 @@ TEST(Frustum, StressRandomSpheres_NoNaN)
     std::uniform_real_distribution<f32> posDist(-200.0f, 200.0f);
     std::uniform_real_distribution<f32> radDist(0.01f, 50.0f);
 
-    for (int i = 0; i < 10000; ++i)
+    for (i32 i = 0; i < 10000; ++i)
     {
         glm::vec3 center(posDist(rng), posDist(rng), posDist(rng));
         f32 radius = radDist(rng);
 
+        // Verify sphere parameters are finite
+        ASSERT_TRUE(std::isfinite(center.x) && std::isfinite(center.y) && std::isfinite(center.z))
+            << "Sphere center contains non-finite value at iteration " << i;
+        ASSERT_TRUE(std::isfinite(radius))
+            << "Sphere radius is non-finite at iteration " << i;
+
         // Should not crash or produce NaN
         bool result = frustum.IsSphereVisible(center, radius);
-        (void)result; // Just verify no crash
 
-        // If the sphere is marked as visible, verify it's at least close to the frustum
-        // (not a strict test, just a sanity check)
+        // If the sphere is marked as visible, verify plane distances are finite
+        // and at least one plane has a signed distance >= -radius
         if (result)
         {
-            // At least one plane should have positive signed distance
-            // (within radius tolerance)
-            bool hasPositivePlane = false;
-            for (int p = 0; p < static_cast<int>(Frustum::Planes::Count); ++p)
+            bool hasPassingPlane = false;
+            for (i32 p = 0; p < static_cast<i32>(Frustum::Planes::Count); ++p)
             {
                 const Plane& plane = frustum.GetPlane(static_cast<Frustum::Planes>(p));
-                if (plane.GetSignedDistance(center) >= -radius)
+                f32 signedDist = plane.GetSignedDistance(center);
+                EXPECT_TRUE(std::isfinite(signedDist))
+                    << "Plane " << p << " signed distance is non-finite for sphere at ("
+                    << center.x << "," << center.y << "," << center.z << ") r=" << radius;
+                if (signedDist >= -radius)
                 {
-                    hasPositivePlane = true;
-                    break;
+                    hasPassingPlane = true;
                 }
             }
-            EXPECT_TRUE(hasPositivePlane)
+            EXPECT_TRUE(hasPassingPlane)
                 << "Sphere at (" << center.x << "," << center.y << "," << center.z
                 << ") r=" << radius << " marked visible but fails all plane tests";
         }

@@ -27,6 +27,8 @@ TEST(CommandDispatch, DispatchTableIsComplete)
             << "Missing dispatch function for CommandType " << static_cast<int>(type)
             << " (" << CommandTypeToString(type) << ")";
     }
+
+    CommandDispatch::Shutdown();
 }
 
 TEST(CommandDispatch, InvalidTypeReturnsNull)
@@ -35,6 +37,8 @@ TEST(CommandDispatch, InvalidTypeReturnsNull)
 
     auto fn = CommandDispatch::GetDispatchFunction(CommandType::Invalid);
     EXPECT_EQ(fn, nullptr);
+
+    CommandDispatch::Shutdown();
 }
 
 // =============================================================================
@@ -79,6 +83,7 @@ class CommandDispatchIntegration : public ::testing::Test
     {
         m_MockAPI.reset();
         m_Allocator.reset();
+        CommandDispatch::Shutdown();
     }
 
     std::unique_ptr<CommandAllocator> m_Allocator;
@@ -160,8 +165,35 @@ TEST_F(CommandDispatchIntegration, BucketExecuteDispatchesInOrder)
     bucket.SortCommands();
     bucket.Execute(*m_MockAPI);
 
-    EXPECT_GE(m_MockAPI->GetCallCount(), 3u)
+    const auto& calls = m_MockAPI->GetRecordedCalls();
+    ASSERT_GE(calls.size(), 3u)
         << "Expected at least 3 API calls from 3 commands";
+
+    // Verify execution order: viewport first, then clear, then depth test
+    sizet viewportIdx = SIZE_MAX;
+    sizet clearIdx = SIZE_MAX;
+    sizet depthTestIdx = SIZE_MAX;
+    for (sizet i = 0; i < calls.size(); ++i)
+    {
+        if (calls[i].Name == "SetViewport" && viewportIdx == SIZE_MAX)
+            viewportIdx = i;
+        else if ((calls[i].Name == "Clear" || calls[i].Name == "ClearColorAndDepth") && clearIdx == SIZE_MAX)
+            clearIdx = i;
+        else if (calls[i].Name == "SetDepthTest" && depthTestIdx == SIZE_MAX)
+            depthTestIdx = i;
+    }
+
+    EXPECT_NE(viewportIdx, SIZE_MAX) << "SetViewport call not found";
+    EXPECT_NE(clearIdx, SIZE_MAX) << "Clear call not found";
+    EXPECT_NE(depthTestIdx, SIZE_MAX) << "SetDepthTest call not found";
+
+    if (viewportIdx != SIZE_MAX && clearIdx != SIZE_MAX && depthTestIdx != SIZE_MAX)
+    {
+        EXPECT_LT(viewportIdx, clearIdx)
+            << "SetViewport should execute before Clear";
+        EXPECT_LT(clearIdx, depthTestIdx)
+            << "Clear should execute before SetDepthTest";
+    }
 }
 
 // =============================================================================

@@ -632,55 +632,65 @@ namespace OloEngine
 
                 // Atmospheric scattering sub-section
                 ImGui::Separator();
-                if (ImGui::TreeNode("Atmospheric Scattering"))
-                {
-                    ImGui::Checkbox("Enable Scattering", &fog.EnableScattering);
-
-                    if (fog.EnableScattering)
-                    {
-                        ImGui::ColorEdit3("Rayleigh Color", glm::value_ptr(fog.RayleighColor));
-                        ImGui::SliderFloat("Rayleigh Strength", &fog.RayleighStrength, 0.0f, 5.0f, "%.2f");
-                        ImGui::SliderFloat("Mie Strength", &fog.MieStrength, 0.0f, 0.1f, "%.4f");
-                        ImGui::SliderFloat("Mie Directionality", &fog.MieDirectionality, 0.0f, 0.99f, "%.2f");
-                        ImGui::SliderFloat("Sun Intensity", &fog.SunIntensity, 0.0f, 100.0f, "%.1f");
-                    }
-
-                    ImGui::TreePop();
-                }
+                DrawAtmosphericScatteringSection(fog);
 
                 // Volumetric fog sub-section
                 ImGui::Separator();
-                if (ImGui::TreeNode("Volumetric Fog"))
-                {
-                    ImGui::Checkbox("Enable Volumetric", &fog.EnableVolumetric);
-
-                    if (fog.EnableVolumetric)
-                    {
-                        ImGui::SliderInt("Ray-March Samples", &fog.VolumetricSamples, 4, 128);
-                        ImGui::SliderFloat("Absorption", &fog.AbsorptionCoefficient, 0.0f, 0.2f, "%.4f");
-
-                        ImGui::Separator();
-                        ImGui::Checkbox("Enable Noise", &fog.EnableNoise);
-                        if (fog.EnableNoise)
-                        {
-                            ImGui::SliderFloat("Noise Scale", &fog.NoiseScale, 0.001f, 0.1f, "%.4f");
-                            ImGui::SliderFloat("Noise Speed", &fog.NoiseSpeed, 0.0f, 2.0f, "%.2f");
-                            ImGui::SliderFloat("Noise Intensity", &fog.NoiseIntensity, 0.0f, 1.0f, "%.2f");
-                        }
-
-                        ImGui::Separator();
-                        ImGui::Checkbox("Enable Light Shafts", &fog.EnableLightShafts);
-                        if (fog.EnableLightShafts)
-                        {
-                            ImGui::SliderFloat("Light Shaft Intensity", &fog.LightShaftIntensity, 0.0f, 5.0f, "%.2f");
-                        }
-                    }
-
-                    ImGui::TreePop();
-                }
+                DrawVolumetricFogSection(fog);
             }
 
             ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawAtmosphericScatteringSection(FogSettings& fog)
+    {
+        if (ImGui::TreeNode("Atmospheric Scattering"))
+        {
+            ImGui::Checkbox("Enable Scattering", &fog.EnableScattering);
+
+            if (fog.EnableScattering)
+            {
+                ImGui::ColorEdit3("Rayleigh Color", glm::value_ptr(fog.RayleighColor));
+                ImGui::SliderFloat("Rayleigh Strength", &fog.RayleighStrength, 0.0f, 5.0f, "%.2f");
+                ImGui::SliderFloat("Mie Strength", &fog.MieStrength, 0.0f, 0.1f, "%.4f");
+                ImGui::SliderFloat("Mie Directionality", &fog.MieDirectionality, 0.0f, 0.99f, "%.2f");
+                ImGui::SliderFloat("Sun Intensity", &fog.SunIntensity, 0.0f, 100.0f, "%.1f");
+            }
+
+            ImGui::TreePop();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawVolumetricFogSection(FogSettings& fog)
+    {
+        if (ImGui::TreeNode("Volumetric Fog"))
+        {
+            ImGui::Checkbox("Enable Volumetric", &fog.EnableVolumetric);
+
+            if (fog.EnableVolumetric)
+            {
+                ImGui::SliderInt("Ray-March Samples", &fog.VolumetricSamples, 4, 128);
+                ImGui::SliderFloat("Absorption", &fog.AbsorptionCoefficient, 0.0f, 0.2f, "%.4f");
+
+                ImGui::Separator();
+                ImGui::Checkbox("Enable Noise", &fog.EnableNoise);
+                if (fog.EnableNoise)
+                {
+                    ImGui::SliderFloat("Noise Scale", &fog.NoiseScale, 0.001f, 0.1f, "%.4f");
+                    ImGui::SliderFloat("Noise Speed", &fog.NoiseSpeed, 0.0f, 2.0f, "%.2f");
+                    ImGui::SliderFloat("Noise Intensity", &fog.NoiseIntensity, 0.0f, 1.0f, "%.2f");
+                }
+
+                ImGui::Separator();
+                ImGui::Checkbox("Enable Light Shafts", &fog.EnableLightShafts);
+                if (fog.EnableLightShafts)
+                {
+                    ImGui::SliderFloat("Light Shaft Intensity", &fog.LightShaftIntensity, 0.0f, 5.0f, "%.2f");
+                }
+            }
+
+            ImGui::TreePop();
         }
     }
 } // namespace OloEngine

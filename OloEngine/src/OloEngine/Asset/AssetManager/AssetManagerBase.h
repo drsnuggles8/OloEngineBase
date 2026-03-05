@@ -248,6 +248,25 @@ namespace OloEngine
             ++m_AssetGenerations[handle];
         }
 
+        /**
+         * @brief Remove the generation counter for a deleted asset
+         *
+         * Call this from RemoveAsset() implementations to prevent stale
+         * entries from accumulating when handles are reused.
+         */
+        void ResetAssetGeneration(AssetHandle handle) noexcept
+        {
+            m_AssetGenerations.erase(handle);
+        }
+
+        /**
+         * @brief Clear all generation counters (e.g., during shutdown/reset)
+         */
+        void ResetAllAssetGenerations() noexcept
+        {
+            m_AssetGenerations.clear();
+        }
+
       private:
         // Per-asset reload generation counter for stale-handle detection
         std::unordered_map<AssetHandle, u32> m_AssetGenerations;

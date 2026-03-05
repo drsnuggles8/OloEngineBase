@@ -149,8 +149,8 @@ TEST_F(FramePipelineTest, SortReducesShaderStateChanges)
 
     EXPECT_LE(changesAfter, changesBefore)
         << "Sorting should not increase state changes";
-    EXPECT_LE(changesAfter, 5u)
-        << "With 5 unique shaders, should have at most 5 shader transitions";
+    EXPECT_LE(changesAfter, 4u)
+        << "With 5 unique shaders, should have at most 4 shader transitions";
 }
 
 // =============================================================================

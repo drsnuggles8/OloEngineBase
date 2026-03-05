@@ -82,8 +82,7 @@ namespace OloEngine
         if (capturing)
             captureManager.OnPostSort(m_CommandBucket);
 
-        // (Batching already done above)
-
+        // Invoke post-batch capture step when capturing is active
         if (capturing)
             captureManager.OnPostBatch(m_CommandBucket);
 

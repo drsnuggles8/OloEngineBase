@@ -3,7 +3,6 @@
 #include "FrameCaptureManager.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
-#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 
 #include <algorithm>
 #include <chrono>
@@ -33,7 +32,7 @@ namespace OloEngine
             return escaped;
         }
 
-        const PODRenderState* GetRenderStateFromCommand(const CapturedCommandData& cmd)
+        const PODRenderState* GetRenderStateFromCommand(const CapturedCommandData& cmd, const CapturedFrameData* frame)
         {
             u16 index = INVALID_RENDER_STATE_INDEX;
             switch (cmd.GetCommandType())
@@ -63,7 +62,9 @@ namespace OloEngine
             }
             if (index == INVALID_RENDER_STATE_INDEX)
                 return nullptr;
-            return &FrameDataBufferManager::Get().GetRenderState(index);
+            if (frame)
+                return frame->GetSnapshotRenderState(index);
+            return nullptr;
         }
     } // anonymous namespace
 
@@ -447,7 +448,7 @@ namespace OloEngine
 
         if (m_SelectedCommandIndex >= 0 && m_SelectedCommandIndex < static_cast<i32>(commands->size()))
         {
-            RenderCommandDetail((*commands)[m_SelectedCommandIndex]);
+            RenderCommandDetail((*commands)[m_SelectedCommandIndex], frame);
         }
         else
         {
@@ -461,7 +462,7 @@ namespace OloEngine
     // Command Detail Panel
     // ========================================================================
 
-    void CommandPacketDebugger::RenderCommandDetail(const CapturedCommandData& cmd)
+    void CommandPacketDebugger::RenderCommandDetail(const CapturedCommandData& cmd, const CapturedFrameData* frame)
     {
         ImGui::TextColored(GetColorForCommandType(cmd.GetCommandType()), "%s", cmd.GetCommandTypeString());
         ImGui::Separator();
@@ -498,7 +499,7 @@ namespace OloEngine
             if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
             {
                 if (ImGui::CollapsingHeader("Draw Mesh", ImGuiTreeNodeFlags_DefaultOpen))
-                    RenderDrawMeshDetail(*meshCmd);
+                    RenderDrawMeshDetail(*meshCmd, frame);
             }
         }
         else if (cmd.GetCommandType() == CommandType::DrawMeshInstanced)
@@ -506,26 +507,24 @@ namespace OloEngine
             if (const auto* meshCmd = cmd.GetCommandData<DrawMeshInstancedCommand>())
             {
                 if (ImGui::CollapsingHeader("Draw Mesh Instanced", ImGuiTreeNodeFlags_DefaultOpen))
-                    RenderDrawMeshInstancedDetail(*meshCmd);
+                    RenderDrawMeshInstancedDetail(*meshCmd, frame);
             }
         }
 
         // Render state for commands that have one
-        const PODRenderState* state = GetRenderStateFromCommand(cmd);
+        const PODRenderState* state = GetRenderStateFromCommand(cmd, frame);
         if (state && ImGui::CollapsingHeader("Render State"))
             RenderPODRenderStateDetail(*state);
     }
 
-    void CommandPacketDebugger::RenderDrawMeshDetail(const DrawMeshCommand& cmd)
+    void CommandPacketDebugger::RenderDrawMeshDetail(const DrawMeshCommand& cmd, const CapturedFrameData* frame)
     {
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
         ImGui::Text("VAO: %u", cmd.vertexArrayID);
         ImGui::Text("Index Count: %u", cmd.indexCount);
         ImGui::Text("Entity ID: %d", cmd.entityID);
 
-        const PODMaterialData* matPtr = (cmd.materialDataIndex != INVALID_MATERIAL_DATA_INDEX && cmd.materialDataIndex < FrameDataBufferManager::Get().GetMaterialDataCount())
-                                            ? &FrameDataBufferManager::Get().GetMaterialData(cmd.materialDataIndex)
-                                            : nullptr;
+        const PODMaterialData* matPtr = frame ? frame->GetSnapshotMaterialData(cmd.materialDataIndex) : nullptr;
         ImGui::Text("Shader: %u (handle: %llu)", matPtr ? matPtr->shaderRendererID : 0u, static_cast<u64>(cmd.shaderHandle));
         ImGui::Text("Material Data Index: %u", cmd.materialDataIndex);
 
@@ -569,7 +568,7 @@ namespace OloEngine
         }
     }
 
-    void CommandPacketDebugger::RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd)
+    void CommandPacketDebugger::RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd, const CapturedFrameData* frame)
     {
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
         ImGui::Text("VAO: %u", cmd.vertexArrayID);
@@ -577,9 +576,7 @@ namespace OloEngine
         ImGui::Text("Instance Count: %u", cmd.instanceCount);
         ImGui::Text("Transform Buffer: offset=%u, count=%u", cmd.transformBufferOffset, cmd.transformCount);
 
-        const PODMaterialData* matPtr = (cmd.materialDataIndex != INVALID_MATERIAL_DATA_INDEX && cmd.materialDataIndex < FrameDataBufferManager::Get().GetMaterialDataCount())
-                                            ? &FrameDataBufferManager::Get().GetMaterialData(cmd.materialDataIndex)
-                                            : nullptr;
+        const PODMaterialData* matPtr = frame ? frame->GetSnapshotMaterialData(cmd.materialDataIndex) : nullptr;
         ImGui::Text("Shader: %u (handle: %llu)", matPtr ? matPtr->shaderRendererID : 0u, static_cast<u64>(cmd.shaderHandle));
         ImGui::Text("Material Data Index: %u", cmd.materialDataIndex);
     }
@@ -785,23 +782,26 @@ namespace OloEngine
                     prevCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX &&
                     currCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
                 {
-                    const auto& prevState = FrameDataBufferManager::Get().GetRenderState(prevCmd->renderStateIndex);
-                    const auto& currState = FrameDataBufferManager::Get().GetRenderState(currCmd->renderStateIndex);
-                    if (prevState.blendEnabled != currState.blendEnabled ||
-                        prevState.blendSrcFactor != currState.blendSrcFactor ||
-                        prevState.blendDstFactor != currState.blendDstFactor)
+                    const auto* prevState = frame->GetSnapshotRenderState(prevCmd->renderStateIndex);
+                    const auto* currState = frame->GetSnapshotRenderState(currCmd->renderStateIndex);
+                    if (prevState && currState)
                     {
-                        blendChanges++;
-                    }
-                    if (prevState.depthTestEnabled != currState.depthTestEnabled ||
-                        prevState.depthFunction != currState.depthFunction)
-                    {
-                        depthChanges++;
-                    }
-                    if (prevState.polygonMode != currState.polygonMode ||
-                        prevState.cullingEnabled != currState.cullingEnabled)
-                    {
-                        polygonChanges++;
+                        if (prevState->blendEnabled != currState->blendEnabled ||
+                            prevState->blendSrcFactor != currState->blendSrcFactor ||
+                            prevState->blendDstFactor != currState->blendDstFactor)
+                        {
+                            blendChanges++;
+                        }
+                        if (prevState->depthTestEnabled != currState->depthTestEnabled ||
+                            prevState->depthFunction != currState->depthFunction)
+                        {
+                            depthChanges++;
+                        }
+                        if (prevState->polygonMode != currState->polygonMode ||
+                            prevState->cullingEnabled != currState->cullingEnabled)
+                        {
+                            polygonChanges++;
+                        }
                     }
                 }
             }
@@ -1320,16 +1320,21 @@ namespace OloEngine
                     {
                         const auto* prevCmd = prev.GetCommandData<DrawMeshCommand>();
                         const auto* currCmd = curr.GetCommandData<DrawMeshCommand>();
-                        if (prevCmd && currCmd && prevCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX && currCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
+                        if (prevCmd && currCmd &&
+                            prevCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX &&
+                            currCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
                         {
-                            const auto& prevState = FrameDataBufferManager::Get().GetRenderState(prevCmd->renderStateIndex);
-                            const auto& currState = FrameDataBufferManager::Get().GetRenderState(currCmd->renderStateIndex);
-                            if (prevState.blendEnabled != currState.blendEnabled ||
-                                prevState.blendSrcFactor != currState.blendSrcFactor)
-                                blendChanges++;
-                            if (prevState.depthTestEnabled != currState.depthTestEnabled ||
-                                prevState.depthFunction != currState.depthFunction)
-                                depthChanges++;
+                            const auto* prevState = frame->GetSnapshotRenderState(prevCmd->renderStateIndex);
+                            const auto* currState = frame->GetSnapshotRenderState(currCmd->renderStateIndex);
+                            if (prevState && currState)
+                            {
+                                if (prevState->blendEnabled != currState->blendEnabled ||
+                                    prevState->blendSrcFactor != currState->blendSrcFactor)
+                                    blendChanges++;
+                                if (prevState->depthTestEnabled != currState->depthTestEnabled ||
+                                    prevState->depthFunction != currState->depthFunction)
+                                    depthChanges++;
+                            }
                         }
                     }
                 }
@@ -1389,12 +1394,8 @@ namespace OloEngine
                 {
                     if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
                     {
-                        const PODRenderState* state = (meshCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
-                                                          ? &FrameDataBufferManager::Get().GetRenderState(meshCmd->renderStateIndex)
-                                                          : nullptr;
-                        const PODMaterialData* mat = (meshCmd->materialDataIndex != INVALID_MATERIAL_DATA_INDEX && meshCmd->materialDataIndex < FrameDataBufferManager::Get().GetMaterialDataCount())
-                                                         ? &FrameDataBufferManager::Get().GetMaterialData(meshCmd->materialDataIndex)
-                                                         : nullptr;
+                        const PODRenderState* state = frame->GetSnapshotRenderState(meshCmd->renderStateIndex);
+                        const PODMaterialData* mat = frame->GetSnapshotMaterialData(meshCmd->materialDataIndex);
                         file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
                         file << "- Shader: " << (mat ? mat->shaderRendererID : 0u) << " (handle: " << static_cast<u64>(meshCmd->shaderHandle) << ")\n";
                         file << "- VAO: " << meshCmd->vertexArrayID << ", Index Count: " << meshCmd->indexCount << "\n";
@@ -1419,9 +1420,7 @@ namespace OloEngine
                 {
                     if (const auto* instCmd = cmd.GetCommandData<DrawMeshInstancedCommand>())
                     {
-                        const PODMaterialData* instMat = (instCmd->materialDataIndex != INVALID_MATERIAL_DATA_INDEX && instCmd->materialDataIndex < FrameDataBufferManager::Get().GetMaterialDataCount())
-                                                             ? &FrameDataBufferManager::Get().GetMaterialData(instCmd->materialDataIndex)
-                                                             : nullptr;
+                        const PODMaterialData* instMat = frame->GetSnapshotMaterialData(instCmd->materialDataIndex);
                         file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
                         file << "- Instances: " << instCmd->instanceCount << "\n";
                         file << "- Shader: " << (instMat ? instMat->shaderRendererID : 0u) << "\n";

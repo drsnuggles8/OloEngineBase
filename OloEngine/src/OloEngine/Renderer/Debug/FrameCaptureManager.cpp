@@ -3,6 +3,7 @@
 #include "GPUTimerQueryPool.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include <chrono>
@@ -45,7 +46,9 @@ namespace OloEngine
         // Stop from Recording state
         auto expected = CaptureState::Recording;
         if (m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
+        {
             return;
+        }
 
         // Also stop from CaptureNextFrame state
         expected = CaptureState::CaptureNextFrame;
@@ -169,6 +172,21 @@ namespace OloEngine
         {
             i32 diff = static_cast<i32>(m_PendingFrame.PostSortCommands.size()) - static_cast<i32>(m_PendingFrame.PostBatchCommands.size());
             m_PendingFrame.Stats.BatchedCommands = diff > 0 ? static_cast<u32>(diff) : 0;
+        }
+
+        // Snapshot render state and material data tables so the debugger can inspect
+        // the exact data from this frame rather than reading the live FrameDataBuffer.
+        {
+            auto& fdb = FrameDataBufferManager::Get();
+            u16 rsCount = fdb.GetRenderStateCount();
+            m_PendingFrame.RenderStateSnapshot.resize(rsCount);
+            for (u16 i = 0; i < rsCount; ++i)
+                m_PendingFrame.RenderStateSnapshot[i] = fdb.GetRenderState(i);
+
+            u16 mdCount = fdb.GetMaterialDataCount();
+            m_PendingFrame.MaterialDataSnapshot.resize(mdCount);
+            for (u16 i = 0; i < mdCount; ++i)
+                m_PendingFrame.MaterialDataSnapshot[i] = fdb.GetMaterialData(i);
         }
 
         // Push the completed frame (lock protects concurrent UI reads)

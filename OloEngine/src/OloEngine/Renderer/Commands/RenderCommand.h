@@ -94,6 +94,12 @@ namespace OloEngine
 
         // Line width
         f32 lineWidth = 1.0f;
+
+        // Field-wise equality (safe against struct padding, unlike memcmp)
+        bool operator==(const PODRenderState& o) const
+        {
+            return blendEnabled == o.blendEnabled && blendSrcFactor == o.blendSrcFactor && blendDstFactor == o.blendDstFactor && blendEquation == o.blendEquation && depthTestEnabled == o.depthTestEnabled && depthWriteMask == o.depthWriteMask && depthFunction == o.depthFunction && stencilEnabled == o.stencilEnabled && stencilFunction == o.stencilFunction && stencilReference == o.stencilReference && stencilReadMask == o.stencilReadMask && stencilWriteMask == o.stencilWriteMask && stencilFail == o.stencilFail && stencilDepthFail == o.stencilDepthFail && stencilDepthPass == o.stencilDepthPass && cullingEnabled == o.cullingEnabled && cullFace == o.cullFace && polygonFace == o.polygonFace && polygonMode == o.polygonMode && polygonOffsetEnabled == o.polygonOffsetEnabled && polygonOffsetFactor == o.polygonOffsetFactor && polygonOffsetUnits == o.polygonOffsetUnits && scissorEnabled == o.scissorEnabled && scissorX == o.scissorX && scissorY == o.scissorY && scissorWidth == o.scissorWidth && scissorHeight == o.scissorHeight && colorMaskR == o.colorMaskR && colorMaskG == o.colorMaskG && colorMaskB == o.colorMaskB && colorMaskA == o.colorMaskA && multisamplingEnabled == o.multisamplingEnabled && lineWidth == o.lineWidth;
+        }
     };
 
     // Static assertion to ensure PODRenderState is trivially copyable
@@ -135,6 +141,12 @@ namespace OloEngine
         RendererID irradianceMapID = 0;
         RendererID prefilterMapID = 0;
         RendererID brdfLutMapID = 0;
+
+        // Field-wise equality (safe against struct padding, unlike memcmp)
+        bool operator==(const PODMaterialData& o) const
+        {
+            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
+        }
     };
 
     static_assert(std::is_trivially_copyable_v<PODMaterialData>, "PODMaterialData must be trivially copyable");

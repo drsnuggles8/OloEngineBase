@@ -549,7 +549,7 @@ TEST_F(CommandBucketBatchTest, BatchRejectsDifferentMaterialDataIndex)
 // Batching — Animation Field Preservation
 // =============================================================================
 
-TEST_F(CommandBucketBatchTest, ConvertToInstancedPreservesAnimationFields)
+TEST_F(CommandBucketBatchTest, AnimatedMeshesAreNotBatched)
 {
     CommandBucketConfig config;
     config.EnableSorting = true;
@@ -575,22 +575,14 @@ TEST_F(CommandBucketBatchTest, ConvertToInstancedPreservesAnimationFields)
 
     bucket.BatchCommands(*m_Allocator);
 
-    // At least one merge should have happened
+    // Animated meshes have per-instance bone data and must not be merged
     const auto& sorted = bucket.GetSortedCommands();
-    bool foundInstanced = false;
     for (const auto* packet : sorted)
     {
-        if (packet && packet->GetCommandType() == CommandType::DrawMeshInstanced)
-        {
-            foundInstanced = true;
-            const auto* instancedCmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
-            EXPECT_TRUE(instancedCmd->isAnimatedMesh) << "Animation flag must be preserved";
-            EXPECT_EQ(instancedCmd->boneBufferOffset, 42u) << "Bone buffer offset must be preserved";
-            EXPECT_EQ(instancedCmd->boneCountPerInstance, 64u) << "Bone count must be preserved";
-            break;
-        }
+        EXPECT_NE(packet->GetCommandType(), CommandType::DrawMeshInstanced)
+            << "Animated meshes should not be batched into instanced commands";
     }
-    EXPECT_TRUE(foundInstanced) << "Batching should have produced a DrawMeshInstanced command";
+    EXPECT_EQ(sorted.size(), 2u) << "Both original commands should remain";
 }
 
 // =============================================================================

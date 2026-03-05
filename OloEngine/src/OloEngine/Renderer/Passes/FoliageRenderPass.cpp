@@ -24,6 +24,7 @@ namespace OloEngine
 
         if (!m_SceneFramebuffer)
         {
+            ResetCommandBucket();
             return;
         }
 

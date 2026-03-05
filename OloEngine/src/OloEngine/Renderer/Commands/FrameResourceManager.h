@@ -117,7 +117,7 @@ namespace OloEngine
         u64 CreateFence();
 
         // Wait for GPU fence to be signaled
-        void WaitForFence(u64 fenceId);
+        bool WaitForFence(u64 fenceId);
 
         // Check if fence is signaled
         bool IsFenceSignaled(u64 fenceId) const;

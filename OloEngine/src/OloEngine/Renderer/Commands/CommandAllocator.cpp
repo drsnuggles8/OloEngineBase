@@ -36,8 +36,12 @@ namespace OloEngine
             return nullptr;
         }
 
-        ++m_AllocationCount;
-        return m_Cache.Allocate(size, COMMAND_ALIGNMENT);
+        void* result = m_Cache.Allocate(size, COMMAND_ALIGNMENT);
+        if (result)
+        {
+            ++m_AllocationCount;
+        }
+        return result;
     }
 
     void CommandAllocator::Reset()

@@ -40,6 +40,8 @@ namespace OloEngine
             static_assert(std::is_trivially_copyable_v<T>,
                           "CreateCommandPacket() uses memcpy and requires trivially copyable types. "
                           "For non-trivial types, use AllocatePacketWithCommand() instead.");
+            static_assert(sizeof(CommandPacket) % alignof(T) == 0 || alignof(T) <= COMMAND_ALIGNMENT,
+                          "Command payload placement is not properly aligned for T");
 
             // Allocate memory for the CommandPacket + command data together
             constexpr sizet packetSize = sizeof(CommandPacket);
@@ -63,6 +65,12 @@ namespace OloEngine
         template<typename T>
         CommandPacket* AllocatePacketWithCommand(const PacketMetadata& metadata = {})
         {
+            static_assert(std::is_trivially_destructible_v<T>,
+                          "AllocatePacketWithCommand requires trivially destructible types "
+                          "since CommandPacket does not call command destructors.");
+            static_assert(sizeof(CommandPacket) % alignof(T) == 0 || alignof(T) <= COMMAND_ALIGNMENT,
+                          "Command payload placement is not properly aligned for T");
+
             constexpr sizet packetSize = sizeof(CommandPacket);
             constexpr sizet commandSize = sizeof(T);
             constexpr sizet totalSize = packetSize + commandSize;

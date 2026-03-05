@@ -2114,9 +2114,14 @@ namespace OloEngine
                 {
                     auto const& [transform, decal] = decalView.get<TransformComponent, DecalComponent>(entity);
 
+                    // Clamp decal size to a minimum epsilon to prevent singular
+                    // (non-invertible) transforms that produce NaN/Inf.
+                    constexpr f32 minSize = 1e-4f;
+                    glm::vec3 safeSize = glm::max(decal.m_Size, glm::vec3(minSize));
+
                     // Build scaled transform for the decal projection box
                     glm::mat4 decalTransform = transform.GetTransform() *
-                                               glm::scale(glm::mat4(1.0f), decal.m_Size);
+                                               glm::scale(glm::mat4(1.0f), safeSize);
                     glm::mat4 inverseDecalTransform = glm::inverse(decalTransform);
 
                     // Resolve albedo texture ID (fallback to white if none assigned)

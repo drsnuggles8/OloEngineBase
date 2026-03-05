@@ -32,12 +32,18 @@ namespace OloEngine
         m_ParallelSubmissionActive = false;
 
         // Reset render state table
-        m_RenderStateCount = 0;
-        m_RenderStateOverflowLogged = false;
+        {
+            TUniqueLock<FMutex> renderStateLock(m_RenderStateMutex);
+            m_RenderStateCount = 0;
+            m_RenderStateOverflowLogged = false;
+        }
 
         // Reset material data table
-        m_MaterialDataCount = 0;
-        m_MaterialDataOverflowLogged = false;
+        {
+            TUniqueLock<FMutex> materialDataLock(m_MaterialDataMutex);
+            m_MaterialDataCount = 0;
+            m_MaterialDataOverflowLogged = false;
+        }
 
         // Reset worker scratch buffers
         for (auto& scratch : m_WorkerScratchBuffers)
@@ -162,12 +168,13 @@ namespace OloEngine
 
     u16 FrameDataBuffer::AllocateRenderState(const PODRenderState& state)
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_RenderStateMutex);
 
         // Dedup: linear scan for matching state (N is small, typically 2-5)
         for (u16 i = 0; i < m_RenderStateCount; ++i)
         {
-            if (std::memcmp(&m_RenderStates[i], &state, sizeof(PODRenderState)) == 0)
+            if (m_RenderStates[i] == state)
             {
                 return i;
             }
@@ -195,6 +202,7 @@ namespace OloEngine
 
     const PODRenderState& FrameDataBuffer::GetRenderState(u16 index) const
     {
+        OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(index < m_RenderStateCount, "FrameDataBuffer: Invalid render state index!");
         return m_RenderStates[index];
     }
@@ -205,12 +213,13 @@ namespace OloEngine
 
     u16 FrameDataBuffer::AllocateMaterialData(const PODMaterialData& data)
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_MaterialDataMutex);
 
         // Dedup: linear scan (N is typically 10-100 unique materials per frame)
         for (u16 i = 0; i < m_MaterialDataCount; ++i)
         {
-            if (std::memcmp(&m_MaterialData[i], &data, sizeof(PODMaterialData)) == 0)
+            if (m_MaterialData[i] == data)
             {
                 return i;
             }
@@ -238,6 +247,7 @@ namespace OloEngine
 
     const PODMaterialData& FrameDataBuffer::GetMaterialData(u16 index) const
     {
+        OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(index < m_MaterialDataCount, "FrameDataBuffer: Invalid material data index!");
         return m_MaterialData[index];
     }

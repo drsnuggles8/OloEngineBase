@@ -687,6 +687,7 @@ layout(std140, binding = 6) uniform ShadowData {
             return R"(
 layout(std140, binding = 21) uniform DecalData {
     mat4 u_InverseDecalTransform;
+    mat4 u_InverseViewProjection;
     vec4 u_DecalColor;
     vec4 u_DecalParams; // x = fadeDistance, y = normalAngleThreshold, z/w = unused
 };)";

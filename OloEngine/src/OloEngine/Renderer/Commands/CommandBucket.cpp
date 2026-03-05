@@ -582,6 +582,9 @@ namespace OloEngine
                 continue;
 
             auto const* cmd = m_Packets[i]->GetCommandData<DrawMeshCommand>();
+            // Skip animated/skinned meshes — they have per-instance bone data
+            if (cmd->isAnimatedMesh)
+                continue;
             InstanceGroupKey key{ cmd->meshHandle, cmd->materialDataIndex, cmd->renderStateIndex };
             groups[key].push_back(i);
         }
@@ -710,7 +713,17 @@ namespace OloEngine
             if (CommandType type = packet->GetCommandType();
                 type == CommandType::DrawMesh ||
                 type == CommandType::DrawMeshInstanced ||
-                type == CommandType::DrawQuad)
+                type == CommandType::DrawQuad ||
+                type == CommandType::DrawDecal ||
+                type == CommandType::DrawFoliageLayer ||
+                type == CommandType::DrawTerrainPatch ||
+                type == CommandType::DrawVoxelMesh ||
+                type == CommandType::DrawSkybox ||
+                type == CommandType::DrawInfiniteGrid ||
+                type == CommandType::DrawArrays ||
+                type == CommandType::DrawIndexed ||
+                type == CommandType::DrawIndexedInstanced ||
+                type == CommandType::DrawLines)
             {
                 m_Stats.DrawCalls++;
             }
@@ -768,7 +781,17 @@ namespace OloEngine
             if (CommandType type = packet->GetCommandType();
                 type == CommandType::DrawMesh ||
                 type == CommandType::DrawMeshInstanced ||
-                type == CommandType::DrawQuad)
+                type == CommandType::DrawQuad ||
+                type == CommandType::DrawDecal ||
+                type == CommandType::DrawFoliageLayer ||
+                type == CommandType::DrawTerrainPatch ||
+                type == CommandType::DrawVoxelMesh ||
+                type == CommandType::DrawSkybox ||
+                type == CommandType::DrawInfiniteGrid ||
+                type == CommandType::DrawArrays ||
+                type == CommandType::DrawIndexed ||
+                type == CommandType::DrawIndexedInstanced ||
+                type == CommandType::DrawLines)
             {
                 m_Stats.DrawCalls++;
             }

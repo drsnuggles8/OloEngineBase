@@ -1445,7 +1445,13 @@ namespace OloEngine
 
     void CommandDispatch::DrawFoliageLayer(const void* data, RendererAPI& api)
     {
+        OLO_PROFILE_FUNCTION();
         const auto* cmd = static_cast<const DrawFoliageLayerCommand*>(data);
+
+        if (!cmd || cmd->vertexArrayID == 0 || cmd->shaderRendererID == 0 || cmd->instanceCount == 0)
+        {
+            return;
+        }
 
         // Resolve and apply render state from table
         ApplyPODRenderState(cmd->renderStateIndex, api);

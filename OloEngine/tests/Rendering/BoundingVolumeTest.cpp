@@ -56,7 +56,7 @@ TEST(BoundingBox, ContainsCorners)
     glm::vec3 corners[8] = {
         { -1, -1, -1 }, { 1, -1, -1 }, { -1, 1, -1 }, { 1, 1, -1 }, { -1, -1, 1 }, { 1, -1, 1 }, { -1, 1, 1 }, { 1, 1, 1 }
     };
-    for (int i = 0; i < 8; ++i)
+    for (u32 i = 0; i < 8; ++i)
     {
         EXPECT_TRUE(glm::all(glm::greaterThanEqual(corners[i], box.Min)))
             << "Corner " << i << " is below Min";
@@ -157,9 +157,12 @@ TEST(BoundingSphere, ConstructFromCenterRadius)
 TEST(BoundingSphere, ContainsCenter)
 {
     BoundingSphere sphere(glm::vec3(10.0f, 20.0f, 30.0f), 1.0f);
-    f32 distFromCenter = glm::length(sphere.Center - sphere.Center);
-    EXPECT_LE(distFromCenter, sphere.Radius)
-        << "Center of sphere should always be contained";
+    glm::vec3 expectedCenter(10.0f, 20.0f, 30.0f);
+    EXPECT_EQ(sphere.Center, expectedCenter)
+        << "Constructor should set Center correctly";
+    f32 distFromExpected = glm::length(sphere.Center - expectedCenter);
+    EXPECT_LE(distFromExpected, sphere.Radius)
+        << "Expected center should be contained in sphere";
 }
 
 TEST(BoundingSphere, ConstructFromBoundingBox)
@@ -189,7 +192,7 @@ TEST(BoundingSphere, ConstructFromPoints)
     EXPECT_NEAR(sphere.Center.z, expectedCenter.z, 1e-5f);
 
     // Radius should be max distance from center to any point
-    for (int i = 0; i < 4; ++i)
+    for (u32 i = 0; i < 4; ++i)
     {
         f32 dist = glm::length(points[i] - sphere.Center);
         EXPECT_LE(dist, sphere.Radius + 1e-5f)
