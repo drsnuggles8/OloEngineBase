@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandAllocator.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -59,7 +60,7 @@ TEST(CapturedCommandData, TypedAccessRoundTrip)
 
     const auto* retrieved = captured.GetCommandData<DrawMeshCommand>();
     ASSERT_NE(retrieved, nullptr);
-    EXPECT_EQ(retrieved->shaderRendererID, 42u);
+    EXPECT_EQ(retrieved->materialDataIndex, static_cast<u16>(99));
     EXPECT_EQ(retrieved->entityID, 7);
     EXPECT_EQ(retrieved->indexCount, 36u);
 }
@@ -337,6 +338,8 @@ class FrameCapturePipelineTest : public ::testing::Test
   protected:
     void SetUp() override
     {
+        FrameDataBufferManager::Init();
+        FrameDataBufferManager::Get().Reset();
         m_Allocator = std::make_unique<CommandAllocator>();
 
         // Ensure clean singleton state
@@ -353,6 +356,7 @@ class FrameCapturePipelineTest : public ::testing::Test
         mgr.ClearCaptures();
         mgr.SetSelectedFrameIndex(-1);
         m_Allocator.reset();
+        FrameDataBufferManager::Shutdown();
     }
 
     /// Build a bucket with N draw commands + 1 state command, sort it, return it.

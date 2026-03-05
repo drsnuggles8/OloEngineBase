@@ -367,8 +367,6 @@ TEST_F(CommandBucketBatchTest, BatchConvertsMeshToInstanced)
         // Make meshes identical (same VAO, material, shader)
         cmd.vertexArrayID = 100;
         cmd.indexCount = 36;
-        cmd.useTextureMaps = false;
-
         PacketMetadata meta;
         meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
         bucket.Submit(cmd, meta, m_Allocator.get());

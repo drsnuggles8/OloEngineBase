@@ -181,12 +181,12 @@ TEST_F(FramePipelineTest, IsolatedBuckets)
     for (const auto* pkt : bucketA.GetSortedCommands())
     {
         const auto* data = pkt->GetCommandData<DrawMeshCommand>();
-        EXPECT_EQ(data->shaderRendererID, 1u);
+        EXPECT_EQ(data->materialDataIndex, static_cast<u16>(1));
     }
     for (const auto* pkt : bucketB.GetSortedCommands())
     {
         const auto* data = pkt->GetCommandData<DrawMeshCommand>();
-        EXPECT_EQ(data->shaderRendererID, 2u);
+        EXPECT_EQ(data->materialDataIndex, static_cast<u16>(2));
     }
 }
 

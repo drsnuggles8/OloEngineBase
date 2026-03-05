@@ -369,3 +369,126 @@ TEST(FrameDataBuffer, RenderStateTableMultipleUniqueStates)
     }
     EXPECT_EQ(buffer.GetRenderStateCount(), 10u) << "No new states should be added";
 }
+
+// =============================================================================
+// MaterialData Table Tests
+// =============================================================================
+
+TEST(FrameDataBuffer, MaterialDataTableAllocateReturnsValidIndex)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODMaterialData mat{};
+    mat.shaderRendererID = 1;
+    u16 index = buffer.AllocateMaterialData(mat);
+    EXPECT_NE(index, INVALID_MATERIAL_DATA_INDEX);
+    EXPECT_EQ(index, 0u);
+    EXPECT_EQ(buffer.GetMaterialDataCount(), 1u);
+}
+
+TEST(FrameDataBuffer, MaterialDataTableDeduplicatesIdenticalData)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODMaterialData mat{};
+    mat.shaderRendererID = 42;
+    mat.ambient = glm::vec3(0.1f);
+    u16 first = buffer.AllocateMaterialData(mat);
+    u16 second = buffer.AllocateMaterialData(mat);
+
+    EXPECT_EQ(first, second) << "Identical material data must return same index";
+    EXPECT_EQ(buffer.GetMaterialDataCount(), 1u) << "Only one unique material should exist";
+}
+
+TEST(FrameDataBuffer, MaterialDataTableDifferentDataGetDifferentIndices)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODMaterialData matA{};
+    matA.shaderRendererID = 1;
+    matA.enablePBR = false;
+    matA.ambient = glm::vec3(0.1f);
+
+    PODMaterialData matB{};
+    matB.shaderRendererID = 2;
+    matB.enablePBR = true;
+    matB.baseColorFactor = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+
+    u16 idxA = buffer.AllocateMaterialData(matA);
+    u16 idxB = buffer.AllocateMaterialData(matB);
+
+    EXPECT_NE(idxA, idxB) << "Different materials must get different indices";
+    EXPECT_EQ(buffer.GetMaterialDataCount(), 2u);
+}
+
+TEST(FrameDataBuffer, MaterialDataTableRoundTrip)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODMaterialData mat{};
+    mat.shaderRendererID = 99;
+    mat.enablePBR = true;
+    mat.baseColorFactor = glm::vec4(0.5f, 0.6f, 0.7f, 1.0f);
+    mat.metallicFactor = 0.3f;
+    mat.roughnessFactor = 0.8f;
+    mat.albedoMapID = 100;
+    mat.normalMapID = 200;
+
+    u16 index = buffer.AllocateMaterialData(mat);
+    const PODMaterialData& retrieved = buffer.GetMaterialData(index);
+
+    EXPECT_EQ(std::memcmp(&mat, &retrieved, sizeof(PODMaterialData)), 0)
+        << "Retrieved material data must match original byte-for-byte";
+}
+
+TEST(FrameDataBuffer, MaterialDataTableResetsEachFrame)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODMaterialData mat{};
+    mat.shaderRendererID = 1;
+    buffer.AllocateMaterialData(mat);
+    EXPECT_EQ(buffer.GetMaterialDataCount(), 1u);
+
+    // Simulate new frame
+    buffer.Reset();
+    EXPECT_EQ(buffer.GetMaterialDataCount(), 0u) << "Table must be empty after Reset()";
+
+    // Re-allocate — should get index 0 again
+    u16 index = buffer.AllocateMaterialData(mat);
+    EXPECT_EQ(index, 0u);
+    EXPECT_EQ(buffer.GetMaterialDataCount(), 1u);
+}
+
+TEST(FrameDataBuffer, MaterialDataTableMultipleUniqueEntries)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    // Allocate 10 unique materials
+    for (u16 i = 0; i < 10; ++i)
+    {
+        PODMaterialData mat{};
+        mat.shaderRendererID = i + 1;
+        mat.metallicFactor = static_cast<f32>(i) * 0.1f;
+        u16 index = buffer.AllocateMaterialData(mat);
+        EXPECT_EQ(index, i) << "Material " << i << " should get sequential index";
+    }
+    EXPECT_EQ(buffer.GetMaterialDataCount(), 10u);
+
+    // Verify dedup: re-allocate same materials
+    for (u16 i = 0; i < 10; ++i)
+    {
+        PODMaterialData mat{};
+        mat.shaderRendererID = i + 1;
+        mat.metallicFactor = static_cast<f32>(i) * 0.1f;
+        u16 index = buffer.AllocateMaterialData(mat);
+        EXPECT_EQ(index, i) << "Re-allocated material " << i << " should match original index";
+    }
+    EXPECT_EQ(buffer.GetMaterialDataCount(), 10u) << "No new materials should be added";
+}

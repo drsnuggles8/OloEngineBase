@@ -112,15 +112,8 @@ inline DrawMeshCommand MakeSyntheticDrawMeshCommand(u32 shaderID = 1,
     cmd.indexCount = 36;
     cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -depth));
     cmd.entityID = entityID;
-    cmd.shaderRendererID = shaderID;
     cmd.shaderHandle = 0;
-    cmd.ambient = glm::vec3(0.1f);
-    cmd.diffuse = glm::vec3(0.8f);
-    cmd.specular = glm::vec3(1.0f);
-    cmd.shininess = 32.0f;
-    cmd.useTextureMaps = false;
-    cmd.diffuseMapID = materialID; // Use as proxy for material identity
-    cmd.specularMapID = 0;
+    cmd.materialDataIndex = static_cast<u16>(materialID); // Used as material identity for batching tests
     return cmd;
 }
 

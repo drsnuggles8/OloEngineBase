@@ -22,6 +22,9 @@ namespace OloEngine
     // RenderState table capacity — max unique render states per frame
     static constexpr u16 MAX_RENDER_STATES_PER_FRAME = 256;
 
+    // MaterialData table capacity — max unique material configs per frame
+    static constexpr u16 MAX_MATERIAL_DATA_PER_FRAME = 1024;
+
     /**
      * @brief Per-worker scratch buffer for thread-local bone/transform accumulation
      *
@@ -191,7 +194,38 @@ namespace OloEngine
         /**
          * @brief Current number of unique render states allocated this frame
          */
-        u16 GetRenderStateCount() const { return m_RenderStateCount; }
+        u16 GetRenderStateCount() const
+        {
+            return m_RenderStateCount;
+        }
+
+        // ====================================================================
+        // MaterialData Table — per-frame deduplication of PODMaterialData
+        // ====================================================================
+
+        /**
+         * @brief Allocate (or reuse) material data in the per-frame table
+         * @param data The PODMaterialData to store
+         * @return u16 index into the table (deduplicated — identical data shares an index)
+         *
+         * Thread-safe via mutex. Returns INVALID_MATERIAL_DATA_INDEX on overflow.
+         */
+        u16 AllocateMaterialData(const PODMaterialData& data);
+
+        /**
+         * @brief Look up material data by index
+         * @param index Index returned by AllocateMaterialData
+         * @return Reference to the stored PODMaterialData
+         */
+        const PODMaterialData& GetMaterialData(u16 index) const;
+
+        /**
+         * @brief Current number of unique material data entries allocated this frame
+         */
+        u16 GetMaterialDataCount() const
+        {
+            return m_MaterialDataCount;
+        }
 
         // ====================================================================
         // Thread-Local Scratch Buffer API for Parallel Command Generation
@@ -286,6 +320,14 @@ namespace OloEngine
         std::array<PODRenderState, MAX_RENDER_STATES_PER_FRAME> m_RenderStates{};
         u16 m_RenderStateCount = 0;
         mutable FMutex m_RenderStateMutex;
+
+        // ====================================================================
+        // MaterialData Table Storage
+        // ====================================================================
+
+        std::vector<PODMaterialData> m_MaterialData;
+        u16 m_MaterialDataCount = 0;
+        mutable FMutex m_MaterialDataMutex;
 
         // ====================================================================
         // Thread-Local Scratch Buffer Storage

@@ -12,6 +12,7 @@ namespace OloEngine
         m_Transforms.resize(transformCapacity);
         m_BoneMatrixOffset = 0;
         m_TransformOffset = 0;
+        m_MaterialData.resize(MAX_MATERIAL_DATA_PER_FRAME);
     }
 
     void FrameDataBuffer::Reset()
@@ -32,6 +33,9 @@ namespace OloEngine
 
         // Reset render state table
         m_RenderStateCount = 0;
+
+        // Reset material data table
+        m_MaterialDataCount = 0;
 
         // Reset worker scratch buffers
         for (auto& scratch : m_WorkerScratchBuffers)
@@ -186,6 +190,44 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(index < m_RenderStateCount, "FrameDataBuffer: Invalid render state index!");
         return m_RenderStates[index];
+    }
+
+    // ========================================================================
+    // MaterialData Table Implementation
+    // ========================================================================
+
+    u16 FrameDataBuffer::AllocateMaterialData(const PODMaterialData& data)
+    {
+        TUniqueLock<FMutex> lock(m_MaterialDataMutex);
+
+        // Dedup: linear scan (N is typically 10-100 unique materials per frame)
+        for (u16 i = 0; i < m_MaterialDataCount; ++i)
+        {
+            if (std::memcmp(&m_MaterialData[i], &data, sizeof(PODMaterialData)) == 0)
+            {
+                return i;
+            }
+        }
+
+        // New unique material — allocate
+        if (m_MaterialDataCount >= MAX_MATERIAL_DATA_PER_FRAME)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer: MaterialData table overflow! Max {} unique materials per frame",
+                           MAX_MATERIAL_DATA_PER_FRAME);
+            return INVALID_MATERIAL_DATA_INDEX;
+        }
+
+        u16 index = m_MaterialDataCount;
+        m_MaterialData[index] = data;
+        ++m_MaterialDataCount;
+
+        return index;
+    }
+
+    const PODMaterialData& FrameDataBuffer::GetMaterialData(u16 index) const
+    {
+        OLO_CORE_ASSERT(index < m_MaterialDataCount, "FrameDataBuffer: Invalid material data index!");
+        return m_MaterialData[index];
     }
 
     // Static manager implementation

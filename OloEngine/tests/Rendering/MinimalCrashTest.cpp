@@ -19,7 +19,7 @@ TEST(CommandPacket, InitializePopulatesType)
     auto* cmd = packet->GetCommandData<DrawMeshCommand>();
     ASSERT_NE(cmd, nullptr);
     cmd->header.type = CommandType::DrawMesh;
-    cmd->shaderRendererID = 100;
+    cmd->materialDataIndex = 100;
 
-    EXPECT_EQ(cmd->shaderRendererID, 100u);
+    EXPECT_EQ(cmd->materialDataIndex, static_cast<u16>(100));
 }

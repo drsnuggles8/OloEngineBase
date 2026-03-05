@@ -522,7 +522,12 @@ namespace OloEngine
         ImGui::Text("VAO: %u", cmd.vertexArrayID);
         ImGui::Text("Index Count: %u", cmd.indexCount);
         ImGui::Text("Entity ID: %d", cmd.entityID);
-        ImGui::Text("Shader: %u (handle: %llu)", cmd.shaderRendererID, static_cast<u64>(cmd.shaderHandle));
+
+        const PODMaterialData* matPtr = (cmd.materialDataIndex != INVALID_MATERIAL_DATA_INDEX && cmd.materialDataIndex < FrameDataBufferManager::Get().GetMaterialDataCount())
+                                            ? &FrameDataBufferManager::Get().GetMaterialData(cmd.materialDataIndex)
+                                            : nullptr;
+        ImGui::Text("Shader: %u (handle: %llu)", matPtr ? matPtr->shaderRendererID : 0u, static_cast<u64>(cmd.shaderHandle));
+        ImGui::Text("Material Data Index: %u", cmd.materialDataIndex);
 
         ImGui::Separator();
         ImGui::Text("Transform:");
@@ -531,26 +536,30 @@ namespace OloEngine
             ImGui::Text("  [%.2f, %.2f, %.2f, %.2f]", t[row][0], t[row][1], t[row][2], t[row][3]);
 
         ImGui::Separator();
-        if (cmd.enablePBR)
+        if (matPtr && matPtr->enablePBR)
         {
             ImGui::Text("PBR Material:");
-            ImGui::Text("  Base Color: (%.2f, %.2f, %.2f, %.2f)", cmd.baseColorFactor.r, cmd.baseColorFactor.g, cmd.baseColorFactor.b, cmd.baseColorFactor.a);
-            ImGui::Text("  Metallic: %.2f", cmd.metallicFactor);
-            ImGui::Text("  Roughness: %.2f", cmd.roughnessFactor);
-            ImGui::Text("  Normal Scale: %.2f", cmd.normalScale);
-            ImGui::Text("  Occlusion: %.2f", cmd.occlusionStrength);
-            ImGui::Text("  IBL: %s", cmd.enableIBL ? "Yes" : "No");
+            ImGui::Text("  Base Color: (%.2f, %.2f, %.2f, %.2f)", matPtr->baseColorFactor.r, matPtr->baseColorFactor.g, matPtr->baseColorFactor.b, matPtr->baseColorFactor.a);
+            ImGui::Text("  Metallic: %.2f", matPtr->metallicFactor);
+            ImGui::Text("  Roughness: %.2f", matPtr->roughnessFactor);
+            ImGui::Text("  Normal Scale: %.2f", matPtr->normalScale);
+            ImGui::Text("  Occlusion: %.2f", matPtr->occlusionStrength);
+            ImGui::Text("  IBL: %s", matPtr->enableIBL ? "Yes" : "No");
             ImGui::Text("  Textures: albedo=%u, metallicRough=%u, normal=%u, ao=%u, emissive=%u",
-                        cmd.albedoMapID, cmd.metallicRoughnessMapID, cmd.normalMapID, cmd.aoMapID, cmd.emissiveMapID);
+                        matPtr->albedoMapID, matPtr->metallicRoughnessMapID, matPtr->normalMapID, matPtr->aoMapID, matPtr->emissiveMapID);
+        }
+        else if (matPtr)
+        {
+            ImGui::Text("Legacy Material:");
+            ImGui::Text("  Ambient: (%.2f, %.2f, %.2f)", matPtr->ambient.r, matPtr->ambient.g, matPtr->ambient.b);
+            ImGui::Text("  Diffuse: (%.2f, %.2f, %.2f)", matPtr->diffuse.r, matPtr->diffuse.g, matPtr->diffuse.b);
+            ImGui::Text("  Specular: (%.2f, %.2f, %.2f)", matPtr->specular.r, matPtr->specular.g, matPtr->specular.b);
+            ImGui::Text("  Shininess: %.1f", matPtr->shininess);
+            ImGui::Text("  Textures: diffuse=%u, specular=%u", matPtr->diffuseMapID, matPtr->specularMapID);
         }
         else
         {
-            ImGui::Text("Legacy Material:");
-            ImGui::Text("  Ambient: (%.2f, %.2f, %.2f)", cmd.ambient.r, cmd.ambient.g, cmd.ambient.b);
-            ImGui::Text("  Diffuse: (%.2f, %.2f, %.2f)", cmd.diffuse.r, cmd.diffuse.g, cmd.diffuse.b);
-            ImGui::Text("  Specular: (%.2f, %.2f, %.2f)", cmd.specular.r, cmd.specular.g, cmd.specular.b);
-            ImGui::Text("  Shininess: %.1f", cmd.shininess);
-            ImGui::Text("  Textures: diffuse=%u, specular=%u", cmd.diffuseMapID, cmd.specularMapID);
+            ImGui::Text("Material: N/A (invalid index)");
         }
 
         if (cmd.isAnimatedMesh)
@@ -567,7 +576,12 @@ namespace OloEngine
         ImGui::Text("Index Count: %u", cmd.indexCount);
         ImGui::Text("Instance Count: %u", cmd.instanceCount);
         ImGui::Text("Transform Buffer: offset=%u, count=%u", cmd.transformBufferOffset, cmd.transformCount);
-        ImGui::Text("Shader: %u (handle: %llu)", cmd.shaderRendererID, static_cast<u64>(cmd.shaderHandle));
+
+        const PODMaterialData* matPtr = (cmd.materialDataIndex != INVALID_MATERIAL_DATA_INDEX && cmd.materialDataIndex < FrameDataBufferManager::Get().GetMaterialDataCount())
+                                            ? &FrameDataBufferManager::Get().GetMaterialData(cmd.materialDataIndex)
+                                            : nullptr;
+        ImGui::Text("Shader: %u (handle: %llu)", matPtr ? matPtr->shaderRendererID : 0u, static_cast<u64>(cmd.shaderHandle));
+        ImGui::Text("Material Data Index: %u", cmd.materialDataIndex);
     }
 
     void CommandPacketDebugger::RenderPODRenderStateDetail(const PODRenderState& state)
@@ -1306,9 +1320,7 @@ namespace OloEngine
                     {
                         const auto* prevCmd = prev.GetCommandData<DrawMeshCommand>();
                         const auto* currCmd = curr.GetCommandData<DrawMeshCommand>();
-                        if (prevCmd && currCmd
-                            && prevCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX
-                            && currCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
+                        if (prevCmd && currCmd && prevCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX && currCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
                         {
                             const auto& prevState = FrameDataBufferManager::Get().GetRenderState(prevCmd->renderStateIndex);
                             const auto& currState = FrameDataBufferManager::Get().GetRenderState(currCmd->renderStateIndex);
@@ -1378,18 +1390,22 @@ namespace OloEngine
                     if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
                     {
                         const PODRenderState* state = (meshCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
-                            ? &FrameDataBufferManager::Get().GetRenderState(meshCmd->renderStateIndex)
-                            : nullptr;
+                                                          ? &FrameDataBufferManager::Get().GetRenderState(meshCmd->renderStateIndex)
+                                                          : nullptr;
+                        const PODMaterialData* mat = (meshCmd->materialDataIndex != INVALID_MATERIAL_DATA_INDEX && meshCmd->materialDataIndex < FrameDataBufferManager::Get().GetMaterialDataCount())
+                                                         ? &FrameDataBufferManager::Get().GetMaterialData(meshCmd->materialDataIndex)
+                                                         : nullptr;
                         file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
-                        file << "- Shader: " << meshCmd->shaderRendererID << " (handle: " << static_cast<u64>(meshCmd->shaderHandle) << ")\n";
+                        file << "- Shader: " << (mat ? mat->shaderRendererID : 0u) << " (handle: " << static_cast<u64>(meshCmd->shaderHandle) << ")\n";
                         file << "- VAO: " << meshCmd->vertexArrayID << ", Index Count: " << meshCmd->indexCount << "\n";
                         file << "- Entity ID: " << meshCmd->entityID << "\n";
-                        if (meshCmd->enablePBR)
+                        file << "- Material Data Index: " << meshCmd->materialDataIndex << "\n";
+                        if (mat && mat->enablePBR)
                         {
-                            file << "- PBR Material: baseColor=(" << meshCmd->baseColorFactor.r << "," << meshCmd->baseColorFactor.g << "," << meshCmd->baseColorFactor.b << ")"
-                                 << " metallic=" << meshCmd->metallicFactor << " roughness=" << meshCmd->roughnessFactor << "\n";
-                            file << "- Textures: albedo=" << meshCmd->albedoMapID << " metallicRough=" << meshCmd->metallicRoughnessMapID
-                                 << " normal=" << meshCmd->normalMapID << " ao=" << meshCmd->aoMapID << " emissive=" << meshCmd->emissiveMapID << "\n";
+                            file << "- PBR Material: baseColor=(" << mat->baseColorFactor.r << "," << mat->baseColorFactor.g << "," << mat->baseColorFactor.b << ")"
+                                 << " metallic=" << mat->metallicFactor << " roughness=" << mat->roughnessFactor << "\n";
+                            file << "- Textures: albedo=" << mat->albedoMapID << " metallicRough=" << mat->metallicRoughnessMapID
+                                 << " normal=" << mat->normalMapID << " ao=" << mat->aoMapID << " emissive=" << mat->emissiveMapID << "\n";
                         }
                         file << "- Depth: write=" << (state ? (state->depthWriteMask ? "yes" : "no") : "N/A")
                              << " test=" << (state ? (state->depthTestEnabled ? "yes" : "no") : "N/A") << "\n";
@@ -1403,9 +1419,13 @@ namespace OloEngine
                 {
                     if (const auto* instCmd = cmd.GetCommandData<DrawMeshInstancedCommand>())
                     {
+                        const PODMaterialData* instMat = (instCmd->materialDataIndex != INVALID_MATERIAL_DATA_INDEX && instCmd->materialDataIndex < FrameDataBufferManager::Get().GetMaterialDataCount())
+                                                             ? &FrameDataBufferManager::Get().GetMaterialData(instCmd->materialDataIndex)
+                                                             : nullptr;
                         file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
                         file << "- Instances: " << instCmd->instanceCount << "\n";
-                        file << "- Shader: " << instCmd->shaderRendererID << "\n";
+                        file << "- Shader: " << (instMat ? instMat->shaderRendererID : 0u) << "\n";
+                        file << "- Material Data Index: " << instCmd->materialDataIndex << "\n";
                         file << "- VAO: " << instCmd->vertexArrayID << ", Index Count: " << instCmd->indexCount << "\n\n";
                     }
                 }

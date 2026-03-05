@@ -75,32 +75,8 @@ namespace OloEngine
                 if (cmd1->meshHandle != cmd2->meshHandle)
                     return false;
 
-                // Check if shaders are the same (using renderer ID)
-                if (cmd1->shaderRendererID != cmd2->shaderRendererID)
-                    return false;
-
-                // Check material properties
-                if (cmd1->useTextureMaps != cmd2->useTextureMaps)
-                    return false;
-
-                // Check texture renderer IDs (POD)
-                if (cmd1->diffuseMapID != cmd2->diffuseMapID)
-                    return false;
-
-                if (cmd1->specularMapID != cmd2->specularMapID)
-                    return false;
-
-                // Check material properties
-                if (cmd1->ambient != cmd2->ambient)
-                    return false;
-
-                if (cmd1->diffuse != cmd2->diffuse)
-                    return false;
-
-                if (cmd1->specular != cmd2->specular)
-                    return false;
-
-                if (cmd1->shininess != cmd2->shininess)
+                // Check if material data is the same (covers shader, textures, and all material properties)
+                if (cmd1->materialDataIndex != cmd2->materialDataIndex)
                     return false;
 
                 // All checks passed, these commands can be batched

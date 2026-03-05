@@ -391,19 +391,10 @@ namespace OloEngine
         instancedCmd->transformCount = 1;
 
         // Copy material properties
-        instancedCmd->ambient = meshCmd->ambient;
-        instancedCmd->diffuse = meshCmd->diffuse;
-        instancedCmd->specular = meshCmd->specular;
-        instancedCmd->shininess = meshCmd->shininess;
-        instancedCmd->useTextureMaps = meshCmd->useTextureMaps;
+        instancedCmd->materialDataIndex = meshCmd->materialDataIndex;
 
-        // Copy texture renderer IDs (POD)
-        instancedCmd->diffuseMapID = meshCmd->diffuseMapID;
-        instancedCmd->specularMapID = meshCmd->specularMapID;
-
-        // Copy shader renderer ID (POD)
+        // Copy shader handle
         instancedCmd->shaderHandle = meshCmd->shaderHandle;
-        instancedCmd->shaderRendererID = meshCmd->shaderRendererID;
 
         // Copy POD render state index
         instancedCmd->renderStateIndex = meshCmd->renderStateIndex;

@@ -161,6 +161,45 @@ namespace OloEngine
         return state;
     }
 
+    // Helper to populate POD material data from Material object
+    static PODMaterialData CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID)
+    {
+        PODMaterialData data{};
+        data.shaderRendererID = shaderRendererID;
+
+        // Legacy material properties
+        data.ambient = material.GetAmbient();
+        data.diffuse = material.GetDiffuse();
+        data.specular = material.GetSpecular();
+        data.shininess = material.GetShininess();
+        data.useTextureMaps = material.IsUsingTextureMaps();
+        data.diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
+        data.specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
+
+        // PBR material properties
+        data.enablePBR = (material.GetType() == MaterialType::PBR);
+        data.baseColorFactor = material.GetBaseColorFactor();
+        data.emissiveFactor = material.GetEmissiveFactor();
+        data.metallicFactor = material.GetMetallicFactor();
+        data.roughnessFactor = material.GetRoughnessFactor();
+        data.normalScale = material.GetNormalScale();
+        data.occlusionStrength = material.GetOcclusionStrength();
+        data.enableIBL = material.IsIBLEnabled();
+
+        // PBR texture renderer IDs
+        data.albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
+        data.metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
+        data.normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
+        data.aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
+        data.emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
+        data.environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
+        data.irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
+        data.prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
+        data.brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
+
+        return data;
+    }
+
     void Renderer3D::Init()
     {
         OLO_PROFILE_FUNCTION();
@@ -1103,37 +1142,10 @@ namespace OloEngine
         cmd->indexCount = mesh->GetIndexCount();
         cmd->transform = glm::mat4(modelMatrix);
         cmd->shaderHandle = shaderToUse->GetHandle();
-        cmd->shaderRendererID = shaderToUse->GetRendererID();
 
-        // Legacy material properties (POD)
-        cmd->ambient = material.GetAmbient();
-        cmd->diffuse = material.GetDiffuse();
-        cmd->specular = material.GetSpecular();
-        cmd->shininess = material.GetShininess();
-        cmd->useTextureMaps = material.IsUsingTextureMaps();
-        cmd->diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
-        cmd->specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
-
-        // PBR material properties (POD)
-        cmd->enablePBR = (material.GetType() == MaterialType::PBR);
-        cmd->baseColorFactor = material.GetBaseColorFactor();
-        cmd->emissiveFactor = material.GetEmissiveFactor();
-        cmd->metallicFactor = material.GetMetallicFactor();
-        cmd->roughnessFactor = material.GetRoughnessFactor();
-        cmd->normalScale = material.GetNormalScale();
-        cmd->occlusionStrength = material.GetOcclusionStrength();
-        cmd->enableIBL = material.IsIBLEnabled();
-
-        // PBR texture renderer IDs (POD)
-        cmd->albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
-        cmd->metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
-        cmd->normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
-        cmd->aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
-        cmd->emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
-        cmd->environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
-        cmd->irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
-        cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
-        cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
+        // Material data via table
+        cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
+            CreatePODMaterialDataForMaterial(material, shaderToUse->GetRendererID()));
 
         // Render state via table
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
@@ -1267,35 +1279,10 @@ namespace OloEngine
         cmd->indexCount = mesh->GetIndexCount();
         cmd->transform = modelMatrix;
         cmd->shaderHandle = shaderToUse->GetHandle();
-        cmd->shaderRendererID = shaderToUse->GetRendererID();
 
-        // Material properties
-        cmd->ambient = material.GetAmbient();
-        cmd->diffuse = material.GetDiffuse();
-        cmd->specular = material.GetSpecular();
-        cmd->shininess = material.GetShininess();
-        cmd->useTextureMaps = material.IsUsingTextureMaps();
-        cmd->diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
-        cmd->specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
-
-        cmd->enablePBR = (material.GetType() == MaterialType::PBR);
-        cmd->baseColorFactor = material.GetBaseColorFactor();
-        cmd->emissiveFactor = material.GetEmissiveFactor();
-        cmd->metallicFactor = material.GetMetallicFactor();
-        cmd->roughnessFactor = material.GetRoughnessFactor();
-        cmd->normalScale = material.GetNormalScale();
-        cmd->occlusionStrength = material.GetOcclusionStrength();
-        cmd->enableIBL = material.IsIBLEnabled();
-
-        cmd->albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
-        cmd->metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
-        cmd->normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
-        cmd->aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
-        cmd->emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
-        cmd->environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
-        cmd->irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
-        cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
-        cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
+        // Material data via table
+        cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
+            CreatePODMaterialDataForMaterial(material, shaderToUse->GetRendererID()));
 
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
 
@@ -1676,37 +1663,10 @@ namespace OloEngine
         cmd->transform = glm::mat4(modelMatrix);
         cmd->entityID = entityID;
         cmd->shaderHandle = shaderToUse->GetHandle();
-        cmd->shaderRendererID = shaderToUse->GetRendererID();
 
-        // Legacy material properties (POD)
-        cmd->ambient = material.GetAmbient();
-        cmd->diffuse = material.GetDiffuse();
-        cmd->specular = material.GetSpecular();
-        cmd->shininess = material.GetShininess();
-        cmd->useTextureMaps = material.IsUsingTextureMaps();
-        cmd->diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
-        cmd->specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
-
-        // PBR material properties (POD)
-        cmd->enablePBR = (material.GetType() == MaterialType::PBR);
-        cmd->baseColorFactor = material.GetBaseColorFactor();
-        cmd->emissiveFactor = material.GetEmissiveFactor();
-        cmd->metallicFactor = material.GetMetallicFactor();
-        cmd->roughnessFactor = material.GetRoughnessFactor();
-        cmd->normalScale = material.GetNormalScale();
-        cmd->occlusionStrength = material.GetOcclusionStrength();
-        cmd->enableIBL = material.IsIBLEnabled();
-
-        // PBR texture renderer IDs (POD)
-        cmd->albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
-        cmd->metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
-        cmd->normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
-        cmd->aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
-        cmd->emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
-        cmd->environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
-        cmd->irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
-        cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
-        cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
+        // Material data via table
+        cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
+            CreatePODMaterialDataForMaterial(material, shaderToUse->GetRendererID()));
 
         // Render state via table
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
@@ -1835,37 +1795,10 @@ namespace OloEngine
         cmd->transformBufferOffset = transformOffset;
         cmd->transformCount = transformCount;
         cmd->shaderHandle = shaderToUse->GetHandle();
-        cmd->shaderRendererID = shaderToUse->GetRendererID();
 
-        // Legacy material properties (POD)
-        cmd->ambient = material.GetAmbient();
-        cmd->diffuse = material.GetDiffuse();
-        cmd->specular = material.GetSpecular();
-        cmd->shininess = material.GetShininess();
-        cmd->useTextureMaps = material.IsUsingTextureMaps();
-        cmd->diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
-        cmd->specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
-
-        // PBR material properties (POD)
-        cmd->enablePBR = (material.GetType() == MaterialType::PBR);
-        cmd->baseColorFactor = material.GetBaseColorFactor();
-        cmd->emissiveFactor = material.GetEmissiveFactor();
-        cmd->metallicFactor = material.GetMetallicFactor();
-        cmd->roughnessFactor = material.GetRoughnessFactor();
-        cmd->normalScale = material.GetNormalScale();
-        cmd->occlusionStrength = material.GetOcclusionStrength();
-        cmd->enableIBL = material.IsIBLEnabled();
-
-        // PBR texture renderer IDs (POD)
-        cmd->albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
-        cmd->metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
-        cmd->normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
-        cmd->aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
-        cmd->emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
-        cmd->environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
-        cmd->irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
-        cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
-        cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
+        // Material data via table
+        cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
+            CreatePODMaterialDataForMaterial(material, shaderToUse->GetRendererID()));
 
         // Render state via table
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
@@ -1912,35 +1845,17 @@ namespace OloEngine
         cmd->indexCount = s_Data.CubeMesh->GetIndexCount();
         cmd->transform = modelMatrix;
         cmd->shaderHandle = s_Data.LightCubeShader->GetHandle();
-        cmd->shaderRendererID = s_Data.LightCubeShader->GetRendererID();
 
-        // Legacy material properties
-        cmd->ambient = glm::vec3(1.0f);
-        cmd->diffuse = glm::vec3(1.0f);
-        cmd->specular = glm::vec3(1.0f);
-        cmd->shininess = 32.0f;
-        cmd->useTextureMaps = false;
-        cmd->diffuseMapID = 0;
-        cmd->specularMapID = 0;
-
-        // PBR material properties (default values for light cube)
-        cmd->enablePBR = false;
-        cmd->baseColorFactor = glm::vec4(1.0f);
-        cmd->emissiveFactor = glm::vec4(0.0f);
-        cmd->metallicFactor = 0.0f;
-        cmd->roughnessFactor = 1.0f;
-        cmd->normalScale = 1.0f;
-        cmd->occlusionStrength = 1.0f;
-        cmd->enableIBL = false;
-        cmd->albedoMapID = 0;
-        cmd->metallicRoughnessMapID = 0;
-        cmd->normalMapID = 0;
-        cmd->aoMapID = 0;
-        cmd->emissiveMapID = 0;
-        cmd->environmentMapID = 0;
-        cmd->irradianceMapID = 0;
-        cmd->prefilterMapID = 0;
-        cmd->brdfLutMapID = 0;
+        // Light cube material data — simple default material
+        {
+            PODMaterialData matData{};
+            matData.shaderRendererID = s_Data.LightCubeShader->GetRendererID();
+            matData.ambient = glm::vec3(1.0f);
+            matData.diffuse = glm::vec3(1.0f);
+            matData.specular = glm::vec3(1.0f);
+            matData.shininess = 32.0f;
+            cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(matData);
+        }
 
         // Render state via table
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreateDefaultPODRenderState());
@@ -2275,37 +2190,10 @@ namespace OloEngine
         cmd->indexCount = mesh->GetIndexCount();
         cmd->transform = modelMatrix;
         cmd->shaderHandle = shaderToUse->GetHandle();
-        cmd->shaderRendererID = shaderToUse->GetRendererID();
 
-        // Legacy material properties (POD)
-        cmd->ambient = material.GetAmbient();
-        cmd->diffuse = material.GetDiffuse();
-        cmd->specular = material.GetSpecular();
-        cmd->shininess = material.GetShininess();
-        cmd->useTextureMaps = material.IsUsingTextureMaps();
-        cmd->diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
-        cmd->specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
-
-        // PBR material properties (POD)
-        cmd->enablePBR = (material.GetType() == MaterialType::PBR);
-        cmd->baseColorFactor = material.GetBaseColorFactor();
-        cmd->emissiveFactor = material.GetEmissiveFactor();
-        cmd->metallicFactor = material.GetMetallicFactor();
-        cmd->roughnessFactor = material.GetRoughnessFactor();
-        cmd->normalScale = material.GetNormalScale();
-        cmd->occlusionStrength = material.GetOcclusionStrength();
-        cmd->enableIBL = material.IsIBLEnabled();
-
-        // PBR texture renderer IDs (POD)
-        cmd->albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
-        cmd->metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
-        cmd->normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
-        cmd->aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
-        cmd->emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
-        cmd->environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
-        cmd->irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
-        cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
-        cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
+        // Material data via table
+        cmd->materialDataIndex = FrameDataBufferManager::Get().AllocateMaterialData(
+            CreatePODMaterialDataForMaterial(material, shaderToUse->GetRendererID()));
 
         // Render state via table
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));

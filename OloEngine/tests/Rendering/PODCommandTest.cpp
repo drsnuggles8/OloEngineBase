@@ -172,15 +172,9 @@ TEST(PODCommand, DrawMeshFieldRoundTrip)
     EXPECT_EQ(copy.vertexArrayID, 1u);
     EXPECT_EQ(copy.indexCount, 36u);
     EXPECT_EQ(copy.entityID, 777);
-    EXPECT_EQ(copy.shaderRendererID, 42u);
-    EXPECT_FLOAT_EQ(copy.shininess, 32.0f);
-    EXPECT_EQ(copy.useTextureMaps, false);
-    EXPECT_EQ(copy.diffuseMapID, 99u);
+    EXPECT_EQ(copy.materialDataIndex, static_cast<u16>(99));
 
     ValidateTransform(copy.transform);
-    ValidateVec3(copy.ambient, "ambient");
-    ValidateVec3(copy.diffuse, "diffuse");
-    ValidateVec3(copy.specular, "specular");
 }
 
 // =============================================================================
@@ -191,9 +185,6 @@ TEST(PODCommand, ZeroInitNoNaN)
 {
     DrawMeshCommand cmd{};
     ValidateTransform(cmd.transform);
-    ValidateVec3(cmd.ambient, "ambient");
-    ValidateVec3(cmd.diffuse, "diffuse");
-    ValidateVec3(cmd.specular, "specular");
 
     DrawSkyboxCommand skybox{};
     ValidateTransform(skybox.transform);

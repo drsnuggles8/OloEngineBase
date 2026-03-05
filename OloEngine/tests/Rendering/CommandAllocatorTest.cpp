@@ -144,7 +144,7 @@ TEST(CommandAllocator, CreateCommandPacketProducesValidPacket)
 
     const auto* data = packet->GetCommandData<DrawMeshCommand>();
     ASSERT_NE(data, nullptr);
-    EXPECT_EQ(data->shaderRendererID, 50u);
+    EXPECT_EQ(data->materialDataIndex, static_cast<u16>(60));
     EXPECT_EQ(data->entityID, 123);
 }
 

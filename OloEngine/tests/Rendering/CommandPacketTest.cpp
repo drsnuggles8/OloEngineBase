@@ -72,7 +72,7 @@ TEST(CommandPacket, GetCommandDataReturnsCorrectType)
 
     const auto* retrieved = packet->GetCommandData<DrawMeshCommand>();
     ASSERT_NE(retrieved, nullptr);
-    EXPECT_EQ(retrieved->shaderRendererID, 10u);
+    EXPECT_EQ(retrieved->materialDataIndex, static_cast<u16>(20));
     EXPECT_EQ(retrieved->entityID, 99);
     EXPECT_EQ(retrieved->indexCount, 36u);
 }
@@ -223,7 +223,7 @@ TEST(CommandPacket, CloneDeepCopiesData)
     const auto* origData = original->GetCommandData<DrawMeshCommand>();
     const auto* cloneData = clone->GetCommandData<DrawMeshCommand>();
     ASSERT_NE(cloneData, nullptr);
-    EXPECT_EQ(cloneData->shaderRendererID, origData->shaderRendererID);
+    EXPECT_EQ(cloneData->materialDataIndex, origData->materialDataIndex);
     EXPECT_EQ(cloneData->entityID, origData->entityID);
 }
 
@@ -277,13 +277,13 @@ TEST(CommandPacket, AllocatePacketWithCommandPath)
     ASSERT_NE(cmd, nullptr);
 
     cmd->header.type = CommandType::DrawMesh;
-    cmd->shaderRendererID = 77;
+    cmd->materialDataIndex = 77;
     cmd->entityID = 42;
     cmd->indexCount = 100;
 
     // Verify the data persists
     const auto* readBack = packet->GetCommandData<DrawMeshCommand>();
-    EXPECT_EQ(readBack->shaderRendererID, 77u);
+    EXPECT_EQ(readBack->materialDataIndex, static_cast<u16>(77));
     EXPECT_EQ(readBack->entityID, 42);
     EXPECT_EQ(readBack->indexCount, 100u);
 }
