@@ -440,10 +440,9 @@ TEST_F(CommandBucketBatchTest, BatchAcceptsSameRenderStateIndex)
 
     bucket.BatchCommands(*m_Allocator);
 
-    // Greedy adjacent merge: first two merge into instanced, but the third DrawMesh
-    // can't match a DrawMeshInstanced via CanBatchWith (different command type), so 2 remain
+    // Hash-table grouping merges ALL matching commands into a single instanced command
     sizet countAfterBatch = bucket.GetSortedCommands().size();
-    EXPECT_LT(countAfterBatch, 3u) << "Commands with same mesh+material+renderState should batch";
+    EXPECT_EQ(countAfterBatch, 1u) << "All 3 commands with same key should merge into 1 instanced";
 }
 
 // =============================================================================
@@ -507,4 +506,264 @@ TEST_F(CommandBucketTest, DisabledSortingSkipsSort)
     // With sorting disabled, sorted commands may still be populated for execution
     // but the IsSorted flag behavior depends on implementation
     EXPECT_EQ(bucket.GetCommandCount(), 10u);
+}
+
+// =============================================================================
+// Batching — Material Data Index
+// =============================================================================
+
+TEST_F(CommandBucketBatchTest, BatchRejectsDifferentMaterialDataIndex)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    // Submit two commands with same mesh+renderState but different materialDataIndex
+    auto cmd1 = MakeSyntheticDrawMeshCommand(1, 1, 0.1f, 1);
+    cmd1.vertexArrayID = 100;
+    cmd1.renderStateIndex = 0;
+    cmd1.materialDataIndex = 0; // material A
+    PacketMetadata meta1;
+    meta1.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, 10);
+    bucket.Submit(cmd1, meta1, m_Allocator.get());
+
+    auto cmd2 = MakeSyntheticDrawMeshCommand(1, 1, 0.2f, 2);
+    cmd2.vertexArrayID = 100;
+    cmd2.renderStateIndex = 0;
+    cmd2.materialDataIndex = 1; // material B
+    PacketMetadata meta2;
+    meta2.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, 20);
+    bucket.Submit(cmd2, meta2, m_Allocator.get());
+
+    bucket.SortCommands();
+    EXPECT_EQ(bucket.GetSortedCommands().size(), 2u);
+
+    bucket.BatchCommands(*m_Allocator);
+
+    sizet countAfterBatch = bucket.GetSortedCommands().size();
+    EXPECT_EQ(countAfterBatch, 2u) << "Commands with different materialDataIndex must not batch";
+}
+
+// =============================================================================
+// Batching — Animation Field Preservation
+// =============================================================================
+
+TEST_F(CommandBucketBatchTest, ConvertToInstancedPreservesAnimationFields)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    // Submit two identical animated DrawMesh commands
+    for (u32 i = 0; i < 2; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
+        cmd.vertexArrayID = 100;
+        cmd.renderStateIndex = 0;
+        cmd.isAnimatedMesh = true;
+        cmd.boneBufferOffset = 42;
+        cmd.boneCount = 64;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.SortCommands();
+    EXPECT_EQ(bucket.GetSortedCommands().size(), 2u);
+
+    bucket.BatchCommands(*m_Allocator);
+
+    // At least one merge should have happened
+    const auto& sorted = bucket.GetSortedCommands();
+    bool foundInstanced = false;
+    for (const auto* packet : sorted)
+    {
+        if (packet && packet->GetCommandType() == CommandType::DrawMeshInstanced)
+        {
+            foundInstanced = true;
+            const auto* instancedCmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
+            EXPECT_TRUE(instancedCmd->isAnimatedMesh) << "Animation flag must be preserved";
+            EXPECT_EQ(instancedCmd->boneBufferOffset, 42u) << "Bone buffer offset must be preserved";
+            EXPECT_EQ(instancedCmd->boneCountPerInstance, 64u) << "Bone count must be preserved";
+            break;
+        }
+    }
+    EXPECT_TRUE(foundInstanced) << "Batching should have produced a DrawMeshInstanced command";
+}
+
+// =============================================================================
+// Instance Group Tables — Non-Adjacent Commands Are Grouped
+// =============================================================================
+
+TEST_F(CommandBucketBatchTest, HashTableGroupsNonAdjacentCommands)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    // Interleave two different mesh groups: A B A B A
+    // Old greedy-adjacent merge could NOT group the non-adjacent A's.
+    // Hash-table grouping MUST find all 3 A's and both B's.
+    for (u32 i = 0; i < 5; ++i)
+    {
+        bool isGroupA = (i % 2 == 0);
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
+        cmd.meshHandle = UUID(isGroupA ? 100 : 200);
+        cmd.vertexArrayID = isGroupA ? 10u : 20u;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    EXPECT_EQ(bucket.GetSortedCommands().size(), 5u);
+
+    bucket.BatchCommands(*m_Allocator);
+
+    // Group A: 3 instances, Group B: 2 instances → 2 commands total
+    EXPECT_EQ(bucket.GetSortedCommands().size(), 2u)
+        << "Non-adjacent commands with same key must merge via hash-table grouping";
+
+    // Verify instance counts
+    u32 totalInstances = 0;
+    for (const auto* packet : bucket.GetSortedCommands())
+    {
+        ASSERT_TRUE(packet != nullptr);
+        EXPECT_EQ(packet->GetCommandType(), CommandType::DrawMeshInstanced);
+        auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
+        totalInstances += icmd->instanceCount;
+    }
+    EXPECT_EQ(totalInstances, 5u) << "Total instance count must equal original command count";
+}
+
+// =============================================================================
+// Instance Group Tables — Single Commands Stay As DrawMesh
+// =============================================================================
+
+TEST_F(CommandBucketBatchTest, SingleCommandGroupsRemainDrawMesh)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    // 3 unique meshes — each appears only once, so no instancing
+    for (u32 i = 0; i < 3; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
+        cmd.meshHandle = UUID(100 + i); // Different mesh each time
+        cmd.vertexArrayID = 10 + i;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    EXPECT_EQ(bucket.GetSortedCommands().size(), 3u)
+        << "Unique meshes should not be merged";
+
+    for (const auto* packet : bucket.GetSortedCommands())
+    {
+        EXPECT_EQ(packet->GetCommandType(), CommandType::DrawMesh)
+            << "Single-instance groups must remain as DrawMesh";
+    }
+}
+
+// =============================================================================
+// Instance Group Tables — MaxMeshInstances Cap
+// =============================================================================
+
+TEST_F(CommandBucketBatchTest, BatchRespectsMaxMeshInstances)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    config.MaxMeshInstances = 3; // Low cap for testing
+    CommandBucket bucket(config);
+
+    // Submit 5 identical commands — only 3 should be merged due to cap
+    for (u32 i = 0; i < 5; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
+        cmd.vertexArrayID = 100;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    // 3 merged into 1 instanced + 2 remaining as DrawMesh = 3 commands
+    const auto& sorted = bucket.GetSortedCommands();
+    EXPECT_EQ(sorted.size(), 3u)
+        << "3 merged + 2 unbatched = 3 total commands";
+
+    bool foundInstanced = false;
+    for (const auto* packet : sorted)
+    {
+        if (packet->GetCommandType() == CommandType::DrawMeshInstanced)
+        {
+            auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
+            EXPECT_EQ(icmd->instanceCount, 3u) << "Instance count must respect MaxMeshInstances";
+            foundInstanced = true;
+        }
+    }
+    EXPECT_TRUE(foundInstanced);
+}
+
+// =============================================================================
+// Instance Group Tables — Transform Data Contiguity
+// =============================================================================
+
+TEST_F(CommandBucketBatchTest, BatchedTransformsAreContiguous)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    constexpr u32 kCount = 4;
+    glm::mat4 expectedTransforms[kCount];
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
+        cmd.vertexArrayID = 100;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i), 0.0f, 0.0f));
+        expectedTransforms[i] = cmd.transform;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    ASSERT_EQ(bucket.GetSortedCommands().size(), 1u);
+    const auto* packet = bucket.GetSortedCommands()[0];
+    ASSERT_EQ(packet->GetCommandType(), CommandType::DrawMeshInstanced);
+
+    auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
+    EXPECT_EQ(icmd->instanceCount, kCount);
+    EXPECT_EQ(icmd->transformCount, kCount);
+
+    // Verify transforms were written contiguously in FrameDataBuffer
+    FrameDataBuffer& fb = FrameDataBufferManager::Get();
+    const glm::mat4* storedTransforms = fb.GetTransformPtr(icmd->transformBufferOffset);
+    ASSERT_NE(storedTransforms, nullptr);
+
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        EXPECT_EQ(storedTransforms[i], expectedTransforms[i])
+            << "Transform " << i << " must match original";
+    }
 }

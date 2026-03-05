@@ -311,6 +311,16 @@ namespace OloEngine
             GetActiveManager()->RemoveAsset(handle);
         }
 
+        /**
+         * @brief Get the reload generation counter for an asset
+         * @param handle Handle of the asset
+         * @return Current generation count (0 = never reloaded)
+         */
+        static u32 GetAssetGeneration(AssetHandle handle)
+        {
+            return GetActiveManager()->GetAssetGeneration(handle);
+        }
+
       private:
         static Ref<AssetManagerBase> GetActiveManager()
         {

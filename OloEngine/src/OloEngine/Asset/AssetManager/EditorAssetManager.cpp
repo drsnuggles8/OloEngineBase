@@ -376,6 +376,9 @@ namespace OloEngine
         // Update dependencies
         UpdateDependencies(assetHandle);
 
+        // Track reload generation for stale-handle detection
+        IncrementAssetGeneration(assetHandle);
+
         // Notify dependent assets that this asset has been updated
         UpdateDependents(assetHandle);
 

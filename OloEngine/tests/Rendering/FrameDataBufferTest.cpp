@@ -492,3 +492,87 @@ TEST(FrameDataBuffer, MaterialDataTableMultipleUniqueEntries)
     }
     EXPECT_EQ(buffer.GetMaterialDataCount(), 10u) << "No new materials should be added";
 }
+
+// =============================================================================
+// PBR Material — Full Texture Field Round-Trip
+// =============================================================================
+
+TEST(FrameDataBuffer, PBRMaterialAllTextureFieldsRoundTrip)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODMaterialData mat{};
+    mat.shaderRendererID = 50;
+    mat.enablePBR = true;
+    mat.baseColorFactor = glm::vec4(0.8f, 0.2f, 0.3f, 1.0f);
+    mat.emissiveFactor = glm::vec4(0.1f, 0.2f, 0.3f, 0.0f);
+    mat.metallicFactor = 0.9f;
+    mat.roughnessFactor = 0.4f;
+    mat.normalScale = 1.5f;
+    mat.occlusionStrength = 0.8f;
+    mat.enableIBL = true;
+    // All 9 PBR texture IDs
+    mat.albedoMapID = 101;
+    mat.metallicRoughnessMapID = 102;
+    mat.normalMapID = 103;
+    mat.aoMapID = 104;
+    mat.emissiveMapID = 105;
+    mat.environmentMapID = 106;
+    mat.irradianceMapID = 107;
+    mat.prefilterMapID = 108;
+    mat.brdfLutMapID = 109;
+
+    u16 index = buffer.AllocateMaterialData(mat);
+    const PODMaterialData& ret = buffer.GetMaterialData(index);
+
+    EXPECT_EQ(ret.shaderRendererID, 50u);
+    EXPECT_TRUE(ret.enablePBR);
+    EXPECT_FLOAT_EQ(ret.metallicFactor, 0.9f);
+    EXPECT_FLOAT_EQ(ret.roughnessFactor, 0.4f);
+    EXPECT_FLOAT_EQ(ret.normalScale, 1.5f);
+    EXPECT_FLOAT_EQ(ret.occlusionStrength, 0.8f);
+    EXPECT_TRUE(ret.enableIBL);
+    EXPECT_EQ(ret.albedoMapID, 101u);
+    EXPECT_EQ(ret.metallicRoughnessMapID, 102u);
+    EXPECT_EQ(ret.normalMapID, 103u);
+    EXPECT_EQ(ret.aoMapID, 104u);
+    EXPECT_EQ(ret.emissiveMapID, 105u);
+    EXPECT_EQ(ret.environmentMapID, 106u);
+    EXPECT_EQ(ret.irradianceMapID, 107u);
+    EXPECT_EQ(ret.prefilterMapID, 108u);
+    EXPECT_EQ(ret.brdfLutMapID, 109u);
+
+    // Byte-for-byte identity
+    EXPECT_EQ(std::memcmp(&mat, &ret, sizeof(PODMaterialData)), 0)
+        << "Full PBR material must survive round-trip byte-identical";
+}
+
+TEST(FrameDataBuffer, PBRAndLegacyMaterialsDedupIndependently)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODMaterialData pbrMat{};
+    pbrMat.shaderRendererID = 1;
+    pbrMat.enablePBR = true;
+    pbrMat.baseColorFactor = glm::vec4(1.0f);
+    pbrMat.albedoMapID = 10;
+
+    PODMaterialData legacyMat{};
+    legacyMat.shaderRendererID = 2;
+    legacyMat.enablePBR = false;
+    legacyMat.ambient = glm::vec3(0.5f);
+    legacyMat.diffuseMapID = 20;
+
+    u16 pbrIdx = buffer.AllocateMaterialData(pbrMat);
+    u16 legacyIdx = buffer.AllocateMaterialData(legacyMat);
+
+    EXPECT_NE(pbrIdx, legacyIdx) << "PBR and legacy materials must get different indices";
+    EXPECT_EQ(buffer.GetMaterialDataCount(), 2u);
+
+    // Re-add both — should dedup to same indices
+    EXPECT_EQ(buffer.AllocateMaterialData(pbrMat), pbrIdx);
+    EXPECT_EQ(buffer.AllocateMaterialData(legacyMat), legacyIdx);
+    EXPECT_EQ(buffer.GetMaterialDataCount(), 2u);
+}

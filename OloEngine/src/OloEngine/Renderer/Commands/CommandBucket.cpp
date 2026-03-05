@@ -535,28 +535,92 @@ namespace OloEngine
             return;
         }
 
-        // Make sure commands are sorted first for optimal batching
-        if (!m_IsSorted)
-            SortCommandsInternal();
-
         auto batchStart = std::chrono::high_resolution_clock::now();
 
-        // Iterate sorted arrays and merge adjacent batchable commands
+        // ── Phase 1: Build instance groups via hash table ──────────────
+        // O(n) scan — groups ALL matching DrawMesh commands, not just adjacent.
+        std::unordered_map<InstanceGroupKey, std::vector<sizet>, InstanceGroupKeyHash> groups;
+
         for (sizet i = 0; i < m_Packets.size(); ++i)
         {
             if (!m_Packets[i])
                 continue;
+            if (m_Packets[i]->GetCommandType() != CommandType::DrawMesh)
+                continue;
+            // Commands with ordering constraints must not be reordered into groups
+            if (m_Packets[i]->GetMetadata().m_DependsOnPrevious)
+                continue;
 
-            sizet j = i + 1;
-            while (j < m_Packets.size() && m_Packets[j] && TryMergeCommands(i, j, allocator))
+            auto const* cmd = m_Packets[i]->GetCommandData<DrawMeshCommand>();
+            InstanceGroupKey key{ cmd->meshHandle, cmd->materialDataIndex, cmd->renderStateIndex };
+            groups[key].push_back(i);
+        }
+
+        // ── Phase 2: Merge groups with count > 1 ──────────────────────
+        FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+
+        for (auto& [key, indices] : groups)
+        {
+            if (indices.size() <= 1)
+                continue;
+
+            u32 totalInstances = static_cast<u32>(
+                std::min(indices.size(), static_cast<sizet>(m_Config.MaxMeshInstances)));
+
+            // Allocate contiguous transform block for all instances at once
+            u32 transformOffset = frameBuffer.AllocateTransforms(totalInstances);
+            if (transformOffset == UINT32_MAX)
             {
-                // TryMergeCommands nullified m_Packets[j], advance
+                OLO_CORE_ERROR("CommandBucket::BatchCommands: Failed to allocate {} transforms in FrameDataBuffer", totalInstances);
+                continue;
+            }
+
+            // Write all transforms contiguously
+            for (u32 t = 0; t < totalInstances; ++t)
+            {
+                auto const* meshCmd = m_Packets[indices[t]]->GetCommandData<DrawMeshCommand>();
+                frameBuffer.WriteTransforms(transformOffset + t, &meshCmd->transform, 1);
+            }
+
+            // Build the instanced command from the first DrawMeshCommand
+            sizet firstIdx = indices[0];
+            auto const* firstCmd = m_Packets[firstIdx]->GetCommandData<DrawMeshCommand>();
+            PacketMetadata metadata = m_Packets[firstIdx]->GetMetadata();
+
+            CommandPacket* instancedPacket = allocator.AllocatePacketWithCommand<DrawMeshInstancedCommand>(metadata);
+            if (!instancedPacket)
+                continue;
+
+            auto* icmd = instancedPacket->GetCommandData<DrawMeshInstancedCommand>();
+            icmd->header.type = CommandType::DrawMeshInstanced;
+            icmd->header.dispatchFn = nullptr;
+            icmd->meshHandle = firstCmd->meshHandle;
+            icmd->vertexArrayID = firstCmd->vertexArrayID;
+            icmd->indexCount = firstCmd->indexCount;
+            icmd->instanceCount = totalInstances;
+            icmd->transformBufferOffset = transformOffset;
+            icmd->transformCount = totalInstances;
+            icmd->shaderHandle = firstCmd->shaderHandle;
+            icmd->materialDataIndex = firstCmd->materialDataIndex;
+            icmd->renderStateIndex = firstCmd->renderStateIndex;
+            icmd->isAnimatedMesh = firstCmd->isAnimatedMesh;
+            icmd->boneBufferOffset = firstCmd->boneBufferOffset;
+            icmd->boneCountPerInstance = firstCmd->boneCount;
+
+            instancedPacket->SetCommandType(icmd->header.type);
+
+            // Replace first packet with the instanced command, null out the rest
+            m_Packets[firstIdx] = instancedPacket;
+            m_Keys[firstIdx] = instancedPacket->GetMetadata().m_SortKey.GetKey();
+
+            for (u32 t = 1; t < totalInstances; ++t)
+            {
+                m_Packets[indices[t]] = nullptr;
                 m_Stats.BatchedCommands++;
-                j++;
             }
         }
 
-        // Compact — remove null entries from both arrays
+        // ── Phase 3: Compact — remove null entries ────────────────────
         sizet write = 0;
         for (sizet read = 0; read < m_Packets.size(); ++read)
         {
@@ -575,6 +639,12 @@ namespace OloEngine
         m_CommandCount = write;
 
         m_IsBatched = true;
+
+        // ── Phase 4: Sort for optimal execution order ─────────────────
+        // Hash-table grouping doesn't require prior sorting, so sort after
+        // batching to minimize state changes during execution.
+        if (!m_IsSorted)
+            SortCommandsInternal();
 
         auto batchEnd = std::chrono::high_resolution_clock::now();
         m_LastBatchTimeMs = std::chrono::duration<f64, std::milli>(batchEnd - batchStart).count();

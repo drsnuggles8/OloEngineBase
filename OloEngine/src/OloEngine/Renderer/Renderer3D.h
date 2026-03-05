@@ -36,6 +36,7 @@ namespace OloEngine
     class Entity;
     class CommandAllocator;
     class EditorCamera;
+    class AssetReloadedEvent;
 } // namespace OloEngine
 
 namespace OloEngine
@@ -128,6 +129,9 @@ namespace OloEngine
         static void Init();
         static void Shutdown();
         static bool IsInitialized();
+
+        // Asset hot-reload handler — ensures next frame picks up new RendererIDs
+        static void OnAssetReloaded(const AssetReloadedEvent& e);
 
         static void BeginScene(const PerspectiveCamera& camera);
         static void BeginScene(const EditorCamera& camera);

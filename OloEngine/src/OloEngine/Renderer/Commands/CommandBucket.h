@@ -7,6 +7,7 @@
 #include <vector>
 #include <unordered_map>
 #include <atomic>
+#include <functional>
 
 #include "OloEngine/Threading/Mutex.h"
 
@@ -17,6 +18,29 @@ namespace OloEngine
     // Forward declarations
     class RendererAPI;
     class FrameDataBuffer;
+
+    // Key for identifying groups of draw calls that can be instanced together.
+    // Commands sharing the same key render the same mesh with the same material
+    // and render state — only the per-instance transform differs.
+    struct InstanceGroupKey
+    {
+        AssetHandle meshHandle = 0;
+        u16 materialDataIndex = 0;
+        u16 renderStateIndex = 0;
+
+        bool operator==(const InstanceGroupKey& other) const = default;
+    };
+
+    struct InstanceGroupKeyHash
+    {
+        sizet operator()(const InstanceGroupKey& key) const
+        {
+            sizet h = std::hash<u64>{}(static_cast<u64>(key.meshHandle));
+            h ^= std::hash<u16>{}(key.materialDataIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<u16>{}(key.renderStateIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            return h;
+        }
+    };
 
     // Maximum number of worker threads for parallel command generation
     // This should match the maximum expected worker thread count

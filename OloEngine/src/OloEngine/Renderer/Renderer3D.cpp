@@ -28,6 +28,9 @@
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/PostProcessRenderPass.h"
 
+#include "OloEngine/Core/Events/EditorEvents.h"
+#include "OloEngine/Asset/AssetManager.h"
+
 #include <chrono>
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -460,6 +463,33 @@ namespace OloEngine
         RendererProfiler::GetInstance().Shutdown();
 
         OLO_CORE_INFO("Renderer3D shutdown complete.");
+    }
+
+    void Renderer3D::OnAssetReloaded(const AssetReloadedEvent& e)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        AssetHandle handle = e.GetHandle();
+        AssetType type = e.GetAssetType();
+        u32 generation = AssetManager::GetAssetGeneration(handle);
+
+        OLO_CORE_INFO("Renderer3D::OnAssetReloaded: handle={}, type={}, generation={}, path={}",
+                      static_cast<u64>(handle), static_cast<int>(type), generation, e.GetPath().string());
+
+        // Commands are rebuilt each frame from Material/Mesh objects.
+        // When AssetManager reloads an asset in-place, the Ref<T> smart
+        // pointers still point to the same object whose internal state has
+        // been refreshed, so the NEXT frame's DrawMesh() / DrawAnimatedMesh()
+        // will naturally pick up new RendererIDs.
+        //
+        // No per-command patching is needed because:
+        //  1. Command buckets are cleared every frame — stale IDs survive
+        //     at most one frame.
+        //  2. Material/Render-state tables in FrameDataBuffer are rebuilt
+        //     each frame via Reset().
+        //
+        // If a cached Ref<Shader> in s_Data is the reloaded asset, the
+        // Ref still points to the same (now updated) Shader object.
     }
 
     void Renderer3D::BeginSceneCommon()

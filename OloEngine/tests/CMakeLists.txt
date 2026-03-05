@@ -13,6 +13,7 @@ add_executable(OloEngine-Tests
 		LoggerTest.cpp
 		MathTest.cpp
 		AssetCreationTest.cpp
+		AssetGenerationTest.cpp
 		ShadowMapTest.cpp
 		PostProcessTest.cpp
 		ComputeShaderAndSSBOTest.cpp

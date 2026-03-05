@@ -1403,6 +1403,10 @@ namespace OloEngine
 
     bool EditorLayer::OnAssetReloaded(AssetReloadedEvent const& e)
     {
+        // Notify the rendering system so it can log generation changes
+        // and verify next-frame refresh is clean.
+        Renderer3D::OnAssetReloaded(e);
+
         OLO_TRACE("🔄 Asset Reloaded Event Received!");
         OLO_TRACE("   Handle: {}", static_cast<u64>(e.GetHandle()));
         OLO_TRACE("   Type: {}", (int)e.GetAssetType());

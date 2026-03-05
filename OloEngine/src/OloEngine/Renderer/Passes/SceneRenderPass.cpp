@@ -71,12 +71,11 @@ namespace OloEngine
         if (capturing)
             captureManager.OnPostSort(m_CommandBucket);
 
-        // Batching (uses sorted order)
-        // m_CommandBucket.BatchCommands(*m_Allocator);
+        // Instance grouping via hash table (O(n) — groups all matching DrawMesh commands)
+        m_CommandBucket.BatchCommands(*m_Allocator);
 
-        // TODO: Re-enable OnPostBatch when BatchCommands is active
-        // if (capturing)
-        //     captureManager.OnPostBatch(m_CommandBucket);
+        if (capturing)
+            captureManager.OnPostBatch(m_CommandBucket);
 
         if (capturing)
             m_CommandBucket.ExecuteWithGPUTiming(rendererAPI);
