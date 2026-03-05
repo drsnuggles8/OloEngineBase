@@ -35,6 +35,7 @@ namespace OloEngine
 
         // State tracking for current frame rendering
         static void ResetState();
+        static void InvalidateRenderStateCache();
         static void SetViewProjectionMatrix(const glm::mat4& vp);
         static void SetViewMatrix(const glm::mat4& view);
         static void SetProjectionMatrix(const glm::mat4& projection);
@@ -48,8 +49,11 @@ namespace OloEngine
         // Snow accumulation depth texture — set per-frame
         static void SetSnowDepthTextureID(u32 textureID);
 
-        // Getters for current frame state (used for sort key generation)
+        // Getters for current frame state (used for sort key generation and per-bucket view state)
         static const glm::mat4& GetViewMatrix();
+        static const glm::mat4& GetProjectionMatrix();
+        static const glm::mat4& GetViewProjectionMatrix();
+        static const glm::vec3& GetViewPosition();
 
         // UBO access - Renderer3D provides these, CommandDispatch uses them
         static void SetUBOReferences(
@@ -101,6 +105,12 @@ namespace OloEngine
         // Terrain/Voxel dispatch functions
         static void DrawTerrainPatch(const void* data, RendererAPI& api);
         static void DrawVoxelMesh(const void* data, RendererAPI& api);
+
+        // Decal dispatch function
+        static void DrawDecal(const void* data, RendererAPI& api);
+
+        // Foliage dispatch function
+        static void DrawFoliageLayer(const void* data, RendererAPI& api);
 
         static Statistics& GetStatistics();
 

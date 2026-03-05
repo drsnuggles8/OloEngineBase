@@ -241,6 +241,7 @@ namespace OloEngine
             {
                 OLO_CORE_INFO_TAG("AssetManager", "Replaced asset {}", metadata.FilePath.string());
                 UpdateDependencies(metadata.Handle);
+                IncrementAssetGeneration(metadata.Handle);
                 // Dispatch AssetReloadedEvent on main thread so UI layers can handle it safely
                 auto handle = metadata.Handle;
                 auto type = metadata.Type;

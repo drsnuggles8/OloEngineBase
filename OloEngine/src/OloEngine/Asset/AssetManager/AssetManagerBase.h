@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <functional>
+#include <shared_mutex>
 
 namespace OloEngine
 {
@@ -221,6 +222,60 @@ namespace OloEngine
          * The callback should return true to continue iteration, false to stop.
          */
         virtual void ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const = 0;
+
+        /**
+         * @brief Get the reload generation counter for an asset
+         * @param handle Handle of the asset
+         * @return Current generation count (incremented on each reload, 0 if never reloaded)
+         *
+         * Used for stale-handle detection in debug builds. Commands baked with a
+         * generation that doesn't match the current generation reference stale data.
+         */
+        u32 GetAssetGeneration(AssetHandle handle) const noexcept
+        {
+            std::shared_lock lock(m_AssetGenerationsMutex);
+            auto it = m_AssetGenerations.find(handle);
+            return (it != m_AssetGenerations.end()) ? it->second : 0;
+        }
+
+      protected:
+        /**
+         * @brief Increment the reload generation counter for an asset
+         *
+         * Call this when an asset is successfully reloaded from disk.
+         * The counter starts at 0 and increments on each reload.
+         */
+        void IncrementAssetGeneration(AssetHandle handle) noexcept
+        {
+            std::unique_lock lock(m_AssetGenerationsMutex);
+            ++m_AssetGenerations[handle];
+        }
+
+        /**
+         * @brief Remove the generation counter for a deleted asset
+         *
+         * Call this from RemoveAsset() implementations to prevent stale
+         * entries from accumulating when handles are reused.
+         */
+        void ResetAssetGeneration(AssetHandle handle) noexcept
+        {
+            std::unique_lock lock(m_AssetGenerationsMutex);
+            m_AssetGenerations.erase(handle);
+        }
+
+        /**
+         * @brief Clear all generation counters (e.g., during shutdown/reset)
+         */
+        void ResetAllAssetGenerations() noexcept
+        {
+            std::unique_lock lock(m_AssetGenerationsMutex);
+            m_AssetGenerations.clear();
+        }
+
+      private:
+        // Per-asset reload generation counter for stale-handle detection
+        std::unordered_map<AssetHandle, u32> m_AssetGenerations;
+        mutable std::shared_mutex m_AssetGenerationsMutex;
     };
 
 } // namespace OloEngine

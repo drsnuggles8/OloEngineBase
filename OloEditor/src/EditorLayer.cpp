@@ -407,7 +407,6 @@ namespace OloEngine
         if (ImGui::BeginMenu("Window"))
         {
             ImGui::MenuItem("Animation Panel", nullptr, &m_ShowAnimationPanel);
-            ImGui::MenuItem("Environment Settings", nullptr, &m_ShowEnvironmentSettings);
             ImGui::MenuItem("Post Process Settings", nullptr, &m_ShowPostProcessSettings);
             ImGui::MenuItem("Terrain Editor", nullptr, &m_ShowTerrainEditor);
 
@@ -666,13 +665,6 @@ namespace OloEngine
         {
             m_AnimationPanel.SetSelectedEntity(m_SceneHierarchyPanel.GetSelectedEntity());
             m_AnimationPanel.OnImGuiRender();
-        }
-
-        // Environment Settings Panel
-        if (m_ShowEnvironmentSettings)
-        {
-            m_EnvironmentSettingsPanel.SetContext(m_ActiveScene);
-            m_EnvironmentSettingsPanel.OnImGuiRender();
         }
 
         // Post Process Settings Panel
@@ -1411,6 +1403,10 @@ namespace OloEngine
 
     bool EditorLayer::OnAssetReloaded(AssetReloadedEvent const& e)
     {
+        // Notify the rendering system so it can log generation changes
+        // and verify next-frame refresh is clean.
+        Renderer3D::OnAssetReloaded(e);
+
         OLO_TRACE("🔄 Asset Reloaded Event Received!");
         OLO_TRACE("   Handle: {}", static_cast<u64>(e.GetHandle()));
         OLO_TRACE("   Type: {}", (int)e.GetAssetType());

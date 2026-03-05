@@ -5,6 +5,7 @@
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 
 #include <imgui.h>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace OloEngine
 {
@@ -21,6 +22,7 @@ namespace OloEngine
         DrawSnowAccumulationSection();
         DrawSnowEjectaSection();
         DrawPrecipitationSection();
+        DrawFogSection();
         DrawBloomSection();
         DrawVignetteSection();
         DrawChromaticAberrationSection();
@@ -581,6 +583,114 @@ namespace OloEngine
             }
 
             ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawFogSection()
+    {
+        if (ImGui::CollapsingHeader("Fog & Atmosphere"))
+        {
+            ImGui::Indent();
+
+            auto& fog = Renderer3D::GetFogSettings();
+
+            ImGui::Checkbox("Enable Fog", &fog.Enabled);
+
+            if (fog.Enabled)
+            {
+                // Fog mode dropdown
+                const char* fogModes[] = { "Linear", "Exponential", "Exponential\xc2\xb2" };
+                int currentMode = static_cast<int>(fog.Mode);
+                if (ImGui::Combo("Fog Mode", &currentMode, fogModes, IM_ARRAYSIZE(fogModes)))
+                {
+                    fog.Mode = static_cast<FogMode>(currentMode);
+                }
+
+                ImGui::ColorEdit3("Fog Color", glm::value_ptr(fog.Color));
+
+                if (fog.Mode == FogMode::Linear)
+                {
+                    ImGui::DragFloat("Start Distance", &fog.Start, 1.0f, 0.0f, 5000.0f, "%.1f");
+                    ImGui::DragFloat("End Distance", &fog.End, 1.0f, 0.0f, 10000.0f, "%.1f");
+                    if (fog.End < fog.Start)
+                    {
+                        fog.End = fog.Start + 1.0f;
+                    }
+                }
+                else
+                {
+                    ImGui::SliderFloat("Density", &fog.Density, 0.0f, 0.5f, "%.4f");
+                }
+
+                ImGui::Separator();
+                ImGui::Text("Height Fog");
+                ImGui::SliderFloat("Height Falloff", &fog.HeightFalloff, 0.001f, 1.0f, "%.3f");
+                ImGui::DragFloat("Height Offset", &fog.HeightOffset, 0.5f, -500.0f, 500.0f, "%.1f");
+
+                ImGui::Separator();
+                ImGui::SliderFloat("Max Opacity", &fog.MaxOpacity, 0.0f, 1.0f, "%.2f");
+
+                // Atmospheric scattering sub-section
+                ImGui::Separator();
+                DrawAtmosphericScatteringSection(fog);
+
+                // Volumetric fog sub-section
+                ImGui::Separator();
+                DrawVolumetricFogSection(fog);
+            }
+
+            ImGui::Unindent();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawAtmosphericScatteringSection(FogSettings& fog)
+    {
+        if (ImGui::TreeNode("Atmospheric Scattering"))
+        {
+            ImGui::Checkbox("Enable Scattering", &fog.EnableScattering);
+
+            if (fog.EnableScattering)
+            {
+                ImGui::ColorEdit3("Rayleigh Color", glm::value_ptr(fog.RayleighColor));
+                ImGui::SliderFloat("Rayleigh Strength", &fog.RayleighStrength, 0.0f, 5.0f, "%.2f");
+                ImGui::SliderFloat("Mie Strength", &fog.MieStrength, 0.0f, 0.1f, "%.4f");
+                ImGui::SliderFloat("Mie Directionality", &fog.MieDirectionality, 0.0f, 0.99f, "%.2f");
+                ImGui::SliderFloat("Sun Intensity", &fog.SunIntensity, 0.0f, 100.0f, "%.1f");
+            }
+
+            ImGui::TreePop();
+        }
+    }
+
+    void PostProcessSettingsPanel::DrawVolumetricFogSection(FogSettings& fog)
+    {
+        if (ImGui::TreeNode("Volumetric Fog"))
+        {
+            ImGui::Checkbox("Enable Volumetric", &fog.EnableVolumetric);
+
+            if (fog.EnableVolumetric)
+            {
+                ImGui::SliderInt("Ray-March Samples", &fog.VolumetricSamples, 4, 128);
+                ImGui::SliderFloat("Absorption", &fog.AbsorptionCoefficient, 0.0f, 0.2f, "%.4f");
+
+                ImGui::Separator();
+                ImGui::Checkbox("Enable Noise", &fog.EnableNoise);
+                if (fog.EnableNoise)
+                {
+                    ImGui::SliderFloat("Noise Scale", &fog.NoiseScale, 0.001f, 0.1f, "%.4f");
+                    ImGui::SliderFloat("Noise Speed", &fog.NoiseSpeed, 0.0f, 2.0f, "%.2f");
+                    ImGui::SliderFloat("Noise Intensity", &fog.NoiseIntensity, 0.0f, 1.0f, "%.2f");
+                }
+
+                ImGui::Separator();
+                ImGui::Checkbox("Enable Light Shafts", &fog.EnableLightShafts);
+                if (fog.EnableLightShafts)
+                {
+                    ImGui::SliderFloat("Light Shaft Intensity", &fog.LightShaftIntensity, 0.0f, 5.0f, "%.2f");
+                }
+            }
+
+            ImGui::TreePop();
         }
     }
 } // namespace OloEngine

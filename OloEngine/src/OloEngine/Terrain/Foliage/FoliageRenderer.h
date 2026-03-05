@@ -17,6 +17,23 @@ namespace OloEngine
     class TerrainMaterial;
     class Frustum;
 
+    // Lightweight POD struct exposing per-layer data needed for command submission.
+    // Avoids leaking internal LayerRenderData internals (Ref<VertexArray> etc.).
+    // Uses u32 for GL resource IDs to avoid pulling in RenderCommand.h.
+    struct FoliageLayerDrawInfo
+    {
+        u32 VertexArrayID = 0;
+        u32 IndexCount = 0;
+        u32 InstanceCount = 0;
+        u32 AlbedoTextureID = 0;
+        f32 ViewDistance = 100.0f;
+        f32 FadeStartDistance = 80.0f;
+        f32 WindStrength = 0.3f;
+        f32 WindSpeed = 1.0f;
+        glm::vec3 BaseColor{ 1.0f };
+        f32 AlphaCutoff = 0.5f;
+    };
+
     // Manages foliage instance generation, culling, and instanced rendering.
     // Generates instances on the CPU from terrain data + foliage layer config,
     // uploads to a per-layer instance VBO, and draws with DrawIndexedInstanced.
@@ -47,6 +64,10 @@ namespace OloEngine
         {
             return m_VisibleInstances;
         }
+
+        // Returns draw info for all active layers (InstanceCount > 0 && VAO valid).
+        // Used by Scene to create DrawFoliageLayerCommand packets per layer.
+        [[nodiscard]] std::vector<FoliageLayerDrawInfo> GetActiveLayerDrawInfo() const;
 
         void SetTime(f32 time)
         {

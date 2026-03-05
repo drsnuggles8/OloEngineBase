@@ -1835,6 +1835,7 @@ namespace OloEngine
 
             // Submit terrain + voxel command packets (sorted with other opaque geometry)
             // and shadow casters for terrain, voxel, and foliage.
+            const f32 foliageFrameTime = Time::GetTime();
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
                 auto voxelShader = Renderer3D::GetVoxelPBRShader();
@@ -2065,43 +2066,96 @@ namespace OloEngine
                             if (foliageDepthShader)
                             {
                                 shadowPass->AddFoliageCaster(
-                                    foliage.m_Renderer.get(), foliageDepthShader, Time::GetTime());
+                                    foliage.m_Renderer.get(), foliageDepthShader, foliageFrameTime);
                             }
                         }
                     }
                 }
             }
 
-            // Foliage rendering via PostExecuteCallback
-            if (auto scenePass = Renderer3D::GetScenePass())
+            // Submit foliage layer draw commands to the FoliageRenderPass command bucket
             {
-                scenePass->SetPostExecuteCallback([this, cameraPosition]()
-                                                  {
-                    auto foliageRenderView = m_Registry.view<TransformComponent, TerrainComponent, FoliageComponent>();
-                    for (auto foliageEntity : foliageRenderView)
+                auto foliageRenderView = m_Registry.view<TransformComponent, TerrainComponent, FoliageComponent>();
+                for (auto foliageEntity : foliageRenderView)
+                {
+                    auto const& [foliageTransform, fTerrain, foliage] = foliageRenderView.get<TransformComponent, TerrainComponent, FoliageComponent>(foliageEntity);
+                    if (!foliage.m_Enabled || !foliage.m_Renderer)
                     {
-                        auto const& [foliageTransform, fTerrain, foliage] = foliageRenderView.get<TransformComponent, TerrainComponent, FoliageComponent>(foliageEntity);
-                        if (!foliage.m_Enabled || !foliage.m_Renderer)
-                            continue;
+                        continue;
+                    }
 
-                        ShaderBindingLayout::ModelUBO foliageModelUBO{};
-                        foliageModelUBO.Model = foliageTransform.GetTransform();
-                        foliageModelUBO.Normal = glm::transpose(glm::inverse(foliageTransform.GetTransform()));
-                        auto modelUBO = Renderer3D::GetModelMatrixUBO();
-                        modelUBO->SetData(&foliageModelUBO, ShaderBindingLayout::ModelUBO::GetSize());
+                    foliage.m_Renderer->SetTime(foliageFrameTime);
+                    i32 entityID = static_cast<i32>(static_cast<u32>(foliageEntity));
+                    glm::mat4 modelMat = foliageTransform.GetTransform();
 
-                        auto foliageShader = Renderer3D::GetFoliageShader();
-                        if (foliageShader)
+                    auto layerInfos = foliage.m_Renderer->GetActiveLayerDrawInfo();
+                    for (const auto& layer : layerInfos)
+                    {
+                        auto* packet = Renderer3D::DrawFoliageLayer(
+                            layer.VertexArrayID, layer.IndexCount, layer.InstanceCount,
+                            layer.AlbedoTextureID,
+                            modelMat,
+                            foliageFrameTime,
+                            layer.WindStrength, layer.WindSpeed,
+                            layer.ViewDistance, layer.FadeStartDistance, layer.AlphaCutoff,
+                            glm::vec4(layer.BaseColor, 0.0f),
+                            entityID);
+                        if (packet)
                         {
-                            foliageShader->Bind();
-                            foliage.m_Renderer->SetTime(Time::GetTime());
-                            foliage.m_Renderer->Render(
-                                Renderer3D::GetViewFrustum(), cameraPosition, foliageShader);
+                            Renderer3D::SubmitFoliagePacket(packet);
+                        }
+                    }
+                }
+            }
+
+            // Submit decal draw commands to the DecalRenderPass command bucket
+            {
+                auto decalView = m_Registry.view<TransformComponent, DecalComponent>();
+                for (auto entity : decalView)
+                {
+                    auto const& [transform, decal] = decalView.get<TransformComponent, DecalComponent>(entity);
+
+                    // Clamp decal size to a minimum epsilon to prevent singular
+                    // (non-invertible) transforms that produce NaN/Inf.
+                    constexpr f32 minSize = 1e-4f;
+                    glm::vec3 safeSize = glm::max(decal.m_Size, glm::vec3(minSize));
+
+                    // Build scaled transform for the decal projection box
+                    glm::mat4 decalTransform = transform.GetTransform() *
+                                               glm::scale(glm::mat4(1.0f), safeSize);
+                    glm::mat4 inverseDecalTransform = glm::inverse(decalTransform);
+
+                    // Resolve albedo texture ID (fallback to white if none assigned)
+                    RendererID albedoTextureID = 0;
+                    if (decal.m_AlbedoTexture)
+                    {
+                        albedoTextureID = decal.m_AlbedoTexture->GetRendererID();
+                    }
+                    else
+                    {
+                        auto whiteTexture = Renderer3D::GetWhiteTexture();
+                        if (whiteTexture)
+                        {
+                            albedoTextureID = whiteTexture->GetRendererID();
                         }
                     }
 
-                    // Render decals after foliage, while the scene framebuffer is still bound
-                    Renderer3D::RenderDecals(this); });
+                    glm::vec4 decalParams = glm::vec4(
+                        decal.m_FadeDistance, decal.m_NormalAngleThreshold, 0.0f, 0.0f);
+
+                    auto* packet = Renderer3D::DrawDecal(
+                        decalTransform,
+                        inverseDecalTransform,
+                        decal.m_Color,
+                        decalParams,
+                        albedoTextureID,
+                        static_cast<i32>(static_cast<u32>(entity)));
+
+                    if (packet)
+                    {
+                        Renderer3D::SubmitDecalPacket(packet);
+                    }
+                }
             }
         }
 
@@ -2420,6 +2474,9 @@ namespace OloEngine
                     case FogVolumeShape::Cylinder:
                         // Approximate cylinder with capsule gizmo (radius + half-height)
                         Renderer3D::DrawCapsuleColliderGizmo(tc.Translation, fogVol.m_Extents.x, fogVol.m_Extents.y, rotation, gizmoColor);
+                        break;
+                    default:
+                        OLO_CORE_ASSERT(false, "Unknown FogVolumeShape");
                         break;
                 }
             }

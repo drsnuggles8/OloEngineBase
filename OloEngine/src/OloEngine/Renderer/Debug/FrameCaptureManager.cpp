@@ -3,6 +3,7 @@
 #include "GPUTimerQueryPool.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include <chrono>
@@ -42,7 +43,15 @@ namespace OloEngine
 
     void FrameCaptureManager::StopRecording()
     {
+        // Stop from Recording state
         auto expected = CaptureState::Recording;
+        if (m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
+        {
+            return;
+        }
+
+        // Also stop from CaptureNextFrame state
+        expected = CaptureState::CaptureNextFrame;
         m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
     }
 
@@ -165,6 +174,21 @@ namespace OloEngine
             m_PendingFrame.Stats.BatchedCommands = diff > 0 ? static_cast<u32>(diff) : 0;
         }
 
+        // Snapshot render state and material data tables so the debugger can inspect
+        // the exact data from this frame rather than reading the live FrameDataBuffer.
+        {
+            auto& fdb = FrameDataBufferManager::Get();
+            u16 rsCount = fdb.GetRenderStateCount();
+            m_PendingFrame.RenderStateSnapshot.resize(rsCount);
+            for (u16 i = 0; i < rsCount; ++i)
+                m_PendingFrame.RenderStateSnapshot[i] = fdb.GetRenderState(i);
+
+            u16 mdCount = fdb.GetMaterialDataCount();
+            m_PendingFrame.MaterialDataSnapshot.resize(mdCount);
+            for (u16 i = 0; i < mdCount; ++i)
+                m_PendingFrame.MaterialDataSnapshot[i] = fdb.GetMaterialData(i);
+        }
+
         // Push the completed frame (lock protects concurrent UI reads)
         {
             TUniqueLock<FMutex> lock(m_Mutex);
@@ -233,25 +257,28 @@ namespace OloEngine
         }
         else
         {
-            // Traverse linked list (submission order)
-            outCommands.reserve(bucket.GetCommandCount());
-            u32 index = 0;
-            CommandPacket* current = bucket.GetCommandHead();
-            while (current)
+            // Iterate flat packet array (submission order before sorting)
+            const auto& packets = bucket.GetPackets();
+            outCommands.reserve(packets.size());
+
+            for (u32 i = 0; i < static_cast<u32>(packets.size()); ++i)
             {
-                const auto& meta = current->GetMetadata();
+                const CommandPacket* packet = packets[i];
+                if (!packet)
+                    continue;
+
+                const auto& meta = packet->GetMetadata();
                 outCommands.emplace_back(
-                    current->GetCommandType(),
-                    current->GetRawCommandData(),
-                    current->GetCommandSize(),
+                    packet->GetCommandType(),
+                    packet->GetRawCommandData(),
+                    packet->GetCommandSize(),
                     meta.m_SortKey,
                     meta.m_GroupID,
                     meta.m_ExecutionOrder,
                     meta.m_IsStatic,
                     meta.m_DependsOnPrevious,
                     meta.m_DebugName,
-                    index++);
-                current = current->GetNext();
+                    i);
             }
         }
     }

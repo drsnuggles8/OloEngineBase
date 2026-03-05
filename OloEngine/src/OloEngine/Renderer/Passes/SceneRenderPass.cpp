@@ -66,17 +66,25 @@ namespace OloEngine
         if (capturing)
             captureManager.OnPreSort(m_CommandBucket);
 
-        m_CommandBucket.SortCommands();
+        // BatchCommands uses hash-table grouping (O(n)) which doesn't require
+        // pre-sorted input, and sorts internally afterward. Skipping the separate
+        // SortCommands() call avoids a redundant sort pass.
+        // When batching is disabled, fall back to sort-only.
+        if (m_CommandBucket.GetCommandCount() > 0)
+        {
+            m_CommandBucket.BatchCommands(*m_Allocator);
+
+            // If batching was disabled or no-op, ensure we're still sorted
+            if (!m_CommandBucket.IsSorted())
+                m_CommandBucket.SortCommands();
+        }
 
         if (capturing)
             captureManager.OnPostSort(m_CommandBucket);
 
-        // Batching (uses sorted order)
-        // m_CommandBucket.BatchCommands(*m_Allocator);
-
-        // TODO: Re-enable OnPostBatch when BatchCommands is active
-        // if (capturing)
-        //     captureManager.OnPostBatch(m_CommandBucket);
+        // Invoke post-batch capture step when capturing is active
+        if (capturing)
+            captureManager.OnPostBatch(m_CommandBucket);
 
         if (capturing)
             m_CommandBucket.ExecuteWithGPUTiming(rendererAPI);
@@ -93,12 +101,6 @@ namespace OloEngine
                 m_CommandBucket.GetLastSortTimeMs(),
                 m_CommandBucket.GetLastBatchTimeMs(),
                 m_CommandBucket.GetLastExecuteTimeMs());
-        }
-
-        // Invoke post-execute callback (terrain, decals, etc.) while framebuffer is still bound
-        if (m_PostExecuteCallback)
-        {
-            m_PostExecuteCallback();
         }
 
         m_Target->Unbind();

@@ -33,6 +33,12 @@ namespace OloEngine
     using AssetHandle = UUID; // u64 asset identifier
     using RendererID = u32;   // OpenGL resource ID
 
+    // Sentinel value for uninitialized render state index
+    static constexpr u16 INVALID_RENDER_STATE_INDEX = UINT16_MAX;
+
+    // Sentinel value for uninitialized material data index
+    static constexpr u16 INVALID_MATERIAL_DATA_INDEX = UINT16_MAX;
+
     // Inlined POD render state for commands (replaces Ref<RenderState>)
     struct PODRenderState
     {
@@ -88,10 +94,62 @@ namespace OloEngine
 
         // Line width
         f32 lineWidth = 1.0f;
+
+        // Field-wise equality (safe against struct padding, unlike memcmp)
+        bool operator==(const PODRenderState& o) const
+        {
+            return blendEnabled == o.blendEnabled && blendSrcFactor == o.blendSrcFactor && blendDstFactor == o.blendDstFactor && blendEquation == o.blendEquation && depthTestEnabled == o.depthTestEnabled && depthWriteMask == o.depthWriteMask && depthFunction == o.depthFunction && stencilEnabled == o.stencilEnabled && stencilFunction == o.stencilFunction && stencilReference == o.stencilReference && stencilReadMask == o.stencilReadMask && stencilWriteMask == o.stencilWriteMask && stencilFail == o.stencilFail && stencilDepthFail == o.stencilDepthFail && stencilDepthPass == o.stencilDepthPass && cullingEnabled == o.cullingEnabled && cullFace == o.cullFace && polygonFace == o.polygonFace && polygonMode == o.polygonMode && polygonOffsetEnabled == o.polygonOffsetEnabled && polygonOffsetFactor == o.polygonOffsetFactor && polygonOffsetUnits == o.polygonOffsetUnits && scissorEnabled == o.scissorEnabled && scissorX == o.scissorX && scissorY == o.scissorY && scissorWidth == o.scissorWidth && scissorHeight == o.scissorHeight && colorMaskR == o.colorMaskR && colorMaskG == o.colorMaskG && colorMaskB == o.colorMaskB && colorMaskA == o.colorMaskA && multisamplingEnabled == o.multisamplingEnabled && lineWidth == o.lineWidth;
+        }
     };
 
     // Static assertion to ensure PODRenderState is trivially copyable
     static_assert(std::is_trivially_copyable_v<PODRenderState>, "PODRenderState must be trivially copyable");
+
+    // Inlined POD material data for commands — stored in FrameDataBuffer table,
+    // referenced by u16 index from DrawMeshCommand / DrawMeshInstancedCommand.
+    struct PODMaterialData
+    {
+        // Shader
+        RendererID shaderRendererID = 0;
+
+        // Legacy material properties
+        glm::vec3 ambient = glm::vec3(0.1f);
+        glm::vec3 diffuse = glm::vec3(0.8f);
+        glm::vec3 specular = glm::vec3(1.0f);
+        f32 shininess = 32.0f;
+        bool useTextureMaps = false;
+        RendererID diffuseMapID = 0;
+        RendererID specularMapID = 0;
+
+        // PBR material properties
+        bool enablePBR = false;
+        glm::vec4 baseColorFactor = glm::vec4(1.0f);
+        glm::vec4 emissiveFactor = glm::vec4(0.0f);
+        f32 metallicFactor = 0.0f;
+        f32 roughnessFactor = 1.0f;
+        f32 normalScale = 1.0f;
+        f32 occlusionStrength = 1.0f;
+        bool enableIBL = false;
+
+        // PBR texture IDs (renderer IDs, 0 = none)
+        RendererID albedoMapID = 0;
+        RendererID metallicRoughnessMapID = 0;
+        RendererID normalMapID = 0;
+        RendererID aoMapID = 0;
+        RendererID emissiveMapID = 0;
+        RendererID environmentMapID = 0;
+        RendererID irradianceMapID = 0;
+        RendererID prefilterMapID = 0;
+        RendererID brdfLutMapID = 0;
+
+        // Field-wise equality (safe against struct padding, unlike memcmp)
+        bool operator==(const PODMaterialData& o) const
+        {
+            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
+        }
+    };
+
+    static_assert(std::is_trivially_copyable_v<PODMaterialData>, "PODMaterialData must be trivially copyable");
 
     // Command type enum for dispatching
     enum class CommandType : u8
@@ -136,6 +194,12 @@ namespace OloEngine
         // Terrain/Voxel commands
         DrawTerrainPatch,
         DrawVoxelMesh,
+
+        // Decal commands
+        DrawDecal,
+
+        // Foliage commands
+        DrawFoliageLayer,
 
         // Sentinel — always keep last for dispatch table sizing
         COUNT
@@ -222,6 +286,10 @@ namespace OloEngine
                 return "DrawTerrainPatch";
             case CommandType::DrawVoxelMesh:
                 return "DrawVoxelMesh";
+            case CommandType::DrawDecal:
+                return "DrawDecal";
+            case CommandType::DrawFoliageLayer:
+                return "DrawFoliageLayer";
             case CommandType::COUNT:
                 return "COUNT";
             default:
@@ -467,42 +535,14 @@ namespace OloEngine
         // Entity ID for picking (editor support)
         i32 entityID = -1;
 
-        // Shader (store both handle and renderer ID for POD dispatch)
-        AssetHandle shaderHandle;    // Shader asset handle (for asset tracking)
-        RendererID shaderRendererID; // Shader program ID for glUseProgram
+        // Shader handle (for asset tracking — shaderRendererID lives in PODMaterialData)
+        AssetHandle shaderHandle;
 
-        // Legacy material properties (POD)
-        glm::vec3 ambient;
-        glm::vec3 diffuse;
-        glm::vec3 specular;
-        f32 shininess;
-        bool useTextureMaps;
-        RendererID diffuseMapID;  // Texture renderer ID (0 = none)
-        RendererID specularMapID; // Texture renderer ID (0 = none)
+        // Material data index (into FrameDataBuffer::MaterialDataTable)
+        u16 materialDataIndex = INVALID_MATERIAL_DATA_INDEX;
 
-        // PBR material properties (POD)
-        bool enablePBR = false;
-        glm::vec4 baseColorFactor = glm::vec4(1.0f);
-        glm::vec4 emissiveFactor = glm::vec4(0.0f);
-        f32 metallicFactor = 0.0f;
-        f32 roughnessFactor = 1.0f;
-        f32 normalScale = 1.0f;
-        f32 occlusionStrength = 1.0f;
-        bool enableIBL = false;
-
-        // PBR texture IDs (renderer IDs, 0 = none)
-        RendererID albedoMapID = 0;
-        RendererID metallicRoughnessMapID = 0;
-        RendererID normalMapID = 0;
-        RendererID aoMapID = 0;
-        RendererID emissiveMapID = 0;
-        RendererID environmentMapID = 0;
-        RendererID irradianceMapID = 0;
-        RendererID prefilterMapID = 0;
-        RendererID brdfLutMapID = 0;
-
-        // Inlined render state (POD)
-        PODRenderState renderState;
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
 
         // Animation support
         bool isAnimatedMesh = false;
@@ -527,42 +567,14 @@ namespace OloEngine
         u32 transformBufferOffset = 0; // Offset into FrameDataBuffer for instance transforms
         u32 transformCount = 0;        // Number of instance transforms
 
-        // Shader (store both handle and renderer ID for POD dispatch)
-        AssetHandle shaderHandle;    // Shader asset handle (for asset tracking)
-        RendererID shaderRendererID; // Shader program ID for glUseProgram
+        // Shader handle (for asset tracking — shaderRendererID lives in PODMaterialData)
+        AssetHandle shaderHandle;
 
-        // Legacy material properties (POD)
-        glm::vec3 ambient;
-        glm::vec3 diffuse;
-        glm::vec3 specular;
-        f32 shininess;
-        bool useTextureMaps;
-        RendererID diffuseMapID = 0;
-        RendererID specularMapID = 0;
+        // Material data index (into FrameDataBuffer::MaterialDataTable)
+        u16 materialDataIndex = INVALID_MATERIAL_DATA_INDEX;
 
-        // PBR material properties (POD)
-        bool enablePBR = false;
-        glm::vec4 baseColorFactor = glm::vec4(1.0f);
-        glm::vec4 emissiveFactor = glm::vec4(0.0f);
-        f32 metallicFactor = 0.0f;
-        f32 roughnessFactor = 1.0f;
-        f32 normalScale = 1.0f;
-        f32 occlusionStrength = 1.0f;
-        bool enableIBL = false;
-
-        // PBR texture IDs
-        RendererID albedoMapID = 0;
-        RendererID metallicRoughnessMapID = 0;
-        RendererID normalMapID = 0;
-        RendererID aoMapID = 0;
-        RendererID emissiveMapID = 0;
-        RendererID environmentMapID = 0;
-        RendererID irradianceMapID = 0;
-        RendererID prefilterMapID = 0;
-        RendererID brdfLutMapID = 0;
-
-        // Inlined render state (POD)
-        PODRenderState renderState;
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
 
         // Animation support for instanced animated meshes
         bool isAnimatedMesh = false;
@@ -579,11 +591,11 @@ namespace OloEngine
         AssetHandle meshHandle;   // Skybox mesh handle
         RendererID vertexArrayID; // VAO renderer ID
         u32 indexCount;
-        glm::mat4 transform;         // Usually identity matrix
-        AssetHandle shaderHandle;    // Skybox shader handle (for asset tracking)
-        RendererID shaderRendererID; // Shader program ID for glUseProgram
-        RendererID skyboxTextureID;  // Cubemap texture renderer ID
-        PODRenderState renderState;  // Inlined render state
+        glm::mat4 transform;                               // Usually identity matrix
+        AssetHandle shaderHandle;                          // Skybox shader handle (for asset tracking)
+        RendererID shaderRendererID;                       // Shader program ID for glUseProgram
+        RendererID skyboxTextureID;                        // Cubemap texture renderer ID
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
 
     // Static assertion for DrawSkyboxCommand
@@ -592,11 +604,11 @@ namespace OloEngine
     struct DrawInfiniteGridCommand
     {
         CommandHeader header;
-        AssetHandle shaderHandle;    // Grid shader handle (for asset tracking)
-        RendererID shaderRendererID; // Shader program ID for glUseProgram
-        RendererID quadVAOID;        // Fullscreen quad VAO renderer ID
-        f32 gridScale;               // Grid spacing scale factor
-        PODRenderState renderState;  // Inlined render state
+        AssetHandle shaderHandle;                          // Grid shader handle (for asset tracking)
+        RendererID shaderRendererID;                       // Shader program ID for glUseProgram
+        RendererID quadVAOID;                              // Fullscreen quad VAO renderer ID
+        f32 gridScale;                                     // Grid spacing scale factor
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
 
     // Static assertion for DrawInfiniteGridCommand
@@ -606,11 +618,11 @@ namespace OloEngine
     {
         CommandHeader header;
         glm::mat4 transform;
-        RendererID textureID;        // Texture renderer ID
-        AssetHandle shaderHandle;    // Shader asset handle (for asset tracking)
-        RendererID shaderRendererID; // Shader program ID for glUseProgram
-        RendererID quadVAID;         // Quad vertex array renderer ID
-        PODRenderState renderState;  // Inlined render state
+        RendererID textureID;                              // Texture renderer ID
+        AssetHandle shaderHandle;                          // Shader asset handle (for asset tracking)
+        RendererID shaderRendererID;                       // Shader program ID for glUseProgram
+        RendererID quadVAID;                               // Quad vertex array renderer ID
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
 
     // Static assertion for DrawQuadCommand
@@ -644,8 +656,8 @@ namespace OloEngine
         // Terrain UBO data (inlined per-chunk — tess factors vary per chunk)
         ShaderBindingLayout::TerrainUBO terrainUBOData{};
 
-        // Render state
-        PODRenderState renderState;
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
     };
 
     static_assert(std::is_trivially_copyable_v<DrawTerrainPatchCommand>, "DrawTerrainPatchCommand must be trivially copyable for radix sort");
@@ -671,11 +683,82 @@ namespace OloEngine
         glm::mat4 transform = glm::mat4(1.0f);
         i32 entityID = -1;
 
-        // Render state
-        PODRenderState renderState;
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
     };
 
     static_assert(std::is_trivially_copyable_v<DrawVoxelMeshCommand>, "DrawVoxelMeshCommand must be trivially copyable for radix sort");
+
+    // Decal projection command — deferred projected decals
+    struct DrawDecalCommand
+    {
+        CommandHeader header;
+
+        // Mesh data (decal projection cube)
+        RendererID vertexArrayID = 0;
+        u32 indexCount = 0;
+
+        // Shader
+        RendererID shaderRendererID = 0;
+
+        // Decal transform
+        glm::mat4 decalTransform = glm::mat4(1.0f);        // Scaled transform for geometry
+        glm::mat4 inverseDecalTransform = glm::mat4(1.0f); // For world->decal-space projection
+        glm::mat4 inverseViewProjection = glm::mat4(1.0f); // Precomputed per-frame
+
+        // Decal appearance
+        glm::vec4 decalColor = glm::vec4(1.0f);
+        glm::vec4 decalParams = glm::vec4(0.0f); // x = fadeDistance, y = normalAngleThreshold, z/w = unused
+        RendererID albedoTextureID = 0;
+
+        // Entity ID for picking
+        i32 entityID = -1;
+
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
+    };
+
+    static_assert(std::is_trivially_copyable_v<DrawDecalCommand>, "DrawDecalCommand must be trivially copyable for radix sort");
+
+    // Foliage instanced layer command — one command per foliage layer
+    struct DrawFoliageLayerCommand
+    {
+        CommandHeader header;
+
+        // Mesh data (instanced quad)
+        RendererID vertexArrayID = 0;
+        u32 indexCount = 0;
+        u32 instanceCount = 0;
+
+        // Shader
+        RendererID shaderRendererID = 0;
+
+        // Model transform (parent terrain entity)
+        glm::mat4 modelTransform = glm::mat4(1.0f);
+        glm::mat4 normalMatrix = glm::mat4(1.0f);
+
+        // Per-layer foliage parameters (inlined, fully POD)
+        f32 time = 0.0f;
+        f32 windStrength = 0.3f;
+        f32 windSpeed = 1.0f;
+        f32 viewDistance = 100.0f;
+        f32 fadeStart = 80.0f;
+        f32 alphaCutoff = 0.5f;
+        f32 _pad0 = 0.0f;
+        f32 _pad1 = 0.0f;
+        glm::vec4 baseColor = glm::vec4(1.0f); // xyz = color, w = unused
+
+        // Albedo texture (0 = no texture)
+        RendererID albedoTextureID = 0;
+
+        // Entity ID for picking
+        i32 entityID = -1;
+
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
+    };
+
+    static_assert(std::is_trivially_copyable_v<DrawFoliageLayerCommand>, "DrawFoliageLayerCommand must be trivially copyable for radix sort");
 
     // Maximum command size for allocation purposes - increased for PBR and bone matrices
     constexpr sizet MAX_COMMAND_SIZE = 1024;

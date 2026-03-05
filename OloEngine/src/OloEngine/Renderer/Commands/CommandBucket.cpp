@@ -5,12 +5,12 @@
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Debug/GPUTimerQueryPool.h"
 #include "OloEngine/Task/ParallelFor.h"
-#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Threading/UniqueLock.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstring>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -24,24 +24,17 @@ namespace OloEngine
         constexpr sizet RADIX_SIZE = 1 << RADIX_BITS;          // 256 buckets
         constexpr sizet NUM_PASSES = sizeof(u64) / sizeof(u8); // 8 passes for 64-bit
 
-        void RadixSort64(std::vector<CommandPacket*>& packets)
+        void RadixSort64(std::vector<u64>& keys, std::vector<CommandPacket*>& packets)
         {
             OLO_PROFILE_FUNCTION();
 
-            if (packets.size() <= 1)
+            if (keys.size() <= 1)
                 return;
 
-            sizet count = packets.size();
+            sizet count = keys.size();
 
-            // Temporary buffer for swapping
-            std::vector<CommandPacket*> temp(count);
-
-            // Pre-extract keys for cache efficiency
-            std::vector<u64> keys(count);
-            for (sizet i = 0; i < count; ++i)
-            {
-                keys[i] = packets[i]->GetMetadata().m_SortKey.GetKey();
-            }
+            // Temporary buffers for swapping
+            std::vector<CommandPacket*> tempPackets(count);
             std::vector<u64> tempKeys(count);
 
             // Process each byte from LSB to MSB
@@ -71,12 +64,12 @@ namespace OloEngine
                 {
                     u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
                     sizet destIdx = offsets[digit]++;
-                    temp[destIdx] = packets[i];
+                    tempPackets[destIdx] = packets[i];
                     tempKeys[destIdx] = keys[i];
                 }
 
                 // Swap buffers
-                std::swap(packets, temp);
+                std::swap(packets, tempPackets);
                 std::swap(keys, tempKeys);
             }
         }
@@ -89,45 +82,38 @@ namespace OloEngine
         // Falls back to single-threaded for small arrays.
 
         constexpr sizet PARALLEL_SORT_THRESHOLD = 1024; // Min elements for parallel sort
-        constexpr i32 PARALLEL_SORT_BATCH_SIZE = 256;   // Elements per batch for histogram
+        constexpr i32 PARALLEL_SORT_BATCH_SIZE = 256;   // Elements per chunk for parallel radix sort
 
-        // Per-worker histogram accumulator
-        struct alignas(OLO_PLATFORM_CACHE_LINE_SIZE) WorkerHistogram
-        {
-            std::array<sizet, RADIX_SIZE> counts{};
-        };
-
-        void ParallelRadixSort64(std::vector<CommandPacket*>& packets)
+        void ParallelRadixSort64(std::vector<u64>& keys, std::vector<CommandPacket*>& packets)
         {
             OLO_PROFILE_FUNCTION();
 
-            if (packets.size() <= 1)
+            if (keys.size() <= 1)
                 return;
 
-            sizet count = packets.size();
+            sizet count = keys.size();
 
             // Fall back to single-threaded for small arrays
             if (count < PARALLEL_SORT_THRESHOLD)
             {
-                RadixSort64(packets);
+                RadixSort64(keys, packets);
                 return;
             }
 
-            // Temporary buffer for swapping
-            std::vector<CommandPacket*> temp(count);
+            // Divide input into deterministic fixed-size chunks.
+            // Each chunk has a fixed range of input elements, enabling
+            // per-chunk histograms and parallel scatter with no conflicts.
+            i32 numChunks = static_cast<i32>((count + PARALLEL_SORT_BATCH_SIZE - 1) / PARALLEL_SORT_BATCH_SIZE);
 
-            // Pre-extract keys for cache efficiency
-            std::vector<u64> keys(count);
-            {
-                OLO_PROFILE_SCOPE("ExtractKeys");
-                // Parallel key extraction
-                ParallelFor("ExtractSortKeys", static_cast<i32>(count), PARALLEL_SORT_BATCH_SIZE,
-                            [&packets, &keys](i32 i)
-                            {
-                                keys[i] = packets[i]->GetMetadata().m_SortKey.GetKey();
-                            });
-            }
+            // Temporary buffers for swapping
+            std::vector<CommandPacket*> tempPackets(count);
             std::vector<u64> tempKeys(count);
+
+            // Per-chunk histograms (indexed by chunk ID, deterministic)
+            std::vector<std::array<sizet, RADIX_SIZE>> chunkHistograms(numChunks);
+
+            // Per-chunk scatter offsets
+            std::vector<std::array<sizet, RADIX_SIZE>> chunkOffsets(numChunks);
 
             // Process each byte from LSB to MSB
             for (sizet pass = 0; pass < NUM_PASSES; ++pass)
@@ -135,70 +121,101 @@ namespace OloEngine
                 OLO_PROFILE_SCOPE("RadixPass");
                 sizet shift = pass * RADIX_BITS;
 
-                // Phase 1: Parallel histogram building
-                // Each worker builds a local histogram, then we reduce
-                TArray<WorkerHistogram> workerHistograms;
+                // Phase 1: Build per-chunk histograms in parallel.
+                // Each chunk is a deterministic range of input elements.
                 {
                     OLO_PROFILE_SCOPE("ParallelHistogram");
-                    ParallelForWithTaskContext(
+                    ParallelFor(
                         "RadixHistogram",
-                        workerHistograms,
-                        static_cast<i32>(count),
-                        PARALLEL_SORT_BATCH_SIZE,
-                        [&keys, shift](WorkerHistogram& hist, i32 i)
+                        numChunks,
+                        1,
+                        [&keys, &chunkHistograms, shift, count](i32 c)
                         {
-                            u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
-                            hist.counts[digit]++;
+                            auto& hist = chunkHistograms[c];
+                            hist = {};
+                            sizet start = static_cast<sizet>(c) * PARALLEL_SORT_BATCH_SIZE;
+                            sizet end = std::min(start + PARALLEL_SORT_BATCH_SIZE, count);
+                            for (sizet i = start; i < end; ++i)
+                            {
+                                u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
+                                hist[digit]++;
+                            }
                         });
                 }
 
-                // Phase 2: Reduce worker histograms into global histogram
-                std::array<sizet, RADIX_SIZE> globalHistogram{};
+                // Phase 2: Compute per-chunk scatter offsets.
+                // chunkOffsets[c][d] = globalPrefixSum[d] + sum of chunkHistograms[0..c-1][d]
+                // Each chunk writes to non-overlapping destination ranges per digit.
                 {
-                    OLO_PROFILE_SCOPE("ReduceHistogram");
-                    for (i32 w = 0; w < workerHistograms.Num(); ++w)
+                    OLO_PROFILE_SCOPE("ChunkOffsets");
+                    // Reduce into global histogram and compute prefix sums
+                    std::array<sizet, RADIX_SIZE> globalHistogram{};
+                    for (i32 c = 0; c < numChunks; ++c)
                     {
-                        for (sizet b = 0; b < RADIX_SIZE; ++b)
+                        for (sizet d = 0; d < RADIX_SIZE; ++d)
                         {
-                            globalHistogram[b] += workerHistograms[w].counts[b];
+                            globalHistogram[d] += chunkHistograms[c][d];
+                        }
+                    }
+
+                    std::array<sizet, RADIX_SIZE> prefixSum{};
+                    sizet total = 0;
+                    for (sizet d = 0; d < RADIX_SIZE; ++d)
+                    {
+                        prefixSum[d] = total;
+                        total += globalHistogram[d];
+                    }
+
+                    // Compute per-chunk offsets
+                    for (sizet d = 0; d < RADIX_SIZE; ++d)
+                    {
+                        sizet running = prefixSum[d];
+                        for (i32 c = 0; c < numChunks; ++c)
+                        {
+                            chunkOffsets[c][d] = running;
+                            running += chunkHistograms[c][d];
                         }
                     }
                 }
 
-                // Phase 3: Compute prefix sums (exclusive scan) for offsets
-                std::array<sizet, RADIX_SIZE> offsets{};
+                // Phase 3: Parallel scatter.
+                // Each chunk scatters its deterministic range of elements using
+                // its own offset table. Writes are non-overlapping across chunks.
                 {
-                    OLO_PROFILE_SCOPE("PrefixSum");
-                    sizet total = 0;
-                    for (sizet i = 0; i < RADIX_SIZE; ++i)
-                    {
-                        offsets[i] = total;
-                        total += globalHistogram[i];
-                    }
-                }
-
-                // Phase 4: Scatter phase (sequential for correctness)
-                // Note: Parallel scatter requires careful write conflict handling.
-                // For now, we do sequential scatter which is still fast due to
-                // prefetched destination addresses and sequential reads.
-                {
-                    OLO_PROFILE_SCOPE("Scatter");
-                    for (sizet i = 0; i < count; ++i)
-                    {
-                        u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
-                        sizet destIdx = offsets[digit]++;
-                        temp[destIdx] = packets[i];
-                        tempKeys[destIdx] = keys[i];
-                    }
+                    OLO_PROFILE_SCOPE("ParallelScatter");
+                    ParallelFor(
+                        "RadixScatter",
+                        numChunks,
+                        1,
+                        [&keys, &packets, &tempKeys, &tempPackets, &chunkOffsets, shift, count](i32 c)
+                        {
+                            auto offsets = chunkOffsets[c]; // Local copy to avoid false sharing
+                            sizet start = static_cast<sizet>(c) * PARALLEL_SORT_BATCH_SIZE;
+                            sizet end = std::min(start + PARALLEL_SORT_BATCH_SIZE, count);
+                            for (sizet i = start; i < end; ++i)
+                            {
+                                u8 digit = static_cast<u8>((keys[i] >> shift) & 0xFF);
+                                sizet destIdx = offsets[digit]++;
+                                tempPackets[destIdx] = packets[i];
+                                tempKeys[destIdx] = keys[i];
+                            }
+                        });
                 }
 
                 // Swap buffers
-                std::swap(packets, temp);
+                std::swap(packets, tempPackets);
                 std::swap(keys, tempKeys);
             }
         }
 
     } // anonymous namespace
+
+    void CommandBucket::SetViewStateCallbacks(ViewStateReadFn readFn, ViewStateWriteFn writeFn)
+    {
+        s_ViewStateReader = readFn;
+        s_ViewStateWriter = writeFn;
+    }
+
     CommandBucket::CommandBucket(const CommandBucketConfig& config)
         : m_Config(config)
     {
@@ -208,7 +225,9 @@ namespace OloEngine
         // Initialize thread-local slots
         std::memset(m_TLSSlots, 0, sizeof(m_TLSSlots));
 
-        // Pre-allocate parallel command array
+        // Pre-allocate flat arrays and parallel command array
+        m_Keys.reserve(config.InitialCapacity);
+        m_Packets.reserve(config.InitialCapacity);
         m_ParallelCommands.reserve(config.InitialCapacity);
     }
 
@@ -220,18 +239,14 @@ namespace OloEngine
     }
 
     CommandBucket::CommandBucket(CommandBucket&& other) noexcept
-        : m_Head(other.m_Head),
-          m_Tail(other.m_Tail),
+        : m_Keys(std::move(other.m_Keys)),
+          m_Packets(std::move(other.m_Packets)),
           m_CommandCount(other.m_CommandCount),
-          m_SortedCommands(std::move(other.m_SortedCommands)),
           m_Config(other.m_Config),
           m_IsSorted(other.m_IsSorted),
           m_IsBatched(other.m_IsBatched),
           m_Stats(other.m_Stats)
     {
-        // Reset the source object
-        other.m_Head = nullptr;
-        other.m_Tail = nullptr;
         other.m_CommandCount = 0;
         other.m_IsSorted = false;
         other.m_IsBatched = false;
@@ -242,18 +257,14 @@ namespace OloEngine
     {
         if (this != &other)
         {
-            m_Head = other.m_Head;
-            m_Tail = other.m_Tail;
+            m_Keys = std::move(other.m_Keys);
+            m_Packets = std::move(other.m_Packets);
             m_CommandCount = other.m_CommandCount;
-            m_SortedCommands = std::move(other.m_SortedCommands);
             m_Config = other.m_Config;
             m_IsSorted = other.m_IsSorted;
             m_IsBatched = other.m_IsBatched;
             m_Stats = other.m_Stats;
 
-            // Reset the source object
-            other.m_Head = nullptr;
-            other.m_Tail = nullptr;
             other.m_CommandCount = 0;
             other.m_IsSorted = false;
             other.m_IsBatched = false;
@@ -269,18 +280,10 @@ namespace OloEngine
         if (!packet)
             return;
 
-        packet->SetNext(nullptr);
+        TUniqueLock<FMutex> lock(m_Mutex);
 
-        if (!m_Head)
-        {
-            m_Head = packet;
-            m_Tail = packet;
-        }
-        else
-        {
-            m_Tail->SetNext(packet);
-            m_Tail = packet;
-        }
+        m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
+        m_Packets.push_back(packet);
 
         m_CommandCount++;
         m_Stats.TotalCommands++;
@@ -303,89 +306,69 @@ namespace OloEngine
         // Internal sort implementation — caller must hold m_Mutex
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Config.EnableSorting || m_IsSorted || m_CommandCount <= 1)
+        if (!m_Config.EnableSorting || m_IsSorted)
         {
             m_LastSortTimeMs = 0.0;
             return;
         }
 
+        if (m_CommandCount <= 1)
+        {
+            m_LastSortTimeMs = 0.0;
+            m_IsSorted = true;
+            return;
+        }
+
         auto sortStart = std::chrono::high_resolution_clock::now();
 
-        // Build a vector of command pointers for sorting
-        m_SortedCommands.clear();
-        m_SortedCommands.reserve(m_CommandCount);
-
-        // First, group commands by dependency chains
-        std::vector<std::vector<CommandPacket*>> dependencyGroups;
-        std::vector<CommandPacket*> currentGroup;
-        CommandPacket* current = m_Head;
-        while (current)
+        // Check if any commands have dependency ordering
+        bool hasDependencies = false;
+        for (sizet i = 0; i < m_Packets.size(); ++i)
         {
-            // Start a new group if this is the first command or if it depends on previous
-            if (currentGroup.empty() || current->GetMetadata().m_DependsOnPrevious)
+            if (m_Packets[i]->GetMetadata().m_DependsOnPrevious)
             {
-                // If we have an existing group, finalize it
-                if (!currentGroup.empty())
-                {
-                    dependencyGroups.push_back(std::move(currentGroup));
-                    currentGroup = std::vector<CommandPacket*>();
-                }
-            }
-
-            // Add the current command to the current group
-            currentGroup.push_back(current);
-            current = current->GetNext();
-        }
-
-        // Add the last group if it's not empty
-        if (!currentGroup.empty())
-            dependencyGroups.push_back(std::move(currentGroup));
-
-        // Sort each group internally using parallel RadixSort for optimal performance
-        for (auto& group : dependencyGroups)
-        {
-            // Only sort if there's more than one command in a group
-            if (group.size() > 1)
-            {
-                // Use ParallelRadixSort64 for O(n) sorting on 64-bit keys
-                // Falls back to single-threaded RadixSort64 for small groups
-                ParallelRadixSort64(group);
+                hasDependencies = true;
+                break;
             }
         }
 
-        // Rebuild the linked list from the sorted groups
-        if (!dependencyGroups.empty())
+        if (!hasDependencies)
         {
-            // Link the first command
-            m_Head = dependencyGroups[0][0];
-            current = m_Head;
-            m_SortedCommands.push_back(current);
-
-            // Link each group
-            for (sizet groupIdx = 0; groupIdx < dependencyGroups.size(); groupIdx++)
+            // Fast path: no dependencies, sort the flat key+packet arrays directly
+            ParallelRadixSort64(m_Keys, m_Packets);
+        }
+        else
+        {
+            // Dependency-aware path: split into groups, sort each group
+            std::vector<std::pair<sizet, sizet>> groupRanges; // [start, end) ranges
+            sizet groupStart = 0;
+            for (sizet i = 1; i < m_Packets.size(); ++i)
             {
-                const auto& group = dependencyGroups[groupIdx];
-
-                // Link commands within the group
-                for (sizet cmdIdx = (groupIdx == 0 ? 1 : 0); cmdIdx < group.size(); cmdIdx++)
+                if (m_Packets[i]->GetMetadata().m_DependsOnPrevious)
                 {
-                    current->SetNext(group[cmdIdx]);
-                    current = group[cmdIdx];
-                    m_SortedCommands.push_back(current);
-                }
-
-                // Link to the next group
-                if (groupIdx < dependencyGroups.size() - 1)
-                {
-                    current->SetNext(dependencyGroups[groupIdx + 1][0]);
-                    current = dependencyGroups[groupIdx + 1][0];
-                    m_SortedCommands.push_back(current);
+                    groupRanges.push_back({ groupStart, i });
+                    groupStart = i;
                 }
             }
+            groupRanges.push_back({ groupStart, m_Packets.size() });
 
-            // Set the tail and terminate the list
-            m_Tail = current;
-            m_Tail->SetNext(nullptr);
+            // Sort each group independently
+            for (auto& [start, end] : groupRanges)
+            {
+                sizet groupSize = end - start;
+                if (groupSize <= 1)
+                    continue;
+
+                // Create temporary sub-arrays for the group
+                std::vector<u64> groupKeys(m_Keys.begin() + start, m_Keys.begin() + end);
+                std::vector<CommandPacket*> groupPackets(m_Packets.begin() + start, m_Packets.begin() + end);
+
+                ParallelRadixSort64(groupKeys, groupPackets);
+
+                // Copy sorted results back
+                std::copy(groupKeys.begin(), groupKeys.end(), m_Keys.begin() + start);
+                std::copy(groupPackets.begin(), groupPackets.end(), m_Packets.begin() + start);
+            }
         }
 
         m_IsSorted = true;
@@ -439,35 +422,32 @@ namespace OloEngine
         instancedCmd->transformCount = 1;
 
         // Copy material properties
-        instancedCmd->ambient = meshCmd->ambient;
-        instancedCmd->diffuse = meshCmd->diffuse;
-        instancedCmd->specular = meshCmd->specular;
-        instancedCmd->shininess = meshCmd->shininess;
-        instancedCmd->useTextureMaps = meshCmd->useTextureMaps;
+        instancedCmd->materialDataIndex = meshCmd->materialDataIndex;
 
-        // Copy texture renderer IDs (POD)
-        instancedCmd->diffuseMapID = meshCmd->diffuseMapID;
-        instancedCmd->specularMapID = meshCmd->specularMapID;
-
-        // Copy shader renderer ID (POD)
+        // Copy shader handle
         instancedCmd->shaderHandle = meshCmd->shaderHandle;
-        instancedCmd->shaderRendererID = meshCmd->shaderRendererID;
 
-        // Copy POD render state
-        instancedCmd->renderState = meshCmd->renderState;
+        // Copy POD render state index
+        instancedCmd->renderStateIndex = meshCmd->renderStateIndex;
 
-        // Set command type and dispatch function
+        // Copy animation fields
+        instancedCmd->isAnimatedMesh = meshCmd->isAnimatedMesh;
+        instancedCmd->boneBufferOffset = meshCmd->boneBufferOffset;
+        instancedCmd->boneCountPerInstance = meshCmd->boneCount;
+
+        // Set command type and dispatch function (via runtime resolver)
         instancedPacket->SetCommandType(instancedCmd->header.type);
-        instancedPacket->SetDispatchFunction(CommandDispatch::GetDispatchFunction(instancedCmd->header.type));
 
         return instancedPacket;
     }
 
-    bool CommandBucket::TryMergeCommands(CommandPacket* target, CommandPacket* source, CommandAllocator& allocator)
+    bool CommandBucket::TryMergeCommands(sizet targetIdx, sizet sourceIdx, CommandAllocator& allocator)
     {
         OLO_PROFILE_FUNCTION();
 
         // Caller must hold m_Mutex
+        CommandPacket* target = m_Packets[targetIdx];
+        CommandPacket* source = m_Packets[sourceIdx];
 
         if (!target || !source || !target->CanBatchWith(*source))
             return false;
@@ -475,56 +455,31 @@ namespace OloEngine
         // Handle batching based on command type
         CommandType targetType = target->GetCommandType();
 
-        // We can have a few different scenarios:
-        // 1. Both are DrawMeshCommand - Convert to DrawMeshInstancedCommand
-        // 2. target is DrawMeshInstancedCommand, source is DrawMeshCommand - Add to instance
-        // 3. Both are DrawQuadCommand - Can't combine directly with the current design
-
         if (CommandType sourceType = source->GetCommandType();
             targetType == CommandType::DrawMesh && sourceType == CommandType::DrawMesh)
         {
-            // Convert to instanced command if it's not already
+            // Convert to instanced command
             CommandPacket* instancedPacket = ConvertToInstanced(target, allocator);
             if (!instancedPacket)
                 return false;
 
-            // Replace target with instancedPacket in the linked list
-            instancedPacket->SetNext(target->GetNext());
+            // Replace target in the flat array
+            m_Packets[targetIdx] = instancedPacket;
+            m_Keys[targetIdx] = instancedPacket->GetMetadata().m_SortKey.GetKey();
 
-            // Find the packet that points to target and update it
-            if (m_Head == target)
-            {
-                m_Head = instancedPacket;
-            }
-            else
-            {
-                CommandPacket* prev = m_Head;
-                while (prev && prev->GetNext() != target)
-                    prev = prev->GetNext();
-
-                if (prev)
-                    prev->SetNext(instancedPacket);
-            }
-
-            if (m_Tail == target)
-                m_Tail = instancedPacket;
-
-            // Dynamic instance batching: merge transforms from source into the new instanced command
-            // 1. Get the source mesh command's transform
+            // Dynamic instance batching: merge transforms from source
             auto const* sourceMeshCmd = source->GetCommandData<DrawMeshCommand>();
             if (!sourceMeshCmd)
                 return false;
 
-            // 2. Get the current instanced command (which has 1 transform from ConvertToInstanced)
             auto* instancedCmd = instancedPacket->GetCommandData<DrawMeshInstancedCommand>();
             if (!instancedCmd)
                 return false;
 
-            // 3. Allocate new contiguous space for both transforms
+            // Allocate new contiguous space for both transforms
             FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
             u32 totalTransforms = instancedCmd->transformCount + 1;
 
-            // Check against max instances limit
             if (totalTransforms > m_Config.MaxMeshInstances)
             {
                 OLO_CORE_WARN("CommandBucket::TryMergeCommands: Max instances ({}) reached", m_Config.MaxMeshInstances);
@@ -538,33 +493,31 @@ namespace OloEngine
                 return false;
             }
 
-            // 4. Copy existing transforms from the instanced command
             const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset);
             if (existingTransforms)
             {
                 frameBuffer.WriteTransforms(newOffset, existingTransforms, instancedCmd->transformCount);
             }
 
-            // 5. Copy the source command's transform
             frameBuffer.WriteTransforms(newOffset + instancedCmd->transformCount, &sourceMeshCmd->transform, 1);
 
-            // 6. Update the instanced command to use the new buffer
             instancedCmd->transformBufferOffset = newOffset;
             instancedCmd->transformCount = totalTransforms;
             instancedCmd->instanceCount = totalTransforms;
+
+            // Mark the source as merged (will be compacted later)
+            m_Packets[sourceIdx] = nullptr;
 
             return true;
         }
         else if (targetType == CommandType::DrawMeshInstanced && sourceType == CommandType::DrawMesh)
         {
-            // Add source mesh's transform to existing instanced command
             auto* instancedCmd = target->GetCommandData<DrawMeshInstancedCommand>();
             auto const* sourceMeshCmd = source->GetCommandData<DrawMeshCommand>();
 
             if (!instancedCmd || !sourceMeshCmd)
                 return false;
 
-            // Check against max instances limit
             u32 totalTransforms = instancedCmd->transformCount + 1;
             if (totalTransforms > m_Config.MaxMeshInstances)
             {
@@ -572,7 +525,6 @@ namespace OloEngine
                 return false;
             }
 
-            // Allocate new contiguous space for all transforms
             FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
             u32 newOffset = frameBuffer.AllocateTransforms(totalTransforms);
             if (newOffset == UINT32_MAX)
@@ -581,25 +533,24 @@ namespace OloEngine
                 return false;
             }
 
-            // Copy existing transforms
             const glm::mat4* existingTransforms = frameBuffer.GetTransformPtr(instancedCmd->transformBufferOffset);
             if (existingTransforms)
             {
                 frameBuffer.WriteTransforms(newOffset, existingTransforms, instancedCmd->transformCount);
             }
 
-            // Copy the source command's transform
             frameBuffer.WriteTransforms(newOffset + instancedCmd->transformCount, &sourceMeshCmd->transform, 1);
 
-            // Update the instanced command
             instancedCmd->transformBufferOffset = newOffset;
             instancedCmd->transformCount = totalTransforms;
             instancedCmd->instanceCount = totalTransforms;
 
+            // Mark the source as merged
+            m_Packets[sourceIdx] = nullptr;
+
             return true;
         }
 
-        // Other command types can't be merged directly
         return false;
     }
 
@@ -615,58 +566,134 @@ namespace OloEngine
             return;
         }
 
-        // Make sure commands are sorted first for optimal batching
-        if (!m_IsSorted)
-            SortCommandsInternal();
-
         auto batchStart = std::chrono::high_resolution_clock::now();
 
-        // Start with the first command
-        CommandPacket* current = m_Head;
+        // ── Phase 1: Build instance groups via hash table ──────────────
+        // O(n) scan — groups ALL matching DrawMesh commands, not just adjacent.
+        std::unordered_map<InstanceGroupKey, std::vector<sizet>, InstanceGroupKeyHash> groups;
 
-        while (current)
+        // Collect predecessors of dependency-constrained packets so they are
+        // not merged/nulled during instancing — their dependent follower
+        // relies on them staying in place.
+        std::unordered_set<sizet> protectedPredecessors;
+        for (sizet i = 1; i < m_Packets.size(); ++i)
         {
-            CommandPacket* next = current->GetNext();
-            // Try to merge with subsequent compatible commands
-            while (next && TryMergeCommands(current, next, allocator))
+            if (m_Packets[i] && m_Packets[i]->GetMetadata().m_DependsOnPrevious)
             {
-                // Merging succeeded, remove the next command from the list
-                next = next->GetNext();
-                current->SetNext(next);
+                protectedPredecessors.insert(i - 1);
+            }
+        }
 
-                // Decrement command count since we've merged one
-                m_CommandCount--;
+        for (sizet i = 0; i < m_Packets.size(); ++i)
+        {
+            if (!m_Packets[i])
+                continue;
+            if (m_Packets[i]->GetCommandType() != CommandType::DrawMesh)
+                continue;
+            // Commands with ordering constraints must not be reordered into groups
+            if (m_Packets[i]->GetMetadata().m_DependsOnPrevious)
+                continue;
+            // Predecessors of constrained packets must not be merged/nulled
+            if (protectedPredecessors.count(i))
+                continue;
+
+            auto const* cmd = m_Packets[i]->GetCommandData<DrawMeshCommand>();
+            // Skip animated/skinned meshes — they have per-instance bone data
+            if (cmd->isAnimatedMesh)
+                continue;
+            InstanceGroupKey key{ cmd->meshHandle, cmd->materialDataIndex, cmd->renderStateIndex };
+            groups[key].push_back(i);
+        }
+
+        // ── Phase 2: Merge groups with count > 1 ──────────────────────
+        FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+
+        for (auto& [key, indices] : groups)
+        {
+            if (indices.size() <= 1)
+                continue;
+
+            u32 totalInstances = static_cast<u32>(
+                std::min(indices.size(), static_cast<sizet>(m_Config.MaxMeshInstances)));
+
+            // Allocate contiguous transform block for all instances at once
+            u32 transformOffset = frameBuffer.AllocateTransforms(totalInstances);
+            if (transformOffset == UINT32_MAX)
+            {
+                OLO_CORE_ERROR("CommandBucket::BatchCommands: Failed to allocate {} transforms in FrameDataBuffer", totalInstances);
+                continue;
+            }
+
+            // Write all transforms contiguously
+            for (u32 t = 0; t < totalInstances; ++t)
+            {
+                auto const* meshCmd = m_Packets[indices[t]]->GetCommandData<DrawMeshCommand>();
+                frameBuffer.WriteTransforms(transformOffset + t, &meshCmd->transform, 1);
+            }
+
+            // Build the instanced command from the first DrawMeshCommand
+            sizet firstIdx = indices[0];
+            auto const* firstCmd = m_Packets[firstIdx]->GetCommandData<DrawMeshCommand>();
+            PacketMetadata metadata = m_Packets[firstIdx]->GetMetadata();
+
+            CommandPacket* instancedPacket = allocator.AllocatePacketWithCommand<DrawMeshInstancedCommand>(metadata);
+            if (!instancedPacket)
+                continue;
+
+            auto* icmd = instancedPacket->GetCommandData<DrawMeshInstancedCommand>();
+            icmd->header.type = CommandType::DrawMeshInstanced;
+            icmd->header.dispatchFn = nullptr;
+            icmd->meshHandle = firstCmd->meshHandle;
+            icmd->vertexArrayID = firstCmd->vertexArrayID;
+            icmd->indexCount = firstCmd->indexCount;
+            icmd->instanceCount = totalInstances;
+            icmd->transformBufferOffset = transformOffset;
+            icmd->transformCount = totalInstances;
+            icmd->shaderHandle = firstCmd->shaderHandle;
+            icmd->materialDataIndex = firstCmd->materialDataIndex;
+            icmd->renderStateIndex = firstCmd->renderStateIndex;
+            icmd->isAnimatedMesh = firstCmd->isAnimatedMesh;
+            icmd->boneBufferOffset = firstCmd->boneBufferOffset;
+            icmd->boneCountPerInstance = firstCmd->boneCount;
+
+            instancedPacket->SetCommandType(icmd->header.type);
+
+            // Replace first packet with the instanced command, null out the rest
+            m_Packets[firstIdx] = instancedPacket;
+            m_Keys[firstIdx] = instancedPacket->GetMetadata().m_SortKey.GetKey();
+
+            for (u32 t = 1; t < totalInstances; ++t)
+            {
+                m_Packets[indices[t]] = nullptr;
                 m_Stats.BatchedCommands++;
             }
-
-            // Move to the next command
-            current = next;
         }
 
-        // Update the tail pointer to the last node
-        if (m_Head)
+        // ── Phase 3: Compact — remove null entries ────────────────────
+        sizet write = 0;
+        for (sizet read = 0; read < m_Packets.size(); ++read)
         {
-            current = m_Head;
-            while (current->GetNext())
-                current = current->GetNext();
-            m_Tail = current;
-        }
-
-        // Rebuild sorted commands array if it exists
-        if (!m_SortedCommands.empty())
-        {
-            m_SortedCommands.clear();
-            m_SortedCommands.reserve(m_CommandCount);
-
-            current = m_Head;
-            while (current)
+            if (m_Packets[read] != nullptr)
             {
-                m_SortedCommands.push_back(current);
-                current = current->GetNext();
+                if (write != read)
+                {
+                    m_Packets[write] = m_Packets[read];
+                    m_Keys[write] = m_Keys[read];
+                }
+                ++write;
             }
         }
+        m_Packets.resize(write);
+        m_Keys.resize(write);
+        m_CommandCount = write;
 
         m_IsBatched = true;
+
+        // ── Phase 4: Sort for optimal execution order ─────────────────
+        // Batching invalidated sort order (packets were removed/replaced).
+        // Always re-sort to minimize state changes during execution.
+        m_IsSorted = false;
+        SortCommandsInternal();
 
         auto batchEnd = std::chrono::high_resolution_clock::now();
         m_LastBatchTimeMs = std::chrono::duration<f64, std::milli>(batchEnd - batchStart).count();
@@ -678,24 +705,41 @@ namespace OloEngine
 
         auto execStart = std::chrono::high_resolution_clock::now();
 
-        // Take a snapshot of the head pointer under lock
-        CommandPacket const* current;
+        // No lock needed — Execute runs exclusively on the main thread
+        // during EndScene, after all submission is complete.
+        m_Stats.DrawCalls = 0;
+        m_Stats.StateChanges = 0;
+
+        // Bind per-bucket view state if set, saving the previous state for restoration
+        BucketViewState savedState;
+        bool restoreState = false;
+        if (m_ViewState.has_value() && s_ViewStateReader && s_ViewStateWriter)
         {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            // Reset execution statistics
-            m_Stats.DrawCalls = 0;
-            m_Stats.StateChanges = 0;
-            current = m_Head;
+            s_ViewStateReader(savedState);
+            restoreState = true;
+            s_ViewStateWriter(*m_ViewState);
         }
 
-        // Execute all commands in order
-        while (current)
+        // Execute all commands in order from the flat array
+        for (const auto* packet : m_Packets)
         {
-            // Track statistics
-            if (CommandType type = current->GetCommandType();
+            if (!packet)
+                continue;
+
+            if (CommandType type = packet->GetCommandType();
                 type == CommandType::DrawMesh ||
                 type == CommandType::DrawMeshInstanced ||
-                type == CommandType::DrawQuad)
+                type == CommandType::DrawQuad ||
+                type == CommandType::DrawDecal ||
+                type == CommandType::DrawFoliageLayer ||
+                type == CommandType::DrawTerrainPatch ||
+                type == CommandType::DrawVoxelMesh ||
+                type == CommandType::DrawSkybox ||
+                type == CommandType::DrawInfiniteGrid ||
+                type == CommandType::DrawArrays ||
+                type == CommandType::DrawIndexed ||
+                type == CommandType::DrawIndexedInstanced ||
+                type == CommandType::DrawLines)
             {
                 m_Stats.DrawCalls++;
             }
@@ -704,15 +748,17 @@ namespace OloEngine
                 m_Stats.StateChanges++;
             }
 
-            current->Execute(rendererAPI);
-            current = current->GetNext();
+            packet->Execute(rendererAPI);
+        }
+
+        // Restore previous view state if we changed it
+        if (restoreState)
+        {
+            s_ViewStateWriter(savedState);
         }
 
         auto execEnd = std::chrono::high_resolution_clock::now();
-        {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
-        }
+        m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
     }
 
     void CommandBucket::ExecuteWithGPUTiming(RendererAPI& rendererAPI)
@@ -721,30 +767,47 @@ namespace OloEngine
 
         auto& gpuTimer = GPUTimerQueryPool::GetInstance();
 
-        // If not initialized, lazily initialize
         if (!gpuTimer.IsInitialized())
             gpuTimer.Initialize();
 
-        // Begin frame — returns true if previous frame's results are ready
         gpuTimer.BeginFrame();
 
         auto execStart = std::chrono::high_resolution_clock::now();
 
-        CommandPacket const* current;
+        // No lock needed — ExecuteWithGPUTiming runs exclusively on the main thread
+        m_Stats.DrawCalls = 0;
+        m_Stats.StateChanges = 0;
+
+        // Bind per-bucket view state if set
+        BucketViewState savedState;
+        bool restoreState = false;
+        if (m_ViewState.has_value() && s_ViewStateReader && s_ViewStateWriter)
         {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            m_Stats.DrawCalls = 0;
-            m_Stats.StateChanges = 0;
-            current = m_Head;
+            s_ViewStateReader(savedState);
+            restoreState = true;
+            s_ViewStateWriter(*m_ViewState);
         }
 
         u32 cmdIndex = 0;
-        while (current)
+        for (const auto* packet : m_Packets)
         {
-            if (CommandType type = current->GetCommandType();
+            if (!packet)
+                continue;
+
+            if (CommandType type = packet->GetCommandType();
                 type == CommandType::DrawMesh ||
                 type == CommandType::DrawMeshInstanced ||
-                type == CommandType::DrawQuad)
+                type == CommandType::DrawQuad ||
+                type == CommandType::DrawDecal ||
+                type == CommandType::DrawFoliageLayer ||
+                type == CommandType::DrawTerrainPatch ||
+                type == CommandType::DrawVoxelMesh ||
+                type == CommandType::DrawSkybox ||
+                type == CommandType::DrawInfiniteGrid ||
+                type == CommandType::DrawArrays ||
+                type == CommandType::DrawIndexed ||
+                type == CommandType::DrawIndexedInstanced ||
+                type == CommandType::DrawLines)
             {
                 m_Stats.DrawCalls++;
             }
@@ -756,33 +819,34 @@ namespace OloEngine
             if (cmdIndex < gpuTimer.GetMaxQueries())
             {
                 gpuTimer.BeginQuery(cmdIndex);
-                current->Execute(rendererAPI);
+                packet->Execute(rendererAPI);
                 gpuTimer.EndQuery(cmdIndex);
             }
             else
             {
-                current->Execute(rendererAPI);
+                packet->Execute(rendererAPI);
             }
 
-            current = current->GetNext();
             cmdIndex++;
+        }
+
+        // Restore previous view state if we changed it
+        if (restoreState)
+        {
+            s_ViewStateWriter(savedState);
         }
 
         gpuTimer.EndFrame();
 
         auto execEnd = std::chrono::high_resolution_clock::now();
-        {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
-        }
+        m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
     }
 
     void CommandBucket::Clear()
     {
-        m_Head = nullptr;
-        m_Tail = nullptr;
+        m_Keys.clear();
+        m_Packets.clear();
         m_CommandCount = 0;
-        m_SortedCommands.clear();
 
         // Important: clear transform buffers to prevent memory leaks
         m_TransformBuffers.clear();
@@ -920,10 +984,9 @@ namespace OloEngine
             return;
         }
 
-        // Compact the parallel commands array into the linked list
-        // Option A: Copy to linked list (simple, maintains existing code paths)
-        m_Head = nullptr;
-        m_Tail = nullptr;
+        // Compact the parallel commands array into the flat arrays
+        m_Keys.clear();
+        m_Packets.clear();
         m_CommandCount = 0;
 
         sizet maxIndex = m_NextBatchStart.load(std::memory_order_relaxed);
@@ -932,26 +995,9 @@ namespace OloEngine
             CommandPacket* packet = m_ParallelCommands[i];
             if (packet != nullptr)
             {
-                packet->SetNext(nullptr);
-
-                if (!m_Head)
-                {
-                    m_Head = packet;
-                    m_Tail = packet;
-                }
-                else
-                {
-                    m_Tail->SetNext(packet);
-                    m_Tail = packet;
-                }
-
+                m_Keys.push_back(packet->GetMetadata().m_SortKey.GetKey());
+                m_Packets.push_back(packet);
                 m_CommandCount++;
-                // NOTE: m_Stats.TotalCommands is NOT incremented here.
-                // TotalCommands is a cumulative counter incremented in AddCommand,
-                // which counts all commands submitted (both serial and parallel).
-                // During parallel submission, commands are already counted in AddCommand
-                // before being placed in m_ParallelCommands, so we only update m_CommandCount
-                // here (the per-frame linked list size) to track current state.
             }
         }
 
@@ -969,24 +1015,23 @@ namespace OloEngine
 
         u32 remappedCount = 0;
 
-        // Iterate through the linked list of commands
-        CommandPacket* current = m_Head;
-        while (current)
+        // Iterate through the flat array of commands
+        for (auto* packet : m_Packets)
         {
-            // Check if this is a DrawMeshCommand with bone data that needs remapping
-            if (current->GetCommandType() == CommandType::DrawMesh)
+            if (!packet)
+                continue;
+
+            if (packet->GetCommandType() == CommandType::DrawMesh)
             {
-                auto* cmd = current->GetCommandData<DrawMeshCommand>();
+                auto* cmd = packet->GetCommandData<DrawMeshCommand>();
                 if (cmd->isAnimatedMesh && cmd->needsBoneOffsetRemap && cmd->boneCount > 0)
                 {
-                    // Remap the worker-local offset to the global offset
                     u32 globalOffset = frameDataBuffer.GetGlobalBoneOffset(cmd->workerIndex, cmd->boneBufferOffset);
                     cmd->boneBufferOffset = globalOffset;
                     cmd->needsBoneOffsetRemap = false;
                     remappedCount++;
                 }
             }
-            current = current->GetNext();
         }
 
         if (remappedCount > 0)

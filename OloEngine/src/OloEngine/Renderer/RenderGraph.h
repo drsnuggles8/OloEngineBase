@@ -65,6 +65,12 @@ namespace OloEngine
 
         [[nodiscard]] std::vector<ConnectionInfo> GetConnections() const;
 
+        // @brief Get the topologically-sorted pass execution order (for testing/inspection).
+        [[nodiscard]] const std::vector<std::string>& GetPassOrder() const
+        {
+            return m_PassOrder;
+        }
+
       private:
         void UpdateDependencyGraph();
         void ResolveFinalPass();

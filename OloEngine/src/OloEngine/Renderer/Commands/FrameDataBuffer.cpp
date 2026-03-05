@@ -12,6 +12,7 @@ namespace OloEngine
         m_Transforms.resize(transformCapacity);
         m_BoneMatrixOffset = 0;
         m_TransformOffset = 0;
+        m_MaterialData.resize(MAX_MATERIAL_DATA_PER_FRAME);
     }
 
     void FrameDataBuffer::Reset()
@@ -29,6 +30,20 @@ namespace OloEngine
 
         // Reset parallel submission state
         m_ParallelSubmissionActive = false;
+
+        // Reset render state table
+        {
+            TUniqueLock<FMutex> renderStateLock(m_RenderStateMutex);
+            m_RenderStateCount = 0;
+            m_RenderStateOverflowLogged = false;
+        }
+
+        // Reset material data table
+        {
+            TUniqueLock<FMutex> materialDataLock(m_MaterialDataMutex);
+            m_MaterialDataCount = 0;
+            m_MaterialDataOverflowLogged = false;
+        }
 
         // Reset worker scratch buffers
         for (auto& scratch : m_WorkerScratchBuffers)
@@ -145,6 +160,108 @@ namespace OloEngine
             return;
         }
         std::memcpy(&m_Transforms[offset], data, count * sizeof(glm::mat4));
+    }
+
+    // ========================================================================
+    // RenderState Table Implementation
+    // ========================================================================
+
+    u16 FrameDataBuffer::AllocateRenderState(const PODRenderState& state)
+    {
+        OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(m_RenderStateMutex);
+
+        // Dedup: linear scan for matching state (N is small, typically 2-5)
+        for (u16 i = 0; i < m_RenderStateCount; ++i)
+        {
+            if (m_RenderStates[i] == state)
+            {
+                return i;
+            }
+        }
+
+        // New unique state — allocate
+        if (m_RenderStateCount >= MAX_RENDER_STATES_PER_FRAME)
+        {
+            if (!m_RenderStateOverflowLogged)
+            {
+                OLO_CORE_ERROR("FrameDataBuffer: RenderState table overflow! Max {} unique states per frame. "
+                               "Subsequent overflows this frame will be silent.",
+                               MAX_RENDER_STATES_PER_FRAME);
+                m_RenderStateOverflowLogged = true;
+            }
+            return INVALID_RENDER_STATE_INDEX;
+        }
+
+        u16 index = m_RenderStateCount;
+        m_RenderStates[index] = state;
+        ++m_RenderStateCount;
+
+        return index;
+    }
+
+    const PODRenderState& FrameDataBuffer::GetRenderState(u16 index) const
+    {
+        OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(m_RenderStateMutex);
+        if (index >= m_RenderStateCount)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer::GetRenderState: index {} out of range (count {}), returning default", index, m_RenderStateCount);
+            static const PODRenderState s_Default{};
+            return s_Default;
+        }
+        return m_RenderStates[index];
+    }
+
+    // ========================================================================
+    // MaterialData Table Implementation
+    // ========================================================================
+
+    u16 FrameDataBuffer::AllocateMaterialData(const PODMaterialData& data)
+    {
+        OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(m_MaterialDataMutex);
+
+        // Dedup: linear scan (N is typically 10-100 unique materials per frame)
+        for (u16 i = 0; i < m_MaterialDataCount; ++i)
+        {
+            if (m_MaterialData[i] == data)
+            {
+                return i;
+            }
+        }
+
+        // New unique material — allocate
+        if (m_MaterialDataCount >= MAX_MATERIAL_DATA_PER_FRAME)
+        {
+            if (!m_MaterialDataOverflowLogged)
+            {
+                OLO_CORE_ERROR("FrameDataBuffer: MaterialData table overflow! Max {} unique materials per frame. "
+                               "Subsequent overflows this frame will be silent.",
+                               MAX_MATERIAL_DATA_PER_FRAME);
+                m_MaterialDataOverflowLogged = true;
+            }
+            return INVALID_MATERIAL_DATA_INDEX;
+        }
+
+        u16 index = m_MaterialDataCount;
+        m_MaterialData[index] = data;
+        ++m_MaterialDataCount;
+
+        return index;
+    }
+
+    const PODMaterialData& FrameDataBuffer::GetMaterialData(u16 index) const
+    {
+        OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(m_MaterialDataMutex);
+        if (index >= m_MaterialDataCount)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer::GetMaterialData: index {} out of range (count {}), returning default", index, m_MaterialDataCount);
+            static const PODMaterialData s_Default{};
+            return s_Default;
+        }
+        return m_MaterialData[index];
     }
 
     // Static manager implementation

@@ -50,7 +50,7 @@ namespace OloEngine
         void RenderRecordingToolbar();
         void RenderFrameSelector();
         void RenderCommandList(const CapturedFrameData* frame, const CommandBucket* liveBucket);
-        void RenderCommandDetail(const CapturedCommandData& cmd);
+        void RenderCommandDetail(const CapturedCommandData& cmd, const CapturedFrameData* frame);
         void RenderSortAnalysis(const CapturedFrameData* frame);
         void RenderStateChanges(const CapturedFrameData* frame);
         void RenderBatchingAnalysis(const CapturedFrameData* frame);
@@ -62,8 +62,8 @@ namespace OloEngine
 
         // Render state detail for DrawMeshCommand
         void RenderPODRenderStateDetail(const PODRenderState& state);
-        void RenderDrawMeshDetail(const DrawMeshCommand& cmd);
-        void RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd);
+        void RenderDrawMeshDetail(const DrawMeshCommand& cmd, const CapturedFrameData* frame);
+        void RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd, const CapturedFrameData* frame);
 
         enum class CommandViewMode : i32
         {

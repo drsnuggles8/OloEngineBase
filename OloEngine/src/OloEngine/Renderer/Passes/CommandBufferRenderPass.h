@@ -2,7 +2,6 @@
 
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
-#include "OloEngine/Renderer/Commands/CommandMemoryManager.h"
 
 namespace OloEngine
 {

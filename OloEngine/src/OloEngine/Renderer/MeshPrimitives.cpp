@@ -93,18 +93,18 @@ namespace OloEngine
         };
 
         std::vector<u32> indices = {
-            // Front face
-            0, 1, 3, 1, 2, 3,
-            // Back face
+            // Front face (CCW from outside, normal +Z)
+            0, 3, 1, 3, 2, 1,
+            // Back face (CCW from outside, normal -Z)
             4, 5, 7, 5, 6, 7,
-            // Right face
+            // Right face (CCW from outside, normal +X)
             8, 9, 11, 9, 10, 11,
-            // Left face
-            12, 13, 15, 13, 14, 15,
-            // Top face
+            // Left face (CCW from outside, normal -X)
+            12, 15, 13, 15, 14, 13,
+            // Top face (CCW from outside, normal +Y)
             16, 17, 19, 17, 18, 19,
-            // Bottom face
-            20, 21, 23, 21, 22, 23
+            // Bottom face (CCW from outside, normal -Y)
+            20, 23, 21, 23, 22, 21
         };
 
         auto meshSource = Ref<MeshSource>::Create(vertices, indices);
@@ -277,13 +277,13 @@ namespace OloEngine
 
             // Top cap (fan triangulation)
             indices.push_back(0);
-            indices.push_back(2 + i * 4);
             indices.push_back(2 + next * 4);
+            indices.push_back(2 + i * 4);
 
             // Bottom cap (fan triangulation)
             indices.push_back(1);
-            indices.push_back(2 + next * 4 + 1);
             indices.push_back(2 + i * 4 + 1);
+            indices.push_back(2 + next * 4 + 1);
 
             // Side faces
             const u32 sideTop = 2 + i * 4 + 2;
@@ -292,12 +292,12 @@ namespace OloEngine
             const u32 nextSideBottom = 2 + next * 4 + 3;
 
             indices.push_back(sideTop);
-            indices.push_back(sideBottom);
             indices.push_back(nextSideTop);
+            indices.push_back(sideBottom);
 
             indices.push_back(sideBottom);
-            indices.push_back(nextSideBottom);
             indices.push_back(nextSideTop);
+            indices.push_back(nextSideBottom);
         }
 
         auto meshSource = Ref<MeshSource>::Create(vertices, indices);
@@ -355,13 +355,13 @@ namespace OloEngine
 
             // Base triangle (pointing downward)
             indices.push_back(1);
-            indices.push_back(2 + next * 2);
             indices.push_back(2 + i * 2);
+            indices.push_back(2 + next * 2);
 
             // Side triangle
             indices.push_back(0);
-            indices.push_back(2 + i * 2 + 1);
             indices.push_back(2 + next * 2 + 1);
+            indices.push_back(2 + i * 2 + 1);
         }
 
         auto meshSource = Ref<MeshSource>::Create(vertices, indices);
@@ -673,8 +673,8 @@ namespace OloEngine
                 const u32 currentNext = i * minorSegments + ((j + 1) % minorSegments);
                 const u32 nextNext = ((i + 1) % majorSegments) * minorSegments + ((j + 1) % minorSegments);
 
-                indices.insert(indices.end(), { current, next, currentNext });
-                indices.insert(indices.end(), { currentNext, next, nextNext });
+                indices.insert(indices.end(), { current, currentNext, next });
+                indices.insert(indices.end(), { currentNext, nextNext, next });
             }
         }
 

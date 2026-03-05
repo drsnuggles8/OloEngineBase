@@ -376,6 +376,9 @@ namespace OloEngine
         // Update dependencies
         UpdateDependencies(assetHandle);
 
+        // Track reload generation for stale-handle detection
+        IncrementAssetGeneration(assetHandle);
+
         // Notify dependent assets that this asset has been updated
         UpdateDependents(assetHandle);
 
@@ -547,6 +550,9 @@ namespace OloEngine
 
         // Remove dependencies
         DeregisterDependencies(handle);
+
+        // Remove stale generation counter
+        ResetAssetGeneration(handle);
 
         OLO_CORE_TRACE("Removed asset: {}", (u64)handle);
     }

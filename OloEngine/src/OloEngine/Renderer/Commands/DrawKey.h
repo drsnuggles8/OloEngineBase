@@ -53,10 +53,12 @@ namespace OloEngine
         void SetPriority(u32 priority);
 
         // Comparison operators for sorting
+        // Ascending raw key order — matches the LSB radix sort used by CommandBucket.
+        // Lower ViewportID/ViewLayer/RenderMode values are dispatched first.
         bool operator<(const DrawKey& other) const
         {
-            return m_Key > other.m_Key;
-        } // Higher values = higher priority
+            return m_Key < other.m_Key;
+        }
         bool operator==(const DrawKey& other) const
         {
             return m_Key == other.m_Key;

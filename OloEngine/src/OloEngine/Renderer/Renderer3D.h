@@ -7,6 +7,8 @@
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
+#include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
@@ -34,6 +36,7 @@ namespace OloEngine
     class Entity;
     class CommandAllocator;
     class EditorCamera;
+    class AssetReloadedEvent;
 } // namespace OloEngine
 
 namespace OloEngine
@@ -126,6 +129,9 @@ namespace OloEngine
         static void Init();
         static void Shutdown();
         static bool IsInitialized();
+
+        // Asset hot-reload handler — ensures next frame picks up new RendererIDs
+        static void OnAssetReloaded(const AssetReloadedEvent& e);
 
         static void BeginScene(const PerspectiveCamera& camera);
         static void BeginScene(const EditorCamera& camera);
@@ -515,6 +521,16 @@ namespace OloEngine
             return s_Data.ShadowPass;
         }
 
+        static const Ref<FoliageRenderPass>& GetFoliagePass()
+        {
+            return s_Data.FoliagePass;
+        }
+
+        static const Ref<DecalRenderPass>& GetDecalPass()
+        {
+            return s_Data.DecalPass;
+        }
+
         static const Ref<PostProcessRenderPass>& GetPostProcessPass()
         {
             return s_Data.PostProcessPass;
@@ -557,6 +573,10 @@ namespace OloEngine
         {
             return s_Data.DecalCubeMesh;
         }
+        static Ref<Texture2D> GetWhiteTexture()
+        {
+            return s_Data.WhiteTexture;
+        }
         static Ref<UniformBuffer> GetDecalUBO()
         {
             return s_Data.DecalUBO;
@@ -591,8 +611,25 @@ namespace OloEngine
 
         static void UploadFogVolumes(const FogVolumesUBOData& data);
 
-        // Decal rendering (called from PostExecuteCallback while scene FB is bound)
-        static void RenderDecals(Scene* scene);
+        // Decal rendering (submits DrawDecalCommand to DecalRenderPass bucket)
+        static CommandPacket* DrawDecal(
+            const glm::mat4& decalTransform,
+            const glm::mat4& inverseDecalTransform,
+            const glm::vec4& decalColor,
+            const glm::vec4& decalParams,
+            RendererID albedoTextureID,
+            i32 entityID = -1);
+
+        // Foliage rendering (submits DrawFoliageLayerCommand to FoliageRenderPass bucket)
+        static CommandPacket* DrawFoliageLayer(
+            RendererID vertexArrayID, u32 indexCount, u32 instanceCount,
+            RendererID albedoTextureID,
+            const glm::mat4& modelTransform,
+            f32 time,
+            f32 windStrength, f32 windSpeed,
+            f32 viewDistance, f32 fadeStart, f32 alphaCutoff,
+            const glm::vec4& baseColor,
+            i32 entityID = -1);
 
         static WindSettings& GetWindSettings()
         {
@@ -633,6 +670,62 @@ namespace OloEngine
                 return;
             }
             s_Data.ScenePass->SubmitPacket(packet);
+        }
+
+        template<typename T>
+        static CommandPacket* CreateDecalDrawCall()
+        {
+            OLO_PROFILE_FUNCTION();
+            if (!s_Data.DecalPass)
+            {
+                OLO_CORE_WARN("Renderer3D::CreateDecalDrawCall: DecalPass is null!");
+                return nullptr;
+            }
+            return s_Data.DecalPass->GetCommandBucket().CreateDrawCall<T>();
+        }
+
+        static void SubmitDecalPacket(CommandPacket* packet)
+        {
+            OLO_PROFILE_FUNCTION();
+            if (!packet)
+            {
+                OLO_CORE_WARN("Renderer3D::SubmitDecalPacket: Attempted to submit a null CommandPacket pointer!");
+                return;
+            }
+            if (!s_Data.DecalPass)
+            {
+                OLO_CORE_WARN("Renderer3D::SubmitDecalPacket: DecalPass is null!");
+                return;
+            }
+            s_Data.DecalPass->SubmitPacket(packet);
+        }
+
+        template<typename T>
+        static CommandPacket* CreateFoliageDrawCall()
+        {
+            OLO_PROFILE_FUNCTION();
+            if (!s_Data.FoliagePass)
+            {
+                OLO_CORE_WARN("Renderer3D::CreateFoliageDrawCall: FoliagePass is null!");
+                return nullptr;
+            }
+            return s_Data.FoliagePass->GetCommandBucket().CreateDrawCall<T>();
+        }
+
+        static void SubmitFoliagePacket(CommandPacket* packet)
+        {
+            OLO_PROFILE_FUNCTION();
+            if (!packet)
+            {
+                OLO_CORE_WARN("Renderer3D::SubmitFoliagePacket: Attempted to submit a null CommandPacket pointer!");
+                return;
+            }
+            if (!s_Data.FoliagePass)
+            {
+                OLO_CORE_WARN("Renderer3D::SubmitFoliagePacket: FoliagePass is null!");
+                return;
+            }
+            s_Data.FoliagePass->SubmitPacket(packet);
         }
 
       private:
@@ -677,6 +770,7 @@ namespace OloEngine
             Ref<UniformBuffer> DecalUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+            glm::mat4 InverseViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
             glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
 
@@ -701,6 +795,8 @@ namespace OloEngine
             Ref<RenderGraph> RGraph;
             Ref<ShadowRenderPass> ShadowPass;
             Ref<SceneRenderPass> ScenePass;
+            Ref<FoliageRenderPass> FoliagePass;
+            Ref<DecalRenderPass> DecalPass;
             Ref<SSAORenderPass> SSAOPass;
             Ref<ParticleRenderPass> ParticlePass;
             Ref<SSSRenderPass> SSSPass;

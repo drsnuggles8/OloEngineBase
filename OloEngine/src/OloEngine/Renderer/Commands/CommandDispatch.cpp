@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -34,9 +35,71 @@
 
 namespace OloEngine
 {
-    // Helper to apply POD render state to the renderer API
-    static void ApplyPODRenderState(const PODRenderState& state, RendererAPI& api)
+    struct CommandDispatchData
     {
+        Ref<UniformBuffer> CameraUBO = nullptr;
+        Ref<UniformBuffer> MaterialUBO = nullptr;
+        Ref<UniformBuffer> LightUBO = nullptr;
+        Ref<UniformBuffer> BoneMatricesUBO = nullptr;
+        Ref<UniformBuffer> ModelMatrixUBO = nullptr;
+        glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+        glm::mat4 ViewMatrix = glm::mat4(1.0f);
+        glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
+        Light SceneLight;
+        glm::vec3 ViewPos = glm::vec3(0.0f);
+
+        u32 CurrentBoundShaderID = 0;
+        u16 LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+        u16 LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+        std::array<u32, 32> BoundTextureIDs = { 0 };
+
+        // Shadow texture renderer IDs (set per-frame)
+        u32 CSMShadowTextureID = 0;
+        u32 SpotShadowTextureID = 0;
+        std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> PointShadowTextureIDs = { 0 };
+
+        // Snow accumulation depth texture (set per-frame)
+        u32 SnowDepthTextureID = 0;
+
+        CommandDispatch::Statistics Stats;
+    };
+
+    static CommandDispatchData s_Data;
+
+    // Helper to apply POD render state to the renderer API (skips if same index as last)
+    static void ApplyPODRenderState(u16 renderStateIndex, RendererAPI& api)
+    {
+        if (renderStateIndex == INVALID_RENDER_STATE_INDEX)
+        {
+            // Apply safe defaults so no stale GL state persists
+            s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+            static const PODRenderState s_Default{};
+            api.SetBlendState(s_Default.blendEnabled);
+            api.SetDepthTest(s_Default.depthTestEnabled);
+            if (s_Default.depthTestEnabled)
+            {
+                api.SetDepthFunc(s_Default.depthFunction);
+            }
+            api.SetDepthMask(s_Default.depthWriteMask);
+            api.DisableStencilTest();
+            api.DisableCulling();
+            api.SetLineWidth(s_Default.lineWidth);
+            api.SetPolygonMode(s_Default.polygonFace, s_Default.polygonMode);
+            api.DisableScissorTest();
+            api.SetColorMask(s_Default.colorMaskR, s_Default.colorMaskG, s_Default.colorMaskB, s_Default.colorMaskA);
+            api.SetPolygonOffset(0.0f, 0.0f);
+            if (s_Default.multisamplingEnabled)
+                api.EnableMultisampling();
+            else
+                api.DisableMultisampling();
+            return;
+        }
+
+        if (renderStateIndex == s_Data.LastRenderStateIndex)
+            return;
+        s_Data.LastRenderStateIndex = renderStateIndex;
+
+        const auto& state = FrameDataBufferManager::Get().GetRenderState(renderStateIndex);
         api.SetBlendState(state.blendEnabled);
         if (state.blendEnabled)
         {
@@ -99,34 +162,185 @@ namespace OloEngine
             api.DisableMultisampling();
     }
 
-    struct CommandDispatchData
+    // Helper: Upload material UBO and bind material textures.
+    // Skips entirely when materialDataIndex matches the last-used index.
+    // Helper: Conditionally bind a texture only when the slot isn't already
+    // bound to the same ID, updating tracking and stats.
+    static void BindTrackedTexture(RendererID textureID, u32 slot, GLenum target)
     {
-        Ref<UniformBuffer> CameraUBO = nullptr;
-        Ref<UniformBuffer> MaterialUBO = nullptr;
-        Ref<UniformBuffer> LightUBO = nullptr;
-        Ref<UniformBuffer> BoneMatricesUBO = nullptr;
-        Ref<UniformBuffer> ModelMatrixUBO = nullptr;
-        glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
-        glm::mat4 ViewMatrix = glm::mat4(1.0f);
-        glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
-        Light SceneLight;
-        glm::vec3 ViewPos = glm::vec3(0.0f);
+        if (textureID != 0 && s_Data.BoundTextureIDs[slot] != textureID)
+        {
+            glActiveTexture(GL_TEXTURE0 + slot);
+            glBindTexture(target, textureID);
+            s_Data.BoundTextureIDs[slot] = textureID;
+            ++s_Data.Stats.TextureBinds;
+        }
+    }
 
-        u32 CurrentBoundShaderID = 0;
-        std::array<u32, 32> BoundTextureIDs = { 0 };
+    // Helper: Bind all PBR material textures (albedo, metallic-roughness, normal,
+    // AO, emissive, environment cubemap, irradiance, prefilter, BRDF LUT).
+    static void BindPBRTextures(const PODMaterialData& mat)
+    {
+        BindTrackedTexture(mat.albedoMapID, ShaderBindingLayout::TEX_DIFFUSE, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.metallicRoughnessMapID, ShaderBindingLayout::TEX_SPECULAR, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.normalMapID, ShaderBindingLayout::TEX_NORMAL, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.aoMapID, ShaderBindingLayout::TEX_AMBIENT, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.emissiveMapID, ShaderBindingLayout::TEX_EMISSIVE, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.environmentMapID, ShaderBindingLayout::TEX_ENVIRONMENT, GL_TEXTURE_CUBE_MAP);
+        BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0, GL_TEXTURE_CUBE_MAP);
+        BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1, GL_TEXTURE_CUBE_MAP);
+        BindTrackedTexture(mat.brdfLutMapID, ShaderBindingLayout::TEX_USER_2, GL_TEXTURE_2D);
+    }
 
-        // Shadow texture renderer IDs (set per-frame)
-        u32 CSMShadowTextureID = 0;
-        u32 SpotShadowTextureID = 0;
-        std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> PointShadowTextureIDs = { 0 };
+    // Helper: Bind legacy material textures (diffuse, specular).
+    static void BindLegacyTextures(const PODMaterialData& mat)
+    {
+        BindTrackedTexture(mat.diffuseMapID, ShaderBindingLayout::TEX_DIFFUSE, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.specularMapID, ShaderBindingLayout::TEX_SPECULAR, GL_TEXTURE_2D);
+    }
 
-        // Snow accumulation depth texture (set per-frame)
-        u32 SnowDepthTextureID = 0;
+    static void UploadMaterialState(const PODMaterialData& mat, u16 materialDataIndex)
+    {
+        const bool sameIndex = (materialDataIndex == s_Data.LastMaterialDataIndex);
+        s_Data.LastMaterialDataIndex = materialDataIndex;
 
-        CommandDispatch::Statistics Stats;
-    };
+        if (mat.enablePBR)
+        {
+            if (!sameIndex)
+            {
+                ShaderBindingLayout::PBRMaterialUBO pbrMaterialData;
+                pbrMaterialData.BaseColorFactor = mat.baseColorFactor;
+                pbrMaterialData.EmissiveFactor = mat.emissiveFactor;
+                pbrMaterialData.MetallicFactor = mat.metallicFactor;
+                pbrMaterialData.RoughnessFactor = mat.roughnessFactor;
+                pbrMaterialData.NormalScale = mat.normalScale;
+                pbrMaterialData.OcclusionStrength = mat.occlusionStrength;
+                pbrMaterialData.UseAlbedoMap = mat.albedoMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseNormalMap = mat.normalMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseMetallicRoughnessMap = mat.metallicRoughnessMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseAOMap = mat.aoMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseEmissiveMap = mat.emissiveMapID != 0 ? 1 : 0;
+                pbrMaterialData.EnableIBL = mat.enableIBL ? 1 : 0;
+                pbrMaterialData.ApplyGammaCorrection = 1;
+                pbrMaterialData.AlphaCutoff = 0;
 
-    static CommandDispatchData s_Data;
+                if (s_Data.MaterialUBO)
+                {
+                    constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
+                    static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch");
+                    s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
+                }
+            }
+
+            // Always rebind textures — an intervening pass (e.g. DecalPass)
+            // may have changed texture slots since the last material upload.
+            BindPBRTextures(mat);
+        }
+        else
+        {
+            if (!sameIndex)
+            {
+                ShaderBindingLayout::MaterialUBO materialData;
+                materialData.Ambient = glm::vec4(mat.ambient, 1.0f);
+                materialData.Diffuse = glm::vec4(mat.diffuse, 1.0f);
+                materialData.Specular = glm::vec4(mat.specular, mat.shininess);
+                materialData.Emissive = glm::vec4(0.0f);
+                materialData.UseTextureMaps = mat.useTextureMaps ? 1 : 0;
+                materialData.AlphaMode = 0;
+                materialData.DoubleSided = 0;
+                materialData._padding = 0;
+
+                if (s_Data.MaterialUBO)
+                {
+                    constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
+                    static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
+                    s_Data.MaterialUBO->SetData(&materialData, expectedSize);
+                }
+            }
+
+            if (mat.useTextureMaps)
+            {
+                BindLegacyTextures(mat);
+            }
+        }
+    }
+
+    // Helper: Bind per-frame shadow and snow depth textures (only relevant for PBR paths).
+    // Relies on BoundTextureIDs tracking to avoid redundant binds.
+    static void BindShadowTextures()
+    {
+        if (s_Data.CSMShadowTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] != s_Data.CSMShadowTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] = s_Data.CSMShadowTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+        if (s_Data.SpotShadowTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] != s_Data.SpotShadowTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] = s_Data.SpotShadowTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+
+        static constexpr std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> pointSlots = {
+            ShaderBindingLayout::TEX_SHADOW_POINT_0,
+            ShaderBindingLayout::TEX_SHADOW_POINT_1,
+            ShaderBindingLayout::TEX_SHADOW_POINT_2,
+            ShaderBindingLayout::TEX_SHADOW_POINT_3
+        };
+        for (u32 i = 0; i < UBOStructures::ShadowUBO::MAX_POINT_SHADOWS; ++i)
+        {
+            if (s_Data.PointShadowTextureIDs[i] != 0)
+            {
+                if (s_Data.BoundTextureIDs[pointSlots[i]] != s_Data.PointShadowTextureIDs[i])
+                {
+                    glBindTextureUnit(pointSlots[i], s_Data.PointShadowTextureIDs[i]);
+                    s_Data.BoundTextureIDs[pointSlots[i]] = s_Data.PointShadowTextureIDs[i];
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+        }
+
+        if (s_Data.SnowDepthTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] != s_Data.SnowDepthTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] = s_Data.SnowDepthTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+    }
+
+    // Helper: Upload bone matrices from FrameDataBuffer.
+    static void UploadBoneMatrices(bool isAnimated, u32 boneBufferOffset, u32 boneCount)
+    {
+        if (!isAnimated || !s_Data.BoneMatricesUBO || boneCount == 0)
+            return;
+
+        using namespace UBOStructures;
+        constexpr sizet MAX_BONES = AnimationConstants::MAX_BONES;
+        sizet count = glm::min(static_cast<sizet>(boneCount), MAX_BONES);
+
+        if (boneCount > MAX_BONES)
+        {
+            OLO_CORE_WARN("Animated mesh has {} bones, exceeding limit of {}. Bone matrices will be truncated.",
+                          boneCount, MAX_BONES);
+        }
+
+        const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(boneBufferOffset);
+        if (boneMatrices)
+        {
+            s_Data.BoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
+        }
+    }
 
     // Array of dispatch functions indexed by CommandType
     static CommandDispatchFn s_DispatchTable[static_cast<sizet>(CommandType::COUNT)];
@@ -182,9 +396,39 @@ namespace OloEngine
         s_DispatchTable[static_cast<sizet>(CommandType::DrawTerrainPatch)] = CommandDispatch::DrawTerrainPatch;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawVoxelMesh)] = CommandDispatch::DrawVoxelMesh;
 
+        // Decal commands
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawDecal)] = CommandDispatch::DrawDecal;
+
+        // Foliage commands
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawFoliageLayer)] = CommandDispatch::DrawFoliageLayer;
+
         s_Data.CurrentBoundShaderID = 0;
         std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
         s_Data.Stats.Reset();
+
+        // Register the dispatch resolver so CommandPacket::Execute() can look
+        // up dispatch functions without a compile-time dependency on this TU.
+        CommandPacket::SetDispatchResolver(CommandDispatch::GetDispatchFunction);
+
+        // Register view state callbacks so CommandBucket::Execute() can
+        // save/bind/restore view state without depending on this TU.
+        CommandBucket::SetViewStateCallbacks(
+            // Read: capture current global view state
+            [](BucketViewState& out)
+            {
+                out.ViewMatrix = s_Data.ViewMatrix;
+                out.ProjectionMatrix = s_Data.ProjectionMatrix;
+                out.ViewProjectionMatrix = s_Data.ViewProjectionMatrix;
+                out.ViewPosition = s_Data.ViewPos;
+            },
+            // Write: apply a view state to global state
+            [](const BucketViewState& in)
+            {
+                CommandDispatch::SetViewMatrix(in.ViewMatrix);
+                CommandDispatch::SetProjectionMatrix(in.ProjectionMatrix);
+                CommandDispatch::SetViewProjectionMatrix(in.ViewProjectionMatrix);
+                CommandDispatch::SetViewPosition(in.ViewPosition);
+            });
 
         OLO_CORE_INFO("CommandDispatch: Initialized (UBOs managed by Renderer3D)");
     }
@@ -216,12 +460,19 @@ namespace OloEngine
     void CommandDispatch::ResetState()
     {
         s_Data.CurrentBoundShaderID = 0;
+        s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+        s_Data.LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         s_Data.BoundTextureIDs.fill(0);
         s_Data.CSMShadowTextureID = 0;
         s_Data.SpotShadowTextureID = 0;
         s_Data.PointShadowTextureIDs.fill(0);
         s_Data.SnowDepthTextureID = 0;
         s_Data.Stats.Reset();
+    }
+
+    void CommandDispatch::InvalidateRenderStateCache()
+    {
+        s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
     }
 
     void CommandDispatch::SetViewProjectionMatrix(const glm::mat4& vp)
@@ -242,6 +493,21 @@ namespace OloEngine
     const glm::mat4& CommandDispatch::GetViewMatrix()
     {
         return s_Data.ViewMatrix;
+    }
+
+    const glm::mat4& CommandDispatch::GetProjectionMatrix()
+    {
+        return s_Data.ProjectionMatrix;
+    }
+
+    const glm::mat4& CommandDispatch::GetViewProjectionMatrix()
+    {
+        return s_Data.ViewProjectionMatrix;
+    }
+
+    const glm::vec3& CommandDispatch::GetViewPosition()
+    {
+        return s_Data.ViewPos;
     }
 
     void CommandDispatch::SetSceneLight(const Light& light)
@@ -554,39 +820,30 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         auto const* cmd = static_cast<const DrawMeshCommand*>(data);
 
+        // Resolve material data from table
+        const auto& mat = FrameDataBufferManager::Get().GetMaterialData(cmd->materialDataIndex);
+
         // Validate POD renderer IDs
-        if (cmd->vertexArrayID == 0 || cmd->shaderRendererID == 0)
+        if (cmd->vertexArrayID == 0 || mat.shaderRendererID == 0)
         {
             OLO_CORE_ERROR("CommandDispatch::DrawMesh: Invalid vertex array ID or shader ID");
             return;
         }
 
-        // Apply POD render state directly
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind shader using renderer ID directly
-        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        if (s_Data.CurrentBoundShaderID != mat.shaderRendererID)
         {
-            glUseProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            glUseProgram(mat.shaderRendererID);
+            s_Data.CurrentBoundShaderID = mat.shaderRendererID;
             ++s_Data.Stats.ShaderBinds;
         }
 
-        ShaderBindingLayout::CameraUBO cameraData;
-        cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
-        cameraData.View = s_Data.ViewMatrix;
-        // Calculate projection matrix from ViewProjection and View: Projection = ViewProjection * inverse(View)
-        cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
-        cameraData.Position = s_Data.ViewPos; // Add camera position
-        cameraData._padding0 = 0.0f;          // Initialize padding
-
-        if (s_Data.CameraUBO)
-        {
-            constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
-            static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch in DrawMesh");
-            s_Data.CameraUBO->SetData(&cameraData, expectedSize);
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
-        }
+        // Camera and Light UBOs are uploaded once per frame in BeginSceneCommon
+        // (via UpdateCameraMatricesUBO / UpdateLightPropertiesUBO) and their
+        // binding points persist from UBO creation, so no per-draw upload needed.
 
         // Update model matrix UBO
         if (s_Data.ModelMatrixUBO)
@@ -606,277 +863,15 @@ namespace OloEngine
             glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }
 
-        // Update material UBO - use PBR if enabled, otherwise use legacy
-        if (cmd->enablePBR)
-        {
-            ShaderBindingLayout::PBRMaterialUBO pbrMaterialData;
-            pbrMaterialData.BaseColorFactor = cmd->baseColorFactor;
-            pbrMaterialData.EmissiveFactor = cmd->emissiveFactor;
-            pbrMaterialData.MetallicFactor = cmd->metallicFactor;
-            pbrMaterialData.RoughnessFactor = cmd->roughnessFactor;
-            pbrMaterialData.NormalScale = cmd->normalScale;
-            pbrMaterialData.OcclusionStrength = cmd->occlusionStrength;
-            pbrMaterialData.UseAlbedoMap = cmd->albedoMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseNormalMap = cmd->normalMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseMetallicRoughnessMap = cmd->metallicRoughnessMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseAOMap = cmd->aoMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseEmissiveMap = cmd->emissiveMapID != 0 ? 1 : 0;
-            pbrMaterialData.EnableIBL = cmd->enableIBL ? 1 : 0;
-            pbrMaterialData.ApplyGammaCorrection = 1; // Enable gamma correction by default
-            pbrMaterialData.AlphaCutoff = 0;          // Default alpha cutoff
+        // Material UBO + texture bindings (skipped when material unchanged)
+        UploadMaterialState(mat, cmd->materialDataIndex);
 
-            if (s_Data.MaterialUBO)
-            {
-                constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
-                static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch in DrawMesh");
-                s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
-                glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
-            }
-        }
-        else
-        {
-            ShaderBindingLayout::MaterialUBO materialData;
-            materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
-            materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
-            materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
-            materialData.Emissive = glm::vec4(0.0f);
-            materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
-            materialData.AlphaMode = 0;   // Default alpha mode
-            materialData.DoubleSided = 0; // Default double-sided
-            materialData._padding = 0;    // Clear remaining padding
+        // Shadow/snow textures (per-frame, outside material diffing)
+        if (mat.enablePBR)
+            BindShadowTextures();
 
-            if (s_Data.MaterialUBO)
-            {
-                constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
-                static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawMesh");
-                s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-                glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
-            }
-        }
-
-        const Light& light = s_Data.SceneLight;
-        auto lightType = std::to_underlying(light.Type);
-
-        ShaderBindingLayout::LightUBO lightData;
-        lightData.LightPosition = glm::vec4(light.Position, 1.0f);
-        lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
-        lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
-        lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
-        lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
-        lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
-        lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
-        lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
-
-        if (s_Data.LightUBO)
-        {
-            constexpr u32 expectedSize = ShaderBindingLayout::LightUBO::GetSize();
-            static_assert(sizeof(ShaderBindingLayout::LightUBO) == expectedSize, "LightUBO size mismatch");
-            s_Data.LightUBO->SetData(&lightData, expectedSize);
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
-        }
-
-        // Bind textures based on material type using renderer IDs directly
-        if (cmd->enablePBR)
-        {
-            // PBR texture binding using renderer IDs
-            if (cmd->albedoMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != cmd->albedoMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_DIFFUSE);
-                    glBindTexture(GL_TEXTURE_2D, cmd->albedoMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->albedoMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (cmd->metallicRoughnessMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != cmd->metallicRoughnessMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_SPECULAR);
-                    glBindTexture(GL_TEXTURE_2D, cmd->metallicRoughnessMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = cmd->metallicRoughnessMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (cmd->normalMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] != cmd->normalMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_NORMAL);
-                    glBindTexture(GL_TEXTURE_2D, cmd->normalMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] = cmd->normalMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (cmd->aoMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] != cmd->aoMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_AMBIENT);
-                    glBindTexture(GL_TEXTURE_2D, cmd->aoMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] = cmd->aoMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (cmd->emissiveMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] != cmd->emissiveMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_EMISSIVE);
-                    glBindTexture(GL_TEXTURE_2D, cmd->emissiveMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] = cmd->emissiveMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (cmd->environmentMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] != cmd->environmentMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_ENVIRONMENT);
-                    glBindTexture(GL_TEXTURE_CUBE_MAP, cmd->environmentMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] = cmd->environmentMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (cmd->irradianceMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] != cmd->irradianceMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_0);
-                    glBindTexture(GL_TEXTURE_CUBE_MAP, cmd->irradianceMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = cmd->irradianceMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (cmd->prefilterMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] != cmd->prefilterMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_1);
-                    glBindTexture(GL_TEXTURE_CUBE_MAP, cmd->prefilterMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] = cmd->prefilterMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (cmd->brdfLutMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] != cmd->brdfLutMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_2);
-                    glBindTexture(GL_TEXTURE_2D, cmd->brdfLutMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] = cmd->brdfLutMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            // Bind shadow map textures (CSM at TEX_SHADOW, spot at TEX_SHADOW_SPOT)
-            if (s_Data.CSMShadowTextureID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] != s_Data.CSMShadowTextureID)
-                {
-                    glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] = s_Data.CSMShadowTextureID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-            if (s_Data.SpotShadowTextureID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] != s_Data.SpotShadowTextureID)
-                {
-                    glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] = s_Data.SpotShadowTextureID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            // Bind point light shadow cubemaps (TEX_SHADOW_POINT_0 .. TEX_SHADOW_POINT_3)
-            static constexpr std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> pointSlots = {
-                ShaderBindingLayout::TEX_SHADOW_POINT_0,
-                ShaderBindingLayout::TEX_SHADOW_POINT_1,
-                ShaderBindingLayout::TEX_SHADOW_POINT_2,
-                ShaderBindingLayout::TEX_SHADOW_POINT_3
-            };
-            for (u32 i = 0; i < UBOStructures::ShadowUBO::MAX_POINT_SHADOWS; ++i)
-            {
-                if (s_Data.PointShadowTextureIDs[i] != 0)
-                {
-                    if (s_Data.BoundTextureIDs[pointSlots[i]] != s_Data.PointShadowTextureIDs[i])
-                    {
-                        glBindTextureUnit(pointSlots[i], s_Data.PointShadowTextureIDs[i]);
-                        s_Data.BoundTextureIDs[pointSlots[i]] = s_Data.PointShadowTextureIDs[i];
-                        ++s_Data.Stats.TextureBinds;
-                    }
-                }
-            }
-
-            // Bind snow accumulation depth texture
-            if (s_Data.SnowDepthTextureID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] != s_Data.SnowDepthTextureID)
-                {
-                    glBindTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] = s_Data.SnowDepthTextureID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-        }
-        else if (cmd->useTextureMaps)
-        {
-            // Legacy texture binding using renderer IDs
-            if (cmd->diffuseMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != cmd->diffuseMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_DIFFUSE);
-                    glBindTexture(GL_TEXTURE_2D, cmd->diffuseMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->diffuseMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (cmd->specularMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != cmd->specularMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_SPECULAR);
-                    glBindTexture(GL_TEXTURE_2D, cmd->specularMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = cmd->specularMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-        }
-
-        // Handle bone matrices for animated meshes using FrameDataBuffer
-        if (cmd->isAnimatedMesh && s_Data.BoneMatricesUBO && cmd->boneCount > 0)
-        {
-            using namespace UBOStructures;
-            constexpr sizet MAX_BONES = AnimationConstants::MAX_BONES;
-            sizet boneCount = glm::min(static_cast<sizet>(cmd->boneCount), MAX_BONES);
-
-            // Runtime check for bone limit exceeded
-            if (cmd->boneCount > MAX_BONES)
-            {
-                OLO_CORE_WARN("Animated mesh has {} bones, exceeding limit of {}. Bone matrices will be truncated.",
-                              cmd->boneCount, MAX_BONES);
-            }
-
-            // Get bone matrices from FrameDataBuffer
-            const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(cmd->boneBufferOffset);
-            if (boneMatrices)
-            {
-                s_Data.BoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(boneCount * sizeof(glm::mat4)));
-                glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
-            }
-        }
+        // Bone matrices
+        UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount);
 
         if (cmd->indexCount == 0)
         {
@@ -895,46 +890,32 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         auto const* cmd = static_cast<const DrawMeshInstancedCommand*>(data);
 
+        // Resolve material data from table
+        const auto& mat = FrameDataBufferManager::Get().GetMaterialData(cmd->materialDataIndex);
+
         // Validate POD renderer IDs
-        if (cmd->vertexArrayID == 0 || cmd->shaderRendererID == 0)
+        if (cmd->vertexArrayID == 0 || mat.shaderRendererID == 0)
         {
             OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: Invalid vertex array ID or shader ID");
             return;
         }
 
-        // Apply POD render state directly
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind shader using renderer ID directly
-        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        if (s_Data.CurrentBoundShaderID != mat.shaderRendererID)
         {
-            glUseProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            glUseProgram(mat.shaderRendererID);
+            s_Data.CurrentBoundShaderID = mat.shaderRendererID;
             ++s_Data.Stats.ShaderBinds;
         }
 
-        // Update material UBO
-        ShaderBindingLayout::MaterialUBO materialData;
-        materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
-        materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
-        materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
-        materialData.Emissive = glm::vec4(0.0f);
-        materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
-        materialData.AlphaMode = 0;
-        materialData.DoubleSided = 0;
-        materialData._padding = 0;
-
-        if (s_Data.MaterialUBO)
-        {
-            constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
-            static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
-            s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-        }
-
-        UpdateMaterialTextureFlag(cmd->useTextureMaps);
+        // Material UBO + texture bindings (skipped when material unchanged)
+        UploadMaterialState(mat, cmd->materialDataIndex);
 
         // Get transforms from FrameDataBuffer
-        const sizet maxInstances = 100;
+        constexpr sizet maxInstances = CommandBucketConfig{}.MaxMeshInstances;
         sizet instanceCount = static_cast<sizet>(cmd->transformCount);
         if (instanceCount > maxInstances)
         {
@@ -950,44 +931,25 @@ namespace OloEngine
         if (transforms)
         {
             // Get base location once for u_ModelMatrices[0] - array elements are sequential
-            GLint baseLocation = glGetUniformLocation(cmd->shaderRendererID, "u_ModelMatrices[0]");
+            GLint baseLocation = glGetUniformLocation(mat.shaderRendererID, "u_ModelMatrices[0]");
             if (baseLocation != -1)
             {
                 // Upload all instance matrices in a single GL call
                 glUniformMatrix4fv(baseLocation, static_cast<GLsizei>(instanceCount), GL_FALSE, glm::value_ptr(transforms[0]));
             }
-            GLint instanceCountLoc = glGetUniformLocation(cmd->shaderRendererID, "u_InstanceCount");
+            GLint instanceCountLoc = glGetUniformLocation(mat.shaderRendererID, "u_InstanceCount");
             if (instanceCountLoc != -1)
             {
                 glUniform1i(instanceCountLoc, static_cast<GLint>(instanceCount));
             }
         }
 
-        // Bind textures using renderer IDs
-        if (cmd->useTextureMaps)
-        {
-            if (cmd->diffuseMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != cmd->diffuseMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_DIFFUSE);
-                    glBindTexture(GL_TEXTURE_2D, cmd->diffuseMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->diffuseMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
+        // Shadow/snow textures (per-frame, outside material diffing)
+        if (mat.enablePBR)
+            BindShadowTextures();
 
-            if (cmd->specularMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != cmd->specularMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_SPECULAR);
-                    glBindTexture(GL_TEXTURE_2D, cmd->specularMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = cmd->specularMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-        }
+        // Bone matrices
+        UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance);
 
         if (cmd->indexCount == 0)
         {
@@ -1014,8 +976,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply POD render state (skybox-specific settings already in renderState)
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind skybox shader using renderer ID directly
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1061,8 +1023,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply POD render state directly
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind shader using renderer ID directly
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1118,8 +1080,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply POD render state (grid-specific: blending enabled, depth test enabled)
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind grid shader using renderer ID directly
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1158,8 +1120,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply render state
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind shader
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1297,8 +1259,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply render state
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind shader
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1369,6 +1331,138 @@ namespace OloEngine
         // Draw with GL_TRIANGLES
         glBindVertexArray(cmd->vertexArrayID);
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        ++s_Data.Stats.DrawCalls;
+    }
+
+    void CommandDispatch::DrawDecal(const void* data, RendererAPI& api)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto const* cmd = static_cast<const DrawDecalCommand*>(data);
+
+        if (cmd->vertexArrayID == 0 || cmd->shaderRendererID == 0)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawDecal: Invalid vertex array ID or shader ID");
+            return;
+        }
+
+        // Resolve and apply render state from table
+        ApplyPODRenderState(cmd->renderStateIndex, api);
+
+        // Bind shader (cached)
+        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        {
+            glUseProgram(cmd->shaderRendererID);
+            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            ++s_Data.Stats.ShaderBinds;
+        }
+
+        // Upload model UBO
+        if (s_Data.ModelMatrixUBO)
+        {
+            ShaderBindingLayout::ModelUBO modelData{};
+            modelData.Model = cmd->decalTransform;
+            modelData.Normal = glm::transpose(glm::inverse(cmd->decalTransform));
+            modelData.EntityID = cmd->entityID;
+            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+        }
+
+        // Upload decal UBO
+        auto decalUBO = Renderer3D::GetDecalUBO();
+        if (decalUBO)
+        {
+            ShaderBindingLayout::DecalUBO decalData{};
+            decalData.InverseDecalTransform = cmd->inverseDecalTransform;
+            decalData.InverseViewProjection = cmd->inverseViewProjection;
+            decalData.DecalColor = cmd->decalColor;
+            decalData.DecalParams = cmd->decalParams;
+            decalUBO->SetData(&decalData, ShaderBindingLayout::DecalUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_DECAL, decalUBO->GetRendererID());
+        }
+
+        // Bind albedo texture (with redundancy check)
+        if (cmd->albedoTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] != cmd->albedoTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_USER_0, cmd->albedoTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = cmd->albedoTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+
+        // Draw the decal projection cube
+        glBindVertexArray(cmd->vertexArrayID);
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        ++s_Data.Stats.DrawCalls;
+    }
+
+    void CommandDispatch::DrawFoliageLayer(const void* data, RendererAPI& api)
+    {
+        OLO_PROFILE_FUNCTION();
+        const auto* cmd = static_cast<const DrawFoliageLayerCommand*>(data);
+
+        if (!cmd || cmd->vertexArrayID == 0 || cmd->shaderRendererID == 0 || cmd->instanceCount == 0 || cmd->indexCount == 0)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawFoliageLayer: Invalid foliage command (VAO={}, shader={}, instances={}, indices={})",
+                           cmd ? cmd->vertexArrayID : 0, cmd ? cmd->shaderRendererID : 0,
+                           cmd ? cmd->instanceCount : 0, cmd ? cmd->indexCount : 0);
+            return;
+        }
+
+        // Resolve and apply render state from table
+        ApplyPODRenderState(cmd->renderStateIndex, api);
+
+        // Bind shader (cached)
+        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        {
+            glUseProgram(cmd->shaderRendererID);
+            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            ++s_Data.Stats.ShaderBinds;
+        }
+
+        // Upload model UBO (parent terrain transform)
+        if (s_Data.ModelMatrixUBO)
+        {
+            ShaderBindingLayout::ModelUBO modelData{};
+            modelData.Model = cmd->modelTransform;
+            modelData.Normal = cmd->normalMatrix;
+            modelData.EntityID = cmd->entityID;
+            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+        }
+
+        // Upload foliage UBO (per-layer parameters)
+        auto foliageUBO = Renderer3D::GetFoliageUBO();
+        if (foliageUBO)
+        {
+            ShaderBindingLayout::FoliageUBO foliageData{};
+            foliageData.Time = cmd->time;
+            foliageData.WindStrength = cmd->windStrength;
+            foliageData.WindSpeed = cmd->windSpeed;
+            foliageData.ViewDistance = cmd->viewDistance;
+            foliageData.FadeStart = cmd->fadeStart;
+            foliageData.AlphaCutoff = cmd->alphaCutoff;
+            foliageData.BaseColor = cmd->baseColor;
+            foliageUBO->SetData(&foliageData, ShaderBindingLayout::FoliageUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_FOLIAGE, foliageUBO->GetRendererID());
+        }
+
+        // Bind albedo texture (with redundancy check)
+        if (cmd->albedoTextureID != 0)
+        {
+            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != cmd->albedoTextureID)
+            {
+                glBindTextureUnit(ShaderBindingLayout::TEX_DIFFUSE, cmd->albedoTextureID);
+                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->albedoTextureID;
+                ++s_Data.Stats.TextureBinds;
+            }
+        }
+
+        // Draw instanced foliage quads
+        glBindVertexArray(cmd->vertexArrayID);
+        glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(cmd->instanceCount));
         ++s_Data.Stats.DrawCalls;
     }
 } // namespace OloEngine

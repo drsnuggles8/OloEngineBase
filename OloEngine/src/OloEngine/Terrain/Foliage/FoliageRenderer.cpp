@@ -343,4 +343,33 @@ namespace OloEngine
         }
         return total;
     }
+
+    std::vector<FoliageLayerDrawInfo> FoliageRenderer::GetActiveLayerDrawInfo() const
+    {
+        std::vector<FoliageLayerDrawInfo> result;
+        result.reserve(m_Layers.size());
+
+        for (const auto& layer : m_Layers)
+        {
+            if (layer.InstanceCount == 0 || !layer.VAO)
+            {
+                continue;
+            }
+
+            FoliageLayerDrawInfo info;
+            info.VertexArrayID = layer.VAO->GetRendererID();
+            info.IndexCount = layer.IndexCount;
+            info.InstanceCount = layer.InstanceCount;
+            info.AlbedoTextureID = layer.AlbedoTexture ? layer.AlbedoTexture->GetRendererID() : 0;
+            info.ViewDistance = layer.ViewDistance;
+            info.FadeStartDistance = layer.FadeStartDistance;
+            info.WindStrength = layer.WindStrength;
+            info.WindSpeed = layer.WindSpeed;
+            info.BaseColor = layer.BaseColor;
+            info.AlphaCutoff = layer.AlphaCutoff;
+            result.push_back(info);
+        }
+
+        return result;
+    }
 } // namespace OloEngine

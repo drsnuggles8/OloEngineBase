@@ -5,49 +5,17 @@
 
 namespace OloEngine
 {
+    // Static dispatch resolver — set at engine startup by CommandDispatch::Initialize().
+    CommandPacket::DispatchResolverFn CommandPacket::s_DispatchResolver = nullptr;
+
+    void CommandPacket::SetDispatchResolver(DispatchResolverFn resolver)
+    {
+        s_DispatchResolver = resolver;
+    }
+
     CommandPacket::~CommandPacket()
     {
         // No dynamic resources to clean up
-    }
-
-    CommandPacket::CommandPacket(CommandPacket&& other) noexcept
-        : m_CommandSize(other.m_CommandSize),
-          m_CommandType(other.m_CommandType),
-          m_DispatchFn(other.m_DispatchFn),
-          m_Metadata(other.m_Metadata),
-          m_Next(other.m_Next)
-    {
-        // Copy command data
-        std::memcpy(m_CommandData, other.m_CommandData, other.m_CommandSize);
-
-        // Reset the source object
-        other.m_CommandSize = 0;
-        other.m_CommandType = CommandType::Invalid;
-        other.m_DispatchFn = nullptr;
-        other.m_Next = nullptr;
-    }
-
-    CommandPacket& CommandPacket::operator=(CommandPacket&& other) noexcept
-    {
-        if (this != &other)
-        {
-            // Copy command data
-            std::memcpy(m_CommandData, other.m_CommandData, other.m_CommandSize);
-
-            // Copy metadata
-            m_CommandSize = other.m_CommandSize;
-            m_CommandType = other.m_CommandType;
-            m_DispatchFn = other.m_DispatchFn;
-            m_Metadata = other.m_Metadata;
-            m_Next = other.m_Next;
-
-            // Reset the source object
-            other.m_CommandSize = 0;
-            other.m_CommandType = CommandType::Invalid;
-            other.m_DispatchFn = nullptr;
-            other.m_Next = nullptr;
-        }
-        return *this;
     }
 
     void CommandPacket::Execute(RendererAPI& rendererAPI) const
@@ -56,9 +24,17 @@ namespace OloEngine
 
         if (m_CommandSize > 0)
         {
-            if (m_DispatchFn)
+            // Resolve dispatch function: prefer per-packet fn, fallback to
+            // global resolver (set at engine startup by CommandDispatch::Initialize).
+            CommandDispatchFn dispatchFn = m_DispatchFn;
+            if (!dispatchFn && s_DispatchResolver)
             {
-                m_DispatchFn(m_CommandData, rendererAPI);
+                dispatchFn = s_DispatchResolver(m_CommandType);
+            }
+
+            if (dispatchFn)
+            {
+                dispatchFn(GetInlineData(), rendererAPI);
             }
             else
             {
@@ -92,39 +68,19 @@ namespace OloEngine
         {
             case CommandType::DrawMesh:
             {
-                auto* cmd1 = reinterpret_cast<const DrawMeshCommand*>(m_CommandData);
-                auto* cmd2 = reinterpret_cast<const DrawMeshCommand*>(other.m_CommandData);
+                auto* cmd1 = reinterpret_cast<const DrawMeshCommand*>(GetInlineData());
+                auto* cmd2 = reinterpret_cast<const DrawMeshCommand*>(other.GetInlineData());
 
                 // Check if mesh handles are the same (POD)
                 if (cmd1->meshHandle != cmd2->meshHandle)
                     return false;
 
-                // Check if shaders are the same (using renderer ID)
-                if (cmd1->shaderRendererID != cmd2->shaderRendererID)
+                // Check if material data is the same (covers shader, textures, and all material properties)
+                if (cmd1->materialDataIndex != cmd2->materialDataIndex)
                     return false;
 
-                // Check material properties
-                if (cmd1->useTextureMaps != cmd2->useTextureMaps)
-                    return false;
-
-                // Check texture renderer IDs (POD)
-                if (cmd1->diffuseMapID != cmd2->diffuseMapID)
-                    return false;
-
-                if (cmd1->specularMapID != cmd2->specularMapID)
-                    return false;
-
-                // Check material properties
-                if (cmd1->ambient != cmd2->ambient)
-                    return false;
-
-                if (cmd1->diffuse != cmd2->diffuse)
-                    return false;
-
-                if (cmd1->specular != cmd2->specular)
-                    return false;
-
-                if (cmd1->shininess != cmd2->shininess)
+                // Check if render state is the same (blend, depth, stencil, etc.)
+                if (cmd1->renderStateIndex != cmd2->renderStateIndex)
                     return false;
 
                 // All checks passed, these commands can be batched
@@ -133,12 +89,13 @@ namespace OloEngine
 
             case CommandType::DrawQuad:
             {
-                auto* cmd1 = reinterpret_cast<const DrawQuadCommand*>(m_CommandData);
-                auto* cmd2 = reinterpret_cast<const DrawQuadCommand*>(other.m_CommandData);
+                auto* cmd1 = reinterpret_cast<const DrawQuadCommand*>(GetInlineData());
+                auto* cmd2 = reinterpret_cast<const DrawQuadCommand*>(other.GetInlineData());
 
-                // Quads can be batched if they use the same texture and shader (POD renderer IDs)
+                // Quads can be batched if they use the same texture, shader, and render state
                 return cmd1->textureID == cmd2->textureID &&
-                       cmd1->shaderRendererID == cmd2->shaderRendererID;
+                       cmd1->shaderRendererID == cmd2->shaderRendererID &&
+                       cmd1->renderStateIndex == cmd2->renderStateIndex;
             }
 
             // State change commands generally can't be batched
@@ -147,43 +104,29 @@ namespace OloEngine
         }
     }
 
-    bool CommandPacket::UpdateCommandData(const void* data, sizet size)
-    {
-        if (size > MAX_COMMAND_SIZE || !data)
-        {
-            OLO_CORE_ERROR("CommandPacket: Cannot update command data, invalid size or null data");
-            return false;
-        }
-
-        std::memcpy(m_CommandData, data, size);
-        m_CommandSize = size;
-        return true;
-    }
-
     CommandPacket* CommandPacket::Clone(CommandAllocator& allocator) const
     {
         OLO_PROFILE_FUNCTION();
 
-        // Allocate memory for a new command packet
-        void* packetMemory = allocator.AllocateCommandMemory(sizeof(CommandPacket));
-        if (!packetMemory)
+        // Allocate memory for packet + command data together
+        void* block = allocator.AllocateCommandMemory(sizeof(CommandPacket) + m_CommandSize);
+        if (!block)
         {
             OLO_CORE_ERROR("CommandPacket: Failed to allocate memory for clone");
             return nullptr;
         }
 
         // Construct a new CommandPacket in the allocated memory
-        auto* clone = new (packetMemory) CommandPacket();
+        auto* clone = new (block) CommandPacket();
 
-        // Copy command data
-        std::memcpy(clone->m_CommandData, m_CommandData, m_CommandSize);
+        // Copy command data into clone's inline storage
+        clone->m_CommandSize = m_CommandSize;
+        std::memcpy(clone->GetInlineData(), GetInlineData(), m_CommandSize);
 
         // Copy metadata
-        clone->m_CommandSize = m_CommandSize;
         clone->m_CommandType = m_CommandType;
         clone->m_DispatchFn = m_DispatchFn;
         clone->m_Metadata = m_Metadata;
-        clone->m_Next = nullptr; // The clone doesn't inherit the linked list position
 
         return clone;
     }

@@ -196,6 +196,23 @@ namespace OloEngine
         std::vector<CapturedCommandData> PostSortCommands;  // After radix sort
         std::vector<CapturedCommandData> PostBatchCommands; // After batching
 
+        // Deep-copied snapshots of per-frame render state and material data tables.
+        // These are captured at frame-end so that the debugger can inspect the exact
+        // data that was active during the captured frame, rather than reading the live
+        // FrameDataBuffer (which gets overwritten every frame).
+        std::vector<PODRenderState> RenderStateSnapshot;
+        std::vector<PODMaterialData> MaterialDataSnapshot;
+
+        const PODRenderState* GetSnapshotRenderState(u16 index) const
+        {
+            return index < static_cast<u16>(RenderStateSnapshot.size()) ? &RenderStateSnapshot[index] : nullptr;
+        }
+
+        const PODMaterialData* GetSnapshotMaterialData(u16 index) const
+        {
+            return index < static_cast<u16>(MaterialDataSnapshot.size()) ? &MaterialDataSnapshot[index] : nullptr;
+        }
+
         FrameCaptureStats Stats;
         std::string Notes;
     };

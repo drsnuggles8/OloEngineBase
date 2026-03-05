@@ -293,6 +293,9 @@ namespace OloEngine
 
         // Remove dependencies
         DeregisterDependencies(handle);
+
+        // Remove stale generation counter
+        ResetAssetGeneration(handle);
     }
 
     void RuntimeAssetManager::RegisterDependency(AssetHandle handle, AssetHandle dependency)

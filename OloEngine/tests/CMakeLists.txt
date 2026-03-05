@@ -9,6 +9,16 @@ add_executable(OloEngine-Tests
 		PrecipitationEmitterTest.cpp
 		PrecipitationSystemTest.cpp
 		PrecipitationBenchmarkTest.cpp
+		CoreUtilitiesTest.cpp
+		LoggerTest.cpp
+		MathTest.cpp
+		AssetCreationTest.cpp
+		AssetGenerationTest.cpp
+		ShadowMapTest.cpp
+		PostProcessTest.cpp
+		ComputeShaderAndSSBOTest.cpp
+		SoundGraphBasicTest.cpp
+		AudioEventQueueTest.cpp
 
 		Async/ParkingLotTest.cpp
 		Async/MutexTest.cpp
@@ -23,11 +33,28 @@ add_executable(OloEngine-Tests
 		Memory/MemoryViewTest.cpp
 		Templates/FunctionWithContextTest.cpp
 		Templates/TypeTraitsTest.cpp
+
+		# Rendering subsystem tests (Tiers 1-5)
+		Rendering/DrawKeyTest.cpp
+		Rendering/BoundingVolumeTest.cpp
+		Rendering/FrustumCullingTest.cpp
+		Rendering/PODCommandTest.cpp
+		Rendering/ShaderBindingLayoutTest.cpp
+		Rendering/FrameDataBufferTest.cpp
+		Rendering/CommandPacketTest.cpp
+		Rendering/CommandAllocatorTest.cpp
+		Rendering/CommandBucketTest.cpp
+		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
+		Rendering/RenderGraphTest.cpp
+		Rendering/FramePipelineTest.cpp
+		Rendering/FrameCaptureTest.cpp
+		Rendering/CommandBucketBenchmarkTest.cpp
+		Rendering/RenderStateTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests
 	OloEngine
-	gtest_main)
+	gtest)
 
 # Fix UTF-8 compilation issue
 if(MSVC)
@@ -38,4 +65,5 @@ target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEngine/src
 	${CMAKE_SOURCE_DIR}/OloEngine/vendor/atomic_queue-src/include
 	${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
+	${CMAKE_CURRENT_SOURCE_DIR}/Rendering
 )

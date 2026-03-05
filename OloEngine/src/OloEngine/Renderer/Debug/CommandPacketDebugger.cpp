@@ -32,33 +32,54 @@ namespace OloEngine
             return escaped;
         }
 
-        const PODRenderState* GetRenderStateFromCommand(const CapturedCommandData& cmd)
+        const PODRenderState* GetRenderStateFromCommand(const CapturedCommandData& cmd, const CapturedFrameData* frame)
         {
+            u16 index = INVALID_RENDER_STATE_INDEX;
             switch (cmd.GetCommandType())
             {
                 case CommandType::DrawMesh:
                     if (const auto* c = cmd.GetCommandData<DrawMeshCommand>())
-                        return &c->renderState;
+                        index = c->renderStateIndex;
                     break;
                 case CommandType::DrawMeshInstanced:
                     if (const auto* c = cmd.GetCommandData<DrawMeshInstancedCommand>())
-                        return &c->renderState;
+                        index = c->renderStateIndex;
                     break;
                 case CommandType::DrawSkybox:
                     if (const auto* c = cmd.GetCommandData<DrawSkyboxCommand>())
-                        return &c->renderState;
+                        index = c->renderStateIndex;
                     break;
                 case CommandType::DrawInfiniteGrid:
                     if (const auto* c = cmd.GetCommandData<DrawInfiniteGridCommand>())
-                        return &c->renderState;
+                        index = c->renderStateIndex;
                     break;
                 case CommandType::DrawQuad:
                     if (const auto* c = cmd.GetCommandData<DrawQuadCommand>())
-                        return &c->renderState;
+                        index = c->renderStateIndex;
+                    break;
+                case CommandType::DrawTerrainPatch:
+                    if (const auto* c = cmd.GetCommandData<DrawTerrainPatchCommand>())
+                        index = c->renderStateIndex;
+                    break;
+                case CommandType::DrawVoxelMesh:
+                    if (const auto* c = cmd.GetCommandData<DrawVoxelMeshCommand>())
+                        index = c->renderStateIndex;
+                    break;
+                case CommandType::DrawDecal:
+                    if (const auto* c = cmd.GetCommandData<DrawDecalCommand>())
+                        index = c->renderStateIndex;
+                    break;
+                case CommandType::DrawFoliageLayer:
+                    if (const auto* c = cmd.GetCommandData<DrawFoliageLayerCommand>())
+                        index = c->renderStateIndex;
                     break;
                 default:
                     break;
             }
+            if (index == INVALID_RENDER_STATE_INDEX)
+                return nullptr;
+            if (frame)
+                return frame->GetSnapshotRenderState(index);
             return nullptr;
         }
     } // anonymous namespace
@@ -443,7 +464,7 @@ namespace OloEngine
 
         if (m_SelectedCommandIndex >= 0 && m_SelectedCommandIndex < static_cast<i32>(commands->size()))
         {
-            RenderCommandDetail((*commands)[m_SelectedCommandIndex]);
+            RenderCommandDetail((*commands)[m_SelectedCommandIndex], frame);
         }
         else
         {
@@ -457,7 +478,7 @@ namespace OloEngine
     // Command Detail Panel
     // ========================================================================
 
-    void CommandPacketDebugger::RenderCommandDetail(const CapturedCommandData& cmd)
+    void CommandPacketDebugger::RenderCommandDetail(const CapturedCommandData& cmd, const CapturedFrameData* frame)
     {
         ImGui::TextColored(GetColorForCommandType(cmd.GetCommandType()), "%s", cmd.GetCommandTypeString());
         ImGui::Separator();
@@ -494,7 +515,7 @@ namespace OloEngine
             if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
             {
                 if (ImGui::CollapsingHeader("Draw Mesh", ImGuiTreeNodeFlags_DefaultOpen))
-                    RenderDrawMeshDetail(*meshCmd);
+                    RenderDrawMeshDetail(*meshCmd, frame);
             }
         }
         else if (cmd.GetCommandType() == CommandType::DrawMeshInstanced)
@@ -502,23 +523,26 @@ namespace OloEngine
             if (const auto* meshCmd = cmd.GetCommandData<DrawMeshInstancedCommand>())
             {
                 if (ImGui::CollapsingHeader("Draw Mesh Instanced", ImGuiTreeNodeFlags_DefaultOpen))
-                    RenderDrawMeshInstancedDetail(*meshCmd);
+                    RenderDrawMeshInstancedDetail(*meshCmd, frame);
             }
         }
 
         // Render state for commands that have one
-        const PODRenderState* state = GetRenderStateFromCommand(cmd);
+        const PODRenderState* state = GetRenderStateFromCommand(cmd, frame);
         if (state && ImGui::CollapsingHeader("Render State"))
             RenderPODRenderStateDetail(*state);
     }
 
-    void CommandPacketDebugger::RenderDrawMeshDetail(const DrawMeshCommand& cmd)
+    void CommandPacketDebugger::RenderDrawMeshDetail(const DrawMeshCommand& cmd, const CapturedFrameData* frame)
     {
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
         ImGui::Text("VAO: %u", cmd.vertexArrayID);
         ImGui::Text("Index Count: %u", cmd.indexCount);
         ImGui::Text("Entity ID: %d", cmd.entityID);
-        ImGui::Text("Shader: %u (handle: %llu)", cmd.shaderRendererID, static_cast<u64>(cmd.shaderHandle));
+
+        const PODMaterialData* matPtr = frame ? frame->GetSnapshotMaterialData(cmd.materialDataIndex) : nullptr;
+        ImGui::Text("Shader: %u (handle: %llu)", matPtr ? matPtr->shaderRendererID : 0u, static_cast<u64>(cmd.shaderHandle));
+        ImGui::Text("Material Data Index: %u", cmd.materialDataIndex);
 
         ImGui::Separator();
         ImGui::Text("Transform:");
@@ -527,26 +551,30 @@ namespace OloEngine
             ImGui::Text("  [%.2f, %.2f, %.2f, %.2f]", t[row][0], t[row][1], t[row][2], t[row][3]);
 
         ImGui::Separator();
-        if (cmd.enablePBR)
+        if (matPtr && matPtr->enablePBR)
         {
             ImGui::Text("PBR Material:");
-            ImGui::Text("  Base Color: (%.2f, %.2f, %.2f, %.2f)", cmd.baseColorFactor.r, cmd.baseColorFactor.g, cmd.baseColorFactor.b, cmd.baseColorFactor.a);
-            ImGui::Text("  Metallic: %.2f", cmd.metallicFactor);
-            ImGui::Text("  Roughness: %.2f", cmd.roughnessFactor);
-            ImGui::Text("  Normal Scale: %.2f", cmd.normalScale);
-            ImGui::Text("  Occlusion: %.2f", cmd.occlusionStrength);
-            ImGui::Text("  IBL: %s", cmd.enableIBL ? "Yes" : "No");
+            ImGui::Text("  Base Color: (%.2f, %.2f, %.2f, %.2f)", matPtr->baseColorFactor.r, matPtr->baseColorFactor.g, matPtr->baseColorFactor.b, matPtr->baseColorFactor.a);
+            ImGui::Text("  Metallic: %.2f", matPtr->metallicFactor);
+            ImGui::Text("  Roughness: %.2f", matPtr->roughnessFactor);
+            ImGui::Text("  Normal Scale: %.2f", matPtr->normalScale);
+            ImGui::Text("  Occlusion: %.2f", matPtr->occlusionStrength);
+            ImGui::Text("  IBL: %s", matPtr->enableIBL ? "Yes" : "No");
             ImGui::Text("  Textures: albedo=%u, metallicRough=%u, normal=%u, ao=%u, emissive=%u",
-                        cmd.albedoMapID, cmd.metallicRoughnessMapID, cmd.normalMapID, cmd.aoMapID, cmd.emissiveMapID);
+                        matPtr->albedoMapID, matPtr->metallicRoughnessMapID, matPtr->normalMapID, matPtr->aoMapID, matPtr->emissiveMapID);
+        }
+        else if (matPtr)
+        {
+            ImGui::Text("Legacy Material:");
+            ImGui::Text("  Ambient: (%.2f, %.2f, %.2f)", matPtr->ambient.r, matPtr->ambient.g, matPtr->ambient.b);
+            ImGui::Text("  Diffuse: (%.2f, %.2f, %.2f)", matPtr->diffuse.r, matPtr->diffuse.g, matPtr->diffuse.b);
+            ImGui::Text("  Specular: (%.2f, %.2f, %.2f)", matPtr->specular.r, matPtr->specular.g, matPtr->specular.b);
+            ImGui::Text("  Shininess: %.1f", matPtr->shininess);
+            ImGui::Text("  Textures: diffuse=%u, specular=%u", matPtr->diffuseMapID, matPtr->specularMapID);
         }
         else
         {
-            ImGui::Text("Legacy Material:");
-            ImGui::Text("  Ambient: (%.2f, %.2f, %.2f)", cmd.ambient.r, cmd.ambient.g, cmd.ambient.b);
-            ImGui::Text("  Diffuse: (%.2f, %.2f, %.2f)", cmd.diffuse.r, cmd.diffuse.g, cmd.diffuse.b);
-            ImGui::Text("  Specular: (%.2f, %.2f, %.2f)", cmd.specular.r, cmd.specular.g, cmd.specular.b);
-            ImGui::Text("  Shininess: %.1f", cmd.shininess);
-            ImGui::Text("  Textures: diffuse=%u, specular=%u", cmd.diffuseMapID, cmd.specularMapID);
+            ImGui::Text("Material: N/A (invalid index)");
         }
 
         if (cmd.isAnimatedMesh)
@@ -556,14 +584,17 @@ namespace OloEngine
         }
     }
 
-    void CommandPacketDebugger::RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd)
+    void CommandPacketDebugger::RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd, const CapturedFrameData* frame)
     {
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
         ImGui::Text("VAO: %u", cmd.vertexArrayID);
         ImGui::Text("Index Count: %u", cmd.indexCount);
         ImGui::Text("Instance Count: %u", cmd.instanceCount);
         ImGui::Text("Transform Buffer: offset=%u, count=%u", cmd.transformBufferOffset, cmd.transformCount);
-        ImGui::Text("Shader: %u (handle: %llu)", cmd.shaderRendererID, static_cast<u64>(cmd.shaderHandle));
+
+        const PODMaterialData* matPtr = frame ? frame->GetSnapshotMaterialData(cmd.materialDataIndex) : nullptr;
+        ImGui::Text("Shader: %u (handle: %llu)", matPtr ? matPtr->shaderRendererID : 0u, static_cast<u64>(cmd.shaderHandle));
+        ImGui::Text("Material Data Index: %u", cmd.materialDataIndex);
     }
 
     void CommandPacketDebugger::RenderPODRenderStateDetail(const PODRenderState& state)
@@ -758,26 +789,25 @@ namespace OloEngine
                 materialChanges++;
             }
 
-            // Compare PODRenderState if both are DrawMesh commands
-            if (prev.GetCommandType() == CommandType::DrawMesh && curr.GetCommandType() == CommandType::DrawMesh)
+            // Compare PODRenderState using the unified extractor
             {
-                const auto* prevCmd = prev.GetCommandData<DrawMeshCommand>();
-                const auto* currCmd = curr.GetCommandData<DrawMeshCommand>();
-                if (prevCmd && currCmd)
+                const auto* prevState = GetRenderStateFromCommand(prev, frame);
+                const auto* currState = GetRenderStateFromCommand(curr, frame);
+                if (prevState && currState)
                 {
-                    if (prevCmd->renderState.blendEnabled != currCmd->renderState.blendEnabled ||
-                        prevCmd->renderState.blendSrcFactor != currCmd->renderState.blendSrcFactor ||
-                        prevCmd->renderState.blendDstFactor != currCmd->renderState.blendDstFactor)
+                    if (prevState->blendEnabled != currState->blendEnabled ||
+                        prevState->blendSrcFactor != currState->blendSrcFactor ||
+                        prevState->blendDstFactor != currState->blendDstFactor)
                     {
                         blendChanges++;
                     }
-                    if (prevCmd->renderState.depthTestEnabled != currCmd->renderState.depthTestEnabled ||
-                        prevCmd->renderState.depthFunction != currCmd->renderState.depthFunction)
+                    if (prevState->depthTestEnabled != currState->depthTestEnabled ||
+                        prevState->depthFunction != currState->depthFunction)
                     {
                         depthChanges++;
                     }
-                    if (prevCmd->renderState.polygonMode != currCmd->renderState.polygonMode ||
-                        prevCmd->renderState.cullingEnabled != currCmd->renderState.cullingEnabled)
+                    if (prevState->polygonMode != currState->polygonMode ||
+                        prevState->cullingEnabled != currState->cullingEnabled)
                     {
                         polygonChanges++;
                     }
@@ -1294,17 +1324,17 @@ namespace OloEngine
                     if (prev.GetSortKey().GetMaterialID() != curr.GetSortKey().GetMaterialID())
                         materialChanges++;
 
-                    if (prev.GetCommandType() == CommandType::DrawMesh && curr.GetCommandType() == CommandType::DrawMesh)
+                    // Compare PODRenderState using the unified extractor
                     {
-                        const auto* prevCmd = prev.GetCommandData<DrawMeshCommand>();
-                        const auto* currCmd = curr.GetCommandData<DrawMeshCommand>();
-                        if (prevCmd && currCmd)
+                        const auto* prevState = GetRenderStateFromCommand(prev, frame);
+                        const auto* currState = GetRenderStateFromCommand(curr, frame);
+                        if (prevState && currState)
                         {
-                            if (prevCmd->renderState.blendEnabled != currCmd->renderState.blendEnabled ||
-                                prevCmd->renderState.blendSrcFactor != currCmd->renderState.blendSrcFactor)
+                            if (prevState->blendEnabled != currState->blendEnabled ||
+                                prevState->blendSrcFactor != currState->blendSrcFactor)
                                 blendChanges++;
-                            if (prevCmd->renderState.depthTestEnabled != currCmd->renderState.depthTestEnabled ||
-                                prevCmd->renderState.depthFunction != currCmd->renderState.depthFunction)
+                            if (prevState->depthTestEnabled != currState->depthTestEnabled ||
+                                prevState->depthFunction != currState->depthFunction)
                                 depthChanges++;
                         }
                     }
@@ -1365,20 +1395,23 @@ namespace OloEngine
                 {
                     if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
                     {
+                        const PODRenderState* state = frame->GetSnapshotRenderState(meshCmd->renderStateIndex);
+                        const PODMaterialData* mat = frame->GetSnapshotMaterialData(meshCmd->materialDataIndex);
                         file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
-                        file << "- Shader: " << meshCmd->shaderRendererID << " (handle: " << static_cast<u64>(meshCmd->shaderHandle) << ")\n";
+                        file << "- Shader: " << (mat ? mat->shaderRendererID : 0u) << " (handle: " << static_cast<u64>(meshCmd->shaderHandle) << ")\n";
                         file << "- VAO: " << meshCmd->vertexArrayID << ", Index Count: " << meshCmd->indexCount << "\n";
                         file << "- Entity ID: " << meshCmd->entityID << "\n";
-                        if (meshCmd->enablePBR)
+                        file << "- Material Data Index: " << meshCmd->materialDataIndex << "\n";
+                        if (mat && mat->enablePBR)
                         {
-                            file << "- PBR Material: baseColor=(" << meshCmd->baseColorFactor.r << "," << meshCmd->baseColorFactor.g << "," << meshCmd->baseColorFactor.b << ")"
-                                 << " metallic=" << meshCmd->metallicFactor << " roughness=" << meshCmd->roughnessFactor << "\n";
-                            file << "- Textures: albedo=" << meshCmd->albedoMapID << " metallicRough=" << meshCmd->metallicRoughnessMapID
-                                 << " normal=" << meshCmd->normalMapID << " ao=" << meshCmd->aoMapID << " emissive=" << meshCmd->emissiveMapID << "\n";
+                            file << "- PBR Material: baseColor=(" << mat->baseColorFactor.r << "," << mat->baseColorFactor.g << "," << mat->baseColorFactor.b << ")"
+                                 << " metallic=" << mat->metallicFactor << " roughness=" << mat->roughnessFactor << "\n";
+                            file << "- Textures: albedo=" << mat->albedoMapID << " metallicRough=" << mat->metallicRoughnessMapID
+                                 << " normal=" << mat->normalMapID << " ao=" << mat->aoMapID << " emissive=" << mat->emissiveMapID << "\n";
                         }
-                        file << "- Depth: write=" << (meshCmd->renderState.depthWriteMask ? "yes" : "no")
-                             << " test=" << (meshCmd->renderState.depthTestEnabled ? "yes" : "no") << "\n";
-                        file << "- Blend: " << (meshCmd->renderState.blendEnabled ? "enabled" : "disabled") << "\n";
+                        file << "- Depth: write=" << (state ? (state->depthWriteMask ? "yes" : "no") : "N/A")
+                             << " test=" << (state ? (state->depthTestEnabled ? "yes" : "no") : "N/A") << "\n";
+                        file << "- Blend: " << (state ? (state->blendEnabled ? "enabled" : "disabled") : "N/A") << "\n";
                         if (meshCmd->isAnimatedMesh)
                             file << "- Animated: boneOffset=" << meshCmd->boneBufferOffset << " boneCount=" << meshCmd->boneCount << "\n";
                         file << "\n";
@@ -1388,9 +1421,11 @@ namespace OloEngine
                 {
                     if (const auto* instCmd = cmd.GetCommandData<DrawMeshInstancedCommand>())
                     {
+                        const PODMaterialData* instMat = frame->GetSnapshotMaterialData(instCmd->materialDataIndex);
                         file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
                         file << "- Instances: " << instCmd->instanceCount << "\n";
-                        file << "- Shader: " << instCmd->shaderRendererID << "\n";
+                        file << "- Shader: " << (instMat ? instMat->shaderRendererID : 0u) << "\n";
+                        file << "- Material Data Index: " << instCmd->materialDataIndex << "\n";
                         file << "- VAO: " << instCmd->vertexArrayID << ", Index Count: " << instCmd->indexCount << "\n\n";
                     }
                 }

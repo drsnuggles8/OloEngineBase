@@ -44,6 +44,17 @@ namespace OloEngine
             return m_TotalAllocated;
         }
 
+        // Walk the block list and return how many blocks exist.
+        u32 GetBlockCount() const
+        {
+            u32 count = 0;
+            for (MemoryBlock* b = m_FirstBlock; b != nullptr; b = b->Next)
+            {
+                ++count;
+            }
+            return count;
+        }
+
       private:
         MemoryBlock* m_CurrentBlock = nullptr;
         MemoryBlock* m_FirstBlock = nullptr;
