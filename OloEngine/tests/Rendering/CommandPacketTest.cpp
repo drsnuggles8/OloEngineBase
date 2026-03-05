@@ -192,6 +192,50 @@ TEST(CommandPacket, CannotBatchDifferentCommandTypes)
     EXPECT_FALSE(p1->CanBatchWith(*p2));
 }
 
+TEST(CommandPacket, CannotBatchDifferentRenderStateIndex)
+{
+    CommandAllocator allocator;
+
+    auto cmd1 = MakeSyntheticDrawMeshCommand(1, 1, 0.5f);
+    cmd1.renderStateIndex = 0;
+    auto cmd2 = MakeSyntheticDrawMeshCommand(1, 1, 0.6f);
+    cmd2.renderStateIndex = 1;
+
+    PacketMetadata meta;
+    meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, 100);
+
+    auto* p1 = allocator.CreateCommandPacket(cmd1, meta);
+    auto* p2 = allocator.CreateCommandPacket(cmd2, meta);
+
+    ASSERT_NE(p1, nullptr);
+    ASSERT_NE(p2, nullptr);
+
+    // Same mesh + material but different render state must NOT batch
+    EXPECT_FALSE(p1->CanBatchWith(*p2));
+}
+
+TEST(CommandPacket, CanBatchSameRenderStateIndex)
+{
+    CommandAllocator allocator;
+
+    auto cmd1 = MakeSyntheticDrawMeshCommand(1, 1, 0.5f);
+    cmd1.renderStateIndex = 3;
+    auto cmd2 = MakeSyntheticDrawMeshCommand(1, 1, 0.6f);
+    cmd2.renderStateIndex = 3;
+
+    PacketMetadata meta;
+    meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, 100);
+
+    auto* p1 = allocator.CreateCommandPacket(cmd1, meta);
+    auto* p2 = allocator.CreateCommandPacket(cmd2, meta);
+
+    ASSERT_NE(p1, nullptr);
+    ASSERT_NE(p2, nullptr);
+
+    // Same mesh + material + render state should batch
+    EXPECT_TRUE(p1->CanBatchWith(*p2));
+}
+
 // =============================================================================
 // Clone Deep Copies
 // =============================================================================

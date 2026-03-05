@@ -384,6 +384,68 @@ TEST_F(CommandBucketBatchTest, BatchConvertsMeshToInstanced)
     EXPECT_TRUE(bucket.IsBatched());
 }
 
+TEST_F(CommandBucketBatchTest, BatchRejectsDifferentRenderStateIndex)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    // Submit two DrawMesh commands with same mesh+material but different render state
+    auto cmd1 = MakeSyntheticDrawMeshCommand(1, 1, 0.1f, 1);
+    cmd1.vertexArrayID = 100;
+    cmd1.renderStateIndex = 0;
+    PacketMetadata meta1;
+    meta1.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, 10);
+    bucket.Submit(cmd1, meta1, m_Allocator.get());
+
+    auto cmd2 = MakeSyntheticDrawMeshCommand(1, 1, 0.2f, 2);
+    cmd2.vertexArrayID = 100;
+    cmd2.renderStateIndex = 1;
+    PacketMetadata meta2;
+    meta2.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, 20);
+    bucket.Submit(cmd2, meta2, m_Allocator.get());
+
+    bucket.SortCommands();
+    sizet countBeforeBatch = bucket.GetSortedCommands().size();
+    EXPECT_EQ(countBeforeBatch, 2u);
+
+    bucket.BatchCommands(*m_Allocator);
+
+    // Commands with different render states must NOT merge even if mesh+material match
+    sizet countAfterBatch = bucket.GetSortedCommands().size();
+    EXPECT_EQ(countAfterBatch, 2u) << "Commands with different renderStateIndex must not batch";
+}
+
+TEST_F(CommandBucketBatchTest, BatchAcceptsSameRenderStateIndex)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    // Submit 3 DrawMesh commands with identical mesh, material, AND render state
+    for (u32 i = 0; i < 3; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
+        cmd.vertexArrayID = 100;
+        cmd.renderStateIndex = 5;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.SortCommands();
+    EXPECT_EQ(bucket.GetSortedCommands().size(), 3u);
+
+    bucket.BatchCommands(*m_Allocator);
+
+    // Greedy adjacent merge: first two merge into instanced, but the third DrawMesh
+    // can't match a DrawMeshInstanced via CanBatchWith (different command type), so 2 remain
+    sizet countAfterBatch = bucket.GetSortedCommands().size();
+    EXPECT_LT(countAfterBatch, 3u) << "Commands with same mesh+material+renderState should batch";
+}
+
 // =============================================================================
 // Mixed Command Types Don't Interfere With Sort
 // =============================================================================

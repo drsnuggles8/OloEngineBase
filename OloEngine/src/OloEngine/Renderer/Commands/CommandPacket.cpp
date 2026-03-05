@@ -79,6 +79,10 @@ namespace OloEngine
                 if (cmd1->materialDataIndex != cmd2->materialDataIndex)
                     return false;
 
+                // Check if render state is the same (blend, depth, stencil, etc.)
+                if (cmd1->renderStateIndex != cmd2->renderStateIndex)
+                    return false;
+
                 // All checks passed, these commands can be batched
                 return true;
             }
@@ -88,9 +92,10 @@ namespace OloEngine
                 auto* cmd1 = reinterpret_cast<const DrawQuadCommand*>(GetInlineData());
                 auto* cmd2 = reinterpret_cast<const DrawQuadCommand*>(other.GetInlineData());
 
-                // Quads can be batched if they use the same texture and shader (POD renderer IDs)
+                // Quads can be batched if they use the same texture, shader, and render state
                 return cmd1->textureID == cmd2->textureID &&
-                       cmd1->shaderRendererID == cmd2->shaderRendererID;
+                       cmd1->shaderRendererID == cmd2->shaderRendererID &&
+                       cmd1->renderStateIndex == cmd2->renderStateIndex;
             }
 
             // State change commands generally can't be batched

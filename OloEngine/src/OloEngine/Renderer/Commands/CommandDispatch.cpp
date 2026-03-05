@@ -664,53 +664,59 @@ namespace OloEngine
             glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }
 
-        // Update material UBO - use PBR if enabled, otherwise use legacy
-        if (mat.enablePBR)
+        // Skip material UBO upload if material hasn't changed since last draw
+        if (cmd->materialDataIndex != s_Data.LastMaterialDataIndex)
         {
-            ShaderBindingLayout::PBRMaterialUBO pbrMaterialData;
-            pbrMaterialData.BaseColorFactor = mat.baseColorFactor;
-            pbrMaterialData.EmissiveFactor = mat.emissiveFactor;
-            pbrMaterialData.MetallicFactor = mat.metallicFactor;
-            pbrMaterialData.RoughnessFactor = mat.roughnessFactor;
-            pbrMaterialData.NormalScale = mat.normalScale;
-            pbrMaterialData.OcclusionStrength = mat.occlusionStrength;
-            pbrMaterialData.UseAlbedoMap = mat.albedoMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseNormalMap = mat.normalMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseMetallicRoughnessMap = mat.metallicRoughnessMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseAOMap = mat.aoMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseEmissiveMap = mat.emissiveMapID != 0 ? 1 : 0;
-            pbrMaterialData.EnableIBL = mat.enableIBL ? 1 : 0;
-            pbrMaterialData.ApplyGammaCorrection = 1; // Enable gamma correction by default
-            pbrMaterialData.AlphaCutoff = 0;          // Default alpha cutoff
+            s_Data.LastMaterialDataIndex = cmd->materialDataIndex;
 
-            if (s_Data.MaterialUBO)
+            // Update material UBO - use PBR if enabled, otherwise use legacy
+            if (mat.enablePBR)
             {
-                constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
-                static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch in DrawMesh");
-                s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
-                glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
-            }
-        }
-        else
-        {
-            ShaderBindingLayout::MaterialUBO materialData;
-            materialData.Ambient = glm::vec4(mat.ambient, 1.0f);
-            materialData.Diffuse = glm::vec4(mat.diffuse, 1.0f);
-            materialData.Specular = glm::vec4(mat.specular, mat.shininess);
-            materialData.Emissive = glm::vec4(0.0f);
-            materialData.UseTextureMaps = mat.useTextureMaps ? 1 : 0;
-            materialData.AlphaMode = 0;   // Default alpha mode
-            materialData.DoubleSided = 0; // Default double-sided
-            materialData._padding = 0;    // Clear remaining padding
+                ShaderBindingLayout::PBRMaterialUBO pbrMaterialData;
+                pbrMaterialData.BaseColorFactor = mat.baseColorFactor;
+                pbrMaterialData.EmissiveFactor = mat.emissiveFactor;
+                pbrMaterialData.MetallicFactor = mat.metallicFactor;
+                pbrMaterialData.RoughnessFactor = mat.roughnessFactor;
+                pbrMaterialData.NormalScale = mat.normalScale;
+                pbrMaterialData.OcclusionStrength = mat.occlusionStrength;
+                pbrMaterialData.UseAlbedoMap = mat.albedoMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseNormalMap = mat.normalMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseMetallicRoughnessMap = mat.metallicRoughnessMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseAOMap = mat.aoMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseEmissiveMap = mat.emissiveMapID != 0 ? 1 : 0;
+                pbrMaterialData.EnableIBL = mat.enableIBL ? 1 : 0;
+                pbrMaterialData.ApplyGammaCorrection = 1; // Enable gamma correction by default
+                pbrMaterialData.AlphaCutoff = 0;          // Default alpha cutoff
 
-            if (s_Data.MaterialUBO)
-            {
-                constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
-                static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawMesh");
-                s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-                glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+                if (s_Data.MaterialUBO)
+                {
+                    constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
+                    static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch in DrawMesh");
+                    s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
+                    glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+                }
             }
-        }
+            else
+            {
+                ShaderBindingLayout::MaterialUBO materialData;
+                materialData.Ambient = glm::vec4(mat.ambient, 1.0f);
+                materialData.Diffuse = glm::vec4(mat.diffuse, 1.0f);
+                materialData.Specular = glm::vec4(mat.specular, mat.shininess);
+                materialData.Emissive = glm::vec4(0.0f);
+                materialData.UseTextureMaps = mat.useTextureMaps ? 1 : 0;
+                materialData.AlphaMode = 0;   // Default alpha mode
+                materialData.DoubleSided = 0; // Default double-sided
+                materialData._padding = 0;    // Clear remaining padding
+
+                if (s_Data.MaterialUBO)
+                {
+                    constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
+                    static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawMesh");
+                    s_Data.MaterialUBO->SetData(&materialData, expectedSize);
+                    glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+                }
+            }
+        } // end material diffing guard
 
         const Light& light = s_Data.SceneLight;
         auto lightType = std::to_underlying(light.Type);
@@ -974,25 +980,61 @@ namespace OloEngine
             ++s_Data.Stats.ShaderBinds;
         }
 
-        // Update material UBO
-        ShaderBindingLayout::MaterialUBO materialData;
-        materialData.Ambient = glm::vec4(mat.ambient, 1.0f);
-        materialData.Diffuse = glm::vec4(mat.diffuse, 1.0f);
-        materialData.Specular = glm::vec4(mat.specular, mat.shininess);
-        materialData.Emissive = glm::vec4(0.0f);
-        materialData.UseTextureMaps = mat.useTextureMaps ? 1 : 0;
-        materialData.AlphaMode = 0;
-        materialData.DoubleSided = 0;
-        materialData._padding = 0;
-
-        if (s_Data.MaterialUBO)
+        // Skip material UBO upload if material hasn't changed since last draw
+        if (cmd->materialDataIndex != s_Data.LastMaterialDataIndex)
         {
-            constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
-            static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
-            s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-        }
+            s_Data.LastMaterialDataIndex = cmd->materialDataIndex;
 
-        UpdateMaterialTextureFlag(mat.useTextureMaps);
+            // Update material UBO - use PBR if enabled, otherwise use legacy
+            if (mat.enablePBR)
+            {
+                ShaderBindingLayout::PBRMaterialUBO pbrMaterialData;
+                pbrMaterialData.BaseColorFactor = mat.baseColorFactor;
+                pbrMaterialData.EmissiveFactor = mat.emissiveFactor;
+                pbrMaterialData.MetallicFactor = mat.metallicFactor;
+                pbrMaterialData.RoughnessFactor = mat.roughnessFactor;
+                pbrMaterialData.NormalScale = mat.normalScale;
+                pbrMaterialData.OcclusionStrength = mat.occlusionStrength;
+                pbrMaterialData.UseAlbedoMap = mat.albedoMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseNormalMap = mat.normalMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseMetallicRoughnessMap = mat.metallicRoughnessMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseAOMap = mat.aoMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseEmissiveMap = mat.emissiveMapID != 0 ? 1 : 0;
+                pbrMaterialData.EnableIBL = mat.enableIBL ? 1 : 0;
+                pbrMaterialData.ApplyGammaCorrection = 1;
+                pbrMaterialData.AlphaCutoff = 0;
+
+                if (s_Data.MaterialUBO)
+                {
+                    constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
+                    static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch in DrawMeshInstanced");
+                    s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
+                    glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+                }
+            }
+            else
+            {
+                // Update material UBO
+                ShaderBindingLayout::MaterialUBO materialData;
+                materialData.Ambient = glm::vec4(mat.ambient, 1.0f);
+                materialData.Diffuse = glm::vec4(mat.diffuse, 1.0f);
+                materialData.Specular = glm::vec4(mat.specular, mat.shininess);
+                materialData.Emissive = glm::vec4(0.0f);
+                materialData.UseTextureMaps = mat.useTextureMaps ? 1 : 0;
+                materialData.AlphaMode = 0;
+                materialData.DoubleSided = 0;
+                materialData._padding = 0;
+
+                if (s_Data.MaterialUBO)
+                {
+                    constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
+                    static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
+                    s_Data.MaterialUBO->SetData(&materialData, expectedSize);
+                }
+
+                UpdateMaterialTextureFlag(mat.useTextureMaps);
+            }
+        }
 
         // Get transforms from FrameDataBuffer
         const sizet maxInstances = 100;
@@ -1024,9 +1066,163 @@ namespace OloEngine
             }
         }
 
-        // Bind textures using renderer IDs
-        if (mat.useTextureMaps)
+        // Bind textures based on material type using renderer IDs directly
+        if (mat.enablePBR)
         {
+            // PBR texture binding using renderer IDs
+            if (mat.albedoMapID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != mat.albedoMapID)
+                {
+                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_DIFFUSE);
+                    glBindTexture(GL_TEXTURE_2D, mat.albedoMapID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = mat.albedoMapID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            if (mat.metallicRoughnessMapID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != mat.metallicRoughnessMapID)
+                {
+                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_SPECULAR);
+                    glBindTexture(GL_TEXTURE_2D, mat.metallicRoughnessMapID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = mat.metallicRoughnessMapID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            if (mat.normalMapID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] != mat.normalMapID)
+                {
+                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_NORMAL);
+                    glBindTexture(GL_TEXTURE_2D, mat.normalMapID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] = mat.normalMapID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            if (mat.aoMapID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] != mat.aoMapID)
+                {
+                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_AMBIENT);
+                    glBindTexture(GL_TEXTURE_2D, mat.aoMapID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] = mat.aoMapID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            if (mat.emissiveMapID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] != mat.emissiveMapID)
+                {
+                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_EMISSIVE);
+                    glBindTexture(GL_TEXTURE_2D, mat.emissiveMapID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] = mat.emissiveMapID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            if (mat.environmentMapID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] != mat.environmentMapID)
+                {
+                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_ENVIRONMENT);
+                    glBindTexture(GL_TEXTURE_CUBE_MAP, mat.environmentMapID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] = mat.environmentMapID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            if (mat.irradianceMapID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] != mat.irradianceMapID)
+                {
+                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_0);
+                    glBindTexture(GL_TEXTURE_CUBE_MAP, mat.irradianceMapID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = mat.irradianceMapID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            if (mat.prefilterMapID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] != mat.prefilterMapID)
+                {
+                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_1);
+                    glBindTexture(GL_TEXTURE_CUBE_MAP, mat.prefilterMapID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] = mat.prefilterMapID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            if (mat.brdfLutMapID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] != mat.brdfLutMapID)
+                {
+                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_2);
+                    glBindTexture(GL_TEXTURE_2D, mat.brdfLutMapID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] = mat.brdfLutMapID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            // Bind shadow map textures (CSM at TEX_SHADOW, spot at TEX_SHADOW_SPOT)
+            if (s_Data.CSMShadowTextureID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] != s_Data.CSMShadowTextureID)
+                {
+                    glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW] = s_Data.CSMShadowTextureID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+            if (s_Data.SpotShadowTextureID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] != s_Data.SpotShadowTextureID)
+                {
+                    glBindTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SHADOW_SPOT] = s_Data.SpotShadowTextureID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+
+            // Bind point light shadow cubemaps (TEX_SHADOW_POINT_0 .. TEX_SHADOW_POINT_3)
+            static constexpr std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> pointSlots = {
+                ShaderBindingLayout::TEX_SHADOW_POINT_0,
+                ShaderBindingLayout::TEX_SHADOW_POINT_1,
+                ShaderBindingLayout::TEX_SHADOW_POINT_2,
+                ShaderBindingLayout::TEX_SHADOW_POINT_3
+            };
+            for (u32 i = 0; i < UBOStructures::ShadowUBO::MAX_POINT_SHADOWS; ++i)
+            {
+                if (s_Data.PointShadowTextureIDs[i] != 0)
+                {
+                    if (s_Data.BoundTextureIDs[pointSlots[i]] != s_Data.PointShadowTextureIDs[i])
+                    {
+                        glBindTextureUnit(pointSlots[i], s_Data.PointShadowTextureIDs[i]);
+                        s_Data.BoundTextureIDs[pointSlots[i]] = s_Data.PointShadowTextureIDs[i];
+                        ++s_Data.Stats.TextureBinds;
+                    }
+                }
+            }
+
+            // Bind snow accumulation depth texture
+            if (s_Data.SnowDepthTextureID != 0)
+            {
+                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] != s_Data.SnowDepthTextureID)
+                {
+                    glBindTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
+                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SNOW_DEPTH] = s_Data.SnowDepthTextureID;
+                    ++s_Data.Stats.TextureBinds;
+                }
+            }
+        }
+        else if (mat.useTextureMaps)
+        {
+            // Legacy texture binding using renderer IDs
             if (mat.diffuseMapID != 0)
             {
                 if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != mat.diffuseMapID)
@@ -1047,6 +1243,28 @@ namespace OloEngine
                     s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = mat.specularMapID;
                     ++s_Data.Stats.TextureBinds;
                 }
+            }
+        }
+
+        // Handle bone matrices for animated instanced meshes
+        if (cmd->isAnimatedMesh && s_Data.BoneMatricesUBO && cmd->boneCountPerInstance > 0)
+        {
+            using namespace UBOStructures;
+            constexpr sizet MAX_BONES = AnimationConstants::MAX_BONES;
+            sizet boneCount = glm::min(static_cast<sizet>(cmd->boneCountPerInstance), MAX_BONES);
+
+            if (cmd->boneCountPerInstance > MAX_BONES)
+            {
+                OLO_CORE_WARN("Animated instanced mesh has {} bones per instance, exceeding limit of {}. Bone matrices will be truncated.",
+                              cmd->boneCountPerInstance, MAX_BONES);
+            }
+
+            // Get bone matrices from FrameDataBuffer (shared across all instances)
+            const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(cmd->boneBufferOffset);
+            if (boneMatrices)
+            {
+                s_Data.BoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(boneCount * sizeof(glm::mat4)));
+                glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
             }
         }
 

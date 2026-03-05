@@ -399,6 +399,11 @@ namespace OloEngine
         // Copy POD render state index
         instancedCmd->renderStateIndex = meshCmd->renderStateIndex;
 
+        // Copy animation fields
+        instancedCmd->isAnimatedMesh = meshCmd->isAnimatedMesh;
+        instancedCmd->boneBufferOffset = meshCmd->boneBufferOffset;
+        instancedCmd->boneCountPerInstance = meshCmd->boneCount;
+
         // Set command type and dispatch function (via runtime resolver)
         instancedPacket->SetCommandType(instancedCmd->header.type);
 
