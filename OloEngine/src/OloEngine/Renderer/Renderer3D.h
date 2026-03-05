@@ -676,6 +676,11 @@ namespace OloEngine
         static CommandPacket* CreateDecalDrawCall()
         {
             OLO_PROFILE_FUNCTION();
+            if (!s_Data.DecalPass)
+            {
+                OLO_CORE_WARN("Renderer3D::CreateDecalDrawCall: DecalPass is null!");
+                return nullptr;
+            }
             return s_Data.DecalPass->GetCommandBucket().CreateDrawCall<T>();
         }
 
@@ -687,6 +692,11 @@ namespace OloEngine
                 OLO_CORE_WARN("Renderer3D::SubmitDecalPacket: Attempted to submit a null CommandPacket pointer!");
                 return;
             }
+            if (!s_Data.DecalPass)
+            {
+                OLO_CORE_WARN("Renderer3D::SubmitDecalPacket: DecalPass is null!");
+                return;
+            }
             s_Data.DecalPass->SubmitPacket(packet);
         }
 
@@ -694,6 +704,11 @@ namespace OloEngine
         static CommandPacket* CreateFoliageDrawCall()
         {
             OLO_PROFILE_FUNCTION();
+            if (!s_Data.FoliagePass)
+            {
+                OLO_CORE_WARN("Renderer3D::CreateFoliageDrawCall: FoliagePass is null!");
+                return nullptr;
+            }
             return s_Data.FoliagePass->GetCommandBucket().CreateDrawCall<T>();
         }
 
@@ -703,6 +718,11 @@ namespace OloEngine
             if (!packet)
             {
                 OLO_CORE_WARN("Renderer3D::SubmitFoliagePacket: Attempted to submit a null CommandPacket pointer!");
+                return;
+            }
+            if (!s_Data.FoliagePass)
+            {
+                OLO_CORE_WARN("Renderer3D::SubmitFoliagePacket: FoliagePass is null!");
                 return;
             }
             s_Data.FoliagePass->SubmitPacket(packet);

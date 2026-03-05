@@ -521,6 +521,10 @@ namespace OloEngine
         // Get main-thread allocator for this frame (already reset by BeginFrame)
         CommandAllocator* frameAllocator = FrameResourceManager::Get().GetMainAllocator();
         s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
+        if (s_Data.DecalPass)
+            s_Data.DecalPass->GetCommandBucket().SetAllocator(frameAllocator);
+        if (s_Data.FoliagePass)
+            s_Data.FoliagePass->GetCommandBucket().SetAllocator(frameAllocator);
 
         CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
         CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);

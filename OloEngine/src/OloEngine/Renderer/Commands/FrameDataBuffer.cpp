@@ -203,6 +203,7 @@ namespace OloEngine
     const PODRenderState& FrameDataBuffer::GetRenderState(u16 index) const
     {
         OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(m_RenderStateMutex);
         if (index >= m_RenderStateCount)
         {
             OLO_CORE_ERROR("FrameDataBuffer::GetRenderState: index {} out of range (count {}), returning default", index, m_RenderStateCount);
@@ -253,6 +254,7 @@ namespace OloEngine
     const PODMaterialData& FrameDataBuffer::GetMaterialData(u16 index) const
     {
         OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(m_MaterialDataMutex);
         if (index >= m_MaterialDataCount)
         {
             OLO_CORE_ERROR("FrameDataBuffer::GetMaterialData: index {} out of range (count {}), returning default", index, m_MaterialDataCount);

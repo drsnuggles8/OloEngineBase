@@ -161,7 +161,7 @@ TEST(Frustum, BoundingBoxVisibility)
 
 TEST(Frustum, OrthographicFrustumCulling)
 {
-    Frustum frustum = MakeOrthoFrustum(-10, 10, -10, 10, 0.1f, 100.0f);
+    Frustum frustum = MakeOrthoFrustum(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 100.0f);
 
     // Inside
     EXPECT_TRUE(frustum.IsPointVisible(glm::vec3(0.0f, 0.0f, -50.0f)));
@@ -219,7 +219,7 @@ TEST(Frustum, PlaneNormalsAreNormalized)
 TEST(Frustum, StressRandomSpheres_NoNaN)
 {
     Frustum frustum = MakePerspectiveFrustum();
-    auto& rng = GetTestRNG();
+    auto rng = MakeTestRNG();
     std::uniform_real_distribution<f32> posDist(-200.0f, 200.0f);
     std::uniform_real_distribution<f32> radDist(0.01f, 50.0f);
 

@@ -38,8 +38,9 @@ inline void ValidateTransform(const glm::mat4& m, bool checkInvertible = false)
     }
     if (checkInvertible)
     {
-        float det = glm::determinant(m);
-        EXPECT_NE(det, 0.0f) << "Transform matrix is singular (determinant == 0)";
+        f32 det = static_cast<f32>(glm::determinant(m));
+        constexpr f32 kDeterminantEpsilon = std::numeric_limits<f32>::epsilon() * 100.0f;
+        EXPECT_GT(std::abs(det), kDeterminantEpsilon) << "Transform matrix is near-singular (determinant " << det << ")";
     }
 }
 
@@ -215,9 +216,8 @@ inline std::string PrintKeyBits(const DrawKey& key)
     return oss.str();
 }
 
-/// Deterministic random engine for reproducible tests.
-inline std::mt19937& GetTestRNG()
+/// Create a deterministic random engine for reproducible, order-independent tests.
+inline std::mt19937 MakeTestRNG()
 {
-    static std::mt19937 rng(42); // Fixed seed for reproducibility
-    return rng;
+    return std::mt19937(42); // Fixed seed for reproducibility
 }

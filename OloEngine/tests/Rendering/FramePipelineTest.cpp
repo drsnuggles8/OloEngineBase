@@ -121,7 +121,7 @@ TEST_F(FramePipelineTest, SortReducesShaderStateChanges)
     CommandBucket bucket(config);
 
     // Submit commands with random shader assignments
-    auto& rng = GetTestRNG();
+    auto rng = MakeTestRNG();
     std::uniform_int_distribution<u32> shaderDist(1, 5);
 
     std::vector<DrawKey> preKeys;
@@ -181,11 +181,13 @@ TEST_F(FramePipelineTest, IsolatedBuckets)
     for (const auto* pkt : bucketA.GetSortedCommands())
     {
         const auto* data = pkt->GetCommandData<DrawMeshCommand>();
+        EXPECT_EQ(data->shaderHandle, static_cast<AssetHandle>(1));
         EXPECT_EQ(data->materialDataIndex, static_cast<u16>(1));
     }
     for (const auto* pkt : bucketB.GetSortedCommands())
     {
         const auto* data = pkt->GetCommandData<DrawMeshCommand>();
+        EXPECT_EQ(data->shaderHandle, static_cast<AssetHandle>(2));
         EXPECT_EQ(data->materialDataIndex, static_cast<u16>(2));
     }
 }

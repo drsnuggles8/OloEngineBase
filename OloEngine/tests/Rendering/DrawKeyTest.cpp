@@ -78,7 +78,7 @@ TEST(DrawKey, OpaqueBeforeTransparent)
     // Opaque has lower RenderMode value → lower raw key → sorts first → rendered first.
     // This is the correct rendering convention: opaque geometry before transparent.
 
-    auto& rng = GetTestRNG();
+    auto rng = MakeTestRNG();
     std::uniform_int_distribution<u32> shaderDist(1, 100);
     std::uniform_int_distribution<u32> materialDist(1, 100);
     std::uniform_int_distribution<u32> depthDist(0, 0xFFFF);
@@ -164,7 +164,7 @@ TEST(DrawKey, TransparentDepthBackToFront)
 
 TEST(DrawKey, TotalOrdering)
 {
-    auto& rng = GetTestRNG();
+    auto rng = MakeTestRNG();
     std::uniform_int_distribution<u32> vpDist(0, 7);
     std::uniform_int_distribution<u32> layerDist(0, 3);
     std::uniform_int_distribution<u32> shaderDist(0, 0xFFFF);

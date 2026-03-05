@@ -39,7 +39,7 @@ class CommandBucketTest : public ::testing::Test
         std::iota(ids.begin(), ids.end(), 1);
         if (randomOrder)
         {
-            std::shuffle(ids.begin(), ids.end(), GetTestRNG());
+            std::shuffle(ids.begin(), ids.end(), MakeTestRNG());
         }
 
         for (u32 id : ids)
@@ -228,7 +228,7 @@ TEST_F(CommandBucketTest, SortReducesStateChanges)
     // Submit commands with 3 different shaders in random order
     // This ensures sorting groups same shaders together
     std::vector<u32> shaderIds = { 1, 2, 3, 1, 2, 3, 1, 2, 3, 1 };
-    std::shuffle(shaderIds.begin(), shaderIds.end(), GetTestRNG());
+    std::shuffle(shaderIds.begin(), shaderIds.end(), MakeTestRNG());
 
     for (u32 sid : shaderIds)
     {

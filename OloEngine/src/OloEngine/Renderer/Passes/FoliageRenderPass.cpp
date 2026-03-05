@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Renderer.h"
 
 namespace OloEngine
@@ -45,6 +46,7 @@ namespace OloEngine
 
         // Restore defaults for subsequent passes
         RenderCommand::SetDepthFunc(GL_LESS);
+        CommandDispatch::InvalidateRenderStateCache();
 
         m_SceneFramebuffer->Unbind();
 

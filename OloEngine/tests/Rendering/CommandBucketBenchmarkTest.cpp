@@ -64,7 +64,7 @@ TEST_P(SortScalingTest, SortCompletesAndOrderIsValid)
     config.EnableBatching = false;
     CommandBucket bucket(config);
 
-    auto rng = GetTestRNG();
+    auto rng = MakeTestRNG();
     PopulateBucket(bucket, allocator, N, rng);
     ASSERT_EQ(bucket.GetCommandCount(), N);
 
@@ -128,7 +128,7 @@ TEST(CommandBucketBenchmark, ParallelSubmitAndMerge)
     bucket.SetAllocator(&allocator);
     bucket.PrepareForParallelSubmission();
 
-    auto rng = GetTestRNG();
+    auto rng = MakeTestRNG();
     std::uniform_int_distribution<u32> shaderDist(1, 32);
     std::uniform_int_distribution<u32> depthDist(0, 0xFFFFFF);
 
@@ -184,7 +184,7 @@ TEST(CommandBucketBenchmark, AllocatorResetStability)
     constexpr u32 framesCount = 1000;
     constexpr u32 commandsPerFrame = 100;
 
-    auto rng = GetTestRNG();
+    auto rng = MakeTestRNG();
 
     auto start = Clock::now();
 

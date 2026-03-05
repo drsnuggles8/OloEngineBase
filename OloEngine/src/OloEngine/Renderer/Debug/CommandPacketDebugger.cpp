@@ -789,35 +789,27 @@ namespace OloEngine
                 materialChanges++;
             }
 
-            // Compare PODRenderState if both are DrawMesh commands
-            if (prev.GetCommandType() == CommandType::DrawMesh && curr.GetCommandType() == CommandType::DrawMesh)
+            // Compare PODRenderState using the unified extractor
             {
-                const auto* prevCmd = prev.GetCommandData<DrawMeshCommand>();
-                const auto* currCmd = curr.GetCommandData<DrawMeshCommand>();
-                if (prevCmd && currCmd &&
-                    prevCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX &&
-                    currCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
+                const auto* prevState = GetRenderStateFromCommand(prev, frame);
+                const auto* currState = GetRenderStateFromCommand(curr, frame);
+                if (prevState && currState)
                 {
-                    const auto* prevState = frame->GetSnapshotRenderState(prevCmd->renderStateIndex);
-                    const auto* currState = frame->GetSnapshotRenderState(currCmd->renderStateIndex);
-                    if (prevState && currState)
+                    if (prevState->blendEnabled != currState->blendEnabled ||
+                        prevState->blendSrcFactor != currState->blendSrcFactor ||
+                        prevState->blendDstFactor != currState->blendDstFactor)
                     {
-                        if (prevState->blendEnabled != currState->blendEnabled ||
-                            prevState->blendSrcFactor != currState->blendSrcFactor ||
-                            prevState->blendDstFactor != currState->blendDstFactor)
-                        {
-                            blendChanges++;
-                        }
-                        if (prevState->depthTestEnabled != currState->depthTestEnabled ||
-                            prevState->depthFunction != currState->depthFunction)
-                        {
-                            depthChanges++;
-                        }
-                        if (prevState->polygonMode != currState->polygonMode ||
-                            prevState->cullingEnabled != currState->cullingEnabled)
-                        {
-                            polygonChanges++;
-                        }
+                        blendChanges++;
+                    }
+                    if (prevState->depthTestEnabled != currState->depthTestEnabled ||
+                        prevState->depthFunction != currState->depthFunction)
+                    {
+                        depthChanges++;
+                    }
+                    if (prevState->polygonMode != currState->polygonMode ||
+                        prevState->cullingEnabled != currState->cullingEnabled)
+                    {
+                        polygonChanges++;
                     }
                 }
             }
@@ -1332,25 +1324,18 @@ namespace OloEngine
                     if (prev.GetSortKey().GetMaterialID() != curr.GetSortKey().GetMaterialID())
                         materialChanges++;
 
-                    if (prev.GetCommandType() == CommandType::DrawMesh && curr.GetCommandType() == CommandType::DrawMesh)
+                    // Compare PODRenderState using the unified extractor
                     {
-                        const auto* prevCmd = prev.GetCommandData<DrawMeshCommand>();
-                        const auto* currCmd = curr.GetCommandData<DrawMeshCommand>();
-                        if (prevCmd && currCmd &&
-                            prevCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX &&
-                            currCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
+                        const auto* prevState = GetRenderStateFromCommand(prev, frame);
+                        const auto* currState = GetRenderStateFromCommand(curr, frame);
+                        if (prevState && currState)
                         {
-                            const auto* prevState = frame->GetSnapshotRenderState(prevCmd->renderStateIndex);
-                            const auto* currState = frame->GetSnapshotRenderState(currCmd->renderStateIndex);
-                            if (prevState && currState)
-                            {
-                                if (prevState->blendEnabled != currState->blendEnabled ||
-                                    prevState->blendSrcFactor != currState->blendSrcFactor)
-                                    blendChanges++;
-                                if (prevState->depthTestEnabled != currState->depthTestEnabled ||
-                                    prevState->depthFunction != currState->depthFunction)
-                                    depthChanges++;
-                            }
+                            if (prevState->blendEnabled != currState->blendEnabled ||
+                                prevState->blendSrcFactor != currState->blendSrcFactor)
+                                blendChanges++;
+                            if (prevState->depthTestEnabled != currState->depthTestEnabled ||
+                                prevState->depthFunction != currState->depthFunction)
+                                depthChanges++;
                         }
                     }
                 }

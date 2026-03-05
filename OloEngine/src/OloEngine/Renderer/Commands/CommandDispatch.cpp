@@ -175,54 +175,61 @@ namespace OloEngine
 
     static void UploadMaterialState(const PODMaterialData& mat, u16 materialDataIndex)
     {
-        if (materialDataIndex == s_Data.LastMaterialDataIndex)
-            return;
+        const bool sameIndex = (materialDataIndex == s_Data.LastMaterialDataIndex);
         s_Data.LastMaterialDataIndex = materialDataIndex;
 
         if (mat.enablePBR)
         {
-            ShaderBindingLayout::PBRMaterialUBO pbrMaterialData;
-            pbrMaterialData.BaseColorFactor = mat.baseColorFactor;
-            pbrMaterialData.EmissiveFactor = mat.emissiveFactor;
-            pbrMaterialData.MetallicFactor = mat.metallicFactor;
-            pbrMaterialData.RoughnessFactor = mat.roughnessFactor;
-            pbrMaterialData.NormalScale = mat.normalScale;
-            pbrMaterialData.OcclusionStrength = mat.occlusionStrength;
-            pbrMaterialData.UseAlbedoMap = mat.albedoMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseNormalMap = mat.normalMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseMetallicRoughnessMap = mat.metallicRoughnessMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseAOMap = mat.aoMapID != 0 ? 1 : 0;
-            pbrMaterialData.UseEmissiveMap = mat.emissiveMapID != 0 ? 1 : 0;
-            pbrMaterialData.EnableIBL = mat.enableIBL ? 1 : 0;
-            pbrMaterialData.ApplyGammaCorrection = 1;
-            pbrMaterialData.AlphaCutoff = 0;
-
-            if (s_Data.MaterialUBO)
+            if (!sameIndex)
             {
-                constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
-                static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch");
-                s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
+                ShaderBindingLayout::PBRMaterialUBO pbrMaterialData;
+                pbrMaterialData.BaseColorFactor = mat.baseColorFactor;
+                pbrMaterialData.EmissiveFactor = mat.emissiveFactor;
+                pbrMaterialData.MetallicFactor = mat.metallicFactor;
+                pbrMaterialData.RoughnessFactor = mat.roughnessFactor;
+                pbrMaterialData.NormalScale = mat.normalScale;
+                pbrMaterialData.OcclusionStrength = mat.occlusionStrength;
+                pbrMaterialData.UseAlbedoMap = mat.albedoMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseNormalMap = mat.normalMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseMetallicRoughnessMap = mat.metallicRoughnessMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseAOMap = mat.aoMapID != 0 ? 1 : 0;
+                pbrMaterialData.UseEmissiveMap = mat.emissiveMapID != 0 ? 1 : 0;
+                pbrMaterialData.EnableIBL = mat.enableIBL ? 1 : 0;
+                pbrMaterialData.ApplyGammaCorrection = 1;
+                pbrMaterialData.AlphaCutoff = 0;
+
+                if (s_Data.MaterialUBO)
+                {
+                    constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
+                    static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch");
+                    s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
+                }
             }
 
+            // Always rebind textures — an intervening pass (e.g. DecalPass)
+            // may have changed texture slots since the last material upload.
             BindPBRTextures(mat);
         }
         else
         {
-            ShaderBindingLayout::MaterialUBO materialData;
-            materialData.Ambient = glm::vec4(mat.ambient, 1.0f);
-            materialData.Diffuse = glm::vec4(mat.diffuse, 1.0f);
-            materialData.Specular = glm::vec4(mat.specular, mat.shininess);
-            materialData.Emissive = glm::vec4(0.0f);
-            materialData.UseTextureMaps = mat.useTextureMaps ? 1 : 0;
-            materialData.AlphaMode = 0;
-            materialData.DoubleSided = 0;
-            materialData._padding = 0;
-
-            if (s_Data.MaterialUBO)
+            if (!sameIndex)
             {
-                constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
-                static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
-                s_Data.MaterialUBO->SetData(&materialData, expectedSize);
+                ShaderBindingLayout::MaterialUBO materialData;
+                materialData.Ambient = glm::vec4(mat.ambient, 1.0f);
+                materialData.Diffuse = glm::vec4(mat.diffuse, 1.0f);
+                materialData.Specular = glm::vec4(mat.specular, mat.shininess);
+                materialData.Emissive = glm::vec4(0.0f);
+                materialData.UseTextureMaps = mat.useTextureMaps ? 1 : 0;
+                materialData.AlphaMode = 0;
+                materialData.DoubleSided = 0;
+                materialData._padding = 0;
+
+                if (s_Data.MaterialUBO)
+                {
+                    constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
+                    static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
+                    s_Data.MaterialUBO->SetData(&materialData, expectedSize);
+                }
             }
 
             if (mat.useTextureMaps)
@@ -435,6 +442,11 @@ namespace OloEngine
         s_Data.PointShadowTextureIDs.fill(0);
         s_Data.SnowDepthTextureID = 0;
         s_Data.Stats.Reset();
+    }
+
+    void CommandDispatch::InvalidateRenderStateCache()
+    {
+        s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
     }
 
     void CommandDispatch::SetViewProjectionMatrix(const glm::mat4& vp)
