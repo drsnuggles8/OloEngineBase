@@ -203,7 +203,12 @@ namespace OloEngine
     const PODRenderState& FrameDataBuffer::GetRenderState(u16 index) const
     {
         OLO_PROFILE_FUNCTION();
-        OLO_CORE_ASSERT(index < m_RenderStateCount, "FrameDataBuffer: Invalid render state index!");
+        if (index >= m_RenderStateCount)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer::GetRenderState: index {} out of range (count {}), returning default", index, m_RenderStateCount);
+            static const PODRenderState s_Default{};
+            return s_Default;
+        }
         return m_RenderStates[index];
     }
 
@@ -248,7 +253,12 @@ namespace OloEngine
     const PODMaterialData& FrameDataBuffer::GetMaterialData(u16 index) const
     {
         OLO_PROFILE_FUNCTION();
-        OLO_CORE_ASSERT(index < m_MaterialDataCount, "FrameDataBuffer: Invalid material data index!");
+        if (index >= m_MaterialDataCount)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer::GetMaterialData: index {} out of range (count {}), returning default", index, m_MaterialDataCount);
+            static const PODMaterialData s_Default{};
+            return s_Default;
+        }
         return m_MaterialData[index];
     }
 

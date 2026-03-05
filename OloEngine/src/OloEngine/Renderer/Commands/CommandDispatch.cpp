@@ -138,6 +138,41 @@ namespace OloEngine
 
     // Helper: Upload material UBO and bind material textures.
     // Skips entirely when materialDataIndex matches the last-used index.
+    // Helper: Conditionally bind a texture only when the slot isn't already
+    // bound to the same ID, updating tracking and stats.
+    static void BindTrackedTexture(RendererID textureID, u32 slot, GLenum target)
+    {
+        if (textureID != 0 && s_Data.BoundTextureIDs[slot] != textureID)
+        {
+            glActiveTexture(GL_TEXTURE0 + slot);
+            glBindTexture(target, textureID);
+            s_Data.BoundTextureIDs[slot] = textureID;
+            ++s_Data.Stats.TextureBinds;
+        }
+    }
+
+    // Helper: Bind all PBR material textures (albedo, metallic-roughness, normal,
+    // AO, emissive, environment cubemap, irradiance, prefilter, BRDF LUT).
+    static void BindPBRTextures(const PODMaterialData& mat)
+    {
+        BindTrackedTexture(mat.albedoMapID, ShaderBindingLayout::TEX_DIFFUSE, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.metallicRoughnessMapID, ShaderBindingLayout::TEX_SPECULAR, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.normalMapID, ShaderBindingLayout::TEX_NORMAL, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.aoMapID, ShaderBindingLayout::TEX_AMBIENT, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.emissiveMapID, ShaderBindingLayout::TEX_EMISSIVE, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.environmentMapID, ShaderBindingLayout::TEX_ENVIRONMENT, GL_TEXTURE_CUBE_MAP);
+        BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0, GL_TEXTURE_CUBE_MAP);
+        BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1, GL_TEXTURE_CUBE_MAP);
+        BindTrackedTexture(mat.brdfLutMapID, ShaderBindingLayout::TEX_USER_2, GL_TEXTURE_2D);
+    }
+
+    // Helper: Bind legacy material textures (diffuse, specular).
+    static void BindLegacyTextures(const PODMaterialData& mat)
+    {
+        BindTrackedTexture(mat.diffuseMapID, ShaderBindingLayout::TEX_DIFFUSE, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.specularMapID, ShaderBindingLayout::TEX_SPECULAR, GL_TEXTURE_2D);
+    }
+
     static void UploadMaterialState(const PODMaterialData& mat, u16 materialDataIndex)
     {
         if (materialDataIndex == s_Data.LastMaterialDataIndex)
@@ -169,105 +204,7 @@ namespace OloEngine
                 s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
             }
 
-            // PBR texture bindings
-            if (mat.albedoMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != mat.albedoMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_DIFFUSE);
-                    glBindTexture(GL_TEXTURE_2D, mat.albedoMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = mat.albedoMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (mat.metallicRoughnessMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != mat.metallicRoughnessMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_SPECULAR);
-                    glBindTexture(GL_TEXTURE_2D, mat.metallicRoughnessMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = mat.metallicRoughnessMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (mat.normalMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] != mat.normalMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_NORMAL);
-                    glBindTexture(GL_TEXTURE_2D, mat.normalMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] = mat.normalMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (mat.aoMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] != mat.aoMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_AMBIENT);
-                    glBindTexture(GL_TEXTURE_2D, mat.aoMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] = mat.aoMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (mat.emissiveMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] != mat.emissiveMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_EMISSIVE);
-                    glBindTexture(GL_TEXTURE_2D, mat.emissiveMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] = mat.emissiveMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (mat.environmentMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] != mat.environmentMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_ENVIRONMENT);
-                    glBindTexture(GL_TEXTURE_CUBE_MAP, mat.environmentMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] = mat.environmentMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (mat.irradianceMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] != mat.irradianceMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_0);
-                    glBindTexture(GL_TEXTURE_CUBE_MAP, mat.irradianceMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = mat.irradianceMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (mat.prefilterMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] != mat.prefilterMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_1);
-                    glBindTexture(GL_TEXTURE_CUBE_MAP, mat.prefilterMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] = mat.prefilterMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
-
-            if (mat.brdfLutMapID != 0)
-            {
-                if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] != mat.brdfLutMapID)
-                {
-                    glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_USER_2);
-                    glBindTexture(GL_TEXTURE_2D, mat.brdfLutMapID);
-                    s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] = mat.brdfLutMapID;
-                    ++s_Data.Stats.TextureBinds;
-                }
-            }
+            BindPBRTextures(mat);
         }
         else
         {
@@ -290,27 +227,7 @@ namespace OloEngine
 
             if (mat.useTextureMaps)
             {
-                if (mat.diffuseMapID != 0)
-                {
-                    if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != mat.diffuseMapID)
-                    {
-                        glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_DIFFUSE);
-                        glBindTexture(GL_TEXTURE_2D, mat.diffuseMapID);
-                        s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = mat.diffuseMapID;
-                        ++s_Data.Stats.TextureBinds;
-                    }
-                }
-
-                if (mat.specularMapID != 0)
-                {
-                    if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != mat.specularMapID)
-                    {
-                        glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_SPECULAR);
-                        glBindTexture(GL_TEXTURE_2D, mat.specularMapID);
-                        s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = mat.specularMapID;
-                        ++s_Data.Stats.TextureBinds;
-                    }
-                }
+                BindLegacyTextures(mat);
             }
         }
     }

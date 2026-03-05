@@ -198,7 +198,7 @@ TEST_F(FramePipelineTest, MultiFrameResetCycle)
 {
     CommandBucket bucket;
 
-    for (int frame = 0; frame < 10; ++frame)
+    for (u32 frame = 0; frame < 10u; ++frame)
     {
         bucket.Clear();
         EXPECT_EQ(bucket.GetCommandCount(), 0u);

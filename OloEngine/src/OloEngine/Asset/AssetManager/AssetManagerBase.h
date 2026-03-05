@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <functional>
+#include <shared_mutex>
 
 namespace OloEngine
 {
@@ -232,6 +233,7 @@ namespace OloEngine
          */
         u32 GetAssetGeneration(AssetHandle handle) const noexcept
         {
+            std::shared_lock lock(m_AssetGenerationsMutex);
             auto it = m_AssetGenerations.find(handle);
             return (it != m_AssetGenerations.end()) ? it->second : 0;
         }
@@ -245,6 +247,7 @@ namespace OloEngine
          */
         void IncrementAssetGeneration(AssetHandle handle) noexcept
         {
+            std::unique_lock lock(m_AssetGenerationsMutex);
             ++m_AssetGenerations[handle];
         }
 
@@ -256,6 +259,7 @@ namespace OloEngine
          */
         void ResetAssetGeneration(AssetHandle handle) noexcept
         {
+            std::unique_lock lock(m_AssetGenerationsMutex);
             m_AssetGenerations.erase(handle);
         }
 
@@ -264,12 +268,14 @@ namespace OloEngine
          */
         void ResetAllAssetGenerations() noexcept
         {
+            std::unique_lock lock(m_AssetGenerationsMutex);
             m_AssetGenerations.clear();
         }
 
       private:
         // Per-asset reload generation counter for stale-handle detection
         std::unordered_map<AssetHandle, u32> m_AssetGenerations;
+        mutable std::shared_mutex m_AssetGenerationsMutex;
     };
 
 } // namespace OloEngine

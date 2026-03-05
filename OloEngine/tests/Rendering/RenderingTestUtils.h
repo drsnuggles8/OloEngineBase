@@ -113,7 +113,7 @@ inline DrawMeshCommand MakeSyntheticDrawMeshCommand(u32 shaderID = 1,
     cmd.indexCount = 36;
     cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -depth));
     cmd.entityID = entityID;
-    cmd.shaderHandle = 0;
+    cmd.shaderHandle = static_cast<AssetHandle>(shaderID);
     cmd.materialDataIndex = static_cast<u16>(materialID); // Used as material identity for batching tests
     return cmd;
 }

@@ -750,6 +750,7 @@ namespace OloEngine
             Ref<UniformBuffer> DecalUBO;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+            glm::mat4 InverseViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
             glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
 

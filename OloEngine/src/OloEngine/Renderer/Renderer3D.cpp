@@ -440,6 +440,8 @@ namespace OloEngine
         s_Data.SSSPass.Reset();
         s_Data.PostProcessPass.Reset();
         s_Data.FinalPass.Reset();
+        s_Data.FoliagePass.Reset();
+        s_Data.DecalPass.Reset();
         s_Data.RGraph.Reset();
 
         // Release UBOs explicitly while the GL context is still alive
@@ -524,6 +526,7 @@ namespace OloEngine
         CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
         CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
 
+        s_Data.InverseViewProjectionMatrix = glm::inverse(s_Data.ViewProjectionMatrix);
         s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
 
         s_Data.Stats.Reset();
@@ -661,7 +664,7 @@ namespace OloEngine
         cmd->shaderRendererID = s_Data.DecalShader->GetRendererID();
         cmd->decalTransform = decalTransform;
         cmd->inverseDecalTransform = inverseDecalTransform;
-        cmd->inverseViewProjection = glm::inverse(s_Data.ViewProjectionMatrix);
+        cmd->inverseViewProjection = s_Data.InverseViewProjectionMatrix;
         cmd->decalColor = decalColor;
         cmd->decalParams = decalParams;
         cmd->albedoTextureID = albedoTextureID;
@@ -973,7 +976,7 @@ namespace OloEngine
         if (s_Data.PostProcess.MotionBlurEnabled || s_Data.Fog.Enabled)
         {
             auto& mb = s_Data.MotionBlurGPUData;
-            mb.InverseViewProjection = glm::inverse(s_Data.ViewProjectionMatrix);
+            mb.InverseViewProjection = s_Data.InverseViewProjectionMatrix;
             mb.PrevViewProjection = s_Data.PrevViewProjectionMatrix;
             s_Data.MotionBlurUBO->SetData(&mb, MotionBlurUBOData::GetSize());
         }

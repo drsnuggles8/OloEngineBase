@@ -57,6 +57,22 @@ namespace OloEngine
                     if (const auto* c = cmd.GetCommandData<DrawQuadCommand>())
                         index = c->renderStateIndex;
                     break;
+                case CommandType::DrawTerrainPatch:
+                    if (const auto* c = cmd.GetCommandData<DrawTerrainPatchCommand>())
+                        index = c->renderStateIndex;
+                    break;
+                case CommandType::DrawVoxelMesh:
+                    if (const auto* c = cmd.GetCommandData<DrawVoxelMeshCommand>())
+                        index = c->renderStateIndex;
+                    break;
+                case CommandType::DrawDecal:
+                    if (const auto* c = cmd.GetCommandData<DrawDecalCommand>())
+                        index = c->renderStateIndex;
+                    break;
+                case CommandType::DrawFoliageLayer:
+                    if (const auto* c = cmd.GetCommandData<DrawFoliageLayerCommand>())
+                        index = c->renderStateIndex;
+                    break;
                 default:
                     break;
             }

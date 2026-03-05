@@ -238,10 +238,10 @@ TEST(Frustum, StressRandomSpheres_NoNaN)
         bool result = frustum.IsSphereVisible(center, radius);
 
         // If the sphere is marked as visible, verify plane distances are finite
-        // and at least one plane has a signed distance >= -radius
+        // and ALL planes have a signed distance >= -radius
         if (result)
         {
-            bool hasPassingPlane = false;
+            bool allPlanesPass = true;
             for (i32 p = 0; p < static_cast<i32>(Frustum::Planes::Count); ++p)
             {
                 const Plane& plane = frustum.GetPlane(static_cast<Frustum::Planes>(p));
@@ -249,14 +249,15 @@ TEST(Frustum, StressRandomSpheres_NoNaN)
                 EXPECT_TRUE(std::isfinite(signedDist))
                     << "Plane " << p << " signed distance is non-finite for sphere at ("
                     << center.x << "," << center.y << "," << center.z << ") r=" << radius;
-                if (signedDist >= -radius)
+                if (signedDist < -radius)
                 {
-                    hasPassingPlane = true;
+                    allPlanesPass = false;
+                    break;
                 }
             }
-            EXPECT_TRUE(hasPassingPlane)
+            EXPECT_TRUE(allPlanesPass)
                 << "Sphere at (" << center.x << "," << center.y << "," << center.z
-                << ") r=" << radius << " marked visible but fails all plane tests";
+                << ") r=" << radius << " marked visible but fails a plane test";
         }
     }
 }

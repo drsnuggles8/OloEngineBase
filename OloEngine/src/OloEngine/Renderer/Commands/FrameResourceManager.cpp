@@ -82,6 +82,14 @@ namespace OloEngine
         if (m_DoubleBufferingEnabled && m_TotalFrameCount >= NUM_BUFFERED_FRAMES)
         {
             WaitForFrame(currentIndex);
+
+            // Only reset allocators if the GPU fence was actually signaled;
+            // otherwise the GPU may still be reading this frame's data.
+            if (!m_FrameResources[currentIndex].FenceSignaled)
+            {
+                OLO_CORE_ERROR("FrameResourceManager::BeginFrame: Fence wait failed for frame {}, skipping allocator reset", currentIndex);
+                return currentIndex;
+            }
         }
 
         // Reset ALL allocators (main + workers) for this frame

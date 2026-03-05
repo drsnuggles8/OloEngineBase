@@ -54,17 +54,20 @@ namespace OloEngine
 
     Ref<Framebuffer> FoliageRenderPass::GetTarget() const
     {
+        OLO_PROFILE_FUNCTION();
         // Return the ScenePass framebuffer since that's where we render
         return m_SceneFramebuffer;
     }
 
     void FoliageRenderPass::SetSceneFramebuffer(const Ref<Framebuffer>& fb)
     {
+        OLO_PROFILE_FUNCTION();
         m_SceneFramebuffer = fb;
     }
 
     void FoliageRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
+        OLO_PROFILE_FUNCTION();
         // No own framebuffer — dimensions tracked for consistency
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
@@ -72,12 +75,14 @@ namespace OloEngine
 
     void FoliageRenderPass::ResizeFramebuffer(u32 width, u32 height)
     {
+        OLO_PROFILE_FUNCTION();
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
     }
 
     void FoliageRenderPass::OnReset()
     {
+        OLO_PROFILE_FUNCTION();
         // No own framebuffer to reset
     }
 } // namespace OloEngine

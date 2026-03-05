@@ -10,6 +10,7 @@
 #include <array>
 #include <chrono>
 #include <cstring>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -571,6 +572,18 @@ namespace OloEngine
         // O(n) scan — groups ALL matching DrawMesh commands, not just adjacent.
         std::unordered_map<InstanceGroupKey, std::vector<sizet>, InstanceGroupKeyHash> groups;
 
+        // Collect predecessors of dependency-constrained packets so they are
+        // not merged/nulled during instancing — their dependent follower
+        // relies on them staying in place.
+        std::unordered_set<sizet> protectedPredecessors;
+        for (sizet i = 1; i < m_Packets.size(); ++i)
+        {
+            if (m_Packets[i] && m_Packets[i]->GetMetadata().m_DependsOnPrevious)
+            {
+                protectedPredecessors.insert(i - 1);
+            }
+        }
+
         for (sizet i = 0; i < m_Packets.size(); ++i)
         {
             if (!m_Packets[i])
@@ -579,6 +592,9 @@ namespace OloEngine
                 continue;
             // Commands with ordering constraints must not be reordered into groups
             if (m_Packets[i]->GetMetadata().m_DependsOnPrevious)
+                continue;
+            // Predecessors of constrained packets must not be merged/nulled
+            if (protectedPredecessors.count(i))
                 continue;
 
             auto const* cmd = m_Packets[i]->GetCommandData<DrawMeshCommand>();

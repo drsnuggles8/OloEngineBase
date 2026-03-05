@@ -1835,6 +1835,7 @@ namespace OloEngine
 
             // Submit terrain + voxel command packets (sorted with other opaque geometry)
             // and shadow casters for terrain, voxel, and foliage.
+            const f32 foliageFrameTime = Time::GetTime();
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
                 auto voxelShader = Renderer3D::GetVoxelPBRShader();
@@ -2065,7 +2066,7 @@ namespace OloEngine
                             if (foliageDepthShader)
                             {
                                 shadowPass->AddFoliageCaster(
-                                    foliage.m_Renderer.get(), foliageDepthShader, Time::GetTime());
+                                    foliage.m_Renderer.get(), foliageDepthShader, foliageFrameTime);
                             }
                         }
                     }
@@ -2083,7 +2084,7 @@ namespace OloEngine
                         continue;
                     }
 
-                    foliage.m_Renderer->SetTime(Time::GetTime());
+                    foliage.m_Renderer->SetTime(foliageFrameTime);
                     i32 entityID = static_cast<i32>(static_cast<u32>(foliageEntity));
                     glm::mat4 modelMat = foliageTransform.GetTransform();
 
@@ -2094,7 +2095,7 @@ namespace OloEngine
                             layer.VertexArrayID, layer.IndexCount, layer.InstanceCount,
                             layer.AlbedoTextureID,
                             modelMat,
-                            Time::GetTime(),
+                            foliageFrameTime,
                             layer.WindStrength, layer.WindSpeed,
                             layer.ViewDistance, layer.FadeStartDistance, layer.AlphaCutoff,
                             glm::vec4(layer.BaseColor, 0.0f),
