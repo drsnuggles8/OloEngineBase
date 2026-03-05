@@ -33,6 +33,9 @@ namespace OloEngine
     using AssetHandle = UUID; // u64 asset identifier
     using RendererID = u32;   // OpenGL resource ID
 
+    // Sentinel value for uninitialized render state index
+    static constexpr u16 INVALID_RENDER_STATE_INDEX = UINT16_MAX;
+
     // Inlined POD render state for commands (replaces Ref<RenderState>)
     struct PODRenderState
     {
@@ -511,8 +514,8 @@ namespace OloEngine
         RendererID prefilterMapID = 0;
         RendererID brdfLutMapID = 0;
 
-        // Inlined render state (POD)
-        PODRenderState renderState;
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
 
         // Animation support
         bool isAnimatedMesh = false;
@@ -571,8 +574,8 @@ namespace OloEngine
         RendererID prefilterMapID = 0;
         RendererID brdfLutMapID = 0;
 
-        // Inlined render state (POD)
-        PODRenderState renderState;
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
 
         // Animation support for instanced animated meshes
         bool isAnimatedMesh = false;
@@ -593,7 +596,7 @@ namespace OloEngine
         AssetHandle shaderHandle;    // Skybox shader handle (for asset tracking)
         RendererID shaderRendererID; // Shader program ID for glUseProgram
         RendererID skyboxTextureID;  // Cubemap texture renderer ID
-        PODRenderState renderState;  // Inlined render state
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;  // Render state index
     };
 
     // Static assertion for DrawSkyboxCommand
@@ -606,7 +609,7 @@ namespace OloEngine
         RendererID shaderRendererID; // Shader program ID for glUseProgram
         RendererID quadVAOID;        // Fullscreen quad VAO renderer ID
         f32 gridScale;               // Grid spacing scale factor
-        PODRenderState renderState;  // Inlined render state
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;  // Render state index
     };
 
     // Static assertion for DrawInfiniteGridCommand
@@ -620,7 +623,7 @@ namespace OloEngine
         AssetHandle shaderHandle;    // Shader asset handle (for asset tracking)
         RendererID shaderRendererID; // Shader program ID for glUseProgram
         RendererID quadVAID;         // Quad vertex array renderer ID
-        PODRenderState renderState;  // Inlined render state
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;  // Render state index
     };
 
     // Static assertion for DrawQuadCommand
@@ -654,8 +657,8 @@ namespace OloEngine
         // Terrain UBO data (inlined per-chunk — tess factors vary per chunk)
         ShaderBindingLayout::TerrainUBO terrainUBOData{};
 
-        // Render state
-        PODRenderState renderState;
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
     };
 
     static_assert(std::is_trivially_copyable_v<DrawTerrainPatchCommand>, "DrawTerrainPatchCommand must be trivially copyable for radix sort");
@@ -681,8 +684,8 @@ namespace OloEngine
         glm::mat4 transform = glm::mat4(1.0f);
         i32 entityID = -1;
 
-        // Render state
-        PODRenderState renderState;
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
     };
 
     static_assert(std::is_trivially_copyable_v<DrawVoxelMeshCommand>, "DrawVoxelMeshCommand must be trivially copyable for radix sort");
@@ -712,8 +715,8 @@ namespace OloEngine
         // Entity ID for picking
         i32 entityID = -1;
 
-        // Render state
-        PODRenderState renderState;
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
     };
 
     static_assert(std::is_trivially_copyable_v<DrawDecalCommand>, "DrawDecalCommand must be trivially copyable for radix sort");
@@ -752,8 +755,8 @@ namespace OloEngine
         // Entity ID for picking
         i32 entityID = -1;
 
-        // Render state
-        PODRenderState renderState;
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
     };
 
     static_assert(std::is_trivially_copyable_v<DrawFoliageLayerCommand>, "DrawFoliageLayerCommand must be trivially copyable for radix sort");

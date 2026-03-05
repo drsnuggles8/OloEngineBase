@@ -405,8 +405,8 @@ namespace OloEngine
         instancedCmd->shaderHandle = meshCmd->shaderHandle;
         instancedCmd->shaderRendererID = meshCmd->shaderRendererID;
 
-        // Copy POD render state
-        instancedCmd->renderState = meshCmd->renderState;
+        // Copy POD render state index
+        instancedCmd->renderStateIndex = meshCmd->renderStateIndex;
 
         // Set command type and dispatch function (via runtime resolver)
         instancedPacket->SetCommandType(instancedCmd->header.type);

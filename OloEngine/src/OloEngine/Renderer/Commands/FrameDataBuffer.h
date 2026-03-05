@@ -2,11 +2,13 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Memory/Platform.h"
+#include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Threading/Mutex.h"
 #include <glm/glm.hpp>
 #include <vector>
 #include <atomic>
 #include <array>
+#include <cstring>
 
 namespace OloEngine
 {
@@ -16,6 +18,9 @@ namespace OloEngine
     // Size of per-worker scratch buffer (in matrix count)
     static constexpr u32 WORKER_SCRATCH_BONE_CAPACITY = 256;      // ~16KB per worker
     static constexpr u32 WORKER_SCRATCH_TRANSFORM_CAPACITY = 512; // ~32KB per worker
+
+    // RenderState table capacity — max unique render states per frame
+    static constexpr u16 MAX_RENDER_STATES_PER_FRAME = 256;
 
     /**
      * @brief Per-worker scratch buffer for thread-local bone/transform accumulation
@@ -164,6 +169,31 @@ namespace OloEngine
         }
 
         // ====================================================================
+        // RenderState Table — per-frame deduplication of PODRenderState
+        // ====================================================================
+
+        /**
+         * @brief Allocate (or reuse) a render state in the per-frame table
+         * @param state The PODRenderState to store
+         * @return u16 index into the table (deduplicated — identical states share an index)
+         *
+         * Thread-safe via mutex. Returns INVALID_RENDER_STATE_INDEX on overflow.
+         */
+        u16 AllocateRenderState(const PODRenderState& state);
+
+        /**
+         * @brief Look up a render state by index
+         * @param index Index returned by AllocateRenderState
+         * @return Reference to the stored PODRenderState
+         */
+        const PODRenderState& GetRenderState(u16 index) const;
+
+        /**
+         * @brief Current number of unique render states allocated this frame
+         */
+        u16 GetRenderStateCount() const { return m_RenderStateCount; }
+
+        // ====================================================================
         // Thread-Local Scratch Buffer API for Parallel Command Generation
         // ====================================================================
 
@@ -248,6 +278,14 @@ namespace OloEngine
 
         mutable FMutex m_BoneMutex;
         mutable FMutex m_TransformMutex;
+
+        // ====================================================================
+        // RenderState Table Storage
+        // ====================================================================
+
+        std::array<PODRenderState, MAX_RENDER_STATES_PER_FRAME> m_RenderStates{};
+        u16 m_RenderStateCount = 0;
+        mutable FMutex m_RenderStateMutex;
 
         // ====================================================================
         // Thread-Local Scratch Buffer Storage

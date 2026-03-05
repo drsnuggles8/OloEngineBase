@@ -6,14 +6,12 @@
 #include <glm/glm.hpp>
 
 /*
- * TODO: CommandPacket Asset Management Integration
+ * CommandPacket — Immutable command wrapper.
  *
- * The Initialize() method has been updated to work with ID-based commands,
- * but needs further updates once asset management system is complete:
- *
- * - Sort key generation should use proper asset handles
- * - Material ID generation should be based on asset system, not texture IDs
- * - Consider caching resolved asset pointers for performance
+ * Once a packet is created and initialized, both its inline command data
+ * and its metadata (including sort key) are considered sealed.  Callers
+ * (e.g. Renderer3D::DrawMesh) are responsible for computing the correct
+ * sort key *before* submission; there is no post-creation mutation API.
  */
 
 namespace OloEngine
@@ -76,33 +74,10 @@ namespace OloEngine
             // (which transitively includes Application, Renderer3D, AssetManager,
             //  glad, etc. — heavy statics that crash test executables).
 
-            // Set metadata
-            m_Metadata = metadata; // Set default keys if not specified in metadata
-            if (m_Metadata.m_SortKey.GetShaderID() == 0 && m_CommandType == CommandType::DrawMesh)
-            {
-                const auto* cmd = reinterpret_cast<const DrawMeshCommand*>(GetInlineData());
-                if (cmd->shaderRendererID != 0)
-                    m_Metadata.m_SortKey.SetShaderID(cmd->shaderRendererID);
-            }
-
-            if (m_Metadata.m_SortKey.GetMaterialID() == 0 && m_CommandType == CommandType::DrawMesh)
-            {
-                const auto* cmd = reinterpret_cast<const DrawMeshCommand*>(GetInlineData());
-                if (cmd->useTextureMaps)
-                {
-                    // Use POD renderer IDs for material hashing
-                    u64 diffuseID = static_cast<u64>(cmd->diffuseMapID);
-                    u64 specularID = static_cast<u64>(cmd->specularMapID);
-
-                    // Improved 64-bit mixing using FNV-like hash before folding to 32 bits
-                    u64 hash = diffuseID;
-                    hash ^= specularID + 0x9e3779b9 + (hash << 6) + (hash >> 2);
-                    // Fold to 16 bits to fit the DrawKey material field
-                    u32 materialID = static_cast<u32>(hash ^ (hash >> 32)) & 0xFFFF;
-
-                    m_Metadata.m_SortKey.SetMaterialID(materialID);
-                }
-            }
+            // Metadata (including sort key) is caller-provided and sealed here.
+            // Callers (Renderer3D::DrawMesh, etc.) are responsible for computing
+            // ShaderID, MaterialID and Depth in the sort key before submission.
+            m_Metadata = metadata;
         }
 
         // Execute the command with a RendererAPI
@@ -160,9 +135,6 @@ namespace OloEngine
 
         // Clone this packet (for cases where we need to duplicate commands)
         CommandPacket* Clone(class CommandAllocator& allocator) const;
-
-        // For batch merging - update or modify command data
-        bool UpdateCommandData(const void* data, sizet size);
 
         // For debugging - get the command type as a string
         const char* GetCommandTypeString() const

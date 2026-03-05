@@ -4,6 +4,7 @@
 #include "RenderingTestUtils.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 
+#include <cstring>
 #include <glm/glm.hpp>
 #include <thread>
 #include <vector>
@@ -249,4 +250,122 @@ TEST(FrameDataBuffer, PrepareAndMergeCycle)
         EXPECT_EQ(buffer.GetBoneMatrixCount(), 6u)
             << "Frame " << frame << ": expected 6 bone matrices after merge";
     }
+}
+
+// =============================================================================
+// RenderState Table Tests
+// =============================================================================
+
+TEST(FrameDataBuffer, RenderStateTableAllocateReturnsValidIndex)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODRenderState state{};
+    u16 index = buffer.AllocateRenderState(state);
+    EXPECT_NE(index, INVALID_RENDER_STATE_INDEX);
+    EXPECT_EQ(index, 0u);
+    EXPECT_EQ(buffer.GetRenderStateCount(), 1u);
+}
+
+TEST(FrameDataBuffer, RenderStateTableDeduplicatesIdenticalStates)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODRenderState state{};
+    u16 first = buffer.AllocateRenderState(state);
+    u16 second = buffer.AllocateRenderState(state);
+
+    EXPECT_EQ(first, second) << "Identical states must return same index";
+    EXPECT_EQ(buffer.GetRenderStateCount(), 1u) << "Only one unique state should exist";
+}
+
+TEST(FrameDataBuffer, RenderStateTableDifferentStatesGetDifferentIndices)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODRenderState opaque{};
+    opaque.depthTestEnabled = true;
+    opaque.blendEnabled = false;
+
+    PODRenderState transparent{};
+    transparent.depthTestEnabled = true;
+    transparent.blendEnabled = true;
+    transparent.blendSrcFactor = GL_SRC_ALPHA;
+    transparent.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+
+    u16 opaqueIdx = buffer.AllocateRenderState(opaque);
+    u16 transIdx = buffer.AllocateRenderState(transparent);
+
+    EXPECT_NE(opaqueIdx, transIdx) << "Different states must get different indices";
+    EXPECT_EQ(buffer.GetRenderStateCount(), 2u);
+}
+
+TEST(FrameDataBuffer, RenderStateTableRoundTrip)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODRenderState state{};
+    state.blendEnabled = true;
+    state.blendSrcFactor = GL_ONE;
+    state.blendDstFactor = GL_ZERO;
+    state.depthTestEnabled = false;
+    state.cullingEnabled = true;
+    state.cullFace = GL_FRONT;
+    state.polygonMode = GL_LINE;
+
+    u16 index = buffer.AllocateRenderState(state);
+    const PODRenderState& retrieved = buffer.GetRenderState(index);
+
+    EXPECT_EQ(std::memcmp(&state, &retrieved, sizeof(PODRenderState)), 0)
+        << "Retrieved state must match original byte-for-byte";
+}
+
+TEST(FrameDataBuffer, RenderStateTableResetsEachFrame)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    PODRenderState state{};
+    state.blendEnabled = true;
+    buffer.AllocateRenderState(state);
+    EXPECT_EQ(buffer.GetRenderStateCount(), 1u);
+
+    // Simulate new frame
+    buffer.Reset();
+    EXPECT_EQ(buffer.GetRenderStateCount(), 0u) << "Table must be empty after Reset()";
+
+    // Re-allocate — should get index 0 again
+    u16 index = buffer.AllocateRenderState(state);
+    EXPECT_EQ(index, 0u);
+    EXPECT_EQ(buffer.GetRenderStateCount(), 1u);
+}
+
+TEST(FrameDataBuffer, RenderStateTableMultipleUniqueStates)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    // Allocate 10 unique states
+    for (u16 i = 0; i < 10; ++i)
+    {
+        PODRenderState state{};
+        state.lineWidth = static_cast<f32>(i + 1);
+        u16 index = buffer.AllocateRenderState(state);
+        EXPECT_EQ(index, i) << "State " << i << " should get sequential index";
+    }
+    EXPECT_EQ(buffer.GetRenderStateCount(), 10u);
+
+    // Verify dedup: re-allocate same states
+    for (u16 i = 0; i < 10; ++i)
+    {
+        PODRenderState state{};
+        state.lineWidth = static_cast<f32>(i + 1);
+        u16 index = buffer.AllocateRenderState(state);
+        EXPECT_EQ(index, i) << "Re-allocated state " << i << " should match original index";
+    }
+    EXPECT_EQ(buffer.GetRenderStateCount(), 10u) << "No new states should be added";
 }

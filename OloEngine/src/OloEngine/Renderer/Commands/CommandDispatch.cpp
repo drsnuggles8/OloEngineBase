@@ -607,8 +607,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply POD render state directly
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(FrameDataBufferManager::Get().GetRenderState(cmd->renderStateIndex), api);
 
         // Bind shader using renderer ID directly
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -948,8 +948,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply POD render state directly
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(FrameDataBufferManager::Get().GetRenderState(cmd->renderStateIndex), api);
 
         // Bind shader using renderer ID directly
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1060,8 +1060,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply POD render state (skybox-specific settings already in renderState)
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(FrameDataBufferManager::Get().GetRenderState(cmd->renderStateIndex), api);
 
         // Bind skybox shader using renderer ID directly
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1107,8 +1107,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply POD render state directly
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(FrameDataBufferManager::Get().GetRenderState(cmd->renderStateIndex), api);
 
         // Bind shader using renderer ID directly
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1164,8 +1164,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply POD render state (grid-specific: blending enabled, depth test enabled)
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(FrameDataBufferManager::Get().GetRenderState(cmd->renderStateIndex), api);
 
         // Bind grid shader using renderer ID directly
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1204,8 +1204,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply render state
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(FrameDataBufferManager::Get().GetRenderState(cmd->renderStateIndex), api);
 
         // Bind shader
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1343,8 +1343,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply render state
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(FrameDataBufferManager::Get().GetRenderState(cmd->renderStateIndex), api);
 
         // Bind shader
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1430,8 +1430,8 @@ namespace OloEngine
             return;
         }
 
-        // Apply render state (blend on, depth write off, front-face culling)
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(FrameDataBufferManager::Get().GetRenderState(cmd->renderStateIndex), api);
 
         // Bind shader (cached)
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
@@ -1486,8 +1486,8 @@ namespace OloEngine
     {
         const auto* cmd = static_cast<const DrawFoliageLayerCommand*>(data);
 
-        // Apply render state (opaque alpha-tested: depth test + write, no blend)
-        ApplyPODRenderState(cmd->renderState, api);
+        // Resolve and apply render state from table
+        ApplyPODRenderState(FrameDataBufferManager::Get().GetRenderState(cmd->renderStateIndex), api);
 
         // Bind shader (cached)
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)

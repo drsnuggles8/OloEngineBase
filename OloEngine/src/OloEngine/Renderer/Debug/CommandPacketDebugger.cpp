@@ -3,6 +3,7 @@
 #include "FrameCaptureManager.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 
 #include <algorithm>
 #include <chrono>
@@ -34,32 +35,35 @@ namespace OloEngine
 
         const PODRenderState* GetRenderStateFromCommand(const CapturedCommandData& cmd)
         {
+            u16 index = INVALID_RENDER_STATE_INDEX;
             switch (cmd.GetCommandType())
             {
                 case CommandType::DrawMesh:
                     if (const auto* c = cmd.GetCommandData<DrawMeshCommand>())
-                        return &c->renderState;
+                        index = c->renderStateIndex;
                     break;
                 case CommandType::DrawMeshInstanced:
                     if (const auto* c = cmd.GetCommandData<DrawMeshInstancedCommand>())
-                        return &c->renderState;
+                        index = c->renderStateIndex;
                     break;
                 case CommandType::DrawSkybox:
                     if (const auto* c = cmd.GetCommandData<DrawSkyboxCommand>())
-                        return &c->renderState;
+                        index = c->renderStateIndex;
                     break;
                 case CommandType::DrawInfiniteGrid:
                     if (const auto* c = cmd.GetCommandData<DrawInfiniteGridCommand>())
-                        return &c->renderState;
+                        index = c->renderStateIndex;
                     break;
                 case CommandType::DrawQuad:
                     if (const auto* c = cmd.GetCommandData<DrawQuadCommand>())
-                        return &c->renderState;
+                        index = c->renderStateIndex;
                     break;
                 default:
                     break;
             }
-            return nullptr;
+            if (index == INVALID_RENDER_STATE_INDEX)
+                return nullptr;
+            return &FrameDataBufferManager::Get().GetRenderState(index);
         }
     } // anonymous namespace
 
@@ -763,21 +767,25 @@ namespace OloEngine
             {
                 const auto* prevCmd = prev.GetCommandData<DrawMeshCommand>();
                 const auto* currCmd = curr.GetCommandData<DrawMeshCommand>();
-                if (prevCmd && currCmd)
+                if (prevCmd && currCmd &&
+                    prevCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX &&
+                    currCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
                 {
-                    if (prevCmd->renderState.blendEnabled != currCmd->renderState.blendEnabled ||
-                        prevCmd->renderState.blendSrcFactor != currCmd->renderState.blendSrcFactor ||
-                        prevCmd->renderState.blendDstFactor != currCmd->renderState.blendDstFactor)
+                    const auto& prevState = FrameDataBufferManager::Get().GetRenderState(prevCmd->renderStateIndex);
+                    const auto& currState = FrameDataBufferManager::Get().GetRenderState(currCmd->renderStateIndex);
+                    if (prevState.blendEnabled != currState.blendEnabled ||
+                        prevState.blendSrcFactor != currState.blendSrcFactor ||
+                        prevState.blendDstFactor != currState.blendDstFactor)
                     {
                         blendChanges++;
                     }
-                    if (prevCmd->renderState.depthTestEnabled != currCmd->renderState.depthTestEnabled ||
-                        prevCmd->renderState.depthFunction != currCmd->renderState.depthFunction)
+                    if (prevState.depthTestEnabled != currState.depthTestEnabled ||
+                        prevState.depthFunction != currState.depthFunction)
                     {
                         depthChanges++;
                     }
-                    if (prevCmd->renderState.polygonMode != currCmd->renderState.polygonMode ||
-                        prevCmd->renderState.cullingEnabled != currCmd->renderState.cullingEnabled)
+                    if (prevState.polygonMode != currState.polygonMode ||
+                        prevState.cullingEnabled != currState.cullingEnabled)
                     {
                         polygonChanges++;
                     }
@@ -1298,13 +1306,17 @@ namespace OloEngine
                     {
                         const auto* prevCmd = prev.GetCommandData<DrawMeshCommand>();
                         const auto* currCmd = curr.GetCommandData<DrawMeshCommand>();
-                        if (prevCmd && currCmd)
+                        if (prevCmd && currCmd
+                            && prevCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX
+                            && currCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
                         {
-                            if (prevCmd->renderState.blendEnabled != currCmd->renderState.blendEnabled ||
-                                prevCmd->renderState.blendSrcFactor != currCmd->renderState.blendSrcFactor)
+                            const auto& prevState = FrameDataBufferManager::Get().GetRenderState(prevCmd->renderStateIndex);
+                            const auto& currState = FrameDataBufferManager::Get().GetRenderState(currCmd->renderStateIndex);
+                            if (prevState.blendEnabled != currState.blendEnabled ||
+                                prevState.blendSrcFactor != currState.blendSrcFactor)
                                 blendChanges++;
-                            if (prevCmd->renderState.depthTestEnabled != currCmd->renderState.depthTestEnabled ||
-                                prevCmd->renderState.depthFunction != currCmd->renderState.depthFunction)
+                            if (prevState.depthTestEnabled != currState.depthTestEnabled ||
+                                prevState.depthFunction != currState.depthFunction)
                                 depthChanges++;
                         }
                     }
@@ -1365,6 +1377,9 @@ namespace OloEngine
                 {
                     if (const auto* meshCmd = cmd.GetCommandData<DrawMeshCommand>())
                     {
+                        const PODRenderState* state = (meshCmd->renderStateIndex != INVALID_RENDER_STATE_INDEX)
+                            ? &FrameDataBufferManager::Get().GetRenderState(meshCmd->renderStateIndex)
+                            : nullptr;
                         file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
                         file << "- Shader: " << meshCmd->shaderRendererID << " (handle: " << static_cast<u64>(meshCmd->shaderHandle) << ")\n";
                         file << "- VAO: " << meshCmd->vertexArrayID << ", Index Count: " << meshCmd->indexCount << "\n";
@@ -1376,9 +1391,9 @@ namespace OloEngine
                             file << "- Textures: albedo=" << meshCmd->albedoMapID << " metallicRough=" << meshCmd->metallicRoughnessMapID
                                  << " normal=" << meshCmd->normalMapID << " ao=" << meshCmd->aoMapID << " emissive=" << meshCmd->emissiveMapID << "\n";
                         }
-                        file << "- Depth: write=" << (meshCmd->renderState.depthWriteMask ? "yes" : "no")
-                             << " test=" << (meshCmd->renderState.depthTestEnabled ? "yes" : "no") << "\n";
-                        file << "- Blend: " << (meshCmd->renderState.blendEnabled ? "enabled" : "disabled") << "\n";
+                        file << "- Depth: write=" << (state ? (state->depthWriteMask ? "yes" : "no") : "N/A")
+                             << " test=" << (state ? (state->depthTestEnabled ? "yes" : "no") : "N/A") << "\n";
+                        file << "- Blend: " << (state ? (state->blendEnabled ? "enabled" : "disabled") : "N/A") << "\n";
                         if (meshCmd->isAnimatedMesh)
                             file << "- Animated: boneOffset=" << meshCmd->boneBufferOffset << " boneCount=" << meshCmd->boneCount << "\n";
                         file << "\n";

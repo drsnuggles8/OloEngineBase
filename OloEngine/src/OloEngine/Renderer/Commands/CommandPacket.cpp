@@ -123,19 +123,6 @@ namespace OloEngine
         }
     }
 
-    bool CommandPacket::UpdateCommandData(const void* data, sizet size)
-    {
-        if (size > MAX_COMMAND_SIZE || !data)
-        {
-            OLO_CORE_ERROR("CommandPacket: Cannot update command data, invalid size or null data");
-            return false;
-        }
-
-        std::memcpy(GetInlineData(), data, size);
-        m_CommandSize = size;
-        return true;
-    }
-
     CommandPacket* CommandPacket::Clone(CommandAllocator& allocator) const
     {
         OLO_PROFILE_FUNCTION();

@@ -228,28 +228,37 @@ TEST(CommandPacket, CloneDeepCopiesData)
 }
 
 // =============================================================================
-// UpdateCommandData
+// Sort Key Immutability
 // =============================================================================
 
-TEST(CommandPacket, UpdateCommandDataOverwritesContent)
+TEST(CommandPacket, SortKeyPreservedFromMetadata)
 {
     CommandAllocator allocator;
-    auto cmd = MakeSyntheticViewportCommand(0, 0, 800, 600);
+    auto cmd = MakeSyntheticDrawMeshCommand(42, 7);
 
+    // Caller sets sort key explicitly — the standard production path
+    PacketMetadata meta;
+    meta.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, 0xABCD, 0x1234, 500);
+    auto* packet = allocator.CreateCommandPacket(cmd, meta);
+    ASSERT_NE(packet, nullptr);
+
+    // Sort key must be exactly what the caller provided
+    EXPECT_EQ(packet->GetMetadata().m_SortKey.GetShaderID(), 0xABCD);
+    EXPECT_EQ(packet->GetMetadata().m_SortKey.GetMaterialID(), 0x1234);
+    EXPECT_EQ(packet->GetMetadata().m_SortKey.GetDepth(), 500u);
+}
+
+TEST(CommandPacket, DefaultMetadataKeepsSortKeyZeroed)
+{
+    CommandAllocator allocator;
+    auto cmd = MakeSyntheticDrawMeshCommand(99, 5);
+
+    // No metadata provided — sort key fields stay zero (no auto-derivation)
     auto* packet = allocator.CreateCommandPacket(cmd);
     ASSERT_NE(packet, nullptr);
 
-    // Update with new viewport
-    auto newCmd = MakeSyntheticViewportCommand(100, 100, 1920, 1080);
-    bool updated = packet->UpdateCommandData(&newCmd, sizeof(newCmd));
-    EXPECT_TRUE(updated);
-
-    const auto* data = packet->GetCommandData<SetViewportCommand>();
-    ASSERT_NE(data, nullptr);
-    EXPECT_EQ(data->x, 100u);
-    EXPECT_EQ(data->y, 100u);
-    EXPECT_EQ(data->width, 1920u);
-    EXPECT_EQ(data->height, 1080u);
+    EXPECT_EQ(packet->GetMetadata().m_SortKey.GetShaderID(), 0u);
+    EXPECT_EQ(packet->GetMetadata().m_SortKey.GetMaterialID(), 0u);
 }
 
 // =============================================================================

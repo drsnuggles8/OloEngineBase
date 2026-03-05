@@ -596,15 +596,18 @@ namespace OloEngine
         cmd->entityID = entityID;
 
         // Decal render state: blend on, depth read-only, front-face culling
-        cmd->renderState = CreateDefaultPODRenderState();
-        cmd->renderState.blendEnabled = true;
-        cmd->renderState.blendSrcFactor = GL_SRC_ALPHA;
-        cmd->renderState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
-        cmd->renderState.depthTestEnabled = true;
-        cmd->renderState.depthFunction = GL_LEQUAL;
-        cmd->renderState.depthWriteMask = false;
-        cmd->renderState.cullingEnabled = true;
-        cmd->renderState.cullFace = GL_FRONT;
+        {
+            PODRenderState decalState = CreateDefaultPODRenderState();
+            decalState.blendEnabled = true;
+            decalState.blendSrcFactor = GL_SRC_ALPHA;
+            decalState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+            decalState.depthTestEnabled = true;
+            decalState.depthFunction = GL_LEQUAL;
+            decalState.depthWriteMask = false;
+            decalState.cullingEnabled = true;
+            decalState.cullFace = GL_FRONT;
+            cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(decalState);
+        }
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -664,13 +667,16 @@ namespace OloEngine
         cmd->entityID = entityID;
 
         // Foliage render state: opaque alpha-tested, depth test + write, no blend
-        cmd->renderState = CreateDefaultPODRenderState();
-        cmd->renderState.depthTestEnabled = true;
-        cmd->renderState.depthFunction = GL_LEQUAL;
-        cmd->renderState.depthWriteMask = true;
-        cmd->renderState.blendEnabled = false;
-        cmd->renderState.cullingEnabled = true;
-        cmd->renderState.cullFace = GL_BACK;
+        {
+            PODRenderState foliageState = CreateDefaultPODRenderState();
+            foliageState.depthTestEnabled = true;
+            foliageState.depthFunction = GL_LEQUAL;
+            foliageState.depthWriteMask = true;
+            foliageState.blendEnabled = false;
+            foliageState.cullingEnabled = true;
+            foliageState.cullFace = GL_BACK;
+            cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(foliageState);
+        }
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -1129,8 +1135,8 @@ namespace OloEngine
         cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
         cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
 
-        // Inlined POD render state
-        cmd->renderState = CreatePODRenderStateForMaterial(material);
+        // Render state via table
+        cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
 
         // Entity ID for picking
         cmd->entityID = entityID;
@@ -1291,7 +1297,7 @@ namespace OloEngine
         cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
         cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
 
-        cmd->renderState = CreatePODRenderStateForMaterial(material);
+        cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
 
         // Animation support - store worker-local offset with remapping info
         // The offset will be remapped to global in EndParallelSubmission()
@@ -1702,8 +1708,8 @@ namespace OloEngine
         cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
         cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
 
-        // Inlined POD render state
-        cmd->renderState = CreatePODRenderStateForMaterial(material);
+        // Render state via table
+        cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
 
         // No bone matrices for non-animated mesh
         cmd->isAnimatedMesh = false;
@@ -1763,7 +1769,7 @@ namespace OloEngine
         cmd->shaderHandle = s_Data.QuadShader->GetHandle();
         cmd->shaderRendererID = s_Data.QuadShader->GetRendererID();
         cmd->quadVAID = s_Data.QuadMesh->GetVertexArray()->GetRendererID();
-        cmd->renderState = CreateDefaultPODRenderState();
+        cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreateDefaultPODRenderState());
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -1861,8 +1867,8 @@ namespace OloEngine
         cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
         cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
 
-        // Inlined POD render state
-        cmd->renderState = CreatePODRenderStateForMaterial(material);
+        // Render state via table
+        cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
 
         cmd->isAnimatedMesh = false;
         cmd->boneBufferOffset = 0;
@@ -1936,8 +1942,8 @@ namespace OloEngine
         cmd->prefilterMapID = 0;
         cmd->brdfLutMapID = 0;
 
-        // Inlined POD render state
-        cmd->renderState = CreateDefaultPODRenderState();
+        // Render state via table
+        cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreateDefaultPODRenderState());
 
         cmd->isAnimatedMesh = false;
         cmd->boneBufferOffset = 0;
@@ -2301,8 +2307,8 @@ namespace OloEngine
         cmd->prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
         cmd->brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
 
-        // Inlined POD render state
-        cmd->renderState = CreatePODRenderStateForMaterial(material);
+        // Render state via table
+        cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
 
         // Animation support - store offset/count into FrameDataBuffer
         cmd->isAnimatedMesh = true;
@@ -2687,11 +2693,14 @@ namespace OloEngine
         cmd->skyboxTextureID = skyboxTexture->GetRendererID();
 
         // Skybox-specific POD render state
-        cmd->renderState = CreateDefaultPODRenderState();
-        cmd->renderState.depthTestEnabled = true;
-        cmd->renderState.depthFunction = GL_LEQUAL; // Important for skybox
-        cmd->renderState.depthWriteMask = false;    // Don't write to depth buffer
-        cmd->renderState.cullingEnabled = false;    // Don't cull faces for skybox
+        {
+            PODRenderState skyboxState = CreateDefaultPODRenderState();
+            skyboxState.depthTestEnabled = true;
+            skyboxState.depthFunction = GL_LEQUAL;
+            skyboxState.depthWriteMask = false;
+            skyboxState.cullingEnabled = false;
+            cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(skyboxState);
+        }
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -2768,12 +2777,13 @@ namespace OloEngine
             auto* drawCmd = packet->GetCommandData<DrawMeshCommand>();
             if (drawCmd)
             {
-                // Disable depth test so skeleton always shows on top
-                drawCmd->renderState.depthTestEnabled = false;
-                // Add some polygon offset to push skeleton forward
-                drawCmd->renderState.polygonOffsetEnabled = true;
-                drawCmd->renderState.polygonOffsetFactor = -2.0f;
-                drawCmd->renderState.polygonOffsetUnits = -2.0f;
+                // Build modified state: depth off, polygon offset for skeleton visibility
+                PODRenderState skelState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
+                skelState.depthTestEnabled = false;
+                skelState.polygonOffsetEnabled = true;
+                skelState.polygonOffsetFactor = -2.0f;
+                skelState.polygonOffsetUnits = -2.0f;
+                drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(skelState);
             }
         }
 
@@ -2819,12 +2829,13 @@ namespace OloEngine
             auto* drawCmd = packet->GetCommandData<DrawMeshCommand>();
             if (drawCmd)
             {
-                // Disable depth test so skeleton joints always show on top
-                drawCmd->renderState.depthTestEnabled = false;
-                // Add polygon offset to push joints forward
-                drawCmd->renderState.polygonOffsetEnabled = true;
-                drawCmd->renderState.polygonOffsetFactor = -2.0f;
-                drawCmd->renderState.polygonOffsetUnits = -2.0f;
+                // Build modified state: depth off, polygon offset for joint visibility
+                PODRenderState jointState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
+                jointState.depthTestEnabled = false;
+                jointState.polygonOffsetEnabled = true;
+                jointState.polygonOffsetFactor = -2.0f;
+                jointState.polygonOffsetUnits = -2.0f;
+                drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(jointState);
             }
         }
 
@@ -3018,12 +3029,15 @@ namespace OloEngine
         cmd->gridScale = gridScale;
 
         // Grid-specific render state
-        cmd->renderState = CreateDefaultPODRenderState();
-        cmd->renderState.blendEnabled = true;
-        cmd->renderState.blendSrcFactor = GL_SRC_ALPHA;
-        cmd->renderState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
-        cmd->renderState.depthTestEnabled = true;
-        cmd->renderState.depthWriteMask = false;
+        {
+            PODRenderState gridState = CreateDefaultPODRenderState();
+            gridState.blendEnabled = true;
+            gridState.blendSrcFactor = GL_SRC_ALPHA;
+            gridState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+            gridState.depthTestEnabled = true;
+            gridState.depthWriteMask = false;
+            cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(gridState);
+        }
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -3081,8 +3095,11 @@ namespace OloEngine
         cmd->terrainUBOData = terrainUBO;
 
         // Terrain is opaque — depth test on, no blending, culling on
-        cmd->renderState = CreateDefaultPODRenderState();
-        cmd->renderState.blendEnabled = false;
+        {
+            PODRenderState terrainState = CreateDefaultPODRenderState();
+            terrainState.blendEnabled = false;
+            cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(terrainState);
+        }
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -3131,8 +3148,11 @@ namespace OloEngine
         cmd->transform = transform;
         cmd->entityID = entityID;
 
-        cmd->renderState = CreateDefaultPODRenderState();
-        cmd->renderState.blendEnabled = false;
+        {
+            PODRenderState voxelState = CreateDefaultPODRenderState();
+            voxelState.blendEnabled = false;
+            cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(voxelState);
+        }
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));

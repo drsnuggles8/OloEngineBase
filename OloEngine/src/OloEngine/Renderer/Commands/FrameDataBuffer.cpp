@@ -30,6 +30,9 @@ namespace OloEngine
         // Reset parallel submission state
         m_ParallelSubmissionActive = false;
 
+        // Reset render state table
+        m_RenderStateCount = 0;
+
         // Reset worker scratch buffers
         for (auto& scratch : m_WorkerScratchBuffers)
         {
@@ -145,6 +148,44 @@ namespace OloEngine
             return;
         }
         std::memcpy(&m_Transforms[offset], data, count * sizeof(glm::mat4));
+    }
+
+    // ========================================================================
+    // RenderState Table Implementation
+    // ========================================================================
+
+    u16 FrameDataBuffer::AllocateRenderState(const PODRenderState& state)
+    {
+        TUniqueLock<FMutex> lock(m_RenderStateMutex);
+
+        // Dedup: linear scan for matching state (N is small, typically 2-5)
+        for (u16 i = 0; i < m_RenderStateCount; ++i)
+        {
+            if (std::memcmp(&m_RenderStates[i], &state, sizeof(PODRenderState)) == 0)
+            {
+                return i;
+            }
+        }
+
+        // New unique state — allocate
+        if (m_RenderStateCount >= MAX_RENDER_STATES_PER_FRAME)
+        {
+            OLO_CORE_ERROR("FrameDataBuffer: RenderState table overflow! Max {} unique states per frame",
+                           MAX_RENDER_STATES_PER_FRAME);
+            return INVALID_RENDER_STATE_INDEX;
+        }
+
+        u16 index = m_RenderStateCount;
+        m_RenderStates[index] = state;
+        ++m_RenderStateCount;
+
+        return index;
+    }
+
+    const PODRenderState& FrameDataBuffer::GetRenderState(u16 index) const
+    {
+        OLO_CORE_ASSERT(index < m_RenderStateCount, "FrameDataBuffer: Invalid render state index!");
+        return m_RenderStates[index];
     }
 
     // Static manager implementation
