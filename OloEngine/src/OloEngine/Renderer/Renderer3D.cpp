@@ -1126,7 +1126,8 @@ namespace OloEngine
                                                 const glm::mat4& modelMatrix,
                                                 const Material& material,
                                                 bool isStatic,
-                                                i32 entityID)
+                                                i32 entityID,
+                                                const LODGroup* lodGroup)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1153,7 +1154,36 @@ namespace OloEngine
             }
         }
 
-        if (!mesh || !mesh->GetVertexArray())
+        // LOD selection
+        Ref<Mesh> meshToUse = mesh;
+        if (lodGroup && !lodGroup->Levels.empty())
+        {
+            BoundingSphere sphere = mesh->GetTransformedBoundingSphere(modelMatrix);
+            f32 distance = glm::length(ctx.SceneContext->ViewPosition - sphere.Center);
+            i32 lodIndex = lodGroup->SelectLOD(distance);
+            if (lodIndex >= 0)
+            {
+                if (lodIndex < static_cast<i32>(std::size(s_Data.Stats.ObjectsPerLODLevel)))
+                {
+                    s_Data.Stats.ObjectsPerLODLevel[lodIndex]++;
+                }
+                AssetHandle lodMeshHandle = lodGroup->Levels[lodIndex].MeshHandle;
+                if (lodMeshHandle != 0)
+                {
+                    auto lodMesh = AssetManager::GetAsset<Mesh>(lodMeshHandle);
+                    if (lodMesh)
+                    {
+                        if (lodMesh != mesh)
+                        {
+                            s_Data.Stats.LODSwitches++;
+                        }
+                        meshToUse = lodMesh;
+                    }
+                }
+            }
+        }
+
+        if (!meshToUse || !meshToUse->GetVertexArray())
         {
             OLO_CORE_ERROR("Renderer3D::DrawMeshParallel: Invalid mesh or vertex array!");
             return nullptr;
@@ -1193,9 +1223,9 @@ namespace OloEngine
         cmd->header.type = CommandType::DrawMesh;
 
         // Store asset handles and renderer IDs (POD)
-        cmd->meshHandle = mesh->GetHandle();
-        cmd->vertexArrayID = mesh->GetVertexArray()->GetRendererID();
-        cmd->indexCount = mesh->GetIndexCount();
+        cmd->meshHandle = meshToUse->GetHandle();
+        cmd->vertexArrayID = meshToUse->GetVertexArray()->GetRendererID();
+        cmd->indexCount = meshToUse->GetIndexCount();
         cmd->transform = glm::mat4(modelMatrix);
         cmd->shaderHandle = shaderToUse->GetHandle();
 
@@ -1651,7 +1681,7 @@ namespace OloEngine
         return s_Data.ViewFrustum.IsBoundingBoxVisible(box);
     }
 
-    CommandPacket* Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic, i32 entityID)
+    CommandPacket* Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic, i32 entityID, const LODGroup* lodGroup)
     {
         OLO_PROFILE_FUNCTION();
         if (!s_Data.ScenePass)
@@ -1669,7 +1699,37 @@ namespace OloEngine
                 return nullptr;
             }
         }
-        if (!mesh || !mesh->GetVertexArray())
+
+        // LOD selection
+        Ref<Mesh> meshToUse = mesh;
+        if (lodGroup && !lodGroup->Levels.empty())
+        {
+            BoundingSphere sphere = mesh->GetTransformedBoundingSphere(modelMatrix);
+            f32 distance = glm::length(s_Data.ViewPos - sphere.Center);
+            i32 lodIndex = lodGroup->SelectLOD(distance);
+            if (lodIndex >= 0)
+            {
+                if (lodIndex < static_cast<i32>(std::size(s_Data.Stats.ObjectsPerLODLevel)))
+                {
+                    s_Data.Stats.ObjectsPerLODLevel[lodIndex]++;
+                }
+                AssetHandle lodMeshHandle = lodGroup->Levels[lodIndex].MeshHandle;
+                if (lodMeshHandle != 0)
+                {
+                    auto lodMesh = AssetManager::GetAsset<Mesh>(lodMeshHandle);
+                    if (lodMesh)
+                    {
+                        if (lodMesh != mesh)
+                        {
+                            s_Data.Stats.LODSwitches++;
+                        }
+                        meshToUse = lodMesh;
+                    }
+                }
+            }
+        }
+
+        if (!meshToUse || !meshToUse->GetVertexArray())
         {
             OLO_CORE_ERROR("Renderer3D::DrawMesh: Invalid mesh or vertex array!");
             return nullptr;
@@ -1701,9 +1761,9 @@ namespace OloEngine
         cmd->header.type = CommandType::DrawMesh;
 
         // Store asset handles and renderer IDs (POD)
-        cmd->meshHandle = mesh->GetHandle();
-        cmd->vertexArrayID = mesh->GetVertexArray()->GetRendererID();
-        cmd->indexCount = mesh->GetIndexCount();
+        cmd->meshHandle = meshToUse->GetHandle();
+        cmd->vertexArrayID = meshToUse->GetVertexArray()->GetRendererID();
+        cmd->indexCount = meshToUse->GetIndexCount();
         cmd->transform = glm::mat4(modelMatrix);
         cmd->entityID = entityID;
         cmd->shaderHandle = shaderToUse->GetHandle();

@@ -38,6 +38,7 @@ add_executable(OloEngine-Tests
 		Rendering/DrawKeyTest.cpp
 		Rendering/BoundingVolumeTest.cpp
 		Rendering/FrustumCullingTest.cpp
+		Rendering/LODTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
 		Rendering/FrameDataBufferTest.cpp

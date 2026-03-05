@@ -846,6 +846,7 @@ namespace OloEngine
             DisplayAddComponentEntry<MeshComponent>("Mesh");
             DisplayAddComponentEntry<ModelComponent>("Model (with Materials)");
             DisplayAddComponentEntry<MaterialComponent>("Material");
+            DisplayAddComponentEntry<LODGroupComponent>("LOD Group");
             DisplayAddComponentEntry<DirectionalLightComponent>("Directional Light");
             DisplayAddComponentEntry<PointLightComponent>("Point Light");
             DisplayAddComponentEntry<SpotLightComponent>("Spot Light");
@@ -1392,6 +1393,69 @@ namespace OloEngine
                     component.m_Model.Reset();
                     component.m_FilePath.clear();
                 }
+            } });
+
+        DrawComponent<LODGroupComponent>("LOD Group", entity, [](auto& component)
+                                         {
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+            ImGui::DragFloat("LOD Bias", &component.m_LODGroup.Bias, 0.01f, 0.01f, 10.0f, "%.2f");
+
+            ImGui::Separator();
+            ImGui::Text("LOD Levels: %zu", component.m_LODGroup.Levels.size());
+
+            i32 removeIndex = -1;
+            for (sizet i = 0; i < component.m_LODGroup.Levels.size(); ++i)
+            {
+                auto& level = component.m_LODGroup.Levels[i];
+                ImGui::PushID(static_cast<int>(i));
+
+                ImGui::Text("LOD %zu", i);
+                ImGui::SameLine(ImGui::GetContentRegionAvail().x - 20.0f);
+                if (ImGui::Button("X"))
+                {
+                    removeIndex = static_cast<i32>(i);
+                }
+
+                ImGui::Text("Mesh Handle: %llu", static_cast<unsigned long long>(level.MeshHandle));
+
+                // Drag-drop target for mesh asset
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    {
+                        auto handle = *static_cast<const AssetHandle*>(payload->Data);
+                        level.MeshHandle = handle;
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+
+                f32 prevDistance = level.MaxDistance;
+                ImGui::DragFloat("Max Distance", &level.MaxDistance, 1.0f, 0.0f, 100000.0f, "%.1f");
+
+                // Auto-sort if distance changed
+                if (level.MaxDistance != prevDistance && component.m_LODGroup.Levels.size() > 1)
+                {
+                    std::sort(component.m_LODGroup.Levels.begin(), component.m_LODGroup.Levels.end(),
+                              [](const LODLevel& a, const LODLevel& b) { return a.MaxDistance < b.MaxDistance; });
+                }
+
+                ImGui::Text("Triangles: %u", level.TriangleCount);
+
+                ImGui::PopID();
+                ImGui::Separator();
+            }
+
+            if (removeIndex >= 0)
+            {
+                component.m_LODGroup.Levels.erase(component.m_LODGroup.Levels.begin() + removeIndex);
+            }
+
+            if (ImGui::Button("Add LOD Level"))
+            {
+                f32 nextDistance = component.m_LODGroup.Levels.empty()
+                    ? 50.0f
+                    : component.m_LODGroup.Levels.back().MaxDistance + 50.0f;
+                component.m_LODGroup.Levels.emplace_back(AssetHandle{0}, nextDistance);
             } });
 
         DrawComponent<MaterialComponent>("Material", entity, [](auto& component)
