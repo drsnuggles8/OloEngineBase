@@ -1,8 +1,11 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/Asset.h"
 
+#include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
 #include <vector>
 
 namespace OloEngine
@@ -31,4 +34,20 @@ namespace OloEngine
         // Returns -1 if the group has no levels.
         [[nodiscard]] i32 SelectLOD(f32 distance) const;
     };
+
+    // Result of LOD mesh selection
+    struct LODSelectionResult
+    {
+        i32 SelectedLODIndex = -1;
+        bool Switched = false;
+    };
+
+    // Resolves the appropriate mesh for a given LOD group and viewing distance.
+    // Returns the LOD mesh if a valid one exists, otherwise the original mesh.
+    [[nodiscard]] LODSelectionResult SelectLODMesh(
+        const Ref<class Mesh>& mesh,
+        const glm::mat4& modelMatrix,
+        const glm::vec3& viewPosition,
+        const LODGroup* lodGroup,
+        Ref<class Mesh>& outMesh);
 } // namespace OloEngine

@@ -404,6 +404,8 @@ namespace OloEngine
             // For animated meshes
             bool IsAnimated = false;
             const std::vector<glm::mat4>* BoneMatrices = nullptr;
+            // For LOD selection
+            const LODGroup* LODGroupPtr = nullptr;
         };
 
         /**

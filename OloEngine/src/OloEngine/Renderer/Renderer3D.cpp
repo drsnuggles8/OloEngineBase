@@ -1155,32 +1155,18 @@ namespace OloEngine
         }
 
         // LOD selection
-        Ref<Mesh> meshToUse = mesh;
-        if (mesh && lodGroup && !lodGroup->Levels.empty())
+        Ref<Mesh> meshToUse;
+        auto lodResult = SelectLODMesh(mesh, modelMatrix, ctx.SceneContext->ViewPosition, lodGroup, meshToUse);
+        if (lodResult.SelectedLODIndex >= 0)
         {
-            BoundingSphere sphere = mesh->GetTransformedBoundingSphere(modelMatrix);
-            f32 distance = glm::length(ctx.SceneContext->ViewPosition - sphere.Center);
-            i32 lodIndex = lodGroup->SelectLOD(distance);
-            if (lodIndex >= 0)
+            if (lodResult.SelectedLODIndex >= static_cast<i32>(ctx.ObjectsPerLODLevel.size()))
             {
-                if (lodIndex >= static_cast<i32>(ctx.ObjectsPerLODLevel.size()))
-                {
-                    ctx.ObjectsPerLODLevel.resize(lodIndex + 1, 0);
-                }
-                ctx.ObjectsPerLODLevel[lodIndex]++;
-                AssetHandle lodMeshHandle = lodGroup->Levels[lodIndex].MeshHandle;
-                if (lodMeshHandle != 0)
-                {
-                    auto lodMesh = AssetManager::GetAsset<Mesh>(lodMeshHandle);
-                    if (lodMesh)
-                    {
-                        if (lodMesh != mesh)
-                        {
-                            ctx.LODSwitches++;
-                        }
-                        meshToUse = lodMesh;
-                    }
-                }
+                ctx.ObjectsPerLODLevel.resize(lodResult.SelectedLODIndex + 1, 0);
+            }
+            ctx.ObjectsPerLODLevel[lodResult.SelectedLODIndex]++;
+            if (lodResult.Switched)
+            {
+                ctx.LODSwitches++;
             }
         }
 
@@ -1486,7 +1472,8 @@ namespace OloEngine
                         desc.Transform,
                         desc.MaterialData,
                         desc.IsStatic,
-                        desc.EntityID);
+                        desc.EntityID,
+                        desc.LODGroupPtr);
                 }
 
                 if (packet)
@@ -1711,32 +1698,18 @@ namespace OloEngine
         }
 
         // LOD selection
-        Ref<Mesh> meshToUse = mesh;
-        if (mesh && lodGroup && !lodGroup->Levels.empty())
+        Ref<Mesh> meshToUse;
+        auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.ViewPos, lodGroup, meshToUse);
+        if (lodResult.SelectedLODIndex >= 0)
         {
-            BoundingSphere sphere = mesh->GetTransformedBoundingSphere(modelMatrix);
-            f32 distance = glm::length(s_Data.ViewPos - sphere.Center);
-            i32 lodIndex = lodGroup->SelectLOD(distance);
-            if (lodIndex >= 0)
+            if (lodResult.SelectedLODIndex >= static_cast<i32>(s_Data.Stats.ObjectsPerLODLevel.size()))
             {
-                if (lodIndex >= static_cast<i32>(s_Data.Stats.ObjectsPerLODLevel.size()))
-                {
-                    s_Data.Stats.ObjectsPerLODLevel.resize(lodIndex + 1, 0);
-                }
-                s_Data.Stats.ObjectsPerLODLevel[lodIndex]++;
-                AssetHandle lodMeshHandle = lodGroup->Levels[lodIndex].MeshHandle;
-                if (lodMeshHandle != 0)
-                {
-                    auto lodMesh = AssetManager::GetAsset<Mesh>(lodMeshHandle);
-                    if (lodMesh)
-                    {
-                        if (lodMesh != mesh)
-                        {
-                            s_Data.Stats.LODSwitches++;
-                        }
-                        meshToUse = lodMesh;
-                    }
-                }
+                s_Data.Stats.ObjectsPerLODLevel.resize(lodResult.SelectedLODIndex + 1, 0);
+            }
+            s_Data.Stats.ObjectsPerLODLevel[lodResult.SelectedLODIndex]++;
+            if (lodResult.Switched)
+            {
+                s_Data.Stats.LODSwitches++;
             }
         }
 

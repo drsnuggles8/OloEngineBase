@@ -7,6 +7,8 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Particle/ParticlePresets.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -1406,6 +1408,7 @@ namespace OloEngine
             ImGui::Text("LOD Levels: %zu", component.m_LODGroup.Levels.size());
 
             i32 removeIndex = -1;
+            bool needsResort = false;
             for (sizet i = 0; i < component.m_LODGroup.Levels.size(); ++i)
             {
                 auto& level = component.m_LODGroup.Levels[i];
@@ -1427,14 +1430,13 @@ namespace OloEngine
                     {
                         auto const* const path = static_cast<wchar_t const*>(payload->Data);
                         std::filesystem::path meshPath(path);
-                        auto model = Ref<Model>::Create(meshPath.string());
-                        if (model && model->GetMeshCount() > 0)
+                        auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
+                        if (assetManager)
                         {
-                            auto meshSource = model->CreateCombinedMeshSource();
-                            if (meshSource)
+                            AssetHandle handle = assetManager->ImportAsset(meshPath);
+                            if (handle != 0)
                             {
-                                auto mesh = Ref<Mesh>::Create(meshSource);
-                                level.MeshHandle = AssetManager::AddMemoryOnlyAsset(mesh);
+                                level.MeshHandle = handle;
                             }
                         }
                     }
@@ -1444,11 +1446,9 @@ namespace OloEngine
                 f32 prevDistance = level.MaxDistance;
                 ImGui::DragFloat("Max Distance", &level.MaxDistance, 1.0f, 0.0f, 100000.0f, "%.1f");
 
-                // Auto-sort if distance changed
-                if (level.MaxDistance != prevDistance && component.m_LODGroup.Levels.size() > 1)
+                if (level.MaxDistance != prevDistance)
                 {
-                    std::sort(component.m_LODGroup.Levels.begin(), component.m_LODGroup.Levels.end(),
-                              [](const LODLevel& a, const LODLevel& b) { return a.MaxDistance < b.MaxDistance; });
+                    needsResort = true;
                 }
 
                 ImGui::Text("Triangles: %u", level.TriangleCount);
@@ -1460,6 +1460,12 @@ namespace OloEngine
             if (removeIndex >= 0)
             {
                 component.m_LODGroup.Levels.erase(component.m_LODGroup.Levels.begin() + removeIndex);
+            }
+
+            if (needsResort && component.m_LODGroup.Levels.size() > 1)
+            {
+                std::sort(component.m_LODGroup.Levels.begin(), component.m_LODGroup.Levels.end(),
+                          [](const LODLevel& a, const LODLevel& b) { return a.MaxDistance < b.MaxDistance; });
             }
 
             if (ImGui::Button("Add LOD Level"))

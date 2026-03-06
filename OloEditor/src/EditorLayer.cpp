@@ -750,18 +750,23 @@ namespace OloEngine
 
         ImGui::Separator();
 
-        const auto stats3D = Renderer3D::GetStats();
-        ImGui::Text("Renderer3D Stats:");
-        ImGui::Text("Total Meshes: %u", stats3D.TotalMeshes);
-        ImGui::Text("Culled Meshes: %u", stats3D.CulledMeshes);
-        ImGui::Text("Draw Calls: %u", stats3D.DrawCalls);
-        ImGui::Text("LOD Switches: %u", stats3D.LODSwitches);
-        for (u32 i = 0; i < static_cast<u32>(stats3D.ObjectsPerLODLevel.size()); ++i)
         {
-            if (stats3D.ObjectsPerLODLevel[i] > 0)
+            OLO_PROFILE_SCOPE("Renderer3D Stats");
+            const auto stats3D = Renderer3D::GetStats();
+            ImGui::Text("Renderer3D Stats:");
+            ImGui::Text("Total Meshes: %u", stats3D.TotalMeshes);
+            ImGui::Text("Culled Meshes: %u", stats3D.CulledMeshes);
+            ImGui::Text("Draw Calls: %u", stats3D.DrawCalls);
+            ImGui::Text("LOD Switches: %u", stats3D.LODSwitches);
+            for (u32 i = 0; i < static_cast<u32>(stats3D.ObjectsPerLODLevel.size()); ++i)
             {
-                ImGui::Text("  LOD %u Objects: %u", i, stats3D.ObjectsPerLODLevel[i]);
+                if (stats3D.ObjectsPerLODLevel[i] > 0)
+                {
+                    ImGui::Text("  LOD %u Objects: %u", i, stats3D.ObjectsPerLODLevel[i]);
+                }
             }
+
+            RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, stats3D.DrawCalls);
         }
 
         ImGui::Text("Frame Rate: %.1f FPS", ImGui::GetIO().Framerate);
