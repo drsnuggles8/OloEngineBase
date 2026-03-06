@@ -14,21 +14,21 @@ namespace OloEngine
 {
     // Cubemap face directions: +X, -X, +Y, -Y, +Z, -Z
     static const glm::vec3 s_CubemapTargets[6] = {
-        { 1.0f,  0.0f,  0.0f},
-        {-1.0f,  0.0f,  0.0f},
-        { 0.0f,  1.0f,  0.0f},
-        { 0.0f, -1.0f,  0.0f},
-        { 0.0f,  0.0f,  1.0f},
-        { 0.0f,  0.0f, -1.0f}
+        { 1.0f, 0.0f, 0.0f },
+        { -1.0f, 0.0f, 0.0f },
+        { 0.0f, 1.0f, 0.0f },
+        { 0.0f, -1.0f, 0.0f },
+        { 0.0f, 0.0f, 1.0f },
+        { 0.0f, 0.0f, -1.0f }
     };
 
     static const glm::vec3 s_CubemapUps[6] = {
-        { 0.0f, -1.0f,  0.0f},
-        { 0.0f, -1.0f,  0.0f},
-        { 0.0f,  0.0f,  1.0f},
-        { 0.0f,  0.0f, -1.0f},
-        { 0.0f, -1.0f,  0.0f},
-        { 0.0f, -1.0f,  0.0f}
+        { 0.0f, -1.0f, 0.0f },
+        { 0.0f, -1.0f, 0.0f },
+        { 0.0f, 0.0f, 1.0f },
+        { 0.0f, 0.0f, -1.0f },
+        { 0.0f, -1.0f, 0.0f },
+        { 0.0f, -1.0f, 0.0f }
     };
 
     void LightProbeBaker::RenderCubemapAtPosition(
@@ -106,12 +106,24 @@ namespace OloEngine
                     glm::vec3 dir(0.0f);
                     switch (face)
                     {
-                        case 0: dir = glm::vec3( 1.0f, -v, -u); break; // +X
-                        case 1: dir = glm::vec3(-1.0f, -v,  u); break; // -X
-                        case 2: dir = glm::vec3( u,  1.0f,  v); break; // +Y
-                        case 3: dir = glm::vec3( u, -1.0f, -v); break; // -Y
-                        case 4: dir = glm::vec3( u, -v,  1.0f); break; // +Z
-                        case 5: dir = glm::vec3(-u, -v, -1.0f); break; // -Z
+                        case 0:
+                            dir = glm::vec3(1.0f, -v, -u);
+                            break; // +X
+                        case 1:
+                            dir = glm::vec3(-1.0f, -v, u);
+                            break; // -X
+                        case 2:
+                            dir = glm::vec3(u, 1.0f, v);
+                            break; // +Y
+                        case 3:
+                            dir = glm::vec3(u, -1.0f, -v);
+                            break; // -Y
+                        case 4:
+                            dir = glm::vec3(u, -v, 1.0f);
+                            break; // +Z
+                        case 5:
+                            dir = glm::vec3(-u, -v, -1.0f);
+                            break; // -Z
                     }
                     dir = glm::normalize(dir);
 
@@ -119,8 +131,7 @@ namespace OloEngine
                     f32 const distSq = u * u + v * v + 1.0f;
                     f32 const weight = 4.0f / (std::sqrt(distSq) * distSq);
 
-                    auto const idx = static_cast<size_t>(face) * resolution * resolution
-                                   + static_cast<size_t>(y) * resolution + x;
+                    auto const idx = static_cast<size_t>(face) * resolution * resolution + static_cast<size_t>(y) * resolution + x;
                     glm::vec3 const color = cubemapPixels[idx];
 
                     // Evaluate SH basis and accumulate

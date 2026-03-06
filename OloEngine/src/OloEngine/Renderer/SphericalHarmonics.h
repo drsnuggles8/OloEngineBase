@@ -82,9 +82,9 @@ namespace OloEngine
         // Y_2^{-2}, Y_2^{-1}, Y_2^0, Y_2^1, Y_2^2
         inline constexpr f32 Y2n2 = 1.092548f; // sqrt(15) / (2 * sqrt(pi))
         inline constexpr f32 Y2n1 = 1.092548f;
-        inline constexpr f32 Y20 = 0.315392f;  // sqrt(5) / (4 * sqrt(pi))
+        inline constexpr f32 Y20 = 0.315392f; // sqrt(5) / (4 * sqrt(pi))
         inline constexpr f32 Y21 = 1.092548f;
-        inline constexpr f32 Y22 = 0.546274f;  // sqrt(15) / (4 * sqrt(pi))
+        inline constexpr f32 Y22 = 0.546274f; // sqrt(15) / (4 * sqrt(pi))
 
         // Evaluate all 9 L2 SH basis functions for a given direction
         inline std::array<f32, SH_COEFFICIENT_COUNT> Evaluate(const glm::vec3& dir)
