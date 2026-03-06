@@ -21,6 +21,7 @@
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
@@ -437,6 +438,10 @@ namespace OloEngine
         // Upload multi-light UBO data for the current frame
         static void UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data);
 
+        // Upload light probe volume parameters and SH coefficient data
+        static void UploadLightProbeData(const ShaderBindingLayout::LightProbeVolumeUBO& uboData,
+                                         const void* shData, u32 shDataSize);
+
         // Culling methods
         static void EnableFrustumCulling(bool enable);
         static bool IsFrustumCullingEnabled();
@@ -792,6 +797,8 @@ namespace OloEngine
             Ref<UniformBuffer> FogUBO;
             Ref<UniformBuffer> FogVolumesUBO;
             Ref<UniformBuffer> DecalUBO;
+            Ref<UniformBuffer> LightProbeVolumeUBO;
+            Ref<StorageBuffer> LightProbeSHBuffer;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 InverseViewProjectionMatrix = glm::mat4(1.0f);

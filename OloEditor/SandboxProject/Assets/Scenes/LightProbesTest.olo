@@ -1,0 +1,212 @@
+Scene: LightProbesTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # ── Camera ──
+  - Entity: 810000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 5, 15]
+      Rotation: [-0.3, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Directional Light ──
+  - Entity: 810000000000002
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -1, -0.3]
+      Color: [1, 0.95, 0.9]
+      Intensity: 1.2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── Red Point Light (left) ──
+  - Entity: 810000000000003
+    TagComponent:
+      Tag: Red Point Light
+    TransformComponent:
+      Translation: [-5, 3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 5
+      Range: 15
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  # ── Blue Point Light (right) ──
+  - Entity: 810000000000004
+    TagComponent:
+      Tag: Blue Point Light
+    TransformComponent:
+      Translation: [5, 3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.3, 1]
+      Intensity: 5
+      Range: 15
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  # ── Floor plane ──
+  - Entity: 810000000000005
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [20, 0.1, 20]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.5, 0.5]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Left wall (red bounce surface) ──
+  - Entity: 810000000000006
+    TagComponent:
+      Tag: Left Wall
+    TransformComponent:
+      Translation: [-8, 3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.2, 6, 12]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.2, 0.1]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Right wall (blue bounce surface) ──
+  - Entity: 810000000000007
+    TagComponent:
+      Tag: Right Wall
+    TransformComponent:
+      Translation: [8, 3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.2, 6, 12]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.1, 0.2, 0.9]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Back wall (white) ──
+  - Entity: 810000000000008
+    TagComponent:
+      Tag: Back Wall
+    TransformComponent:
+      Translation: [0, 3, -6]
+      Rotation: [0, 0, 0]
+      Scale: [16, 6, 0.2]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.9]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Center sphere (metallic, to show probe reflections) ──
+  - Entity: 810000000000009
+    TagComponent:
+      Tag: Center Sphere
+    TransformComponent:
+      Translation: [0, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2, 2]
+    MeshComponent:
+      Primitive: 0
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0.0
+      Roughness: 0.5
+  # ── Left sphere (diffuse, to show color bleeding) ──
+  - Entity: 810000000000010
+    TagComponent:
+      Tag: Left Sphere
+    TransformComponent:
+      Translation: [-4, 1.5, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 0
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.9]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Right sphere (diffuse, to show color bleeding) ──
+  - Entity: 810000000000011
+    TagComponent:
+      Tag: Right Sphere
+    TransformComponent:
+      Translation: [4, 1.5, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 0
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.9]
+      Metallic: 0
+      Roughness: 0.9
+  # ── Light Probe Volume (covers the room interior) ──
+  - Entity: 810000000000012
+    TagComponent:
+      Tag: Probe Volume
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightProbeVolumeComponent:
+      BoundsMin: [-7, 0.5, -5]
+      BoundsMax: [7, 5.5, 5]
+      Resolution: [4, 3, 4]
+      Spacing: 4.67
+      Intensity: 1
+      Active: true
+      BakedDataAsset: 0

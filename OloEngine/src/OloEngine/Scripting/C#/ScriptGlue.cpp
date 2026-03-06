@@ -1056,6 +1056,110 @@ namespace OloEngine
         GetEntity(entityID).GetComponent<ParticleSystemComponent>().System.WindInfluence = *v;
     }
 
+    // --- LightProbeComponent ---
+
+    static void LightProbeComponent_GetInfluenceRadius(UUID entityID, f32* out)
+    {
+        *out = GetEntity(entityID).GetComponent<LightProbeComponent>().m_InfluenceRadius;
+    }
+
+    static void LightProbeComponent_SetInfluenceRadius(UUID entityID, f32 const* v)
+    {
+        GetEntity(entityID).GetComponent<LightProbeComponent>().m_InfluenceRadius = *v;
+    }
+
+    static void LightProbeComponent_GetIntensity(UUID entityID, f32* out)
+    {
+        *out = GetEntity(entityID).GetComponent<LightProbeComponent>().m_Intensity;
+    }
+
+    static void LightProbeComponent_SetIntensity(UUID entityID, f32 const* v)
+    {
+        GetEntity(entityID).GetComponent<LightProbeComponent>().m_Intensity = *v;
+    }
+
+    static void LightProbeComponent_GetActive(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<LightProbeComponent>().m_Active;
+    }
+
+    static void LightProbeComponent_SetActive(UUID entityID, bool const* v)
+    {
+        GetEntity(entityID).GetComponent<LightProbeComponent>().m_Active = *v;
+    }
+
+    // --- LightProbeVolumeComponent ---
+
+    static void LightProbeVolumeComponent_GetBoundsMin(UUID entityID, glm::vec3* out)
+    {
+        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_BoundsMin;
+    }
+
+    static void LightProbeVolumeComponent_SetBoundsMin(UUID entityID, glm::vec3 const* v)
+    {
+        auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
+        lpv.m_BoundsMin = *v;
+        lpv.m_Dirty = true;
+    }
+
+    static void LightProbeVolumeComponent_GetBoundsMax(UUID entityID, glm::vec3* out)
+    {
+        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_BoundsMax;
+    }
+
+    static void LightProbeVolumeComponent_SetBoundsMax(UUID entityID, glm::vec3 const* v)
+    {
+        auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
+        lpv.m_BoundsMax = *v;
+        lpv.m_Dirty = true;
+    }
+
+    static void LightProbeVolumeComponent_GetSpacing(UUID entityID, f32* out)
+    {
+        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_Spacing;
+    }
+
+    static void LightProbeVolumeComponent_SetSpacing(UUID entityID, f32 const* v)
+    {
+        auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
+        lpv.m_Spacing = *v;
+        lpv.m_Dirty = true;
+    }
+
+    static void LightProbeVolumeComponent_GetIntensity(UUID entityID, f32* out)
+    {
+        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_Intensity;
+    }
+
+    static void LightProbeVolumeComponent_SetIntensity(UUID entityID, f32 const* v)
+    {
+        auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
+        lpv.m_Intensity = *v;
+        lpv.m_Dirty = true;
+    }
+
+    static void LightProbeVolumeComponent_GetActive(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_Active;
+    }
+
+    static void LightProbeVolumeComponent_SetActive(UUID entityID, bool const* v)
+    {
+        auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
+        lpv.m_Active = *v;
+        lpv.m_Dirty = true;
+    }
+
+    static void LightProbeVolumeComponent_Dirty(UUID entityID)
+    {
+        GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_Dirty = true;
+    }
+
+    static void LightProbeVolumeComponent_GetTotalProbeCount(UUID entityID, i32* out)
+    {
+        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().GetTotalProbeCount();
+    }
+
     // --- Scene Wind Settings ---
 
     static void Scene_GetWindEnabled(bool* out)
@@ -1353,6 +1457,26 @@ namespace OloEngine
 
         OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_GetWindInfluence);
         OLO_ADD_INTERNAL_CALL(ParticleSystemComponent_SetWindInfluence);
+
+        OLO_ADD_INTERNAL_CALL(LightProbeComponent_GetInfluenceRadius);
+        OLO_ADD_INTERNAL_CALL(LightProbeComponent_SetInfluenceRadius);
+        OLO_ADD_INTERNAL_CALL(LightProbeComponent_GetIntensity);
+        OLO_ADD_INTERNAL_CALL(LightProbeComponent_SetIntensity);
+        OLO_ADD_INTERNAL_CALL(LightProbeComponent_GetActive);
+        OLO_ADD_INTERNAL_CALL(LightProbeComponent_SetActive);
+
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetBoundsMin);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetBoundsMin);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetBoundsMax);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetBoundsMax);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetSpacing);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetSpacing);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetIntensity);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetIntensity);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetActive);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetActive);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_Dirty);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetTotalProbeCount);
 
         OLO_ADD_INTERNAL_CALL(Scene_GetWindEnabled);
         OLO_ADD_INTERNAL_CALL(Scene_SetWindEnabled);

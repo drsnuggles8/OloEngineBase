@@ -341,6 +341,18 @@ namespace OloEngine
         s_Data.FogVolumesUBO = UniformBuffer::Create(FogVolumesUBOData::GetSize(), ShaderBindingLayout::UBO_FOG_VOLUMES);
         s_Data.FogVolumesGPUData = FogVolumesUBOData{};
         s_Data.DecalUBO = UniformBuffer::Create(ShaderBindingLayout::DecalUBO::GetSize(), ShaderBindingLayout::UBO_DECAL);
+        s_Data.LightProbeVolumeUBO = UniformBuffer::Create(ShaderBindingLayout::LightProbeVolumeUBO::GetSize(), ShaderBindingLayout::UBO_LIGHT_PROBES);
+
+        // Initialize light probe UBO with disabled state and create a small zeroed SSBO
+        // so shaders always have valid bindings at SSBO_LIGHT_PROBES
+        {
+            ShaderBindingLayout::LightProbeVolumeUBO disabledProbeUBO{};
+            s_Data.LightProbeVolumeUBO->SetData(&disabledProbeUBO, ShaderBindingLayout::LightProbeVolumeUBO::GetSize());
+            constexpr u32 dummySSBOSize = 16; // Minimum valid SSBO (one vec4)
+            s_Data.LightProbeSHBuffer = StorageBuffer::Create(dummySSBOSize, ShaderBindingLayout::SSBO_LIGHT_PROBES);
+            std::array<u8, dummySSBOSize> zeros{};
+            s_Data.LightProbeSHBuffer->SetData(zeros.data(), dummySSBOSize);
+        }
 
         CommandDispatch::SetUBOReferences(
             s_Data.CameraUBO,
@@ -470,6 +482,8 @@ namespace OloEngine
         s_Data.FogUBO.Reset();
         s_Data.FogVolumesUBO.Reset();
         s_Data.DecalUBO.Reset();
+        s_Data.LightProbeVolumeUBO.Reset();
+        s_Data.LightProbeSHBuffer.Reset();
 
         FrameResourceManager::Get().Shutdown();
         FrameDataBufferManager::Shutdown();
@@ -1570,6 +1584,28 @@ namespace OloEngine
         {
             s_Data.MultiLightBuffer->SetData(&data, UBOStructures::MultiLightUBO::GetSize());
         }
+    }
+
+    void Renderer3D::UploadLightProbeData(const ShaderBindingLayout::LightProbeVolumeUBO& uboData,
+                                          const void* shData, u32 shDataSize)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (s_Data.LightProbeVolumeUBO)
+        {
+            s_Data.LightProbeVolumeUBO->SetData(&uboData, ShaderBindingLayout::LightProbeVolumeUBO::GetSize());
+        }
+
+        if (shData && shDataSize > 0)
+        {
+            if (!s_Data.LightProbeSHBuffer || s_Data.LightProbeSHBuffer->GetSize() < shDataSize)
+            {
+                s_Data.LightProbeSHBuffer = StorageBuffer::Create(shDataSize, ShaderBindingLayout::SSBO_LIGHT_PROBES);
+            }
+            s_Data.LightProbeSHBuffer->SetData(shData, shDataSize);
+        }
+        // When no SH data is provided, the UBO's Enabled field should already be 0,
+        // causing the shader to early-out. The SSBO remains bound from init (zeroed).
     }
 
     void Renderer3D::SetSceneLights(const Ref<Scene>& scene)

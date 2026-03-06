@@ -14,6 +14,7 @@
 #include "OloEngine/Particle/ParticleCurveSerializer.h"
 
 #include <fstream>
+#include <cmath>
 
 #include <yaml-cpp/yaml.h>
 
@@ -1885,6 +1886,66 @@ namespace OloEngine
             }
             // Note: Skeleton data is loaded from AnimationStateComponent's source file
         }
+
+        if (auto lpComponent = entity["LightProbeComponent"]; lpComponent)
+        {
+            auto& lp = deserializedEntity.AddComponent<LightProbeComponent>();
+            lp.m_InfluenceRadius = lpComponent["InfluenceRadius"].as<f32>(lp.m_InfluenceRadius);
+            lp.m_Intensity = lpComponent["Intensity"].as<f32>(lp.m_Intensity);
+            lp.m_Active = lpComponent["Active"].as<bool>(lp.m_Active);
+
+            // Sanitize deserialized values
+            if (!std::isfinite(lp.m_InfluenceRadius) || lp.m_InfluenceRadius <= 0.0f)
+            {
+                lp.m_InfluenceRadius = 10.0f;
+            }
+            if (!std::isfinite(lp.m_Intensity) || lp.m_Intensity < 0.0f)
+            {
+                lp.m_Intensity = 1.0f;
+            }
+
+            if (auto shNode = lpComponent["SHCoefficients"]; shNode && shNode.IsSequence())
+            {
+                for (u32 i = 0; i < SH_COEFFICIENT_COUNT && i < shNode.size(); ++i)
+                {
+                    glm::vec3 coeff = shNode[i].as<glm::vec3>();
+                    if (std::isfinite(coeff.x) && std::isfinite(coeff.y) && std::isfinite(coeff.z))
+                    {
+                        lp.m_SHCoefficients.Coefficients[i] = coeff;
+                    }
+                }
+            }
+        }
+
+        if (auto lpvComponent = entity["LightProbeVolumeComponent"]; lpvComponent)
+        {
+            auto& lpv = deserializedEntity.AddComponent<LightProbeVolumeComponent>();
+            lpv.m_BoundsMin = lpvComponent["BoundsMin"].as<glm::vec3>(lpv.m_BoundsMin);
+            lpv.m_BoundsMax = lpvComponent["BoundsMax"].as<glm::vec3>(lpv.m_BoundsMax);
+            lpv.m_Resolution = lpvComponent["Resolution"].as<glm::ivec3>(lpv.m_Resolution);
+            lpv.m_Spacing = lpvComponent["Spacing"].as<f32>(lpv.m_Spacing);
+            lpv.m_Intensity = lpvComponent["Intensity"].as<f32>(lpv.m_Intensity);
+            lpv.m_Active = lpvComponent["Active"].as<bool>(lpv.m_Active);
+            lpv.m_BakedDataAsset = lpvComponent["BakedDataAsset"].as<u64>(lpv.m_BakedDataAsset);
+
+            // Sanitize deserialized values
+            if (!std::isfinite(lpv.m_Spacing) || lpv.m_Spacing <= 0.0f)
+            {
+                lpv.m_Spacing = 5.0f;
+            }
+            if (!std::isfinite(lpv.m_Intensity) || lpv.m_Intensity < 0.0f)
+            {
+                lpv.m_Intensity = 1.0f;
+            }
+            lpv.m_Resolution = glm::max(lpv.m_Resolution, glm::ivec3(1));
+            for (i32 axis = 0; axis < 3; ++axis)
+            {
+                if (lpv.m_BoundsMin[axis] > lpv.m_BoundsMax[axis])
+                {
+                    std::swap(lpv.m_BoundsMin[axis], lpv.m_BoundsMax[axis]);
+                }
+            }
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -3061,6 +3122,44 @@ namespace OloEngine
             // The cache is runtime data, not serialized
 
             out << YAML::EndMap; // SkeletonComponent
+        }
+
+        if (entity.HasComponent<LightProbeComponent>())
+        {
+            out << YAML::Key << "LightProbeComponent";
+            out << YAML::BeginMap;
+
+            auto const& lp = entity.GetComponent<LightProbeComponent>();
+            out << YAML::Key << "InfluenceRadius" << YAML::Value << lp.m_InfluenceRadius;
+            out << YAML::Key << "Intensity" << YAML::Value << lp.m_Intensity;
+            out << YAML::Key << "Active" << YAML::Value << lp.m_Active;
+
+            out << YAML::Key << "SHCoefficients";
+            out << YAML::BeginSeq;
+            for (u32 i = 0; i < SH_COEFFICIENT_COUNT; ++i)
+            {
+                out << lp.m_SHCoefficients.Coefficients[i];
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap;
+        }
+
+        if (entity.HasComponent<LightProbeVolumeComponent>())
+        {
+            out << YAML::Key << "LightProbeVolumeComponent";
+            out << YAML::BeginMap;
+
+            auto const& lpv = entity.GetComponent<LightProbeVolumeComponent>();
+            out << YAML::Key << "BoundsMin" << YAML::Value << lpv.m_BoundsMin;
+            out << YAML::Key << "BoundsMax" << YAML::Value << lpv.m_BoundsMax;
+            out << YAML::Key << "Resolution" << YAML::Value << lpv.m_Resolution;
+            out << YAML::Key << "Spacing" << YAML::Value << lpv.m_Spacing;
+            out << YAML::Key << "Intensity" << YAML::Value << lpv.m_Intensity;
+            out << YAML::Key << "Active" << YAML::Value << lpv.m_Active;
+            out << YAML::Key << "BakedDataAsset" << YAML::Value << lpv.m_BakedDataAsset;
+
+            out << YAML::EndMap;
         }
 
         out << YAML::EndMap; // Entity

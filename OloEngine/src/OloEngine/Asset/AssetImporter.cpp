@@ -53,7 +53,7 @@ namespace OloEngine
                        {
             auto& serializers = GetSerializers();
             serializers.clear();
-            serializers.reserve(18); // Reserve capacity for 18 serializers to avoid rehashing
+            serializers.reserve(19); // Reserve capacity for 19 serializers to avoid rehashing
             serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
             serializers[AssetType::Texture2D] = CreateScope<TextureSerializer>();
             serializers[AssetType::TextureCube] = CreateScope<TextureSerializer>();
@@ -71,7 +71,8 @@ namespace OloEngine
             serializers[AssetType::AnimationClip] = CreateScope<AnimationAssetSerializer>();
             serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphAssetSerializer>();
             serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();
-            serializers[AssetType::ParticleSystem] = CreateScope<ParticleSystemAssetSerializer>(); });
+            serializers[AssetType::ParticleSystem] = CreateScope<ParticleSystemAssetSerializer>();
+            serializers[AssetType::LightProbeVolume] = CreateScope<LightProbeVolumeSerializer>(); });
     }
 
     void AssetImporter::Shutdown()

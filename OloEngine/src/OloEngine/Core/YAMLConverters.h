@@ -96,6 +96,28 @@ namespace OloEngine::YAMLUtils
         return true;
     }
 
+    // glm::ivec3 conversion functions
+    inline YAML::Node EncodeIVec3(const glm::ivec3& v)
+    {
+        YAML::Node node;
+        node.push_back(v.x);
+        node.push_back(v.y);
+        node.push_back(v.z);
+        node.SetStyle(YAML::EmitterStyle::Flow);
+        return node;
+    }
+
+    inline bool DecodeIVec3(const YAML::Node& node, glm::ivec3& v)
+    {
+        if ((!node.IsSequence()) || (node.size() != 3))
+            return false;
+
+        v.x = node[0].as<i32>();
+        v.y = node[1].as<i32>();
+        v.z = node[2].as<i32>();
+        return true;
+    }
+
     // glm::mat3 conversion functions
     inline YAML::Node EncodeMat3(const glm::mat3& m)
     {
@@ -208,6 +230,13 @@ namespace YAML
         return out;
     }
 
+    inline Emitter& operator<<(Emitter& out, const glm::ivec3& v)
+    {
+        out << Flow;
+        out << BeginSeq << v.x << v.y << v.z << EndSeq;
+        return out;
+    }
+
 #endif
 
 #ifndef OLOENGINE_YAML_VEC2_DEFINED
@@ -257,6 +286,23 @@ namespace YAML
         static bool decode(const Node& node, glm::vec4& v)
         {
             return OloEngine::YAMLUtils::DecodeVec4(node, v);
+        }
+    };
+#endif
+
+#ifndef OLOENGINE_YAML_IVEC3_DEFINED
+#define OLOENGINE_YAML_IVEC3_DEFINED
+    template<>
+    struct convert<glm::ivec3>
+    {
+        static Node encode(const glm::ivec3& v)
+        {
+            return OloEngine::YAMLUtils::EncodeIVec3(v);
+        }
+
+        static bool decode(const Node& node, glm::ivec3& v)
+        {
+            return OloEngine::YAMLUtils::DecodeIVec3(node, v);
         }
     };
 #endif

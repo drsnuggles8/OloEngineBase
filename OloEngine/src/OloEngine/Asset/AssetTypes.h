@@ -35,6 +35,7 @@ namespace OloEngine
         ParticleSystem = 24,
         ComputeShader = 25,
         Terrain = 26,
+        LightProbeVolume = 27,
     };
 
     enum class AssetFlag : u16
@@ -151,6 +152,8 @@ namespace OloEngine
                     return "ComputeShader";
                 case AssetType::Terrain:
                     return "Terrain";
+                case AssetType::LightProbeVolume:
+                    return "LightProbeVolume";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -220,6 +223,8 @@ namespace OloEngine
                 return AssetType::ComputeShader;
             if (assetType == "Terrain")
                 return AssetType::Terrain;
+            if (assetType == "LightProbeVolume")
+                return AssetType::LightProbeVolume;
 
             return AssetType::None;
         }

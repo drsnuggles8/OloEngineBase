@@ -13,6 +13,9 @@
 #include "OloEngine/Particle/ParticlePresets.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Core/FastRandom.h"
+#include "OloEngine/Renderer/LightProbeBaker.h"
+#include "OloEngine/Renderer/LightProbeVolumeAsset.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -931,6 +934,8 @@ namespace OloEngine
             DisplayAddComponentEntry<UIDropdownComponent>("UI Dropdown");
             DisplayAddComponentEntry<UIGridLayoutComponent>("UI Grid Layout");
             DisplayAddComponentEntry<UIToggleComponent>("UI Toggle");
+            DisplayAddComponentEntry<LightProbeComponent>("Light Probe");
+            DisplayAddComponentEntry<LightProbeVolumeComponent>("Light Probe Volume");
 
             ImGui::EndPopup();
         }
@@ -2871,6 +2876,88 @@ namespace OloEngine
                         }
                     }
                     ImGui::EndDragDropTarget();
+                } });
+
+        DrawComponent<LightProbeComponent>("Light Probe", entity, [](auto& component)
+                                           {
+                ImGui::DragFloat("Influence Radius", &component.m_InfluenceRadius, 0.1f, 0.1f, 100.0f, "%.1f");
+                ImGui::DragFloat("Intensity##LightProbe", &component.m_Intensity, 0.01f, 0.0f, 10.0f, "%.2f");
+                ImGui::Checkbox("Active##LightProbe", &component.m_Active); });
+
+        DrawComponent<LightProbeVolumeComponent>("Light Probe Volume", entity, [this](auto& component)
+                                                 {
+                {
+                    glm::vec3 const prevMin = component.m_BoundsMin;
+                    glm::vec3 const prevMax = component.m_BoundsMax;
+                    DrawVec3Control("Bounds Min", component.m_BoundsMin);
+                    DrawVec3Control("Bounds Max", component.m_BoundsMax);
+                    if (component.m_BoundsMin != prevMin || component.m_BoundsMax != prevMax)
+                    {
+                        component.m_Dirty = true;
+                    }
+                }
+                i32 res[3] = { component.m_Resolution.x, component.m_Resolution.y, component.m_Resolution.z };
+                if (ImGui::DragInt3("Resolution", res, 1, 1, 64))
+                {
+                    component.m_Resolution = glm::ivec3(res[0], res[1], res[2]);
+                    component.m_Dirty = true;
+                }
+                if (ImGui::DragFloat("Spacing", &component.m_Spacing, 0.1f, 0.1f, 50.0f, "%.1f"))
+                {
+                    component.m_Dirty = true;
+                }
+                if (ImGui::DragFloat("Intensity##ProbeVolume", &component.m_Intensity, 0.01f, 0.0f, 10.0f, "%.2f"))
+                {
+                    component.m_Dirty = true;
+                }
+                if (ImGui::Checkbox("Active##ProbeVolume", &component.m_Active))
+                {
+                    component.m_Dirty = true;
+                }
+                ImGui::Text("Total Probes: %d", component.GetTotalProbeCount());
+                ImGui::Text("Baked Data: %s", component.m_BakedDataAsset != 0 ? "Yes" : "No");
+                ImGui::Checkbox("Show Debug Probes", &component.m_ShowDebugProbes);
+
+                ImGui::Separator();
+
+                // Bake progress state (static per-frame tracking)
+                static f32 s_BakeProgress = 0.0f;
+                static bool s_BakeInProgress = false;
+
+                if (s_BakeInProgress)
+                {
+                    ImGui::ProgressBar(s_BakeProgress, ImVec2(-1.0f, 0.0f), "Baking...");
+                }
+
+                if (ImGui::Button("Bake Light Probes"))
+                {
+                    OLO_PROFILE_SCOPE("Bake Light Probes");
+                    s_BakeInProgress = true;
+                    s_BakeProgress = 0.0f;
+                    auto asset = Ref<LightProbeVolumeAsset>::Create();
+                    LightProbeBaker::BakeVolume(
+                        m_Context,
+                        component,
+                        asset,
+                        64,
+                        [](u32 current, u32 total)
+                        {
+                            s_BakeProgress = static_cast<f32>(current) / static_cast<f32>(total);
+                            OLO_CORE_INFO("Baking probe {}/{}", current, total);
+                        });
+                    s_BakeInProgress = false;
+                    s_BakeProgress = 1.0f;
+
+                    // Register the baked asset and assign its handle to the component
+                    AssetHandle handle = AssetManager::AddMemoryOnlyAsset(asset);
+                    component.m_BakedDataAsset = handle;
+                    component.m_Dirty = true;
+                    OLO_CORE_INFO("Light probe baking complete ({} probes), asset handle: {}", component.GetTotalProbeCount(), handle);
+                }
+                if (s_BakeProgress > 0.0f && !s_BakeInProgress)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "Complete!");
                 } });
     }
 

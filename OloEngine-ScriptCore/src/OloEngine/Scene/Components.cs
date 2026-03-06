@@ -842,6 +842,103 @@ namespace OloEngine
 		}
 	}
 
+	public class LightProbeComponent : Component
+	{
+		public float InfluenceRadius
+		{
+			get
+			{
+				InternalCalls.LightProbeComponent_GetInfluenceRadius(Entity.ID, out float v);
+				return v;
+			}
+			set => InternalCalls.LightProbeComponent_SetInfluenceRadius(Entity.ID, ref value);
+		}
+
+		public float Intensity
+		{
+			get
+			{
+				InternalCalls.LightProbeComponent_GetIntensity(Entity.ID, out float v);
+				return v;
+			}
+			set => InternalCalls.LightProbeComponent_SetIntensity(Entity.ID, ref value);
+		}
+
+		public bool Active
+		{
+			get
+			{
+				InternalCalls.LightProbeComponent_GetActive(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.LightProbeComponent_SetActive(Entity.ID, ref value);
+		}
+	}
+
+	public class LightProbeVolumeComponent : Component
+	{
+		public Vector3 BoundsMin
+		{
+			get
+			{
+				InternalCalls.LightProbeVolumeComponent_GetBoundsMin(Entity.ID, out Vector3 v);
+				return v;
+			}
+			set => InternalCalls.LightProbeVolumeComponent_SetBoundsMin(Entity.ID, ref value);
+		}
+
+		public Vector3 BoundsMax
+		{
+			get
+			{
+				InternalCalls.LightProbeVolumeComponent_GetBoundsMax(Entity.ID, out Vector3 v);
+				return v;
+			}
+			set => InternalCalls.LightProbeVolumeComponent_SetBoundsMax(Entity.ID, ref value);
+		}
+
+		public float Spacing
+		{
+			get
+			{
+				InternalCalls.LightProbeVolumeComponent_GetSpacing(Entity.ID, out float v);
+				return v;
+			}
+			set => InternalCalls.LightProbeVolumeComponent_SetSpacing(Entity.ID, ref value);
+		}
+
+		public float Intensity
+		{
+			get
+			{
+				InternalCalls.LightProbeVolumeComponent_GetIntensity(Entity.ID, out float v);
+				return v;
+			}
+			set => InternalCalls.LightProbeVolumeComponent_SetIntensity(Entity.ID, ref value);
+		}
+
+		public bool Active
+		{
+			get
+			{
+				InternalCalls.LightProbeVolumeComponent_GetActive(Entity.ID, out bool v);
+				return v;
+			}
+			set => InternalCalls.LightProbeVolumeComponent_SetActive(Entity.ID, ref value);
+		}
+
+		public void Dirty()
+		{
+			InternalCalls.LightProbeVolumeComponent_Dirty(Entity.ID);
+		}
+
+		public int GetTotalProbeCount()
+		{
+			InternalCalls.LightProbeVolumeComponent_GetTotalProbeCount(Entity.ID, out int count);
+			return count;
+		}
+	}
+
 	/// <summary>
 	/// Provides access to scene-level wind settings.
 	/// Not a component — use the static members directly.

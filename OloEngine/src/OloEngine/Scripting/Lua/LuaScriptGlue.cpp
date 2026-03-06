@@ -23,6 +23,12 @@ namespace OloEngine
                                     "x", &glm::vec2::x,
                                     "y", &glm::vec2::y);
 
+        lua.new_usertype<glm::vec3>("vec3",
+                                    sol::constructors<glm::vec3(), glm::vec3(float), glm::vec3(float, float, float)>(),
+                                    "x", &glm::vec3::x,
+                                    "y", &glm::vec3::y,
+                                    "z", &glm::vec3::z);
+
         lua.new_usertype<glm::vec4>("vec4",
                                     sol::constructors<glm::vec4(), glm::vec4(float), glm::vec4(float, float, float, float)>(),
                                     "x", &glm::vec4::x,
@@ -173,6 +179,22 @@ namespace OloEngine
 
         lua.new_usertype<ParticleSystemComponent>("ParticleSystemComponent",
                                                   "system", &ParticleSystemComponent::System);
+
+        // --- LightProbeComponent ---
+        lua.new_usertype<LightProbeComponent>("LightProbeComponent",
+                                              "influenceRadius", &LightProbeComponent::m_InfluenceRadius,
+                                              "intensity", &LightProbeComponent::m_Intensity,
+                                              "active", &LightProbeComponent::m_Active);
+
+        // --- LightProbeVolumeComponent ---
+        lua.new_usertype<LightProbeVolumeComponent>("LightProbeVolumeComponent",
+                                                    "boundsMin", &LightProbeVolumeComponent::m_BoundsMin,
+                                                    "boundsMax", &LightProbeVolumeComponent::m_BoundsMax,
+                                                    "spacing", &LightProbeVolumeComponent::m_Spacing,
+                                                    "intensity", &LightProbeVolumeComponent::m_Intensity,
+                                                    "active", &LightProbeVolumeComponent::m_Active,
+                                                    "dirty", &LightProbeVolumeComponent::m_Dirty,
+                                                    "getTotalProbeCount", &LightProbeVolumeComponent::GetTotalProbeCount);
 
         // --- WindSettings (scene-level) ---
         lua.new_usertype<WindSettings>("WindSettings",

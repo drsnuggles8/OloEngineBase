@@ -125,7 +125,10 @@ namespace OloEngine
             i32 EnableIBL;               // Enable IBL
             i32 ApplyGammaCorrection;    // Whether to apply gamma correction in this pass
             i32 AlphaCutoff;             // Alpha cutoff for transparency (repurposed from padding)
-
+            i32 EnableLightProbes;       // Enable light probe indirect diffuse
+            i32 _pbrPad0 = 0;
+            i32 _pbrPad1 = 0;
+            i32 _pbrPad2 = 0;
             static constexpr u32 GetSize()
             {
                 return sizeof(PBRMaterialUBO);
@@ -285,6 +288,23 @@ namespace OloEngine
                 return sizeof(DecalUBO);
             }
         };
+        // @brief Light probe volume parameters for indirect diffuse GI
+        struct LightProbeVolumeUBO
+        {
+            glm::vec4 BoundsMin;       // xyz = min corner, w = unused
+            glm::vec4 BoundsMax;       // xyz = max corner, w = unused
+            glm::ivec4 GridDimensions; // xyz = probe count per axis, w = total probe count
+            glm::vec4 ProbeSpacing;    // xyz = spacing per axis, w = unused
+            i32 Enabled;               // 1 = probes active, 0 = disabled
+            f32 Intensity;             // Global intensity multiplier
+            i32 _pad0 = 0;
+            i32 _pad1 = 0;
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(LightProbeVolumeUBO);
+            }
+        };
     } // namespace UBOStructures
 
     // Alignment/size checks for terrain UBO structs (must match GLSL std140 layout)
@@ -296,6 +316,10 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::FoliageUBO) == 48, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) == 80, "LightProbeVolumeUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 96, "PBRMaterialUBO unexpected size — update GLSL layout");
 
     // Standardized shader binding layout for consistent resource sharing
     // across all shaders in the engine. This ensures efficient data sharing
@@ -329,6 +353,7 @@ namespace OloEngine
         static constexpr u32 UBO_PRECIPITATION_SCREEN = 19; // Precipitation screen-space effects (streaks + lens)
         static constexpr u32 UBO_FOG_VOLUMES = 20;          // Local fog volume data (array of volumes)
         static constexpr u32 UBO_DECAL = 21;                // Decal projection parameters
+        static constexpr u32 UBO_LIGHT_PROBES = 22;         // Light probe volume parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -382,6 +407,7 @@ namespace OloEngine
         static constexpr u32 SSBO_EMIT_STAGING = 5;      // Staging buffer for newly emitted particles
         static constexpr u32 SSBO_FOLIAGE_INSTANCES = 6; // Foliage instance data (reserved for GPU-driven path)
         static constexpr u32 SSBO_SNOW_DEFORMERS = 7;    // Snow deformer stamp data (pos, radius, depth)
+        static constexpr u32 SSBO_LIGHT_PROBES = 8;      // Light probe SH coefficient data
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE
@@ -398,6 +424,7 @@ namespace OloEngine
         using IBLParametersUBO = UBOStructures::IBLParametersUBO;
         using ShadowUBO = UBOStructures::ShadowUBO;
         using TerrainUBO = UBOStructures::TerrainUBO;
+        using LightProbeVolumeUBO = UBOStructures::LightProbeVolumeUBO;
         using BrushPreviewUBO = UBOStructures::BrushPreviewUBO;
         using FoliageUBO = UBOStructures::FoliageUBO;
         using DecalUBO = UBOStructures::DecalUBO;
@@ -459,6 +486,8 @@ namespace OloEngine
                     return name.contains("FogVolumes") || name.contains("fogVolumes");
                 case UBO_DECAL:
                     return name.contains("Decal") || name.contains("decal");
+                case UBO_LIGHT_PROBES:
+                    return name.contains("LightProbe") || name.contains("lightProbe");
                 default:
                     return false;
             }
@@ -601,6 +630,10 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableIBL;
     int u_ApplyGammaCorrection;
     int u_AlphaCutoff;
+    int u_EnableLightProbes;
+    int _pbrPad0;
+    int _pbrPad1;
+    int _pbrPad2;
 };)";
         }
 

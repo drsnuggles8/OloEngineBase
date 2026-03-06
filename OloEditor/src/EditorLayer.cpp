@@ -20,6 +20,7 @@
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Physics3D/Physics3DSystem.h"
+#include "OloEngine/Scene/Components.h"
 #include "OloEngine/Task/Task.h"
 
 #include <imgui.h>
@@ -1446,6 +1447,32 @@ namespace OloEngine
             case AssetType::Script:
                 OLO_TRACE("   → Script asset reloaded - C# assemblies updated");
                 break;
+            case AssetType::LightProbeVolume:
+            {
+                OLO_TRACE("   → Light probe volume asset reloaded - marking volumes dirty");
+                auto markDirtyInScene = [&e](Ref<Scene>& scene)
+                {
+                    if (!scene)
+                    {
+                        return;
+                    }
+                    auto view = scene->GetAllEntitiesWith<LightProbeVolumeComponent>();
+                    for (auto entityID : view)
+                    {
+                        auto& vol = view.get<LightProbeVolumeComponent>(entityID);
+                        if (vol.m_BakedDataAsset == e.GetHandle())
+                        {
+                            vol.m_Dirty = true;
+                        }
+                    }
+                };
+                markDirtyInScene(m_ActiveScene);
+                if (m_EditorScene && m_EditorScene != m_ActiveScene)
+                {
+                    markDirtyInScene(m_EditorScene);
+                }
+                break;
+            }
             default:
                 OLO_TRACE("   → Asset type {} reloaded", (int)e.GetAssetType());
                 break;
