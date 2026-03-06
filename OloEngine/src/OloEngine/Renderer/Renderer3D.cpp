@@ -548,8 +548,12 @@ namespace OloEngine
         // Advance occlusion culling frame (reads back previous frame's query results)
         if (s_Data.OcclusionCullingEnabled)
         {
-            OcclusionQueryPool::GetInstance().BeginFrame();
+            s_Data.OcclusionResultsAvailable = OcclusionQueryPool::GetInstance().BeginFrame();
             OcclusionStateManager::GetInstance().BeginFrame();
+        }
+        else
+        {
+            s_Data.OcclusionResultsAvailable = false;
         }
 
         UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
@@ -1768,7 +1772,7 @@ namespace OloEngine
 
         // Temporal occlusion culling: skip objects that were occluded last frame,
         // and submit proxy bounding boxes for re-testing.
-        if (s_Data.OcclusionCullingEnabled && entityID >= 0 && mesh)
+        if (s_Data.OcclusionCullingEnabled && s_Data.OcclusionResultsAvailable && entityID >= 0 && mesh)
         {
             auto& stateMgr = OcclusionStateManager::GetInstance();
             auto& state = stateMgr.GetOrCreate(static_cast<u64>(entityID));

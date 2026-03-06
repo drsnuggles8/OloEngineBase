@@ -492,6 +492,7 @@ namespace OloEngine
         s_Data.SpotShadowTextureID = 0;
         s_Data.PointShadowTextureIDs.fill(0);
         s_Data.SnowDepthTextureID = 0;
+        s_Data.DepthPrepassActive = false;
         s_Data.Stats.Reset();
     }
 

@@ -803,6 +803,7 @@ namespace OloEngine
             bool DynamicCullingEnabled = true;
             bool DepthPrepassEnabled = false;
             bool OcclusionCullingEnabled = false;
+            bool OcclusionResultsAvailable = false;
 
             Light SceneLight;
             glm::vec3 ViewPos;

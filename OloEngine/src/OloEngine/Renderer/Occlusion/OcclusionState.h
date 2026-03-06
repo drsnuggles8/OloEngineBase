@@ -29,6 +29,11 @@ namespace OloEngine
     ///
     /// Maps entity/object IDs to their OcclusionState, and provides
     /// a free-list for query index assignment from the OcclusionQueryPool.
+    ///
+    /// Thread-safety: All public methods must be called from the main render
+    /// thread only. The manager is accessed during BeginScene (BeginFrame,
+    /// Clear, SetMaxQueries) and DrawMesh (GetOrCreate, Has, AllocateQueryIndex),
+    /// both of which execute on the main thread.
     class OcclusionStateManager
     {
       public:
