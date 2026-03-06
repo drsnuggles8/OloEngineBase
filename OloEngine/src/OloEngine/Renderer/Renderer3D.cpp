@@ -1410,7 +1410,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic, desc.EntityID);
+                    packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic, desc.EntityID, desc.LODGroupPtr);
                 }
                 if (packet)
                 {
@@ -1690,7 +1690,7 @@ namespace OloEngine
 
         if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
         {
-            if (!IsVisibleInFrustum(mesh, modelMatrix))
+            if (mesh && !IsVisibleInFrustum(mesh, modelMatrix))
             {
                 s_Data.Stats.CulledMeshes++;
                 return nullptr;

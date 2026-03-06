@@ -38,6 +38,7 @@ namespace OloEngine
         const LODGroup* lodGroup,
         Ref<Mesh>& outMesh)
     {
+        OLO_PROFILE_FUNCTION();
         outMesh = mesh;
         LODSelectionResult result;
 
