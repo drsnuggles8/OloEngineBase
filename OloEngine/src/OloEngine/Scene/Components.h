@@ -19,6 +19,7 @@
 #include "OloEngine/Terrain/Voxel/MarchingCubes.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
+#include "OloEngine/Renderer/LOD.h"
 
 #include <box2d/id.h>
 
@@ -963,6 +964,20 @@ namespace OloEngine
         DecalComponent& operator=(DecalComponent&&) noexcept = default;
     };
 
+    // ── LOD Group ────────────────────────────────────────────────────
+
+    struct LODGroupComponent
+    {
+        LODGroup m_LODGroup;
+        bool m_Enabled = true;
+
+        LODGroupComponent() = default;
+        LODGroupComponent(const LODGroupComponent&) = default;
+        LODGroupComponent& operator=(const LODGroupComponent&) = default;
+        LODGroupComponent(LODGroupComponent&&) noexcept = default;
+        LODGroupComponent& operator=(LODGroupComponent&&) noexcept = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -1019,5 +1034,6 @@ namespace OloEngine
         FoliageComponent,
         SnowDeformerComponent,
         FogVolumeComponent,
-        DecalComponent>;
+        DecalComponent,
+        LODGroupComponent>;
 } // namespace OloEngine

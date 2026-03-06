@@ -1313,6 +1313,60 @@ namespace OloEngine
             }
         }
 
+        if (auto lodGroupComponent = entity["LODGroupComponent"]; lodGroupComponent)
+        {
+            auto& lodComp = deserializedEntity.AddComponent<LODGroupComponent>();
+            if (lodGroupComponent["Enabled"])
+            {
+                lodComp.m_Enabled = lodGroupComponent["Enabled"].as<bool>();
+            }
+            if (lodGroupComponent["Bias"])
+            {
+                f32 bias = lodGroupComponent["Bias"].as<f32>();
+                if (bias > 0.0f && std::isfinite(bias))
+                {
+                    lodComp.m_LODGroup.Bias = bias;
+                }
+            }
+            if (lodGroupComponent["Levels"])
+            {
+                for (auto levelNode : lodGroupComponent["Levels"])
+                {
+                    LODLevel level;
+                    if (levelNode["MeshHandle"])
+                    {
+                        level.MeshHandle = levelNode["MeshHandle"].as<u64>();
+                    }
+                    if (levelNode["MaxDistance"])
+                    {
+                        f32 maxDist = levelNode["MaxDistance"].as<f32>();
+                        if (std::isfinite(maxDist) && maxDist >= 0.0f)
+                        {
+                            level.MaxDistance = maxDist;
+                        }
+                        else
+                        {
+                            continue; // Skip invalid level
+                        }
+                    }
+                    if (levelNode["TriangleCount"])
+                    {
+                        level.TriangleCount = levelNode["TriangleCount"].as<u32>();
+                    }
+                    if (level.MeshHandle == 0)
+                    {
+                        continue; // Skip level with no mesh
+                    }
+                    lodComp.m_LODGroup.Levels.push_back(level);
+                }
+
+                // Ensure levels are sorted by distance
+                std::sort(lodComp.m_LODGroup.Levels.begin(), lodComp.m_LODGroup.Levels.end(),
+                          [](const LODLevel& a, const LODLevel& b)
+                          { return a.MaxDistance < b.MaxDistance; });
+            }
+        }
+
         if (auto materialComponent = entity["MaterialComponent"]; materialComponent)
         {
             auto& matc = deserializedEntity.AddComponent<MaterialComponent>();
@@ -2112,6 +2166,29 @@ namespace OloEngine
             out << YAML::Key << "Visible" << YAML::Value << modelComponent.m_Visible;
 
             out << YAML::EndMap; // ModelComponent
+        }
+
+        if (entity.HasComponent<LODGroupComponent>())
+        {
+            out << YAML::Key << "LODGroupComponent";
+            out << YAML::BeginMap; // LODGroupComponent
+
+            auto const& lodComp = entity.GetComponent<LODGroupComponent>();
+            out << YAML::Key << "Enabled" << YAML::Value << lodComp.m_Enabled;
+            out << YAML::Key << "Bias" << YAML::Value << lodComp.m_LODGroup.Bias;
+
+            out << YAML::Key << "Levels" << YAML::Value << YAML::BeginSeq;
+            for (const auto& level : lodComp.m_LODGroup.Levels)
+            {
+                out << YAML::BeginMap;
+                out << YAML::Key << "MeshHandle" << YAML::Value << static_cast<u64>(level.MeshHandle);
+                out << YAML::Key << "MaxDistance" << YAML::Value << level.MaxDistance;
+                out << YAML::Key << "TriangleCount" << YAML::Value << level.TriangleCount;
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap; // LODGroupComponent
         }
 
         if (entity.HasComponent<MaterialComponent>())

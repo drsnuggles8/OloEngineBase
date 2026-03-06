@@ -38,6 +38,7 @@ add_executable(OloEngine-Tests
 		Rendering/DrawKeyTest.cpp
 		Rendering/BoundingVolumeTest.cpp
 		Rendering/FrustumCullingTest.cpp
+		Rendering/LODTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
 		Rendering/FrameDataBufferTest.cpp
@@ -67,3 +68,14 @@ target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
 	${CMAKE_CURRENT_SOURCE_DIR}/Rendering
 )
+
+# Copy required shared library DLLs next to the test executable
+if(WIN32)
+    add_custom_command(TARGET OloEngine-Tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/OloEngine/vendor/libpng-build/$<CONFIG>/libpng16$<$<CONFIG:Debug>:d>.dll"
+            $<TARGET_FILE_DIR:OloEngine-Tests>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/OloEngine/vendor/zlib-build/$<CONFIG>/zlib$<$<CONFIG:Debug>:d>.dll"
+            $<TARGET_FILE_DIR:OloEngine-Tests>)
+endif()

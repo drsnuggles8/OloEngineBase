@@ -888,6 +888,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<FogVolumeComponent>(Entity, FogVolumeComponent&) {}
     template<>
     void Scene::OnComponentAdded<DecalComponent>(Entity, DecalComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<LODGroupComponent>(Entity, LODGroupComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
@@ -2194,13 +2196,24 @@ namespace OloEngine
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
+                // Get LOD group if present and enabled
+                const LODGroup* lodGroup = nullptr;
+                if (m_Registry.all_of<LODGroupComponent>(entity))
+                {
+                    const auto& lodComp = m_Registry.get<LODGroupComponent>(entity);
+                    if (lodComp.m_Enabled)
+                    {
+                        lodGroup = &lodComp.m_LODGroup;
+                    }
+                }
+
                 // Draw each submesh with entity ID
                 if (mesh.m_MeshSource && !mesh.m_MeshSource->GetSubmeshes().IsEmpty())
                 {
                     for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                        auto* packet = Renderer3D::DrawMesh(submesh, transform.GetTransform(), material, true, entityID);
+                        auto* packet = Renderer3D::DrawMesh(submesh, transform.GetTransform(), material, true, entityID, lodGroup);
                         if (packet)
                             Renderer3D::SubmitPacket(packet);
 
@@ -2244,7 +2257,18 @@ namespace OloEngine
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(static_cast<u32>(entity));
 
-                auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, transform.GetTransform(), material, true, entityID);
+                // Get LOD group if present and enabled
+                const LODGroup* lodGroup = nullptr;
+                if (m_Registry.all_of<LODGroupComponent>(entity))
+                {
+                    const auto& lodComp = m_Registry.get<LODGroupComponent>(entity);
+                    if (lodComp.m_Enabled)
+                    {
+                        lodGroup = &lodComp.m_LODGroup;
+                    }
+                }
+
+                auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, transform.GetTransform(), material, true, entityID, lodGroup);
                 if (packet)
                     Renderer3D::SubmitPacket(packet);
 

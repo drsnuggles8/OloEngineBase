@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
+#include "OloEngine/Renderer/LOD.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
@@ -87,6 +88,8 @@ namespace OloEngine
         // Statistics
         u32 CommandsSubmitted = 0;
         u32 MeshesCulled = 0;
+        u32 LODSwitches = 0;
+        std::vector<u32> ObjectsPerLODLevel;
     };
 
     // @brief High-level 3D rendering API with scene and material management
@@ -111,6 +114,8 @@ namespace OloEngine
             u32 TotalAnimatedMeshes = 0;
             u32 RenderedAnimatedMeshes = 0;
             u32 SkippedAnimatedMeshes = 0;
+            u32 LODSwitches = 0;
+            std::vector<u32> ObjectsPerLODLevel;
 
             void Reset()
             {
@@ -122,6 +127,8 @@ namespace OloEngine
                 TotalAnimatedMeshes = 0;
                 RenderedAnimatedMeshes = 0;
                 SkippedAnimatedMeshes = 0;
+                LODSwitches = 0;
+                ObjectsPerLODLevel.clear();
             }
         };
 
@@ -137,7 +144,7 @@ namespace OloEngine
         static void BeginScene(const EditorCamera& camera);
         static void BeginScene(const Camera& camera, const glm::mat4& transform);
         static void EndScene();
-        static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true, i32 entityID = -1);
+        static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true, i32 entityID = -1, const LODGroup* lodGroup = nullptr);
         // Animated drawing commands
         static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = false, i32 entityID = -1);
         static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
@@ -361,7 +368,8 @@ namespace OloEngine
                                                const glm::mat4& modelMatrix,
                                                const Material& material,
                                                bool isStatic = true,
-                                               i32 entityID = -1);
+                                               i32 entityID = -1,
+                                               const LODGroup* lodGroup = nullptr);
 
         /**
          * @brief Thread-safe animated mesh drawing for parallel submission
@@ -396,6 +404,8 @@ namespace OloEngine
             // For animated meshes
             bool IsAnimated = false;
             const std::vector<glm::mat4>* BoneMatrices = nullptr;
+            // For LOD selection
+            const LODGroup* LODGroupPtr = nullptr;
         };
 
         /**
