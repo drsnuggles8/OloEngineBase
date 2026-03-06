@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/LOD.h"
+#include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
@@ -115,6 +116,8 @@ namespace OloEngine
             u32 RenderedAnimatedMeshes = 0;
             u32 SkippedAnimatedMeshes = 0;
             u32 LODSwitches = 0;
+            u32 TotalEmitters = 0;
+            u32 CulledEmitters = 0;
             std::vector<u32> ObjectsPerLODLevel;
 
             void Reset()
@@ -128,6 +131,8 @@ namespace OloEngine
                 RenderedAnimatedMeshes = 0;
                 SkippedAnimatedMeshes = 0;
                 LODSwitches = 0;
+                TotalEmitters = 0;
+                CulledEmitters = 0;
                 ObjectsPerLODLevel.clear();
             }
         };
@@ -446,8 +451,16 @@ namespace OloEngine
         static void SetForceDisableCulling(bool disable);
         static bool IsForceDisableCulling();
 
+        // Depth prepass control
+        static void EnableDepthPrepass(bool enable);
+        static bool IsDepthPrepassEnabled();
+
+        // Occlusion culling control
+        static void EnableOcclusionCulling(bool enable);
+        static bool IsOcclusionCullingEnabled();
+
         // Statistics and debug methods
-        static Statistics GetStats();
+        static Statistics& GetStats();
         static void ResetStats();
 
         // Global resource management for scene-wide resources
@@ -639,6 +652,7 @@ namespace OloEngine
             f32 windStrength, f32 windSpeed,
             f32 viewDistance, f32 fadeStart, f32 alphaCutoff,
             const glm::vec4& baseColor,
+            const BoundingBox& layerBounds,
             i32 entityID = -1);
 
         static WindSettings& GetWindSettings()
@@ -787,6 +801,9 @@ namespace OloEngine
             Frustum ViewFrustum;
             bool FrustumCullingEnabled = true;
             bool DynamicCullingEnabled = true;
+            bool DepthPrepassEnabled = false;
+            bool OcclusionCullingEnabled = false;
+            bool OcclusionResultsAvailable = false;
 
             Light SceneLight;
             glm::vec3 ViewPos;

@@ -13,6 +13,7 @@
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
+#include "OloEngine/Renderer/Frustum.h"
 
 #include <cstring>
 #include <glm/gtc/constants.hpp>
@@ -250,6 +251,30 @@ namespace OloEngine
                 }
             }
 
+            // Compute bounding box from all instance positions (with height expansion)
+            if (!instances.empty())
+            {
+                glm::vec3 bMin(std::numeric_limits<f32>::max());
+                glm::vec3 bMax(std::numeric_limits<f32>::lowest());
+                for (const auto& inst : instances)
+                {
+                    glm::vec3 pos(inst.PositionScale.x, inst.PositionScale.y, inst.PositionScale.z);
+                    f32 s = inst.PositionScale.w;
+                    f32 h = inst.RotationHeight.y;
+                    // Instance spans from pos at ground level upward by h*s;
+                    // horizontal extent is ~0.5*s in XZ
+                    glm::vec3 lo = pos - glm::vec3(0.5f * s, 0.0f, 0.5f * s);
+                    glm::vec3 hi = pos + glm::vec3(0.5f * s, h * s, 0.5f * s);
+                    bMin = glm::min(bMin, lo);
+                    bMax = glm::max(bMax, hi);
+                }
+                renderData.Bounds = BoundingBox(bMin, bMax);
+            }
+            else
+            {
+                renderData.Bounds = BoundingBox(glm::vec3(0.0f), glm::vec3(0.0f));
+            }
+
             UploadInstances(renderData, instances);
         }
     }
@@ -367,6 +392,7 @@ namespace OloEngine
             info.WindSpeed = layer.WindSpeed;
             info.BaseColor = layer.BaseColor;
             info.AlphaCutoff = layer.AlphaCutoff;
+            info.Bounds = layer.Bounds;
             result.push_back(info);
         }
 

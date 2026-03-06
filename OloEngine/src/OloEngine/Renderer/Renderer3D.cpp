@@ -34,6 +34,9 @@
 #include <chrono>
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
+#include "OloEngine/Renderer/Occlusion/OcclusionState.h"
+#include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
@@ -294,6 +297,7 @@ namespace OloEngine
         m_ShaderLibrary.Load("assets/shaders/Foliage_Instance.glsl");
         m_ShaderLibrary.Load("assets/shaders/Foliage_Depth.glsl");
         m_ShaderLibrary.Load("assets/shaders/Decal.glsl");
+        m_ShaderLibrary.Load("assets/shaders/OcclusionProxy.glsl");
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
         s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
@@ -402,6 +406,11 @@ namespace OloEngine
         OLO_CORE_INFO("Shutting down Renderer3D.");
 
         ParticleBatchRenderer::Shutdown();
+
+        // Shutdown occlusion culling systems
+        OcclusionCuller::GetInstance().Shutdown();
+        OcclusionQueryPool::GetInstance().Shutdown();
+        OcclusionStateManager::GetInstance().Clear();
 
         // Shutdown wind system
         WindSystem::Shutdown();
@@ -535,6 +544,17 @@ namespace OloEngine
 
         s_Data.Stats.Reset();
         s_Data.CommandCounter = 0;
+
+        // Advance occlusion culling frame (reads back previous frame's query results)
+        if (s_Data.OcclusionCullingEnabled)
+        {
+            s_Data.OcclusionResultsAvailable = OcclusionQueryPool::GetInstance().BeginFrame();
+            OcclusionStateManager::GetInstance().BeginFrame();
+        }
+        else
+        {
+            s_Data.OcclusionResultsAvailable = false;
+        }
 
         UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
         UpdateLightPropertiesUBO();
@@ -717,6 +737,7 @@ namespace OloEngine
         f32 windStrength, f32 windSpeed,
         f32 viewDistance, f32 fadeStart, f32 alphaCutoff,
         const glm::vec4& baseColor,
+        const BoundingBox& layerBounds,
         i32 entityID)
     {
         OLO_PROFILE_FUNCTION();
@@ -730,6 +751,16 @@ namespace OloEngine
         if (!s_Data.FoliageShader)
         {
             return nullptr;
+        }
+
+        // Frustum cull the entire layer using the precomputed bounding box
+        if (s_Data.FrustumCullingEnabled)
+        {
+            BoundingBox worldBounds = layerBounds.Transform(modelTransform);
+            if (!s_Data.ViewFrustum.IsBoundingBoxVisible(worldBounds))
+            {
+                return nullptr;
+            }
         }
 
         CommandPacket* packet = CreateFoliageDrawCall<DrawFoliageLayerCommand>();
@@ -998,6 +1029,12 @@ namespace OloEngine
         }
 
         s_Data.RGraph->Execute();
+
+        // End occlusion query frame after render graph execution
+        if (s_Data.OcclusionCullingEnabled)
+        {
+            OcclusionQueryPool::GetInstance().EndFrame();
+        }
 
         // Store current VP as previous for next frame's motion blur
         s_Data.PrevViewProjectionMatrix = s_Data.ViewProjectionMatrix;
@@ -1638,7 +1675,43 @@ namespace OloEngine
         return s_ForceDisableCulling;
     }
 
-    Renderer3D::Statistics Renderer3D::GetStats()
+    void Renderer3D::EnableDepthPrepass(bool enable)
+    {
+        OLO_PROFILE_FUNCTION();
+        s_Data.DepthPrepassEnabled = enable;
+    }
+
+    bool Renderer3D::IsDepthPrepassEnabled()
+    {
+        return s_Data.DepthPrepassEnabled;
+    }
+
+    void Renderer3D::EnableOcclusionCulling(bool enable)
+    {
+        OLO_PROFILE_FUNCTION();
+        s_Data.OcclusionCullingEnabled = enable;
+        if (enable)
+        {
+            auto& queryPool = OcclusionQueryPool::GetInstance();
+            if (!queryPool.IsInitialized())
+            {
+                queryPool.Initialize(1024);
+            }
+            auto& culler = OcclusionCuller::GetInstance();
+            if (!culler.IsInitialized())
+            {
+                culler.Initialize();
+            }
+            OcclusionStateManager::GetInstance().SetMaxQueries(queryPool.GetMaxQueries());
+        }
+    }
+
+    bool Renderer3D::IsOcclusionCullingEnabled()
+    {
+        return s_Data.OcclusionCullingEnabled;
+    }
+
+    Renderer3D::Statistics& Renderer3D::GetStats()
     {
         return s_Data.Stats;
     }
@@ -1694,6 +1767,55 @@ namespace OloEngine
             {
                 s_Data.Stats.CulledMeshes++;
                 return nullptr;
+            }
+        }
+
+        // Temporal occlusion culling: skip objects that were occluded last frame,
+        // and submit proxy bounding boxes for re-testing.
+        if (s_Data.OcclusionCullingEnabled && s_Data.OcclusionResultsAvailable && entityID >= 0 && mesh)
+        {
+            auto& stateMgr = OcclusionStateManager::GetInstance();
+            auto& state = stateMgr.GetOrCreate(static_cast<u64>(entityID));
+
+            // Allocate query index if this is a new object
+            if (state.QueryIndex == UINT32_MAX)
+            {
+                state.QueryIndex = stateMgr.AllocateQueryIndex();
+            }
+
+            // Read back previous frame's result
+            if (state.QueryIndex != UINT32_MAX)
+            {
+                auto& queryPool = OcclusionQueryPool::GetInstance();
+                bool visible = queryPool.WasVisible(state.QueryIndex);
+                state.WasVisible = visible;
+
+                if (!visible)
+                {
+                    state.InvisibleFrameCount++;
+                    // Re-test periodically to detect when occluded objects become visible
+                    if (state.InvisibleFrameCount % kOcclusionRetestInterval == 0)
+                    {
+                        BoundingSphere bs = mesh->GetTransformedBoundingSphere(modelMatrix);
+                        BoundingBox worldBounds;
+                        worldBounds.Min = bs.Center - glm::vec3(bs.Radius);
+                        worldBounds.Max = bs.Center + glm::vec3(bs.Radius);
+                        OcclusionCuller::GetInstance().QueueBoundingBox(state.QueryIndex, worldBounds);
+                    }
+                    s_Data.Stats.CulledMeshes++;
+                    return nullptr;
+                }
+                else
+                {
+                    state.InvisibleFrameCount = 0;
+                    // Queue visible objects for occlusion testing so they can
+                    // transition to occluded when something moves in front of them
+                    BoundingSphere bs = mesh->GetTransformedBoundingSphere(modelMatrix);
+                    BoundingBox worldBounds;
+                    worldBounds.Min = bs.Center - glm::vec3(bs.Radius);
+                    worldBounds.Max = bs.Center + glm::vec3(bs.Radius);
+                    OcclusionCuller::GetInstance().QueueBoundingBox(state.QueryIndex, worldBounds);
+                }
             }
         }
 
@@ -1763,6 +1885,20 @@ namespace OloEngine
         cmd->isAnimatedMesh = false;
         cmd->boneBufferOffset = 0;
         cmd->boneCount = 0;
+
+        // Store occlusion query index for conditional rendering in dispatch
+        if (s_Data.OcclusionCullingEnabled && entityID >= 0)
+        {
+            auto& stateMgr = OcclusionStateManager::GetInstance();
+            if (stateMgr.Has(static_cast<u64>(entityID)))
+            {
+                u32 queryIdx = stateMgr.GetOrCreate(static_cast<u64>(entityID)).QueryIndex;
+                if (queryIdx != UINT32_MAX)
+                {
+                    cmd->occlusionQueryIndex = queryIdx;
+                }
+            }
+        }
 
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -1848,25 +1984,42 @@ namespace OloEngine
         }
         s_Data.Stats.TotalMeshes += static_cast<u32>(transforms.size());
 
+        const std::vector<glm::mat4>* activeTransforms = &transforms;
+        std::vector<glm::mat4> filteredTransforms;
+
         if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
         {
-            if (!IsVisibleInFrustum(mesh, transforms[0]))
+            // Extract the local bounding sphere once and transform per-instance
+            // instead of recomputing from mesh source each time
+            BoundingSphere localSphere = mesh->GetBoundingSphere();
+            localSphere.Radius *= 1.3f; // Match expansion factor from IsVisibleInFrustum
+            filteredTransforms.reserve(transforms.size());
+            for (const auto& t : transforms)
             {
-                s_Data.Stats.CulledMeshes += static_cast<u32>(transforms.size());
+                BoundingSphere worldSphere = localSphere.Transform(t);
+                if (s_Data.ViewFrustum.IsBoundingSphereVisible(worldSphere))
+                {
+                    filteredTransforms.push_back(t);
+                }
+            }
+            s_Data.Stats.CulledMeshes += static_cast<u32>(transforms.size() - filteredTransforms.size());
+            if (filteredTransforms.empty())
+            {
                 return nullptr;
             }
+            activeTransforms = &filteredTransforms;
         }
 
         // Allocate space in FrameDataBuffer for instance transforms
         FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
-        u32 transformCount = static_cast<u32>(transforms.size());
+        u32 transformCount = static_cast<u32>(activeTransforms->size());
         u32 transformOffset = frameBuffer.AllocateTransforms(transformCount);
         if (transformOffset == UINT32_MAX)
         {
             OLO_CORE_ERROR("Renderer3D::DrawMeshInstanced: Failed to allocate transform buffer space");
             return nullptr;
         }
-        frameBuffer.WriteTransforms(transformOffset, transforms.data(), transformCount);
+        frameBuffer.WriteTransforms(transformOffset, activeTransforms->data(), transformCount);
 
         Ref<Shader> shaderToUse = material.GetShader() ? material.GetShader() : s_Data.LightingShader;
 
@@ -1902,7 +2055,7 @@ namespace OloEngine
         PacketMetadata metadata = packet->GetMetadata();
         u32 shaderID = shaderToUse->GetRendererID() & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
-        u32 depth = transforms.empty() ? 0 : ComputeDepthForSortKey(transforms[0]);
+        u32 depth = activeTransforms->empty() ? 0 : ComputeDepthForSortKey((*activeTransforms)[0]);
         if (material.GetFlag(MaterialFlag::Blend))
             metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, materialID, depth);
         else

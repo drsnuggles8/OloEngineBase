@@ -1,8 +1,11 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
+#include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
 
 namespace OloEngine
 {
@@ -86,10 +89,46 @@ namespace OloEngine
         if (capturing)
             captureManager.OnPostBatch(m_CommandBucket);
 
+        // Depth prepass: render all geometry depth-only first, then re-execute
+        // with GL_EQUAL and no depth writes for the color pass. This eliminates
+        // overdraw from fragment shading of occluded pixels.
+        const bool depthPrepass = Renderer3D::IsDepthPrepassEnabled();
+        if (depthPrepass)
+        {
+            // Pass 1: depth only — CommandDispatch overrides per-command state
+            CommandDispatch::SetDepthPrepassActive(true);
+            m_CommandBucket.Execute(rendererAPI);
+            CommandDispatch::SetDepthPrepassActive(false);
+        }
+
+        // Flush deferred occlusion query proxy draws. When a depth prepass ran,
+        // the depth buffer is fully populated; otherwise the first Execute below
+        // will populate it and queries will rely on the previous frame's depth.
+        if (Renderer3D::IsOcclusionCullingEnabled())
+        {
+            OcclusionCuller::GetInstance().FlushQueuedQueries();
+        }
+
+        // Set up color pass state AFTER occlusion flush (which mutates GL state)
+        if (depthPrepass)
+        {
+            // Pass 2: color — enable color writes, depth func GL_EQUAL (no new depth writes)
+            rendererAPI.SetColorMask(true, true, true, true);
+            rendererAPI.SetDepthMask(false);
+            rendererAPI.SetDepthFunc(GL_EQUAL);
+        }
+
         if (capturing)
             m_CommandBucket.ExecuteWithGPUTiming(rendererAPI);
         else
             m_CommandBucket.Execute(rendererAPI);
+
+        // Restore depth state after prepass
+        if (depthPrepass)
+        {
+            rendererAPI.SetDepthMask(true);
+            rendererAPI.SetDepthFunc(GL_LESS);
+        }
 
         static u32 s_FrameCounter = 0;
         s_FrameCounter++;

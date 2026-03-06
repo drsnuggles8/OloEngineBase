@@ -19,12 +19,14 @@ namespace OloEngine
             u32 ShaderBinds = 0;
             u32 TextureBinds = 0;
             u32 DrawCalls = 0;
+            u32 ConditionalDraws = 0; // Draws issued inside conditional render blocks
 
             void Reset()
             {
                 ShaderBinds = 0;
                 TextureBinds = 0;
                 DrawCalls = 0;
+                ConditionalDraws = 0;
             }
         };
 
@@ -36,6 +38,7 @@ namespace OloEngine
         // State tracking for current frame rendering
         static void ResetState();
         static void InvalidateRenderStateCache();
+        static void SetDepthPrepassActive(bool active);
         static void SetViewProjectionMatrix(const glm::mat4& vp);
         static void SetViewMatrix(const glm::mat4& view);
         static void SetProjectionMatrix(const glm::mat4& projection);

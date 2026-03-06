@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Asset/AssetManager.h"
 
 #include <glad/gl.h>
@@ -61,6 +62,9 @@ namespace OloEngine
         // Snow accumulation depth texture (set per-frame)
         u32 SnowDepthTextureID = 0;
 
+        // Depth prepass override: when true, ApplyPODRenderState forces depth-only state
+        bool DepthPrepassActive = false;
+
         CommandDispatch::Statistics Stats;
     };
 
@@ -92,6 +96,16 @@ namespace OloEngine
                 api.EnableMultisampling();
             else
                 api.DisableMultisampling();
+
+            // During depth prepass, enforce depth-only state even for default render state
+            if (s_Data.DepthPrepassActive)
+            {
+                api.SetColorMask(false, false, false, false);
+                api.SetDepthTest(true);
+                api.SetDepthMask(true);
+                api.SetDepthFunc(GL_LESS);
+                api.SetBlendState(false);
+            }
             return;
         }
 
@@ -160,6 +174,17 @@ namespace OloEngine
             api.EnableMultisampling();
         else
             api.DisableMultisampling();
+
+        // During depth prepass, override to depth-only state after applying
+        // the command's full state (so culling, stencil, etc. are still correct)
+        if (s_Data.DepthPrepassActive)
+        {
+            api.SetColorMask(false, false, false, false);
+            api.SetDepthTest(true);
+            api.SetDepthMask(true);
+            api.SetDepthFunc(GL_LESS);
+            api.SetBlendState(false);
+        }
     }
 
     // Helper: Upload material UBO and bind material textures.
@@ -467,12 +492,20 @@ namespace OloEngine
         s_Data.SpotShadowTextureID = 0;
         s_Data.PointShadowTextureIDs.fill(0);
         s_Data.SnowDepthTextureID = 0;
+        s_Data.DepthPrepassActive = false;
         s_Data.Stats.Reset();
     }
 
     void CommandDispatch::InvalidateRenderStateCache()
     {
         s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+    }
+
+    void CommandDispatch::SetDepthPrepassActive(bool active)
+    {
+        s_Data.DepthPrepassActive = active;
+        // Invalidate cache so the next command re-applies state
+        InvalidateRenderStateCache();
     }
 
     void CommandDispatch::SetViewProjectionMatrix(const glm::mat4& vp)
@@ -881,8 +914,27 @@ namespace OloEngine
 
         // Bind VAO and draw using renderer ID directly
         glBindVertexArray(cmd->vertexArrayID);
-        ++s_Data.Stats.DrawCalls;
+
+        // Conditional rendering: GPU skips draw if occlusion query indicates fully occluded
+        bool startedConditionalRender = false;
+        if (cmd->occlusionQueryIndex != UINT32_MAX)
+        {
+            u32 queryID = OcclusionQueryPool::GetInstance().GetQueryID(cmd->occlusionQueryIndex);
+            if (queryID != 0)
+            {
+                api.BeginConditionalRender(queryID);
+                startedConditionalRender = true;
+            }
+        }
+
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        ++s_Data.Stats.DrawCalls;
+
+        if (startedConditionalRender)
+        {
+            ++s_Data.Stats.ConditionalDraws;
+            api.EndConditionalRender();
+        }
     }
 
     void CommandDispatch::DrawMeshInstanced(const void* data, RendererAPI& api)

@@ -332,6 +332,17 @@ namespace OloEngine
             s_RendererAPI->DeleteTexture(textureID);
         }
 
+        // Conditional rendering (occlusion query driven)
+        static void BeginConditionalRender(u32 queryID)
+        {
+            s_RendererAPI->BeginConditionalRender(queryID);
+        }
+
+        static void EndConditionalRender()
+        {
+            s_RendererAPI->EndConditionalRender();
+        }
+
         static RendererAPI& GetRendererAPI()
         {
             return *s_RendererAPI;

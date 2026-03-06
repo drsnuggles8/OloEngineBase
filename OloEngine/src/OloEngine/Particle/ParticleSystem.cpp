@@ -19,7 +19,7 @@ namespace OloEngine
     }
 
     ParticleSystem::ParticleSystem(const ParticleSystem& other)
-        : m_Pool(other.m_Pool), m_TrailData(other.m_TrailData), m_PendingTriggers(other.m_PendingTriggers), m_SortedIndices(other.m_SortedIndices), m_SortDistances(other.m_SortDistances), m_JoltScene(other.m_JoltScene), m_EmitterPosition(other.m_EmitterPosition), m_ParentVelocity(other.m_ParentVelocity), m_Time(other.m_Time), m_LODSpawnRateMultiplier(other.m_LODSpawnRateMultiplier), m_HasWarmedUp(other.m_HasWarmedUp), Playing(other.Playing), Looping(other.Looping), Duration(other.Duration), PlaybackSpeed(other.PlaybackSpeed), WarmUpTime(other.WarmUpTime), SimulationSpace(other.SimulationSpace), BlendMode(other.BlendMode), RenderMode(other.RenderMode), DepthSortEnabled(other.DepthSortEnabled), UseGPU(other.UseGPU), WindInfluence(other.WindInfluence), GPUNoiseStrength(other.GPUNoiseStrength), GPUNoiseFrequency(other.GPUNoiseFrequency), GPUGroundCollision(other.GPUGroundCollision), GPUGroundY(other.GPUGroundY), GPUCollisionBounce(other.GPUCollisionBounce), GPUCollisionFriction(other.GPUCollisionFriction), SoftParticlesEnabled(other.SoftParticlesEnabled), SoftParticleDistance(other.SoftParticleDistance), VelocityInheritance(other.VelocityInheritance), LODDistance1(other.LODDistance1), LODMaxDistance(other.LODMaxDistance), Emitter(other.Emitter), ColorModule(other.ColorModule), SizeModule(other.SizeModule), VelocityModule(other.VelocityModule), RotationModule(other.RotationModule), GravityModule(other.GravityModule), DragModule(other.DragModule), NoiseModule(other.NoiseModule), CollisionModule(other.CollisionModule), ForceFields(other.ForceFields), TrailModule(other.TrailModule), SubEmitterModule(other.SubEmitterModule), TextureSheetModule(other.TextureSheetModule)
+        : m_Pool(other.m_Pool), m_TrailData(other.m_TrailData), m_PendingTriggers(other.m_PendingTriggers), m_SortedIndices(other.m_SortedIndices), m_SortDistances(other.m_SortDistances), m_JoltScene(other.m_JoltScene), m_EmitterPosition(other.m_EmitterPosition), m_BoundingSphere(other.m_BoundingSphere), m_ParentVelocity(other.m_ParentVelocity), m_Time(other.m_Time), m_LODSpawnRateMultiplier(other.m_LODSpawnRateMultiplier), m_HasWarmedUp(other.m_HasWarmedUp), Playing(other.Playing), Looping(other.Looping), Duration(other.Duration), PlaybackSpeed(other.PlaybackSpeed), WarmUpTime(other.WarmUpTime), SimulationSpace(other.SimulationSpace), BlendMode(other.BlendMode), RenderMode(other.RenderMode), DepthSortEnabled(other.DepthSortEnabled), UseGPU(other.UseGPU), WindInfluence(other.WindInfluence), GPUNoiseStrength(other.GPUNoiseStrength), GPUNoiseFrequency(other.GPUNoiseFrequency), GPUGroundCollision(other.GPUGroundCollision), GPUGroundY(other.GPUGroundY), GPUCollisionBounce(other.GPUCollisionBounce), GPUCollisionFriction(other.GPUCollisionFriction), SoftParticlesEnabled(other.SoftParticlesEnabled), SoftParticleDistance(other.SoftParticleDistance), VelocityInheritance(other.VelocityInheritance), LODDistance1(other.LODDistance1), LODMaxDistance(other.LODMaxDistance), Emitter(other.Emitter), ColorModule(other.ColorModule), SizeModule(other.SizeModule), VelocityModule(other.VelocityModule), RotationModule(other.RotationModule), GravityModule(other.GravityModule), DragModule(other.DragModule), NoiseModule(other.NoiseModule), CollisionModule(other.CollisionModule), ForceFields(other.ForceFields), TrailModule(other.TrailModule), SubEmitterModule(other.SubEmitterModule), TextureSheetModule(other.TextureSheetModule)
     {
         // Rewire callback to THIS instance's trail data
         m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
@@ -78,6 +78,7 @@ namespace OloEngine
         m_SortDistances = other.m_SortDistances;
         m_JoltScene = other.m_JoltScene;
         m_EmitterPosition = other.m_EmitterPosition;
+        m_BoundingSphere = other.m_BoundingSphere;
         m_ParentVelocity = other.m_ParentVelocity;
         m_Time = other.m_Time;
         m_LODSpawnRateMultiplier = other.m_LODSpawnRateMultiplier;
@@ -94,7 +95,7 @@ namespace OloEngine
     }
 
     ParticleSystem::ParticleSystem(ParticleSystem&& other) noexcept
-        : m_Pool(std::move(other.m_Pool)), m_TrailData(std::move(other.m_TrailData)), m_GPUSystem(std::move(other.m_GPUSystem)), m_PendingTriggers(std::move(other.m_PendingTriggers)), m_SortedIndices(std::move(other.m_SortedIndices)), m_SortDistances(std::move(other.m_SortDistances)), m_JoltScene(other.m_JoltScene), m_EmitterPosition(other.m_EmitterPosition), m_ParentVelocity(other.m_ParentVelocity), m_Time(other.m_Time), m_LODSpawnRateMultiplier(other.m_LODSpawnRateMultiplier), m_HasWarmedUp(other.m_HasWarmedUp), Playing(other.Playing), Looping(other.Looping), Duration(other.Duration), PlaybackSpeed(other.PlaybackSpeed), WarmUpTime(other.WarmUpTime), SimulationSpace(other.SimulationSpace), BlendMode(other.BlendMode), RenderMode(other.RenderMode), DepthSortEnabled(other.DepthSortEnabled), UseGPU(other.UseGPU), WindInfluence(other.WindInfluence), GPUNoiseStrength(other.GPUNoiseStrength), GPUNoiseFrequency(other.GPUNoiseFrequency), GPUGroundCollision(other.GPUGroundCollision), GPUGroundY(other.GPUGroundY), GPUCollisionBounce(other.GPUCollisionBounce), GPUCollisionFriction(other.GPUCollisionFriction), SoftParticlesEnabled(other.SoftParticlesEnabled), SoftParticleDistance(other.SoftParticleDistance), VelocityInheritance(other.VelocityInheritance), LODDistance1(other.LODDistance1), LODMaxDistance(other.LODMaxDistance), Emitter(std::move(other.Emitter)), ColorModule(other.ColorModule), SizeModule(other.SizeModule), VelocityModule(other.VelocityModule), RotationModule(other.RotationModule), GravityModule(other.GravityModule), DragModule(other.DragModule), NoiseModule(other.NoiseModule), CollisionModule(other.CollisionModule), ForceFields(std::move(other.ForceFields)), TrailModule(other.TrailModule), SubEmitterModule(std::move(other.SubEmitterModule)), TextureSheetModule(other.TextureSheetModule)
+        : m_Pool(std::move(other.m_Pool)), m_TrailData(std::move(other.m_TrailData)), m_GPUSystem(std::move(other.m_GPUSystem)), m_PendingTriggers(std::move(other.m_PendingTriggers)), m_SortedIndices(std::move(other.m_SortedIndices)), m_SortDistances(std::move(other.m_SortDistances)), m_JoltScene(other.m_JoltScene), m_EmitterPosition(other.m_EmitterPosition), m_BoundingSphere(other.m_BoundingSphere), m_ParentVelocity(other.m_ParentVelocity), m_Time(other.m_Time), m_LODSpawnRateMultiplier(other.m_LODSpawnRateMultiplier), m_HasWarmedUp(other.m_HasWarmedUp), Playing(other.Playing), Looping(other.Looping), Duration(other.Duration), PlaybackSpeed(other.PlaybackSpeed), WarmUpTime(other.WarmUpTime), SimulationSpace(other.SimulationSpace), BlendMode(other.BlendMode), RenderMode(other.RenderMode), DepthSortEnabled(other.DepthSortEnabled), UseGPU(other.UseGPU), WindInfluence(other.WindInfluence), GPUNoiseStrength(other.GPUNoiseStrength), GPUNoiseFrequency(other.GPUNoiseFrequency), GPUGroundCollision(other.GPUGroundCollision), GPUGroundY(other.GPUGroundY), GPUCollisionBounce(other.GPUCollisionBounce), GPUCollisionFriction(other.GPUCollisionFriction), SoftParticlesEnabled(other.SoftParticlesEnabled), SoftParticleDistance(other.SoftParticleDistance), VelocityInheritance(other.VelocityInheritance), LODDistance1(other.LODDistance1), LODMaxDistance(other.LODMaxDistance), Emitter(std::move(other.Emitter)), ColorModule(other.ColorModule), SizeModule(other.SizeModule), VelocityModule(other.VelocityModule), RotationModule(other.RotationModule), GravityModule(other.GravityModule), DragModule(other.DragModule), NoiseModule(other.NoiseModule), CollisionModule(other.CollisionModule), ForceFields(std::move(other.ForceFields)), TrailModule(other.TrailModule), SubEmitterModule(std::move(other.SubEmitterModule)), TextureSheetModule(other.TextureSheetModule)
     {
         // Rewire callback to THIS instance
         m_Pool.m_OnSwapCallback = [this](u32 a, u32 b)
@@ -152,6 +153,7 @@ namespace OloEngine
         m_SortDistances = std::move(other.m_SortDistances);
         m_JoltScene = other.m_JoltScene;
         m_EmitterPosition = other.m_EmitterPosition;
+        m_BoundingSphere = other.m_BoundingSphere;
         m_ParentVelocity = other.m_ParentVelocity;
         m_Time = other.m_Time;
         m_LODSpawnRateMultiplier = other.m_LODSpawnRateMultiplier;
@@ -228,6 +230,15 @@ namespace OloEngine
         m_Time += scaledDt;
         m_EmitterPosition = emitterPosition;
         m_ParentVelocity = parentVelocity;
+
+        // Recompute bounding sphere: center at emitter, conservative radius based
+        // on emitter properties to avoid an O(N) velocity scan every frame.
+        {
+            f32 maxSpeed = Emitter.InitialSpeed + Emitter.SpeedVariance;
+            f32 velocityExpansion = maxSpeed * Duration;
+            f32 radius = std::max(LODMaxDistance + velocityExpansion, LODMaxDistance * 1.5f);
+            m_BoundingSphere = BoundingSphere(emitterPosition, radius);
+        }
 
         // Check duration
         if (!Looping && m_Time >= Duration)

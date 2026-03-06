@@ -2101,6 +2101,7 @@ namespace OloEngine
                             layer.WindStrength, layer.WindSpeed,
                             layer.ViewDistance, layer.FadeStartDistance, layer.AlphaCutoff,
                             glm::vec4(layer.BaseColor, 0.0f),
+                            layer.Bounds,
                             entityID);
                         if (packet)
                         {
@@ -2685,6 +2686,15 @@ namespace OloEngine
         {
             auto& psc = psView.get<ParticleSystemComponent>(entity);
             auto& sys = psc.System;
+
+            // Frustum cull entire emitter via its bounding sphere
+            Renderer3D::GetStats().TotalEmitters++;
+            if (Renderer3D::IsFrustumCullingEnabled() && !Renderer3D::IsVisibleInFrustum(sys.GetBoundingSphere()))
+            {
+                Renderer3D::GetStats().CulledEmitters++;
+                continue;
+            }
+
             glm::vec3 offset = (sys.SimulationSpace == ParticleSpace::Local) ? sys.GetEmitterPosition() : glm::vec3(0.0f);
 
             const std::vector<u32>* sorted = nullptr;

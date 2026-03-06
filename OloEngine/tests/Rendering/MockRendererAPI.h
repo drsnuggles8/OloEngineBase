@@ -330,6 +330,16 @@ namespace OloEngine::Testing
         {
             Record("SetColorMask");
         }
+        void BeginConditionalRender(u32 queryID) override
+        {
+            RecordedCall c{ "BeginConditionalRender" };
+            c.ParamU32_0 = queryID;
+            m_Calls.push_back(c);
+        }
+        void EndConditionalRender() override
+        {
+            Record("EndConditionalRender");
+        }
         void SetBlendStateForAttachment(u32 /*attachment*/, bool /*enabled*/) override
         {
             Record("SetBlendStateForAttachment");
