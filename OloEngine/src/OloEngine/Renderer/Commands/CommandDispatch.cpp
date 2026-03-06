@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Asset/AssetManager.h"
 
 #include <glad/gl.h>
@@ -882,7 +883,28 @@ namespace OloEngine
         // Bind VAO and draw using renderer ID directly
         glBindVertexArray(cmd->vertexArrayID);
         ++s_Data.Stats.DrawCalls;
+
+        // Conditional rendering: GPU skips draw if occlusion query indicates fully occluded
+        const bool useConditional = (cmd->occlusionQueryIndex != UINT32_MAX);
+        if (useConditional)
+        {
+            u32 queryID = OcclusionQueryPool::GetInstance().GetQueryID(cmd->occlusionQueryIndex);
+            if (queryID != 0)
+            {
+                api.BeginConditionalRender(queryID);
+            }
+        }
+
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+
+        if (useConditional)
+        {
+            u32 queryID = OcclusionQueryPool::GetInstance().GetQueryID(cmd->occlusionQueryIndex);
+            if (queryID != 0)
+            {
+                api.EndConditionalRender();
+            }
+        }
     }
 
     void CommandDispatch::DrawMeshInstanced(const void* data, RendererAPI& api)

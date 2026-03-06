@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 
 #include <glm/glm.hpp>
@@ -32,6 +33,7 @@ namespace OloEngine
         f32 WindSpeed = 1.0f;
         glm::vec3 BaseColor{ 1.0f };
         f32 AlphaCutoff = 0.5f;
+        BoundingBox Bounds; // Precomputed AABB encompassing all instances in this layer
     };
 
     // Manages foliage instance generation, culling, and instanced rendering.
@@ -92,6 +94,7 @@ namespace OloEngine
             glm::vec3 BaseColor{ 1.0f };
             f32 AlphaCutoff = 0.5f;
             Ref<Texture2D> AlbedoTexture;
+            BoundingBox Bounds; // Precomputed AABB encompassing all instances
         };
 
         void BuildQuadGeometry(LayerRenderData& data);

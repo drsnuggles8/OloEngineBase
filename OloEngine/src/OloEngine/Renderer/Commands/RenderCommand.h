@@ -550,6 +550,9 @@ namespace OloEngine
         u32 boneCount = 0;                 // Number of bone matrices
         u8 workerIndex = 0;                // Worker index for parallel submission (used to remap local bone offset to global)
         bool needsBoneOffsetRemap = false; // True if boneBufferOffset is worker-local and needs remapping
+
+        // Occlusion culling: query index for conditional rendering (UINT32_MAX = no query)
+        u32 occlusionQueryIndex = UINT32_MAX;
     };
 
     // Static assertion to verify DrawMeshCommand is trivially copyable (POD)

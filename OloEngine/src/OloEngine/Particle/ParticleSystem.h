@@ -8,6 +8,7 @@
 #include "OloEngine/Particle/ParticleTrail.h"
 #include "OloEngine/Particle/SubEmitter.h"
 #include "OloEngine/Particle/GPUParticleSystem.h"
+#include "OloEngine/Renderer/BoundingVolume.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -71,6 +72,12 @@ namespace OloEngine
         [[nodiscard]] const glm::vec3& GetEmitterPosition() const
         {
             return m_EmitterPosition;
+        }
+
+        // Get the precomputed bounding sphere for frustum culling
+        [[nodiscard]] const BoundingSphere& GetBoundingSphere() const
+        {
+            return m_BoundingSphere;
         }
 
         [[nodiscard]] u32 GetAliveCount() const
@@ -187,6 +194,7 @@ namespace OloEngine
         JoltScene* m_JoltScene = nullptr;
         glm::vec3 m_EmitterPosition{ 0.0f };
         glm::vec3 m_ParentVelocity{ 0.0f };
+        BoundingSphere m_BoundingSphere{ glm::vec3(0.0f), 0.0f };
         f32 m_Time = 0.0f;
         f32 m_LODSpawnRateMultiplier = 1.0f;
         bool m_HasWarmedUp = false;

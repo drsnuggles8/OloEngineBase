@@ -132,6 +132,10 @@ namespace OloEngine
                                              GLenum format, GLenum type, const void* data) = 0;
         virtual void DeleteTexture(u32 textureID) = 0;
 
+        // Occlusion / conditional rendering
+        virtual void BeginConditionalRender(u32 queryID) = 0;
+        virtual void EndConditionalRender() = 0;
+
         [[nodiscard("Store this!")]] static API GetAPI()
         {
             return s_API;

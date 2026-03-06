@@ -789,4 +789,14 @@ namespace OloEngine
 
         glDeleteTextures(1, &textureID);
     }
+
+    void OpenGLRendererAPI::BeginConditionalRender(u32 queryID)
+    {
+        glBeginConditionalRender(queryID, GL_QUERY_BY_REGION_WAIT);
+    }
+
+    void OpenGLRendererAPI::EndConditionalRender()
+    {
+        glEndConditionalRender();
+    }
 } // namespace OloEngine

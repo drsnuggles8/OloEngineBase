@@ -388,6 +388,13 @@
 		"OloEngine/Renderer/Debug/ShaderDebugger.cpp"
 		"OloEngine/Renderer/Debug/DebugUtils.h"
 		"OloEngine/Renderer/Debug/DebugUtils.cpp"
+
+		"OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
+		"OloEngine/Renderer/Occlusion/OcclusionQueryPool.cpp"
+		"OloEngine/Renderer/Occlusion/OcclusionState.h"
+		"OloEngine/Renderer/Occlusion/OcclusionState.cpp"
+		"OloEngine/Renderer/Occlusion/OcclusionCuller.h"
+		"OloEngine/Renderer/Occlusion/OcclusionCuller.cpp"
 		
 		"OloEngine/Renderer/Passes/RenderPass.h"
 		"OloEngine/Renderer/Passes/CommandBufferRenderPass.h"

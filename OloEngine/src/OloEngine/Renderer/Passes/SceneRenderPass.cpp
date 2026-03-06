@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 
@@ -86,10 +88,44 @@ namespace OloEngine
         if (capturing)
             captureManager.OnPostBatch(m_CommandBucket);
 
+        // Depth prepass: render all geometry depth-only first, then re-execute
+        // with GL_EQUAL and no depth writes for the color pass. This eliminates
+        // overdraw from fragment shading of occluded pixels.
+        const bool depthPrepass = Renderer3D::IsDepthPrepassEnabled();
+        if (depthPrepass)
+        {
+            // Pass 1: depth only — disable color writes, depth func GL_LESS
+            rendererAPI.SetColorMask(false, false, false, false);
+            rendererAPI.SetDepthMask(true);
+            rendererAPI.SetDepthFunc(GL_LESS);
+
+            m_CommandBucket.Execute(rendererAPI);
+
+            // Pass 2: color — enable color writes, depth func GL_EQUAL (no new depth writes)
+            rendererAPI.SetColorMask(true, true, true, true);
+            rendererAPI.SetDepthMask(false);
+            rendererAPI.SetDepthFunc(GL_EQUAL);
+        }
+
+        // Flush deferred occlusion query proxy draws now that the depth buffer
+        // is populated (either from the depth prepass above, or from a previous
+        // frame's depth content via depth buffer preservation).
+        if (Renderer3D::IsOcclusionCullingEnabled())
+        {
+            OcclusionCuller::GetInstance().FlushQueuedQueries();
+        }
+
         if (capturing)
             m_CommandBucket.ExecuteWithGPUTiming(rendererAPI);
         else
             m_CommandBucket.Execute(rendererAPI);
+
+        // Restore depth state after prepass
+        if (depthPrepass)
+        {
+            rendererAPI.SetDepthMask(true);
+            rendererAPI.SetDepthFunc(GL_LESS);
+        }
 
         static u32 s_FrameCounter = 0;
         s_FrameCounter++;

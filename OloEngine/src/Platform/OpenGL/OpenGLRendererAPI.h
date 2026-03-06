@@ -84,6 +84,9 @@ namespace OloEngine
                                      GLenum format, GLenum type, const void* data) override;
         void DeleteTexture(u32 textureID) override;
 
+        void BeginConditionalRender(u32 queryID) override;
+        void EndConditionalRender() override;
+
       private:
         bool m_DepthTestEnabled = false;
         bool m_DepthMaskEnabled = true;
