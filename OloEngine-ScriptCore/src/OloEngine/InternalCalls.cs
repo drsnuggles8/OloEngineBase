@@ -371,6 +371,44 @@ namespace OloEngine
 		internal static extern void ParticleSystemComponent_SetWindInfluence(ulong entityID, ref float v);
 		#endregion
 
+		#region LightProbeComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeComponent_GetInfluenceRadius(ulong entityID, out float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeComponent_SetInfluenceRadius(ulong entityID, ref float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeComponent_GetIntensity(ulong entityID, out float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeComponent_SetIntensity(ulong entityID, ref float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeComponent_GetActive(ulong entityID, out bool v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeComponent_SetActive(ulong entityID, ref bool v);
+		#endregion
+
+		#region LightProbeVolumeComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_GetBoundsMin(ulong entityID, out Vector3 v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_SetBoundsMin(ulong entityID, ref Vector3 v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_GetBoundsMax(ulong entityID, out Vector3 v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_SetBoundsMax(ulong entityID, ref Vector3 v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_GetSpacing(ulong entityID, out float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_SetSpacing(ulong entityID, ref float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_GetIntensity(ulong entityID, out float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_SetIntensity(ulong entityID, ref float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_GetActive(ulong entityID, out bool v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_SetActive(ulong entityID, ref bool v);
+		#endregion
+
 		#region WindSettings
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void Scene_GetWindEnabled(out bool v);

@@ -341,6 +341,7 @@ namespace OloEngine
         s_Data.FogVolumesUBO = UniformBuffer::Create(FogVolumesUBOData::GetSize(), ShaderBindingLayout::UBO_FOG_VOLUMES);
         s_Data.FogVolumesGPUData = FogVolumesUBOData{};
         s_Data.DecalUBO = UniformBuffer::Create(ShaderBindingLayout::DecalUBO::GetSize(), ShaderBindingLayout::UBO_DECAL);
+        s_Data.LightProbeVolumeUBO = UniformBuffer::Create(ShaderBindingLayout::LightProbeVolumeUBO::GetSize(), ShaderBindingLayout::UBO_LIGHT_PROBES);
 
         CommandDispatch::SetUBOReferences(
             s_Data.CameraUBO,
@@ -1569,6 +1570,26 @@ namespace OloEngine
         if (s_Data.MultiLightBuffer)
         {
             s_Data.MultiLightBuffer->SetData(&data, UBOStructures::MultiLightUBO::GetSize());
+        }
+    }
+
+    void Renderer3D::UploadLightProbeData(const ShaderBindingLayout::LightProbeVolumeUBO& uboData,
+                                          const void* shData, u32 shDataSize)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (s_Data.LightProbeVolumeUBO)
+        {
+            s_Data.LightProbeVolumeUBO->SetData(&uboData, ShaderBindingLayout::LightProbeVolumeUBO::GetSize());
+        }
+
+        if (shData && shDataSize > 0)
+        {
+            if (!s_Data.LightProbeSHBuffer || s_Data.LightProbeSHBuffer->GetSize() < shDataSize)
+            {
+                s_Data.LightProbeSHBuffer = StorageBuffer::Create(shDataSize, ShaderBindingLayout::SSBO_LIGHT_PROBES);
+            }
+            s_Data.LightProbeSHBuffer->SetData(shData, shDataSize);
         }
     }
 

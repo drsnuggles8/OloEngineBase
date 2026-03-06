@@ -20,6 +20,7 @@
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 #include "OloEngine/Renderer/LOD.h"
+#include "OloEngine/Renderer/SphericalHarmonics.h"
 
 #include <box2d/id.h>
 
@@ -456,6 +457,52 @@ namespace OloEngine
         EnvironmentMapComponent() = default;
         EnvironmentMapComponent(const EnvironmentMapComponent&) = default;
         explicit EnvironmentMapComponent(const std::string& filepath) : m_FilePath(filepath) {}
+    };
+
+    // Light probe component for a single standalone probe
+    struct LightProbeComponent
+    {
+        f32 m_InfluenceRadius = 10.0f;
+        f32 m_Intensity = 1.0f;
+        bool m_Active = true;
+        SHCoefficients m_SHCoefficients{};
+
+        LightProbeComponent() = default;
+        LightProbeComponent(const LightProbeComponent&) = default;
+    };
+
+    // Light probe volume for grid-based global illumination
+    struct LightProbeVolumeComponent
+    {
+        glm::vec3 m_BoundsMin = glm::vec3(-10.0f);
+        glm::vec3 m_BoundsMax = glm::vec3(10.0f);
+        glm::ivec3 m_Resolution = glm::ivec3(4, 2, 4);
+        f32 m_Spacing = 5.0f;
+        f32 m_Intensity = 1.0f;
+        bool m_Active = true;
+        bool m_Dirty = true;
+        bool m_ShowDebugProbes = false;
+        AssetHandle m_BakedDataAsset = 0;
+
+        [[nodiscard]] i32 GetTotalProbeCount() const noexcept
+        {
+            return m_Resolution.x * m_Resolution.y * m_Resolution.z;
+        }
+
+        [[nodiscard]] glm::vec3 WorldToGrid(const glm::vec3& worldPos) const
+        {
+            glm::vec3 const extent = m_BoundsMax - m_BoundsMin;
+            glm::vec3 const normalized = (worldPos - m_BoundsMin) / extent;
+            return normalized * glm::vec3(m_Resolution - glm::ivec3(1));
+        }
+
+        [[nodiscard]] i32 GridIndex(i32 x, i32 y, i32 z) const noexcept
+        {
+            return z * m_Resolution.y * m_Resolution.x + y * m_Resolution.x + x;
+        }
+
+        LightProbeVolumeComponent() = default;
+        LightProbeVolumeComponent(const LightProbeVolumeComponent&) = default;
     };
 
     // Entity relationship component for parent-child hierarchies (Hazel-style)
@@ -1035,5 +1082,7 @@ namespace OloEngine
         SnowDeformerComponent,
         FogVolumeComponent,
         DecalComponent,
-        LODGroupComponent>;
+        LODGroupComponent,
+        LightProbeComponent,
+        LightProbeVolumeComponent>;
 } // namespace OloEngine

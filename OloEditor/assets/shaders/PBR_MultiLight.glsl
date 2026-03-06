@@ -49,6 +49,7 @@ void main()
 
 #include "include/PBRCommon.glsl"
 #include "include/SnowCommon.glsl"
+#include "include/LightProbeSampling.glsl"
 
 // Camera UBO (binding 0) - for view position
 layout(std140, binding = 0) uniform CameraMatrices {
@@ -84,6 +85,10 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableIBL;            // Enable IBL
     int u_ApplyGammaCorrection; // Apply gamma correction in this pass
     int u_AlphaCutoff;          // Alpha cutoff for transparency
+    int u_EnableLightProbes;    // Enable light probe indirect diffuse
+    int _pbrPad0;
+    int _pbrPad1;
+    int _pbrPad2;
 };
 
 // Snow UBO (binding 13)
@@ -267,7 +272,36 @@ void main()
 
     // Calculate ambient lighting
     vec3 ambient = vec3(0.0);
-    if (u_EnableIBL == 1)
+    if (u_EnableLightProbes == 1 && u_EnableIBL == 1)
+    {
+        // Combined: probe diffuse + IBL specular
+        vec3 probeIrradiance = sampleLightProbeGrid(v_WorldPos, N);
+        if (dot(probeIrradiance, probeIrradiance) > 0.0)
+        {
+            ambient = calculateCombinedAmbient(probeIrradiance, N, V, albedo,
+                                               metallic, roughness,
+                                               u_PrefilterMap, u_BRDFLutMap);
+        }
+        else
+        {
+            // Outside probe volume — fall back to IBL
+            ambient = calculateIBL(N, V, albedo, metallic, roughness, u_IrradianceMap, u_PrefilterMap, u_BRDFLutMap);
+        }
+    }
+    else if (u_EnableLightProbes == 1)
+    {
+        // Probes only, no IBL specular
+        vec3 probeIrradiance = sampleLightProbeGrid(v_WorldPos, N);
+        if (dot(probeIrradiance, probeIrradiance) > 0.0)
+        {
+            ambient = calculateLightProbeAmbient(probeIrradiance, albedo, metallic, roughness, N, V);
+        }
+        else
+        {
+            ambient = calculateSimpleAmbient(albedo, metallic, ao);
+        }
+    }
+    else if (u_EnableIBL == 1)
     {
         ambient = calculateIBL(N, V, albedo, metallic, roughness, u_IrradianceMap, u_PrefilterMap, u_BRDFLutMap);
     }

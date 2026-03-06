@@ -174,6 +174,22 @@ namespace OloEngine
         lua.new_usertype<ParticleSystemComponent>("ParticleSystemComponent",
                                                   "system", &ParticleSystemComponent::System);
 
+        // --- LightProbeComponent ---
+        lua.new_usertype<LightProbeComponent>("LightProbeComponent",
+                                              "influenceRadius", &LightProbeComponent::m_InfluenceRadius,
+                                              "intensity", &LightProbeComponent::m_Intensity,
+                                              "active", &LightProbeComponent::m_Active);
+
+        // --- LightProbeVolumeComponent ---
+        lua.new_usertype<LightProbeVolumeComponent>("LightProbeVolumeComponent",
+                                                    "boundsMin", &LightProbeVolumeComponent::m_BoundsMin,
+                                                    "boundsMax", &LightProbeVolumeComponent::m_BoundsMax,
+                                                    "spacing", &LightProbeVolumeComponent::m_Spacing,
+                                                    "intensity", &LightProbeVolumeComponent::m_Intensity,
+                                                    "active", &LightProbeVolumeComponent::m_Active,
+                                                    "dirty", &LightProbeVolumeComponent::m_Dirty,
+                                                    "getTotalProbeCount", &LightProbeVolumeComponent::GetTotalProbeCount);
+
         // --- WindSettings (scene-level) ---
         lua.new_usertype<WindSettings>("WindSettings",
                                        "enabled", &WindSettings::Enabled,

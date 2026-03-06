@@ -28,6 +28,7 @@
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainChunk.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
@@ -890,6 +891,10 @@ namespace OloEngine
     void Scene::OnComponentAdded<DecalComponent>(Entity, DecalComponent&) {}
     template<>
     void Scene::OnComponentAdded<LODGroupComponent>(Entity, LODGroupComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<LightProbeComponent>(Entity, LightProbeComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<LightProbeVolumeComponent>(Entity, LightProbeVolumeComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {
@@ -1542,6 +1547,48 @@ namespace OloEngine
             multiLightData.LightCount = lightIndex;
             multiLightData.MaxLights = static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
             Renderer3D::UploadMultiLightUBO(multiLightData);
+
+            // Upload light probe volume data if present and dirty
+            {
+                auto probeVolumeView = m_Registry.view<LightProbeVolumeComponent>();
+                for (auto entity : probeVolumeView)
+                {
+                    auto& lpv = probeVolumeView.get<LightProbeVolumeComponent>(entity);
+                    if (!lpv.m_Active || !lpv.m_Dirty)
+                    {
+                        continue;
+                    }
+
+                    ShaderBindingLayout::LightProbeVolumeUBO probeUBO{};
+                    probeUBO.BoundsMin = glm::vec4(lpv.m_BoundsMin, 0.0f);
+                    probeUBO.BoundsMax = glm::vec4(lpv.m_BoundsMax, 0.0f);
+                    probeUBO.GridDimensions = glm::ivec4(lpv.m_Resolution, 0);
+                    probeUBO.ProbeSpacing = glm::vec4(lpv.m_Spacing, lpv.m_Spacing, lpv.m_Spacing, 0.0f);
+                    probeUBO.Enabled = 1;
+                    probeUBO.Intensity = lpv.m_Intensity;
+
+                    if (lpv.m_BakedDataAsset != 0)
+                    {
+                        auto probeAsset = AssetManager::GetAsset<LightProbeVolumeAsset>(lpv.m_BakedDataAsset);
+                        if (probeAsset && probeAsset->HasBakedData())
+                        {
+                            auto dataSize = static_cast<u32>(probeAsset->CoefficientData.size() * sizeof(glm::vec4));
+                            Renderer3D::UploadLightProbeData(probeUBO, probeAsset->CoefficientData.data(), dataSize);
+                        }
+                        else
+                        {
+                            Renderer3D::UploadLightProbeData(probeUBO, nullptr, 0);
+                        }
+                    }
+                    else
+                    {
+                        Renderer3D::UploadLightProbeData(probeUBO, nullptr, 0);
+                    }
+
+                    lpv.m_Dirty = false;
+                    break; // Only one active volume at a time
+                }
+            }
 
             // Set up shadow mapping
             auto& shadowMap = Renderer3D::GetShadowMap();
@@ -2503,6 +2550,79 @@ namespace OloEngine
                     default:
                         OLO_CORE_ASSERT(false, "Unknown FogVolumeShape");
                         break;
+                }
+            }
+        }
+
+        // Draw light probe volume gizmos (wireframe box around probe grid bounds)
+        {
+            auto view = m_Registry.view<LightProbeVolumeComponent>();
+            for (auto entity : view)
+            {
+                auto const& vol = view.get<LightProbeVolumeComponent>(entity);
+                if (!vol.m_Active)
+                {
+                    continue;
+                }
+
+                glm::vec3 const center = (vol.m_BoundsMin + vol.m_BoundsMax) * 0.5f;
+                glm::vec3 const halfExtents = (vol.m_BoundsMax - vol.m_BoundsMin) * 0.5f;
+                glm::vec3 const gizmoColor(0.2f, 0.8f, 0.4f); // Green-ish for probe volumes
+                Renderer3D::DrawBoxColliderGizmo(center, halfExtents, glm::quat(1, 0, 0, 0), gizmoColor);
+
+                // Draw debug probe spheres at each grid position when enabled
+                if (vol.m_ShowDebugProbes)
+                {
+                    // Try to get baked data for color-coding by validity
+                    Ref<LightProbeVolumeAsset> probeAsset;
+                    if (vol.m_BakedDataAsset != 0)
+                    {
+                        probeAsset = AssetManager::GetAsset<LightProbeVolumeAsset>(vol.m_BakedDataAsset);
+                    }
+
+                    glm::vec3 const extent = vol.m_BoundsMax - vol.m_BoundsMin;
+                    for (i32 z = 0; z < vol.m_Resolution.z; ++z)
+                    {
+                        for (i32 y = 0; y < vol.m_Resolution.y; ++y)
+                        {
+                            for (i32 x = 0; x < vol.m_Resolution.x; ++x)
+                            {
+                                glm::vec3 const t(
+                                    vol.m_Resolution.x > 1 ? static_cast<f32>(x) / static_cast<f32>(vol.m_Resolution.x - 1) : 0.5f,
+                                    vol.m_Resolution.y > 1 ? static_cast<f32>(y) / static_cast<f32>(vol.m_Resolution.y - 1) : 0.5f,
+                                    vol.m_Resolution.z > 1 ? static_cast<f32>(z) / static_cast<f32>(vol.m_Resolution.z - 1) : 0.5f);
+                                glm::vec3 const probePos = vol.m_BoundsMin + t * extent;
+
+                                // Color-code: green = valid, red = invalid, yellow = no baked data
+                                glm::vec3 probeColor(0.8f, 0.8f, 0.2f); // Yellow = no baked data
+                                if (probeAsset && probeAsset->HasBakedData())
+                                {
+                                    i32 const idx = vol.GridIndex(x, y, z);
+                                    i32 const baseOffset = idx * static_cast<i32>(SH_COEFFICIENT_COUNT);
+                                    if (baseOffset < static_cast<i32>(probeAsset->CoefficientData.size()))
+                                    {
+                                        f32 const validity = probeAsset->CoefficientData[baseOffset].w;
+                                        if (validity > 0.5f)
+                                        {
+                                            // Valid probe: use dominant SH color (DC term = coefficient 0)
+                                            glm::vec3 const dc(
+                                                probeAsset->CoefficientData[baseOffset].x,
+                                                probeAsset->CoefficientData[baseOffset].y,
+                                                probeAsset->CoefficientData[baseOffset].z);
+                                            f32 const maxVal = glm::max(dc.x, glm::max(dc.y, dc.z));
+                                            probeColor = maxVal > 0.001f ? dc / maxVal : glm::vec3(0.2f, 0.8f, 0.2f);
+                                        }
+                                        else
+                                        {
+                                            probeColor = glm::vec3(0.8f, 0.2f, 0.2f); // Red = invalid
+                                        }
+                                    }
+                                }
+
+                                Renderer3D::DrawSphereColliderGizmo(probePos, 0.15f, probeColor);
+                            }
+                        }
+                    }
                 }
             }
         }
