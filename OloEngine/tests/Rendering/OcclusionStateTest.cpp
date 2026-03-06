@@ -273,9 +273,8 @@ TEST_F(OcclusionStateManagerTest, SimulateTemporalCoherence)
     EXPECT_EQ(state.InvisibleFrameCount, 4u);
     EXPECT_EQ(state.LastTestedFrame, 5u);
 
-    // After 4 invisible frames, temporal logic would re-test
-    // (the magic number 4 comes from Renderer3D::DrawMesh)
-    bool shouldRetest = (state.InvisibleFrameCount % 4 == 0);
+    // After kOcclusionRetestInterval invisible frames, temporal logic would re-test
+    bool shouldRetest = (state.InvisibleFrameCount % kOcclusionRetestInterval == 0);
     EXPECT_TRUE(shouldRetest);
 }
 

@@ -902,7 +902,6 @@ namespace OloEngine
 
         // Bind VAO and draw using renderer ID directly
         glBindVertexArray(cmd->vertexArrayID);
-        ++s_Data.Stats.DrawCalls;
 
         // Conditional rendering: GPU skips draw if occlusion query indicates fully occluded
         bool startedConditionalRender = false;
@@ -921,6 +920,12 @@ namespace OloEngine
         if (startedConditionalRender)
         {
             api.EndConditionalRender();
+        }
+        else
+        {
+            // Only count as a draw call if not conditionally rendered
+            // (GPU may skip the draw inside a conditional render block)
+            ++s_Data.Stats.DrawCalls;
         }
     }
 

@@ -7,6 +7,10 @@
 
 namespace OloEngine
 {
+    /// Number of consecutive invisible frames before re-testing an occluded object.
+    /// Shared between Renderer3D::DrawMesh and tests.
+    inline constexpr u32 kOcclusionRetestInterval = 4;
+
     /// @brief Per-object visibility state for temporal occlusion culling.
     ///
     /// Tracks whether an object was visible in recent frames, its assigned

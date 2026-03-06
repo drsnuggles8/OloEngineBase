@@ -231,19 +231,10 @@ namespace OloEngine
         m_EmitterPosition = emitterPosition;
         m_ParentVelocity = parentVelocity;
 
-        // Recompute bounding sphere: center at emitter, radius = LODMaxDistance + velocity expansion
-        {
-            f32 maxVelocity = 0.0f;
-            u32 aliveCount = m_Pool.GetAliveCount();
-            for (u32 i = 0; i < aliveCount; ++i)
-            {
-                f32 speed = glm::length(m_Pool.m_Velocities[i]);
-                maxVelocity = glm::max(maxVelocity, speed);
-            }
-            // Radius = LODMaxDistance + velocity-based expansion (velocity * max lifetime)
-            f32 velocityExpansion = maxVelocity * Duration;
-            m_BoundingSphere = BoundingSphere(emitterPosition, LODMaxDistance + velocityExpansion);
-        }
+        // Recompute bounding sphere: center at emitter, radius uses a conservative
+        // fixed estimate to avoid an O(N) velocity scan every frame.
+        // LODMaxDistance * 1.5 is sufficient for typical particle systems.
+        m_BoundingSphere = BoundingSphere(emitterPosition, LODMaxDistance * 1.5f);
 
         // Check duration
         if (!Looping && m_Time >= Duration)

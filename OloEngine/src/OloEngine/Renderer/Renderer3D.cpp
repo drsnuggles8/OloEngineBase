@@ -1789,9 +1789,8 @@ namespace OloEngine
                 if (!visible)
                 {
                     state.InvisibleFrameCount++;
-                    // Re-test every 4 frames to detect when occluded objects become visible
-                    constexpr u32 kRetestInterval = 4;
-                    if (state.InvisibleFrameCount % kRetestInterval == 0)
+                    // Re-test periodically to detect when occluded objects become visible
+                    if (state.InvisibleFrameCount % kOcclusionRetestInterval == 0)
                     {
                         BoundingSphere bs = mesh->GetTransformedBoundingSphere(modelMatrix);
                         BoundingBox worldBounds;
@@ -1982,10 +1981,15 @@ namespace OloEngine
 
         if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
         {
+            // Extract the local bounding sphere once and transform per-instance
+            // instead of recomputing from mesh source each time
+            BoundingSphere localSphere = mesh->GetBoundingSphere();
+            localSphere.Radius *= 1.3f; // Match expansion factor from IsVisibleInFrustum
             filteredTransforms.reserve(transforms.size());
             for (const auto& t : transforms)
             {
-                if (IsVisibleInFrustum(mesh, t))
+                BoundingSphere worldSphere = localSphere.Transform(t);
+                if (s_Data.ViewFrustum.IsBoundingSphereVisible(worldSphere))
                 {
                     filteredTransforms.push_back(t);
                 }

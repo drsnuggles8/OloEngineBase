@@ -101,10 +101,11 @@ namespace OloEngine
             CommandDispatch::SetDepthPrepassActive(false);
         }
 
-        // Flush deferred occlusion query proxy draws now that the depth buffer
-        // is populated (either from the depth prepass above, or from a previous
-        // frame's depth content via depth buffer preservation).
-        if (Renderer3D::IsOcclusionCullingEnabled())
+        // Flush deferred occlusion query proxy draws against the depth buffer
+        // populated by the depth prepass above. Without a depth prepass the depth
+        // buffer is empty (cleared at the top of Execute), so occlusion queries
+        // would be meaningless — skip them in that case.
+        if (depthPrepass && Renderer3D::IsOcclusionCullingEnabled())
         {
             OcclusionCuller::GetInstance().FlushQueuedQueries();
         }
