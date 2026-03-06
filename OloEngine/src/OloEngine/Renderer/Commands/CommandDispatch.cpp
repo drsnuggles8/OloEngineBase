@@ -96,6 +96,16 @@ namespace OloEngine
                 api.EnableMultisampling();
             else
                 api.DisableMultisampling();
+
+            // During depth prepass, enforce depth-only state even for default render state
+            if (s_Data.DepthPrepassActive)
+            {
+                api.SetColorMask(false, false, false, false);
+                api.SetDepthTest(true);
+                api.SetDepthMask(true);
+                api.SetDepthFunc(GL_LESS);
+                api.SetBlendState(false);
+            }
             return;
         }
 
@@ -170,6 +180,7 @@ namespace OloEngine
         if (s_Data.DepthPrepassActive)
         {
             api.SetColorMask(false, false, false, false);
+            api.SetDepthTest(true);
             api.SetDepthMask(true);
             api.SetDepthFunc(GL_LESS);
             api.SetBlendState(false);
@@ -916,16 +927,12 @@ namespace OloEngine
         }
 
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        ++s_Data.Stats.DrawCalls;
 
         if (startedConditionalRender)
         {
+            ++s_Data.Stats.ConditionalDraws;
             api.EndConditionalRender();
-        }
-        else
-        {
-            // Only count as a draw call if not conditionally rendered
-            // (GPU may skip the draw inside a conditional render block)
-            ++s_Data.Stats.DrawCalls;
         }
     }
 

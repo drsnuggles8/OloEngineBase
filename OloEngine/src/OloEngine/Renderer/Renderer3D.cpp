@@ -1888,7 +1888,11 @@ namespace OloEngine
             auto& stateMgr = OcclusionStateManager::GetInstance();
             if (stateMgr.Has(static_cast<u64>(entityID)))
             {
-                cmd->occlusionQueryIndex = stateMgr.GetOrCreate(static_cast<u64>(entityID)).QueryIndex;
+                u32 queryIdx = stateMgr.GetOrCreate(static_cast<u64>(entityID)).QueryIndex;
+                if (queryIdx != UINT32_MAX)
+                {
+                    cmd->occlusionQueryIndex = queryIdx;
+                }
             }
         }
 

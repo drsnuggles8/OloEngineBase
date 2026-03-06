@@ -231,10 +231,14 @@ namespace OloEngine
         m_EmitterPosition = emitterPosition;
         m_ParentVelocity = parentVelocity;
 
-        // Recompute bounding sphere: center at emitter, radius uses a conservative
-        // fixed estimate to avoid an O(N) velocity scan every frame.
-        // LODMaxDistance * 1.5 is sufficient for typical particle systems.
-        m_BoundingSphere = BoundingSphere(emitterPosition, LODMaxDistance * 1.5f);
+        // Recompute bounding sphere: center at emitter, conservative radius based
+        // on emitter properties to avoid an O(N) velocity scan every frame.
+        {
+            f32 maxSpeed = Emitter.InitialSpeed + Emitter.SpeedVariance;
+            f32 velocityExpansion = maxSpeed * Duration;
+            f32 radius = std::max(LODMaxDistance + velocityExpansion, LODMaxDistance * 1.5f);
+            m_BoundingSphere = BoundingSphere(emitterPosition, radius);
+        }
 
         // Check duration
         if (!Looping && m_Time >= Duration)

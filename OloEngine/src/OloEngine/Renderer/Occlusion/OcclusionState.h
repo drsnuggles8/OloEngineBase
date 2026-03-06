@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/BoundingVolume.h"
 
 #include <unordered_map>
+#include <vector>
 
 namespace OloEngine
 {

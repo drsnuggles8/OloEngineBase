@@ -794,11 +794,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         glBeginConditionalRender(queryID, GL_QUERY_BY_REGION_WAIT);
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
     }
 
     void OpenGLRendererAPI::EndConditionalRender()
     {
         OLO_PROFILE_FUNCTION();
         glEndConditionalRender();
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
     }
 } // namespace OloEngine
