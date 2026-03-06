@@ -756,7 +756,7 @@ namespace OloEngine
         ImGui::Text("Culled Meshes: %u", stats3D.CulledMeshes);
         ImGui::Text("Draw Calls: %u", stats3D.DrawCalls);
         ImGui::Text("LOD Switches: %u", stats3D.LODSwitches);
-        for (u32 i = 0; i < 8; ++i)
+        for (u32 i = 0; i < static_cast<u32>(stats3D.ObjectsPerLODLevel.size()); ++i)
         {
             if (stats3D.ObjectsPerLODLevel[i] > 0)
             {

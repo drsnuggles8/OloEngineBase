@@ -4,7 +4,9 @@
 #include "OloEngine/UI/UI.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
+#include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Particle/ParticlePresets.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -1421,10 +1423,20 @@ namespace OloEngine
                 // Drag-drop target for mesh asset
                 if (ImGui::BeginDragDropTarget())
                 {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_MODEL"))
                     {
-                        auto handle = *static_cast<const AssetHandle*>(payload->Data);
-                        level.MeshHandle = handle;
+                        auto const* const path = static_cast<wchar_t const*>(payload->Data);
+                        std::filesystem::path meshPath(path);
+                        auto model = Ref<Model>::Create(meshPath.string());
+                        if (model && model->GetMeshCount() > 0)
+                        {
+                            auto meshSource = model->CreateCombinedMeshSource();
+                            if (meshSource)
+                            {
+                                auto mesh = Ref<Mesh>::Create(meshSource);
+                                level.MeshHandle = AssetManager::AddMemoryOnlyAsset(mesh);
+                            }
+                        }
                     }
                     ImGui::EndDragDropTarget();
                 }

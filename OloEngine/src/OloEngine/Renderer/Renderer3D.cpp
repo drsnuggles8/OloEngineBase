@@ -1156,17 +1156,18 @@ namespace OloEngine
 
         // LOD selection
         Ref<Mesh> meshToUse = mesh;
-        if (lodGroup && !lodGroup->Levels.empty())
+        if (mesh && lodGroup && !lodGroup->Levels.empty())
         {
             BoundingSphere sphere = mesh->GetTransformedBoundingSphere(modelMatrix);
             f32 distance = glm::length(ctx.SceneContext->ViewPosition - sphere.Center);
             i32 lodIndex = lodGroup->SelectLOD(distance);
             if (lodIndex >= 0)
             {
-                if (lodIndex < static_cast<i32>(std::size(s_Data.Stats.ObjectsPerLODLevel)))
+                if (lodIndex >= static_cast<i32>(ctx.ObjectsPerLODLevel.size()))
                 {
-                    s_Data.Stats.ObjectsPerLODLevel[lodIndex]++;
+                    ctx.ObjectsPerLODLevel.resize(lodIndex + 1, 0);
                 }
+                ctx.ObjectsPerLODLevel[lodIndex]++;
                 AssetHandle lodMeshHandle = lodGroup->Levels[lodIndex].MeshHandle;
                 if (lodMeshHandle != 0)
                 {
@@ -1175,7 +1176,7 @@ namespace OloEngine
                     {
                         if (lodMesh != mesh)
                         {
-                            s_Data.Stats.LODSwitches++;
+                            ctx.LODSwitches++;
                         }
                         meshToUse = lodMesh;
                     }
@@ -1507,6 +1508,15 @@ namespace OloEngine
         for (i32 i = 0; i < workerStats.Num(); ++i)
         {
             totalSubmitted += workerStats[i].Submitted;
+            s_Data.Stats.LODSwitches += workerStats[i].Context.LODSwitches;
+            for (sizet j = 0; j < workerStats[i].Context.ObjectsPerLODLevel.size(); ++j)
+            {
+                if (j >= s_Data.Stats.ObjectsPerLODLevel.size())
+                {
+                    s_Data.Stats.ObjectsPerLODLevel.resize(j + 1, 0);
+                }
+                s_Data.Stats.ObjectsPerLODLevel[j] += workerStats[i].Context.ObjectsPerLODLevel[j];
+            }
         }
 
         return totalSubmitted;
@@ -1702,17 +1712,18 @@ namespace OloEngine
 
         // LOD selection
         Ref<Mesh> meshToUse = mesh;
-        if (lodGroup && !lodGroup->Levels.empty())
+        if (mesh && lodGroup && !lodGroup->Levels.empty())
         {
             BoundingSphere sphere = mesh->GetTransformedBoundingSphere(modelMatrix);
             f32 distance = glm::length(s_Data.ViewPos - sphere.Center);
             i32 lodIndex = lodGroup->SelectLOD(distance);
             if (lodIndex >= 0)
             {
-                if (lodIndex < static_cast<i32>(std::size(s_Data.Stats.ObjectsPerLODLevel)))
+                if (lodIndex >= static_cast<i32>(s_Data.Stats.ObjectsPerLODLevel.size()))
                 {
-                    s_Data.Stats.ObjectsPerLODLevel[lodIndex]++;
+                    s_Data.Stats.ObjectsPerLODLevel.resize(lodIndex + 1, 0);
                 }
+                s_Data.Stats.ObjectsPerLODLevel[lodIndex]++;
                 AssetHandle lodMeshHandle = lodGroup->Levels[lodIndex].MeshHandle;
                 if (lodMeshHandle != 0)
                 {

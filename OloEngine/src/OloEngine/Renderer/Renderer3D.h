@@ -88,6 +88,8 @@ namespace OloEngine
         // Statistics
         u32 CommandsSubmitted = 0;
         u32 MeshesCulled = 0;
+        u32 LODSwitches = 0;
+        std::vector<u32> ObjectsPerLODLevel;
     };
 
     // @brief High-level 3D rendering API with scene and material management
@@ -113,7 +115,7 @@ namespace OloEngine
             u32 RenderedAnimatedMeshes = 0;
             u32 SkippedAnimatedMeshes = 0;
             u32 LODSwitches = 0;
-            u32 ObjectsPerLODLevel[8] = {};
+            std::vector<u32> ObjectsPerLODLevel;
 
             void Reset()
             {
@@ -126,7 +128,7 @@ namespace OloEngine
                 RenderedAnimatedMeshes = 0;
                 SkippedAnimatedMeshes = 0;
                 LODSwitches = 0;
-                std::memset(ObjectsPerLODLevel, 0, sizeof(ObjectsPerLODLevel));
+                ObjectsPerLODLevel.clear();
             }
         };
 

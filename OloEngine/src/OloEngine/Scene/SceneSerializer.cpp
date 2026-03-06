@@ -1322,7 +1322,11 @@ namespace OloEngine
             }
             if (lodGroupComponent["Bias"])
             {
-                lodComp.m_LODGroup.Bias = lodGroupComponent["Bias"].as<f32>();
+                f32 bias = lodGroupComponent["Bias"].as<f32>();
+                if (bias > 0.0f && std::isfinite(bias))
+                {
+                    lodComp.m_LODGroup.Bias = bias;
+                }
             }
             if (lodGroupComponent["Levels"])
             {
@@ -1335,11 +1339,23 @@ namespace OloEngine
                     }
                     if (levelNode["MaxDistance"])
                     {
-                        level.MaxDistance = levelNode["MaxDistance"].as<f32>();
+                        f32 maxDist = levelNode["MaxDistance"].as<f32>();
+                        if (std::isfinite(maxDist) && maxDist >= 0.0f)
+                        {
+                            level.MaxDistance = maxDist;
+                        }
+                        else
+                        {
+                            continue; // Skip invalid level
+                        }
                     }
                     if (levelNode["TriangleCount"])
                     {
                         level.TriangleCount = levelNode["TriangleCount"].as<u32>();
+                    }
+                    if (level.MeshHandle == 0)
+                    {
+                        continue; // Skip level with no mesh
                     }
                     lodComp.m_LODGroup.Levels.push_back(level);
                 }
