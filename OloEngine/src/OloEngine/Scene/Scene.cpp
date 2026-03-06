@@ -1562,9 +1562,8 @@ namespace OloEngine
                     ShaderBindingLayout::LightProbeVolumeUBO probeUBO{};
                     probeUBO.BoundsMin = glm::vec4(lpv.m_BoundsMin, 0.0f);
                     probeUBO.BoundsMax = glm::vec4(lpv.m_BoundsMax, 0.0f);
-                    probeUBO.GridDimensions = glm::ivec4(lpv.m_Resolution, 0);
+                    probeUBO.GridDimensions = glm::ivec4(lpv.m_Resolution, lpv.GetTotalProbeCount());
                     probeUBO.ProbeSpacing = glm::vec4(lpv.m_Spacing, lpv.m_Spacing, lpv.m_Spacing, 0.0f);
-                    probeUBO.Enabled = 1;
                     probeUBO.Intensity = lpv.m_Intensity;
 
                     if (lpv.m_BakedDataAsset != 0)
@@ -1572,21 +1571,45 @@ namespace OloEngine
                         auto probeAsset = AssetManager::GetAsset<LightProbeVolumeAsset>(lpv.m_BakedDataAsset);
                         if (probeAsset && probeAsset->HasBakedData())
                         {
+                            probeUBO.Enabled = 1;
                             auto dataSize = static_cast<u32>(probeAsset->CoefficientData.size() * sizeof(glm::vec4));
                             Renderer3D::UploadLightProbeData(probeUBO, probeAsset->CoefficientData.data(), dataSize);
                         }
                         else
                         {
+                            probeUBO.Enabled = 0;
                             Renderer3D::UploadLightProbeData(probeUBO, nullptr, 0);
                         }
                     }
                     else
                     {
+                        probeUBO.Enabled = 0;
                         Renderer3D::UploadLightProbeData(probeUBO, nullptr, 0);
                     }
 
                     lpv.m_Dirty = false;
                     break; // Only one active volume at a time
+                }
+            }
+
+            // If no active+dirty volume was found, ensure probes are disabled
+            // to prevent stale data on the GPU
+            {
+                bool anyActiveVolume = false;
+                auto allVolumes = m_Registry.view<LightProbeVolumeComponent>();
+                for (auto entity : allVolumes)
+                {
+                    auto const& vol = allVolumes.get<LightProbeVolumeComponent>(entity);
+                    if (vol.m_Active)
+                    {
+                        anyActiveVolume = true;
+                        break;
+                    }
+                }
+                if (!anyActiveVolume)
+                {
+                    ShaderBindingLayout::LightProbeVolumeUBO disabledUBO{};
+                    Renderer3D::UploadLightProbeData(disabledUBO, nullptr, 0);
                 }
             }
 

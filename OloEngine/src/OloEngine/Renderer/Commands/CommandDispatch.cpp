@@ -233,7 +233,7 @@ namespace OloEngine
         {
             if (!sameIndex)
             {
-                ShaderBindingLayout::PBRMaterialUBO pbrMaterialData;
+                ShaderBindingLayout::PBRMaterialUBO pbrMaterialData{};
                 pbrMaterialData.BaseColorFactor = mat.baseColorFactor;
                 pbrMaterialData.EmissiveFactor = mat.emissiveFactor;
                 pbrMaterialData.MetallicFactor = mat.metallicFactor;
@@ -248,6 +248,7 @@ namespace OloEngine
                 pbrMaterialData.EnableIBL = mat.enableIBL ? 1 : 0;
                 pbrMaterialData.ApplyGammaCorrection = 1;
                 pbrMaterialData.AlphaCutoff = 0;
+                pbrMaterialData.EnableLightProbes = 0;
 
                 if (s_Data.MaterialUBO)
                 {

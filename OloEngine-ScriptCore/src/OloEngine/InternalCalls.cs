@@ -407,6 +407,10 @@ namespace OloEngine
 		internal static extern void LightProbeVolumeComponent_GetActive(ulong entityID, out bool v);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void LightProbeVolumeComponent_SetActive(ulong entityID, ref bool v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_Dirty(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_GetTotalProbeCount(ulong entityID, out int count);
 		#endregion
 
 		#region WindSettings

@@ -1450,9 +1450,13 @@ namespace OloEngine
             case AssetType::LightProbeVolume:
             {
                 OLO_TRACE("   → Light probe volume asset reloaded - marking volumes dirty");
-                if (m_ActiveScene)
+                auto markDirtyInScene = [&e](Ref<Scene>& scene)
                 {
-                    auto view = m_ActiveScene->GetAllEntitiesWith<LightProbeVolumeComponent>();
+                    if (!scene)
+                    {
+                        return;
+                    }
+                    auto view = scene->GetAllEntitiesWith<LightProbeVolumeComponent>();
                     for (auto entityID : view)
                     {
                         auto& vol = view.get<LightProbeVolumeComponent>(entityID);
@@ -1461,6 +1465,11 @@ namespace OloEngine
                             vol.m_Dirty = true;
                         }
                     }
+                };
+                markDirtyInScene(m_ActiveScene);
+                if (m_EditorScene && m_EditorScene != m_ActiveScene)
+                {
+                    markDirtyInScene(m_EditorScene);
                 }
                 break;
             }

@@ -14,6 +14,7 @@
 #include "OloEngine/Particle/ParticleCurveSerializer.h"
 
 #include <fstream>
+#include <cmath>
 
 #include <yaml-cpp/yaml.h>
 
@@ -1893,11 +1894,25 @@ namespace OloEngine
             lp.m_Intensity = lpComponent["Intensity"].as<f32>(lp.m_Intensity);
             lp.m_Active = lpComponent["Active"].as<bool>(lp.m_Active);
 
+            // Sanitize deserialized values
+            if (!std::isfinite(lp.m_InfluenceRadius) || lp.m_InfluenceRadius <= 0.0f)
+            {
+                lp.m_InfluenceRadius = 10.0f;
+            }
+            if (!std::isfinite(lp.m_Intensity) || lp.m_Intensity < 0.0f)
+            {
+                lp.m_Intensity = 1.0f;
+            }
+
             if (auto shNode = lpComponent["SHCoefficients"]; shNode && shNode.IsSequence())
             {
                 for (u32 i = 0; i < SH_COEFFICIENT_COUNT && i < shNode.size(); ++i)
                 {
-                    lp.m_SHCoefficients.Coefficients[i] = shNode[i].as<glm::vec3>();
+                    glm::vec3 coeff = shNode[i].as<glm::vec3>();
+                    if (std::isfinite(coeff.x) && std::isfinite(coeff.y) && std::isfinite(coeff.z))
+                    {
+                        lp.m_SHCoefficients.Coefficients[i] = coeff;
+                    }
                 }
             }
         }
@@ -1912,6 +1927,24 @@ namespace OloEngine
             lpv.m_Intensity = lpvComponent["Intensity"].as<f32>(lpv.m_Intensity);
             lpv.m_Active = lpvComponent["Active"].as<bool>(lpv.m_Active);
             lpv.m_BakedDataAsset = lpvComponent["BakedDataAsset"].as<u64>(lpv.m_BakedDataAsset);
+
+            // Sanitize deserialized values
+            if (!std::isfinite(lpv.m_Spacing) || lpv.m_Spacing <= 0.0f)
+            {
+                lpv.m_Spacing = 5.0f;
+            }
+            if (!std::isfinite(lpv.m_Intensity) || lpv.m_Intensity < 0.0f)
+            {
+                lpv.m_Intensity = 1.0f;
+            }
+            lpv.m_Resolution = glm::max(lpv.m_Resolution, glm::ivec3(1));
+            for (i32 axis = 0; axis < 3; ++axis)
+            {
+                if (lpv.m_BoundsMin[axis] > lpv.m_BoundsMax[axis])
+                {
+                    std::swap(lpv.m_BoundsMin[axis], lpv.m_BoundsMax[axis]);
+                }
+            }
         }
     }
 

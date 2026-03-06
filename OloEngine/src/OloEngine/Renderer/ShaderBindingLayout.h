@@ -318,6 +318,8 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) == 80, "LightProbeVolumeUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 96, "PBRMaterialUBO unexpected size — update GLSL layout");
 
     // Standardized shader binding layout for consistent resource sharing
     // across all shaders in the engine. This ensures efficient data sharing
@@ -484,6 +486,8 @@ namespace OloEngine
                     return name.contains("FogVolumes") || name.contains("fogVolumes");
                 case UBO_DECAL:
                     return name.contains("Decal") || name.contains("decal");
+                case UBO_LIGHT_PROBES:
+                    return name.contains("LightProbe") || name.contains("lightProbe");
                 default:
                     return false;
             }
@@ -626,6 +630,10 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableIBL;
     int u_ApplyGammaCorrection;
     int u_AlphaCutoff;
+    int u_EnableLightProbes;
+    int _pbrPad0;
+    int _pbrPad1;
+    int _pbrPad2;
 };)";
         }
 

@@ -23,6 +23,12 @@ namespace OloEngine
                                     "x", &glm::vec2::x,
                                     "y", &glm::vec2::y);
 
+        lua.new_usertype<glm::vec3>("vec3",
+                                    sol::constructors<glm::vec3(), glm::vec3(float), glm::vec3(float, float, float)>(),
+                                    "x", &glm::vec3::x,
+                                    "y", &glm::vec3::y,
+                                    "z", &glm::vec3::z);
+
         lua.new_usertype<glm::vec4>("vec4",
                                     sol::constructors<glm::vec4(), glm::vec4(float), glm::vec4(float, float, float, float)>(),
                                     "x", &glm::vec4::x,

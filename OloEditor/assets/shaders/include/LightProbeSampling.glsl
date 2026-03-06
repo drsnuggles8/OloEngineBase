@@ -31,6 +31,7 @@ layout(std430, binding = 8) readonly buffer LightProbeSHData {
 vec3 worldToProbeGrid(vec3 worldPos)
 {
     vec3 extent = u_ProbeBoundsMax.xyz - u_ProbeBoundsMin.xyz;
+    extent = max(extent, vec3(1e-6)); // Guard against zero extent
     vec3 normalized = (worldPos - u_ProbeBoundsMin.xyz) / extent;
     return normalized * vec3(u_ProbeGridDimensions.xyz - ivec3(1));
 }

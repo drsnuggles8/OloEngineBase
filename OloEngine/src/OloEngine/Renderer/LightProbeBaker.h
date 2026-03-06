@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 
 #include <functional>
+#include <vector>
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -22,7 +23,7 @@ namespace OloEngine
         // Resolution is the per-face cubemap resolution (e.g. 64).
         // Returns the baked SH and a validity flag (false if probe is inside geometry).
         static SHCoefficients BakeProbeAtPosition(
-            const Ref<Scene>& scene,
+            Ref<Scene>& scene,
             const glm::vec3& position,
             u32 cubemapResolution = 64,
             bool* outValid = nullptr);
@@ -30,7 +31,7 @@ namespace OloEngine
         // Bake all probes in a volume. Populates the asset's coefficient data.
         // The progress callback is invoked after each probe is baked.
         static void BakeVolume(
-            const Ref<Scene>& scene,
+            Ref<Scene>& scene,
             LightProbeVolumeComponent& volume,
             Ref<LightProbeVolumeAsset>& asset,
             u32 cubemapResolution = 64,
@@ -39,7 +40,7 @@ namespace OloEngine
       private:
         // Render the scene into a cubemap FBO at the given position
         static void RenderCubemapAtPosition(
-            const Ref<Scene>& scene,
+            Ref<Scene>& scene,
             const glm::vec3& position,
             u32 resolution,
             std::vector<glm::vec3>& outPixels);

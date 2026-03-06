@@ -926,6 +926,17 @@ namespace OloEngine
 			}
 			set => InternalCalls.LightProbeVolumeComponent_SetActive(Entity.ID, ref value);
 		}
+
+		public void Dirty()
+		{
+			InternalCalls.LightProbeVolumeComponent_Dirty(Entity.ID);
+		}
+
+		public int GetTotalProbeCount()
+		{
+			InternalCalls.LightProbeVolumeComponent_GetTotalProbeCount(Entity.ID, out int count);
+			return count;
+		}
 	}
 
 	/// <summary>

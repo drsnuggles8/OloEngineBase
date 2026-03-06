@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
+#include <glad/gl.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 
@@ -32,7 +33,7 @@ namespace OloEngine
     };
 
     void LightProbeBaker::RenderCubemapAtPosition(
-        const Ref<Scene>& scene,
+        Ref<Scene>& scene,
         const glm::vec3& position,
         u32 resolution,
         std::vector<glm::vec3>& outPixels)
@@ -50,6 +51,9 @@ namespace OloEngine
 
         Camera const captureCamera(glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 1000.0f));
 
+        // Temporary buffer for RGBA16F readback (4 floats per pixel)
+        std::vector<f32> rgbaBuffer(static_cast<size_t>(resolution) * resolution * 4);
+
         for (u32 face = 0; face < 6; ++face)
         {
             glm::mat4 const view = glm::lookAt(position, position + s_CubemapTargets[face], s_CubemapUps[face]);
@@ -59,23 +63,25 @@ namespace OloEngine
             RenderCommand::SetViewport(0, 0, resolution, resolution);
             fbo->ClearAllAttachments(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
-            Renderer3D::BeginScene(captureCamera, transform);
-            // Scene rendering for the probe capture — the scene's own render path
-            // will populate the command bucket; we flush it here.
-            Renderer3D::EndScene();
+            // Render the full scene from this cubemap face's perspective
+            scene->RenderScene3D(captureCamera, transform);
+
+            // Read back RGBA16F pixel data from the color attachment
+            u32 const colorAttachmentID = fbo->GetColorAttachmentRendererID(0);
+            glGetTextureImage(colorAttachmentID, 0, GL_RGBA, GL_FLOAT,
+                              static_cast<GLsizei>(rgbaBuffer.size() * sizeof(f32)),
+                              rgbaBuffer.data());
 
             fbo->Unbind();
 
-            // Read back pixel data for this face
+            // Convert RGBA to RGB and store
             auto const faceOffset = static_cast<size_t>(face) * resolution * resolution;
-            // Read pixels from the color attachment
-            // Note: actual GPU readback requires GL-specific calls.
-            // This is a placeholder — the OpenGL backend implementation should
-            // use glReadPixels or glGetTextureImage on the FBO's color attachment.
-            // For now, zero-initialize so the system functions without crashing.
             for (size_t i = 0; i < static_cast<size_t>(resolution) * resolution; ++i)
             {
-                outPixels[faceOffset + i] = glm::vec3(0.0f);
+                outPixels[faceOffset + i] = glm::vec3(
+                    rgbaBuffer[i * 4 + 0],
+                    rgbaBuffer[i * 4 + 1],
+                    rgbaBuffer[i * 4 + 2]);
             }
         }
     }
@@ -88,6 +94,19 @@ namespace OloEngine
 
         SHCoefficients result;
         result.Zero();
+
+        if (resolution == 0)
+        {
+            OLO_CORE_ERROR("LightProbeBaker::ProjectToSH: resolution must be > 0");
+            return result;
+        }
+
+        auto const expectedPixels = static_cast<size_t>(6) * resolution * resolution;
+        if (cubemapPixels.size() < expectedPixels)
+        {
+            OLO_CORE_ERROR("LightProbeBaker::ProjectToSH: cubemapPixels size {} < expected {}", cubemapPixels.size(), expectedPixels);
+            return result;
+        }
 
         f32 totalWeight = 0.0f;
         f32 const texelSize = 2.0f / static_cast<f32>(resolution);
@@ -156,7 +175,7 @@ namespace OloEngine
     }
 
     SHCoefficients LightProbeBaker::BakeProbeAtPosition(
-        const Ref<Scene>& scene,
+        Ref<Scene>& scene,
         const glm::vec3& position,
         u32 cubemapResolution,
         bool* outValid)
@@ -180,7 +199,7 @@ namespace OloEngine
     }
 
     void LightProbeBaker::BakeVolume(
-        const Ref<Scene>& scene,
+        Ref<Scene>& scene,
         LightProbeVolumeComponent& volume,
         Ref<LightProbeVolumeAsset>& asset,
         u32 cubemapResolution,

@@ -91,7 +91,17 @@ namespace OloEngine
             return false;
         }
 
-        YAML::Node data = YAML::Load(yamlStr);
+        YAML::Node data;
+        try
+        {
+            data = YAML::Load(yamlStr);
+        }
+        catch (const YAML::Exception& ex)
+        {
+            OLO_CORE_ERROR("YAML parse error in light probe volume file '{}': {}", filepath.string(), ex.what());
+            return false;
+        }
+
         auto volumeNode = data["LightProbeVolume"];
         if (!volumeNode)
         {
@@ -100,16 +110,39 @@ namespace OloEngine
         }
 
         auto probeVolume = Ref<LightProbeVolumeAsset>::Create();
-        probeVolume->BoundsMin = volumeNode["BoundsMin"].as<glm::vec3>(probeVolume->BoundsMin);
-        probeVolume->BoundsMax = volumeNode["BoundsMax"].as<glm::vec3>(probeVolume->BoundsMax);
-        probeVolume->Resolution.x = volumeNode["ResolutionX"].as<i32>(probeVolume->Resolution.x);
-        probeVolume->Resolution.y = volumeNode["ResolutionY"].as<i32>(probeVolume->Resolution.y);
-        probeVolume->Resolution.z = volumeNode["ResolutionZ"].as<i32>(probeVolume->Resolution.z);
-        probeVolume->Spacing = volumeNode["Spacing"].as<f32>(probeVolume->Spacing);
+        try
+        {
+            probeVolume->BoundsMin = volumeNode["BoundsMin"].as<glm::vec3>(probeVolume->BoundsMin);
+            probeVolume->BoundsMax = volumeNode["BoundsMax"].as<glm::vec3>(probeVolume->BoundsMax);
+            probeVolume->Resolution.x = volumeNode["ResolutionX"].as<i32>(probeVolume->Resolution.x);
+            probeVolume->Resolution.y = volumeNode["ResolutionY"].as<i32>(probeVolume->Resolution.y);
+            probeVolume->Resolution.z = volumeNode["ResolutionZ"].as<i32>(probeVolume->Resolution.z);
+            probeVolume->Spacing = volumeNode["Spacing"].as<f32>(probeVolume->Spacing);
+        }
+        catch (const YAML::Exception& ex)
+        {
+            OLO_CORE_ERROR("Failed to parse light probe volume fields from '{}': {}", filepath.string(), ex.what());
+            return false;
+        }
 
         auto coeffCount = volumeNode["CoefficientCount"].as<u64>(0);
+        auto const expectedCount = static_cast<u64>(probeVolume->GetTotalProbeCount()) * SH_COEFFICIENT_COUNT;
+
         if (coeffCount > 0)
         {
+            constexpr u64 maxCoefficients = 10'000'000;
+            if (coeffCount > maxCoefficients)
+            {
+                OLO_CORE_ERROR("Light probe volume '{}': coefficient count {} exceeds safe limit", filepath.string(), coeffCount);
+                return false;
+            }
+            if (coeffCount != expectedCount)
+            {
+                OLO_CORE_ERROR("Light probe volume '{}': coefficient count {} does not match expected {} (probes * SH_COEFFICIENT_COUNT)",
+                               filepath.string(), coeffCount, expectedCount);
+                return false;
+            }
+
             probeVolume->CoefficientData.resize(static_cast<size_t>(coeffCount));
             auto dataSize = static_cast<std::streamsize>(coeffCount * sizeof(glm::vec4));
             fin.read(reinterpret_cast<char*>(probeVolume->CoefficientData.data()), dataSize);

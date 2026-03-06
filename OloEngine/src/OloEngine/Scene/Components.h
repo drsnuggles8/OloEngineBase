@@ -491,7 +491,8 @@ namespace OloEngine
 
         [[nodiscard]] glm::vec3 WorldToGrid(const glm::vec3& worldPos) const
         {
-            glm::vec3 const extent = m_BoundsMax - m_BoundsMin;
+            constexpr f32 epsilon = 1e-6f;
+            glm::vec3 const extent = glm::max(m_BoundsMax - m_BoundsMin, glm::vec3(epsilon));
             glm::vec3 const normalized = (worldPos - m_BoundsMin) / extent;
             return normalized * glm::vec3(m_Resolution - glm::ivec3(1));
         }

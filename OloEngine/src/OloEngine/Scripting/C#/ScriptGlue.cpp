@@ -1133,7 +1133,9 @@ namespace OloEngine
 
     static void LightProbeVolumeComponent_SetIntensity(UUID entityID, f32 const* v)
     {
-        GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_Intensity = *v;
+        auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
+        lpv.m_Intensity = *v;
+        lpv.m_Dirty = true;
     }
 
     static void LightProbeVolumeComponent_GetActive(UUID entityID, bool* out)
@@ -1146,6 +1148,16 @@ namespace OloEngine
         auto& lpv = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>();
         lpv.m_Active = *v;
         lpv.m_Dirty = true;
+    }
+
+    static void LightProbeVolumeComponent_Dirty(UUID entityID)
+    {
+        GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().m_Dirty = true;
+    }
+
+    static void LightProbeVolumeComponent_GetTotalProbeCount(UUID entityID, i32* out)
+    {
+        *out = GetEntity(entityID).GetComponent<LightProbeVolumeComponent>().GetTotalProbeCount();
     }
 
     // --- Scene Wind Settings ---
@@ -1463,6 +1475,8 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetIntensity);
         OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetActive);
         OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_SetActive);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_Dirty);
+        OLO_ADD_INTERNAL_CALL(LightProbeVolumeComponent_GetTotalProbeCount);
 
         OLO_ADD_INTERNAL_CALL(Scene_GetWindEnabled);
         OLO_ADD_INTERNAL_CALL(Scene_SetWindEnabled);

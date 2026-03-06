@@ -86,9 +86,11 @@ namespace OloEngine
         inline constexpr f32 Y21 = 1.092548f;
         inline constexpr f32 Y22 = 0.546274f; // sqrt(15) / (4 * sqrt(pi))
 
-        // Evaluate all 9 L2 SH basis functions for a given direction
+        // Evaluate all 9 L2 SH basis functions for a given direction.
+        // Precondition: dir must be a unit vector (normalized).
         inline std::array<f32, SH_COEFFICIENT_COUNT> Evaluate(const glm::vec3& dir)
         {
+            OLO_CORE_ASSERT(glm::abs(glm::length(dir) - 1.0f) < 0.01f, "SHBasis::Evaluate requires a normalized direction");
             return {
                 Y00,
                 Y1n1 * dir.y,
