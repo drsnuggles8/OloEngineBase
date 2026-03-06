@@ -1673,6 +1673,7 @@ namespace OloEngine
 
     void Renderer3D::EnableDepthPrepass(bool enable)
     {
+        OLO_PROFILE_FUNCTION();
         s_Data.DepthPrepassEnabled = enable;
     }
 
@@ -1683,6 +1684,7 @@ namespace OloEngine
 
     void Renderer3D::EnableOcclusionCulling(bool enable)
     {
+        OLO_PROFILE_FUNCTION();
         s_Data.OcclusionCullingEnabled = enable;
         if (enable)
         {
@@ -1803,6 +1805,13 @@ namespace OloEngine
                 else
                 {
                     state.InvisibleFrameCount = 0;
+                    // Queue visible objects for occlusion testing so they can
+                    // transition to occluded when something moves in front of them
+                    BoundingSphere bs = mesh->GetTransformedBoundingSphere(modelMatrix);
+                    BoundingBox worldBounds;
+                    worldBounds.Min = bs.Center - glm::vec3(bs.Radius);
+                    worldBounds.Max = bs.Center + glm::vec3(bs.Radius);
+                    OcclusionCuller::GetInstance().QueueBoundingBox(state.QueryIndex, worldBounds);
                 }
             }
         }

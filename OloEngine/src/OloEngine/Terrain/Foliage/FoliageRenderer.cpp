@@ -261,7 +261,8 @@ namespace OloEngine
                     glm::vec3 pos(inst.PositionScale.x, inst.PositionScale.y, inst.PositionScale.z);
                     f32 s = inst.PositionScale.w;
                     f32 h = inst.RotationHeight.y;
-                    // Instance spans from pos downward by ~0.5*s to pos upward by h*s
+                    // Instance spans from pos at ground level upward by h*s;
+                    // horizontal extent is ~0.5*s in XZ
                     glm::vec3 lo = pos - glm::vec3(0.5f * s, 0.0f, 0.5f * s);
                     glm::vec3 hi = pos + glm::vec3(0.5f * s, h * s, 0.5f * s);
                     bMin = glm::min(bMin, lo);

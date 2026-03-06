@@ -24,13 +24,19 @@ namespace OloEngine
             return;
 
         m_ProxyCube = MeshPrimitives::CreateCube();
-        m_Initialized = true;
+        if (!m_ProxyCube)
+        {
+            OLO_CORE_ERROR("OcclusionCuller: Failed to create proxy cube mesh");
+            return;
+        }
 
+        m_Initialized = true;
         OLO_CORE_INFO("OcclusionCuller: Initialized with proxy cube mesh");
     }
 
     void OcclusionCuller::Shutdown()
     {
+        OLO_PROFILE_FUNCTION();
         m_ProxyCube.Reset();
         m_PendingQueries.clear();
         m_Initialized = false;
@@ -38,6 +44,7 @@ namespace OloEngine
 
     void OcclusionCuller::QueueBoundingBox(u32 queryIndex, const BoundingBox& worldBounds)
     {
+        OLO_PROFILE_FUNCTION();
         m_PendingQueries.push_back({ queryIndex, worldBounds });
     }
 
@@ -57,14 +64,24 @@ namespace OloEngine
 
         auto& api = RenderCommand::GetRendererAPI();
 
-        // Set up render state for query pass: no color/depth writes, depth test on
+        // Set up deterministic render state for query pass
         api.SetColorMask(false, false, false, false);
         api.SetDepthMask(false);
         api.SetDepthTest(true);
         api.SetDepthFunc(GL_LEQUAL);
+        api.SetBlendState(false);
+        api.DisableCulling();
+        api.DisableStencilTest();
+        api.DisableScissorTest();
 
         // Bind the occlusion proxy shader
         auto proxyShader = Renderer3D::GetShaderLibrary().Get("OcclusionProxy");
+        if (!proxyShader)
+        {
+            OLO_CORE_WARN("OcclusionCuller: OcclusionProxy shader not found, skipping queries");
+            m_PendingQueries.clear();
+            return;
+        }
 
         for (const auto& pending : m_PendingQueries)
         {
@@ -75,11 +92,8 @@ namespace OloEngine
             glm::mat4 model = glm::translate(glm::mat4(1.0f), center);
             model = glm::scale(model, extent);
 
-            if (proxyShader)
-            {
-                proxyShader->Bind();
-                proxyShader->SetMat4("u_Model", model);
-            }
+            proxyShader->Bind();
+            proxyShader->SetMat4("u_Model", model);
 
             // Issue the query: draw the box between Begin/EndQuery
             queryPool.BeginQuery(pending.QueryIndex);

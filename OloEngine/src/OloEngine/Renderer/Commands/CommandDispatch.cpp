@@ -62,6 +62,9 @@ namespace OloEngine
         // Snow accumulation depth texture (set per-frame)
         u32 SnowDepthTextureID = 0;
 
+        // Depth prepass override: when true, ApplyPODRenderState forces depth-only state
+        bool DepthPrepassActive = false;
+
         CommandDispatch::Statistics Stats;
     };
 
@@ -161,6 +164,16 @@ namespace OloEngine
             api.EnableMultisampling();
         else
             api.DisableMultisampling();
+
+        // During depth prepass, override to depth-only state after applying
+        // the command's full state (so culling, stencil, etc. are still correct)
+        if (s_Data.DepthPrepassActive)
+        {
+            api.SetColorMask(false, false, false, false);
+            api.SetDepthMask(true);
+            api.SetDepthFunc(GL_LESS);
+            api.SetBlendState(false);
+        }
     }
 
     // Helper: Upload material UBO and bind material textures.
@@ -474,6 +487,13 @@ namespace OloEngine
     void CommandDispatch::InvalidateRenderStateCache()
     {
         s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+    }
+
+    void CommandDispatch::SetDepthPrepassActive(bool active)
+    {
+        s_Data.DepthPrepassActive = active;
+        // Invalidate cache so the next command re-applies state
+        InvalidateRenderStateCache();
     }
 
     void CommandDispatch::SetViewProjectionMatrix(const glm::mat4& vp)
@@ -885,25 +905,22 @@ namespace OloEngine
         ++s_Data.Stats.DrawCalls;
 
         // Conditional rendering: GPU skips draw if occlusion query indicates fully occluded
-        const bool useConditional = (cmd->occlusionQueryIndex != UINT32_MAX);
-        if (useConditional)
+        bool startedConditionalRender = false;
+        if (cmd->occlusionQueryIndex != UINT32_MAX)
         {
             u32 queryID = OcclusionQueryPool::GetInstance().GetQueryID(cmd->occlusionQueryIndex);
             if (queryID != 0)
             {
                 api.BeginConditionalRender(queryID);
+                startedConditionalRender = true;
             }
         }
 
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
 
-        if (useConditional)
+        if (startedConditionalRender)
         {
-            u32 queryID = OcclusionQueryPool::GetInstance().GetQueryID(cmd->occlusionQueryIndex);
-            if (queryID != 0)
-            {
-                api.EndConditionalRender();
-            }
+            api.EndConditionalRender();
         }
     }
 

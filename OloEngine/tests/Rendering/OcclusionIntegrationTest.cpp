@@ -156,12 +156,14 @@ TEST(OcclusionIntegration, PerInstanceCullingFiltersCorrectly)
     };
 
     // Simulate the per-instance culling logic from DrawMeshInstanced:
-    // For each instance, test its position against the frustum
+    // Runtime uses IsBoundingSphereVisible with expanded radius (1.3x)
     std::vector<glm::mat4> activeTransforms;
+    constexpr f32 kTestRadius = 1.3f; // Simulates mesh sphere * 1.3 expansion
     for (const auto& t : transforms)
     {
         glm::vec3 pos = glm::vec3(t[3]); // Extract translation
-        if (frustum.IsPointVisible(pos))
+        BoundingSphere sphere{ pos, kTestRadius };
+        if (frustum.IsBoundingSphereVisible(sphere))
         {
             activeTransforms.push_back(t);
         }
@@ -183,10 +185,12 @@ TEST(OcclusionIntegration, PerInstanceCullingAllVisible)
     }
 
     u32 visibleCount = 0;
+    constexpr f32 kTestRadius = 1.3f;
     for (const auto& t : transforms)
     {
         glm::vec3 pos = glm::vec3(t[3]);
-        if (frustum.IsPointVisible(pos))
+        BoundingSphere sphere{ pos, kTestRadius };
+        if (frustum.IsBoundingSphereVisible(sphere))
         {
             ++visibleCount;
         }
@@ -209,10 +213,12 @@ TEST(OcclusionIntegration, PerInstanceCullingNoneVisible)
     }
 
     u32 visibleCount = 0;
+    constexpr f32 kTestRadius = 1.3f;
     for (const auto& t : transforms)
     {
         glm::vec3 pos = glm::vec3(t[3]);
-        if (frustum.IsPointVisible(pos))
+        BoundingSphere sphere{ pos, kTestRadius };
+        if (frustum.IsBoundingSphereVisible(sphere))
         {
             ++visibleCount;
         }

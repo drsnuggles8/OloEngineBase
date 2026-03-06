@@ -33,6 +33,8 @@ namespace OloEngine
         }
 
         m_Results.resize(maxQueries, true); // Default visible until proven otherwise
+        for (u32 buf = 0; buf < 2; ++buf)
+            m_QueryIssued[buf].resize(maxQueries, false);
         m_WriteBuffer = 0;
         m_WriteQueryCount = 0;
         m_ReadableQueryCount = 0;
@@ -58,6 +60,8 @@ namespace OloEngine
         }
 
         m_Results.clear();
+        for (u32 buf = 0; buf < 2; ++buf)
+            m_QueryIssued[buf].clear();
         m_Initialized = false;
         m_Active = false;
 
@@ -82,6 +86,13 @@ namespace OloEngine
 
             for (u32 i = 0; i < m_ReadableQueryCount; ++i)
             {
+                // Only read back indices that actually had queries issued
+                if (!m_QueryIssued[readBuffer][i])
+                {
+                    m_Results[i] = true; // Default visible for non-issued queries
+                    continue;
+                }
+
                 GLint available = GL_FALSE;
                 glGetQueryObjectiv(m_QueryObjects[readBuffer][i], GL_QUERY_RESULT_AVAILABLE, &available);
                 if (!available)
@@ -99,6 +110,8 @@ namespace OloEngine
         }
 
         m_WriteQueryCount = 0;
+        // Clear issued flags for the new write buffer
+        std::fill(m_QueryIssued[m_WriteBuffer].begin(), m_QueryIssued[m_WriteBuffer].end(), false);
         m_Active = true;
         m_FirstFrame = false;
 
@@ -107,10 +120,12 @@ namespace OloEngine
 
     void OcclusionQueryPool::BeginQuery(u32 objectIndex)
     {
+        OLO_PROFILE_FUNCTION();
         if (!m_Active || objectIndex >= m_MaxQueries)
             return;
 
         glBeginQuery(GL_ANY_SAMPLES_PASSED, m_QueryObjects[m_WriteBuffer][objectIndex]);
+        m_QueryIssued[m_WriteBuffer][objectIndex] = true;
 
         if (objectIndex >= m_WriteQueryCount)
             m_WriteQueryCount = objectIndex + 1;
@@ -118,6 +133,7 @@ namespace OloEngine
 
     void OcclusionQueryPool::EndQuery([[maybe_unused]] u32 objectIndex)
     {
+        OLO_PROFILE_FUNCTION();
         if (!m_Active)
             return;
 
@@ -126,11 +142,13 @@ namespace OloEngine
 
     void OcclusionQueryPool::EndFrame()
     {
+        OLO_PROFILE_FUNCTION();
         m_Active = false;
     }
 
     bool OcclusionQueryPool::WasVisible(u32 objectIndex) const
     {
+        OLO_PROFILE_FUNCTION();
         if (objectIndex < m_ReadableQueryCount)
             return m_Results[objectIndex];
         return true; // Default visible if no query was issued
@@ -138,6 +156,7 @@ namespace OloEngine
 
     u32 OcclusionQueryPool::GetQueryID(u32 objectIndex) const
     {
+        OLO_PROFILE_FUNCTION();
         if (!m_Initialized || objectIndex >= m_MaxQueries)
             return 0;
         // Return the read buffer's query ID (previous frame)

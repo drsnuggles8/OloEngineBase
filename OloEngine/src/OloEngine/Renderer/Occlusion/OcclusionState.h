@@ -14,10 +14,10 @@ namespace OloEngine
     /// temporal coherence (re-test after N invisible frames).
     struct OcclusionState
     {
-        u32 QueryIndex = UINT32_MAX;  // Index into OcclusionQueryPool (UINT32_MAX = unassigned)
-        bool WasVisible = true;       // Result from previous frame's query
-        u32 InvisibleFrameCount = 0;  // Consecutive frames this object was occluded
-        u32 LastTestedFrame = 0;      // Frame number of last occlusion test
+        u32 QueryIndex = UINT32_MAX; // Index into OcclusionQueryPool (UINT32_MAX = unassigned)
+        bool WasVisible = true;      // Result from previous frame's query
+        u32 InvisibleFrameCount = 0; // Consecutive frames this object was occluded
+        u32 LastTestedFrame = 0;     // Frame number of last occlusion test
     };
 
     /// @brief Manages per-object occlusion visibility state across frames.
@@ -52,7 +52,10 @@ namespace OloEngine
         void SetMaxQueries(u32 max);
 
         /// @brief Get the current frame number (incremented each BeginFrame).
-        u32 GetCurrentFrame() const { return m_CurrentFrame; }
+        u32 GetCurrentFrame() const
+        {
+            return m_CurrentFrame;
+        }
 
         /// @brief Advance to the next frame.
         void BeginFrame();

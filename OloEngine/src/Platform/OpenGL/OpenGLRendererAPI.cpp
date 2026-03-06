@@ -792,11 +792,13 @@ namespace OloEngine
 
     void OpenGLRendererAPI::BeginConditionalRender(u32 queryID)
     {
+        OLO_PROFILE_FUNCTION();
         glBeginConditionalRender(queryID, GL_QUERY_BY_REGION_WAIT);
     }
 
     void OpenGLRendererAPI::EndConditionalRender()
     {
+        OLO_PROFILE_FUNCTION();
         glEndConditionalRender();
     }
 } // namespace OloEngine

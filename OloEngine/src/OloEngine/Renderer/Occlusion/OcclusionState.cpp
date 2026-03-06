@@ -11,6 +11,7 @@ namespace OloEngine
 
     void OcclusionStateManager::Clear()
     {
+        OLO_PROFILE_FUNCTION();
         m_States.clear();
         m_FreeQueryIndices.clear();
         m_NextQueryIndex = 0;
@@ -19,6 +20,7 @@ namespace OloEngine
 
     OcclusionState& OcclusionStateManager::GetOrCreate(u64 objectID)
     {
+        OLO_PROFILE_FUNCTION();
         return m_States[objectID];
     }
 
@@ -29,6 +31,7 @@ namespace OloEngine
 
     void OcclusionStateManager::Remove(u64 objectID)
     {
+        OLO_PROFILE_FUNCTION();
         auto it = m_States.find(objectID);
         if (it != m_States.end())
         {
@@ -42,6 +45,7 @@ namespace OloEngine
 
     u32 OcclusionStateManager::AllocateQueryIndex()
     {
+        OLO_PROFILE_FUNCTION();
         if (!m_FreeQueryIndices.empty())
         {
             u32 index = m_FreeQueryIndices.back();
@@ -57,6 +61,14 @@ namespace OloEngine
 
     void OcclusionStateManager::FreeQueryIndex(u32 index)
     {
+        OLO_PROFILE_FUNCTION();
+        if (index >= m_MaxQueries)
+            return;
+
+        // Prevent duplicate free
+        if (std::find(m_FreeQueryIndices.begin(), m_FreeQueryIndices.end(), index) != m_FreeQueryIndices.end())
+            return;
+
         m_FreeQueryIndices.push_back(index);
     }
 
@@ -67,6 +79,7 @@ namespace OloEngine
 
     void OcclusionStateManager::BeginFrame()
     {
+        OLO_PROFILE_FUNCTION();
         m_CurrentFrame++;
     }
 } // namespace OloEngine

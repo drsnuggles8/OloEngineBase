@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/LOD.h"
+#include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"

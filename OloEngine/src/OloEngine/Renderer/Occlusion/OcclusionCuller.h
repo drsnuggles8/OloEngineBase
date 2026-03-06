@@ -4,6 +4,8 @@
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Mesh.h"
 
+#include <vector>
+
 namespace OloEngine
 {
     /// @brief Submits proxy bounding-box geometry into occlusion queries.
@@ -35,7 +37,10 @@ namespace OloEngine
         /// Call AFTER the depth buffer is populated (e.g. after depth prepass).
         void FlushQueuedQueries();
 
-        bool IsInitialized() const { return m_Initialized; }
+        bool IsInitialized() const
+        {
+            return m_Initialized;
+        }
 
       private:
         OcclusionCuller() = default;

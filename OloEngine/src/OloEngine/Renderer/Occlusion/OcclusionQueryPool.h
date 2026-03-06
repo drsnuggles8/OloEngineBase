@@ -74,6 +74,7 @@ namespace OloEngine
 
         // Double-buffered: index 0 and 1
         std::vector<u32> m_QueryObjects[2]; // GL query IDs
+        std::vector<bool> m_QueryIssued[2]; // Per-index: was a query actually issued this frame?
         std::vector<bool> m_Results;        // Readback visibility results
 
         u32 m_MaxQueries = 0;
