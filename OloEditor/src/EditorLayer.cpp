@@ -78,8 +78,9 @@ namespace OloEngine
         }
         else
         {
-            // Try loading the default Sandbox project first
-            const std::filesystem::path defaultProject = "SandboxProject/Sandbox.oloproj";
+            // Resolve against the current working directory so the path is
+            // stable regardless of how the editor was launched.
+            const auto defaultProject = std::filesystem::current_path() / "SandboxProject" / "Sandbox.oloproj";
             if (std::filesystem::exists(defaultProject) && OpenProject(defaultProject))
             {
                 OLO_CORE_INFO("Loaded default project: {0}", defaultProject.string());
@@ -90,6 +91,14 @@ namespace OloEngine
             }
         }
         m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
+
+        // Initialize Renderer3D early so 3D code paths in OnUpdate / UI_Viewport
+        // never run against an uninitialized renderer when m_Is3DMode is true.
+        if (m_Is3DMode && !Renderer3D::IsInitialized())
+        {
+            OLO_CORE_INFO("Initializing Renderer3D for 3D mode (OnAttach)...");
+            Renderer3D::Init();
+        }
 
         // Create brush preview UBO (binding 11, 32 bytes = 2 vec4s)
         m_BrushPreviewUBO = UniformBuffer::Create(ShaderBindingLayout::BrushPreviewUBO::GetSize(), ShaderBindingLayout::UBO_BRUSH_PREVIEW);
@@ -694,7 +703,6 @@ namespace OloEngine
         ImGui::Checkbox("Show physics colliders", &m_ShowPhysicsColliders);
 
         // 3D Mode toggle with lazy initialization
-        bool was3DMode = m_Is3DMode;
         ImGui::Checkbox("3D Mode", &m_Is3DMode);
         if (m_Is3DMode && !Renderer3D::IsInitialized())
         {

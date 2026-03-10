@@ -54,6 +54,11 @@ namespace OloEngine
         u16 LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         std::array<u32, 32> BoundTextureIDs = { 0 };
 
+        // Track currently bound UBO renderer IDs per binding point to avoid
+        // redundant glBindBufferBase calls. Indexed by ShaderBindingLayout::UBO_*.
+        static constexpr u32 MAX_TRACKED_UBO_BINDINGS = 8;
+        std::array<u32, MAX_TRACKED_UBO_BINDINGS> BoundUBOIDs = { 0 };
+
         // Shadow texture renderer IDs (set per-frame)
         u32 CSMShadowTextureID = 0;
         u32 SpotShadowTextureID = 0;
@@ -69,6 +74,19 @@ namespace OloEngine
     };
 
     static CommandDispatchData s_Data;
+
+    // Conditionally bind a UBO only when the binding point has changed,
+    // avoiding redundant glBindBufferBase calls each draw.
+    static void BindUBOIfNeeded(u32 bindingPoint, u32 rendererID)
+    {
+        if (bindingPoint < CommandDispatchData::MAX_TRACKED_UBO_BINDINGS)
+        {
+            if (s_Data.BoundUBOIDs[bindingPoint] == rendererID)
+                return;
+            s_Data.BoundUBOIDs[bindingPoint] = rendererID;
+        }
+        glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint, rendererID);
+    }
 
     // Helper to apply POD render state to the renderer API (skips if same index as last)
     static void ApplyPODRenderState(u16 renderStateIndex, RendererAPI& api)
@@ -255,14 +273,14 @@ namespace OloEngine
                     constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
                     static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch");
                     s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
-                    glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+                    BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
                 }
             }
             else if (s_Data.MaterialUBO)
             {
                 // Even when material data hasn't changed, re-establish the binding
                 // point (other subsystems may have overwritten it).
-                glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+                BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
             }
 
             // Always rebind textures — an intervening pass (e.g. DecalPass)
@@ -288,12 +306,15 @@ namespace OloEngine
                     constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
                     static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
                     s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-                    glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+                    BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
                 }
             }
             else if (s_Data.MaterialUBO)
             {
-                glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+                // Even when material data hasn't changed, re-establish the
+                // binding point — other subsystems (e.g. ParticleBatchRenderer)
+                // may have overwritten UBO_MATERIAL.
+                BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
             }
 
             if (mat.useTextureMaps)
@@ -376,7 +397,7 @@ namespace OloEngine
         if (boneMatrices)
         {
             s_Data.BoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
         }
     }
 
@@ -501,6 +522,7 @@ namespace OloEngine
         s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
         s_Data.LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         s_Data.BoundTextureIDs.fill(0);
+        s_Data.BoundUBOIDs.fill(0);
         s_Data.CSMShadowTextureID = 0;
         s_Data.SpotShadowTextureID = 0;
         s_Data.PointShadowTextureIDs.fill(0);
@@ -894,12 +916,12 @@ namespace OloEngine
         // Re-establish the binding so shaders read the correct scene-camera buffer.
         if (s_Data.CameraUBO)
         {
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
         }
 
         if (s_Data.LightUBO)
         {
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
         }
 
         // Update model matrix UBO
@@ -917,7 +939,7 @@ namespace OloEngine
             static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
 
             s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }
 
         // Material UBO + texture bindings (skipped when material unchanged)
@@ -1066,7 +1088,7 @@ namespace OloEngine
         // Re-establish camera UBO binding (may be overwritten by shadow pass)
         if (s_Data.CameraUBO)
         {
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
         }
 
         // Bind skybox cubemap texture using renderer ID directly
@@ -1131,7 +1153,7 @@ namespace OloEngine
             static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
 
             s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }
 
         // Bind texture using renderer ID directly
@@ -1173,8 +1195,12 @@ namespace OloEngine
             ++s_Data.Stats.ShaderBinds;
         }
 
-        // Note: Grid shader typically reads view/projection from Camera UBO
-        // and calculates grid lines in fragment shader using world position
+        // Note: Grid shader reads view/projection from Camera UBO (binding 0)
+        // Re-establish the binding (may be overwritten by shadow pass)
+        if (s_Data.CameraUBO)
+        {
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+        }
 
         // Set grid scale uniform if the shader supports it
         GLint gridScaleLoc = glGetUniformLocation(cmd->shaderRendererID, "u_GridScale");
@@ -1223,7 +1249,7 @@ namespace OloEngine
             cameraData.Position = s_Data.ViewPos;
             cameraData._padding0 = 0.0f;
             s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
         }
 
         // Upload model matrix UBO
@@ -1237,7 +1263,7 @@ namespace OloEngine
             modelData._paddingEntity[1] = 0;
             modelData._paddingEntity[2] = 0;
             s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }
 
         // Upload light UBO
@@ -1254,7 +1280,7 @@ namespace OloEngine
             lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
             lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(std::to_underlying(light.Type)));
             s_Data.LightUBO->SetData(&lightData, ShaderBindingLayout::LightUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
         }
 
         // Upload terrain UBO (per-chunk data with tess factors)
@@ -1362,7 +1388,7 @@ namespace OloEngine
             cameraData.Position = s_Data.ViewPos;
             cameraData._padding0 = 0.0f;
             s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
         }
 
         // Upload model matrix UBO
@@ -1376,7 +1402,7 @@ namespace OloEngine
             modelData._paddingEntity[1] = 0;
             modelData._paddingEntity[2] = 0;
             s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }
 
         // Upload light UBO
@@ -1393,7 +1419,7 @@ namespace OloEngine
             lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
             lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(std::to_underlying(light.Type)));
             s_Data.LightUBO->SetData(&lightData, ShaderBindingLayout::LightUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
         }
 
         // Bind textures for triplanar sampling
@@ -1447,7 +1473,7 @@ namespace OloEngine
             modelData.Normal = glm::transpose(glm::inverse(cmd->decalTransform));
             modelData.EntityID = cmd->entityID;
             s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }
 
         // Upload decal UBO
@@ -1512,7 +1538,7 @@ namespace OloEngine
             modelData.Normal = cmd->normalMatrix;
             modelData.EntityID = cmd->entityID;
             s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
         }
 
         // Upload foliage UBO (per-layer parameters)

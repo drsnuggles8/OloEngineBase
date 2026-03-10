@@ -17,6 +17,13 @@ namespace OloEngine
         {
             m_OwnedAllocator = CreateScope<CommandAllocator>();
             m_Allocator = m_OwnedAllocator.get();
+
+            // Disable batching until shaders support instanced drawing
+            // (u_ModelMatrices[] / gl_InstanceID). Individual render passes
+            // can re-enable it once their shader pipelines are ready.
+            CommandBucketConfig config;
+            config.EnableBatching = false;
+            m_CommandBucket = CommandBucket(config);
         }
 
         void ResetCommandBucket()

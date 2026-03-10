@@ -102,6 +102,7 @@ namespace OloEngine
             modelData.Normal = glm::transpose(glm::inverse(model));
             modelData.EntityID = -1;
             modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+            modelUBO->Bind();
 
             // Issue the query: draw the box between Begin/EndQuery
             queryPool.BeginQuery(pending.QueryIndex);
