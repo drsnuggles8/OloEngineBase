@@ -2801,6 +2801,54 @@ namespace OloEngine
                     ImGui::Text("Visible Instances: %u", component.m_Renderer->GetVisibleInstanceCount());
                 } });
 
+        DrawComponent<WaterComponent>("Water", entity, [](auto& component)
+                                      {
+                ImGui::Checkbox("Enabled", &component.m_Enabled);
+
+                ImGui::SeparatorText("Geometry");
+                if (ImGui::DragFloat("World Size X", &component.m_WorldSizeX, 1.0f, 0.1f, 100000.0f))
+                    component.m_NeedsRebuild = true;
+                if (ImGui::DragFloat("World Size Z", &component.m_WorldSizeZ, 1.0f, 0.1f, 100000.0f))
+                    component.m_NeedsRebuild = true;
+
+                i32 resX = static_cast<i32>(component.m_GridResolutionX);
+                if (ImGui::DragInt("Grid Resolution X", &resX, 1, 2, 512))
+                {
+                    component.m_GridResolutionX = static_cast<u32>(resX);
+                    component.m_NeedsRebuild = true;
+                }
+                i32 resZ = static_cast<i32>(component.m_GridResolutionZ);
+                if (ImGui::DragInt("Grid Resolution Z", &resZ, 1, 2, 512))
+                {
+                    component.m_GridResolutionZ = static_cast<u32>(resZ);
+                    component.m_NeedsRebuild = true;
+                }
+
+                ImGui::SeparatorText("Waves");
+                ImGui::DragFloat("Amplitude", &component.m_WaveAmplitude, 0.01f, 0.0f, 100.0f);
+                ImGui::DragFloat("Frequency", &component.m_WaveFrequency, 0.01f, 0.0f, 100.0f);
+                ImGui::DragFloat("Speed", &component.m_WaveSpeed, 0.01f, 0.0f, 100.0f);
+                ImGui::DragFloat2("Direction 0", glm::value_ptr(component.m_WaveDir0), 0.01f, -1.0f, 1.0f);
+                ImGui::DragFloat("Steepness 0", &component.m_WaveSteepness0, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Wavelength 0", &component.m_Wavelength0, 0.1f, 0.1f, 500.0f);
+                ImGui::DragFloat2("Direction 1", glm::value_ptr(component.m_WaveDir1), 0.01f, -1.0f, 1.0f);
+                ImGui::DragFloat("Steepness 1", &component.m_WaveSteepness1, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Wavelength 1", &component.m_Wavelength1, 0.1f, 0.1f, 500.0f);
+
+                ImGui::SeparatorText("Appearance");
+                ImGui::ColorEdit3("Shallow Color", glm::value_ptr(component.m_WaterColor));
+                ImGui::ColorEdit3("Deep Color", glm::value_ptr(component.m_DeepColor));
+                ImGui::DragFloat("Transparency", &component.m_Transparency, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Reflectivity", &component.m_Reflectivity, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Fresnel Power", &component.m_FresnelPower, 0.1f, 0.1f, 20.0f);
+                ImGui::DragFloat("Specular Intensity", &component.m_SpecularIntensity, 0.01f, 0.0f, 10.0f);
+
+                ImGui::Separator();
+                if (ImGui::Button("Rebuild Mesh"))
+                {
+                    component.m_NeedsRebuild = true;
+                } });
+
         DrawComponent<SnowDeformerComponent>("Snow Deformer", entity, [](auto& component)
                                              {
                 ImGui::DragFloat("Deform Radius", &component.m_DeformRadius, 0.01f, 0.01f, 10.0f, "%.2f");

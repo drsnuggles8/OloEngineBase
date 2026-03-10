@@ -126,7 +126,7 @@ namespace OloEngine
             i32 ApplyGammaCorrection;    // Whether to apply gamma correction in this pass
             i32 AlphaCutoff;             // Alpha cutoff for transparency (repurposed from padding)
             i32 EnableLightProbes;       // Enable light probe indirect diffuse
-            i32 _pbrPad0 = 0;
+            f32 IBLIntensity = 1.0f;     // Runtime IBL strength multiplier
             i32 _pbrPad1 = 0;
             i32 _pbrPad2 = 0;
             static constexpr u32 GetSize()
@@ -260,11 +260,11 @@ namespace OloEngine
             glm::vec4 ShadowParams;                                    // x=bias, y=normalBias, z=softness, w=maxShadowDistance
             glm::mat4 SpotLightSpaceMatrices[MAX_SPOT_SHADOWS];        // Light VP per spot shadow
             glm::vec4 PointLightShadowParams[MAX_POINT_SHADOWS];       // xyz=position, w=farPlane
-            i32 DirectionalShadowEnabled;
-            i32 SpotShadowCount;
-            i32 PointShadowCount;
-            i32 ShadowMapResolution;
-            i32 CascadeDebugEnabled; // Visualize cascade boundaries
+            i32 DirectionalShadowEnabled = 0;
+            i32 SpotShadowCount = 0;
+            i32 PointShadowCount = 0;
+            i32 ShadowMapResolution = 0;
+            i32 CascadeDebugEnabled = 0; // Visualize cascade boundaries
             i32 _shadowPad0 = 0;
             i32 _shadowPad1 = 0;
             i32 _shadowPad2 = 0;
@@ -305,6 +305,21 @@ namespace OloEngine
                 return sizeof(LightProbeVolumeUBO);
             }
         };
+        // @brief Water surface rendering parameters
+        struct WaterUBO
+        {
+            glm::vec4 WaveParams;     // x = Time, y = WaveSpeed, z = WaveAmplitude, w = WaveFrequency
+            glm::vec4 WaveDir0;       // xy = direction0, z = steepness0, w = wavelength0
+            glm::vec4 WaveDir1;       // xy = direction1, z = steepness1, w = wavelength1
+            glm::vec4 WaterColor;     // rgb = shallow color, a = Transparency
+            glm::vec4 WaterDeepColor; // rgb = deep color,    a = Reflectivity
+            glm::vec4 VisualParams;   // x = FresnelPower, y = SpecularIntensity, z = pad, w = pad
+
+            static constexpr sizet GetSize()
+            {
+                return sizeof(WaterUBO);
+            }
+        };
     } // namespace UBOStructures
 
     // Alignment/size checks for terrain UBO structs (must match GLSL std140 layout)
@@ -318,6 +333,8 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) == 80, "LightProbeVolumeUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::WaterUBO) == 96, "WaterUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 96, "PBRMaterialUBO unexpected size — update GLSL layout");
 
@@ -354,6 +371,7 @@ namespace OloEngine
         static constexpr u32 UBO_FOG_VOLUMES = 20;          // Local fog volume data (array of volumes)
         static constexpr u32 UBO_DECAL = 21;                // Decal projection parameters
         static constexpr u32 UBO_LIGHT_PROBES = 22;         // Light probe volume parameters
+        static constexpr u32 UBO_WATER = 23;                // Water surface rendering parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -428,6 +446,7 @@ namespace OloEngine
         using BrushPreviewUBO = UBOStructures::BrushPreviewUBO;
         using FoliageUBO = UBOStructures::FoliageUBO;
         using DecalUBO = UBOStructures::DecalUBO;
+        using WaterUBO = UBOStructures::WaterUBO;
 
         // =============================================================================
         // BINDING NAME VALIDATION
@@ -488,6 +507,8 @@ namespace OloEngine
                     return name.contains("Decal") || name.contains("decal");
                 case UBO_LIGHT_PROBES:
                     return name.contains("LightProbe") || name.contains("lightProbe");
+                case UBO_WATER:
+                    return name.contains("Water") || name.contains("water");
                 default:
                     return false;
             }
@@ -631,7 +652,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_ApplyGammaCorrection;
     int u_AlphaCutoff;
     int u_EnableLightProbes;
-    int _pbrPad0;
+    float u_IBLIntensity;
     int _pbrPad1;
     int _pbrPad2;
 };)";
@@ -723,6 +744,19 @@ layout(std140, binding = 21) uniform DecalData {
     mat4 u_InverseViewProjection;
     vec4 u_DecalColor;
     vec4 u_DecalParams; // x = fadeDistance, y = normalAngleThreshold, z/w = unused
+};)";
+        }
+
+        static const char* GetWaterUBOLayout()
+        {
+            return R"(
+layout(std140, binding = 23) uniform WaterParams {
+    vec4 u_WaveParams;      // x = Time, y = WaveSpeed, z = WaveAmplitude, w = WaveFrequency
+    vec4 u_WaveDir0;        // xy = direction0, z = steepness0, w = wavelength0
+    vec4 u_WaveDir1;        // xy = direction1, z = steepness1, w = wavelength1
+    vec4 u_WaterColor;      // rgb = shallow color, a = Transparency
+    vec4 u_WaterDeepColor;  // rgb = deep color,    a = Reflectivity
+    vec4 u_VisualParams;    // x = FresnelPower, y = SpecularIntensity, z/w = unused
 };)";
         }
     };

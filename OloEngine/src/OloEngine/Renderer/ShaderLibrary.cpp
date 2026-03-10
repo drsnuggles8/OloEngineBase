@@ -9,7 +9,7 @@ namespace OloEngine
 {
     void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
     {
-        OLO_CORE_ASSERT(!Exists(name), "Shader already exists!");
+        OLO_CORE_ASSERT(!Exists(name), "Shader '{}' already exists!", name);
         m_Shaders[name] = shader;
 
         // Register with shader debugger
@@ -38,7 +38,7 @@ namespace OloEngine
 
     Ref<Shader> ShaderLibrary::Get(const std::string& name)
     {
-        OLO_CORE_ASSERT(Exists(name), "Shader not found!");
+        OLO_CORE_ASSERT(Exists(name), "Shader '{}' not found!", name);
         return m_Shaders[name];
     }
 

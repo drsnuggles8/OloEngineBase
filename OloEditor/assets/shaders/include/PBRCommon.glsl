@@ -762,9 +762,11 @@ vec3 calculateIBL(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
 }
 
 // Simple ambient lighting fallback when IBL is not available
+// NOTE: Does NOT include AO — caller applies AO uniformly via `ambient * ao`
+// to match the IBL / light-probe paths which also omit AO from their returns.
 vec3 calculateSimpleAmbient(vec3 albedo, float metallic, float ao)
 {
-    vec3 ambient = vec3(0.03) * albedo * ao;
+    vec3 ambient = vec3(0.03) * albedo;
     return ambient;
 }
 

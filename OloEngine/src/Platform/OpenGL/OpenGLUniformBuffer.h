@@ -22,8 +22,11 @@ namespace OloEngine
             return m_RendererID;
         }
 
+        u32 GetAllocatedSize() const { return m_AllocatedSize; }
+
       private:
         u32 m_RendererID = 0;
         u32 m_Binding = 0;
+        u32 m_AllocatedSize = 0;
     };
 } // namespace OloEngine

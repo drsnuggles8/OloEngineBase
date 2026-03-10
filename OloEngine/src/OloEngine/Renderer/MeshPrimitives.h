@@ -157,6 +157,14 @@ namespace OloEngine
         // @return Mesh with X, Y, Z axes (red, green, blue)
         [[nodiscard]] static Ref<Mesh> CreateCoordinateAxes(f32 length = 1.0f);
 
+        // @brief Create a subdivided water grid mesh suitable for vertex-displaced wave animation
+        // @param width Grid extent along X-axis (must be > 0.0f)
+        // @param length Grid extent along Z-axis (must be > 0.0f)
+        // @param subdivisionsX Number of subdivisions along X (must be >= 1)
+        // @param subdivisionsZ Number of subdivisions along Z (must be >= 1)
+        // @return Grid mesh facing up (Y-up normals), UV in [0,1], centered at origin
+        [[nodiscard]] static Ref<Mesh> CreateWaterGrid(f32 width = 100.0f, f32 length = 100.0f, u32 subdivisionsX = 128, u32 subdivisionsZ = 128);
+
         // =============================================================================
         // ANIMATED MESH PRIMITIVES (TODO: Update for new MeshSource system)
         // =============================================================================

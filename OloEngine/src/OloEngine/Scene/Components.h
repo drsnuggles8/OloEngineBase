@@ -947,6 +947,86 @@ namespace OloEngine
         FoliageComponent& operator=(FoliageComponent&&) noexcept = default;
     };
 
+    // ── Water Surface ────────────────────────────────────────────────────
+
+    struct WaterComponent
+    {
+        // Serialized
+        f32 m_WorldSizeX = 100.0f;
+        f32 m_WorldSizeZ = 100.0f;
+        f32 m_WaveAmplitude = 0.5f;
+        f32 m_WaveFrequency = 1.0f;
+        f32 m_WaveSpeed = 1.0f;
+        glm::vec2 m_WaveDir0 = { 1.0f, 0.0f };
+        f32 m_WaveSteepness0 = 0.5f;
+        f32 m_Wavelength0 = 10.0f;
+        glm::vec2 m_WaveDir1 = { 0.7f, 0.7f };
+        f32 m_WaveSteepness1 = 0.3f;
+        f32 m_Wavelength1 = 15.0f;
+        glm::vec3 m_WaterColor = { 0.1f, 0.4f, 0.5f };
+        glm::vec3 m_DeepColor = { 0.0f, 0.1f, 0.2f };
+        f32 m_Transparency = 0.6f;
+        f32 m_Reflectivity = 0.5f;
+        f32 m_FresnelPower = 5.0f;
+        f32 m_SpecularIntensity = 1.0f;
+        u32 m_GridResolutionX = 128;
+        u32 m_GridResolutionZ = 128;
+        bool m_Enabled = true;
+
+        // Runtime (not serialized)
+        Ref<Mesh> m_WaterMesh;
+        bool m_NeedsRebuild = true;
+
+        WaterComponent() = default;
+        WaterComponent(const WaterComponent& other)
+            : m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ),
+              m_WaveAmplitude(other.m_WaveAmplitude), m_WaveFrequency(other.m_WaveFrequency),
+              m_WaveSpeed(other.m_WaveSpeed),
+              m_WaveDir0(other.m_WaveDir0), m_WaveSteepness0(other.m_WaveSteepness0),
+              m_Wavelength0(other.m_Wavelength0),
+              m_WaveDir1(other.m_WaveDir1), m_WaveSteepness1(other.m_WaveSteepness1),
+              m_Wavelength1(other.m_Wavelength1),
+              m_WaterColor(other.m_WaterColor), m_DeepColor(other.m_DeepColor),
+              m_Transparency(other.m_Transparency), m_Reflectivity(other.m_Reflectivity),
+              m_FresnelPower(other.m_FresnelPower), m_SpecularIntensity(other.m_SpecularIntensity),
+              m_GridResolutionX(other.m_GridResolutionX), m_GridResolutionZ(other.m_GridResolutionZ),
+              m_Enabled(other.m_Enabled)
+        {
+            // Runtime state intentionally NOT copied — force rebuild
+        }
+        WaterComponent& operator=(const WaterComponent& other)
+        {
+            if (this != &other)
+            {
+                m_WorldSizeX = other.m_WorldSizeX;
+                m_WorldSizeZ = other.m_WorldSizeZ;
+                m_WaveAmplitude = other.m_WaveAmplitude;
+                m_WaveFrequency = other.m_WaveFrequency;
+                m_WaveSpeed = other.m_WaveSpeed;
+                m_WaveDir0 = other.m_WaveDir0;
+                m_WaveSteepness0 = other.m_WaveSteepness0;
+                m_Wavelength0 = other.m_Wavelength0;
+                m_WaveDir1 = other.m_WaveDir1;
+                m_WaveSteepness1 = other.m_WaveSteepness1;
+                m_Wavelength1 = other.m_Wavelength1;
+                m_WaterColor = other.m_WaterColor;
+                m_DeepColor = other.m_DeepColor;
+                m_Transparency = other.m_Transparency;
+                m_Reflectivity = other.m_Reflectivity;
+                m_FresnelPower = other.m_FresnelPower;
+                m_SpecularIntensity = other.m_SpecularIntensity;
+                m_GridResolutionX = other.m_GridResolutionX;
+                m_GridResolutionZ = other.m_GridResolutionZ;
+                m_Enabled = other.m_Enabled;
+                m_WaterMesh = nullptr;
+                m_NeedsRebuild = true;
+            }
+            return *this;
+        }
+        WaterComponent(WaterComponent&&) noexcept = default;
+        WaterComponent& operator=(WaterComponent&&) noexcept = default;
+    };
+
     struct SnowDeformerComponent
     {
         f32 m_DeformRadius = 0.5f;     // World-space radius of the deformation stamp
@@ -1080,6 +1160,7 @@ namespace OloEngine
         ParticleSystemComponent,
         TerrainComponent,
         FoliageComponent,
+        WaterComponent,
         SnowDeformerComponent,
         FogVolumeComponent,
         DecalComponent,

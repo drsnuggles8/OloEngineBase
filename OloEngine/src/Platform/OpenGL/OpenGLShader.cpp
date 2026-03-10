@@ -199,6 +199,12 @@ namespace OloEngine
 
         Utils::CreateCacheDirectoryIfNeeded();
         const std::string source = ReadFile(filepath);
+
+        // Collect transitive include paths for cache invalidation.
+        // ProcessIncludes is called again inside PreProcess, but this extra
+        // pass at init time is negligible compared to SPIR-V compilation.
+        ProcessIncludes(source, "", m_IncludedFilePaths);
+
         const auto shaderSources = PreProcess(source);
 
         // Store original source code for debugging (after we have shader ID)
@@ -349,6 +355,14 @@ namespace OloEngine
         return ProcessIncludesInternal(source, directory, includedFiles);
     }
 
+    std::string OpenGLShader::ProcessIncludes(const std::string& source, const std::string& directory, std::vector<std::string>& outIncludePaths)
+    {
+        std::unordered_set<std::string> includedFiles;
+        auto result = ProcessIncludesInternal(source, directory, includedFiles);
+        outIncludePaths.assign(includedFiles.begin(), includedFiles.end());
+        return result;
+    }
+
     std::string OpenGLShader::ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles)
     {
         OLO_PROFILE_FUNCTION();
@@ -429,6 +443,31 @@ namespace OloEngine
         }
 
         return result.str();
+    }
+
+    bool OpenGLShader::IsCacheStale(const std::filesystem::path& cachedPath) const
+    {
+        std::error_code ec;
+        auto const cacheTime = std::filesystem::last_write_time(cachedPath, ec);
+        if (ec)
+            return true; // Cannot stat cache file → treat as stale
+
+        // Check the main shader file
+        auto const shaderTime = std::filesystem::last_write_time(m_FilePath, ec);
+        if (ec || shaderTime > cacheTime)
+            return true;
+
+        // Check every transitively included file
+        for (const auto& includePath : m_IncludedFilePaths)
+        {
+            auto const includeTime = std::filesystem::last_write_time(includePath, ec);
+            if (ec)
+                continue; // Include might have been removed — skip
+            if (includeTime > cacheTime)
+                return true;
+        }
+
+        return false;
     }
 
     std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(std::string_view source)
@@ -534,11 +573,7 @@ namespace OloEngine
                     const auto size = in.tellg();
                     in.seekg(0, std::ios::beg);
 
-                    std::error_code ec;
-                    std::filesystem::file_time_type cacheLastWriteTime = std::filesystem::last_write_time(cachedPath, ec);
-                    std::filesystem::file_time_type shaderLastWriteTime = std::filesystem::last_write_time(shaderFilePath, ec);
-
-                    if (!ec && shaderLastWriteTime <= cacheLastWriteTime)
+                    if (!IsCacheStale(cachedPath))
                     {
                         result.SpirvData.resize(size / sizeof(u32));
                         in.read(reinterpret_cast<char*>(result.SpirvData.data()), size);
@@ -661,11 +696,7 @@ namespace OloEngine
                 std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
                 if (in.is_open() && !disableCache)
                 {
-                    std::error_code ec;
-                    std::filesystem::file_time_type cacheLastWriteTime = std::filesystem::last_write_time(cachedPath, ec);
-                    std::filesystem::file_time_type shaderLastWriteTime = std::filesystem::last_write_time(shaderFilePath, ec);
-
-                    if (!ec && shaderLastWriteTime <= cacheLastWriteTime)
+                    if (!IsCacheStale(cachedPath))
                     {
                         in.seekg(0, std::ios::end);
                         const auto size = in.tellg();
@@ -824,11 +855,7 @@ namespace OloEngine
         // Try to load from program binary cache first
         if (std::ifstream in(cachedPath, std::ios::ate | std::ios::binary); in.is_open() && !disableCache)
         {
-            std::error_code ec;
-            std::filesystem::file_time_type cacheLastWriteTime = std::filesystem::last_write_time(cachedPath, ec);
-            std::filesystem::file_time_type shaderLastWriteTime = std::filesystem::last_write_time(shaderFilePath, ec);
-
-            if (!ec && shaderLastWriteTime <= cacheLastWriteTime)
+            if (!IsCacheStale(cachedPath))
             {
                 const auto size = in.tellg();
 
@@ -892,13 +919,9 @@ namespace OloEngine
                     }
                 }
             }
-            else if (ec)
-            {
-                OLO_CORE_TRACE("Could not check file timestamps for shader cache: {0}", m_FilePath);
-            }
             else
             {
-                OLO_CORE_TRACE("Shader source newer than cache, recompiling: {0}", shaderFilePath.string());
+                OLO_CORE_TRACE("Shader source or include newer than cache, recompiling: {0}", shaderFilePath.string());
             }
         }
 
@@ -1005,10 +1028,7 @@ namespace OloEngine
 
         if (std::ifstream in(cachedPath, std::ios::ate | std::ios::binary); in.is_open() && !disableCache)
         {
-            std::filesystem::file_time_type cacheLastWriteTime = std::filesystem::last_write_time(cachedPath);
-            std::filesystem::file_time_type shaderLastWriteTime = std::filesystem::last_write_time(shaderFilePath);
-
-            if (shaderLastWriteTime <= cacheLastWriteTime)
+            if (!IsCacheStale(cachedPath))
             {
                 const auto size = in.tellg();
                 in.seekg(0);
@@ -1031,7 +1051,7 @@ namespace OloEngine
             }
             else
             {
-                OLO_CORE_INFO("Shader source newer than cache, recompiling: {0}", shaderFilePath.string());
+                OLO_CORE_INFO("Shader source or include newer than cache, recompiling: {0}", shaderFilePath.string());
             }
         }
 
@@ -1173,6 +1193,7 @@ namespace OloEngine
         OLO_SHADER_RELOAD_START(m_RendererID);
 
         std::string source = ReadFile(m_FilePath);
+        ProcessIncludes(source, "", m_IncludedFilePaths);
         auto shaderSources = PreProcess(source);
 
         bool success = true;

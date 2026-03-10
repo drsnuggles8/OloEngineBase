@@ -559,7 +559,7 @@ namespace OloEngine
             ImGui::Text("  Roughness: %.2f", matPtr->roughnessFactor);
             ImGui::Text("  Normal Scale: %.2f", matPtr->normalScale);
             ImGui::Text("  Occlusion: %.2f", matPtr->occlusionStrength);
-            ImGui::Text("  IBL: %s", matPtr->enableIBL ? "Yes" : "No");
+            ImGui::Text("  IBL: %s (intensity=%.2f)", matPtr->enableIBL ? "Yes" : "No", matPtr->iblIntensity);
             ImGui::Text("  Textures: albedo=%u, metallicRough=%u, normal=%u, ao=%u, emissive=%u",
                         matPtr->albedoMapID, matPtr->metallicRoughnessMapID, matPtr->normalMapID, matPtr->aoMapID, matPtr->emissiveMapID);
         }

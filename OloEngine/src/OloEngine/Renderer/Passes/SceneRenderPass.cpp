@@ -49,6 +49,12 @@ namespace OloEngine
 
         m_Target->Bind();
 
+        // Explicitly set viewport to match the framebuffer dimensions.
+        // Bind() already does this, but we're explicit here to guard against
+        // any external code (e.g. IBL generation) leaving the viewport dirty.
+        const auto& spec = m_Target->GetSpecification();
+        RenderCommand::SetViewport(0, 0, spec.Width, spec.Height);
+
         // Clear all attachments properly (handles mixed integer/float attachments)
         // This clears color attachments with the specified color, entity ID with -1, and depth/stencil
         m_Target->ClearAllAttachments({ 0.1f, 0.1f, 0.1f, 1.0f }, -1);
@@ -88,6 +94,10 @@ namespace OloEngine
         // Invoke post-batch capture step when capturing is active
         if (capturing)
             captureManager.OnPostBatch(m_CommandBucket);
+
+        // Re-bind scene camera & light UBOs that earlier passes (e.g. ShadowPass)
+        // may have overwritten at the same binding points.
+        Renderer3D::BindSceneUBOs();
 
         // Depth prepass: render all geometry depth-only first, then re-execute
         // with GL_EQUAL and no depth writes for the color pass. This eliminates

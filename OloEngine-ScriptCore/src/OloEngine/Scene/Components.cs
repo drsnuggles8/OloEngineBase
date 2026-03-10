@@ -940,6 +940,13 @@ namespace OloEngine
 	}
 
 	/// <summary>
+	/// Stub for the native WaterComponent. No scripting bindings yet.
+	/// </summary>
+	public class WaterComponent : Component
+	{
+	}
+
+	/// <summary>
 	/// Provides access to scene-level wind settings.
 	/// Not a component — use the static members directly.
 	/// </summary>

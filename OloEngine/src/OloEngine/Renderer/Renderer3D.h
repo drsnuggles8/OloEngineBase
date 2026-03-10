@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
+#include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
@@ -442,6 +443,18 @@ namespace OloEngine
         static void UploadLightProbeData(const ShaderBindingLayout::LightProbeVolumeUBO& uboData,
                                          const void* shData, u32 shDataSize);
 
+        // Set global IBL textures from the scene's EnvironmentMap.
+        // These are used as fallbacks when individual materials don't have IBL configured.
+        static void SetGlobalIBL(RendererID irradianceMapID, RendererID prefilterMapID,
+                                 RendererID brdfLutMapID, RendererID environmentMapID,
+                                 f32 iblIntensity = 1.0f);
+        static void ClearGlobalIBL();
+        [[nodiscard]] static RendererID GetGlobalIrradianceMapID() { return s_Data.GlobalIrradianceMapID; }
+        [[nodiscard]] static RendererID GetGlobalPrefilterMapID() { return s_Data.GlobalPrefilterMapID; }
+        [[nodiscard]] static RendererID GetGlobalBRDFLutMapID() { return s_Data.GlobalBRDFLutMapID; }
+        [[nodiscard]] static RendererID GetGlobalEnvironmentMapID() { return s_Data.GlobalEnvironmentMapID; }
+        [[nodiscard]] static f32 GetGlobalIBLIntensity() { return s_Data.GlobalIBLIntensity; }
+
         // Culling methods
         static void EnableFrustumCulling(bool enable);
         static bool IsFrustumCullingEnabled();
@@ -479,6 +492,11 @@ namespace OloEngine
             return s_Data.GlobalResourceRegistry.SetResource(name, resource);
         }
         static void ApplyGlobalResources();
+
+        // Re-bind scene-pass UBOs (camera, light) to their binding points.
+        // Must be called before scene command execution since earlier passes
+        // (e.g. ShadowPass) may have bound their own UBOs to the same slots.
+        static void BindSceneUBOs();
 
         // Shader registry management
         static ShaderResourceRegistry* GetShaderRegistry(u32 shaderID);
@@ -617,6 +635,10 @@ namespace OloEngine
         {
             return s_Data.FoliageUBO;
         }
+        static Ref<UniformBuffer> GetWaterUBO()
+        {
+            return s_Data.WaterUBO;
+        }
         static Ref<UniformBuffer> GetModelMatrixUBO()
         {
             return s_Data.ModelMatrixUBO;
@@ -658,6 +680,20 @@ namespace OloEngine
             f32 viewDistance, f32 fadeStart, f32 alphaCutoff,
             const glm::vec4& baseColor,
             const BoundingBox& layerBounds,
+            i32 entityID = -1);
+
+        // Water rendering (submits DrawWaterCommand to WaterRenderPass bucket)
+        static CommandPacket* DrawWaterSurface(
+            RendererID vertexArrayID, u32 indexCount,
+            const glm::mat4& modelTransform,
+            f32 time,
+            const glm::vec4& waveParams,
+            const glm::vec4& waveDir0,
+            const glm::vec4& waveDir1,
+            const glm::vec4& waterColor,
+            const glm::vec4& waterDeepColor,
+            const glm::vec4& visualParams,
+            const BoundingBox& bounds,
             i32 entityID = -1);
 
         static WindSettings& GetWindSettings()
@@ -757,6 +793,34 @@ namespace OloEngine
             s_Data.FoliagePass->SubmitPacket(packet);
         }
 
+        template<typename T>
+        static CommandPacket* CreateWaterDrawCall()
+        {
+            OLO_PROFILE_FUNCTION();
+            if (!s_Data.WaterPass)
+            {
+                OLO_CORE_WARN("Renderer3D::CreateWaterDrawCall: WaterPass is null!");
+                return nullptr;
+            }
+            return s_Data.WaterPass->GetCommandBucket().CreateDrawCall<T>();
+        }
+
+        static void SubmitWaterPacket(CommandPacket* packet)
+        {
+            OLO_PROFILE_FUNCTION();
+            if (!packet)
+            {
+                OLO_CORE_WARN("Renderer3D::SubmitWaterPacket: Attempted to submit a null CommandPacket pointer!");
+                return;
+            }
+            if (!s_Data.WaterPass)
+            {
+                OLO_CORE_WARN("Renderer3D::SubmitWaterPacket: WaterPass is null!");
+                return;
+            }
+            s_Data.WaterPass->SubmitPacket(packet);
+        }
+
       private:
         static void BeginSceneCommon();
         static void UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection);
@@ -792,6 +856,7 @@ namespace OloEngine
             Ref<UniformBuffer> SSAOUBO;
             Ref<UniformBuffer> TerrainUBO;
             Ref<UniformBuffer> FoliageUBO;
+            Ref<UniformBuffer> WaterUBO;
             Ref<UniformBuffer> SnowUBO;
             Ref<UniformBuffer> SSSUBO;
             Ref<UniformBuffer> FogUBO;
@@ -830,6 +895,7 @@ namespace OloEngine
             Ref<ShadowRenderPass> ShadowPass;
             Ref<SceneRenderPass> ScenePass;
             Ref<FoliageRenderPass> FoliagePass;
+            Ref<WaterRenderPass> WaterPass;
             Ref<DecalRenderPass> DecalPass;
             Ref<SSAORenderPass> SSAOPass;
             Ref<ParticleRenderPass> ParticlePass;
@@ -850,6 +916,9 @@ namespace OloEngine
             Ref<Shader> VoxelDepthShader;
             Ref<Shader> FoliageShader;
             Ref<Shader> FoliageDepthShader;
+
+            // Water
+            Ref<Shader> WaterShader;
 
             // Decals
             Ref<Shader> DecalShader;
@@ -875,6 +944,13 @@ namespace OloEngine
             SnowEjectaSettings SnowEjecta;
             PrecipitationSettings Precipitation;
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
+
+            // Global IBL fallback (from scene's EnvironmentMap)
+            RendererID GlobalIrradianceMapID = 0;
+            RendererID GlobalPrefilterMapID = 0;
+            RendererID GlobalBRDFLutMapID = 0;
+            RendererID GlobalEnvironmentMapID = 0;
+            f32 GlobalIBLIntensity = 1.0f;
 
             // Parallel submission state
             ParallelSceneContext ParallelContext;

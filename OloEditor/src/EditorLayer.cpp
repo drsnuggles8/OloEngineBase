@@ -717,6 +717,12 @@ namespace OloEngine
                 const f32 dpi = Window::s_HighDPIScaleFactor;
                 Renderer3D::OnWindowResize(std::max(1u, static_cast<u32>(m_ViewportSize.x * dpi)), std::max(1u, static_cast<u32>(m_ViewportSize.y * dpi)));
             }
+
+            // Set camera to a 3D-friendly default: elevated and looking slightly
+            // down so the infinite grid on the XZ plane is visible.  Without this
+            // the camera sits at Y=0 with zero pitch, making every view ray
+            // parallel to the grid plane (ray-plane intersection is degenerate).
+            m_EditorCamera.SetPitch(-0.4f);
         }
 
         ImGui::Separator();

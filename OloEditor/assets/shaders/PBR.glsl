@@ -114,6 +114,10 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableIBL;            // Enable IBL
     int u_ApplyGammaCorrection; // Apply gamma correction in this pass
     int u_AlphaCutoff;          // Alpha cutoff for transparency
+    int u_EnableLightProbes;    // Enable light probe indirect diffuse
+    float u_IBLIntensity;       // Runtime IBL strength multiplier
+    int _pbrPad1;
+    int _pbrPad2;
 };
 
 // Snow UBO (binding 13)
@@ -227,15 +231,15 @@ void main()
     if (u_EnableIBL == 1)
     {
         ambient = calculateIBL(N, V, albedo, metallic, roughness, u_IrradianceMap, u_PrefilterMap, u_BRDFLutMap);
+        ambient *= u_IBLIntensity;
     }
     else
     {
         ambient = calculateSimpleAmbient(albedo, metallic, ao);
     }
 
-    // Combine lighting
-    vec3 color = ambient + Lo + emissive;
-    color = mix(color, color * ao, 0.5);
+    // Combine lighting — AO attenuates ambient only
+    vec3 color = ambient * ao + Lo + emissive;
 
     // Snow overlay
     float snowWeight = 0.0;

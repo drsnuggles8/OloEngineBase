@@ -116,6 +116,9 @@ namespace OloEngine
         // Foliage dispatch function
         static void DrawFoliageLayer(const void* data, RendererAPI& api);
 
+        // Water dispatch function
+        static void DrawWater(const void* data, RendererAPI& api);
+
         static Statistics& GetStatistics();
 
       private:
