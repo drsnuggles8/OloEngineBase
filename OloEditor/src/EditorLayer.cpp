@@ -78,12 +78,27 @@ namespace OloEngine
         }
         else
         {
-            if (!OpenProject())
+            // Resolve against the startup working directory so the path is
+            // stable even if the CWD changes at runtime.
+            const auto defaultProject = Application::Get().GetStartupWorkingDirectory() / "SandboxProject" / "Sandbox.oloproj";
+            if (std::filesystem::exists(defaultProject) && OpenProject(defaultProject))
+            {
+                OLO_CORE_INFO("Loaded default project: {0}", defaultProject.string());
+            }
+            else if (!OpenProject())
             {
                 Application::Get().Close();
             }
         }
         m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
+
+        // Initialize Renderer3D early so 3D code paths in OnUpdate / UI_Viewport
+        // never run against an uninitialized renderer when m_Is3DMode is true.
+        if (m_Is3DMode && !Renderer3D::IsInitialized())
+        {
+            OLO_CORE_INFO("Initializing Renderer3D for 3D mode (OnAttach)...");
+            Renderer3D::Init();
+        }
 
         // Create brush preview UBO (binding 11, 32 bytes = 2 vec4s)
         m_BrushPreviewUBO = UniformBuffer::Create(ShaderBindingLayout::BrushPreviewUBO::GetSize(), ShaderBindingLayout::UBO_BRUSH_PREVIEW);
@@ -688,21 +703,19 @@ namespace OloEngine
         ImGui::Checkbox("Show physics colliders", &m_ShowPhysicsColliders);
 
         // 3D Mode toggle with lazy initialization
-        bool was3DMode = m_Is3DMode;
         ImGui::Checkbox("3D Mode", &m_Is3DMode);
-        if (m_Is3DMode && !was3DMode)
+        if (m_Is3DMode && !Renderer3D::IsInitialized())
         {
-            // Lazily initialize Renderer3D when 3D mode is first enabled
-            if (!Renderer3D::IsInitialized())
+            OLO_PROFILE_SCOPE("EditorLayer::UI_Settings_3DInit");
+            OLO_PROFILE_RENDERER_SCOPE("3DInit");
+            OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
+            Renderer3D::Init();
+            RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+            // Resize to current viewport size
+            if (m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
             {
-                OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
-                Renderer3D::Init();
-                // Resize to current viewport size
-                if (m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
-                {
-                    const f32 dpi = Window::s_HighDPIScaleFactor;
-                    Renderer3D::OnWindowResize(std::max(1u, static_cast<u32>(m_ViewportSize.x * dpi)), std::max(1u, static_cast<u32>(m_ViewportSize.y * dpi)));
-                }
+                const f32 dpi = Window::s_HighDPIScaleFactor;
+                Renderer3D::OnWindowResize(std::max(1u, static_cast<u32>(m_ViewportSize.x * dpi)), std::max(1u, static_cast<u32>(m_ViewportSize.y * dpi)));
             }
         }
 

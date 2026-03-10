@@ -18,6 +18,7 @@
 namespace OloEngine
 {
     Application* Application::s_Instance = nullptr;
+    std::filesystem::path Application::s_StartupWorkingDirectory;
     Application::Application(ApplicationSpecification specification)
         : m_Specification(std::move(specification))
     {
@@ -34,6 +35,7 @@ namespace OloEngine
         {
             std::filesystem::current_path(m_Specification.WorkingDirectory);
         }
+        s_StartupWorkingDirectory = std::filesystem::current_path();
 
         // Start the task scheduler workers
         LowLevelTasks::FScheduler::Get().StartWorkers();

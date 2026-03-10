@@ -70,7 +70,7 @@ namespace OloEngine
     struct CommandBucketConfig
     {
         bool EnableSorting = true;  // Sort commands to minimize state changes
-        bool EnableBatching = true; // Attempt to batch similar commands
+        bool EnableBatching = true; // Batch similar DrawMesh → DrawMeshInstanced (requires instanced shader support)
         u32 MaxMeshInstances = 100; // Maximum instances for instanced mesh rendering
         u32 InitialCapacity = 1024; // Initial capacity for command arrays
     };

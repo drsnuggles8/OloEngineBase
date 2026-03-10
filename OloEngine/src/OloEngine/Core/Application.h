@@ -68,6 +68,11 @@ namespace OloEngine
             return m_Specification;
         }
 
+        [[nodiscard("Store this!")]] static const std::filesystem::path& GetStartupWorkingDirectory()
+        {
+            return s_StartupWorkingDirectory;
+        }
+
       private:
         void Run();
         bool OnWindowClose(WindowCloseEvent const& e);
@@ -84,6 +89,7 @@ namespace OloEngine
 
       private:
         static Application* s_Instance;
+        static std::filesystem::path s_StartupWorkingDirectory;
         friend int ::main(int argc, char** argv);
     };
 

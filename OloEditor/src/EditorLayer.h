@@ -116,7 +116,7 @@ namespace OloEngine
 
         int m_GizmoType = 0; // Default to Translate (ImGuizmo::TRANSLATE) for immediate usability
         bool m_ShowPhysicsColliders = false;
-        bool m_Is3DMode = false; // Toggle for 2D/3D rendering
+        bool m_Is3DMode = true; // Toggle for 2D/3D rendering
 
         // Debug windows
         bool m_ShowShaderDebugger = false;
