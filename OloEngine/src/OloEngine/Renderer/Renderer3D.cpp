@@ -1173,6 +1173,8 @@ namespace OloEngine
             s_Data.DecalPass->GetCommandBucket().SetAllocator(nullptr);
         if (s_Data.FoliagePass)
             s_Data.FoliagePass->GetCommandBucket().SetAllocator(nullptr);
+        if (s_Data.WaterPass)
+            s_Data.WaterPass->GetCommandBucket().SetAllocator(nullptr);
 
         profiler.EndFrame();
 
@@ -2442,10 +2444,10 @@ namespace OloEngine
         s_Data.RGraph->AddExecutionDependency("ShadowPass", "ScenePass");
         // ScenePass -> FoliagePass: ordering (foliage renders into scene FB after opaque geometry)
         s_Data.RGraph->AddExecutionDependency("ScenePass", "FoliagePass");
-        // FoliagePass -> WaterPass: ordering (water renders after foliage)
-        s_Data.RGraph->AddExecutionDependency("FoliagePass", "WaterPass");
-        // WaterPass -> DecalPass: ordering (decals need complete depth including water)
-        s_Data.RGraph->AddExecutionDependency("WaterPass", "DecalPass");
+        // FoliagePass -> DecalPass: ordering (decals render on opaque surfaces before translucent water)
+        s_Data.RGraph->AddExecutionDependency("FoliagePass", "DecalPass");
+        // DecalPass -> WaterPass: ordering (water blends over decals and opaque geometry)
+        s_Data.RGraph->AddExecutionDependency("DecalPass", "WaterPass");
         // DecalPass -> SSAOPass: ordering (SSAO reads scene depth/normals via texture slots)
         s_Data.RGraph->AddExecutionDependency("DecalPass", "SSAOPass");
         // SSAOPass -> ParticlePass: ordering (SSAO must complete before particles render into scene FB)
@@ -2656,6 +2658,7 @@ namespace OloEngine
 
     void Renderer3D::BindSceneUBOs()
     {
+        OLO_PROFILE_FUNCTION();
         if (s_Data.CameraUBO)
             s_Data.CameraUBO->Bind();
         if (s_Data.LightPropertiesUBO)

@@ -15,7 +15,7 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 
 TEST(RenderingRegression, ShadowUBOIntFieldsDefaultZeroed)
 {
-    UBOStructures::ShadowUBO ubo{};
+    UBOStructures::ShadowUBO ubo;
     EXPECT_EQ(ubo.DirectionalShadowEnabled, 0)
         << "DirectionalShadowEnabled must default to 0";
     EXPECT_EQ(ubo.SpotShadowCount, 0)
@@ -52,11 +52,19 @@ TEST(RenderingRegression, WaterWavelengthCopied)
     WaterComponent copied(src);
     EXPECT_FLOAT_EQ(copied.m_Wavelength0, 25.0f);
     EXPECT_FLOAT_EQ(copied.m_Wavelength1, 35.0f);
+    EXPECT_EQ(copied.m_WaterMesh, nullptr)
+        << "Copy constructor must not carry over runtime mesh";
+    EXPECT_TRUE(copied.m_NeedsRebuild)
+        << "Copy constructor must force rebuild";
 
     WaterComponent assigned{};
     assigned = src;
     EXPECT_FLOAT_EQ(assigned.m_Wavelength0, 25.0f);
     EXPECT_FLOAT_EQ(assigned.m_Wavelength1, 35.0f);
+    EXPECT_EQ(assigned.m_WaterMesh, nullptr)
+        << "Assignment must reset runtime mesh";
+    EXPECT_TRUE(assigned.m_NeedsRebuild)
+        << "Assignment must force rebuild";
 }
 
 // =============================================================================
@@ -76,7 +84,7 @@ TEST(RenderingRegression, CascadeDebugDefaultDisabled)
 
 TEST(RenderingRegression, PBRMaterialUBOHasIBLField)
 {
-    UBOStructures::PBRMaterialUBO ubo{};
+    UBOStructures::PBRMaterialUBO ubo;
     // The EnableIBL field must exist and default to 0 (disabled).
     EXPECT_EQ(ubo.EnableIBL, 0)
         << "EnableIBL must exist in PBRMaterialUBO and default to 0";

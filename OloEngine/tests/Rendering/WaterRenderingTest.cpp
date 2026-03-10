@@ -23,6 +23,7 @@ TEST(WaterRendering, WaterUBOAlignment)
 
 TEST(WaterRendering, WaterUBOSizeStable)
 {
+    // 6 x glm::vec4 = 6 x 16 = 96 bytes
     EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 96u);
 }
 

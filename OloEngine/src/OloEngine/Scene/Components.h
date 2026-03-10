@@ -979,45 +979,15 @@ namespace OloEngine
 
         WaterComponent() = default;
         WaterComponent(const WaterComponent& other)
-            : m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ),
-              m_WaveAmplitude(other.m_WaveAmplitude), m_WaveFrequency(other.m_WaveFrequency),
-              m_WaveSpeed(other.m_WaveSpeed),
-              m_WaveDir0(other.m_WaveDir0), m_WaveSteepness0(other.m_WaveSteepness0),
-              m_Wavelength0(other.m_Wavelength0),
-              m_WaveDir1(other.m_WaveDir1), m_WaveSteepness1(other.m_WaveSteepness1),
-              m_Wavelength1(other.m_Wavelength1),
-              m_WaterColor(other.m_WaterColor), m_DeepColor(other.m_DeepColor),
-              m_Transparency(other.m_Transparency), m_Reflectivity(other.m_Reflectivity),
-              m_FresnelPower(other.m_FresnelPower), m_SpecularIntensity(other.m_SpecularIntensity),
-              m_GridResolutionX(other.m_GridResolutionX), m_GridResolutionZ(other.m_GridResolutionZ),
-              m_Enabled(other.m_Enabled)
         {
+            CopySerializedStateFrom(other);
             // Runtime state intentionally NOT copied — force rebuild
         }
         WaterComponent& operator=(const WaterComponent& other)
         {
             if (this != &other)
             {
-                m_WorldSizeX = other.m_WorldSizeX;
-                m_WorldSizeZ = other.m_WorldSizeZ;
-                m_WaveAmplitude = other.m_WaveAmplitude;
-                m_WaveFrequency = other.m_WaveFrequency;
-                m_WaveSpeed = other.m_WaveSpeed;
-                m_WaveDir0 = other.m_WaveDir0;
-                m_WaveSteepness0 = other.m_WaveSteepness0;
-                m_Wavelength0 = other.m_Wavelength0;
-                m_WaveDir1 = other.m_WaveDir1;
-                m_WaveSteepness1 = other.m_WaveSteepness1;
-                m_Wavelength1 = other.m_Wavelength1;
-                m_WaterColor = other.m_WaterColor;
-                m_DeepColor = other.m_DeepColor;
-                m_Transparency = other.m_Transparency;
-                m_Reflectivity = other.m_Reflectivity;
-                m_FresnelPower = other.m_FresnelPower;
-                m_SpecularIntensity = other.m_SpecularIntensity;
-                m_GridResolutionX = other.m_GridResolutionX;
-                m_GridResolutionZ = other.m_GridResolutionZ;
-                m_Enabled = other.m_Enabled;
+                CopySerializedStateFrom(other);
                 m_WaterMesh = nullptr;
                 m_NeedsRebuild = true;
             }
@@ -1025,6 +995,31 @@ namespace OloEngine
         }
         WaterComponent(WaterComponent&&) noexcept = default;
         WaterComponent& operator=(WaterComponent&&) noexcept = default;
+
+      private:
+        void CopySerializedStateFrom(const WaterComponent& src)
+        {
+            m_WorldSizeX = src.m_WorldSizeX;
+            m_WorldSizeZ = src.m_WorldSizeZ;
+            m_WaveAmplitude = src.m_WaveAmplitude;
+            m_WaveFrequency = src.m_WaveFrequency;
+            m_WaveSpeed = src.m_WaveSpeed;
+            m_WaveDir0 = src.m_WaveDir0;
+            m_WaveSteepness0 = src.m_WaveSteepness0;
+            m_Wavelength0 = src.m_Wavelength0;
+            m_WaveDir1 = src.m_WaveDir1;
+            m_WaveSteepness1 = src.m_WaveSteepness1;
+            m_Wavelength1 = src.m_Wavelength1;
+            m_WaterColor = src.m_WaterColor;
+            m_DeepColor = src.m_DeepColor;
+            m_Transparency = src.m_Transparency;
+            m_Reflectivity = src.m_Reflectivity;
+            m_FresnelPower = src.m_FresnelPower;
+            m_SpecularIntensity = src.m_SpecularIntensity;
+            m_GridResolutionX = src.m_GridResolutionX;
+            m_GridResolutionZ = src.m_GridResolutionZ;
+            m_Enabled = src.m_Enabled;
+        }
     };
 
     struct SnowDeformerComponent

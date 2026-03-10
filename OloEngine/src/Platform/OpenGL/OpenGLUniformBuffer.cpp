@@ -52,9 +52,9 @@ namespace OloEngine
     void OpenGLUniformBuffer::SetData(const UniformData& data)
     {
         OLO_CORE_ASSERT(
-            data.offset + data.size <= m_AllocatedSize,
-            "UBO SetData overflow: offset({}) + size({}) = {} > allocated({}), binding={}, GL id={}",
-            data.offset, data.size, data.offset + data.size, m_AllocatedSize, m_Binding, m_RendererID);
+            data.offset <= m_AllocatedSize && data.size <= m_AllocatedSize - data.offset,
+            "UBO SetData overflow: offset({}) + size({}) > allocated({}), binding={}, GL id={}",
+            data.offset, data.size, m_AllocatedSize, m_Binding, m_RendererID);
         glNamedBufferSubData(m_RendererID, data.offset, data.size, data.data);
     }
 

@@ -7,6 +7,7 @@ namespace OloEngine
 {
     WaterRenderPass::WaterRenderPass()
     {
+        OLO_PROFILE_FUNCTION();
         SetName("WaterRenderPass");
         OLO_CORE_INFO("Creating WaterRenderPass.");
     }

@@ -98,6 +98,7 @@ namespace OloEngine
         {
             OLO_CORE_INFO("Initializing Renderer3D for 3D mode (OnAttach)...");
             Renderer3D::Init();
+            ApplyDefault3DCameraPose();
         }
 
         // Create brush preview UBO (binding 11, 32 bytes = 2 vec4s)
@@ -697,6 +698,14 @@ namespace OloEngine
         }
     }
 
+    void EditorLayer::ApplyDefault3DCameraPose()
+    {
+        // Elevated and looking slightly down so the infinite grid on the XZ
+        // plane is visible.  Without this the camera sits at Y=0 with zero
+        // pitch, making every view ray parallel to the grid plane.
+        m_EditorCamera.SetPitch(-0.4f);
+    }
+
     void EditorLayer::UI_Settings()
     {
         ImGui::Begin("Settings");
@@ -718,11 +727,8 @@ namespace OloEngine
                 Renderer3D::OnWindowResize(std::max(1u, static_cast<u32>(m_ViewportSize.x * dpi)), std::max(1u, static_cast<u32>(m_ViewportSize.y * dpi)));
             }
 
-            // Set camera to a 3D-friendly default: elevated and looking slightly
-            // down so the infinite grid on the XZ plane is visible.  Without this
-            // the camera sits at Y=0 with zero pitch, making every view ray
-            // parallel to the grid plane (ray-plane intersection is degenerate).
-            m_EditorCamera.SetPitch(-0.4f);
+            // Set camera to a 3D-friendly default
+            ApplyDefault3DCameraPose();
         }
 
         ImGui::Separator();

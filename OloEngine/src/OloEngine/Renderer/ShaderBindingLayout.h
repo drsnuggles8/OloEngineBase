@@ -122,7 +122,7 @@ namespace OloEngine
             i32 UseMetallicRoughnessMap; // Use metallic-roughness texture
             i32 UseAOMap;                // Use ambient occlusion map
             i32 UseEmissiveMap;          // Use emissive map
-            i32 EnableIBL;               // Enable IBL
+            i32 EnableIBL = 0;           // Enable IBL
             i32 ApplyGammaCorrection;    // Whether to apply gamma correction in this pass
             i32 AlphaCutoff;             // Alpha cutoff for transparency (repurposed from padding)
             i32 EnableLightProbes;       // Enable light probe indirect diffuse
@@ -315,9 +315,9 @@ namespace OloEngine
             glm::vec4 WaterDeepColor; // rgb = deep color,    a = Reflectivity
             glm::vec4 VisualParams;   // x = FresnelPower, y = SpecularIntensity, z = pad, w = pad
 
-            static constexpr sizet GetSize()
+            static constexpr u32 GetSize()
             {
-                return sizeof(WaterUBO);
+                return static_cast<u32>(sizeof(WaterUBO));
             }
         };
     } // namespace UBOStructures

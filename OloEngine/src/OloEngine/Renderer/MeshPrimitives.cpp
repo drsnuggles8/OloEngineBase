@@ -838,6 +838,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        OLO_CORE_ASSERT(width > 0.0f, "CreateWaterGrid requires width > 0");
+        OLO_CORE_ASSERT(length > 0.0f, "CreateWaterGrid requires length > 0");
+        OLO_CORE_ASSERT(subdivisionsX >= 1, "CreateWaterGrid requires subdivisionsX >= 1");
+        OLO_CORE_ASSERT(subdivisionsZ >= 1, "CreateWaterGrid requires subdivisionsZ >= 1");
+
         const u32 vertsX = subdivisionsX + 1;
         const u32 vertsZ = subdivisionsZ + 1;
         const f32 halfWidth = width * 0.5f;

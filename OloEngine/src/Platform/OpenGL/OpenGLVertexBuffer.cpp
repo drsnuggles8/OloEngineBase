@@ -135,6 +135,8 @@ namespace OloEngine
             data.size <= m_Size,
             "VertexBuffer SetData overflow: data.size({}) > allocated({}), GL id={}",
             data.size, m_Size, m_RendererID);
+        if (data.size > m_Size)
+            return;
         glNamedBufferSubData(m_RendererID, 0, data.size, data.data);
     }
 } // namespace OloEngine

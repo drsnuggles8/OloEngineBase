@@ -9,7 +9,7 @@ applyTo: "**/*.glsl"
 
 The engine compiles all GLSL through **shaderc → SPIR-V**. This imposes stricter rules than plain OpenGL GLSL:
 
-- **No bare uniforms.** Every `uniform` must live inside a named `uniform` block (`layout(std140, binding = N) uniform BlockName { ... };`). A standalone `uniform mat4 u_Foo;` will fail with: *"non-opaque uniforms outside a block: not allowed when using GLSL for Vulkan"*.
+- **No bare non-opaque uniforms.** Every non-opaque `uniform` (basic types such as `float`, `vec*`, `mat*`, `int`, etc.) must live inside a named `uniform` block (`layout(std140, binding = N) uniform BlockName { ... };`). A standalone `uniform mat4 u_Foo;` will fail with: *"non-opaque uniforms outside a block: not allowed when using GLSL for Vulkan"*. Opaque types (samplers, images, textures, subpass inputs) **may** be declared standalone with `layout(binding = N) uniform sampler2D u_Tex;`.
 - **No `gl_FragColor`.** Use explicit `layout(location = N) out` declarations.
 - **No default-block interface variables.** All varyings must use explicit `layout(location = N)`.
 - **No implicit casts.** Use explicit constructors (`float(intVar)`, `vec3(1.0)` not `vec3(1)`).
@@ -136,7 +136,7 @@ Available includes in `assets/shaders/include/`:
 
 ## Common Mistakes
 
-1. **Bare `uniform` outside a block** → SPIR-V compile error. Wrap in a UBO block.
+1. **Bare non-opaque `uniform` outside a block** → SPIR-V compile error. Wrap in a UBO block. Opaque types (samplers, images) are declared standalone with `layout(binding = N)`.
 2. **Mismatched UBO binding** → silent data corruption. Cross-check `ShaderBindingLayout.h`.
 3. **Missing MRT outputs** → broken entity picking or SSAO. Always write all 3 outputs.
 4. **`vec3` without padding** in UBOs → misaligned reads. Use `vec4` or add explicit padding.

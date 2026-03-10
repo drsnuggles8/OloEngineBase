@@ -1069,6 +1069,10 @@ namespace OloEngine
         water.m_FresnelPower = waterComponent["FresnelPower"].as<f32>(water.m_FresnelPower);
         water.m_SpecularIntensity = waterComponent["SpecularIntensity"].as<f32>(water.m_SpecularIntensity);
 
+        // Clamp grid resolution to safe bounds
+        water.m_GridResolutionX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
+        water.m_GridResolutionZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
+
         // Sanitize floats
         SanitizeFloat(water.m_WorldSizeX, 0.1f, 1e5f, 100.0f);
         SanitizeFloat(water.m_WorldSizeZ, 0.1f, 1e5f, 100.0f);
