@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -86,6 +87,13 @@ namespace OloEngine
         }
 
         auto modelUBO = Renderer3D::GetModelMatrixUBO();
+        if (!modelUBO)
+        {
+            OLO_CORE_WARN("OcclusionCuller: Model UBO not available, skipping queries");
+            m_PendingQueries.clear();
+            return;
+        }
+
         proxyShader->Bind();
 
         for (const auto& pending : m_PendingQueries)
@@ -103,6 +111,7 @@ namespace OloEngine
             modelData.EntityID = -1;
             modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
             modelUBO->Bind();
+            CommandDispatch::InvalidateUBOCache(ShaderBindingLayout::UBO_MODEL);
 
             // Issue the query: draw the box between Begin/EndQuery
             queryPool.BeginQuery(pending.QueryIndex);

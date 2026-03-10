@@ -78,9 +78,9 @@ namespace OloEngine
         }
         else
         {
-            // Resolve against the current working directory so the path is
-            // stable regardless of how the editor was launched.
-            const auto defaultProject = std::filesystem::current_path() / "SandboxProject" / "Sandbox.oloproj";
+            // Resolve against the startup working directory so the path is
+            // stable even if the CWD changes at runtime.
+            const auto defaultProject = Application::Get().GetStartupWorkingDirectory() / "SandboxProject" / "Sandbox.oloproj";
             if (std::filesystem::exists(defaultProject) && OpenProject(defaultProject))
             {
                 OLO_CORE_INFO("Loaded default project: {0}", defaultProject.string());
@@ -706,8 +706,11 @@ namespace OloEngine
         ImGui::Checkbox("3D Mode", &m_Is3DMode);
         if (m_Is3DMode && !Renderer3D::IsInitialized())
         {
+            OLO_PROFILE_SCOPE("EditorLayer::UI_Settings_3DInit");
+            OLO_PROFILE_RENDERER_SCOPE("3DInit");
             OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
             Renderer3D::Init();
+            RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
             // Resize to current viewport size
             if (m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
             {

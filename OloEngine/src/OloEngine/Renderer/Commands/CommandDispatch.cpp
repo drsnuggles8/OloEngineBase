@@ -75,6 +75,14 @@ namespace OloEngine
 
     static CommandDispatchData s_Data;
 
+    void CommandDispatch::InvalidateUBOCache(u32 bindingPoint)
+    {
+        if (bindingPoint < CommandDispatchData::MAX_TRACKED_UBO_BINDINGS)
+        {
+            s_Data.BoundUBOIDs[bindingPoint] = 0;
+        }
+    }
+
     // Conditionally bind a UBO only when the binding point has changed,
     // avoiding redundant glBindBufferBase calls each draw.
     static void BindUBOIfNeeded(u32 bindingPoint, u32 rendererID)

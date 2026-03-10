@@ -38,6 +38,7 @@ namespace OloEngine
         // State tracking for current frame rendering
         static void ResetState();
         static void InvalidateRenderStateCache();
+        static void InvalidateUBOCache(u32 bindingPoint);
         static void SetDepthPrepassActive(bool active);
         static void SetViewProjectionMatrix(const glm::mat4& vp);
         static void SetViewMatrix(const glm::mat4& view);
