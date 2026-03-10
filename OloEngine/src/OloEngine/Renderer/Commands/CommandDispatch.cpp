@@ -255,7 +255,14 @@ namespace OloEngine
                     constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
                     static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch");
                     s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
+                    glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
                 }
+            }
+            else if (s_Data.MaterialUBO)
+            {
+                // Even when material data hasn't changed, re-establish the binding
+                // point (other subsystems may have overwritten it).
+                glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
             }
 
             // Always rebind textures — an intervening pass (e.g. DecalPass)
@@ -281,7 +288,12 @@ namespace OloEngine
                     constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
                     static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
                     s_Data.MaterialUBO->SetData(&materialData, expectedSize);
+                    glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
                 }
+            }
+            else if (s_Data.MaterialUBO)
+            {
+                glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
             }
 
             if (mat.useTextureMaps)
@@ -875,9 +887,20 @@ namespace OloEngine
             ++s_Data.Stats.ShaderBinds;
         }
 
-        // Camera and Light UBOs are uploaded once per frame in BeginSceneCommon
-        // (via UpdateCameraMatricesUBO / UpdateLightPropertiesUBO) and their
-        // binding points persist from UBO creation, so no per-draw upload needed.
+        // Camera and Light UBO data is uploaded once per frame in BeginSceneCommon
+        // (via UpdateCameraMatricesUBO / UpdateLightPropertiesUBO), but their
+        // binding points may be overwritten by other subsystem UBOs (e.g.
+        // ShadowMap creates its own Camera UBO at the same binding point).
+        // Re-establish the binding so shaders read the correct scene-camera buffer.
+        if (s_Data.CameraUBO)
+        {
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+        }
+
+        if (s_Data.LightUBO)
+        {
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
+        }
 
         // Update model matrix UBO
         if (s_Data.ModelMatrixUBO)
@@ -1038,6 +1061,12 @@ namespace OloEngine
             glUseProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
             ++s_Data.Stats.ShaderBinds;
+        }
+
+        // Re-establish camera UBO binding (may be overwritten by shadow pass)
+        if (s_Data.CameraUBO)
+        {
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
         }
 
         // Bind skybox cubemap texture using renderer ID directly

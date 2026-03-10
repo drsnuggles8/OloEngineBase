@@ -78,7 +78,13 @@ namespace OloEngine
         }
         else
         {
-            if (!OpenProject())
+            // Try loading the default Sandbox project first
+            const std::filesystem::path defaultProject = "SandboxProject/Sandbox.oloproj";
+            if (std::filesystem::exists(defaultProject) && OpenProject(defaultProject))
+            {
+                OLO_CORE_INFO("Loaded default project: {0}", defaultProject.string());
+            }
+            else if (!OpenProject())
             {
                 Application::Get().Close();
             }
@@ -690,19 +696,15 @@ namespace OloEngine
         // 3D Mode toggle with lazy initialization
         bool was3DMode = m_Is3DMode;
         ImGui::Checkbox("3D Mode", &m_Is3DMode);
-        if (m_Is3DMode && !was3DMode)
+        if (m_Is3DMode && !Renderer3D::IsInitialized())
         {
-            // Lazily initialize Renderer3D when 3D mode is first enabled
-            if (!Renderer3D::IsInitialized())
+            OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
+            Renderer3D::Init();
+            // Resize to current viewport size
+            if (m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
             {
-                OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
-                Renderer3D::Init();
-                // Resize to current viewport size
-                if (m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
-                {
-                    const f32 dpi = Window::s_HighDPIScaleFactor;
-                    Renderer3D::OnWindowResize(std::max(1u, static_cast<u32>(m_ViewportSize.x * dpi)), std::max(1u, static_cast<u32>(m_ViewportSize.y * dpi)));
-                }
+                const f32 dpi = Window::s_HighDPIScaleFactor;
+                Renderer3D::OnWindowResize(std::max(1u, static_cast<u32>(m_ViewportSize.x * dpi)), std::max(1u, static_cast<u32>(m_ViewportSize.y * dpi)));
             }
         }
 

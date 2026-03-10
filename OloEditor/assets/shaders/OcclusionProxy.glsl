@@ -17,7 +17,14 @@ layout(std140, binding = 0) uniform Camera {
     float _padding0;
 };
 
-uniform mat4 u_Model;
+layout(std140, binding = 3) uniform ModelMatrices {
+    mat4 u_Model;
+    mat4 u_Normal;
+    int u_EntityID;
+    int _paddingEntity0;
+    int _paddingEntity1;
+    int _paddingEntity2;
+};
 
 void main()
 {

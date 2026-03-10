@@ -5,7 +5,9 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -83,6 +85,9 @@ namespace OloEngine
             return;
         }
 
+        auto modelUBO = Renderer3D::GetModelMatrixUBO();
+        proxyShader->Bind();
+
         for (const auto& pending : m_PendingQueries)
         {
             // Compute model matrix to scale/translate unit cube [-0.5,0.5]^3 to match AABB
@@ -92,8 +97,11 @@ namespace OloEngine
             glm::mat4 model = glm::translate(glm::mat4(1.0f), center);
             model = glm::scale(model, extent);
 
-            proxyShader->Bind();
-            proxyShader->SetMat4("u_Model", model);
+            ShaderBindingLayout::ModelUBO modelData{};
+            modelData.Model = model;
+            modelData.Normal = glm::transpose(glm::inverse(model));
+            modelData.EntityID = -1;
+            modelUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
 
             // Issue the query: draw the box between Begin/EndQuery
             queryPool.BeginQuery(pending.QueryIndex);
