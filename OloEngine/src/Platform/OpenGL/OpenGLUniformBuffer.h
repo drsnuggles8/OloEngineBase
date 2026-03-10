@@ -22,7 +22,10 @@ namespace OloEngine
             return m_RendererID;
         }
 
-        u32 GetAllocatedSize() const { return m_AllocatedSize; }
+        u32 GetAllocatedSize() const
+        {
+            return m_AllocatedSize;
+        }
 
       private:
         u32 m_RendererID = 0;

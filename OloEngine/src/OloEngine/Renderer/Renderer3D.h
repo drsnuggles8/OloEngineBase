@@ -449,11 +449,26 @@ namespace OloEngine
                                  RendererID brdfLutMapID, RendererID environmentMapID,
                                  f32 iblIntensity = 1.0f);
         static void ClearGlobalIBL();
-        [[nodiscard]] static RendererID GetGlobalIrradianceMapID() { return s_Data.GlobalIrradianceMapID; }
-        [[nodiscard]] static RendererID GetGlobalPrefilterMapID() { return s_Data.GlobalPrefilterMapID; }
-        [[nodiscard]] static RendererID GetGlobalBRDFLutMapID() { return s_Data.GlobalBRDFLutMapID; }
-        [[nodiscard]] static RendererID GetGlobalEnvironmentMapID() { return s_Data.GlobalEnvironmentMapID; }
-        [[nodiscard]] static f32 GetGlobalIBLIntensity() { return s_Data.GlobalIBLIntensity; }
+        [[nodiscard]] static RendererID GetGlobalIrradianceMapID()
+        {
+            return s_Data.GlobalIrradianceMapID;
+        }
+        [[nodiscard]] static RendererID GetGlobalPrefilterMapID()
+        {
+            return s_Data.GlobalPrefilterMapID;
+        }
+        [[nodiscard]] static RendererID GetGlobalBRDFLutMapID()
+        {
+            return s_Data.GlobalBRDFLutMapID;
+        }
+        [[nodiscard]] static RendererID GetGlobalEnvironmentMapID()
+        {
+            return s_Data.GlobalEnvironmentMapID;
+        }
+        [[nodiscard]] static f32 GetGlobalIBLIntensity()
+        {
+            return s_Data.GlobalIBLIntensity;
+        }
 
         // Culling methods
         static void EnableFrustumCulling(bool enable);

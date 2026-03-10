@@ -1722,8 +1722,8 @@ namespace OloEngine
     }
 
     void Renderer3D::SetGlobalIBL(RendererID irradianceMapID, RendererID prefilterMapID,
-                                   RendererID brdfLutMapID, RendererID environmentMapID,
-                                   f32 iblIntensity)
+                                  RendererID brdfLutMapID, RendererID environmentMapID,
+                                  f32 iblIntensity)
     {
         s_Data.GlobalIrradianceMapID = irradianceMapID;
         s_Data.GlobalPrefilterMapID = prefilterMapID;
