@@ -29,11 +29,17 @@ void main()
 #version 460 core
 
 layout(location = 0) in vec3 v_TexCoords;
-layout(location = 0) out vec4 FragColor;
+
+// MRT outputs — all forward-rendered geometry must write all 3 targets
+layout(location = 0) out vec4 o_Color;
+layout(location = 1) out int  o_EntityID;
+layout(location = 2) out vec2 o_ViewNormal;
 
 layout(binding = 9) uniform samplerCube u_Skybox;
 
 void main()
 {
-    FragColor = texture(u_Skybox, v_TexCoords);
+    o_Color = texture(u_Skybox, v_TexCoords);
+    o_EntityID = -1;          // No entity for skybox (sentinel for picking)
+    o_ViewNormal = vec2(0.0); // Neutral normal for skybox pixels
 }

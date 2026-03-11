@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include <glm/glm.hpp>
+#include <filesystem>
 #include <unordered_set>
 
 namespace OloEngine
@@ -78,6 +79,7 @@ namespace OloEngine
 
         // Include processing — public so compute shaders can reuse it
         static std::string ProcessIncludes(const std::string& source, const std::string& directory = "");
+        static std::string ProcessIncludes(const std::string& source, const std::string& directory, std::vector<std::string>& outIncludePaths);
 
       private:
         static std::string ReadFile(const std::string& filepath);
@@ -105,6 +107,14 @@ namespace OloEngine
 
         std::unordered_map<GLenum, std::string> m_OpenGLSourceCode;
         std::unordered_map<GLenum, std::string> m_OriginalSourceCode; // Store original preprocessed source
+
+        // Paths resolved during #include expansion — used to invalidate shader
+        // cache when any include file is modified (not just the main .glsl).
+        std::vector<std::string> m_IncludedFilePaths;
+
+        // Returns true when the cached binary at |cachedPath| is older than the
+        // main shader source OR any of its transitive #include dependencies.
+        [[nodiscard]] bool IsCacheStale(const std::filesystem::path& cachedPath) const;
 
         // Resource registry for automatic resource management
         ShaderResourceRegistry m_ResourceRegistry;

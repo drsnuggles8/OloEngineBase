@@ -79,6 +79,19 @@ namespace OloEngine
         }
     }
 
+    /// Replace any vec2 that contains a non-finite component with \p fallback.
+    static void SanitizeVec2(glm::vec2& v, const glm::vec2& fallback)
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            if (!std::isfinite(v[i]))
+            {
+                v = fallback;
+                return;
+            }
+        }
+    }
+
     /// Per-component: replace non-finite with fallback component, then clamp to [lo, hi].
     static void SanitizeVec3Clamped(glm::vec3& v, f32 lo, f32 hi, const glm::vec3& fallback)
     {
@@ -1044,6 +1057,59 @@ namespace OloEngine
         foliage.m_NeedsRebuild = true;
     }
 
+    static void DeserializeWaterComponent(WaterComponent& water, const YAML::Node& waterComponent)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        water.m_Enabled = waterComponent["Enabled"].as<bool>(water.m_Enabled);
+        water.m_WorldSizeX = waterComponent["WorldSizeX"].as<f32>(water.m_WorldSizeX);
+        water.m_WorldSizeZ = waterComponent["WorldSizeZ"].as<f32>(water.m_WorldSizeZ);
+        water.m_GridResolutionX = waterComponent["GridResolutionX"].as<u32>(water.m_GridResolutionX);
+        water.m_GridResolutionZ = waterComponent["GridResolutionZ"].as<u32>(water.m_GridResolutionZ);
+        water.m_WaveAmplitude = waterComponent["WaveAmplitude"].as<f32>(water.m_WaveAmplitude);
+        water.m_WaveFrequency = waterComponent["WaveFrequency"].as<f32>(water.m_WaveFrequency);
+        water.m_WaveSpeed = waterComponent["WaveSpeed"].as<f32>(water.m_WaveSpeed);
+        water.m_WaveDir0 = waterComponent["WaveDir0"].as<glm::vec2>(water.m_WaveDir0);
+        water.m_WaveDir1 = waterComponent["WaveDir1"].as<glm::vec2>(water.m_WaveDir1);
+        water.m_WaveSteepness0 = waterComponent["WaveSteepness0"].as<f32>(water.m_WaveSteepness0);
+        water.m_Wavelength0 = waterComponent["Wavelength0"].as<f32>(water.m_Wavelength0);
+        water.m_WaveSteepness1 = waterComponent["WaveSteepness1"].as<f32>(water.m_WaveSteepness1);
+        water.m_Wavelength1 = waterComponent["Wavelength1"].as<f32>(water.m_Wavelength1);
+        water.m_WaterColor = waterComponent["WaterColor"].as<glm::vec3>(water.m_WaterColor);
+        water.m_DeepColor = waterComponent["DeepColor"].as<glm::vec3>(water.m_DeepColor);
+        water.m_Transparency = waterComponent["Transparency"].as<f32>(water.m_Transparency);
+        water.m_Reflectivity = waterComponent["Reflectivity"].as<f32>(water.m_Reflectivity);
+        water.m_FresnelPower = waterComponent["FresnelPower"].as<f32>(water.m_FresnelPower);
+        water.m_SpecularIntensity = waterComponent["SpecularIntensity"].as<f32>(water.m_SpecularIntensity);
+
+        // Clamp grid resolution to safe bounds
+        water.m_GridResolutionX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
+        water.m_GridResolutionZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
+
+        // Sanitize floats
+        SanitizeFloat(water.m_WorldSizeX, 0.1f, 1e5f, 100.0f);
+        SanitizeFloat(water.m_WorldSizeZ, 0.1f, 1e5f, 100.0f);
+        SanitizeFloat(water.m_WaveAmplitude, 0.0f, 100.0f, 0.5f);
+        SanitizeFloat(water.m_WaveFrequency, 0.0f, 100.0f, 1.0f);
+        SanitizeFloat(water.m_WaveSpeed, 0.0f, 100.0f, 1.0f);
+        SanitizeFloat(water.m_WaveSteepness0, 0.0f, 1.0f, 0.5f);
+        SanitizeFloat(water.m_Wavelength0, 0.1f, 500.0f, 10.0f);
+        SanitizeFloat(water.m_WaveSteepness1, 0.0f, 1.0f, 0.3f);
+        SanitizeFloat(water.m_Wavelength1, 0.1f, 500.0f, 15.0f);
+        SanitizeFloat(water.m_Transparency, 0.0f, 1.0f, 0.6f);
+        SanitizeFloat(water.m_Reflectivity, 0.0f, 1.0f, 0.5f);
+        SanitizeFloat(water.m_FresnelPower, 0.1f, 20.0f, 5.0f);
+        SanitizeFloat(water.m_SpecularIntensity, 0.0f, 10.0f, 1.0f);
+
+        // Sanitize vec2/vec3 fields
+        SanitizeVec2(water.m_WaveDir0, { 1.0f, 0.0f });
+        SanitizeVec2(water.m_WaveDir1, { 0.7f, 0.7f });
+        SanitizeVec3(water.m_WaterColor, { 0.1f, 0.4f, 0.5f });
+        SanitizeVec3(water.m_DeepColor, { 0.0f, 0.1f, 0.2f });
+
+        water.m_NeedsRebuild = true;
+    }
+
     static std::string RigidBody2DBodyTypeToString(const Rigidbody2DComponent::BodyType bodyType)
     {
         switch (bodyType)
@@ -1766,6 +1832,12 @@ namespace OloEngine
         {
             auto& foliage = deserializedEntity.AddComponent<FoliageComponent>();
             DeserializeFoliageComponent(foliage, foliageComponent);
+        }
+
+        if (auto waterComponent = entity["WaterComponent"]; waterComponent)
+        {
+            auto& water = deserializedEntity.AddComponent<WaterComponent>();
+            DeserializeWaterComponent(water, waterComponent);
         }
 
         if (auto snowDeformerComponent = entity["SnowDeformerComponent"]; snowDeformerComponent)
@@ -3013,6 +3085,36 @@ namespace OloEngine
             }
 
             out << YAML::EndMap; // FoliageComponent
+        }
+
+        if (entity.HasComponent<WaterComponent>())
+        {
+            out << YAML::Key << "WaterComponent";
+            out << YAML::BeginMap;
+
+            auto const& water = entity.GetComponent<WaterComponent>();
+            out << YAML::Key << "Enabled" << YAML::Value << water.m_Enabled;
+            out << YAML::Key << "WorldSizeX" << YAML::Value << water.m_WorldSizeX;
+            out << YAML::Key << "WorldSizeZ" << YAML::Value << water.m_WorldSizeZ;
+            out << YAML::Key << "GridResolutionX" << YAML::Value << water.m_GridResolutionX;
+            out << YAML::Key << "GridResolutionZ" << YAML::Value << water.m_GridResolutionZ;
+            out << YAML::Key << "WaveAmplitude" << YAML::Value << water.m_WaveAmplitude;
+            out << YAML::Key << "WaveFrequency" << YAML::Value << water.m_WaveFrequency;
+            out << YAML::Key << "WaveSpeed" << YAML::Value << water.m_WaveSpeed;
+            out << YAML::Key << "WaveDir0" << YAML::Value << water.m_WaveDir0;
+            out << YAML::Key << "WaveDir1" << YAML::Value << water.m_WaveDir1;
+            out << YAML::Key << "WaveSteepness0" << YAML::Value << water.m_WaveSteepness0;
+            out << YAML::Key << "Wavelength0" << YAML::Value << water.m_Wavelength0;
+            out << YAML::Key << "WaveSteepness1" << YAML::Value << water.m_WaveSteepness1;
+            out << YAML::Key << "Wavelength1" << YAML::Value << water.m_Wavelength1;
+            out << YAML::Key << "WaterColor" << YAML::Value << water.m_WaterColor;
+            out << YAML::Key << "DeepColor" << YAML::Value << water.m_DeepColor;
+            out << YAML::Key << "Transparency" << YAML::Value << water.m_Transparency;
+            out << YAML::Key << "Reflectivity" << YAML::Value << water.m_Reflectivity;
+            out << YAML::Key << "FresnelPower" << YAML::Value << water.m_FresnelPower;
+            out << YAML::Key << "SpecularIntensity" << YAML::Value << water.m_SpecularIntensity;
+
+            out << YAML::EndMap; // WaterComponent
         }
 
         if (entity.HasComponent<SnowDeformerComponent>())

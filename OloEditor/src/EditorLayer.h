@@ -88,6 +88,7 @@ namespace OloEngine
         void UI_Settings();
         void UI_DebugTools();
         void UI_ChildPanels();
+        void ApplyDefault3DCameraPose();
 
         void SetEditorScene(const Ref<Scene>& scene);
         void SyncWindowTitle() const;

@@ -275,6 +275,7 @@ namespace OloEngine
                 pbrMaterialData.ApplyGammaCorrection = 1;
                 pbrMaterialData.AlphaCutoff = 0;
                 pbrMaterialData.EnableLightProbes = 0;
+                pbrMaterialData.IBLIntensity = mat.iblIntensity;
 
                 if (s_Data.MaterialUBO)
                 {
@@ -468,6 +469,9 @@ namespace OloEngine
 
         // Foliage commands
         s_DispatchTable[static_cast<sizet>(CommandType::DrawFoliageLayer)] = CommandDispatch::DrawFoliageLayer;
+
+        // Water commands
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawWater)] = CommandDispatch::DrawWater;
 
         s_Data.CurrentBoundShaderID = 0;
         std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
@@ -1579,6 +1583,61 @@ namespace OloEngine
         // Draw instanced foliage quads
         glBindVertexArray(cmd->vertexArrayID);
         glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(cmd->instanceCount));
+        ++s_Data.Stats.DrawCalls;
+    }
+    void CommandDispatch::DrawWater(const void* data, RendererAPI& api)
+    {
+        OLO_PROFILE_FUNCTION();
+        const auto* cmd = static_cast<const DrawWaterCommand*>(data);
+
+        if (!cmd || cmd->vertexArrayID == 0 || cmd->shaderRendererID == 0 || cmd->indexCount == 0)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawWater: Invalid water command (VAO={}, shader={}, indices={})",
+                           cmd ? cmd->vertexArrayID : 0, cmd ? cmd->shaderRendererID : 0,
+                           cmd ? cmd->indexCount : 0);
+            return;
+        }
+
+        // Resolve and apply render state from table
+        ApplyPODRenderState(cmd->renderStateIndex, api);
+
+        // Bind shader (cached)
+        if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
+        {
+            glUseProgram(cmd->shaderRendererID);
+            s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
+            ++s_Data.Stats.ShaderBinds;
+        }
+
+        // Upload model UBO
+        if (s_Data.ModelMatrixUBO)
+        {
+            ShaderBindingLayout::ModelUBO modelData{};
+            modelData.Model = cmd->modelTransform;
+            modelData.Normal = cmd->normalMatrix;
+            modelData.EntityID = cmd->entityID;
+            s_Data.ModelMatrixUBO->SetData(&modelData, ShaderBindingLayout::ModelUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+        }
+
+        // Upload water UBO
+        auto waterUBO = Renderer3D::GetWaterUBO();
+        if (waterUBO)
+        {
+            ShaderBindingLayout::WaterUBO waterData{};
+            waterData.WaveParams = cmd->waveParams;
+            waterData.WaveDir0 = cmd->waveDir0;
+            waterData.WaveDir1 = cmd->waveDir1;
+            waterData.WaterColor = cmd->waterColor;
+            waterData.WaterDeepColor = cmd->waterDeepColor;
+            waterData.VisualParams = cmd->visualParams;
+            waterUBO->SetData(&waterData, ShaderBindingLayout::WaterUBO::GetSize());
+            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_WATER, waterUBO->GetRendererID());
+        }
+
+        // Draw water mesh
+        glBindVertexArray(cmd->vertexArrayID);
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
         ++s_Data.Stats.DrawCalls;
     }
 } // namespace OloEngine

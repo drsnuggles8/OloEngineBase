@@ -10,7 +10,7 @@ namespace OloEngine
     {
       public:
         OpenGLUniformBuffer(const u32 size, const u32 binding);
-        OpenGLUniformBuffer(const u32 size, const u32 binding, const GLenum usage);
+        OpenGLUniformBuffer(const u32 size, const u32 binding, const GLbitfield flags);
         ~OpenGLUniformBuffer() override;
 
         void SetData(const UniformData& data) override;
@@ -22,8 +22,14 @@ namespace OloEngine
             return m_RendererID;
         }
 
+        u32 GetAllocatedSize() const
+        {
+            return m_AllocatedSize;
+        }
+
       private:
         u32 m_RendererID = 0;
         u32 m_Binding = 0;
+        u32 m_AllocatedSize = 0;
     };
 } // namespace OloEngine

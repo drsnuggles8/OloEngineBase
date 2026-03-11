@@ -834,4 +834,76 @@ namespace OloEngine
         return Ref<Mesh>::Create(meshSource, 0);
     }
 
+    Ref<Mesh> MeshPrimitives::CreateWaterGrid(f32 width, f32 length, u32 subdivisionsX, u32 subdivisionsZ)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        OLO_CORE_ASSERT(width > 0.0f, "CreateWaterGrid requires width > 0");
+        OLO_CORE_ASSERT(length > 0.0f, "CreateWaterGrid requires length > 0");
+        OLO_CORE_ASSERT(subdivisionsX >= 1, "CreateWaterGrid requires subdivisionsX >= 1");
+        OLO_CORE_ASSERT(subdivisionsZ >= 1, "CreateWaterGrid requires subdivisionsZ >= 1");
+
+        const u32 vertsX = subdivisionsX + 1;
+        const u32 vertsZ = subdivisionsZ + 1;
+        const f32 halfWidth = width * 0.5f;
+        const f32 halfLength = length * 0.5f;
+
+        std::vector<Vertex> vertices;
+        vertices.reserve(static_cast<sizet>(vertsX) * vertsZ);
+
+        for (u32 z = 0; z < vertsZ; ++z)
+        {
+            const f32 fz = static_cast<f32>(z) / static_cast<f32>(subdivisionsZ);
+            const f32 posZ = -halfLength + fz * length;
+
+            for (u32 x = 0; x < vertsX; ++x)
+            {
+                const f32 fx = static_cast<f32>(x) / static_cast<f32>(subdivisionsX);
+                const f32 posX = -halfWidth + fx * width;
+
+                vertices.emplace_back(
+                    glm::vec3(posX, 0.0f, posZ),
+                    glm::vec3(0.0f, 1.0f, 0.0f),
+                    glm::vec2(fx, fz));
+            }
+        }
+
+        std::vector<u32> indices;
+        indices.reserve(static_cast<sizet>(subdivisionsX) * subdivisionsZ * 6);
+
+        for (u32 z = 0; z < subdivisionsZ; ++z)
+        {
+            for (u32 x = 0; x < subdivisionsX; ++x)
+            {
+                const u32 topLeft = z * vertsX + x;
+                const u32 topRight = topLeft + 1;
+                const u32 bottomLeft = (z + 1) * vertsX + x;
+                const u32 bottomRight = bottomLeft + 1;
+
+                indices.push_back(topLeft);
+                indices.push_back(bottomLeft);
+                indices.push_back(topRight);
+
+                indices.push_back(topRight);
+                indices.push_back(bottomLeft);
+                indices.push_back(bottomRight);
+            }
+        }
+
+        auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+
+        Submesh submesh;
+        submesh.m_BaseVertex = 0;
+        submesh.m_BaseIndex = 0;
+        submesh.m_IndexCount = static_cast<u32>(indices.size());
+        submesh.m_VertexCount = static_cast<u32>(vertices.size());
+        submesh.m_MaterialIndex = 0;
+        submesh.m_IsRigged = false;
+        submesh.m_NodeName = "WaterGrid";
+        meshSource->AddSubmesh(submesh);
+
+        meshSource->Build();
+        return Ref<Mesh>::Create(meshSource, 0);
+    }
+
 } // namespace OloEngine

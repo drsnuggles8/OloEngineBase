@@ -10,8 +10,10 @@ namespace OloEngine
 {
 
     OpenGLUniformBuffer::OpenGLUniformBuffer(const u32 size, const u32 binding)
-        : m_Binding(binding)
+        : m_Binding(binding), m_AllocatedSize(size)
     {
+        OLO_PROFILE_FUNCTION();
+
         glCreateBuffers(1, &m_RendererID);
         glNamedBufferData(m_RendererID, size, nullptr, GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_UNIFORM_BUFFER, binding, m_RendererID);
@@ -23,11 +25,15 @@ namespace OloEngine
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_UNIFORM_BUFFER, "UniformBuffer");
     }
 
-    OpenGLUniformBuffer::OpenGLUniformBuffer(const u32 size, const u32 binding, const GLenum usage)
-        : m_Binding(binding)
+    OpenGLUniformBuffer::OpenGLUniformBuffer(const u32 size, const u32 binding, const GLbitfield flags)
+        : m_Binding(binding), m_AllocatedSize(size)
     {
+        OLO_PROFILE_FUNCTION();
+
+        OLO_CORE_ASSERT(flags & GL_DYNAMIC_STORAGE_BIT,
+                        "OpenGLUniformBuffer storage flags must include GL_DYNAMIC_STORAGE_BIT for SetData() to work");
         glCreateBuffers(1, &m_RendererID);
-        glNamedBufferStorage(m_RendererID, size, nullptr, usage);
+        glNamedBufferStorage(m_RendererID, size, nullptr, flags);
         glBindBufferRange(GL_UNIFORM_BUFFER, binding, m_RendererID, 0, size);
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::BufferBinds, 1);
 
@@ -51,6 +57,10 @@ namespace OloEngine
 
     void OpenGLUniformBuffer::SetData(const UniformData& data)
     {
+        OLO_CORE_ASSERT(
+            data.offset <= m_AllocatedSize && data.size <= m_AllocatedSize - data.offset,
+            "UBO SetData overflow: offset({}) + size({}) > allocated({}), binding={}, GL id={}",
+            data.offset, data.size, m_AllocatedSize, m_Binding, m_RendererID);
         glNamedBufferSubData(m_RendererID, data.offset, data.size, data.data);
     }
 

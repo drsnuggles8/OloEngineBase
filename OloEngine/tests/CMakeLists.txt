@@ -54,6 +54,8 @@ add_executable(OloEngine-Tests
 		Rendering/RenderStateTest.cpp
 		Rendering/OcclusionStateTest.cpp
 		Rendering/OcclusionIntegrationTest.cpp
+		Rendering/WaterRenderingTest.cpp
+		Rendering/RenderingRegressionTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

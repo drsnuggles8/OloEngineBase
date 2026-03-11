@@ -14,6 +14,7 @@
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/UI/UILayoutSystem.h"
 #include "OloEngine/UI/UIRenderer.h"
@@ -884,6 +885,8 @@ namespace OloEngine
     template<>
     void Scene::OnComponentAdded<FoliageComponent>(Entity, FoliageComponent&) {}
     template<>
+    void Scene::OnComponentAdded<WaterComponent>(Entity, WaterComponent&) {}
+    template<>
     void Scene::OnComponentAdded<SnowDeformerComponent>(Entity, SnowDeformerComponent&) {}
     template<>
     void Scene::OnComponentAdded<FogVolumeComponent>(Entity, FogVolumeComponent&) {}
@@ -1361,12 +1364,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Clear stale global IBL from previous scenes — only the current
+        // scene's EnvironmentMap (if any) should provide IBL textures.
+        Renderer3D::ClearGlobalIBL();
+
         auto view = m_Registry.view<EnvironmentMapComponent>();
         for (auto entity : view)
         {
             auto& envMapComp = view.get<EnvironmentMapComponent>(entity);
-            if (!envMapComp.m_EnableSkybox)
-                continue;
 
             // Lazy load environment map from file path if not already loaded
             if (!envMapComp.m_EnvironmentMap && !envMapComp.m_FilePath.empty())
@@ -1399,7 +1404,13 @@ namespace OloEngine
                 }
             }
 
-            if (envMapComp.m_EnvironmentMap && envMapComp.m_EnvironmentMap->GetEnvironmentMap())
+            if (!envMapComp.m_EnvironmentMap)
+            {
+                continue;
+            }
+
+            // Submit skybox draw if enabled
+            if (envMapComp.m_EnableSkybox && envMapComp.m_EnvironmentMap->GetEnvironmentMap())
             {
                 auto* skyboxPacket = Renderer3D::DrawSkybox(envMapComp.m_EnvironmentMap->GetEnvironmentMap());
                 if (skyboxPacket)
@@ -1407,7 +1418,24 @@ namespace OloEngine
                     Renderer3D::SubmitPacket(skyboxPacket);
                 }
             }
-            return; // Only use first environment map with skybox enabled
+
+            // Wire IBL textures independently of skybox visibility
+            if (envMapComp.m_EnableIBL && envMapComp.m_EnvironmentMap->HasIBL())
+            {
+                auto& envMap = envMapComp.m_EnvironmentMap;
+                Renderer3D::SetGlobalIBL(
+                    envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0,
+                    envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0,
+                    envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0,
+                    envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRendererID() : 0,
+                    envMapComp.m_IBLIntensity);
+            }
+            else
+            {
+                Renderer3D::ClearGlobalIBL();
+            }
+
+            return; // Only use first environment map
         }
     }
 
@@ -1907,7 +1935,7 @@ namespace OloEngine
 
             // Submit terrain + voxel command packets (sorted with other opaque geometry)
             // and shadow casters for terrain, voxel, and foliage.
-            const f32 foliageFrameTime = Time::GetTime();
+            const f32 animationTime = Time::GetTime();
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
                 auto voxelShader = Renderer3D::GetVoxelPBRShader();
@@ -2138,7 +2166,7 @@ namespace OloEngine
                             if (foliageDepthShader)
                             {
                                 shadowPass->AddFoliageCaster(
-                                    foliage.m_Renderer.get(), foliageDepthShader, foliageFrameTime);
+                                    foliage.m_Renderer.get(), foliageDepthShader, animationTime);
                             }
                         }
                     }
@@ -2156,7 +2184,7 @@ namespace OloEngine
                         continue;
                     }
 
-                    foliage.m_Renderer->SetTime(foliageFrameTime);
+                    foliage.m_Renderer->SetTime(animationTime);
                     i32 entityID = static_cast<i32>(static_cast<u32>(foliageEntity));
                     glm::mat4 modelMat = foliageTransform.GetTransform();
 
@@ -2167,7 +2195,7 @@ namespace OloEngine
                             layer.VertexArrayID, layer.IndexCount, layer.InstanceCount,
                             layer.AlbedoTextureID,
                             modelMat,
-                            foliageFrameTime,
+                            animationTime,
                             layer.WindStrength, layer.WindSpeed,
                             layer.ViewDistance, layer.FadeStartDistance, layer.AlphaCutoff,
                             glm::vec4(layer.BaseColor, 0.0f),
@@ -2177,6 +2205,81 @@ namespace OloEngine
                         {
                             Renderer3D::SubmitFoliagePacket(packet);
                         }
+                    }
+                }
+            }
+
+            // Submit water surface draw commands to the WaterRenderPass command bucket
+            {
+                auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
+                for (auto entity : waterView)
+                {
+                    auto const& [transform, water] = waterView.get<TransformComponent, WaterComponent>(entity);
+                    if (!water.m_Enabled)
+                    {
+                        continue;
+                    }
+
+                    // Lazy mesh initialization / rebuild
+                    if (water.m_NeedsRebuild || !water.m_WaterMesh)
+                    {
+                        const u32 resX = std::clamp(water.m_GridResolutionX, 2u, 1024u);
+                        const u32 resZ = std::clamp(water.m_GridResolutionZ, 2u, 1024u);
+                        water.m_WaterMesh = MeshPrimitives::CreateWaterGrid(
+                            water.m_WorldSizeX, water.m_WorldSizeZ,
+                            resX, resZ);
+                        water.m_NeedsRebuild = false;
+                    }
+
+                    if (!water.m_WaterMesh || !water.m_WaterMesh->IsValid())
+                    {
+                        continue;
+                    }
+
+                    const auto& submesh = water.m_WaterMesh->GetSubmesh();
+                    auto va = water.m_WaterMesh->GetVertexArray();
+                    if (!va)
+                    {
+                        continue;
+                    }
+
+                    i32 entityID = static_cast<i32>(static_cast<u32>(entity));
+                    glm::mat4 modelMat = transform.GetTransform();
+
+                    // Pack component fields into UBO vec4 layout
+                    glm::vec4 waveParams = glm::vec4(
+                        0.0f, // Time — filled by DrawWaterSurface
+                        water.m_WaveSpeed,
+                        water.m_WaveAmplitude,
+                        water.m_WaveFrequency);
+                    glm::vec4 waveDir0 = water.PackWaveDir0();
+                    glm::vec4 waveDir1 = water.PackWaveDir1();
+                    glm::vec4 waterColor = glm::vec4(
+                        water.m_WaterColor, water.m_Transparency);
+                    glm::vec4 waterDeepColor = glm::vec4(
+                        water.m_DeepColor, water.m_Reflectivity);
+                    glm::vec4 visualParams = glm::vec4(
+                        water.m_FresnelPower, water.m_SpecularIntensity, 0.0f, 0.0f);
+
+                    // Compute bounding box for frustum culling
+                    f32 halfX = water.m_WorldSizeX * 0.5f;
+                    f32 halfZ = water.m_WorldSizeZ * 0.5f;
+                    f32 waveH = water.m_WaveAmplitude * 2.0f; // Conservative height estimate
+                    BoundingBox bounds;
+                    bounds.Min = glm::vec3(-halfX, -waveH, -halfZ);
+                    bounds.Max = glm::vec3(halfX, waveH, halfZ);
+
+                    auto* packet = Renderer3D::DrawWaterSurface(
+                        va->GetRendererID(), submesh.m_IndexCount,
+                        modelMat,
+                        animationTime,
+                        waveParams, waveDir0, waveDir1,
+                        waterColor, waterDeepColor, visualParams,
+                        bounds,
+                        entityID);
+                    if (packet)
+                    {
+                        Renderer3D::SubmitWaterPacket(packet);
                     }
                 }
             }
@@ -2468,10 +2571,6 @@ namespace OloEngine
             camera.GetNearClip(),
             camera.GetFarClip());
 
-        // TODO: Implement infinite grid as a proper command packet
-        // The grid currently uses immediate-mode OpenGL (glDrawArrays) which conflicts
-        // with the deferred command buffer system. Grid rendering has been disabled
-        // until it can be properly integrated.
         Renderer3D::DrawInfiniteGrid(1.0f);
 
         // Draw world axis helper at origin

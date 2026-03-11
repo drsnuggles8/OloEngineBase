@@ -130,6 +130,7 @@ namespace OloEngine
         f32 normalScale = 1.0f;
         f32 occlusionStrength = 1.0f;
         bool enableIBL = false;
+        f32 iblIntensity = 1.0f;
 
         // PBR texture IDs (renderer IDs, 0 = none)
         RendererID albedoMapID = 0;
@@ -145,7 +146,7 @@ namespace OloEngine
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODMaterialData& o) const
         {
-            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
+            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
         }
     };
 
@@ -200,6 +201,9 @@ namespace OloEngine
 
         // Foliage commands
         DrawFoliageLayer,
+
+        // Water commands
+        DrawWater,
 
         // Sentinel — always keep last for dispatch table sizing
         COUNT
@@ -290,6 +294,8 @@ namespace OloEngine
                 return "DrawDecal";
             case CommandType::DrawFoliageLayer:
                 return "DrawFoliageLayer";
+            case CommandType::DrawWater:
+                return "DrawWater";
             case CommandType::COUNT:
                 return "COUNT";
             default:
@@ -762,6 +768,39 @@ namespace OloEngine
     };
 
     static_assert(std::is_trivially_copyable_v<DrawFoliageLayerCommand>, "DrawFoliageLayerCommand must be trivially copyable for radix sort");
+
+    // Water surface draw command
+    struct DrawWaterCommand
+    {
+        CommandHeader header;
+
+        // Mesh data
+        RendererID vertexArrayID = 0;
+        u32 indexCount = 0;
+
+        // Shader
+        RendererID shaderRendererID = 0;
+
+        // Transform
+        glm::mat4 modelTransform = glm::mat4(1.0f);
+        glm::mat4 normalMatrix = glm::mat4(1.0f);
+
+        // Water UBO data (inlined, fully POD)
+        glm::vec4 waveParams = glm::vec4(0.0f);     // Time, WaveSpeed, WaveAmplitude, WaveFrequency
+        glm::vec4 waveDir0 = glm::vec4(0.0f);       // xy = dir, z = steepness, w = wavelength
+        glm::vec4 waveDir1 = glm::vec4(0.0f);       // xy = dir, z = steepness, w = wavelength
+        glm::vec4 waterColor = glm::vec4(0.0f);     // rgb = shallow, a = transparency
+        glm::vec4 waterDeepColor = glm::vec4(0.0f); // rgb = deep,    a = reflectivity
+        glm::vec4 visualParams = glm::vec4(0.0f);   // FresnelPower, SpecularIntensity, pad, pad
+
+        // Entity ID for picking
+        i32 entityID = -1;
+
+        // Render state index (into FrameDataBuffer::RenderStateTable)
+        u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
+    };
+
+    static_assert(std::is_trivially_copyable_v<DrawWaterCommand>, "DrawWaterCommand must be trivially copyable for radix sort");
 
     // Maximum command size for allocation purposes - increased for PBR and bone matrices
     constexpr sizet MAX_COMMAND_SIZE = 1024;

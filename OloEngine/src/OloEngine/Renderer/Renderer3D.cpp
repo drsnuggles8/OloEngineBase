@@ -206,6 +206,18 @@ namespace OloEngine
         data.prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
         data.brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
 
+        // Fall back to global IBL when the material has no IBL configured
+        if (data.enablePBR && data.irradianceMapID == 0 && Renderer3D::GetGlobalIrradianceMapID() != 0)
+        {
+            data.irradianceMapID = Renderer3D::GetGlobalIrradianceMapID();
+            data.prefilterMapID = Renderer3D::GetGlobalPrefilterMapID();
+            data.brdfLutMapID = Renderer3D::GetGlobalBRDFLutMapID();
+            if (data.environmentMapID == 0)
+                data.environmentMapID = Renderer3D::GetGlobalEnvironmentMapID();
+            data.enableIBL = true;
+            data.iblIntensity = Renderer3D::GetGlobalIBLIntensity();
+        }
+
         return data;
     }
 
@@ -296,6 +308,7 @@ namespace OloEngine
         m_ShaderLibrary.Load("assets/shaders/Terrain_VoxelDepth.glsl");
         m_ShaderLibrary.Load("assets/shaders/Foliage_Instance.glsl");
         m_ShaderLibrary.Load("assets/shaders/Foliage_Depth.glsl");
+        m_ShaderLibrary.Load("assets/shaders/Water.glsl");
         m_ShaderLibrary.Load("assets/shaders/Decal.glsl");
         m_ShaderLibrary.Load("assets/shaders/OcclusionProxy.glsl");
 
@@ -318,6 +331,7 @@ namespace OloEngine
         s_Data.VoxelDepthShader = m_ShaderLibrary.Get("Terrain_VoxelDepth");
         s_Data.FoliageShader = m_ShaderLibrary.Get("Foliage_Instance");
         s_Data.FoliageDepthShader = m_ShaderLibrary.Get("Foliage_Depth");
+        s_Data.WaterShader = m_ShaderLibrary.Get("Water");
         s_Data.DecalShader = m_ShaderLibrary.Get("Decal");
         s_Data.DecalCubeMesh = MeshPrimitives::CreateCube();
         s_Data.WhiteTexture = Texture2D::Create(TextureSpecification());
@@ -334,6 +348,7 @@ namespace OloEngine
         s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
         s_Data.TerrainUBO = UniformBuffer::Create(ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
         s_Data.FoliageUBO = UniformBuffer::Create(ShaderBindingLayout::FoliageUBO::GetSize(), ShaderBindingLayout::UBO_FOLIAGE);
+        s_Data.WaterUBO = UniformBuffer::Create(ShaderBindingLayout::WaterUBO::GetSize(), ShaderBindingLayout::UBO_WATER);
         s_Data.PostProcessUBO = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0);
         s_Data.MotionBlurUBO = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1);
         s_Data.SSAOUBO = UniformBuffer::Create(SSAOUBOData::GetSize(), ShaderBindingLayout::UBO_SSAO);
@@ -464,6 +479,7 @@ namespace OloEngine
         s_Data.PostProcessPass.Reset();
         s_Data.FinalPass.Reset();
         s_Data.FoliagePass.Reset();
+        s_Data.WaterPass.Reset();
         s_Data.DecalPass.Reset();
         s_Data.RGraph.Reset();
 
@@ -476,6 +492,7 @@ namespace OloEngine
         s_Data.BoneMatricesUBO.Reset();
         s_Data.TerrainUBO.Reset();
         s_Data.FoliageUBO.Reset();
+        s_Data.WaterUBO.Reset();
         s_Data.PostProcessUBO.Reset();
         s_Data.MotionBlurUBO.Reset();
         s_Data.SSAOUBO.Reset();
@@ -550,6 +567,8 @@ namespace OloEngine
             s_Data.DecalPass->GetCommandBucket().SetAllocator(frameAllocator);
         if (s_Data.FoliagePass)
             s_Data.FoliagePass->GetCommandBucket().SetAllocator(frameAllocator);
+        if (s_Data.WaterPass)
+            s_Data.WaterPass->GetCommandBucket().SetAllocator(frameAllocator);
 
         CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
         CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
@@ -583,6 +602,8 @@ namespace OloEngine
             s_Data.DecalPass->ResetCommandBucket();
         if (s_Data.FoliagePass)
             s_Data.FoliagePass->ResetCommandBucket();
+        if (s_Data.WaterPass)
+            s_Data.WaterPass->ResetCommandBucket();
 
         CommandDispatch::ResetState();
 
@@ -830,6 +851,96 @@ namespace OloEngine
         return packet;
     }
 
+    CommandPacket* Renderer3D::DrawWaterSurface(
+        RendererID vertexArrayID, u32 indexCount,
+        const glm::mat4& modelTransform,
+        f32 time,
+        const glm::vec4& waveParams,
+        const glm::vec4& waveDir0,
+        const glm::vec4& waveDir1,
+        const glm::vec4& waterColor,
+        const glm::vec4& waterDeepColor,
+        const glm::vec4& visualParams,
+        const BoundingBox& bounds,
+        i32 entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Data.WaterPass)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawWaterSurface: WaterPass is null!");
+            return nullptr;
+        }
+
+        if (!s_Data.WaterShader)
+        {
+            return nullptr;
+        }
+
+        // Frustum cull the water surface
+        if (s_Data.FrustumCullingEnabled)
+        {
+            BoundingBox worldBounds = bounds.Transform(modelTransform);
+            if (!s_Data.ViewFrustum.IsBoundingBoxVisible(worldBounds))
+            {
+                return nullptr;
+            }
+        }
+
+        CommandPacket* packet = CreateWaterDrawCall<DrawWaterCommand>();
+        if (!packet)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawWaterSurface: Failed to allocate water command packet!");
+            return nullptr;
+        }
+        auto* cmd = packet->GetCommandData<DrawWaterCommand>();
+        cmd->header.type = CommandType::DrawWater;
+
+        cmd->vertexArrayID = vertexArrayID;
+        cmd->indexCount = indexCount;
+        cmd->shaderRendererID = s_Data.WaterShader->GetRendererID();
+        cmd->modelTransform = modelTransform;
+        cmd->normalMatrix = glm::transpose(glm::inverse(modelTransform));
+
+        // Pack time into waveParams.x
+        glm::vec4 wp = waveParams;
+        wp.x = time;
+        cmd->waveParams = wp;
+        cmd->waveDir0 = waveDir0;
+        cmd->waveDir1 = waveDir1;
+        cmd->waterColor = waterColor;
+        cmd->waterDeepColor = waterDeepColor;
+        cmd->visualParams = visualParams;
+        cmd->entityID = entityID;
+
+        // Water render state: translucent, depth test on, depth write off, alpha blend
+        {
+            PODRenderState waterState = CreateDefaultPODRenderState();
+            waterState.depthTestEnabled = true;
+            waterState.depthFunction = GL_LEQUAL;
+            waterState.depthWriteMask = false;
+            waterState.blendEnabled = true;
+            waterState.blendSrcFactor = GL_SRC_ALPHA;
+            waterState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+            waterState.cullingEnabled = true;
+            waterState.cullFace = GL_BACK;
+            cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(waterState);
+        }
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+
+        // Sort key: translucent, sorted back-to-front for correct blending
+        PacketMetadata metadata = packet->GetMetadata();
+        u32 shaderID = s_Data.WaterShader->GetRendererID() & 0xFFFF;
+        u32 depth = ComputeDepthForSortKey(modelTransform);
+        metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, 0, depth);
+        metadata.m_IsStatic = false;
+        packet->SetMetadata(metadata);
+
+        return packet;
+    }
+
     void Renderer3D::EndScene()
     {
         OLO_PROFILE_FUNCTION();
@@ -1062,6 +1173,8 @@ namespace OloEngine
             s_Data.DecalPass->GetCommandBucket().SetAllocator(nullptr);
         if (s_Data.FoliagePass)
             s_Data.FoliagePass->GetCommandBucket().SetAllocator(nullptr);
+        if (s_Data.WaterPass)
+            s_Data.WaterPass->GetCommandBucket().SetAllocator(nullptr);
 
         profiler.EndFrame();
 
@@ -1608,6 +1721,26 @@ namespace OloEngine
         }
         // When no SH data is provided, the UBO's Enabled field should already be 0,
         // causing the shader to early-out. The SSBO remains bound from init (zeroed).
+    }
+
+    void Renderer3D::SetGlobalIBL(RendererID irradianceMapID, RendererID prefilterMapID,
+                                  RendererID brdfLutMapID, RendererID environmentMapID,
+                                  f32 iblIntensity)
+    {
+        s_Data.GlobalIrradianceMapID = irradianceMapID;
+        s_Data.GlobalPrefilterMapID = prefilterMapID;
+        s_Data.GlobalBRDFLutMapID = brdfLutMapID;
+        s_Data.GlobalEnvironmentMapID = environmentMapID;
+        s_Data.GlobalIBLIntensity = iblIntensity;
+    }
+
+    void Renderer3D::ClearGlobalIBL()
+    {
+        s_Data.GlobalIrradianceMapID = 0;
+        s_Data.GlobalPrefilterMapID = 0;
+        s_Data.GlobalBRDFLutMapID = 0;
+        s_Data.GlobalEnvironmentMapID = 0;
+        s_Data.GlobalIBLIntensity = 1.0f;
     }
 
     void Renderer3D::SetSceneLights(const Ref<Scene>& scene)
@@ -2176,6 +2309,11 @@ namespace OloEngine
         static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
 
         s_Data.CameraUBO->SetData(&cameraData, expectedSize);
+
+        // Re-bind to ensure this UBO is active at binding point 0.
+        // Other subsystems (e.g. ShadowMap) create their own camera UBOs at the
+        // same binding point, which can overwrite the persistent binding.
+        s_Data.CameraUBO->Bind();
     }
 
     void Renderer3D::UpdateLightPropertiesUBO()
@@ -2260,6 +2398,11 @@ namespace OloEngine
         s_Data.FoliagePass->Init(finalPassSpec);
         s_Data.FoliagePass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
 
+        s_Data.WaterPass = Ref<WaterRenderPass>::Create();
+        s_Data.WaterPass->SetName("WaterPass");
+        s_Data.WaterPass->Init(finalPassSpec);
+        s_Data.WaterPass->SetSceneFramebuffer(s_Data.ScenePass->GetTarget());
+
         s_Data.DecalPass = Ref<DecalRenderPass>::Create();
         s_Data.DecalPass->SetName("DecalPass");
         s_Data.DecalPass->Init(finalPassSpec);
@@ -2289,6 +2432,7 @@ namespace OloEngine
         s_Data.RGraph->AddPass(s_Data.ShadowPass);
         s_Data.RGraph->AddPass(s_Data.ScenePass);
         s_Data.RGraph->AddPass(s_Data.FoliagePass);
+        s_Data.RGraph->AddPass(s_Data.WaterPass);
         s_Data.RGraph->AddPass(s_Data.DecalPass);
         s_Data.RGraph->AddPass(s_Data.SSAOPass);
         s_Data.RGraph->AddPass(s_Data.ParticlePass);
@@ -2300,8 +2444,10 @@ namespace OloEngine
         s_Data.RGraph->AddExecutionDependency("ShadowPass", "ScenePass");
         // ScenePass -> FoliagePass: ordering (foliage renders into scene FB after opaque geometry)
         s_Data.RGraph->AddExecutionDependency("ScenePass", "FoliagePass");
-        // FoliagePass -> DecalPass: ordering (decals need complete depth including foliage)
+        // FoliagePass -> DecalPass: ordering (decals render on opaque surfaces before translucent water)
         s_Data.RGraph->AddExecutionDependency("FoliagePass", "DecalPass");
+        // DecalPass -> WaterPass: ordering (water blends over decals and opaque geometry)
+        s_Data.RGraph->AddExecutionDependency("DecalPass", "WaterPass");
         // DecalPass -> SSAOPass: ordering (SSAO reads scene depth/normals via texture slots)
         s_Data.RGraph->AddExecutionDependency("DecalPass", "SSAOPass");
         // SSAOPass -> ParticlePass: ordering (SSAO must complete before particles render into scene FB)
@@ -2318,7 +2464,7 @@ namespace OloEngine
         // PostProcessPass initial input is the scene FB (overridden by graph's SSSPass -> PostProcessPass
         // piping each frame, which passes SSSPass::GetTarget() = scene FB when SSS is disabled).
         s_Data.PostProcessPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
-        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> FoliagePass -> DecalPass -> SSAOPass -> ParticlePass -> SSSPass -> PostProcessPass -> FinalPass");
+        OLO_CORE_INFO("Renderer3D: Render graph: ShadowPass -> ScenePass -> FoliagePass -> WaterPass -> DecalPass -> SSAOPass -> ParticlePass -> SSSPass -> PostProcessPass -> FinalPass");
 
         s_Data.RGraph->SetFinalPass("FinalPass");
     }
@@ -2508,6 +2654,15 @@ namespace OloEngine
         packet->SetMetadata(metadata);
 
         return packet;
+    }
+
+    void Renderer3D::BindSceneUBOs()
+    {
+        OLO_PROFILE_FUNCTION();
+        if (s_Data.CameraUBO)
+            s_Data.CameraUBO->Bind();
+        if (s_Data.LightPropertiesUBO)
+            s_Data.LightPropertiesUBO->Bind();
     }
 
     void Renderer3D::ApplyGlobalResources()

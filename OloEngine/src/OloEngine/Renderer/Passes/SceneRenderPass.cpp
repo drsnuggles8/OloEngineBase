@@ -89,6 +89,10 @@ namespace OloEngine
         if (capturing)
             captureManager.OnPostBatch(m_CommandBucket);
 
+        // Re-bind scene camera & light UBOs that earlier passes (e.g. ShadowPass)
+        // may have overwritten at the same binding points.
+        Renderer3D::BindSceneUBOs();
+
         // Depth prepass: render all geometry depth-only first, then re-execute
         // with GL_EQUAL and no depth writes for the color pass. This eliminates
         // overdraw from fragment shading of occluded pixels.

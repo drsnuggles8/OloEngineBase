@@ -1,0 +1,126 @@
+Scene: WaterTest.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.3
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+SnowSettings:
+  Enabled: false
+  HeightStart: 2
+  HeightFull: 10
+  SlopeStart: 0.7
+  SlopeFull: 0.3
+  Albedo: [0.95, 0.95, 0.98]
+  Roughness: 0.85
+  SSSColor: [0.4, 0.6, 0.9]
+  SSSIntensity: 0.6
+  SparkleIntensity: 0.8
+  SparkleScale: 1
+  NormalPerturbStrength: 0.15
+  SSSBlurEnabled: false
+  SSSBlurRadius: 2
+  SSSBlurFalloff: 1
+  WindDriftFactor: 0.4
+FogSettings:
+  Enabled: false
+  Mode: 0
+  Color: [0.6, 0.65, 0.75]
+  Density: 0.01
+  Start: 10
+  End: 100
+  HeightFalloff: 0
+  HeightOffset: 0
+  MaxOpacity: 0.8
+  EnableScattering: false
+  RayleighStrength: 0.5
+  MieStrength: 0.003
+  MieDirectionality: 0.76
+  RayleighColor: [0.27, 0.51, 0.83]
+  SunIntensity: 5
+WindSettings:
+  Enabled: false
+  Direction: [1, 0, 0]
+  Speed: 0
+  GustStrength: 0
+  GustFrequency: 0
+  TurbulenceIntensity: 0
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+Entities:
+  - Entity: 900000000000001
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 20, 0]
+      Rotation: [-0.7853982, 0.3926991, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.5, -0.70710677, -0.5]
+      Color: [1, 0.9607843, 0.8980392]
+      Intensity: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false
+  - Entity: 900000000000002
+    TagComponent:
+      Tag: Water Surface
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    WaterComponent:
+      WorldSizeX: 200
+      WorldSizeZ: 200
+      WaveAmplitude: 0.5
+      WaveFrequency: 1
+      WaveSpeed: 1
+      WaveDir0: [1, 0]
+      WaveSteepness0: 0.5
+      WaveDir1: [0.7, 0.7]
+      WaveSteepness1: 0.3
+      WaterColor: [0.1, 0.4, 0.5]
+      DeepColor: [0, 0.1, 0.2]
+      Transparency: 0.6
+      Reflectivity: 0.5
+      FresnelPower: 5
+      SpecularIntensity: 1
+      GridResolutionX: 128
+      GridResolutionZ: 128
+      Enabled: true
+  - Entity: 900000000000003
+    TagComponent:
+      Tag: Backpack
+    TransformComponent:
+      Translation: [0, 3, -8]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    ModelComponent:
+      FilePath: assets/backpack/backpack.obj
+      Visible: true
