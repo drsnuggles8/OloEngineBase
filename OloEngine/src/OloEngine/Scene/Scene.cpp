@@ -2223,9 +2223,11 @@ namespace OloEngine
                     // Lazy mesh initialization / rebuild
                     if (water.m_NeedsRebuild || !water.m_WaterMesh)
                     {
+                        const u32 resX = std::clamp(water.m_GridResolutionX, 2u, 1024u);
+                        const u32 resZ = std::clamp(water.m_GridResolutionZ, 2u, 1024u);
                         water.m_WaterMesh = MeshPrimitives::CreateWaterGrid(
                             water.m_WorldSizeX, water.m_WorldSizeZ,
-                            water.m_GridResolutionX, water.m_GridResolutionZ);
+                            resX, resZ);
                         water.m_NeedsRebuild = false;
                     }
 

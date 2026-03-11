@@ -1097,7 +1097,7 @@ namespace OloEngine
         SanitizeFloat(water.m_WaveSteepness1, 0.0f, 1.0f, 0.3f);
         SanitizeFloat(water.m_Wavelength1, 0.1f, 500.0f, 15.0f);
         SanitizeFloat(water.m_Transparency, 0.0f, 1.0f, 0.6f);
-        SanitizeFloat(water.m_Reflectivity, 0.0f, 1.0f, 0.4f);
+        SanitizeFloat(water.m_Reflectivity, 0.0f, 1.0f, 0.5f);
         SanitizeFloat(water.m_FresnelPower, 0.1f, 20.0f, 5.0f);
         SanitizeFloat(water.m_SpecularIntensity, 0.0f, 10.0f, 1.0f);
 
