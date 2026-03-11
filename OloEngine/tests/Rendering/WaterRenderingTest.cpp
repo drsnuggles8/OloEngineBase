@@ -225,13 +225,9 @@ TEST(WaterRendering, WavelengthPackedIntoWaveDir)
     wc.m_WaveSteepness1 = 0.3f;
     wc.m_Wavelength1 = 18.0f;
 
-    // Simulate the packing that Scene.cpp performs for the shader UBO
-    glm::vec4 waveDir0 = glm::vec4(
-        wc.m_WaveDir0.x, wc.m_WaveDir0.y,
-        wc.m_WaveSteepness0, wc.m_Wavelength0);
-    glm::vec4 waveDir1 = glm::vec4(
-        wc.m_WaveDir1.x, wc.m_WaveDir1.y,
-        wc.m_WaveSteepness1, wc.m_Wavelength1);
+    // Use the same packing helper that Scene.cpp calls at runtime
+    glm::vec4 waveDir0 = wc.PackWaveDir0();
+    glm::vec4 waveDir1 = wc.PackWaveDir1();
 
     EXPECT_FLOAT_EQ(waveDir0.w, 12.0f) << "waveDir0.w must carry wavelength0";
     EXPECT_FLOAT_EQ(waveDir1.w, 18.0f) << "waveDir1.w must carry wavelength1";

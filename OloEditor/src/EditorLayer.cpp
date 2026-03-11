@@ -700,10 +700,14 @@ namespace OloEngine
 
     void EditorLayer::ApplyDefault3DCameraPose()
     {
+        OLO_PROFILE_FUNCTION();
+
         // Elevated and looking slightly down so the infinite grid on the XZ
         // plane is visible.  Without this the camera sits at Y=0 with zero
         // pitch, making every view ray parallel to the grid plane.
+        m_EditorCamera.SetPosition({ 0.0f, 5.0f, 10.0f });
         m_EditorCamera.SetPitch(-0.4f);
+        m_EditorCamera.SetYaw(0.0f);
     }
 
     void EditorLayer::UI_Settings()

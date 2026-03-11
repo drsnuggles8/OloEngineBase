@@ -1372,8 +1372,6 @@ namespace OloEngine
         for (auto entity : view)
         {
             auto& envMapComp = view.get<EnvironmentMapComponent>(entity);
-            if (!envMapComp.m_EnableSkybox)
-                continue;
 
             // Lazy load environment map from file path if not already loaded
             if (!envMapComp.m_EnvironmentMap && !envMapComp.m_FilePath.empty())
@@ -1406,31 +1404,38 @@ namespace OloEngine
                 }
             }
 
-            if (envMapComp.m_EnvironmentMap && envMapComp.m_EnvironmentMap->GetEnvironmentMap())
+            if (!envMapComp.m_EnvironmentMap)
+            {
+                continue;
+            }
+
+            // Submit skybox draw if enabled
+            if (envMapComp.m_EnableSkybox && envMapComp.m_EnvironmentMap->GetEnvironmentMap())
             {
                 auto* skyboxPacket = Renderer3D::DrawSkybox(envMapComp.m_EnvironmentMap->GetEnvironmentMap());
                 if (skyboxPacket)
                 {
                     Renderer3D::SubmitPacket(skyboxPacket);
                 }
-
-                // Wire IBL textures to the renderer when the component has IBL enabled
-                if (envMapComp.m_EnableIBL && envMapComp.m_EnvironmentMap->HasIBL())
-                {
-                    auto& envMap = envMapComp.m_EnvironmentMap;
-                    Renderer3D::SetGlobalIBL(
-                        envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0,
-                        envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0,
-                        envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0,
-                        envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRendererID() : 0,
-                        envMapComp.m_IBLIntensity);
-                }
-                else
-                {
-                    Renderer3D::ClearGlobalIBL();
-                }
             }
-            return; // Only use first environment map with skybox enabled
+
+            // Wire IBL textures independently of skybox visibility
+            if (envMapComp.m_EnableIBL && envMapComp.m_EnvironmentMap->HasIBL())
+            {
+                auto& envMap = envMapComp.m_EnvironmentMap;
+                Renderer3D::SetGlobalIBL(
+                    envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0,
+                    envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0,
+                    envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0,
+                    envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRendererID() : 0,
+                    envMapComp.m_IBLIntensity);
+            }
+            else
+            {
+                Renderer3D::ClearGlobalIBL();
+            }
+
+            return; // Only use first environment map
         }
     }
 
@@ -2245,12 +2250,8 @@ namespace OloEngine
                         water.m_WaveSpeed,
                         water.m_WaveAmplitude,
                         water.m_WaveFrequency);
-                    glm::vec4 waveDir0 = glm::vec4(
-                        water.m_WaveDir0.x, water.m_WaveDir0.y,
-                        water.m_WaveSteepness0, water.m_Wavelength0);
-                    glm::vec4 waveDir1 = glm::vec4(
-                        water.m_WaveDir1.x, water.m_WaveDir1.y,
-                        water.m_WaveSteepness1, water.m_Wavelength1);
+                    glm::vec4 waveDir0 = water.PackWaveDir0();
+                    glm::vec4 waveDir1 = water.PackWaveDir1();
                     glm::vec4 waterColor = glm::vec4(
                         water.m_WaterColor, water.m_Transparency);
                     glm::vec4 waterDeepColor = glm::vec4(

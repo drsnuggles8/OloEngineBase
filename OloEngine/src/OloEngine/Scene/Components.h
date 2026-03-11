@@ -977,6 +977,16 @@ namespace OloEngine
         Ref<Mesh> m_WaterMesh;
         bool m_NeedsRebuild = true;
 
+        // Pack wave direction + steepness + wavelength into a vec4 for shader UBO.
+        [[nodiscard]] glm::vec4 PackWaveDir0() const
+        {
+            return { m_WaveDir0.x, m_WaveDir0.y, m_WaveSteepness0, m_Wavelength0 };
+        }
+        [[nodiscard]] glm::vec4 PackWaveDir1() const
+        {
+            return { m_WaveDir1.x, m_WaveDir1.y, m_WaveSteepness1, m_Wavelength1 };
+        }
+
         WaterComponent() = default;
         WaterComponent(const WaterComponent& other)
         {

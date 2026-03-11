@@ -79,6 +79,19 @@ namespace OloEngine
         }
     }
 
+    /// Replace any vec2 that contains a non-finite component with \p fallback.
+    static void SanitizeVec2(glm::vec2& v, const glm::vec2& fallback)
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            if (!std::isfinite(v[i]))
+            {
+                v = fallback;
+                return;
+            }
+        }
+    }
+
     /// Per-component: replace non-finite with fallback component, then clamp to [lo, hi].
     static void SanitizeVec3Clamped(glm::vec3& v, f32 lo, f32 hi, const glm::vec3& fallback)
     {
@@ -1087,6 +1100,12 @@ namespace OloEngine
         SanitizeFloat(water.m_Reflectivity, 0.0f, 1.0f, 0.4f);
         SanitizeFloat(water.m_FresnelPower, 0.1f, 20.0f, 5.0f);
         SanitizeFloat(water.m_SpecularIntensity, 0.0f, 10.0f, 1.0f);
+
+        // Sanitize vec2/vec3 fields
+        SanitizeVec2(water.m_WaveDir0, { 1.0f, 0.0f });
+        SanitizeVec2(water.m_WaveDir1, { 0.7f, 0.7f });
+        SanitizeVec3(water.m_WaterColor, { 0.1f, 0.4f, 0.5f });
+        SanitizeVec3(water.m_DeepColor, { 0.0f, 0.1f, 0.2f });
 
         water.m_NeedsRebuild = true;
     }

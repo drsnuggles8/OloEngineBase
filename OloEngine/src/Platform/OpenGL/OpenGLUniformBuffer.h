@@ -10,7 +10,7 @@ namespace OloEngine
     {
       public:
         OpenGLUniformBuffer(const u32 size, const u32 binding);
-        OpenGLUniformBuffer(const u32 size, const u32 binding, const GLenum usage);
+        OpenGLUniformBuffer(const u32 size, const u32 binding, const GLbitfield flags);
         ~OpenGLUniformBuffer() override;
 
         void SetData(const UniformData& data) override;

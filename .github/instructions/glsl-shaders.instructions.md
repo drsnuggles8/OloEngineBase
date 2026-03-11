@@ -39,9 +39,9 @@ All UBO blocks **must** use `layout(std140, binding = N)`. Block names and membe
 | 0 | `CameraMatrices` | `u_ViewProjection`, `u_View`, `u_Projection`, `u_CameraPosition` |
 | 1 | `LightProperties` | Direction, color, intensity, shadow params |
 | 2 | `MaterialProperties` | Albedo, roughness, metallic, emission |
-| 3 | `ModelMatrices` | `u_Model`, `u_NormalMatrix`, `u_EntityID` |
+| 3 | `ModelMatrices` | `u_Model`, `u_Normal`, `u_EntityID` |
 | 4 | `AnimationMatrices` | Bone matrices array |
-| 5 | `MultiLightData` | Light array for multi-light passes |
+| 5 | `MultiLightBuffer` | Light array for multi-light passes |
 | 6 | `ShadowData` | CSM + spot/point shadow VP matrices |
 | 9 | `SSAOParams` | Radius, bias, intensity, sample count |
 | 10 | `TerrainData` | Height scale, layer tiling, tessellation |

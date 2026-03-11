@@ -2829,18 +2829,22 @@ namespace OloEngine
                 ImGui::DragFloat("Amplitude", &component.m_WaveAmplitude, 0.01f, 0.0f, 100.0f);
                 ImGui::DragFloat("Frequency", &component.m_WaveFrequency, 0.01f, 0.0f, 100.0f);
                 ImGui::DragFloat("Speed", &component.m_WaveSpeed, 0.01f, 0.0f, 100.0f);
-                ImGui::DragFloat2("Direction 0", glm::value_ptr(component.m_WaveDir0), 0.01f, -1.0f, 1.0f);
-                if (f32 len = glm::length(component.m_WaveDir0); len > 1e-6f)
-                    component.m_WaveDir0 = glm::normalize(component.m_WaveDir0);
-                else
-                    component.m_WaveDir0 = { 1.0f, 0.0f };
+                if (ImGui::DragFloat2("Direction 0", glm::value_ptr(component.m_WaveDir0), 0.01f, -1.0f, 1.0f))
+                {
+                    if (f32 len = glm::length(component.m_WaveDir0); len > 1e-6f)
+                        component.m_WaveDir0 = glm::normalize(component.m_WaveDir0);
+                    else
+                        component.m_WaveDir0 = { 1.0f, 0.0f };
+                }
                 ImGui::DragFloat("Steepness 0", &component.m_WaveSteepness0, 0.01f, 0.0f, 1.0f);
                 ImGui::DragFloat("Wavelength 0", &component.m_Wavelength0, 0.1f, 0.1f, 500.0f);
-                ImGui::DragFloat2("Direction 1", glm::value_ptr(component.m_WaveDir1), 0.01f, -1.0f, 1.0f);
-                if (f32 len = glm::length(component.m_WaveDir1); len > 1e-6f)
-                    component.m_WaveDir1 = glm::normalize(component.m_WaveDir1);
-                else
-                    component.m_WaveDir1 = { 0.7071f, 0.7071f };
+                if (ImGui::DragFloat2("Direction 1", glm::value_ptr(component.m_WaveDir1), 0.01f, -1.0f, 1.0f))
+                {
+                    if (f32 len = glm::length(component.m_WaveDir1); len > 1e-6f)
+                        component.m_WaveDir1 = glm::normalize(component.m_WaveDir1);
+                    else
+                        component.m_WaveDir1 = { 0.7071f, 0.7071f };
+                }
                 ImGui::DragFloat("Steepness 1", &component.m_WaveSteepness1, 0.01f, 0.0f, 1.0f);
                 ImGui::DragFloat("Wavelength 1", &component.m_Wavelength1, 0.1f, 0.1f, 500.0f);
 
