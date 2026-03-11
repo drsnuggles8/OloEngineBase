@@ -426,6 +426,7 @@ namespace OloEngine
             ImGui::MenuItem("Animation Panel", nullptr, &m_ShowAnimationPanel);
             ImGui::MenuItem("Post Process Settings", nullptr, &m_ShowPostProcessSettings);
             ImGui::MenuItem("Terrain Editor", nullptr, &m_ShowTerrainEditor);
+            ImGui::MenuItem("Scene Streaming", nullptr, &m_ShowStreamingPanel);
 
             ImGui::EndMenu();
         }
@@ -695,6 +696,12 @@ namespace OloEngine
         {
             m_TerrainEditorPanel.SetContext(m_ActiveScene);
             m_TerrainEditorPanel.OnImGuiRender();
+        }
+
+        // Streaming Panel
+        if (m_ShowStreamingPanel)
+        {
+            m_StreamingPanel.OnImGuiRender();
         }
     }
 
@@ -1306,6 +1313,7 @@ namespace OloEngine
         m_SceneHierarchyPanel.SetContext(m_EditorScene);
         m_AnimationPanel.SetContext(m_EditorScene);
         m_TerrainEditorPanel.SetContext(m_EditorScene);
+        m_StreamingPanel.SetContext(m_EditorScene);
 
         m_ActiveScene = m_EditorScene;
 

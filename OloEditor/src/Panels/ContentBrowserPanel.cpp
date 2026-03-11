@@ -52,6 +52,8 @@ namespace OloEngine
         { ".vert", ContentFileType::Shader },
         { ".frag", ContentFileType::Shader },
         { ".hlsl", ContentFileType::Shader },
+        // Streaming Regions
+        { ".oloregion", ContentFileType::StreamingRegion },
     };
 
     ContentBrowserPanel::ContentBrowserPanel()
@@ -169,6 +171,9 @@ namespace OloEngine
                         break;
                     case ContentFileType::Audio:
                         payloadType = "CONTENT_BROWSER_AUDIO";
+                        break;
+                    case ContentFileType::StreamingRegion:
+                        payloadType = "CONTENT_BROWSER_REGION";
                         break;
                     default:
                         break;

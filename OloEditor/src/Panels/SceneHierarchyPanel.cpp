@@ -15,6 +15,7 @@
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
+#include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
 #include <imgui.h>
@@ -937,6 +938,7 @@ namespace OloEngine
             DisplayAddComponentEntry<UIToggleComponent>("UI Toggle");
             DisplayAddComponentEntry<LightProbeComponent>("Light Probe");
             DisplayAddComponentEntry<LightProbeVolumeComponent>("Light Probe Volume");
+            DisplayAddComponentEntry<StreamingVolumeComponent>("Streaming Volume");
 
             ImGui::EndPopup();
         }
@@ -3020,6 +3022,61 @@ namespace OloEngine
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "Complete!");
                 } });
+
+        DrawComponent<StreamingVolumeComponent>("Streaming Volume", entity, [](auto& component)
+                                                {
+            // Region assignment: show current handle and browse button
+            ImGui::Text("Region ID: %llu", static_cast<unsigned long long>(static_cast<u64>(component.RegionAssetHandle)));
+
+            if (ImGui::Button("Browse Region File..."))
+            {
+                std::string filepath = FileDialogs::OpenFile(
+                    "Streaming Region (*.oloregion)\0*.oloregion\0");
+                if (!filepath.empty())
+                {
+                    // Parse the .oloregion header to extract RegionID
+                    auto data = StreamingRegionSerializer::ParseRegionFile(filepath);
+                    if (data && data["RegionID"])
+                    {
+                        component.RegionAssetHandle = data["RegionID"].as<u64>(0);
+                    }
+                }
+            }
+
+            // Drag-drop from ContentBrowser
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_REGION"))
+                {
+                    auto const* const path = static_cast<wchar_t const*>(payload->Data);
+                    std::filesystem::path regionPath(path);
+                    auto data = StreamingRegionSerializer::ParseRegionFile(regionPath);
+                    if (data && data["RegionID"])
+                    {
+                        component.RegionAssetHandle = data["RegionID"].as<u64>(0);
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            // Activation mode combo
+            const char* modeNames[] = { "Proximity", "Manual" };
+            int currentMode = static_cast<int>(component.ActivationMode);
+            if (ImGui::Combo("Activation Mode", &currentMode, modeNames, IM_ARRAYSIZE(modeNames)))
+            {
+                component.ActivationMode = static_cast<StreamingActivationMode>(currentMode);
+            }
+
+            ImGui::DragFloat("Load Radius", &component.LoadRadius, 1.0f, 10.0f, 10000.0f);
+            ImGui::DragFloat("Unload Radius", &component.UnloadRadius, 1.0f, 10.0f, 10000.0f);
+
+            if (component.UnloadRadius < component.LoadRadius)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.0f, 1.0f),
+                    "Warning: Unload < Load radius causes thrashing");
+            }
+
+            ImGui::Text("Loaded: %s", component.IsLoaded ? "Yes" : "No"); });
     }
 
     template<typename T>

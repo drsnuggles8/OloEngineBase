@@ -36,6 +36,8 @@
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/TerrainTile.h"
 #include "OloEngine/Terrain/TerrainStreamer.h"
+#include "OloEngine/Scene/Streaming/SceneStreamer.h"
+#include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
 #include "OloEngine/Terrain/Voxel/MarchingCubes.h"
 #include "OloEngine/Core/Input.h"
@@ -307,11 +309,30 @@ namespace OloEngine
                 }
             }
         }
+
+        // Scene streaming initialization
+        if (m_StreamingSettings.Enabled)
+        {
+            m_SceneStreamer = std::make_unique<SceneStreamer>();
+            SceneStreamerConfig config;
+            config.LoadRadius = m_StreamingSettings.DefaultLoadRadius;
+            config.UnloadRadius = m_StreamingSettings.DefaultUnloadRadius;
+            config.MaxLoadedRegions = m_StreamingSettings.MaxLoadedRegions;
+            config.RegionDirectory = m_StreamingSettings.RegionDirectory;
+            m_SceneStreamer->Initialize(this, config);
+        }
     }
 
     void Scene::OnRuntimeStop()
     {
         m_IsRunning = false;
+
+        // Shut down streaming before other systems
+        if (m_SceneStreamer)
+        {
+            m_SceneStreamer->Shutdown();
+            m_SceneStreamer.reset();
+        }
 
         ScriptEngine::OnRuntimeStop();
 
@@ -440,6 +461,18 @@ namespace OloEngine
 
     void Scene::OnUpdateRuntime(Timestep const ts)
     {
+        // Scene streaming update (runs even when paused to finish pending loads)
+        if (m_SceneStreamer)
+        {
+            glm::vec3 camPos{ 0.0f };
+            if (auto cam = GetPrimaryCameraEntity(); cam)
+            {
+                camPos = cam.GetComponent<TransformComponent>().Translation;
+            }
+            ++m_TerrainFrameCounter;
+            m_SceneStreamer->Update(camPos, m_TerrainFrameCounter);
+        }
+
         if (!m_IsPaused || m_StepFrames-- > 0)
         {
             // Update scripts
@@ -773,6 +806,12 @@ namespace OloEngine
 
     void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
     {
+        // Scene streaming update (editor preview)
+        if (m_SceneStreamer)
+        {
+            ++m_TerrainFrameCounter;
+            m_SceneStreamer->Update(camera.GetPosition(), m_TerrainFrameCounter);
+        }
 
         // Update particle systems so they preview in the editor
         {
@@ -804,6 +843,35 @@ namespace OloEngine
 
         // UI overlay renders on top of both 2D and 3D scenes
         RenderUIOverlay();
+    }
+
+    void Scene::InitializeEditorStreamer()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_SceneStreamer)
+        {
+            return; // Already running
+        }
+
+        m_SceneStreamer = std::make_unique<SceneStreamer>();
+        SceneStreamerConfig config;
+        config.LoadRadius = m_StreamingSettings.DefaultLoadRadius;
+        config.UnloadRadius = m_StreamingSettings.DefaultUnloadRadius;
+        config.MaxLoadedRegions = m_StreamingSettings.MaxLoadedRegions;
+        config.RegionDirectory = m_StreamingSettings.RegionDirectory;
+        m_SceneStreamer->Initialize(this, config);
+    }
+
+    void Scene::ShutdownEditorStreamer()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_SceneStreamer)
+        {
+            m_SceneStreamer->Shutdown();
+            m_SceneStreamer.reset();
+        }
     }
 
     void Scene::OnViewportResize(const u32 width, const u32 height)
@@ -2676,6 +2744,23 @@ namespace OloEngine
             }
         }
 
+        // Draw streaming volume gizmos (sphere radius indicators)
+        {
+            auto view = m_Registry.view<TransformComponent, StreamingVolumeComponent>();
+            for (auto entity : view)
+            {
+                const auto& [tc, vol] = view.get<TransformComponent, StreamingVolumeComponent>(entity);
+
+                // Load radius: cyan sphere
+                Renderer3D::DrawSphereColliderGizmo(tc.Translation, vol.LoadRadius,
+                                                    glm::vec3(0.2f, 0.8f, 0.9f));
+
+                // Unload radius: dimmed orange sphere
+                Renderer3D::DrawSphereColliderGizmo(tc.Translation, vol.UnloadRadius,
+                                                    glm::vec3(0.9f, 0.5f, 0.2f));
+            }
+        }
+
         // Draw light probe volume gizmos (wireframe box around probe grid bounds)
         {
             auto view = m_Registry.view<LightProbeVolumeComponent>();
@@ -3215,5 +3300,10 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::UIToggleComponent>([[maybe_un
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::ParticleSystemComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ParticleSystemComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::StreamingVolumeComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::StreamingVolumeComponent& component)
 {
 }

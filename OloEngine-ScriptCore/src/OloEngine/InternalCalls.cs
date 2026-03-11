@@ -435,5 +435,29 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void Scene_SetWindTurbulenceIntensity(ref float v);
 		#endregion
+
+		#region StreamingVolumeComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StreamingVolumeComponent_GetLoadRadius(ulong entityID, out float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StreamingVolumeComponent_SetLoadRadius(ulong entityID, ref float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StreamingVolumeComponent_GetUnloadRadius(ulong entityID, out float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StreamingVolumeComponent_SetUnloadRadius(ulong entityID, ref float v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StreamingVolumeComponent_GetIsLoaded(ulong entityID, out bool v);
+		#endregion
+
+		#region SceneStreaming
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_LoadRegion(ulong regionId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_UnloadRegion(ulong regionId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_GetStreamingEnabled(out bool v);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_SetStreamingEnabled(ref bool v);
+		#endregion
 	}
 }

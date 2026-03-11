@@ -982,4 +982,59 @@ namespace OloEngine
 			set => InternalCalls.Scene_SetWindTurbulenceIntensity(ref value);
 		}
 	}
+
+	public class StreamingVolumeComponent : Component
+	{
+		public float LoadRadius
+		{
+			get
+			{
+				InternalCalls.StreamingVolumeComponent_GetLoadRadius(Entity.ID, out float v);
+				return v;
+			}
+			set => InternalCalls.StreamingVolumeComponent_SetLoadRadius(Entity.ID, ref value);
+		}
+
+		public float UnloadRadius
+		{
+			get
+			{
+				InternalCalls.StreamingVolumeComponent_GetUnloadRadius(Entity.ID, out float v);
+				return v;
+			}
+			set => InternalCalls.StreamingVolumeComponent_SetUnloadRadius(Entity.ID, ref value);
+		}
+
+		public bool IsLoaded
+		{
+			get
+			{
+				InternalCalls.StreamingVolumeComponent_GetIsLoaded(Entity.ID, out bool v);
+				return v;
+			}
+		}
+	}
+
+	/// <summary>
+	/// Provides access to scene-level streaming.
+	/// Not a component — use the static members directly.
+	/// </summary>
+	public static class SceneStreaming
+	{
+		public static bool Enabled
+		{
+			get { InternalCalls.Scene_GetStreamingEnabled(out bool v); return v; }
+			set => InternalCalls.Scene_SetStreamingEnabled(ref value);
+		}
+
+		public static void LoadRegion(ulong regionId)
+		{
+			InternalCalls.Scene_LoadRegion(regionId);
+		}
+
+		public static void UnloadRegion(ulong regionId)
+		{
+			InternalCalls.Scene_UnloadRegion(regionId);
+		}
+	}
 }
