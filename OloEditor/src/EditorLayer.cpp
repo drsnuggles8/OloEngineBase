@@ -1259,6 +1259,7 @@ namespace OloEngine
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
         m_AnimationPanel.SetContext(m_ActiveScene);
+        m_StreamingPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneSimulate()
@@ -1275,6 +1276,7 @@ namespace OloEngine
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
         m_AnimationPanel.SetContext(m_ActiveScene);
+        m_StreamingPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneStop()
@@ -1300,6 +1302,7 @@ namespace OloEngine
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
         m_AnimationPanel.SetContext(m_ActiveScene);
+        m_StreamingPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)

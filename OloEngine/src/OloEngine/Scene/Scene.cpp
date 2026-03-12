@@ -469,8 +469,8 @@ namespace OloEngine
             {
                 camPos = cam.GetComponent<TransformComponent>().Translation;
             }
-            ++m_TerrainFrameCounter;
-            m_SceneStreamer->Update(camPos, m_TerrainFrameCounter);
+            ++m_StreamingFrameCounter;
+            m_SceneStreamer->Update(camPos, m_StreamingFrameCounter);
         }
 
         if (!m_IsPaused || m_StepFrames-- > 0)
@@ -809,8 +809,8 @@ namespace OloEngine
         // Scene streaming update (editor preview)
         if (m_SceneStreamer)
         {
-            ++m_TerrainFrameCounter;
-            m_SceneStreamer->Update(camera.GetPosition(), m_TerrainFrameCounter);
+            ++m_StreamingFrameCounter;
+            m_SceneStreamer->Update(camera.GetPosition(), m_StreamingFrameCounter);
         }
 
         // Update particle systems so they preview in the editor

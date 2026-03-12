@@ -2027,6 +2027,14 @@ namespace OloEngine
             TrySetEnum(sv.ActivationMode, svComponent["ActivationMode"]);
             TrySet(sv.LoadRadius, svComponent["LoadRadius"]);
             TrySet(sv.UnloadRadius, svComponent["UnloadRadius"]);
+
+            // Sanitize
+            if (static_cast<u8>(sv.ActivationMode) > static_cast<u8>(StreamingActivationMode::Manual))
+            {
+                sv.ActivationMode = StreamingActivationMode::Proximity;
+            }
+            sv.LoadRadius = std::max(sv.LoadRadius, 1.0f);
+            sv.UnloadRadius = std::max(sv.UnloadRadius, sv.LoadRadius + 1.0f);
         }
     }
 
@@ -2037,6 +2045,7 @@ namespace OloEngine
 
     void SceneSerializer::SerializeEntity(YAML::Emitter& out, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(entity.HasComponent<IDComponent>());
 
         out << YAML::BeginMap; // Entity
@@ -3449,6 +3458,11 @@ namespace OloEngine
             TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
             TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
             TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
+
+            // Sanitize
+            ss.DefaultLoadRadius = std::max(ss.DefaultLoadRadius, 1.0f);
+            ss.DefaultUnloadRadius = std::max(ss.DefaultUnloadRadius, ss.DefaultLoadRadius + 1.0f);
+            ss.MaxLoadedRegions = std::max(ss.MaxLoadedRegions, 1u);
         }
 
         if (const auto entities = data["Entities"]; entities)
@@ -3637,6 +3651,11 @@ namespace OloEngine
             TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
             TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
             TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
+
+            // Sanitize
+            ss.DefaultLoadRadius = std::max(ss.DefaultLoadRadius, 1.0f);
+            ss.DefaultUnloadRadius = std::max(ss.DefaultUnloadRadius, ss.DefaultLoadRadius + 1.0f);
+            ss.MaxLoadedRegions = std::max(ss.MaxLoadedRegions, 1u);
         }
 
         auto entities = data["Entities"];
@@ -3679,6 +3698,11 @@ namespace OloEngine
 
         for (auto entity : entitiesNode)
         {
+            if (!entity["Entity"])
+            {
+                OLO_CORE_WARN("DeserializeAdditive: skipping entity node without 'Entity' key");
+                continue;
+            }
             auto uuid = entity["Entity"].as<u64>();
 
             // Skip if entity already exists in the scene

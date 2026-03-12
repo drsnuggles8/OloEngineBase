@@ -12,6 +12,6 @@ namespace OloEngine
         f32 DefaultLoadRadius = 200.0f;
         f32 DefaultUnloadRadius = 250.0f;
         u32 MaxLoadedRegions = 16;
-        std::string RegionDirectory; // Relative to scene file
+        std::string RegionDirectory; // Relative to working directory
     };
 } // namespace OloEngine

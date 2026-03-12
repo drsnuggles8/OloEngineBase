@@ -36,6 +36,8 @@ namespace OloEngine
 
     void StreamingPanel::DrawSettingsSection()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& ss = m_Context->GetStreamingSettings();
 
         if (ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_DefaultOpen))
@@ -84,6 +86,8 @@ namespace OloEngine
 
     void StreamingPanel::DrawExportSection()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (ImGui::CollapsingHeader("Export Region"))
         {
             ImGui::Indent();
@@ -200,11 +204,13 @@ namespace OloEngine
         serializer.Serialize(region, savePath);
 
         OLO_CORE_INFO("Exported streaming region '{}' with {} entities to '{}'",
-                       m_ExportRegionName, region->m_EntityUUIDs.size(), savePath);
+                      m_ExportRegionName, region->m_EntityUUIDs.size(), savePath);
     }
 
     void StreamingPanel::DrawRegionsSection()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto* streamer = m_Context->GetSceneStreamer();
         if (!streamer)
         {
@@ -230,14 +236,25 @@ namespace OloEngine
                 const char* stateStr = "Unknown";
                 switch (region->m_State)
                 {
-                    case StreamingRegion::State::Unloaded:  stateStr = "Unloaded"; break;
-                    case StreamingRegion::State::Loading:   stateStr = "Loading";  break;
-                    case StreamingRegion::State::Loaded:    stateStr = "Loaded";   break;
-                    case StreamingRegion::State::Ready:     stateStr = "Ready";    break;
-                    case StreamingRegion::State::Unloading: stateStr = "Unloading"; break;
+                    case StreamingRegion::State::Unloaded:
+                        stateStr = "Unloaded";
+                        break;
+                    case StreamingRegion::State::Loading:
+                        stateStr = "Loading";
+                        break;
+                    case StreamingRegion::State::Loaded:
+                        stateStr = "Loaded";
+                        break;
+                    case StreamingRegion::State::Ready:
+                        stateStr = "Ready";
+                        break;
+                    case StreamingRegion::State::Unloading:
+                        stateStr = "Unloading";
+                        break;
                 }
 
-                ImGui::PushID(static_cast<int>(static_cast<u64>(id)));
+                auto idStr = std::to_string(static_cast<u64>(id));
+                ImGui::PushID(idStr.c_str());
 
                 bool nodeOpen = ImGui::TreeNode("", "%s [%s]", region->m_Name.c_str(), stateStr);
                 if (nodeOpen)
@@ -277,6 +294,8 @@ namespace OloEngine
 
     void StreamingPanel::DrawDebugSection()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto* streamer = m_Context->GetSceneStreamer();
         if (!streamer)
         {

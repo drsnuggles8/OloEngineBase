@@ -20,10 +20,10 @@ namespace OloEngine
 
     struct SceneStreamerConfig
     {
-        f32 LoadRadius = 200.0f;       // Distance to start loading
-        f32 UnloadRadius = 250.0f;     // Distance to trigger unload (hysteresis)
-        u32 MaxLoadedRegions = 16;     // LRU budget
-        std::string RegionDirectory;   // Path to .oloregion files
+        f32 LoadRadius = 200.0f;     // Distance to start loading
+        f32 UnloadRadius = 250.0f;   // Distance to trigger unload (hysteresis)
+        u32 MaxLoadedRegions = 16;   // LRU budget
+        std::string RegionDirectory; // Path to .oloregion files
     };
 
     class SceneStreamer
@@ -46,11 +46,21 @@ namespace OloEngine
         void SetActivationEntity(UUID entityId);
 
         // Accessors for editor panel
-        [[nodiscard]] const SceneStreamerConfig& GetConfig() const { return m_Config; }
-        [[nodiscard]] SceneStreamerConfig& GetConfig() { return m_Config; }
+        [[nodiscard]] const SceneStreamerConfig& GetConfig() const
+        {
+            return m_Config;
+        }
+        [[nodiscard]] SceneStreamerConfig& GetConfig()
+        {
+            return m_Config;
+        }
         [[nodiscard]] u32 GetLoadedRegionCount() const;
         [[nodiscard]] u32 GetPendingLoadCount() const;
-        [[nodiscard]] const std::unordered_map<RegionID, Ref<StreamingRegion>>& GetRegions() const { return m_Regions; }
+        [[nodiscard]] const std::unordered_map<RegionID, Ref<StreamingRegion>>& GetRegions() const
+        {
+            std::lock_guard lock(m_RegionMutex);
+            return m_Regions;
+        }
 
       private:
         void DiscoverRegions();
@@ -76,6 +86,6 @@ namespace OloEngine
 
         mutable std::mutex m_RegionMutex; // Protects m_Regions
         u64 m_CurrentFrame = 0;
-        UUID m_ActivationEntityId{};      // 0 = use primary camera
+        UUID m_ActivationEntityId{}; // 0 = use primary camera
     };
 } // namespace OloEngine

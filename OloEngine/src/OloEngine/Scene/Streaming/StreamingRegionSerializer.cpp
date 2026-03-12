@@ -43,7 +43,17 @@ namespace OloEngine
         out << YAML::EndSeq;
         out << YAML::EndMap;
 
+        if (auto parentDir = path.parent_path(); !parentDir.empty())
+        {
+            std::filesystem::create_directories(parentDir);
+        }
+
         std::ofstream fout(path);
+        if (!fout)
+        {
+            OLO_CORE_ERROR("StreamingRegionSerializer: Failed to open file for writing: {0}", path.string());
+            return;
+        }
         fout << out.c_str();
     }
 

@@ -8,6 +8,8 @@
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 
 #include <glm/glm.hpp>
+#include <filesystem>
+#include <fstream>
 
 using namespace OloEngine;
 
@@ -201,4 +203,47 @@ TEST(StreamingActivationMode, EnumValues)
 {
     EXPECT_EQ(static_cast<u8>(StreamingActivationMode::Proximity), 0u);
     EXPECT_EQ(static_cast<u8>(StreamingActivationMode::Manual), 1u);
+}
+
+// ============================================================
+// Round-trip Serialization Tests
+// ============================================================
+
+TEST(StreamingRegionSerializer, MetadataRoundTrip)
+{
+    // Build a minimal .oloregion YAML in memory
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    out << YAML::Key << "Region" << YAML::Value << "TestRegion";
+    out << YAML::Key << "RegionID" << YAML::Value << static_cast<u64>(42);
+    out << YAML::Key << "BoundsMin" << YAML::Value << YAML::Flow << YAML::BeginSeq << -10.0f << -5.0f << -20.0f << YAML::EndSeq;
+    out << YAML::Key << "BoundsMax" << YAML::Value << YAML::Flow << YAML::BeginSeq << 10.0f << 50.0f << 20.0f << YAML::EndSeq;
+    out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq << YAML::EndSeq;
+    out << YAML::EndMap;
+
+    // Write to temp file
+    auto tempPath = std::filesystem::temp_directory_path() / "test_region_roundtrip.oloregion";
+    {
+        std::ofstream fout(tempPath);
+        ASSERT_TRUE(fout.good());
+        fout << out.c_str();
+    }
+
+    // Read back and verify metadata
+    auto data = StreamingRegionSerializer::ParseRegionFile(tempPath);
+    ASSERT_TRUE(data["Region"]);
+
+    auto meta = StreamingRegionSerializer::ReadMetadata(data);
+    EXPECT_EQ(meta.Name, "TestRegion");
+    EXPECT_EQ(static_cast<u64>(meta.RegionID), 42u);
+    EXPECT_FLOAT_EQ(meta.BoundsMin.x, -10.0f);
+    EXPECT_FLOAT_EQ(meta.BoundsMin.y, -5.0f);
+    EXPECT_FLOAT_EQ(meta.BoundsMin.z, -20.0f);
+    EXPECT_FLOAT_EQ(meta.BoundsMax.x, 10.0f);
+    EXPECT_FLOAT_EQ(meta.BoundsMax.y, 50.0f);
+    EXPECT_FLOAT_EQ(meta.BoundsMax.z, 20.0f);
+    EXPECT_EQ(meta.EntityCount, 0u);
+
+    // Cleanup
+    std::filesystem::remove(tempPath);
 }

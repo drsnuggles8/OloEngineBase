@@ -236,6 +236,9 @@ namespace OloEngine
                     case ContentFileType::Shader:
                         ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.3f, 1.0f), "Shader");
                         break;
+                    case ContentFileType::StreamingRegion:
+                        ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.8f, 1.0f), "Streaming Region");
+                        break;
                     default:
                         break;
                 }
@@ -529,6 +532,8 @@ namespace OloEngine
                 return m_MaterialIcon;
             case ContentFileType::Shader:
                 return m_ShaderIcon;
+            case ContentFileType::StreamingRegion:
+                return m_SceneIcon;
             default:
                 return m_FileIcon;
         }

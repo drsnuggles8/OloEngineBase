@@ -9,11 +9,29 @@
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 
+// Box2D
+#include "box2d/box2d.h"
+
 #include <algorithm>
 #include <filesystem>
 
 namespace OloEngine
 {
+    [[nodiscard("Store this!")]] static b2BodyType ToBox2DBodyType(const Rigidbody2DComponent::BodyType bodyType)
+    {
+        switch (bodyType)
+        {
+            using enum OloEngine::Rigidbody2DComponent::BodyType;
+            case Static:
+                return b2_staticBody;
+            case Dynamic:
+                return b2_dynamicBody;
+            case Kinematic:
+                return b2_kinematicBody;
+        }
+        return b2_staticBody;
+    }
+
     SceneStreamer::~SceneStreamer()
     {
         Shutdown();
@@ -143,7 +161,7 @@ namespace OloEngine
 
             RegionID regionId(static_cast<u64>(vol.RegionAssetHandle));
 
-            std::lock_guard lock(m_RegionMutex);
+            std::unique_lock lock(m_RegionMutex);
             auto it = m_Regions.find(regionId);
             if (it == m_Regions.end())
             {
@@ -151,20 +169,22 @@ namespace OloEngine
             }
 
             auto& region = it->second;
-            region->m_LastUsedFrame = frameNumber;
 
             if (distSq < vol.LoadRadius * vol.LoadRadius && region->m_State == StreamingRegion::State::Unloaded)
             {
+                region->m_LastUsedFrame = frameNumber;
                 RequestRegionLoad(regionId);
-                vol.IsLoaded = true;
             }
             else if (distSq > vol.UnloadRadius * vol.UnloadRadius && region->m_State == StreamingRegion::State::Ready)
             {
                 // Release lock before UnloadRegion (it acquires lock internally)
-                m_RegionMutex.unlock();
+                lock.unlock();
                 UnloadRegion(regionId);
-                m_RegionMutex.lock();
                 vol.IsLoaded = false;
+            }
+            else if (region->m_State == StreamingRegion::State::Ready)
+            {
+                region->m_LastUsedFrame = frameNumber;
             }
         }
 
@@ -206,6 +226,7 @@ namespace OloEngine
         region->m_State = StreamingRegion::State::Unloading;
 
         // Physics bodies must be destroyed BEFORE entity destruction
+        // 3D (Jolt)
         if (auto* jolt = m_Scene->GetJoltScene(); jolt)
         {
             for (auto uuid : region->m_EntityUUIDs)
@@ -213,6 +234,26 @@ namespace OloEngine
                 if (auto entity = m_Scene->TryGetEntityWithUUID(uuid); entity)
                 {
                     jolt->DestroyBody(*entity);
+                }
+            }
+        }
+
+        // 2D (Box2D)
+        if (b2World_IsValid(m_Scene->m_PhysicsWorld))
+        {
+            for (auto uuid : region->m_EntityUUIDs)
+            {
+                if (auto entity = m_Scene->TryGetEntityWithUUID(uuid); entity)
+                {
+                    if (entity->HasComponent<Rigidbody2DComponent>())
+                    {
+                        auto& rb2d = entity->GetComponent<Rigidbody2DComponent>();
+                        if (b2Body_IsValid(rb2d.RuntimeBody))
+                        {
+                            b2DestroyBody(rb2d.RuntimeBody);
+                            rb2d.RuntimeBody = b2_nullBodyId;
+                        }
+                    }
                 }
             }
         }
@@ -272,7 +313,7 @@ namespace OloEngine
 
         auto task = Tasks::Launch(
             "SceneRegionLoad",
-            [region, path]() mutable -> bool
+            [region, path, &mutex = m_RegionMutex]() mutable -> bool
             {
                 OLO_PROFILE_SCOPE("StreamingRegion::Parse");
                 auto data = StreamingRegionSerializer::ParseRegionFile(path);
@@ -280,6 +321,7 @@ namespace OloEngine
                 {
                     return false;
                 }
+                std::lock_guard lock(mutex);
                 region->m_RawData = std::move(data);
                 region->m_State = StreamingRegion::State::Loaded;
                 return true;
@@ -314,8 +356,8 @@ namespace OloEngine
             if (success && region->m_State == StreamingRegion::State::Loaded && m_Scene)
             {
                 // Phase 2: main-thread entity instantiation
-                Ref<Scene> sceneRef{m_Scene};
-                SceneSerializer serializer{sceneRef};
+                Ref<Scene> sceneRef{ m_Scene };
+                SceneSerializer serializer{ sceneRef };
                 auto entitiesNode = region->m_RawData["Entities"];
                 if (entitiesNode)
                 {
@@ -328,6 +370,16 @@ namespace OloEngine
 
                 region->m_State = StreamingRegion::State::Ready;
                 region->m_RawData.reset();
+
+                // Update volume component IsLoaded flag
+                auto volView = m_Scene->GetAllEntitiesWith<StreamingVolumeComponent>();
+                for (auto&& [ve, vol] : volView.each())
+                {
+                    if (RegionID(static_cast<u64>(vol.RegionAssetHandle)) == it->RegionId)
+                    {
+                        vol.IsLoaded = true;
+                    }
+                }
 
                 OLO_CORE_TRACE("SceneStreamer: Region '{0}' is now Ready ({1} entities)",
                                region->m_Name, region->m_EntityUUIDs.size());
@@ -347,7 +399,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::lock_guard lock(m_RegionMutex);
+        std::unique_lock lock(m_RegionMutex);
 
         // Count ready regions
         u32 readyCount = 0;
@@ -384,9 +436,9 @@ namespace OloEngine
         for (u32 i = 0; i < toEvict && i < static_cast<u32>(sortedRegions.size()); ++i)
         {
             // Release lock before UnloadRegion (it acquires lock internally)
-            m_RegionMutex.unlock();
+            lock.unlock();
             UnloadRegion(sortedRegions[i].first);
-            m_RegionMutex.lock();
+            lock.lock();
         }
     }
 
@@ -404,11 +456,50 @@ namespace OloEngine
             Entity entity = *optEntity;
 
             // 1. Physics bodies (after ALL components deserialized)
+            // 3D (Jolt)
             if (entity.HasComponent<Rigidbody3DComponent>())
             {
                 if (auto* jolt = m_Scene->GetJoltScene(); jolt)
                 {
                     jolt->CreateBody(entity);
+                }
+            }
+
+            // 2D (Box2D)
+            if (entity.HasComponent<Rigidbody2DComponent>() && b2World_IsValid(m_Scene->m_PhysicsWorld))
+            {
+                auto const& transform = entity.GetComponent<TransformComponent>();
+                auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+
+                b2BodyDef bodyDef = b2DefaultBodyDef();
+                bodyDef.type = ToBox2DBodyType(rb2d.Type);
+                bodyDef.position = { transform.Translation.x, transform.Translation.y };
+                bodyDef.rotation = b2MakeRot(transform.Rotation.z);
+
+                b2BodyId body = b2CreateBody(m_Scene->m_PhysicsWorld, &bodyDef);
+                b2Body_SetFixedRotation(body, rb2d.FixedRotation);
+                rb2d.RuntimeBody = body;
+
+                if (entity.HasComponent<BoxCollider2DComponent>())
+                {
+                    auto const& bc2d = entity.GetComponent<BoxCollider2DComponent>();
+                    b2ShapeDef shapeDef = b2DefaultShapeDef();
+                    shapeDef.density = bc2d.Density;
+                    shapeDef.friction = bc2d.Friction;
+                    shapeDef.restitution = bc2d.Restitution;
+                    b2Polygon polygon = b2MakeBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y);
+                    b2CreatePolygonShape(body, &shapeDef, &polygon);
+                }
+
+                if (entity.HasComponent<CircleCollider2DComponent>())
+                {
+                    auto const& cc2d = entity.GetComponent<CircleCollider2DComponent>();
+                    b2ShapeDef shapeDef = b2DefaultShapeDef();
+                    shapeDef.density = cc2d.Density;
+                    shapeDef.friction = cc2d.Friction;
+                    shapeDef.restitution = cc2d.Restitution;
+                    b2Circle circle = { b2Vec2(cc2d.Offset.x, cc2d.Offset.y), transform.Scale.x * cc2d.Radius };
+                    b2CreateCircleShape(body, &shapeDef, &circle);
                 }
             }
 

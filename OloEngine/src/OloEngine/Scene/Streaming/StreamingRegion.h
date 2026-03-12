@@ -22,11 +22,11 @@ namespace OloEngine
       public:
         enum class State : u8
         {
-            Unloaded,  // No data in memory
-            Loading,   // Background task in flight
-            Loaded,    // YAML parsed, awaiting main-thread instantiation
-            Ready,     // Entities live in Scene
-            Unloading  // Entities being removed
+            Unloaded, // No data in memory
+            Loading,  // Background task in flight
+            Loaded,   // YAML parsed, awaiting main-thread instantiation
+            Ready,    // Entities live in Scene
+            Unloading // Entities being removed
         };
 
         StreamingRegion() = default;
