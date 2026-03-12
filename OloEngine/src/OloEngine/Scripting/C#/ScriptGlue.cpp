@@ -5,6 +5,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/InputActionManager.h"
 
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
@@ -81,6 +82,10 @@ namespace OloEngine
 
     static u64 Entity_FindEntityByName(MonoString* name)
     {
+        if (!name)
+        {
+            return 0;
+        }
         char* nameCStr = mono_string_to_utf8(name);
 
         Scene* scene = ScriptEngine::GetSceneContext();
@@ -1305,6 +1310,48 @@ namespace OloEngine
         return Input::IsKeyPressed(keycode);
     }
 
+    static bool Input_IsActionPressed(MonoString* actionName)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!actionName)
+        {
+            return false;
+        }
+        char* name = mono_string_to_utf8(actionName);
+        bool result = InputActionManager::IsActionPressed(name);
+        mono_free(name);
+        return result;
+    }
+
+    static bool Input_IsActionJustPressed(MonoString* actionName)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!actionName)
+        {
+            return false;
+        }
+        char* name = mono_string_to_utf8(actionName);
+        bool result = InputActionManager::IsActionJustPressed(name);
+        mono_free(name);
+        return result;
+    }
+
+    static bool Input_IsActionJustReleased(MonoString* actionName)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!actionName)
+        {
+            return false;
+        }
+        char* name = mono_string_to_utf8(actionName);
+        bool result = InputActionManager::IsActionJustReleased(name);
+        mono_free(name);
+        return result;
+    }
+
     template<typename... Component>
     static void RegisterComponent()
     {
@@ -1354,6 +1401,13 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_ApplyLinearImpulseToCenter);
 
         OLO_ADD_INTERNAL_CALL(Input_IsKeyDown);
+
+        ///////////////////////////////////////////////////////////////
+        // Input Action Mapping ///////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Input_IsActionPressed);
+        OLO_ADD_INTERNAL_CALL(Input_IsActionJustPressed);
+        OLO_ADD_INTERNAL_CALL(Input_IsActionJustReleased);
 
         ///////////////////////////////////////////////////////////////
         // TextComponent //////////////////////////////////////////////

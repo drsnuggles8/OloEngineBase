@@ -19,6 +19,8 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
+#include "OloEngine/Core/InputActionManager.h"
+#include "OloEngine/Core/InputActionSerializer.h"
 #include "OloEngine/Physics3D/Physics3DSystem.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Task/Task.h"
@@ -427,6 +429,7 @@ namespace OloEngine
             ImGui::MenuItem("Post Process Settings", nullptr, &m_ShowPostProcessSettings);
             ImGui::MenuItem("Terrain Editor", nullptr, &m_ShowTerrainEditor);
             ImGui::MenuItem("Scene Streaming", nullptr, &m_ShowStreamingPanel);
+            ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
 
             ImGui::EndMenu();
         }
@@ -703,6 +706,12 @@ namespace OloEngine
         {
             m_StreamingPanel.OnImGuiRender();
         }
+
+        // Input Settings Panel
+        if (m_ShowInputSettings)
+        {
+            m_InputSettingsPanel.OnImGuiRender();
+        }
     }
 
     void EditorLayer::ApplyDefault3DCameraPose()
@@ -846,6 +855,13 @@ namespace OloEngine
 
     void EditorLayer::OnEvent(Event& e)
     {
+        // Forward events to input settings panel for rebinding capture
+        m_InputSettingsPanel.OnEvent(e);
+        if (e.Handled)
+        {
+            return;
+        }
+
         m_CameraController.OnEvent(e);
         if ((m_SceneState != SceneState::Play) && m_ViewportHovered)
         {
@@ -1129,6 +1145,18 @@ namespace OloEngine
             OpenScene(startScenePath);
             m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
             m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
+
+            // Load input action map if one exists for this project
+            auto inputMapPath = Project::GetInputActionMapPath();
+            if (std::filesystem::exists(inputMapPath))
+            {
+                auto loadedMap = InputActionSerializer::Deserialize(inputMapPath);
+                if (loadedMap)
+                {
+                    InputActionManager::SetActionMap(*loadedMap);
+                }
+            }
+
             return true;
         }
         return false;

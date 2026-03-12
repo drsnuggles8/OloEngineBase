@@ -6,6 +6,8 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
+#include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/InputActionManager.h"
 
 namespace OloEngine
 {
@@ -222,5 +224,28 @@ namespace OloEngine
                                             "defaultUnloadRadius", &StreamingSettings::DefaultUnloadRadius,
                                             "maxLoadedRegions", &StreamingSettings::MaxLoadedRegions,
                                             "regionDirectory", &StreamingSettings::RegionDirectory);
+
+        // --- Input (raw + action mapping) ---
+        auto inputTable = lua.create_named_table("Input");
+        inputTable["IsKeyDown"] = [](u16 keycode)
+        {
+            return Input::IsKeyPressed(keycode);
+        };
+        inputTable["IsMouseButtonDown"] = [](u16 button)
+        {
+            return Input::IsMouseButtonPressed(button);
+        };
+        inputTable["IsActionPressed"] = [](const std::string& name)
+        {
+            return InputActionManager::IsActionPressed(name);
+        };
+        inputTable["IsActionJustPressed"] = [](const std::string& name)
+        {
+            return InputActionManager::IsActionJustPressed(name);
+        };
+        inputTable["IsActionJustReleased"] = [](const std::string& name)
+        {
+            return InputActionManager::IsActionJustReleased(name);
+        };
     }
 } // namespace OloEngine

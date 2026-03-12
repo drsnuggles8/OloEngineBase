@@ -14,6 +14,8 @@ namespace OloEngine
         ~WindowsWindow() override;
 
         void OnUpdate() override;
+        void PollEvents() override;
+        void SwapBuffers() override;
 
         [[nodiscard("Store this!")]] unsigned int GetWidth() const noexcept override
         {

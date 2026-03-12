@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -74,13 +75,27 @@ namespace OloEngine
 
             ScriptEngine::Init();
             LuaScriptEngine::Init();
+            InputActionManager::Init();
 
             m_ImGuiLayer = new ImGuiLayer();
             PushOverlay(m_ImGuiLayer);
         }
         catch (...)
         {
-            // If any exception occurs during initialization, clean up and reset instance
+            // Unwind subsystems in reverse initialization order.
+            // Each Shutdown() is safe to call even if its Init() wasn't reached.
+            InputActionManager::Shutdown();
+            LuaScriptEngine::Shutdown();
+            ScriptEngine::Shutdown();
+            AudioEngine::Shutdown();
+            Renderer::Shutdown();
+
+#ifdef OLO_DEBUG
+            ShaderDebugger::GetInstance().Shutdown();
+            GPUResourceInspector::GetInstance().Shutdown();
+#endif
+
+            m_Window.reset();
             s_Instance = nullptr;
             throw;
         }
@@ -95,6 +110,7 @@ namespace OloEngine
             delete layer;
         }
 
+        InputActionManager::Shutdown();
         LuaScriptEngine::Shutdown();
         ScriptEngine::Shutdown();
         AudioEngine::Shutdown();
@@ -174,6 +190,22 @@ namespace OloEngine
             const Timestep timestep = timeNow - m_LastFrameTime;
             m_LastFrameTime = timeNow;
 
+            // Poll OS events first so GLFW key state is fresh for this frame
+            OLO_PROFILE_FRAMEMARK_START("Window PollEvents");
+            m_Window->PollEvents();
+            OLO_PROFILE_FRAMEMARK_END("Window PollEvents");
+
+            // A WindowCloseEvent during PollEvents may have set m_Running = false
+            if (!m_Running)
+            {
+                break;
+            }
+
+            // Update action mapping state (reads fresh GLFW state)
+            OLO_PROFILE_FRAMEMARK_START("InputActionManager Update");
+            InputActionManager::Update();
+            OLO_PROFILE_FRAMEMARK_END("InputActionManager Update");
+
             // Process tasks targeted at the Game Thread
             Tasks::FNamedThreadManager::Get().ProcessTasks(true);
 
@@ -200,9 +232,9 @@ namespace OloEngine
                 OloEngine::ImGuiLayer::End();
             }
 
-            OLO_PROFILE_FRAMEMARK_START("Window OnUpdate");
-            m_Window->OnUpdate();
-            OLO_PROFILE_FRAMEMARK_END("Window OnUpdate");
+            OLO_PROFILE_FRAMEMARK_START("Window SwapBuffers");
+            m_Window->SwapBuffers();
+            OLO_PROFILE_FRAMEMARK_END("Window SwapBuffers");
         }
     }
 

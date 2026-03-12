@@ -52,6 +52,12 @@ namespace OloEngine
             return GetProjectDirectory() / "AssetRegistry.oar";
         }
 
+        static std::filesystem::path GetInputActionMapPath()
+        {
+            OLO_CORE_ASSERT(s_ActiveProject);
+            return GetProjectDirectory() / "Config" / "InputActions.yaml";
+        }
+
         ProjectConfig& GetConfig()
         {
             return m_Config;
