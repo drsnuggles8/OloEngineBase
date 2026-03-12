@@ -124,8 +124,6 @@
 		"OloEngine/Core/FileSystem.cpp"
 		"OloEngine/Core/FileSystem.h"
 		"OloEngine/Core/FilesystemUtils.h"
-		"OloEngine/Core/GlfwInputProvider.h"
-		"OloEngine/Core/GlfwInputProvider.cpp"
 		"OloEngine/Core/IInputProvider.h"
 		"OloEngine/Core/Input.h"
 		"OloEngine/Core/InputAction.h"

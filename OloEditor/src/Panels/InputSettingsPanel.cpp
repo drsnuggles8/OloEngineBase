@@ -158,10 +158,15 @@ namespace OloEngine
         {
             ImGui::Indent();
 
-            // Iterate in reverse so erasing a binding doesn't skip the next one
-            for (sizet i = action.Bindings.size(); i-- > 0;)
+            for (sizet i = 0; i < action.Bindings.size();)
             {
+                sizet sizeBefore = action.Bindings.size();
                 DrawBinding(action, i);
+                // Only advance if no binding was erased
+                if (action.Bindings.size() == sizeBefore)
+                {
+                    ++i;
+                }
             }
 
             // Add Binding button

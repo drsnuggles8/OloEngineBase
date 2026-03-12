@@ -1,11 +1,26 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/InputActionManager.h"
-#include "OloEngine/Core/GlfwInputProvider.h"
+#include "OloEngine/Core/Input.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
 namespace OloEngine
 {
-    // Default GLFW-backed input provider
+    // Default input provider that delegates to the static Input class (GLFW-backed).
+    // Defined here to keep platform details out of the Core public API.
+    class GlfwInputProvider final : public IInputProvider
+    {
+      public:
+        [[nodiscard]] bool IsKeyPressed(KeyCode key) const override
+        {
+            return Input::IsKeyPressed(key);
+        }
+
+        [[nodiscard]] bool IsMouseButtonPressed(MouseCode button) const override
+        {
+            return Input::IsMouseButtonPressed(button);
+        }
+    };
+
     static GlfwInputProvider s_DefaultProvider;
     IInputProvider* InputActionManager::s_InputProvider = &s_DefaultProvider;
 

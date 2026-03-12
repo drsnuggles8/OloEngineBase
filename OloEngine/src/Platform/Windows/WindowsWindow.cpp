@@ -184,8 +184,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        GLFWAPI::glfwPollEvents();
-        m_Context->SwapBuffers();
+        PollEvents();
+        SwapBuffers();
     }
 
     void WindowsWindow::PollEvents()

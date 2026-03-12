@@ -82,7 +82,20 @@ namespace OloEngine
         }
         catch (...)
         {
-            // If any exception occurs during initialization, clean up and reset instance
+            // Unwind subsystems in reverse initialization order.
+            // Each Shutdown() is safe to call even if its Init() wasn't reached.
+            InputActionManager::Shutdown();
+            LuaScriptEngine::Shutdown();
+            ScriptEngine::Shutdown();
+            AudioEngine::Shutdown();
+            Renderer::Shutdown();
+
+#ifdef OLO_DEBUG
+            ShaderDebugger::GetInstance().Shutdown();
+            GPUResourceInspector::GetInstance().Shutdown();
+#endif
+
+            m_Window.reset();
             s_Instance = nullptr;
             throw;
         }
@@ -181,6 +194,12 @@ namespace OloEngine
             OLO_PROFILE_FRAMEMARK_START("Window PollEvents");
             m_Window->PollEvents();
             OLO_PROFILE_FRAMEMARK_END("Window PollEvents");
+
+            // A WindowCloseEvent during PollEvents may have set m_Running = false
+            if (!m_Running)
+            {
+                break;
+            }
 
             // Update action mapping state (reads fresh GLFW state)
             OLO_PROFILE_FRAMEMARK_START("InputActionManager Update");
