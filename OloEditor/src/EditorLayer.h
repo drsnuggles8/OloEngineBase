@@ -7,6 +7,7 @@
 #include "Panels/PostProcessSettingsPanel.h"
 #include "Panels/TerrainEditorPanel.h"
 #include "Panels/StreamingPanel.h"
+#include "Panels/InputSettingsPanel.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
@@ -150,10 +151,12 @@ namespace OloEngine
         PostProcessSettingsPanel m_PostProcessSettingsPanel;
         TerrainEditorPanel m_TerrainEditorPanel;
         StreamingPanel m_StreamingPanel;
+        InputSettingsPanel m_InputSettingsPanel;
         bool m_ShowAnimationPanel = true;
         bool m_ShowPostProcessSettings = true;
         bool m_ShowTerrainEditor = false;
         bool m_ShowStreamingPanel = false;
+        bool m_ShowInputSettings = false;
 
         // Terrain brush preview UBO (binding 11)
         Ref<UniformBuffer> m_BrushPreviewUBO;

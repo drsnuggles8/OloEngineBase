@@ -57,6 +57,7 @@ add_executable(OloEngine-Tests
 		Rendering/WaterRenderingTest.cpp
 		Rendering/RenderingRegressionTest.cpp
 		Streaming/SceneStreamingTest.cpp
+		InputActionTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

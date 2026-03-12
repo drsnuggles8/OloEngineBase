@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -74,6 +75,7 @@ namespace OloEngine
 
             ScriptEngine::Init();
             LuaScriptEngine::Init();
+            InputActionManager::Init();
 
             m_ImGuiLayer = new ImGuiLayer();
             PushOverlay(m_ImGuiLayer);
@@ -95,6 +97,7 @@ namespace OloEngine
             delete layer;
         }
 
+        InputActionManager::Shutdown();
         LuaScriptEngine::Shutdown();
         ScriptEngine::Shutdown();
         AudioEngine::Shutdown();
@@ -174,6 +177,14 @@ namespace OloEngine
             const Timestep timestep = timeNow - m_LastFrameTime;
             m_LastFrameTime = timeNow;
 
+            // Poll OS events first so GLFW key state is fresh for this frame
+            OLO_PROFILE_FRAMEMARK_START("Window OnUpdate");
+            m_Window->OnUpdate();
+            OLO_PROFILE_FRAMEMARK_END("Window OnUpdate");
+
+            // Update action mapping state (reads fresh GLFW state)
+            InputActionManager::Update();
+
             // Process tasks targeted at the Game Thread
             Tasks::FNamedThreadManager::Get().ProcessTasks(true);
 
@@ -199,10 +210,6 @@ namespace OloEngine
                 }
                 OloEngine::ImGuiLayer::End();
             }
-
-            OLO_PROFILE_FRAMEMARK_START("Window OnUpdate");
-            m_Window->OnUpdate();
-            OLO_PROFILE_FRAMEMARK_END("Window OnUpdate");
         }
     }
 

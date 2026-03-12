@@ -9,6 +9,8 @@
 		"Panels/AssetPackBuilderPanel.h"
 		"Panels/ContentBrowserPanel.cpp"
 		"Panels/ContentBrowserPanel.h"
+		"Panels/InputSettingsPanel.cpp"
+		"Panels/InputSettingsPanel.h"
 		"Panels/PostProcessSettingsPanel.cpp"
 		"Panels/PostProcessSettingsPanel.h"
 		"Panels/SceneHierarchyPanel.cpp"

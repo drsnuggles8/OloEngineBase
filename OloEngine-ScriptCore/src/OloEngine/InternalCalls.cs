@@ -55,6 +55,15 @@ namespace OloEngine
         internal extern static bool Input_IsKeyDown(KeyCode keycode);
         #endregion
 
+        #region InputActionMapping
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsActionPressed(string actionName);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsActionJustPressed(string actionName);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsActionJustReleased(string actionName);
+        #endregion
+
         #region AudioSourceComponent
 
         [MethodImpl(MethodImplOptions.InternalCall)]
