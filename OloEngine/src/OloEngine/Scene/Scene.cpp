@@ -1097,7 +1097,7 @@ namespace OloEngine
                 shapeDef.restitution = bc2d.Restitution;
 
                 b2Polygon polygon = b2MakeOffsetBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y,
-                                                      {bc2d.Offset.x, bc2d.Offset.y}, 0.0f);
+                                                    { bc2d.Offset.x, bc2d.Offset.y }, 0.0f);
                 b2CreatePolygonShape(body, &shapeDef, &polygon);
             }
 
