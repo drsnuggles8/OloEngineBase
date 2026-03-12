@@ -7,6 +7,7 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Scene/Streaming/StreamingSettings.h"
 
 #include <optional>
 #include <vector>
@@ -26,6 +27,7 @@ namespace OloEngine
     class Skeleton;
     class Prefab;
     class JoltScene;
+    class SceneStreamer;
 
     class Scene : public Asset
     {
@@ -246,6 +248,28 @@ namespace OloEngine
             return m_PrecipitationSettings;
         }
 
+        void SetStreamingSettings(const StreamingSettings& settings)
+        {
+            m_StreamingSettings = settings;
+        }
+        [[nodiscard]] const StreamingSettings& GetStreamingSettings() const
+        {
+            return m_StreamingSettings;
+        }
+        [[nodiscard]] StreamingSettings& GetStreamingSettings()
+        {
+            return m_StreamingSettings;
+        }
+
+        SceneStreamer* GetSceneStreamer() const
+        {
+            return m_SceneStreamer.get();
+        }
+
+        // Editor-mode streamer management (allows streaming preview without entering Play mode)
+        void InitializeEditorStreamer();
+        void ShutdownEditorStreamer();
+
         // Asset interface
         static AssetType GetStaticType()
         {
@@ -282,6 +306,7 @@ namespace OloEngine
         bool m_IsPaused = false;
         int m_StepFrames = 0;
         u64 m_TerrainFrameCounter = 0;
+        u64 m_StreamingFrameCounter = 0;
         bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
@@ -292,6 +317,7 @@ namespace OloEngine
         SnowAccumulationSettings m_SnowAccumulationSettings;   // Snow accumulation & deformation
         SnowEjectaSettings m_SnowEjectaSettings;               // Snow ejecta particle settings
         PrecipitationSettings m_PrecipitationSettings;         // Precipitation system settings
+        StreamingSettings m_StreamingSettings;                 // Scene streaming settings
 
         // Per-entity previous positions for velocity estimation (snow ejecta)
         TMap<u64, glm::vec3> m_RuntimeSnowPrevPositions;
@@ -299,6 +325,7 @@ namespace OloEngine
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;
+        std::unique_ptr<SceneStreamer> m_SceneStreamer;
 
         // Entity UUID -> entt::entity lookup map
         // Using TMap for O(1) lookup with better cache locality
@@ -308,6 +335,7 @@ namespace OloEngine
 
         friend class Entity;
         friend class SceneSerializer;
+        friend class SceneStreamer;
         friend class SceneHierarchyPanel;
         friend class LightProbeBaker;
     };

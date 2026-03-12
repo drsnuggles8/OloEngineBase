@@ -568,6 +568,14 @@
 		"OloEngine/Scene/SceneSerializer.cpp"
 		"OloEngine/Scene/SceneSerializer.h"
 
+		"OloEngine/Scene/Streaming/StreamingRegion.h"
+		"OloEngine/Scene/Streaming/StreamingSettings.h"
+		"OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
+		"OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
+		"OloEngine/Scene/Streaming/StreamingRegionSerializer.cpp"
+		"OloEngine/Scene/Streaming/SceneStreamer.h"
+		"OloEngine/Scene/Streaming/SceneStreamer.cpp"
+
 		"OloEngine/Task/CancellationToken.h"
 		"OloEngine/Task/ExtendedTaskPriority.h"
 		"OloEngine/Task/InheritedContext.h"

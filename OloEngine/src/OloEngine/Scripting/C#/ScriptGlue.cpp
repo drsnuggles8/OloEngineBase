@@ -8,6 +8,7 @@
 
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Streaming/SceneStreamer.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -1232,6 +1233,69 @@ namespace OloEngine
         scene->GetWindSettings().TurbulenceIntensity = *v;
     }
 
+    // --- StreamingVolumeComponent ---
+
+    static void StreamingVolumeComponent_GetLoadRadius(UUID entityID, f32* out)
+    {
+        *out = GetEntity(entityID).GetComponent<StreamingVolumeComponent>().LoadRadius;
+    }
+
+    static void StreamingVolumeComponent_SetLoadRadius(UUID entityID, f32 const* v)
+    {
+        GetEntity(entityID).GetComponent<StreamingVolumeComponent>().LoadRadius = *v;
+    }
+
+    static void StreamingVolumeComponent_GetUnloadRadius(UUID entityID, f32* out)
+    {
+        *out = GetEntity(entityID).GetComponent<StreamingVolumeComponent>().UnloadRadius;
+    }
+
+    static void StreamingVolumeComponent_SetUnloadRadius(UUID entityID, f32 const* v)
+    {
+        GetEntity(entityID).GetComponent<StreamingVolumeComponent>().UnloadRadius = *v;
+    }
+
+    static void StreamingVolumeComponent_GetIsLoaded(UUID entityID, bool* out)
+    {
+        *out = GetEntity(entityID).GetComponent<StreamingVolumeComponent>().IsLoaded;
+    }
+
+    // --- Scene Streaming ---
+
+    static void Scene_LoadRegion(u64 regionId)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        if (auto* streamer = scene->GetSceneStreamer())
+        {
+            streamer->LoadRegion(UUID(regionId));
+        }
+    }
+
+    static void Scene_UnloadRegion(u64 regionId)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        if (auto* streamer = scene->GetSceneStreamer())
+        {
+            streamer->UnloadRegion(UUID(regionId));
+        }
+    }
+
+    static void Scene_GetStreamingEnabled(bool* out)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        *out = scene->GetStreamingSettings().Enabled;
+    }
+
+    static void Scene_SetStreamingEnabled(bool const* v)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetStreamingSettings().Enabled = *v;
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1488,6 +1552,19 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Scene_SetWindGustStrength);
         OLO_ADD_INTERNAL_CALL(Scene_GetWindTurbulenceIntensity);
         OLO_ADD_INTERNAL_CALL(Scene_SetWindTurbulenceIntensity);
+
+        ///////////////////////////////////////////////////////////////
+        // Streaming //////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(StreamingVolumeComponent_GetLoadRadius);
+        OLO_ADD_INTERNAL_CALL(StreamingVolumeComponent_SetLoadRadius);
+        OLO_ADD_INTERNAL_CALL(StreamingVolumeComponent_GetUnloadRadius);
+        OLO_ADD_INTERNAL_CALL(StreamingVolumeComponent_SetUnloadRadius);
+        OLO_ADD_INTERNAL_CALL(StreamingVolumeComponent_GetIsLoaded);
+        OLO_ADD_INTERNAL_CALL(Scene_LoadRegion);
+        OLO_ADD_INTERNAL_CALL(Scene_UnloadRegion);
+        OLO_ADD_INTERNAL_CALL(Scene_GetStreamingEnabled);
+        OLO_ADD_INTERNAL_CALL(Scene_SetStreamingEnabled);
     }
 
 } // namespace OloEngine

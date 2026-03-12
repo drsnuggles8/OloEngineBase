@@ -21,6 +21,7 @@
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 #include "OloEngine/Renderer/LOD.h"
 #include "OloEngine/Renderer/SphericalHarmonics.h"
+#include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 
 #include <box2d/id.h>
 
@@ -1171,5 +1172,6 @@ namespace OloEngine
         DecalComponent,
         LODGroupComponent,
         LightProbeComponent,
-        LightProbeVolumeComponent>;
+        LightProbeVolumeComponent,
+        StreamingVolumeComponent>;
 } // namespace OloEngine

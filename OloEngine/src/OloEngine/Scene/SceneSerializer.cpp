@@ -12,6 +12,8 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Particle/ParticleCurveSerializer.h"
+#include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
+#include "OloEngine/Scene/Streaming/StreamingSettings.h"
 
 #include <fstream>
 #include <cmath>
@@ -2018,6 +2020,27 @@ namespace OloEngine
                 }
             }
         }
+
+        if (auto svComponent = entity["StreamingVolumeComponent"]; svComponent)
+        {
+            auto& sv = deserializedEntity.AddComponent<StreamingVolumeComponent>();
+            TrySet(sv.RegionAssetHandle, svComponent["RegionAssetHandle"]);
+            TrySetEnum(sv.ActivationMode, svComponent["ActivationMode"]);
+            TrySet(sv.LoadRadius, svComponent["LoadRadius"]);
+            TrySet(sv.UnloadRadius, svComponent["UnloadRadius"]);
+
+            // Sanitize
+            if (static_cast<u8>(sv.ActivationMode) > static_cast<u8>(StreamingActivationMode::Manual))
+            {
+                sv.ActivationMode = StreamingActivationMode::Proximity;
+            }
+            if (!std::isfinite(sv.LoadRadius))
+                sv.LoadRadius = 200.0f;
+            if (!std::isfinite(sv.UnloadRadius))
+                sv.UnloadRadius = 250.0f;
+            sv.LoadRadius = std::max(sv.LoadRadius, 1.0f);
+            sv.UnloadRadius = std::max(sv.UnloadRadius, sv.LoadRadius + 1.0f);
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -2025,8 +2048,9 @@ namespace OloEngine
     {
     }
 
-    static void SerializeEntity(YAML::Emitter& out, Entity entity)
+    void SceneSerializer::SerializeEntity(YAML::Emitter& out, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(entity.HasComponent<IDComponent>());
 
         out << YAML::BeginMap; // Entity
@@ -3264,6 +3288,20 @@ namespace OloEngine
             out << YAML::EndMap;
         }
 
+        if (entity.HasComponent<StreamingVolumeComponent>())
+        {
+            out << YAML::Key << "StreamingVolumeComponent";
+            out << YAML::BeginMap;
+
+            auto const& sv = entity.GetComponent<StreamingVolumeComponent>();
+            out << YAML::Key << "RegionAssetHandle" << YAML::Value << sv.RegionAssetHandle;
+            out << YAML::Key << "ActivationMode" << YAML::Value << static_cast<i32>(sv.ActivationMode);
+            out << YAML::Key << "LoadRadius" << YAML::Value << sv.LoadRadius;
+            out << YAML::Key << "UnloadRadius" << YAML::Value << sv.UnloadRadius;
+
+            out << YAML::EndMap; // StreamingVolumeComponent
+        }
+
         out << YAML::EndMap; // Entity
     }
 
@@ -3315,6 +3353,19 @@ namespace OloEngine
         SerializeSnowAccumulationSettings(out, m_Scene->GetSnowAccumulationSettings());
         SerializeSnowEjectaSettings(out, m_Scene->GetSnowEjectaSettings());
         SerializePrecipitationSettings(out, m_Scene->GetPrecipitationSettings());
+
+        // Streaming settings
+        {
+            auto const& ss = m_Scene->GetStreamingSettings();
+            out << YAML::Key << "StreamingSettings";
+            out << YAML::BeginMap;
+            out << YAML::Key << "Enabled" << YAML::Value << ss.Enabled;
+            out << YAML::Key << "DefaultLoadRadius" << YAML::Value << ss.DefaultLoadRadius;
+            out << YAML::Key << "DefaultUnloadRadius" << YAML::Value << ss.DefaultUnloadRadius;
+            out << YAML::Key << "MaxLoadedRegions" << YAML::Value << ss.MaxLoadedRegions;
+            out << YAML::Key << "RegionDirectory" << YAML::Value << ss.RegionDirectory;
+            out << YAML::EndMap;
+        }
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
@@ -3404,6 +3455,18 @@ namespace OloEngine
         DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
         DeserializePrecipitationSettings(data, m_Scene->GetPrecipitationSettings());
 
+        if (auto ssNode = data["StreamingSettings"]; ssNode)
+        {
+            auto& ss = m_Scene->GetStreamingSettings();
+            TrySet(ss.Enabled, ssNode["Enabled"]);
+            TrySet(ss.DefaultLoadRadius, ssNode["DefaultLoadRadius"]);
+            TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
+            TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
+            TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
+
+            SanitizeStreamingSettings(ss);
+        }
+
         if (const auto entities = data["Entities"]; entities)
         {
             for (auto entity : entities)
@@ -3483,6 +3546,19 @@ namespace OloEngine
         SerializeSnowAccumulationSettings(out, m_Scene->GetSnowAccumulationSettings());
         SerializeSnowEjectaSettings(out, m_Scene->GetSnowEjectaSettings());
         SerializePrecipitationSettings(out, m_Scene->GetPrecipitationSettings());
+
+        // Streaming settings
+        {
+            auto const& ss = m_Scene->GetStreamingSettings();
+            out << YAML::Key << "StreamingSettings";
+            out << YAML::BeginMap;
+            out << YAML::Key << "Enabled" << YAML::Value << ss.Enabled;
+            out << YAML::Key << "DefaultLoadRadius" << YAML::Value << ss.DefaultLoadRadius;
+            out << YAML::Key << "DefaultUnloadRadius" << YAML::Value << ss.DefaultUnloadRadius;
+            out << YAML::Key << "MaxLoadedRegions" << YAML::Value << ss.MaxLoadedRegions;
+            out << YAML::Key << "RegionDirectory" << YAML::Value << ss.RegionDirectory;
+            out << YAML::EndMap;
+        }
 
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
@@ -3569,6 +3645,18 @@ namespace OloEngine
         DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
         DeserializePrecipitationSettings(data, m_Scene->GetPrecipitationSettings());
 
+        if (auto ssNode = data["StreamingSettings"]; ssNode)
+        {
+            auto& ss = m_Scene->GetStreamingSettings();
+            TrySet(ss.Enabled, ssNode["Enabled"]);
+            TrySet(ss.DefaultLoadRadius, ssNode["DefaultLoadRadius"]);
+            TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
+            TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
+            TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
+
+            SanitizeStreamingSettings(ss);
+        }
+
         auto entities = data["Entities"];
         if (entities)
         {
@@ -3592,5 +3680,49 @@ namespace OloEngine
         }
 
         return true;
+    }
+
+    std::vector<UUID> SceneSerializer::DeserializeAdditive(const YAML::Node& entitiesNode)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<UUID> createdUUIDs;
+
+        if (!entitiesNode || !entitiesNode.IsSequence())
+        {
+            return createdUUIDs;
+        }
+
+        createdUUIDs.reserve(entitiesNode.size());
+
+        for (auto entity : entitiesNode)
+        {
+            if (!entity["Entity"])
+            {
+                OLO_CORE_WARN("DeserializeAdditive: skipping entity node without 'Entity' key");
+                continue;
+            }
+            auto uuid = entity["Entity"].as<u64>();
+
+            // Skip if entity already exists in the scene
+            if (m_Scene->m_EntityMap.Contains(uuid))
+            {
+                continue;
+            }
+
+            std::string name;
+            if (auto tagComponent = entity["TagComponent"]; tagComponent)
+            {
+                name = tagComponent["Tag"].as<std::string>();
+            }
+
+            OLO_CORE_TRACE("Additive deserialized entity with ID = {0}, name = {1}", uuid, name);
+
+            Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
+            DeserializeEntityComponents(deserializedEntity, entity);
+            createdUUIDs.emplace_back(uuid);
+        }
+
+        return createdUUIDs;
     }
 } // namespace OloEngine

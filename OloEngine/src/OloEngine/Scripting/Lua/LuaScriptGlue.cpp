@@ -5,6 +5,7 @@
 
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Scene/Streaming/StreamingSettings.h"
 
 namespace OloEngine
 {
@@ -207,5 +208,19 @@ namespace OloEngine
                                        "turbulenceScale", &WindSettings::TurbulenceScale,
                                        "gridWorldSize", &WindSettings::GridWorldSize,
                                        "gridResolution", &WindSettings::GridResolution);
+
+        // --- StreamingVolumeComponent ---
+        lua.new_usertype<StreamingVolumeComponent>("StreamingVolumeComponent",
+                                                   "loadRadius", &StreamingVolumeComponent::LoadRadius,
+                                                   "unloadRadius", &StreamingVolumeComponent::UnloadRadius,
+                                                   "isLoaded", sol::readonly(&StreamingVolumeComponent::IsLoaded));
+
+        // --- StreamingSettings (scene-level) ---
+        lua.new_usertype<StreamingSettings>("StreamingSettings",
+                                            "enabled", &StreamingSettings::Enabled,
+                                            "defaultLoadRadius", &StreamingSettings::DefaultLoadRadius,
+                                            "defaultUnloadRadius", &StreamingSettings::DefaultUnloadRadius,
+                                            "maxLoadedRegions", &StreamingSettings::MaxLoadedRegions,
+                                            "regionDirectory", &StreamingSettings::RegionDirectory);
     }
 } // namespace OloEngine

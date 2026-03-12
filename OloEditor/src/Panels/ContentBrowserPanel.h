@@ -19,7 +19,8 @@ namespace OloEngine
         Script,
         Audio,
         Material,
-        Shader
+        Shader,
+        StreamingRegion
     };
 
     class ContentBrowserPanel

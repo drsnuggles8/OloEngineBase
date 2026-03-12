@@ -15,6 +15,8 @@
 		"Panels/SceneHierarchyPanel.h"
 		"Panels/TerrainEditorPanel.cpp"
 		"Panels/TerrainEditorPanel.h"
+		"Panels/StreamingPanel.cpp"
+		"Panels/StreamingPanel.h"
 )
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES "../assets/shaders/*.glsl")
