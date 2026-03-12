@@ -188,6 +188,20 @@ namespace OloEngine
         m_Context->SwapBuffers();
     }
 
+    void WindowsWindow::PollEvents()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLFWAPI::glfwPollEvents();
+    }
+
+    void WindowsWindow::SwapBuffers()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        m_Context->SwapBuffers();
+    }
+
     void WindowsWindow::SetVSync(const bool enabled)
     {
         OLO_PROFILE_FUNCTION();

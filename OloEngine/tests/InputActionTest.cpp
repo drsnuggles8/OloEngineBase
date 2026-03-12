@@ -1,11 +1,13 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "OloEngine/Core/IInputProvider.h"
 #include "OloEngine/Core/InputAction.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/InputActionSerializer.h"
 
 #include <filesystem>
 #include <fstream>
+#include <unordered_set>
 
 using namespace OloEngine;
 
@@ -221,7 +223,8 @@ class InputActionSerializerTest : public ::testing::Test
 
     void TearDown() override
     {
-        std::filesystem::remove_all(m_TempDir);
+        std::error_code ec;
+        std::filesystem::remove_all(m_TempDir, ec);
     }
 };
 
@@ -229,8 +232,8 @@ TEST_F(InputActionSerializerTest, RoundTrip)
 {
     InputActionMap original;
     original.Name = "TestMap";
-    original.AddAction({ "MoveUp",   { InputBinding::Key(Key::W), InputBinding::Key(Key::Up) } });
-    original.AddAction({ "Fire",     { InputBinding::MouseButton(Mouse::ButtonLeft) } });
+    original.AddAction({ "MoveUp", { InputBinding::Key(Key::W), InputBinding::Key(Key::Up) } });
+    original.AddAction({ "Fire", { InputBinding::MouseButton(Mouse::ButtonLeft) } });
     original.AddAction({ "Interact", { InputBinding::Key(Key::E) } });
 
     auto filepath = m_TempDir / "test_actions.yaml";
@@ -351,4 +354,213 @@ InputActionMap:
     EXPECT_EQ(action->Bindings.size(), 1u);
     EXPECT_EQ(action->Bindings[0].Type, InputBindingType::Keyboard);
     EXPECT_EQ(action->Bindings[0].Code, Key::W);
+}
+
+// ============================================================================
+// MockInputProvider for state-transition tests
+// ============================================================================
+
+class MockInputProvider final : public OloEngine::IInputProvider
+{
+  public:
+    [[nodiscard]] bool IsKeyPressed(OloEngine::KeyCode key) const override
+    {
+        return m_PressedKeys.contains(key);
+    }
+
+    [[nodiscard]] bool IsMouseButtonPressed(OloEngine::MouseCode button) const override
+    {
+        return m_PressedMouseButtons.contains(button);
+    }
+
+    void PressKey(OloEngine::KeyCode key)
+    {
+        m_PressedKeys.insert(key);
+    }
+    void ReleaseKey(OloEngine::KeyCode key)
+    {
+        m_PressedKeys.erase(key);
+    }
+    void PressMouseButton(OloEngine::MouseCode button)
+    {
+        m_PressedMouseButtons.insert(button);
+    }
+    void ReleaseMouseButton(OloEngine::MouseCode button)
+    {
+        m_PressedMouseButtons.erase(button);
+    }
+    void ReleaseAll()
+    {
+        m_PressedKeys.clear();
+        m_PressedMouseButtons.clear();
+    }
+
+  private:
+    std::unordered_set<OloEngine::KeyCode> m_PressedKeys;
+    std::unordered_set<OloEngine::MouseCode> m_PressedMouseButtons;
+};
+
+// ============================================================================
+// State-transition tests (using MockInputProvider)
+// ============================================================================
+
+class InputStateTransitionTest : public ::testing::Test
+{
+  protected:
+    MockInputProvider m_Mock;
+
+    void SetUp() override
+    {
+        InputActionManager::Init();
+        InputActionManager::SetInputProvider(&m_Mock);
+
+        InputActionMap map;
+        map.Name = "TestMap";
+        map.AddAction({ "Jump", { InputBinding::Key(Key::Space) } });
+        map.AddAction({ "Fire", { InputBinding::MouseButton(Mouse::ButtonLeft) } });
+        map.AddAction({ "MoveUp", { InputBinding::Key(Key::W), InputBinding::Key(Key::Up) } });
+        InputActionManager::SetActionMap(map);
+    }
+
+    void TearDown() override
+    {
+        InputActionManager::SetInputProvider(nullptr); // restore default
+        InputActionManager::Shutdown();
+    }
+};
+
+TEST_F(InputStateTransitionTest, KeyPressedOnFirstFrame)
+{
+    // Frame 1: key down
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+
+    EXPECT_TRUE(InputActionManager::IsActionPressed("Jump"));
+    EXPECT_TRUE(InputActionManager::IsActionJustPressed("Jump"));
+    EXPECT_FALSE(InputActionManager::IsActionJustReleased("Jump"));
+}
+
+TEST_F(InputStateTransitionTest, KeyHeldAcrossFrames)
+{
+    // Frame 1: press
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+
+    // Frame 2: still held
+    InputActionManager::Update();
+
+    EXPECT_TRUE(InputActionManager::IsActionPressed("Jump"));
+    EXPECT_FALSE(InputActionManager::IsActionJustPressed("Jump")); // not "just" anymore
+    EXPECT_FALSE(InputActionManager::IsActionJustReleased("Jump"));
+}
+
+TEST_F(InputStateTransitionTest, KeyReleasedAfterHeld)
+{
+    // Frame 1: press
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+
+    // Frame 2: release
+    m_Mock.ReleaseKey(Key::Space);
+    InputActionManager::Update();
+
+    EXPECT_FALSE(InputActionManager::IsActionPressed("Jump"));
+    EXPECT_FALSE(InputActionManager::IsActionJustPressed("Jump"));
+    EXPECT_TRUE(InputActionManager::IsActionJustReleased("Jump"));
+}
+
+TEST_F(InputStateTransitionTest, JustReleasedOnlyOneFrame)
+{
+    // Frame 1: press
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+
+    // Frame 2: release
+    m_Mock.ReleaseKey(Key::Space);
+    InputActionManager::Update();
+
+    // Frame 3: still released
+    InputActionManager::Update();
+
+    EXPECT_FALSE(InputActionManager::IsActionPressed("Jump"));
+    EXPECT_FALSE(InputActionManager::IsActionJustPressed("Jump"));
+    EXPECT_FALSE(InputActionManager::IsActionJustReleased("Jump")); // gone after one frame
+}
+
+TEST_F(InputStateTransitionTest, MouseButtonTransitions)
+{
+    // Frame 1: click
+    m_Mock.PressMouseButton(Mouse::ButtonLeft);
+    InputActionManager::Update();
+
+    EXPECT_TRUE(InputActionManager::IsActionPressed("Fire"));
+    EXPECT_TRUE(InputActionManager::IsActionJustPressed("Fire"));
+
+    // Frame 2: release
+    m_Mock.ReleaseMouseButton(Mouse::ButtonLeft);
+    InputActionManager::Update();
+
+    EXPECT_FALSE(InputActionManager::IsActionPressed("Fire"));
+    EXPECT_TRUE(InputActionManager::IsActionJustReleased("Fire"));
+}
+
+TEST_F(InputStateTransitionTest, MultipleBindingsSameAction)
+{
+    // MoveUp is bound to both W and Up arrow — pressing either should trigger it
+    m_Mock.PressKey(Key::Up);
+    InputActionManager::Update();
+
+    EXPECT_TRUE(InputActionManager::IsActionPressed("MoveUp"));
+    EXPECT_TRUE(InputActionManager::IsActionJustPressed("MoveUp"));
+
+    // Switch to W (release Up, press W) — still pressed, not "just pressed"
+    m_Mock.ReleaseKey(Key::Up);
+    m_Mock.PressKey(Key::W);
+    InputActionManager::Update();
+
+    EXPECT_TRUE(InputActionManager::IsActionPressed("MoveUp"));
+    EXPECT_FALSE(InputActionManager::IsActionJustPressed("MoveUp"));
+    EXPECT_FALSE(InputActionManager::IsActionJustReleased("MoveUp"));
+}
+
+TEST_F(InputStateTransitionTest, RapidPressReleaseCycle)
+{
+    // Simulate rapid tap: press → release → press across 3 frames
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionJustPressed("Jump"));
+
+    m_Mock.ReleaseKey(Key::Space);
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionJustReleased("Jump"));
+
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionJustPressed("Jump")); // should fire again
+}
+
+TEST_F(InputStateTransitionTest, UnboundActionStaysIdle)
+{
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+
+    // "Fire" is mouse-only — keyboard presses shouldn't affect it
+    EXPECT_FALSE(InputActionManager::IsActionPressed("Fire"));
+    EXPECT_FALSE(InputActionManager::IsActionJustPressed("Fire"));
+}
+
+TEST_F(InputStateTransitionTest, StaleStateCleanedAfterActionRemoval)
+{
+    // Frame 1: press Jump
+    m_Mock.PressKey(Key::Space);
+    InputActionManager::Update();
+    EXPECT_TRUE(InputActionManager::IsActionPressed("Jump"));
+
+    // Remove the action from the map
+    InputActionManager::GetActionMap().RemoveAction("Jump");
+
+    // Frame 2: update should prune stale state
+    InputActionManager::Update();
+    EXPECT_FALSE(InputActionManager::IsActionPressed("Jump"));
+    EXPECT_FALSE(InputActionManager::IsActionJustReleased("Jump"));
 }

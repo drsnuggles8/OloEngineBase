@@ -178,12 +178,14 @@ namespace OloEngine
             m_LastFrameTime = timeNow;
 
             // Poll OS events first so GLFW key state is fresh for this frame
-            OLO_PROFILE_FRAMEMARK_START("Window OnUpdate");
-            m_Window->OnUpdate();
-            OLO_PROFILE_FRAMEMARK_END("Window OnUpdate");
+            OLO_PROFILE_FRAMEMARK_START("Window PollEvents");
+            m_Window->PollEvents();
+            OLO_PROFILE_FRAMEMARK_END("Window PollEvents");
 
             // Update action mapping state (reads fresh GLFW state)
+            OLO_PROFILE_FRAMEMARK_START("InputActionManager Update");
             InputActionManager::Update();
+            OLO_PROFILE_FRAMEMARK_END("InputActionManager Update");
 
             // Process tasks targeted at the Game Thread
             Tasks::FNamedThreadManager::Get().ProcessTasks(true);
@@ -210,6 +212,10 @@ namespace OloEngine
                 }
                 OloEngine::ImGuiLayer::End();
             }
+
+            OLO_PROFILE_FRAMEMARK_START("Window SwapBuffers");
+            m_Window->SwapBuffers();
+            OLO_PROFILE_FRAMEMARK_END("Window SwapBuffers");
         }
     }
 

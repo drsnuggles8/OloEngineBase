@@ -29,6 +29,8 @@ namespace OloEngine
         virtual ~Window() = default;
 
         virtual void OnUpdate() = 0;
+        virtual void PollEvents() = 0;
+        virtual void SwapBuffers() = 0;
 
         [[nodiscard("Store this!")]] virtual u32 GetWidth() const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetHeight() const = 0;

@@ -4,6 +4,7 @@
 #include "OloEngine/Core/InputActionSerializer.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
+#include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Project/Project.h"
 
 #include <imgui.h>
@@ -14,6 +15,8 @@ namespace OloEngine
 {
     void InputSettingsPanel::OnImGuiRender()
     {
+        OLO_PROFILE_FUNCTION();
+
         std::string title = "Input Settings";
         if (m_Dirty)
         {
@@ -30,19 +33,25 @@ namespace OloEngine
 
         // Sort action names for stable display order
         std::vector<std::string> actionNames;
-        actionNames.reserve(map.Actions.size());
-        for (auto& [name, _] : map.Actions)
         {
-            actionNames.push_back(name);
-        }
-        std::ranges::sort(actionNames);
-
-        for (auto& name : actionNames)
-        {
-            auto* action = map.GetAction(name);
-            if (action)
+            OLO_PROFILE_SCOPE("SortActionNames");
+            actionNames.reserve(map.Actions.size());
+            for (auto& [name, _] : map.Actions)
             {
-                DrawAction(*action);
+                actionNames.push_back(name);
+            }
+            std::ranges::sort(actionNames);
+        }
+
+        {
+            OLO_PROFILE_SCOPE("RenderActions");
+            for (auto& name : actionNames)
+            {
+                auto* action = map.GetAction(name);
+                if (action)
+                {
+                    DrawAction(*action);
+                }
             }
         }
 
@@ -70,8 +79,10 @@ namespace OloEngine
         }
 
         EventDispatcher dispatcher(e);
-        dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent const& event) { return OnKeyPressed(event); });
-        dispatcher.Dispatch<MouseButtonPressedEvent>([this](MouseButtonPressedEvent const& event) { return OnMouseButtonPressed(event); });
+        dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent const& event)
+                                             { return OnKeyPressed(event); });
+        dispatcher.Dispatch<MouseButtonPressedEvent>([this](MouseButtonPressedEvent const& event)
+                                                     { return OnMouseButtonPressed(event); });
     }
 
     void InputSettingsPanel::DrawActionMapHeader()
@@ -83,6 +94,7 @@ namespace OloEngine
 
         bool hasProject = Project::GetActive() != nullptr;
 
+        ImGui::BeginDisabled(!hasProject);
         if (ImGui::Button("Save"))
         {
             if (hasProject)
@@ -94,6 +106,7 @@ namespace OloEngine
                 }
             }
         }
+        ImGui::EndDisabled();
         if (!hasProject)
         {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -145,8 +158,8 @@ namespace OloEngine
         {
             ImGui::Indent();
 
-            // Draw existing bindings
-            for (sizet i = 0; i < action.Bindings.size(); ++i)
+            // Iterate in reverse so erasing a binding doesn't skip the next one
+            for (sizet i = action.Bindings.size(); i-- > 0;)
             {
                 DrawBinding(action, i);
             }
@@ -198,6 +211,12 @@ namespace OloEngine
     {
         if (!m_IsRebinding)
         {
+            // Close the modal if it was left open (e.g. Escape-cancel in OnKeyPressed)
+            if (ImGui::BeginPopupModal("RebindPopup", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            {
+                ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
             return;
         }
 
@@ -251,6 +270,41 @@ namespace OloEngine
         }
     }
 
+    void InputSettingsPanel::ApplyNewBinding(InputBinding newBinding)
+    {
+        // Conflict detection — remove this binding from any other action
+        auto& map = InputActionManager::GetActionMap();
+        for (auto& [name, action] : map.Actions)
+        {
+            if (name == m_RebindActionName)
+            {
+                continue;
+            }
+            auto it = std::ranges::find(action.Bindings, newBinding);
+            if (it != action.Bindings.end())
+            {
+                action.Bindings.erase(it);
+            }
+        }
+
+        // Apply the binding
+        auto* action = map.GetAction(m_RebindActionName);
+        if (action)
+        {
+            if (m_RebindIsNewBinding)
+            {
+                action->Bindings.push_back(newBinding);
+            }
+            else if (m_RebindBindingIndex < action->Bindings.size())
+            {
+                action->Bindings[m_RebindBindingIndex] = newBinding;
+            }
+            m_Dirty = true;
+        }
+
+        m_IsRebinding = false;
+    }
+
     bool InputSettingsPanel::OnKeyPressed(KeyPressedEvent const& e)
     {
         if (!m_IsRebinding)
@@ -265,40 +319,7 @@ namespace OloEngine
             return true;
         }
 
-        InputBinding newBinding = InputBinding::Key(e.GetKeyCode());
-
-        // Conflict detection
-        auto& map = InputActionManager::GetActionMap();
-        for (auto& [name, action] : map.Actions)
-        {
-            if (name == m_RebindActionName)
-            {
-                continue;
-            }
-            auto it = std::ranges::find(action.Bindings, newBinding);
-            if (it != action.Bindings.end())
-            {
-                // Remove conflicting binding from the other action
-                action.Bindings.erase(it);
-            }
-        }
-
-        // Apply the binding
-        auto* action = map.GetAction(m_RebindActionName);
-        if (action)
-        {
-            if (m_RebindIsNewBinding)
-            {
-                action->Bindings.push_back(newBinding);
-            }
-            else if (m_RebindBindingIndex < action->Bindings.size())
-            {
-                action->Bindings[m_RebindBindingIndex] = newBinding;
-            }
-            m_Dirty = true;
-        }
-
-        m_IsRebinding = false;
+        ApplyNewBinding(InputBinding::Key(e.GetKeyCode()));
         return true;
     }
 
@@ -309,39 +330,7 @@ namespace OloEngine
             return false;
         }
 
-        InputBinding newBinding = InputBinding::MouseButton(e.GetMouseButton());
-
-        // Conflict detection
-        auto& map = InputActionManager::GetActionMap();
-        for (auto& [name, action] : map.Actions)
-        {
-            if (name == m_RebindActionName)
-            {
-                continue;
-            }
-            auto it = std::ranges::find(action.Bindings, newBinding);
-            if (it != action.Bindings.end())
-            {
-                action.Bindings.erase(it);
-            }
-        }
-
-        // Apply the binding
-        auto* action = map.GetAction(m_RebindActionName);
-        if (action)
-        {
-            if (m_RebindIsNewBinding)
-            {
-                action->Bindings.push_back(newBinding);
-            }
-            else if (m_RebindBindingIndex < action->Bindings.size())
-            {
-                action->Bindings[m_RebindBindingIndex] = newBinding;
-            }
-            m_Dirty = true;
-        }
-
-        m_IsRebinding = false;
+        ApplyNewBinding(InputBinding::MouseButton(e.GetMouseButton()));
         return true;
     }
 

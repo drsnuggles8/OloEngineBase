@@ -26,6 +26,7 @@ namespace OloEngine
         void DrawBinding(InputAction& action, sizet bindingIndex);
         void DrawRebindOverlay();
         void DrawAddActionPopup();
+        void ApplyNewBinding(InputBinding newBinding);
 
         bool OnKeyPressed(KeyPressedEvent const& e);
         bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);

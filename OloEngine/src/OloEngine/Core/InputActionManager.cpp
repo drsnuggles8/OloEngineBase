@@ -1,9 +1,14 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/InputActionManager.h"
-#include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/GlfwInputProvider.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 namespace OloEngine
 {
+    // Default GLFW-backed input provider
+    static GlfwInputProvider s_DefaultProvider;
+    IInputProvider* InputActionManager::s_InputProvider = &s_DefaultProvider;
+
     // --- InputBinding helpers (defined here to keep the header lean) ---
 
     std::string InputBinding::GetDisplayName() const
@@ -98,12 +103,12 @@ namespace OloEngine
         InputActionMap map;
         map.Name = "DefaultGameActions";
 
-        map.AddAction({ "MoveUp",    { InputBinding::Key(Key::W), InputBinding::Key(Key::Up) } });
-        map.AddAction({ "MoveDown",  { InputBinding::Key(Key::S), InputBinding::Key(Key::Down) } });
-        map.AddAction({ "MoveLeft",  { InputBinding::Key(Key::A), InputBinding::Key(Key::Left) } });
+        map.AddAction({ "MoveUp", { InputBinding::Key(Key::W), InputBinding::Key(Key::Up) } });
+        map.AddAction({ "MoveDown", { InputBinding::Key(Key::S), InputBinding::Key(Key::Down) } });
+        map.AddAction({ "MoveLeft", { InputBinding::Key(Key::A), InputBinding::Key(Key::Left) } });
         map.AddAction({ "MoveRight", { InputBinding::Key(Key::D), InputBinding::Key(Key::Right) } });
-        map.AddAction({ "Jump",      { InputBinding::Key(Key::Space) } });
-        map.AddAction({ "Interact",  { InputBinding::Key(Key::E) } });
+        map.AddAction({ "Jump", { InputBinding::Key(Key::Space) } });
+        map.AddAction({ "Interact", { InputBinding::Key(Key::E) } });
 
         return map;
     }
@@ -112,6 +117,8 @@ namespace OloEngine
 
     void InputActionManager::Init()
     {
+        OLO_PROFILE_FUNCTION();
+
         s_ActiveMap = {};
         s_CurrentState.clear();
         s_PreviousState.clear();
@@ -119,6 +126,8 @@ namespace OloEngine
 
     void InputActionManager::Shutdown()
     {
+        OLO_PROFILE_FUNCTION();
+
         s_ActiveMap = {};
         s_CurrentState.clear();
         s_PreviousState.clear();
@@ -126,7 +135,33 @@ namespace OloEngine
 
     void InputActionManager::Update()
     {
+        OLO_PROFILE_FUNCTION();
+
         s_PreviousState = s_CurrentState;
+
+        // Prune stale entries for actions that no longer exist in the map
+        for (auto it = s_CurrentState.begin(); it != s_CurrentState.end();)
+        {
+            if (!s_ActiveMap.Actions.contains(it->first))
+            {
+                it = s_CurrentState.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+        for (auto it = s_PreviousState.begin(); it != s_PreviousState.end();)
+        {
+            if (!s_ActiveMap.Actions.contains(it->first))
+            {
+                it = s_PreviousState.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
 
         for (auto& [actionName, action] : s_ActiveMap.Actions)
         {
@@ -135,7 +170,7 @@ namespace OloEngine
             {
                 if (binding.Type == InputBindingType::Keyboard)
                 {
-                    if (Input::IsKeyPressed(binding.Code))
+                    if (s_InputProvider->IsKeyPressed(binding.Code))
                     {
                         pressed = true;
                         break;
@@ -143,7 +178,7 @@ namespace OloEngine
                 }
                 else if (binding.Type == InputBindingType::Mouse)
                 {
-                    if (Input::IsMouseButtonPressed(binding.Code))
+                    if (s_InputProvider->IsMouseButtonPressed(binding.Code))
                     {
                         pressed = true;
                         break;
@@ -156,7 +191,7 @@ namespace OloEngine
 
     bool InputActionManager::IsActionPressed(std::string_view actionName)
     {
-        auto it = s_CurrentState.find(std::string(actionName));
+        auto it = s_CurrentState.find(actionName);
         if (it == s_CurrentState.end())
         {
             return false;
@@ -166,26 +201,24 @@ namespace OloEngine
 
     bool InputActionManager::IsActionJustPressed(std::string_view actionName)
     {
-        std::string key(actionName);
-        auto currentIt = s_CurrentState.find(key);
+        auto currentIt = s_CurrentState.find(actionName);
         if (currentIt == s_CurrentState.end() || !currentIt->second)
         {
             return false;
         }
-        auto prevIt = s_PreviousState.find(key);
+        auto prevIt = s_PreviousState.find(actionName);
         return prevIt == s_PreviousState.end() || !prevIt->second;
     }
 
     bool InputActionManager::IsActionJustReleased(std::string_view actionName)
     {
-        std::string key(actionName);
-        auto currentIt = s_CurrentState.find(key);
+        auto currentIt = s_CurrentState.find(actionName);
         bool currentlyPressed = (currentIt != s_CurrentState.end()) && currentIt->second;
         if (currentlyPressed)
         {
             return false;
         }
-        auto prevIt = s_PreviousState.find(key);
+        auto prevIt = s_PreviousState.find(actionName);
         return prevIt != s_PreviousState.end() && prevIt->second;
     }
 
@@ -194,6 +227,11 @@ namespace OloEngine
         s_ActiveMap = map;
         s_CurrentState.clear();
         s_PreviousState.clear();
+    }
+
+    void InputActionManager::SetInputProvider(IInputProvider* provider)
+    {
+        s_InputProvider = provider ? provider : &s_DefaultProvider;
     }
 
 } // namespace OloEngine

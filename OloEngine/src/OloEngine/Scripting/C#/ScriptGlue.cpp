@@ -82,6 +82,10 @@ namespace OloEngine
 
     static u64 Entity_FindEntityByName(MonoString* name)
     {
+        if (!name)
+        {
+            return 0;
+        }
         char* nameCStr = mono_string_to_utf8(name);
 
         Scene* scene = ScriptEngine::GetSceneContext();
@@ -1308,6 +1312,12 @@ namespace OloEngine
 
     static bool Input_IsActionPressed(MonoString* actionName)
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (!actionName)
+        {
+            return false;
+        }
         char* name = mono_string_to_utf8(actionName);
         bool result = InputActionManager::IsActionPressed(name);
         mono_free(name);
@@ -1316,6 +1326,12 @@ namespace OloEngine
 
     static bool Input_IsActionJustPressed(MonoString* actionName)
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (!actionName)
+        {
+            return false;
+        }
         char* name = mono_string_to_utf8(actionName);
         bool result = InputActionManager::IsActionJustPressed(name);
         mono_free(name);
@@ -1324,6 +1340,12 @@ namespace OloEngine
 
     static bool Input_IsActionJustReleased(MonoString* actionName)
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (!actionName)
+        {
+            return false;
+        }
         char* name = mono_string_to_utf8(actionName);
         bool result = InputActionManager::IsActionJustReleased(name);
         mono_free(name);

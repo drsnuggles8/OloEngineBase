@@ -1,9 +1,11 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/InputActionSerializer.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <fstream>
 
 namespace OloEngine
@@ -12,26 +14,41 @@ namespace OloEngine
     {
         switch (type)
         {
-            case InputBindingType::Keyboard: return "Keyboard";
-            case InputBindingType::Mouse:    return "Mouse";
+            case InputBindingType::Keyboard:
+                return "Keyboard";
+            case InputBindingType::Mouse:
+                return "Mouse";
         }
         return "Unknown";
     }
 
     static std::optional<InputBindingType> StringToBindingType(const std::string& str)
     {
-        if (str == "Keyboard") return InputBindingType::Keyboard;
-        if (str == "Mouse")    return InputBindingType::Mouse;
+        if (str == "Keyboard")
+            return InputBindingType::Keyboard;
+        if (str == "Mouse")
+            return InputBindingType::Mouse;
         return std::nullopt;
     }
 
     bool InputActionSerializer::Serialize(const InputActionMap& map, const std::filesystem::path& filepath)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Ensure parent directory exists
         if (auto parentPath = filepath.parent_path(); !parentPath.empty())
         {
             std::filesystem::create_directories(parentPath);
         }
+
+        // Collect and sort action names for deterministic output
+        std::vector<std::string> sortedNames;
+        sortedNames.reserve(map.Actions.size());
+        for (const auto& [name, _] : map.Actions)
+        {
+            sortedNames.push_back(name);
+        }
+        std::ranges::sort(sortedNames);
 
         YAML::Emitter out;
         out << YAML::BeginMap;
@@ -42,8 +59,9 @@ namespace OloEngine
             out << YAML::Key << "Actions" << YAML::Value;
             {
                 out << YAML::BeginSeq;
-                for (const auto& [actionName, action] : map.Actions)
+                for (const auto& actionName : sortedNames)
                 {
+                    const auto& action = map.Actions.at(actionName);
                     out << YAML::BeginMap;
                     out << YAML::Key << "Name" << YAML::Value << action.Name;
                     out << YAML::Key << "Bindings" << YAML::Value;
@@ -66,6 +84,12 @@ namespace OloEngine
         }
         out << YAML::EndMap;
 
+        if (!out.good())
+        {
+            OLO_CORE_ERROR("InputActionSerializer: YAML emitter error: {}", out.GetLastError());
+            return false;
+        }
+
         std::ofstream fout(filepath);
         if (!fout.is_open())
         {
@@ -78,6 +102,8 @@ namespace OloEngine
 
     std::optional<InputActionMap> InputActionSerializer::Deserialize(const std::filesystem::path& filepath)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!std::filesystem::exists(filepath))
         {
             OLO_CORE_WARN("InputActionSerializer: File does not exist: {}", filepath.string());
@@ -138,26 +164,34 @@ namespace OloEngine
             {
                 for (const auto& bindingNode : bindingsNode)
                 {
-                    auto typeNode = bindingNode["Type"];
-                    auto codeNode = bindingNode["Code"];
-
-                    if (!typeNode || !codeNode)
+                    try
                     {
-                        OLO_CORE_WARN("InputActionSerializer: Skipping binding with missing Type or Code in action '{}'", action.Name);
+                        auto typeNode = bindingNode["Type"];
+                        auto codeNode = bindingNode["Code"];
+
+                        if (!typeNode || !codeNode)
+                        {
+                            OLO_CORE_WARN("InputActionSerializer: Skipping binding with missing Type or Code in action '{}'", action.Name);
+                            continue;
+                        }
+
+                        auto bindingType = StringToBindingType(typeNode.as<std::string>());
+                        if (!bindingType)
+                        {
+                            OLO_CORE_WARN("InputActionSerializer: Unknown binding type '{}' in action '{}'", typeNode.as<std::string>(), action.Name);
+                            continue;
+                        }
+
+                        InputBinding binding;
+                        binding.Type = *bindingType;
+                        binding.Code = codeNode.as<u16>();
+                        action.Bindings.push_back(binding);
+                    }
+                    catch (const YAML::Exception& e)
+                    {
+                        OLO_CORE_WARN("InputActionSerializer: Skipping malformed binding in action '{}': {}", action.Name, e.what());
                         continue;
                     }
-
-                    auto bindingType = StringToBindingType(typeNode.as<std::string>());
-                    if (!bindingType)
-                    {
-                        OLO_CORE_WARN("InputActionSerializer: Unknown binding type '{}' in action '{}'", typeNode.as<std::string>(), action.Name);
-                        continue;
-                    }
-
-                    InputBinding binding;
-                    binding.Type = *bindingType;
-                    binding.Code = codeNode.as<u16>();
-                    action.Bindings.push_back(binding);
                 }
             }
 
