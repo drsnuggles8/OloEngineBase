@@ -58,6 +58,14 @@ add_executable(OloEngine-Tests
 		Rendering/RenderingRegressionTest.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
+
+		# Networking subsystem tests
+		Networking/NetworkManagerTest.cpp
+		Networking/NetworkMessageTest.cpp
+		Networking/NetworkThreadDispatchTest.cpp
+		Networking/ComponentReplicatorTest.cpp
+		Networking/EntitySnapshotTest.cpp
+		Networking/NetworkIdentityComponentTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

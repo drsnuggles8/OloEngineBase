@@ -939,6 +939,7 @@ namespace OloEngine
             DisplayAddComponentEntry<LightProbeComponent>("Light Probe");
             DisplayAddComponentEntry<LightProbeVolumeComponent>("Light Probe Volume");
             DisplayAddComponentEntry<StreamingVolumeComponent>("Streaming Volume");
+            DisplayAddComponentEntry<NetworkIdentityComponent>("Network Identity");
 
             ImGui::EndPopup();
         }
@@ -3077,6 +3078,21 @@ namespace OloEngine
             }
 
             ImGui::Text("Loaded: %s", component.IsLoaded ? "Yes" : "No"); });
+
+        DrawComponent<NetworkIdentityComponent>("Network Identity", entity, [](auto& component)
+        {
+            ImGui::DragScalar("Owner Client ID", ImGuiDataType_U32, &component.OwnerClientID);
+
+            const char* authorityStrings[] = { "Server", "Client", "Shared" };
+            int currentAuthority = static_cast<int>(component.Authority);
+            if (ImGui::Combo("Authority", &currentAuthority,
+                             authorityStrings, IM_ARRAYSIZE(authorityStrings)))
+            {
+                component.Authority = static_cast<ENetworkAuthority>(currentAuthority);
+            }
+
+            ImGui::Checkbox("Is Replicated", &component.IsReplicated);
+        });
     }
 
     template<typename T>

@@ -1112,6 +1112,34 @@ namespace OloEngine
         LODGroupComponent& operator=(LODGroupComponent&&) noexcept = default;
     };
 
+    // =========================================================================
+    // NetworkIdentityComponent
+    // =========================================================================
+
+    // @enum ENetworkAuthority
+    // @brief Determines which peer is authoritative for a given entity.
+    enum class ENetworkAuthority : u8
+    {
+        Server = 0, ///< Server is authoritative (default)
+        Client,     ///< Owning client is authoritative
+        Shared      ///< Both can modify (cooperative)
+    };
+
+    // @struct NetworkIdentityComponent
+    // @brief Marks an entity as participating in network replication.
+    //
+    // The existing IDComponent::UUID serves as the global network identifier;
+    // no separate "network entity ID" is introduced.
+    struct NetworkIdentityComponent
+    {
+        u32               OwnerClientID = 0;
+        ENetworkAuthority Authority     = ENetworkAuthority::Server;
+        bool              IsReplicated  = true;
+
+        NetworkIdentityComponent() = default;
+        NetworkIdentityComponent(const NetworkIdentityComponent&) = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -1173,5 +1201,6 @@ namespace OloEngine
         LODGroupComponent,
         LightProbeComponent,
         LightProbeVolumeComponent,
-        StreamingVolumeComponent>;
+        StreamingVolumeComponent,
+        NetworkIdentityComponent>;
 } // namespace OloEngine

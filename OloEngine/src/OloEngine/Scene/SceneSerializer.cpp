@@ -2041,6 +2041,20 @@ namespace OloEngine
             sv.LoadRadius = std::max(sv.LoadRadius, 1.0f);
             sv.UnloadRadius = std::max(sv.UnloadRadius, sv.LoadRadius + 1.0f);
         }
+
+        if (auto nicNode = entity["NetworkIdentityComponent"]; nicNode)
+        {
+            auto& nic = deserializedEntity.AddComponent<NetworkIdentityComponent>();
+            TrySet(nic.OwnerClientID, nicNode["OwnerClientID"]);
+            TrySetEnum(nic.Authority,  nicNode["Authority"]);
+            TrySet(nic.IsReplicated,   nicNode["IsReplicated"]);
+
+            // Sanitize: clamp Authority to known range
+            if (static_cast<u8>(nic.Authority) > static_cast<u8>(ENetworkAuthority::Shared))
+            {
+                nic.Authority = ENetworkAuthority::Server;
+            }
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -3300,6 +3314,19 @@ namespace OloEngine
             out << YAML::Key << "UnloadRadius" << YAML::Value << sv.UnloadRadius;
 
             out << YAML::EndMap; // StreamingVolumeComponent
+        }
+
+        if (entity.HasComponent<NetworkIdentityComponent>())
+        {
+            out << YAML::Key << "NetworkIdentityComponent";
+            out << YAML::BeginMap;
+
+            auto const& nic = entity.GetComponent<NetworkIdentityComponent>();
+            out << YAML::Key << "OwnerClientID" << YAML::Value << nic.OwnerClientID;
+            out << YAML::Key << "Authority"     << YAML::Value << static_cast<int>(nic.Authority);
+            out << YAML::Key << "IsReplicated"  << YAML::Value << nic.IsReplicated;
+
+            out << YAML::EndMap; // NetworkIdentityComponent
         }
 
         out << YAML::EndMap; // Entity

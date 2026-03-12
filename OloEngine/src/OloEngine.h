@@ -55,3 +55,8 @@
 #include "OloEngine/Audio/AudioLoader.h"
 
 // ------------------------------
+
+// --Networking------------------
+#include "OloEngine/Networking/Core/NetworkManager.h"
+
+// ------------------------------

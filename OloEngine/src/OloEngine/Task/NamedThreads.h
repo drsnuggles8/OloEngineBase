@@ -133,6 +133,7 @@ namespace OloEngine::Tasks
         GameThread = 0,   ///< Main application thread (active)
         RenderThread = 1, ///< Reserved for future multi-threaded rendering
         AudioThread = 2,  ///< Dedicated audio processing thread (active)
+        NetworkThread = 3, ///< Dedicated networking thread (active when NetworkThread::Start() is called)
 
         Count,
         Invalid = -1
@@ -156,6 +157,12 @@ namespace OloEngine::Tasks
             case EExtendedTaskPriority::RenderThreadHiPriLocalQueue:
                 return ENamedThread::RenderThread;
 
+            case EExtendedTaskPriority::NetworkThreadNormalPri:
+            case EExtendedTaskPriority::NetworkThreadHiPri:
+            case EExtendedTaskPriority::NetworkThreadNormalPriLocalQueue:
+            case EExtendedTaskPriority::NetworkThreadHiPriLocalQueue:
+                return ENamedThread::NetworkThread;
+
             default:
                 return ENamedThread::Invalid;
         }
@@ -170,6 +177,8 @@ namespace OloEngine::Tasks
             case EExtendedTaskPriority::GameThreadHiPriLocalQueue:
             case EExtendedTaskPriority::RenderThreadHiPri:
             case EExtendedTaskPriority::RenderThreadHiPriLocalQueue:
+            case EExtendedTaskPriority::NetworkThreadHiPri:
+            case EExtendedTaskPriority::NetworkThreadHiPriLocalQueue:
                 return true;
             default:
                 return false;
@@ -185,6 +194,8 @@ namespace OloEngine::Tasks
             case EExtendedTaskPriority::GameThreadHiPriLocalQueue:
             case EExtendedTaskPriority::RenderThreadNormalPriLocalQueue:
             case EExtendedTaskPriority::RenderThreadHiPriLocalQueue:
+            case EExtendedTaskPriority::NetworkThreadNormalPriLocalQueue:
+            case EExtendedTaskPriority::NetworkThreadHiPriLocalQueue:
                 return true;
             default:
                 return false;
@@ -685,6 +696,18 @@ namespace OloEngine::Tasks
         // Audio thread currently only supports one priority queue via named thread manager
         // We map it to "Normal" priority internally, but the thread itself runs at high priority
         FNamedThreadManager::Get().EnqueueTask(ENamedThread::AudioThread, FNamedThreadTask(MoveTemp(Task), EExtendedTaskPriority::None, DebugName));
+    }
+
+    // @brief Enqueue a task to the Network thread
+    template<typename TaskBody>
+    void EnqueueNetworkThreadTask(TaskBody&& Task,
+                                  const char* DebugName = "NetworkThreadTask",
+                                  bool bHighPriority = false)
+    {
+        EExtendedTaskPriority Priority = bHighPriority
+            ? EExtendedTaskPriority::NetworkThreadHiPri
+            : EExtendedTaskPriority::NetworkThreadNormalPri;
+        FNamedThreadManager::Get().EnqueueTask(Priority, Forward<TaskBody>(Task), DebugName);
     }
 
     // ============================================================================

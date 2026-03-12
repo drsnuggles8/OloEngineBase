@@ -131,6 +131,14 @@ FetchContent_Declare(
 	GIT_SHALLOW		TRUE
 )
 
+# --- GameNetworkingSockets (Valve networking library) ---
+FetchContent_Declare(
+    GameNetworkingSockets
+    GIT_REPOSITORY https://github.com/ValveSoftware/GameNetworkingSockets.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+)
+
 FetchContent_GetProperties(zlib)
 FetchContent_MakeAvailable(zlib)
 set(ZLIB_LIBRARY_DEBUG "${zlib_BINARY_DIR}/Debug/${CMAKE_STATIC_LIBRARY_PREFIX}zlibd${CMAKE_STATIC_LIBRARY_SUFFIX}")
@@ -230,6 +238,24 @@ set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(JPH_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
 set(JPH_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
 set(JPH_CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "" FORCE)
+
+# --- GameNetworkingSockets configuration ---
+set(GNS_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+set(GNS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GNS_BUILD_TOOLS    OFF CACHE BOOL "" FORCE)
+set(Protobuf_USE_STATIC_LIBS ON CACHE BOOL "" FORCE)
+
+# Prefer OpenSSL as the crypto backend; fall back to libsodium if not found.
+find_package(OpenSSL QUIET)
+if(OpenSSL_FOUND)
+    set(USE_CRYPTO OpenSSL CACHE STRING "" FORCE)
+    message(STATUS "[GNS] Using OpenSSL as crypto backend")
+else()
+    set(USE_CRYPTO libsodium CACHE STRING "" FORCE)
+    message(STATUS "[GNS] OpenSSL not found, falling back to libsodium")
+endif()
+
+FetchContent_MakeAvailable(GameNetworkingSockets)
 
 
 FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw glm googletest joltphysics miniaudio msdfgen msdf-atlas-gen spdlog tracy yaml-cpp)

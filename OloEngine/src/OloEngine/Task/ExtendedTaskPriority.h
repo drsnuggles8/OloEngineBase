@@ -41,6 +41,12 @@ namespace OloEngine::Tasks
         RenderThreadNormalPriLocalQueue,
         RenderThreadHiPriLocalQueue,
 
+        // NetworkThread priorities (ACTIVE when NetworkThread is started)
+        NetworkThreadNormalPri,
+        NetworkThreadHiPri,
+        NetworkThreadNormalPriLocalQueue,
+        NetworkThreadHiPriLocalQueue,
+
         Count
     };
 
@@ -65,7 +71,12 @@ namespace OloEngine::Tasks
             "RenderThreadNormalPri",
             "RenderThreadHiPri",
             "RenderThreadNormalPriLocalQueue",
-            "RenderThreadHiPriLocalQueue"
+            "RenderThreadHiPriLocalQueue",
+
+            "NetworkThreadNormalPri",
+            "NetworkThreadHiPri",
+            "NetworkThreadNormalPriLocalQueue",
+            "NetworkThreadHiPriLocalQueue"
         };
         return ExtendedTaskPriorityToStr[static_cast<i32>(ExtendedPriority)];
     }
@@ -115,6 +126,11 @@ namespace OloEngine::Tasks
         CONVERT_EXTENDED_TASK_PRIORITY(RenderThreadHiPri);
         CONVERT_EXTENDED_TASK_PRIORITY(RenderThreadNormalPriLocalQueue);
         CONVERT_EXTENDED_TASK_PRIORITY(RenderThreadHiPriLocalQueue);
+
+        CONVERT_EXTENDED_TASK_PRIORITY(NetworkThreadNormalPri);
+        CONVERT_EXTENDED_TASK_PRIORITY(NetworkThreadHiPri);
+        CONVERT_EXTENDED_TASK_PRIORITY(NetworkThreadNormalPriLocalQueue);
+        CONVERT_EXTENDED_TASK_PRIORITY(NetworkThreadHiPriLocalQueue);
 
 #undef CONVERT_EXTENDED_TASK_PRIORITY
 

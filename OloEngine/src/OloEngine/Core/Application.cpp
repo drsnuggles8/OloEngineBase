@@ -11,6 +11,7 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Task/NamedThreads.h"
+#include "OloEngine/Networking/Core/NetworkManager.h"
 
 #include <stdexcept>
 #include <ranges>
@@ -73,6 +74,20 @@ namespace OloEngine
                 throw std::runtime_error("AudioEngine initialization failed");
             }
 
+            if (!NetworkManager::Init())
+            {
+                OLO_CORE_CRITICAL("Failed to initialize NetworkManager!");
+                AudioEngine::Shutdown();
+                Renderer::Shutdown();
+#ifdef OLO_DEBUG
+                ShaderDebugger::GetInstance().Shutdown();
+                GPUResourceInspector::GetInstance().Shutdown();
+#endif
+                m_Window.reset();
+                s_Instance = nullptr;
+                throw std::runtime_error("NetworkManager initialization failed");
+            }
+
             ScriptEngine::Init();
             LuaScriptEngine::Init();
             InputActionManager::Init();
@@ -87,6 +102,7 @@ namespace OloEngine
             InputActionManager::Shutdown();
             LuaScriptEngine::Shutdown();
             ScriptEngine::Shutdown();
+            NetworkManager::Shutdown();
             AudioEngine::Shutdown();
             Renderer::Shutdown();
 
@@ -113,6 +129,7 @@ namespace OloEngine
         InputActionManager::Shutdown();
         LuaScriptEngine::Shutdown();
         ScriptEngine::Shutdown();
+        NetworkManager::Shutdown();
         AudioEngine::Shutdown();
         // Shutdown debug tools before Renderer
 #ifdef OLO_DEBUG
