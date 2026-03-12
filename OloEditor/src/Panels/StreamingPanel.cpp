@@ -157,6 +157,7 @@ namespace OloEngine
 
     void StreamingPanel::ExportRegion()
     {
+        OLO_PROFILE_FUNCTION();
         std::string savePath = FileDialogs::SaveFile(
             "Streaming Region (*.oloregion)\0*.oloregion\0");
         if (savePath.empty())

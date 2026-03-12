@@ -56,7 +56,7 @@ namespace OloEngine
         }
         [[nodiscard]] u32 GetLoadedRegionCount() const;
         [[nodiscard]] u32 GetPendingLoadCount() const;
-        [[nodiscard]] const std::unordered_map<RegionID, Ref<StreamingRegion>>& GetRegions() const
+        [[nodiscard]] std::unordered_map<RegionID, Ref<StreamingRegion>> GetRegions() const
         {
             std::lock_guard lock(m_RegionMutex);
             return m_Regions;

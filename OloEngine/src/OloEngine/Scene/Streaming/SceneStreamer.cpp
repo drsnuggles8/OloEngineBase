@@ -29,6 +29,7 @@ namespace OloEngine
             case Kinematic:
                 return b2_kinematicBody;
         }
+        OLO_CORE_ASSERT(false, "Unknown body type");
         return b2_staticBody;
     }
 
@@ -138,6 +139,15 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_CurrentFrame = frameNumber;
+
+        // Sync config from Scene's authoritative StreamingSettings each frame
+        if (m_Scene)
+        {
+            const auto& ss = m_Scene->m_StreamingSettings;
+            m_Config.LoadRadius = ss.DefaultLoadRadius;
+            m_Config.UnloadRadius = ss.DefaultUnloadRadius;
+            m_Config.MaxLoadedRegions = ss.MaxLoadedRegions;
+        }
 
         ProcessCompletedLoads();
 
@@ -353,12 +363,21 @@ namespace OloEngine
             bool success = it->Task.GetResult();
             auto& region = it->Region;
 
-            if (success && region->m_State == StreamingRegion::State::Loaded && m_Scene)
+            // Read state and move raw data under mutex (written by worker thread under same lock)
+            StreamingRegion::State regionState;
+            YAML::Node rawData;
+            {
+                std::lock_guard lock(m_RegionMutex);
+                regionState = region->m_State;
+                rawData = std::move(region->m_RawData);
+            }
+
+            if (success && regionState == StreamingRegion::State::Loaded && m_Scene)
             {
                 // Phase 2: main-thread entity instantiation
                 Ref<Scene> sceneRef{ m_Scene };
                 SceneSerializer serializer{ sceneRef };
-                auto entitiesNode = region->m_RawData["Entities"];
+                auto entitiesNode = rawData["Entities"];
                 if (entitiesNode)
                 {
                     auto createdUUIDs = serializer.DeserializeAdditive(entitiesNode);
@@ -368,8 +387,10 @@ namespace OloEngine
                 // Initialize subsystems for new entities
                 InitializeStreamedEntities(region->m_EntityUUIDs);
 
-                region->m_State = StreamingRegion::State::Ready;
-                region->m_RawData.reset();
+                {
+                    std::lock_guard lock(m_RegionMutex);
+                    region->m_State = StreamingRegion::State::Ready;
+                }
 
                 // Update volume component IsLoaded flag
                 auto volView = m_Scene->GetAllEntitiesWith<StreamingVolumeComponent>();
@@ -487,7 +508,8 @@ namespace OloEngine
                     shapeDef.density = bc2d.Density;
                     shapeDef.friction = bc2d.Friction;
                     shapeDef.restitution = bc2d.Restitution;
-                    b2Polygon polygon = b2MakeBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y);
+                    b2Polygon polygon = b2MakeOffsetBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y,
+                                                          {bc2d.Offset.x, bc2d.Offset.y}, 0.0f);
                     b2CreatePolygonShape(body, &shapeDef, &polygon);
                 }
 

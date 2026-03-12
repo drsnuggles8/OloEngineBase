@@ -141,6 +141,7 @@ namespace OloEngine
 
         newScene->m_ViewportWidth = other->m_ViewportWidth;
         newScene->m_ViewportHeight = other->m_ViewportHeight;
+        newScene->m_StreamingSettings = other->m_StreamingSettings;
 
         auto& srcSceneRegistry = other->m_Registry;
         auto& dstSceneRegistry = newScene->m_Registry;
@@ -1095,7 +1096,8 @@ namespace OloEngine
                 shapeDef.friction = bc2d.Friction;
                 shapeDef.restitution = bc2d.Restitution;
 
-                b2Polygon polygon = b2MakeBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y);
+                b2Polygon polygon = b2MakeOffsetBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y,
+                                                      {bc2d.Offset.x, bc2d.Offset.y}, 0.0f);
                 b2CreatePolygonShape(body, &shapeDef, &polygon);
             }
 

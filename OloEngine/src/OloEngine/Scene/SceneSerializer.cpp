@@ -13,6 +13,7 @@
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Particle/ParticleCurveSerializer.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
+#include "OloEngine/Scene/Streaming/StreamingSettings.h"
 
 #include <fstream>
 #include <cmath>
@@ -2033,6 +2034,10 @@ namespace OloEngine
             {
                 sv.ActivationMode = StreamingActivationMode::Proximity;
             }
+            if (!std::isfinite(sv.LoadRadius))
+                sv.LoadRadius = 200.0f;
+            if (!std::isfinite(sv.UnloadRadius))
+                sv.UnloadRadius = 250.0f;
             sv.LoadRadius = std::max(sv.LoadRadius, 1.0f);
             sv.UnloadRadius = std::max(sv.UnloadRadius, sv.LoadRadius + 1.0f);
         }
@@ -3459,10 +3464,7 @@ namespace OloEngine
             TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
             TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
 
-            // Sanitize
-            ss.DefaultLoadRadius = std::max(ss.DefaultLoadRadius, 1.0f);
-            ss.DefaultUnloadRadius = std::max(ss.DefaultUnloadRadius, ss.DefaultLoadRadius + 1.0f);
-            ss.MaxLoadedRegions = std::max(ss.MaxLoadedRegions, 1u);
+            SanitizeStreamingSettings(ss);
         }
 
         if (const auto entities = data["Entities"]; entities)
@@ -3652,10 +3654,7 @@ namespace OloEngine
             TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
             TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
 
-            // Sanitize
-            ss.DefaultLoadRadius = std::max(ss.DefaultLoadRadius, 1.0f);
-            ss.DefaultUnloadRadius = std::max(ss.DefaultUnloadRadius, ss.DefaultLoadRadius + 1.0f);
-            ss.MaxLoadedRegions = std::max(ss.MaxLoadedRegions, 1u);
+            SanitizeStreamingSettings(ss);
         }
 
         auto entities = data["Entities"];

@@ -152,7 +152,8 @@ TEST(SceneStreamerConfig, CustomValues)
 
 TEST(StreamingRegionSerializer, ParseInvalidYAML)
 {
-    auto result = StreamingRegionSerializer::ParseRegionFile("nonexistent_path.oloregion");
+    auto path = std::filesystem::temp_directory_path() / "olo_test_nonexistent.oloregion";
+    auto result = StreamingRegionSerializer::ParseRegionFile(path);
     EXPECT_FALSE(result["Region"]);
 }
 
