@@ -68,7 +68,7 @@ namespace OloEngine
             Entity entity = scene.GetEntityByUUID(static_cast<UUID>(uuid));
             if (!entity)
             {
-                // Entity not found — skip the transform data (8 floats = 9 * 4 bytes)
+                // Entity not found — skip the transform data (9 floats = 9 * 4 bytes)
                 // We must advance past the serialized TransformComponent bytes to keep
                 // the reader in sync. A dummy component is used for this.
                 TransformComponent dummy;

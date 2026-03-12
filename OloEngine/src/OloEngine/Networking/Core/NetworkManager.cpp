@@ -119,33 +119,11 @@ namespace OloEngine
             return false;
         }
 
-        ISteamNetworkingSockets* pInterface = SteamNetworkingSockets();
-        if (!pInterface)
-        {
-            OLO_CORE_ERROR("[NetworkManager] SteamNetworkingSockets() returned null.");
-            return false;
-        }
-
-        SteamNetworkingIPAddr serverLocalAddr;
-        serverLocalAddr.Clear();
-        serverLocalAddr.m_port = port;
-
-        SteamNetworkingConfigValue_t opt;
-        opt.SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1);
-
-        HSteamListenSocket listenSocket = pInterface->CreateListenSocketIP(serverLocalAddr, 1, &opt);
-        if (listenSocket == k_HSteamListenSocket_Invalid)
-        {
-            OLO_CORE_ERROR("[NetworkManager] Failed to create listen socket on port {}.", port);
-            return false;
-        }
-
-        // Close immediately — the full lifecycle is managed by NetworkServer.
-        // This call only validates that GNS is operational.
-        pInterface->CloseListenSocket(listenSocket);
-
+        // NetworkManager::StartServer sets the mode flag and tracks the port.
+        // The actual listen socket lifecycle is managed by NetworkServer, which is
+        // owned by the application layer (game code or editor).
         s_IsServer = true;
-        OLO_CORE_TRACE("[NetworkManager] Server mode active on port {}.", port);
+        OLO_CORE_TRACE("[NetworkManager] Server mode enabled for port {}.", port);
         return true;
     }
 
@@ -173,35 +151,12 @@ namespace OloEngine
             return false;
         }
 
-        ISteamNetworkingSockets* pInterface = SteamNetworkingSockets();
-        if (!pInterface)
-        {
-            OLO_CORE_ERROR("[NetworkManager] SteamNetworkingSockets() returned null.");
-            return false;
-        }
-
-        SteamNetworkingIPAddr serverAddr;
-        serverAddr.Clear();
-        serverAddr.ParseString(address.c_str());
-        serverAddr.m_port = port;
-
-        SteamNetworkingConfigValue_t opt;
-        opt.SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1);
-
-        HSteamNetConnection conn = pInterface->ConnectByIPAddress(serverAddr, 1, &opt);
-        if (conn == k_HSteamNetConnection_Invalid)
-        {
-            OLO_CORE_ERROR("[NetworkManager] Failed to initiate connection to {}:{}.", address, port);
-            return false;
-        }
-
-        // Close immediately — the full lifecycle is managed by NetworkClient.
-        // This call only validates that GNS is operational.
-        pInterface->CloseConnection(conn, 0, "Validation only", false);
-
+        // NetworkManager::Connect sets the client mode flag and tracks the target.
+        // The actual connection lifecycle is managed by NetworkClient, which is
+        // owned by the application layer (game code or editor).
         s_IsConnected = true;
         s_IsServer    = false;
-        OLO_CORE_TRACE("[NetworkManager] Client mode: connecting to {}:{}.", address, port);
+        OLO_CORE_TRACE("[NetworkManager] Client mode enabled: {}:{}.", address, port);
         return true;
     }
 

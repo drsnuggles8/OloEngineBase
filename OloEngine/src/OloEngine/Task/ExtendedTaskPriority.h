@@ -72,7 +72,6 @@ namespace OloEngine::Tasks
             "RenderThreadHiPri",
             "RenderThreadNormalPriLocalQueue",
             "RenderThreadHiPriLocalQueue",
-
             "NetworkThreadNormalPri",
             "NetworkThreadHiPri",
             "NetworkThreadNormalPriLocalQueue",

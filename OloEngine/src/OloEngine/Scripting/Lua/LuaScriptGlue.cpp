@@ -243,7 +243,6 @@ namespace OloEngine
         network.set_function("startServer", &NetworkManager::StartServer);
         network.set_function("stopServer",  &NetworkManager::StopServer);
 
-        // --- Input (raw + action mapping) ---
         auto inputTable = lua.create_named_table("Input");
         inputTable["IsKeyDown"] = [](u16 keycode)
         {
