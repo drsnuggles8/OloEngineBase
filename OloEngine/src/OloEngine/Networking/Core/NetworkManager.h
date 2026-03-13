@@ -4,6 +4,7 @@
 #include "OloEngine/Networking/Core/NetworkMessage.h"
 #include "OloEngine/Networking/Core/NetworkSession.h"
 #include "OloEngine/Networking/Core/NetworkLobby.h"
+#include "OloEngine/Networking/P2P/NetworkPeerMesh.h"
 #include "OloEngine/Networking/Prediction/ClientPrediction.h"
 #include "OloEngine/Networking/Prediction/LagCompensator.h"
 #include "OloEngine/Networking/Prediction/ServerInputHandler.h"
@@ -130,6 +131,9 @@ namespace OloEngine
         // Access the lobby manager.
         [[nodiscard]] static NetworkLobby* GetLobby();
 
+        // Access the P2P peer mesh.
+        [[nodiscard]] static NetworkPeerMesh& GetPeerMesh();
+
       private:
         static FMutex s_Mutex; // Protects all static members accessed from network thread callbacks
 
@@ -149,5 +153,6 @@ namespace OloEngine
         static LagCompensator s_LagCompensator;
         static NetworkSession s_Session;
         static NetworkLobby s_Lobby;
+        static NetworkPeerMesh s_PeerMesh;
     };
 } // namespace OloEngine

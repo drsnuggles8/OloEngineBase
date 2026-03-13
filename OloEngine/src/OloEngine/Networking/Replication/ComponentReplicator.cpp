@@ -42,11 +42,50 @@ namespace OloEngine
         ar << component.m_InitialAngularVelocity.x << component.m_InitialAngularVelocity.y << component.m_InitialAngularVelocity.z;
     }
 
+    std::unordered_map<std::string, ComponentSerializeFn> ComponentReplicator::s_Registry;
+
     void ComponentReplicator::RegisterDefaults()
     {
         OLO_PROFILE_FUNCTION();
-        // Currently using static overloads. Future: register via function map for extensibility.
-        OLO_CORE_TRACE("[ComponentReplicator] RegisterDefaults: using static Serialize overloads "
-                       "(Transform, Rigidbody2D, Rigidbody3D)");
+
+        Register("TransformComponent",
+                 [](FArchive& ar, void* comp)
+                 { Serialize(ar, *static_cast<TransformComponent*>(comp)); });
+
+        Register("Rigidbody2DComponent",
+                 [](FArchive& ar, void* comp)
+                 { Serialize(ar, *static_cast<Rigidbody2DComponent*>(comp)); });
+
+        Register("Rigidbody3DComponent",
+                 [](FArchive& ar, void* comp)
+                 { Serialize(ar, *static_cast<Rigidbody3DComponent*>(comp)); });
+
+        OLO_CORE_TRACE("[ComponentReplicator] Registered {} default component serializers", s_Registry.size());
+    }
+
+    void ComponentReplicator::Register(const std::string& componentName, ComponentSerializeFn serializer)
+    {
+        s_Registry[componentName] = std::move(serializer);
+    }
+
+    bool ComponentReplicator::IsRegistered(const std::string& componentName)
+    {
+        return s_Registry.contains(componentName);
+    }
+
+    const std::unordered_map<std::string, ComponentSerializeFn>& ComponentReplicator::GetRegistry()
+    {
+        return s_Registry;
+    }
+
+    const ComponentSerializeFn* ComponentReplicator::GetSerializer(const std::string& componentName)
+    {
+        auto it = s_Registry.find(componentName);
+        return it != s_Registry.end() ? &it->second : nullptr;
+    }
+
+    void ComponentReplicator::ClearRegistry()
+    {
+        s_Registry.clear();
     }
 } // namespace OloEngine

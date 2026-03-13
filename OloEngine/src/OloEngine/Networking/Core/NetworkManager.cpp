@@ -4,6 +4,7 @@
 #include "OloEngine/Networking/Transport/NetworkServer.h"
 #include "OloEngine/Networking/Transport/NetworkClient.h"
 #include "OloEngine/Networking/Replication/EntitySnapshot.h"
+#include "OloEngine/Networking/Replication/ComponentReplicator.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Threading/UniqueLock.h"
@@ -31,6 +32,7 @@ namespace OloEngine
     LagCompensator NetworkManager::s_LagCompensator;
     NetworkSession NetworkManager::s_Session;
     NetworkLobby NetworkManager::s_Lobby;
+    NetworkPeerMesh NetworkManager::s_PeerMesh;
 
     static void GNSDebugOutput(ESteamNetworkingSocketsDebugOutputType eType, char const* pszMsg)
     {
@@ -82,6 +84,8 @@ namespace OloEngine
             GNSConnectionStatusCallback);
 
         NetworkThread::Start(60);
+
+        ComponentReplicator::RegisterDefaults();
 
         s_Initialized = true;
         OLO_CORE_INFO("NetworkManager initialized (GameNetworkingSockets)");
@@ -274,6 +278,12 @@ namespace OloEngine
         if (s_Client)
         {
             s_Client->OnConnectionStatusChanged(pInfo);
+        }
+
+        // Route to P2P mesh if it has an active session
+        if (s_PeerMesh.IsInSession())
+        {
+            s_PeerMesh.OnConnectionStatusChanged(pInfo);
         }
     }
 
@@ -519,5 +529,10 @@ namespace OloEngine
     NetworkLobby* NetworkManager::GetLobby()
     {
         return &s_Lobby;
+    }
+
+    NetworkPeerMesh& NetworkManager::GetPeerMesh()
+    {
+        return s_PeerMesh;
     }
 } // namespace OloEngine

@@ -19,21 +19,26 @@ namespace OloEngine
     };
 
     // Simple LAN lobby manager.
-    // CreateLobby hosts a lobby, FindLobbies scans for them (via future UDP broadcast),
+    // CreateLobby hosts a lobby and opens a UDP discovery beacon.
+    // FindLobbies broadcasts a probe on the LAN and collects responses.
     // JoinLobby connects to a discovered lobby.
     class NetworkLobby
     {
       public:
-        NetworkLobby();
+        // Well-known UDP port used for LAN lobby discovery.
+        static constexpr u16 kDiscoveryPort = 27099;
 
-        // Host a new lobby.
+        NetworkLobby();
+        ~NetworkLobby();
+
+        // Host a new lobby and start the discovery beacon.
         void CreateLobby(const std::string& name, u16 port, u32 maxPlayers = 8);
 
-        // Stop hosting the current lobby.
+        // Stop hosting the current lobby (closes discovery beacon).
         void CloseLobby();
 
-        // Discover lobbies on LAN (stub — real implementation would use
-        // UDP broadcast on a well-known port).
+        // Discover lobbies on LAN via UDP broadcast.
+        // Sends a probe on kDiscoveryPort and waits up to ~500 ms for responses.
         void FindLobbies(std::function<void(const std::vector<LobbyInfo>&)> callback);
 
         // Request to join a discovered lobby.  Returns true if the join
@@ -45,6 +50,10 @@ namespace OloEngine
 
         // Set our ready state in the current lobby.
         void SetReady(bool ready);
+
+        // Poll the discovery beacon for incoming probes and respond.
+        // Should be called periodically while hosting (e.g. from the network thread).
+        void PollDiscovery();
 
         // Query
         [[nodiscard]] bool IsHosting() const;
@@ -61,5 +70,8 @@ namespace OloEngine
         std::string m_LobbyName;
         u16 m_Port = 0;
         u32 m_MaxPlayers = 0;
+
+        // Platform socket handle for the discovery beacon (INVALID_SOCKET when closed).
+        u64 m_DiscoverySocket = UINT64_MAX;
     };
 } // namespace OloEngine

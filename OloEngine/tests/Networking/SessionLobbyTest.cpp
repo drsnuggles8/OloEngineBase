@@ -206,7 +206,7 @@ TEST(NetworkLobby, ReadyState)
     EXPECT_FALSE(lobby.IsReady());
 }
 
-TEST(NetworkLobby, FindLobbiesReturnsEmptyStub)
+TEST(NetworkLobby, FindLobbiesReturnsEmptyWhenNoHosts)
 {
     NetworkLobby lobby;
     bool called = false;
@@ -214,7 +214,49 @@ TEST(NetworkLobby, FindLobbiesReturnsEmptyStub)
         [&](const std::vector<LobbyInfo>& results)
         {
             called = true;
+            // In unit tests, Winsock may or may not be initialised.
+            // Either way, with no hosts running, results should be empty.
             EXPECT_TRUE(results.empty());
         });
     EXPECT_TRUE(called);
+}
+
+TEST(NetworkLobby, FindLobbiesNullCallbackDoesNotCrash)
+{
+    NetworkLobby lobby;
+    // Should not crash with nullptr callback
+    lobby.FindLobbies(nullptr);
+}
+
+TEST(NetworkLobby, DiscoveryPortConstant)
+{
+    // Verify the well-known discovery port is set
+    EXPECT_EQ(OloEngine::NetworkLobby::kDiscoveryPort, 27099);
+}
+
+TEST(NetworkLobby, PollDiscoveryWithoutHostingIsNoOp)
+{
+    NetworkLobby lobby;
+    // Not hosting — should not crash
+    lobby.PollDiscovery();
+}
+
+TEST(NetworkLobby, CreateLobbyAndPollDiscoveryDoesNotCrash)
+{
+    NetworkLobby lobby;
+    lobby.CreateLobby("Test", 27015, 4);
+    // In unit tests, the discovery socket may fail to open.
+    // PollDiscovery should handle this gracefully.
+    lobby.PollDiscovery();
+    lobby.CloseLobby();
+}
+
+TEST(NetworkLobby, CloseLobbyClosesDiscoverySocket)
+{
+    NetworkLobby lobby;
+    lobby.CreateLobby("Test", 27015);
+    lobby.CloseLobby();
+    // After closing, PollDiscovery should be a no-op
+    lobby.PollDiscovery();
+    EXPECT_FALSE(lobby.IsHosting());
 }

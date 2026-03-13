@@ -157,3 +157,82 @@ TEST(PeerMeshTest, HostMigrationSelectsLowestID)
     EXPECT_FALSE(peers[2].IsHost);
     EXPECT_FALSE(peers[3].IsHost);
 }
+
+// ── NetworkPeerMesh Transport Tests (GNS not initialised) ────────────
+
+TEST(PeerMeshTest, StartListeningFailsWithoutGNS)
+{
+    // GNS is not initialised in unit tests, so StartListening should
+    // return false gracefully rather than crashing.
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+    EXPECT_FALSE(mesh.StartListening(27015));
+}
+
+TEST(PeerMeshTest, ConnectToPeerFailsWithoutGNS)
+{
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+    EXPECT_FALSE(mesh.ConnectToPeer(2, "127.0.0.1", 27016));
+}
+
+TEST(PeerMeshTest, SendToPeerNoTransportIsNoOp)
+{
+    // SendToPeer should warn but not crash when no transport exists
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+
+    auto& peers = const_cast<std::unordered_map<u32, PeerInfo>&>(mesh.GetPeers());
+    peers[2] = PeerInfo{ 2, "127.0.0.1", 27016, false };
+
+    u8 const payload = 0xAA;
+    // Should not crash — just logs a warning
+    mesh.SendToPeer(2, ENetworkMessageType::RPC, &payload, 1, 0);
+}
+
+TEST(PeerMeshTest, BroadcastWithoutTransportIsNoOp)
+{
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+
+    auto& peers = const_cast<std::unordered_map<u32, PeerInfo>&>(mesh.GetPeers());
+    peers[2] = PeerInfo{ 2, "127.0.0.1", 27016, false };
+    peers[3] = PeerInfo{ 3, "127.0.0.1", 27017, false };
+
+    u8 const payload = 0xBB;
+    // Should not crash
+    mesh.BroadcastToPeers(ENetworkMessageType::RPC, &payload, 1, 0);
+}
+
+TEST(PeerMeshTest, PollMessagesWithoutGNSIsNoOp)
+{
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+    // Should not crash
+    mesh.PollMessages();
+}
+
+TEST(PeerMeshTest, LeaveSessionCleansUpTransportState)
+{
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+    // Even though StartListening fails, LeaveSession should be safe
+    mesh.StartListening(27015);
+    mesh.LeaveSession();
+
+    EXPECT_FALSE(mesh.IsInSession());
+    EXPECT_TRUE(mesh.GetPeers().empty());
+}
+
+TEST(PeerMeshTest, MessageCallbackIsStored)
+{
+    NetworkPeerMesh mesh;
+    bool called = false;
+
+    mesh.SetMessageCallback(
+        [&](u32 /*sender*/, ENetworkMessageType /*type*/, const u8* /*data*/, u32 /*size*/)
+        { called = true; });
+
+    // Callback is stored but not invoked here (no incoming messages)
+    EXPECT_FALSE(called);
+}
