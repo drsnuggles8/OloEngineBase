@@ -18,7 +18,7 @@ namespace OloEngine
 
     class NetworkConnection
     {
-    public:
+      public:
         explicit NetworkConnection(HSteamNetConnection handle);
 
         [[nodiscard]] HSteamNetConnection GetHandle() const;
@@ -31,9 +31,9 @@ namespace OloEngine
         bool Send(const void* data, u32 size, i32 sendFlags);
         void Close(i32 reason = 0, const char* debug = "Closing");
 
-    private:
+      private:
         HSteamNetConnection m_Handle;
         EConnectionState m_State = EConnectionState::None;
         u32 m_ClientID = 0;
     };
-}
+} // namespace OloEngine

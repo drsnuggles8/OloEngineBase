@@ -47,4 +47,4 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         // Currently using static overloads. Future: register via function map for extensibility.
     }
-}
+} // namespace OloEngine

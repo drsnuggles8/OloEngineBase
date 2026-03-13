@@ -79,4 +79,4 @@ namespace OloEngine
 
         ImGui::End();
     }
-}
+} // namespace OloEngine

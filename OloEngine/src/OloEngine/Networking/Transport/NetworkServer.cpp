@@ -114,57 +114,57 @@ namespace OloEngine
 
         switch (pInfo->m_info.m_eState)
         {
-        case k_ESteamNetworkingConnectionState_Connecting:
-        {
-            if (m_Interface->AcceptConnection(pInfo->m_hConn) != k_EResultOK)
+            case k_ESteamNetworkingConnectionState_Connecting:
             {
-                m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                OLO_CORE_WARN("[NetworkServer] Failed to accept connection");
+                if (m_Interface->AcceptConnection(pInfo->m_hConn) != k_EResultOK)
+                {
+                    m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                    OLO_CORE_WARN("[NetworkServer] Failed to accept connection");
+                    break;
+                }
+
+                if (!m_Interface->SetConnectionPollGroup(pInfo->m_hConn, m_PollGroup))
+                {
+                    m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                    OLO_CORE_WARN("[NetworkServer] Failed to assign connection to poll group");
+                    break;
+                }
+
+                NetworkConnection conn(pInfo->m_hConn);
+                conn.SetState(EConnectionState::Connecting);
+                conn.SetClientID(m_NextClientID++);
+                m_Connections.emplace(pInfo->m_hConn, conn);
+
+                OLO_CORE_INFO("[NetworkServer] Client connecting (ID: {})", conn.GetClientID());
                 break;
             }
 
-            if (!m_Interface->SetConnectionPollGroup(pInfo->m_hConn, m_PollGroup))
+            case k_ESteamNetworkingConnectionState_Connected:
             {
-                m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                OLO_CORE_WARN("[NetworkServer] Failed to assign connection to poll group");
+                if (auto it = m_Connections.find(pInfo->m_hConn); it != m_Connections.end())
+                {
+                    it->second.SetState(EConnectionState::Connected);
+                    OLO_CORE_INFO("[NetworkServer] Client connected (ID: {})", it->second.GetClientID());
+                }
                 break;
             }
 
-            NetworkConnection conn(pInfo->m_hConn);
-            conn.SetState(EConnectionState::Connecting);
-            conn.SetClientID(m_NextClientID++);
-            m_Connections.emplace(pInfo->m_hConn, conn);
-
-            OLO_CORE_INFO("[NetworkServer] Client connecting (ID: {})", conn.GetClientID());
-            break;
-        }
-
-        case k_ESteamNetworkingConnectionState_Connected:
-        {
-            if (auto it = m_Connections.find(pInfo->m_hConn); it != m_Connections.end())
+            case k_ESteamNetworkingConnectionState_ClosedByPeer:
+            case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
             {
-                it->second.SetState(EConnectionState::Connected);
-                OLO_CORE_INFO("[NetworkServer] Client connected (ID: {})", it->second.GetClientID());
-            }
-            break;
-        }
+                if (auto it = m_Connections.find(pInfo->m_hConn); it != m_Connections.end())
+                {
+                    OLO_CORE_INFO("[NetworkServer] Client disconnected (ID: {}, reason: {})",
+                                  it->second.GetClientID(), pInfo->m_info.m_szEndDebug);
+                    m_Connections.erase(it);
+                }
 
-        case k_ESteamNetworkingConnectionState_ClosedByPeer:
-        case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-        {
-            if (auto it = m_Connections.find(pInfo->m_hConn); it != m_Connections.end())
-            {
-                OLO_CORE_INFO("[NetworkServer] Client disconnected (ID: {}, reason: {})",
-                             it->second.GetClientID(), pInfo->m_info.m_szEndDebug);
-                m_Connections.erase(it);
+                m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                break;
             }
 
-            m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-            break;
-        }
-
-        default:
-            break;
+            default:
+                break;
         }
     }
-}
+} // namespace OloEngine

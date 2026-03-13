@@ -63,4 +63,4 @@ namespace OloEngine
 
         m_State = EConnectionState::None;
     }
-}
+} // namespace OloEngine

@@ -4,9 +4,9 @@ namespace OloEngine
 {
     class NetworkDebugPanel
     {
-    public:
+      public:
         NetworkDebugPanel() = default;
 
         void OnImGuiRender();
     };
-}
+} // namespace OloEngine

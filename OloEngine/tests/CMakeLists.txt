@@ -60,6 +60,7 @@ add_executable(OloEngine-Tests
 		InputActionTest.cpp
 		Networking/NetworkManagerTest.cpp
 		Networking/NetworkMessageTest.cpp
+		Networking/NetworkThreadDispatchTest.cpp
 		Networking/ComponentReplicatorTest.cpp
 		Networking/EntitySnapshotTest.cpp
 		Networking/NetworkIdentityComponentTest.cpp

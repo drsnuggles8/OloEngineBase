@@ -705,8 +705,8 @@ namespace OloEngine::Tasks
                                   bool bHighPriority = false)
     {
         EExtendedTaskPriority Priority = bHighPriority
-            ? EExtendedTaskPriority::NetworkThreadHiPri
-            : EExtendedTaskPriority::NetworkThreadNormalPri;
+                                             ? EExtendedTaskPriority::NetworkThreadHiPri
+                                             : EExtendedTaskPriority::NetworkThreadNormalPri;
 
         FNamedThreadManager::Get().EnqueueTask(Priority, Forward<TaskBody>(Task), DebugName);
     }

@@ -19,17 +19,17 @@ namespace OloEngine
     {
         switch (eType)
         {
-        case k_ESteamNetworkingSocketsDebugOutputType_Bug:
-        case k_ESteamNetworkingSocketsDebugOutputType_Error:
-            OLO_CORE_ERROR("[GNS] {}", pszMsg);
-            break;
-        case k_ESteamNetworkingSocketsDebugOutputType_Important:
-        case k_ESteamNetworkingSocketsDebugOutputType_Warning:
-            OLO_CORE_WARN("[GNS] {}", pszMsg);
-            break;
-        default:
-            OLO_CORE_TRACE("[GNS] {}", pszMsg);
-            break;
+            case k_ESteamNetworkingSocketsDebugOutputType_Bug:
+            case k_ESteamNetworkingSocketsDebugOutputType_Error:
+                OLO_CORE_ERROR("[GNS] {}", pszMsg);
+                break;
+            case k_ESteamNetworkingSocketsDebugOutputType_Important:
+            case k_ESteamNetworkingSocketsDebugOutputType_Warning:
+                OLO_CORE_WARN("[GNS] {}", pszMsg);
+                break;
+            default:
+                OLO_CORE_TRACE("[GNS] {}", pszMsg);
+                break;
         }
     }
 
@@ -193,4 +193,4 @@ namespace OloEngine
             s_Client->OnConnectionStatusChanged(pInfo);
         }
     }
-}
+} // namespace OloEngine

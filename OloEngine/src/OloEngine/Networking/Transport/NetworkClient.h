@@ -10,7 +10,7 @@ namespace OloEngine
 {
     class NetworkClient
     {
-    public:
+      public:
         bool Connect(const std::string& address, u16 port);
         void Disconnect();
         void PollMessages();
@@ -23,9 +23,9 @@ namespace OloEngine
 
         void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
 
-    private:
+      private:
         HSteamNetConnection m_Connection = k_HSteamNetConnection_Invalid;
         ISteamNetworkingSockets* m_Interface = nullptr;
         EConnectionState m_State = EConnectionState::None;
     };
-}
+} // namespace OloEngine

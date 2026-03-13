@@ -21,7 +21,7 @@ namespace OloEngine
     struct NetworkMessageHeader
     {
         ENetworkMessageType Type = ENetworkMessageType::None;
-        u32 Size = 0;  // Payload size (excluding header)
-        u8 Flags = 0;  // Reliability, channel, etc.
+        u32 Size = 0; // Payload size (excluding header)
+        u8 Flags = 0; // Reliability, channel, etc.
     };
-}
+} // namespace OloEngine

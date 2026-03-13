@@ -10,8 +10,8 @@ namespace OloEngine
 
     class EntitySnapshot
     {
-    public:
+      public:
         static std::vector<u8> Capture(Scene& scene);
         static void Apply(Scene& scene, const std::vector<u8>& data);
     };
-}
+} // namespace OloEngine

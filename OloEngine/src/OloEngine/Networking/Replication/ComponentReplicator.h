@@ -11,11 +11,11 @@ namespace OloEngine
 
     class ComponentReplicator
     {
-    public:
+      public:
         static void Serialize(FArchive& ar, TransformComponent& component);
         static void Serialize(FArchive& ar, Rigidbody2DComponent& component);
         static void Serialize(FArchive& ar, Rigidbody3DComponent& component);
 
         static void RegisterDefaults();
     };
-}
+} // namespace OloEngine

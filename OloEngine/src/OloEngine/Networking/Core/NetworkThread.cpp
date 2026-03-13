@@ -101,4 +101,4 @@ namespace OloEngine
 
         OLO_CORE_TRACE("[NetworkThread] Thread exiting");
     }
-}
+} // namespace OloEngine

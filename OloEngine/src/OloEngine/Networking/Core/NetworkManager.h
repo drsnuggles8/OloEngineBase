@@ -13,7 +13,7 @@ namespace OloEngine
 
     class NetworkManager
     {
-    public:
+      public:
         static bool Init();
         static void Shutdown();
 
@@ -33,9 +33,9 @@ namespace OloEngine
         // Connection status callback (called by GNS)
         static void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
 
-    private:
+      private:
         static bool s_Initialized;
         static Scope<NetworkServer> s_Server;
         static Scope<NetworkClient> s_Client;
     };
-}
+} // namespace OloEngine

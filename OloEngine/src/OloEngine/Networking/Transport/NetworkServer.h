@@ -11,7 +11,7 @@ namespace OloEngine
 {
     class NetworkServer
     {
-    public:
+      public:
         bool Start(u16 port);
         void Stop();
         void PollMessages();
@@ -21,11 +21,11 @@ namespace OloEngine
 
         void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
 
-    private:
+      private:
         HSteamListenSocket m_ListenSocket = k_HSteamListenSocket_Invalid;
         HSteamNetPollGroup m_PollGroup = k_HSteamNetPollGroup_Invalid;
         ISteamNetworkingSockets* m_Interface = nullptr;
         std::unordered_map<HSteamNetConnection, NetworkConnection> m_Connections;
         u32 m_NextClientID = 1;
     };
-}
+} // namespace OloEngine

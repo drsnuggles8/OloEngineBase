@@ -109,27 +109,27 @@ namespace OloEngine
 
         switch (pInfo->m_info.m_eState)
         {
-        case k_ESteamNetworkingConnectionState_Connected:
-            m_State = EConnectionState::Connected;
-            OLO_CORE_INFO("[NetworkClient] Connected to server");
-            break;
+            case k_ESteamNetworkingConnectionState_Connected:
+                m_State = EConnectionState::Connected;
+                OLO_CORE_INFO("[NetworkClient] Connected to server");
+                break;
 
-        case k_ESteamNetworkingConnectionState_ClosedByPeer:
-            m_State = EConnectionState::ClosedByPeer;
-            OLO_CORE_INFO("[NetworkClient] Disconnected by server: {}", pInfo->m_info.m_szEndDebug);
-            m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-            m_Connection = k_HSteamNetConnection_Invalid;
-            break;
+            case k_ESteamNetworkingConnectionState_ClosedByPeer:
+                m_State = EConnectionState::ClosedByPeer;
+                OLO_CORE_INFO("[NetworkClient] Disconnected by server: {}", pInfo->m_info.m_szEndDebug);
+                m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                m_Connection = k_HSteamNetConnection_Invalid;
+                break;
 
-        case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-            m_State = EConnectionState::ProblemDetectedLocally;
-            OLO_CORE_WARN("[NetworkClient] Connection problem: {}", pInfo->m_info.m_szEndDebug);
-            m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-            m_Connection = k_HSteamNetConnection_Invalid;
-            break;
+            case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+                m_State = EConnectionState::ProblemDetectedLocally;
+                OLO_CORE_WARN("[NetworkClient] Connection problem: {}", pInfo->m_info.m_szEndDebug);
+                m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                m_Connection = k_HSteamNetConnection_Invalid;
+                break;
 
-        default:
-            break;
+            default:
+                break;
         }
     }
-}
+} // namespace OloEngine

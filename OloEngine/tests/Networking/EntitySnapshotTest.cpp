@@ -111,3 +111,62 @@ TEST(EntitySnapshotTest, MultipleEntitiesRoundtrip)
 
     EXPECT_FALSE(reader.IsError());
 }
+
+TEST(EntitySnapshotTest, OnlyReplicatedEntities)
+{
+    using namespace OloEngine;
+
+    // Simulate EntitySnapshot::Capture logic: only entities with
+    // IsReplicated == true should be written to the snapshot buffer.
+
+    NetworkIdentityComponent net1;
+    net1.IsReplicated = true;
+    TransformComponent t1;
+    t1.Translation = { 1.0f, 2.0f, 3.0f };
+    t1.Rotation = { 0.0f, 0.0f, 0.0f };
+    t1.Scale = { 1.0f, 1.0f, 1.0f };
+    u64 uuid1 = 100;
+
+    NetworkIdentityComponent net2;
+    net2.IsReplicated = false; // should be excluded
+    TransformComponent t2;
+    t2.Translation = { 9.0f, 9.0f, 9.0f };
+    t2.Rotation = { 0.0f, 0.0f, 0.0f };
+    t2.Scale = { 1.0f, 1.0f, 1.0f };
+    u64 uuid2 = 200;
+
+    // Write — mimic Capture's filtering
+    std::vector<u8> buffer;
+    FMemoryWriter writer(buffer);
+    writer.ArIsNetArchive = true;
+
+    // Entity 1: replicated → written
+    if (net1.IsReplicated)
+    {
+        writer << uuid1;
+        ComponentReplicator::Serialize(writer, t1);
+    }
+
+    // Entity 2: NOT replicated → skipped
+    if (net2.IsReplicated)
+    {
+        writer << uuid2;
+        ComponentReplicator::Serialize(writer, t2);
+    }
+
+    // Read back — should contain exactly one entity
+    FMemoryReader reader(buffer);
+    reader.ArIsNetArchive = true;
+
+    u64 readUUID = 0;
+    reader << readUUID;
+    EXPECT_EQ(readUUID, uuid1);
+
+    TransformComponent loaded;
+    ComponentReplicator::Serialize(reader, loaded);
+    EXPECT_FLOAT_EQ(loaded.Translation.x, 1.0f);
+
+    // Reader should be at the end — no second entity was written
+    EXPECT_EQ(reader.Tell(), reader.TotalSize());
+    EXPECT_FALSE(reader.IsError());
+}
