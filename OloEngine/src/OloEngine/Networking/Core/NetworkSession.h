@@ -12,10 +12,10 @@ namespace OloEngine
     enum class ESessionState : u8
     {
         None = 0,
-        Lobby,    // Pre-game: players joining, ready-up
-        Loading,  // Transitioning to gameplay (loading assets, spawning)
-        InGame,   // Active gameplay
-        PostGame  // Results screen, returning to lobby
+        Lobby,   // Pre-game: players joining, ready-up
+        Loading, // Transitioning to gameplay (loading assets, spawning)
+        InGame,  // Active gameplay
+        PostGame // Results screen, returning to lobby
     };
 
     // Represents a player in the session.

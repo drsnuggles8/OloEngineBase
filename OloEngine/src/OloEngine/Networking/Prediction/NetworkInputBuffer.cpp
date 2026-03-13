@@ -47,7 +47,8 @@ namespace OloEngine
 
         // Sort oldest-first for replay
         std::sort(result.begin(), result.end(),
-                  [](const InputCommand* a, const InputCommand* b) { return a->Tick < b->Tick; });
+                  [](const InputCommand* a, const InputCommand* b)
+                  { return a->Tick < b->Tick; });
 
         return result;
     }
