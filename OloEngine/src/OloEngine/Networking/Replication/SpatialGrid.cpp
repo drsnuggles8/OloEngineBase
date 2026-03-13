@@ -10,8 +10,7 @@
 namespace OloEngine
 {
     SpatialGrid::SpatialGrid(f32 cellSize)
-        : m_CellSize(cellSize)
-        , m_InvCellSize(1.0f / cellSize)
+        : m_CellSize(cellSize), m_InvCellSize(1.0f / cellSize)
     {
     }
 

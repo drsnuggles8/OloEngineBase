@@ -4,9 +4,7 @@
 namespace OloEngine
 {
     ChatChannel::ChatChannel(u32 channelID, EChatChannelType type, const std::string& name)
-        : m_ChannelID(channelID)
-        , m_Type(type)
-        , m_Name(name)
+        : m_ChannelID(channelID), m_Type(type), m_Name(name)
     {
     }
 

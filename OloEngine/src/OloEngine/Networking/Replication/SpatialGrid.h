@@ -43,7 +43,10 @@ namespace OloEngine
             i32 X = 0;
             i32 Z = 0;
 
-            bool operator==(const CellKey& other) const { return X == other.X && Z == other.Z; }
+            bool operator==(const CellKey& other) const
+            {
+                return X == other.X && Z == other.Z;
+            }
         };
 
         struct CellKeyHash

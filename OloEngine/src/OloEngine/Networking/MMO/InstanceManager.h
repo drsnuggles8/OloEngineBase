@@ -14,10 +14,10 @@ namespace OloEngine
 
     enum class EInstanceType : u8
     {
-        Group = 0,    // Small group content (5-man dungeons)
-        Raid,         // Large group content (10-40 players)
-        Scenario,     // Scripted PvE/PvP content
-        OpenWorld     // Layered overworld zone
+        Group = 0, // Small group content (5-man dungeons)
+        Raid,      // Large group content (10-40 players)
+        Scenario,  // Scripted PvE/PvP content
+        OpenWorld  // Layered overworld zone
     };
 
     struct InstanceInfo

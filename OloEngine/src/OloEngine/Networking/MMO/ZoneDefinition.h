@@ -19,8 +19,7 @@ namespace OloEngine
 
         [[nodiscard]] bool Contains(const glm::vec3& point) const
         {
-            return point.x >= Min.x && point.x <= Max.x && point.y >= Min.y && point.y <= Max.y && point.z >= Min.z
-                   && point.z <= Max.z;
+            return point.x >= Min.x && point.x <= Max.x && point.y >= Min.y && point.y <= Max.y && point.z >= Min.z && point.z <= Max.z;
         }
     };
 

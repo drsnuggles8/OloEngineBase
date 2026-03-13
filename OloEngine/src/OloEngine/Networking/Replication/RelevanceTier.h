@@ -16,9 +16,9 @@ namespace OloEngine
     // Configuration for tier distance bands (in world units).
     struct RelevanceTierConfig
     {
-        f32 CloseRange = 50.0f;  // [0, CloseRange] → Full
-        f32 MidRange = 150.0f;   // (CloseRange, MidRange] → Reduced
-        f32 FarRange = 300.0f;   // (MidRange, FarRange] → Minimal; beyond → not relevant
+        f32 CloseRange = 50.0f; // [0, CloseRange] → Full
+        f32 MidRange = 150.0f;  // (CloseRange, MidRange] → Reduced
+        f32 FarRange = 300.0f;  // (MidRange, FarRange] → Minimal; beyond → not relevant
     };
 
     // Returns the relevance tier for a given squared distance.

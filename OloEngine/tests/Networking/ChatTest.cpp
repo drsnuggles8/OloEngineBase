@@ -79,9 +79,7 @@ TEST(ChatManager, MessageFilterBlocking)
 
     // Set filter that blocks messages containing "blocked"
     mgr.SetMessageFilter([](const ChatMessage& msg)
-    {
-        return msg.Content.find("blocked") == std::string::npos;
-    });
+                         { return msg.Content.find("blocked") == std::string::npos; });
 
     ChatMessage goodMsg;
     goodMsg.ChannelID = chID;

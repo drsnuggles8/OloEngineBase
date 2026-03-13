@@ -14,8 +14,8 @@ namespace OloEngine
 
     struct LayerConfig
     {
-        u32 SoftCap = 200;  // When to create a new layer
-        u32 MergeCap = 50;  // When to merge layers
+        u32 SoftCap = 200; // When to create a new layer
+        u32 MergeCap = 50; // When to merge layers
     };
 
     struct LayerInfo

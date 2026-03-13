@@ -46,7 +46,8 @@ namespace OloEngine
         {
             auto sorted = m_Entries;
             std::sort(sorted.begin(), sorted.end(),
-                      [](const PriorityEntry& a, const PriorityEntry& b) { return a.Score > b.Score; });
+                      [](const PriorityEntry& a, const PriorityEntry& b)
+                      { return a.Score > b.Score; });
 
             if (sorted.size() > count)
             {
@@ -58,14 +59,21 @@ namespace OloEngine
         // Remove an entity from the queue.
         void Remove(u64 uuid)
         {
-            std::erase_if(m_Entries, [uuid](const PriorityEntry& e) { return e.EntityUUID == uuid; });
+            std::erase_if(m_Entries, [uuid](const PriorityEntry& e)
+                          { return e.EntityUUID == uuid; });
         }
 
         // Clear all entries.
-        void Clear() { m_Entries.clear(); }
+        void Clear()
+        {
+            m_Entries.clear();
+        }
 
         // Get the number of entries.
-        [[nodiscard]] u32 GetCount() const { return static_cast<u32>(m_Entries.size()); }
+        [[nodiscard]] u32 GetCount() const
+        {
+            return static_cast<u32>(m_Entries.size());
+        }
 
       private:
         std::vector<PriorityEntry> m_Entries;
