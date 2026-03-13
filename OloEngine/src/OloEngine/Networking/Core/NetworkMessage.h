@@ -42,6 +42,30 @@ namespace OloEngine
         SessionStart,
         SessionEnd,
 
+        // MMO — Zone Handoff
+        ZoneHandoffRequest,
+        ZoneHandoffReady,
+        ZoneHandoffComplete,
+        ZonePlayerCount,
+
+        // MMO — Instancing
+        InstanceCreate,
+        InstanceDestroy,
+        InstanceJoin,
+        LayerAssign,
+        LayerMerge,
+
+        // MMO — Chat
+        ChatSend,
+        ChatReceive,
+        ChatJoinChannel,
+        ChatLeaveChannel,
+
+        // MMO — Persistence
+        PlayerLogin,
+        PlayerLogout,
+        WorldStateSync,
+
         // Range for user-defined messages
         UserMessage = 1000
     };

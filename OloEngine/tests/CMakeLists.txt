@@ -77,6 +77,14 @@ add_executable(OloEngine-Tests
 		Networking/LockstepTest.cpp
 		Networking/P2PRollbackTest.cpp
 		Networking/SessionLobbyTest.cpp
+		# MMO Networking Tests (Phases 8-14)
+		Networking/SpatialGridTest.cpp
+		Networking/ZoneServerTest.cpp
+		Networking/ZoneHandoffTest.cpp
+		Networking/InstanceLayerTest.cpp
+		Networking/ChatTest.cpp
+		Networking/PersistenceTest.cpp
+		Networking/MMOOptimizationTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests
