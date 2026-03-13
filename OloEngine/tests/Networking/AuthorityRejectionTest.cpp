@@ -56,8 +56,9 @@ TEST_F(AuthorityRejectionTest, AcceptsInputFromOwnerWithClientAuthority)
     nic.Authority = ENetworkAuthority::Client;
 
     auto payload = MakeInputPayload(1, 100, { 0xAA });
-    m_Handler.ProcessInput(*m_Scene, 1, payload.data(), static_cast<u32>(payload.size()));
+    bool const accepted = m_Handler.ProcessInput(*m_Scene, 1, payload.data(), static_cast<u32>(payload.size()));
 
+    EXPECT_TRUE(accepted);
     EXPECT_EQ(m_AppliedCount, 1u);
     EXPECT_EQ(m_LastAppliedEntityUUID, 100u);
     EXPECT_EQ(m_Handler.GetLastProcessedTick(1), 1u);
@@ -72,8 +73,9 @@ TEST_F(AuthorityRejectionTest, RejectsInputFromNonOwner)
 
     // Client 2 tries to control entity owned by client 1
     auto payload = MakeInputPayload(1, 100, { 0xBB });
-    m_Handler.ProcessInput(*m_Scene, 2, payload.data(), static_cast<u32>(payload.size()));
+    bool const accepted = m_Handler.ProcessInput(*m_Scene, 2, payload.data(), static_cast<u32>(payload.size()));
 
+    EXPECT_FALSE(accepted);
     EXPECT_EQ(m_AppliedCount, 0u);
     EXPECT_EQ(m_Handler.GetLastProcessedTick(2), 0u); // Not tracked since rejected
 }
@@ -87,8 +89,9 @@ TEST_F(AuthorityRejectionTest, RejectsInputForServerAuthoritativeEntity)
 
     // Even the owner can't send inputs for server-authoritative entities
     auto payload = MakeInputPayload(1, 100, { 0xCC });
-    m_Handler.ProcessInput(*m_Scene, 1, payload.data(), static_cast<u32>(payload.size()));
+    bool const accepted = m_Handler.ProcessInput(*m_Scene, 1, payload.data(), static_cast<u32>(payload.size()));
 
+    EXPECT_FALSE(accepted);
     EXPECT_EQ(m_AppliedCount, 0u);
 }
 
@@ -100,8 +103,9 @@ TEST_F(AuthorityRejectionTest, AcceptsInputForSharedAuthorityEntity)
     nic.Authority = ENetworkAuthority::Shared;
 
     auto payload = MakeInputPayload(1, 100, { 0xDD });
-    m_Handler.ProcessInput(*m_Scene, 1, payload.data(), static_cast<u32>(payload.size()));
+    bool const accepted = m_Handler.ProcessInput(*m_Scene, 1, payload.data(), static_cast<u32>(payload.size()));
 
+    EXPECT_TRUE(accepted);
     EXPECT_EQ(m_AppliedCount, 1u);
 }
 
@@ -109,8 +113,9 @@ TEST_F(AuthorityRejectionTest, RejectsInputForUnknownEntity)
 {
     // No entity with UUID 999 exists
     auto payload = MakeInputPayload(1, 999, { 0xEE });
-    m_Handler.ProcessInput(*m_Scene, 1, payload.data(), static_cast<u32>(payload.size()));
+    bool const accepted = m_Handler.ProcessInput(*m_Scene, 1, payload.data(), static_cast<u32>(payload.size()));
 
+    EXPECT_FALSE(accepted);
     EXPECT_EQ(m_AppliedCount, 0u);
 }
 
@@ -120,8 +125,9 @@ TEST_F(AuthorityRejectionTest, RejectsInputForEntityWithoutNetworkIdentity)
     // Entity exists but has no NetworkIdentityComponent
 
     auto payload = MakeInputPayload(1, 100, { 0xFF });
-    m_Handler.ProcessInput(*m_Scene, 1, payload.data(), static_cast<u32>(payload.size()));
+    bool const accepted = m_Handler.ProcessInput(*m_Scene, 1, payload.data(), static_cast<u32>(payload.size()));
 
+    EXPECT_FALSE(accepted);
     EXPECT_EQ(m_AppliedCount, 0u);
 }
 
@@ -134,8 +140,8 @@ TEST_F(AuthorityRejectionTest, TracksLastProcessedTickPerClient)
 
     auto p1 = MakeInputPayload(5, 100, { 0x01 });
     auto p2 = MakeInputPayload(10, 100, { 0x02 });
-    m_Handler.ProcessInput(*m_Scene, 1, p1.data(), static_cast<u32>(p1.size()));
-    m_Handler.ProcessInput(*m_Scene, 1, p2.data(), static_cast<u32>(p2.size()));
+    EXPECT_TRUE(m_Handler.ProcessInput(*m_Scene, 1, p1.data(), static_cast<u32>(p1.size())));
+    EXPECT_TRUE(m_Handler.ProcessInput(*m_Scene, 1, p2.data(), static_cast<u32>(p2.size())));
 
     EXPECT_EQ(m_Handler.GetLastProcessedTick(1), 10u);
     EXPECT_EQ(m_Handler.GetAllLastProcessedTicks().size(), 1u);
@@ -145,7 +151,8 @@ TEST_F(AuthorityRejectionTest, RejectsTruncatedPayload)
 {
     // Payload too small to contain tick + entityUUID
     std::vector<u8> tiny = { 0x01, 0x02 };
-    m_Handler.ProcessInput(*m_Scene, 1, tiny.data(), static_cast<u32>(tiny.size()));
+    bool const accepted = m_Handler.ProcessInput(*m_Scene, 1, tiny.data(), static_cast<u32>(tiny.size()));
 
+    EXPECT_FALSE(accepted);
     EXPECT_EQ(m_AppliedCount, 0u);
 }

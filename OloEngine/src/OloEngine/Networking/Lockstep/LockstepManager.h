@@ -71,12 +71,25 @@ namespace OloEngine
         // Set the callback for applying inputs.
         void SetInputApplyCallback(InputApplyCallback callback);
 
+        // Set the maximum time (seconds) to wait for peer input before declaring a timeout.
+        // Default is 5 seconds. Set to 0 to disable timeout.
+        void SetInputTimeout(f32 seconds);
+        [[nodiscard]] f32 GetInputTimeout() const;
+
+        // Check if any peer has timed out waiting for input.
+        [[nodiscard]] bool HasTimedOut() const;
+
+        // Accumulate wait time when blocked. Call each frame with dt while AdvanceTick returns false.
+        void AccumulateWaitTime(f32 dt);
+
       private:
         u32 m_TickRate = 10;
         u32 m_InputDelay = 2;
         u32 m_CurrentTick = 0;
         u32 m_HashCheckInterval = 60;
         bool m_Desynced = false;
+        f32 m_InputTimeout = 5.0f;
+        f32 m_WaitAccumulator = 0.0f;
 
         std::set<u32> m_Peers;
 

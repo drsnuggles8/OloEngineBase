@@ -20,6 +20,7 @@ TEST(NetworkMessageTest, HeaderSerializationRoundtrip)
     writer << original.Type;
     writer << original.Size;
     writer << original.Flags;
+    writer << original.Version;
 
     // Read
     FMemoryReader reader(buffer);
@@ -28,10 +29,13 @@ TEST(NetworkMessageTest, HeaderSerializationRoundtrip)
     reader << loaded.Type;
     reader << loaded.Size;
     reader << loaded.Flags;
+    reader << loaded.Version;
 
     EXPECT_EQ(loaded.Type, original.Type);
     EXPECT_EQ(loaded.Size, original.Size);
     EXPECT_EQ(loaded.Flags, original.Flags);
+    EXPECT_EQ(loaded.Version, original.Version);
+    EXPECT_EQ(loaded.Version, NetworkMessageHeader::kCurrentVersion);
     EXPECT_FALSE(reader.IsError());
 }
 
@@ -76,16 +80,19 @@ TEST(NetworkMessageTest, EmptyPayload)
     writer << original.Type;
     writer << original.Size;
     writer << original.Flags;
+    writer << original.Version;
 
     FMemoryReader reader(buffer);
     NetworkMessageHeader loaded;
     reader << loaded.Type;
     reader << loaded.Size;
     reader << loaded.Flags;
+    reader << loaded.Version;
 
     EXPECT_EQ(loaded.Type, ENetworkMessageType::Ping);
     EXPECT_EQ(loaded.Size, 0u);
     EXPECT_EQ(loaded.Flags, 0u);
+    EXPECT_EQ(loaded.Version, NetworkMessageHeader::kCurrentVersion);
     EXPECT_FALSE(reader.IsError());
 }
 
@@ -103,15 +110,18 @@ TEST(NetworkMessageTest, MaxSizePayload)
     writer << original.Type;
     writer << original.Size;
     writer << original.Flags;
+    writer << original.Version;
 
     FMemoryReader reader(buffer);
     NetworkMessageHeader loaded;
     reader << loaded.Type;
     reader << loaded.Size;
     reader << loaded.Flags;
+    reader << loaded.Version;
 
     EXPECT_EQ(loaded.Type, ENetworkMessageType::UserMessage);
     EXPECT_EQ(loaded.Size, maxSize);
     EXPECT_EQ(loaded.Flags, 0xFF);
+    EXPECT_EQ(loaded.Version, NetworkMessageHeader::kCurrentVersion);
     EXPECT_FALSE(reader.IsError());
 }

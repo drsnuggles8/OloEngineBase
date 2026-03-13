@@ -87,6 +87,7 @@ namespace OloEngine
                 s_Instance = nullptr;
                 throw std::runtime_error("NetworkManager initialization failed");
             }
+            OLO_CORE_INFO("NetworkManager initialized successfully");
 
             ScriptEngine::Init();
             LuaScriptEngine::Init();

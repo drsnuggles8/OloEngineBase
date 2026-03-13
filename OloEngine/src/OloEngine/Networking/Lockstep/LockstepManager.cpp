@@ -73,17 +73,21 @@ namespace OloEngine
             return false;
         }
 
-        // Apply all peer inputs for this tick
+        // Apply all peer inputs for this tick in deterministic order
         if (m_ApplyCallback)
         {
-            auto const& inputs = m_InputsByTick[nextTick];
-            for (auto const& [peerID, data] : inputs)
+            auto& inputs = m_InputsByTick[nextTick];
+            for (u32 peerID : m_Peers)
             {
-                m_ApplyCallback(scene, peerID, data.data(), static_cast<u32>(data.size()));
+                if (auto it = inputs.find(peerID); it != inputs.end())
+                {
+                    m_ApplyCallback(scene, peerID, it->second.data(), static_cast<u32>(it->second.size()));
+                }
             }
         }
 
         m_CurrentTick = nextTick;
+        m_WaitAccumulator = 0.0f;
 
         // Clean up old inputs (keep some history for debugging)
         if (m_CurrentTick > 64)
@@ -143,5 +147,25 @@ namespace OloEngine
     void LockstepManager::SetInputApplyCallback(InputApplyCallback callback)
     {
         m_ApplyCallback = std::move(callback);
+    }
+
+    void LockstepManager::SetInputTimeout(f32 seconds)
+    {
+        m_InputTimeout = seconds;
+    }
+
+    f32 LockstepManager::GetInputTimeout() const
+    {
+        return m_InputTimeout;
+    }
+
+    bool LockstepManager::HasTimedOut() const
+    {
+        return m_InputTimeout > 0.0f && m_WaitAccumulator >= m_InputTimeout;
+    }
+
+    void LockstepManager::AccumulateWaitTime(f32 dt)
+    {
+        m_WaitAccumulator += dt;
     }
 } // namespace OloEngine

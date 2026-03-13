@@ -16,6 +16,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         m_LocalPeerID = localPeerID;
         m_HostPeerID = localPeerID;
         m_InSession = true;
@@ -31,6 +33,8 @@ namespace OloEngine
     void NetworkPeerMesh::JoinSession(u32 localPeerID, const std::string& hostAddress, u16 hostPort)
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         m_LocalPeerID = localPeerID;
         m_InSession = true;
@@ -68,21 +72,25 @@ namespace OloEngine
 
     u32 NetworkPeerMesh::GetLocalPeerID() const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_LocalPeerID;
     }
 
     const std::unordered_map<u32, PeerInfo>& NetworkPeerMesh::GetPeers() const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_Peers;
     }
 
     bool NetworkPeerMesh::IsHost() const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_InSession && m_LocalPeerID == m_HostPeerID;
     }
 
     bool NetworkPeerMesh::IsInSession() const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_InSession;
     }
 
@@ -210,6 +218,7 @@ namespace OloEngine
                 reader << header.Type;
                 reader << header.Size;
                 reader << header.Flags;
+                reader << header.Version;
 
                 if (!reader.IsError())
                 {
@@ -266,6 +275,7 @@ namespace OloEngine
         writer << header.Type;
         writer << header.Size;
         writer << header.Flags;
+        writer << header.Version;
 
         if (data && size > 0)
         {

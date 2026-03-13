@@ -14,6 +14,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         m_Interface = SteamNetworkingSockets();
         if (!m_Interface)
         {
@@ -85,6 +87,7 @@ namespace OloEngine
                 reader << header.Type;
                 reader << header.Size;
                 reader << header.Flags;
+                reader << header.Version;
 
                 if (!reader.IsError())
                 {
@@ -153,6 +156,7 @@ namespace OloEngine
         writer << header.Type;
         writer << header.Size;
         writer << header.Flags;
+        writer << header.Version;
 
         if (payload && payloadSize > 0)
         {

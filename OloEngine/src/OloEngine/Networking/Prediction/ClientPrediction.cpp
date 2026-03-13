@@ -40,15 +40,21 @@ namespace OloEngine
         {
             auto unconfirmed = m_InputBuffer.GetUnconfirmedInputs(lastProcessedInputTick);
 
-            // Capture server-authoritative positions before resimulation for smoothing
-            std::unordered_map<u64, glm::vec3> preReconcilePositions;
+            // Capture server-authoritative transforms before resimulation for smoothing
+            struct PreReconcileTransform
+            {
+                glm::vec3 Translation;
+                glm::vec3 Rotation;
+                glm::vec3 Scale;
+            };
+            std::unordered_map<u64, PreReconcileTransform> preReconcileTransforms;
             for (const auto* input : unconfirmed)
             {
                 auto entityOpt = scene.TryGetEntityWithUUID(UUID(input->EntityUUID));
                 if (entityOpt.has_value() && entityOpt->HasComponent<TransformComponent>())
                 {
-                    preReconcilePositions[input->EntityUUID] =
-                        entityOpt->GetComponent<TransformComponent>().Translation;
+                    auto const& tc = entityOpt->GetComponent<TransformComponent>();
+                    preReconcileTransforms[input->EntityUUID] = { tc.Translation, tc.Rotation, tc.Scale };
                 }
             }
 
@@ -58,22 +64,24 @@ namespace OloEngine
                                 static_cast<u32>(input->Data.size()));
             }
 
-            // Blend between pre-reconciliation and post-resimulation positions
+            // Blend between pre-reconciliation and post-resimulation transforms
             if (m_SmoothingRate < 1.0f)
             {
-                for (const auto& [entityUUID, prePos] : preReconcilePositions)
+                for (const auto& [entityUUID, preTransform] : preReconcileTransforms)
                 {
                     auto entityOpt = scene.TryGetEntityWithUUID(UUID(entityUUID));
                     if (entityOpt.has_value() && entityOpt->HasComponent<TransformComponent>())
                     {
                         auto& transform = entityOpt->GetComponent<TransformComponent>();
-                        f32 const error = glm::length(transform.Translation - prePos);
+                        f32 const error = glm::length(transform.Translation - preTransform.Translation);
                         if (m_HardSnapThreshold > 0.0f && error >= m_HardSnapThreshold)
                         {
-                            // Error exceeds threshold — keep the post-resimulation position (hard snap)
+                            // Error exceeds threshold — keep the post-resimulation state (hard snap)
                             continue;
                         }
-                        transform.Translation = glm::mix(prePos, transform.Translation, m_SmoothingRate);
+                        transform.Translation = glm::mix(preTransform.Translation, transform.Translation, m_SmoothingRate);
+                        transform.Rotation = glm::mix(preTransform.Rotation, transform.Rotation, m_SmoothingRate);
+                        transform.Scale = glm::mix(preTransform.Scale, transform.Scale, m_SmoothingRate);
                     }
                 }
             }

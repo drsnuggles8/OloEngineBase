@@ -4,6 +4,7 @@
 #include "OloEngine/Networking/Transport/NetworkConnection.h"
 #include "OloEngine/Networking/Core/NetworkMessage.h"
 #include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <steam/steamnetworkingsockets.h>
 #include <unordered_map>
@@ -33,12 +34,26 @@ namespace OloEngine
 
         [[nodiscard]] bool IsRunning() const;
         [[nodiscard]] const std::unordered_map<HSteamNetConnection, NetworkConnection>& GetConnections() const;
+        [[nodiscard]] u32 GetConnectionCount() const;
+
+        // Thread-safe iteration over connections — holds the mutex for the duration.
+        template<typename Fn>
+        void ForEachConnection(Fn&& fn) const;
+
         [[nodiscard]] NetworkMessageDispatcher& GetDispatcher();
         [[nodiscard]] const NetworkStats& GetStats() const;
 
         // Get the round-trip time in milliseconds for a specific client connection.
         // Returns -1 if the connection is not found or RTT is unavailable.
         [[nodiscard]] i32 GetClientPingMs(HSteamNetConnection connection) const;
+
+        // Set maximum number of simultaneous connections (0 = unlimited).
+        void SetMaxConnections(u32 maxConnections);
+        [[nodiscard]] u32 GetMaxConnections() const;
+
+        // Set idle timeout in seconds. Connections with no messages for this duration are closed (0 = disabled).
+        void SetIdleTimeout(f32 timeoutSeconds);
+        [[nodiscard]] f32 GetIdleTimeout() const;
 
         void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
 
@@ -54,5 +69,17 @@ namespace OloEngine
         NetworkMessageDispatcher m_Dispatcher;
         NetworkStats m_Stats;
         mutable FMutex m_Mutex;
+        u32 m_MaxConnections = 0; // 0 = unlimited
+        f32 m_IdleTimeout = 0.0f; // 0 = disabled
     };
+
+    template<typename Fn>
+    void NetworkServer::ForEachConnection(Fn&& fn) const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        for (auto const& [handle, connection] : m_Connections)
+        {
+            fn(handle, connection);
+        }
+    }
 } // namespace OloEngine

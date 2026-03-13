@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Threading/Mutex.h"
 
 #include <functional>
 #include <unordered_map>
@@ -79,12 +80,16 @@ namespace OloEngine
 
     struct NetworkMessageHeader
     {
+        // Protocol version for forward/backward compatibility.
+        static constexpr u8 kCurrentVersion = 1;
+
         ENetworkMessageType Type = ENetworkMessageType::None;
         u32 Size = 0; // Payload size (excluding header)
         u8 Flags = 0; // Reliability, channel, etc.
+        u8 Version = kCurrentVersion;
 
-        // Serialized size (no struct padding): sizeof(Type) + sizeof(Size) + sizeof(Flags)
-        static constexpr u32 kSerializedSize = sizeof(ENetworkMessageType) + sizeof(u32) + sizeof(u8);
+        // Serialized size (no struct padding): sizeof(Type) + sizeof(Size) + sizeof(Flags) + sizeof(Version)
+        static constexpr u32 kSerializedSize = sizeof(ENetworkMessageType) + sizeof(u32) + sizeof(u8) + sizeof(u8);
     };
 
     // Handler receives: senderClientID (0 for server), payload data pointer, payload size
@@ -100,6 +105,7 @@ namespace OloEngine
 
       private:
         std::unordered_map<ENetworkMessageType, NetworkMessageHandler> m_Handlers;
+        mutable FMutex m_Mutex;
     };
 
     // Tracks network I/O statistics over time

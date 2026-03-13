@@ -19,6 +19,12 @@ namespace OloEngine
         m_ClientInterestGroups[clientID] = std::move(groups);
     }
 
+    void NetworkInterestManager::RemoveClient(u32 clientID)
+    {
+        m_ClientPositions.erase(clientID);
+        m_ClientInterestGroups.erase(clientID);
+    }
+
     void NetworkInterestManager::UpdateSpatialGrid(Scene& scene)
     {
         OLO_PROFILE_FUNCTION();

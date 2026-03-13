@@ -11,6 +11,7 @@
 namespace OloEngine
 {
     class Scene;
+    class InterZoneMessageBus;
 
     // Manages one zone: owns entity tracking, spatial grid, and interest management.
     // In a full implementation, each ZoneServer would run its own tick loop in a
@@ -30,6 +31,9 @@ namespace OloEngine
 
         // Called each frame. Updates spatial grid and processes zone logic.
         void Tick(f32 dt);
+
+        // Set the inter-zone message bus for this zone to process messages from.
+        void SetMessageBus(InterZoneMessageBus* bus);
 
         // Player management
         bool AddPlayer(u32 clientID);
@@ -73,5 +77,6 @@ namespace OloEngine
         std::unordered_set<u64> m_GhostEntities;
         SpatialGrid m_SpatialGrid;
         NetworkInterestManager m_InterestManager;
+        InterZoneMessageBus* m_MessageBus = nullptr;
     };
 } // namespace OloEngine

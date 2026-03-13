@@ -14,7 +14,10 @@ namespace OloEngine
     struct Rigidbody3DComponent;
 
     // Type-erased component serialization function.
-    // The void* points to the concrete component instance.
+    // The void* MUST point to the concrete component type matching the registered name.
+    // Passing a mismatched type leads to undefined behavior.
+    // Safety: Only call via the type-safe Serialize() overloads or
+    // through the generated RegisterDefaults() bindings, which guarantee correct casts.
     using ComponentSerializeFn = std::function<void(FArchive&, void*)>;
 
     class ComponentReplicator

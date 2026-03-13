@@ -60,12 +60,18 @@ namespace OloEngine
         // Drain messages targeted at a specific zone (or broadcast messages with targetZoneID=0).
         [[nodiscard]] std::vector<InterZoneMessage> DrainForZone(u32 zoneID)
         {
-            TUniqueLock<FMutex> lock(m_Mutex);
+            std::queue<InterZoneMessage> snapshot;
+            {
+                TUniqueLock<FMutex> lock(m_Mutex);
+                snapshot = std::move(m_Queue);
+                // m_Queue is now empty (moved-from)
+            }
+
             std::vector<InterZoneMessage> result;
             std::queue<InterZoneMessage> remaining;
-            while (!m_Queue.empty())
+            while (!snapshot.empty())
             {
-                auto& msg = m_Queue.front();
+                auto& msg = snapshot.front();
                 if (msg.TargetZoneID == zoneID || msg.TargetZoneID == 0)
                 {
                     result.push_back(std::move(msg));
@@ -74,9 +80,21 @@ namespace OloEngine
                 {
                     remaining.push(std::move(msg));
                 }
-                m_Queue.pop();
+                snapshot.pop();
             }
-            m_Queue = std::move(remaining);
+
+            if (!remaining.empty())
+            {
+                TUniqueLock<FMutex> lock(m_Mutex);
+                // Prepend remaining items back (new messages pushed since we drained go after)
+                while (!m_Queue.empty())
+                {
+                    remaining.push(std::move(m_Queue.front()));
+                    m_Queue.pop();
+                }
+                m_Queue = std::move(remaining);
+            }
+
             return result;
         }
 

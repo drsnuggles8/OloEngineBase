@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Networking/Chat/ChatChannel.h"
+#include "OloEngine/Threading/Mutex.h"
 
 #include <functional>
 #include <unordered_map>
@@ -55,5 +56,6 @@ namespace OloEngine
         MessageFilter m_Filter;
         u32 m_NextChannelID = 1;
         u64 m_TotalMessagesRouted = 0;
+        mutable FMutex m_Mutex;
     };
 } // namespace OloEngine

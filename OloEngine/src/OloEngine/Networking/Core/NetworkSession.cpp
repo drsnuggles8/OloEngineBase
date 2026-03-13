@@ -1,4 +1,5 @@
 #include "OloEngine/Networking/Core/NetworkSession.h"
+#include "OloEngine/Core/Log.h"
 
 namespace OloEngine
 {
@@ -22,6 +23,34 @@ namespace OloEngine
 
     void NetworkSession::TransitionTo(ESessionState newState)
     {
+        // Validate state transitions
+        bool valid = false;
+        switch (m_State)
+        {
+            case ESessionState::None:
+                valid = (newState == ESessionState::Lobby);
+                break;
+            case ESessionState::Lobby:
+                valid = (newState == ESessionState::Loading || newState == ESessionState::None);
+                break;
+            case ESessionState::Loading:
+                valid = (newState == ESessionState::InGame || newState == ESessionState::Lobby);
+                break;
+            case ESessionState::InGame:
+                valid = (newState == ESessionState::PostGame || newState == ESessionState::None);
+                break;
+            case ESessionState::PostGame:
+                valid = (newState == ESessionState::Lobby || newState == ESessionState::None);
+                break;
+        }
+
+        if (!valid)
+        {
+            OLO_CORE_WARN("[NetworkSession] Invalid state transition from {} to {}",
+                          static_cast<int>(m_State), static_cast<int>(newState));
+            return;
+        }
+
         m_State = newState;
     }
 

@@ -506,14 +506,14 @@ namespace OloEngine
             return -1;
         }
 
-        for (const auto& [connHandle, conn] : s_Server->GetConnections())
-        {
+        i32 pingMs = -1;
+        s_Server->ForEachConnection([&](HSteamNetConnection connHandle, const NetworkConnection& conn)
+                                    {
             if (conn.GetClientID() == clientID)
             {
-                return s_Server->GetClientPingMs(connHandle);
-            }
-        }
-        return -1;
+                pingMs = s_Server->GetClientPingMs(connHandle);
+            } });
+        return pingMs;
     }
 
     LagCompensator& NetworkManager::GetLagCompensator()

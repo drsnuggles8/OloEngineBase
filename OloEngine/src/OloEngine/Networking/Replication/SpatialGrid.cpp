@@ -80,31 +80,36 @@ namespace OloEngine
         // Determine the range of cells that could contain entities within radius
         i32 const minX = static_cast<i32>(std::floor((center.x - radius) * m_InvCellSize));
         i32 const maxX = static_cast<i32>(std::floor((center.x + radius) * m_InvCellSize));
+        i32 const minY = static_cast<i32>(std::floor((center.y - radius) * m_InvCellSize));
+        i32 const maxY = static_cast<i32>(std::floor((center.y + radius) * m_InvCellSize));
         i32 const minZ = static_cast<i32>(std::floor((center.z - radius) * m_InvCellSize));
         i32 const maxZ = static_cast<i32>(std::floor((center.z + radius) * m_InvCellSize));
 
         for (i32 x = minX; x <= maxX; ++x)
         {
-            for (i32 z = minZ; z <= maxZ; ++z)
+            for (i32 y = minY; y <= maxY; ++y)
             {
-                CellKey const key{ x, z };
-                auto cellIt = m_Cells.find(key);
-                if (cellIt == m_Cells.end())
+                for (i32 z = minZ; z <= maxZ; ++z)
                 {
-                    continue;
-                }
-
-                for (u64 uuid : cellIt->second)
-                {
-                    auto posIt = m_EntityPositions.find(uuid);
-                    if (posIt == m_EntityPositions.end())
+                    CellKey const key{ x, y, z };
+                    auto cellIt = m_Cells.find(key);
+                    if (cellIt == m_Cells.end())
                     {
                         continue;
                     }
 
-                    if (glm::distance2(center, posIt->second) <= radiusSq)
+                    for (u64 uuid : cellIt->second)
                     {
-                        result.push_back(uuid);
+                        auto posIt = m_EntityPositions.find(uuid);
+                        if (posIt == m_EntityPositions.end())
+                        {
+                            continue;
+                        }
+
+                        if (glm::distance2(center, posIt->second) <= radiusSq)
+                        {
+                            result.push_back(uuid);
+                        }
                     }
                 }
             }
@@ -159,6 +164,7 @@ namespace OloEngine
     SpatialGrid::CellKey SpatialGrid::PositionToCell(const glm::vec3& pos) const
     {
         return { static_cast<i32>(std::floor(pos.x * m_InvCellSize)),
+                 static_cast<i32>(std::floor(pos.y * m_InvCellSize)),
                  static_cast<i32>(std::floor(pos.z * m_InvCellSize)) };
     }
 } // namespace OloEngine

@@ -8,6 +8,50 @@
 #endif
 #include <WinSock2.h>
 #include <WS2tcpip.h>
+using SocketType = SOCKET;
+using socklen_t = int;
+static constexpr SocketType kInvalidSocket = INVALID_SOCKET;
+static constexpr int kSocketError = SOCKET_ERROR;
+static inline int GetLastSocketError()
+{
+    return WSAGetLastError();
+}
+static inline void CloseSocketHandle(SocketType s)
+{
+    closesocket(s);
+}
+static inline void SetNonBlocking(SocketType s)
+{
+    u_long mode = 1;
+    ioctlsocket(s, FIONBIO, &mode);
+}
+#else
+#include <sys/socket.h>
+#include <sys/select.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <cerrno>
+using SocketType = int;
+static constexpr SocketType kInvalidSocket = -1;
+static constexpr int kSocketError = -1;
+static inline int GetLastSocketError()
+{
+    return errno;
+}
+static inline void CloseSocketHandle(SocketType s)
+{
+    close(s);
+}
+static inline void SetNonBlocking(SocketType s)
+{
+    int flags = fcntl(s, F_GETFL, 0);
+    if (flags >= 0)
+    {
+        fcntl(s, F_SETFL, flags | O_NONBLOCK);
+    }
+}
 #endif
 
 namespace OloEngine
@@ -20,17 +64,15 @@ namespace OloEngine
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    static SOCKET CreateNonBlockingUDPSocket()
+    static SocketType CreateNonBlockingUDPSocket()
     {
-        SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if (sock == INVALID_SOCKET)
+        SocketType sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (sock == kInvalidSocket)
         {
-            return INVALID_SOCKET;
+            return kInvalidSocket;
         }
 
-        // Non-blocking mode
-        u_long mode = 1;
-        ioctlsocket(sock, FIONBIO, &mode);
+        SetNonBlocking(sock);
         return sock;
     }
 
@@ -42,7 +84,7 @@ namespace OloEngine
     {
         if (m_DiscoverySocket != UINT64_MAX)
         {
-            closesocket(static_cast<SOCKET>(m_DiscoverySocket));
+            CloseSocketHandle(static_cast<SocketType>(m_DiscoverySocket));
             m_DiscoverySocket = UINT64_MAX;
         }
     }
@@ -57,8 +99,8 @@ namespace OloEngine
         m_Ready = false;
 
         // Open the discovery beacon socket bound to kDiscoveryPort
-        SOCKET sock = CreateNonBlockingUDPSocket();
-        if (sock != INVALID_SOCKET)
+        SocketType sock = CreateNonBlockingUDPSocket();
+        if (sock != kInvalidSocket)
         {
             // Allow address reuse so multiple hosts on the same machine work in dev
             int reuse = 1;
@@ -69,11 +111,11 @@ namespace OloEngine
             bindAddr.sin_addr.s_addr = INADDR_ANY;
             bindAddr.sin_port = htons(kDiscoveryPort);
 
-            if (bind(sock, reinterpret_cast<sockaddr*>(&bindAddr), sizeof(bindAddr)) == SOCKET_ERROR)
+            if (bind(sock, reinterpret_cast<sockaddr*>(&bindAddr), sizeof(bindAddr)) == kSocketError)
             {
                 OLO_CORE_WARN("[NetworkLobby] Failed to bind discovery beacon on port {} (error {})", kDiscoveryPort,
-                              WSAGetLastError());
-                closesocket(sock);
+                              GetLastSocketError());
+                CloseSocketHandle(sock);
             }
             else
             {
@@ -91,7 +133,7 @@ namespace OloEngine
     {
         if (m_DiscoverySocket != UINT64_MAX)
         {
-            closesocket(static_cast<SOCKET>(m_DiscoverySocket));
+            CloseSocketHandle(static_cast<SocketType>(m_DiscoverySocket));
             m_DiscoverySocket = UINT64_MAX;
         }
 
@@ -112,11 +154,11 @@ namespace OloEngine
             return;
         }
 
-        auto sock = static_cast<SOCKET>(m_DiscoverySocket);
+        auto sock = static_cast<SocketType>(m_DiscoverySocket);
 
         char recvBuf[8];
         sockaddr_in senderAddr{};
-        int addrLen = sizeof(senderAddr);
+        socklen_t addrLen = sizeof(senderAddr);
 
         int received =
             recvfrom(sock, recvBuf, sizeof(recvBuf), 0, reinterpret_cast<sockaddr*>(&senderAddr), &addrLen);
@@ -168,8 +210,8 @@ namespace OloEngine
         }
 
         // Create a temporary UDP socket for sending the broadcast probe
-        SOCKET sock = CreateNonBlockingUDPSocket();
-        if (sock == INVALID_SOCKET)
+        SocketType sock = CreateNonBlockingUDPSocket();
+        if (sock == kInvalidSocket)
         {
             OLO_CORE_WARN("[NetworkLobby] FindLobbies: cannot create UDP socket — returning empty");
             callback({});
@@ -213,7 +255,7 @@ namespace OloEngine
             FD_ZERO(&readSet);
             FD_SET(sock, &readSet);
 
-            int ready = select(0, &readSet, nullptr, nullptr, &tv);
+            int ready = select(static_cast<int>(sock + 1), &readSet, nullptr, nullptr, &tv);
             if (ready <= 0)
             {
                 break; // Timeout or error — done collecting
@@ -221,7 +263,7 @@ namespace OloEngine
 
             char recvBuf[512];
             sockaddr_in senderAddr{};
-            int addrLen = sizeof(senderAddr);
+            socklen_t addrLen = sizeof(senderAddr);
 
             int received =
                 recvfrom(sock, recvBuf, sizeof(recvBuf), 0, reinterpret_cast<sockaddr*>(&senderAddr), &addrLen);
@@ -284,7 +326,7 @@ namespace OloEngine
             }
         }
 
-        closesocket(sock);
+        CloseSocketHandle(sock);
         callback(results);
     }
 

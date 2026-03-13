@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "ZoneServer.h"
+#include "OloEngine/Networking/MMO/InterZoneMessageBus.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 
@@ -42,14 +43,36 @@ namespace OloEngine
             return;
         }
 
-        // Update tick-based state for the interest manager's relevance tiers.
-        // The spatial grid positions are maintained by explicit UpdateEntityPosition()
-        // calls from the zone owner (ZoneManager, InstanceManager, etc.).
+        // Process incoming inter-zone messages targeted at this zone
+        if (m_MessageBus)
+        {
+            auto messages = m_MessageBus->DrainForZone(m_Definition.ID);
+            for (auto const& msg : messages)
+            {
+                switch (msg.Type)
+                {
+                    case EInterZoneMessageType::ChatRelay:
+                        OLO_CORE_TRACE("[ZoneServer] Zone '{}' received chat relay from zone {}", m_Definition.Name,
+                                       msg.SourceZoneID);
+                        break;
+                    case EInterZoneMessageType::WorldEvent:
+                        OLO_CORE_TRACE("[ZoneServer] Zone '{}' received world event from zone {}", m_Definition.Name,
+                                       msg.SourceZoneID);
+                        break;
+                    case EInterZoneMessageType::AdminCommand:
+                        OLO_CORE_INFO("[ZoneServer] Zone '{}' received admin command from zone {}", m_Definition.Name,
+                                      msg.SourceZoneID);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
 
-        // Future extensions:
-        // 1. Process incoming InterZoneMessageBus messages for this zone
-        // 2. Generate per-client snapshot deltas using the interest manager
-        // 3. Send updates to connected clients via NetworkServer
+    void ZoneServer::SetMessageBus(InterZoneMessageBus* bus)
+    {
+        m_MessageBus = bus;
     }
 
     bool ZoneServer::AddPlayer(u32 clientID)

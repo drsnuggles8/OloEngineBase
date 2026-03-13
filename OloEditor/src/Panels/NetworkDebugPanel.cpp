@@ -105,8 +105,7 @@ namespace OloEngine
             ImGui::Separator();
             if (ImGui::CollapsingHeader("Connected Peers", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                auto const& connections = server->GetConnections();
-                if (connections.empty())
+                if (server->GetConnectionCount() == 0)
                 {
                     ImGui::TextDisabled("No clients connected");
                 }
@@ -118,8 +117,8 @@ namespace OloEngine
                     ImGui::TableSetupColumn("Ping");
                     ImGui::TableHeadersRow();
 
-                    for (auto const& [handle, conn] : connections)
-                    {
+                    server->ForEachConnection([](HSteamNetConnection handle, const NetworkConnection& conn)
+                                              {
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
                         ImGui::Text("%u", conn.GetClientID());
@@ -151,8 +150,7 @@ namespace OloEngine
                         else
                         {
                             ImGui::TextDisabled("N/A");
-                        }
-                    }
+                        } });
                     ImGui::EndTable();
                 }
             }

@@ -27,6 +27,9 @@ namespace OloEngine
         // Group 0 is the "default" group and entities in it are always included.
         void SetClientInterestGroups(u32 clientID, std::unordered_set<u32> groups);
 
+        // Remove a client from the interest manager (call on disconnect).
+        void RemoveClient(u32 clientID);
+
         // Compute the set of entity UUIDs relevant to a given client.
         // An entity is relevant if:
         //   1. It has no NetworkInterestComponent (always relevant), OR

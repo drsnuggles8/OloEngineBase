@@ -11,14 +11,14 @@ namespace OloEngine
 {
     ServerInputHandler::ServerInputHandler() = default;
 
-    void ServerInputHandler::ProcessInput(Scene& scene, u32 senderClientID, const u8* data, u32 size)
+    bool ServerInputHandler::ProcessInput(Scene& scene, u32 senderClientID, const u8* data, u32 size)
     {
         OLO_PROFILE_FUNCTION();
 
         if (size < sizeof(u32) + sizeof(u64))
         {
             OLO_CORE_WARN("[ServerInputHandler] Input command too small from client {}", senderClientID);
-            return;
+            return false;
         }
 
         // Deserialize: tick (u32) + entityUUID (u64) + input data (remainder)
@@ -32,7 +32,7 @@ namespace OloEngine
 
         if (reader.IsError())
         {
-            return;
+            return false;
         }
 
         // Reject out-of-order or duplicate ticks
@@ -42,7 +42,7 @@ namespace OloEngine
             {
                 OLO_CORE_TRACE("[ServerInputHandler] Ignoring stale tick {} from client {} (last processed: {})",
                                tick, senderClientID, it->second);
-                return;
+                return false;
             }
         }
 
@@ -52,7 +52,7 @@ namespace OloEngine
         {
             OLO_CORE_WARN("[ServerInputHandler] Input for unknown entity {} from client {}", entityUUID,
                           senderClientID);
-            return;
+            return false;
         }
 
         Entity entity = entityOpt.value();
@@ -60,7 +60,7 @@ namespace OloEngine
         if (!entity.HasComponent<NetworkIdentityComponent>())
         {
             OLO_CORE_WARN("[ServerInputHandler] Entity {} has no NetworkIdentityComponent", entityUUID);
-            return;
+            return false;
         }
 
         auto const& nic = entity.GetComponent<NetworkIdentityComponent>();
@@ -70,7 +70,7 @@ namespace OloEngine
         {
             OLO_CORE_WARN("[ServerInputHandler] Client {} tried to control entity {} owned by client {}",
                           senderClientID, entityUUID, nic.OwnerClientID);
-            return;
+            return false;
         }
 
         // Only accept inputs for client-authoritative or shared entities
@@ -78,7 +78,7 @@ namespace OloEngine
         {
             OLO_CORE_WARN("[ServerInputHandler] Client {} tried to control server-authoritative entity {}",
                           senderClientID, entityUUID);
-            return;
+            return false;
         }
 
         // Apply the input to the authoritative sim
@@ -91,6 +91,7 @@ namespace OloEngine
 
         // Track last processed tick for this client
         m_LastProcessedTicks[senderClientID] = tick;
+        return true;
     }
 
     void ServerInputHandler::SetInputApplyCallback(InputApplyCallback callback)

@@ -8,8 +8,8 @@
 
 namespace OloEngine
 {
-    // Fixed-size 2D spatial hash grid for O(1) entity lookups by position.
-    // Entities are hashed by (x/cellSize, z/cellSize) on the XZ plane.
+    // Fixed-size 3D spatial hash grid for O(1) entity lookups by position.
+    // Entities are hashed by (x/cellSize, y/cellSize, z/cellSize).
     class SpatialGrid
     {
       public:
@@ -41,11 +41,12 @@ namespace OloEngine
         struct CellKey
         {
             i32 X = 0;
+            i32 Y = 0;
             i32 Z = 0;
 
             bool operator==(const CellKey& other) const
             {
-                return X == other.X && Z == other.Z;
+                return X == other.X && Y == other.Y && Z == other.Z;
             }
         };
 
@@ -53,10 +54,10 @@ namespace OloEngine
         {
             std::size_t operator()(const CellKey& key) const
             {
-                // Simple but effective spatial hash
                 auto h1 = std::hash<i32>{}(key.X);
-                auto h2 = std::hash<i32>{}(key.Z);
-                return h1 ^ (h2 << 16) ^ (h2 >> 16);
+                auto h2 = std::hash<i32>{}(key.Y);
+                auto h3 = std::hash<i32>{}(key.Z);
+                return h1 ^ (h2 << 11) ^ (h3 << 22) ^ (h2 >> 21) ^ (h3 >> 10);
             }
         };
 

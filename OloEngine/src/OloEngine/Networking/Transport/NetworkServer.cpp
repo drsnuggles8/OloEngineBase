@@ -110,6 +110,7 @@ namespace OloEngine
                 reader << header.Type;
                 reader << header.Size;
                 reader << header.Flags;
+                reader << header.Version;
 
                 if (!reader.IsError())
                 {
@@ -189,6 +190,7 @@ namespace OloEngine
         writer << header.Type;
         writer << header.Size;
         writer << header.Flags;
+        writer << header.Version;
 
         if (payload && payloadSize > 0)
         {
@@ -212,6 +214,7 @@ namespace OloEngine
         writer << header.Type;
         writer << header.Size;
         writer << header.Flags;
+        writer << header.Version;
 
         if (payload && payloadSize > 0)
         {
@@ -230,6 +233,12 @@ namespace OloEngine
     {
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_Connections;
+    }
+
+    u32 NetworkServer::GetConnectionCount() const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        return static_cast<u32>(m_Connections.size());
     }
 
     NetworkMessageDispatcher& NetworkServer::GetDispatcher()
@@ -286,6 +295,15 @@ namespace OloEngine
         {
             case k_ESteamNetworkingConnectionState_Connecting:
             {
+                // Enforce max connection limit
+                if (m_MaxConnections > 0 && static_cast<u32>(m_Connections.size()) >= m_MaxConnections)
+                {
+                    m_Interface->CloseConnection(pInfo->m_hConn, 0, "Server full", false);
+                    OLO_CORE_WARN("[NetworkServer] Rejected connection: server full ({}/{})",
+                                  m_Connections.size(), m_MaxConnections);
+                    break;
+                }
+
                 if (m_Interface->AcceptConnection(pInfo->m_hConn) != k_EResultOK)
                 {
                     m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
@@ -336,5 +354,25 @@ namespace OloEngine
             default:
                 break;
         }
+    }
+
+    void NetworkServer::SetMaxConnections(u32 maxConnections)
+    {
+        m_MaxConnections = maxConnections;
+    }
+
+    u32 NetworkServer::GetMaxConnections() const
+    {
+        return m_MaxConnections;
+    }
+
+    void NetworkServer::SetIdleTimeout(f32 timeoutSeconds)
+    {
+        m_IdleTimeout = timeoutSeconds;
+    }
+
+    f32 NetworkServer::GetIdleTimeout() const
+    {
+        return m_IdleTimeout;
     }
 } // namespace OloEngine
