@@ -3,8 +3,11 @@
 #include "OloEngine/Networking/Core/NetworkThread.h"
 #include "OloEngine/Networking/Transport/NetworkServer.h"
 #include "OloEngine/Networking/Transport/NetworkClient.h"
+#include "OloEngine/Networking/Replication/EntitySnapshot.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
+
+#include "OloEngine/Serialization/Archive.h"
 
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
@@ -14,6 +17,17 @@ namespace OloEngine
     bool NetworkManager::s_Initialized = false;
     Scope<NetworkServer> NetworkManager::s_Server = nullptr;
     Scope<NetworkClient> NetworkManager::s_Client = nullptr;
+    u32 NetworkManager::s_SnapshotRateHz = 20;
+    u32 NetworkManager::s_TickCounter = 0;
+    f32 NetworkManager::s_SnapshotAccumulator = 0.0f;
+    Scene* NetworkManager::s_ActiveScene = nullptr;
+    SnapshotBuffer NetworkManager::s_SnapshotBuffer;
+    SnapshotInterpolator NetworkManager::s_ClientInterpolator;
+    ClientPrediction NetworkManager::s_ClientPrediction;
+    ServerInputHandler NetworkManager::s_ServerInputHandler;
+    LagCompensator NetworkManager::s_LagCompensator;
+    NetworkSession NetworkManager::s_Session;
+    NetworkLobby NetworkManager::s_Lobby;
 
     static void GNSDebugOutput(ESteamNetworkingSocketsDebugOutputType eType, char const* pszMsg)
     {
@@ -115,6 +129,18 @@ namespace OloEngine
             return false;
         }
 
+        // Register server-side InputCommand handler
+        s_Server->GetDispatcher().RegisterHandler(ENetworkMessageType::InputCommand,
+                                                  [](u32 senderClientID, const u8* data, u32 size)
+                                                  {
+                                                      if (!s_ActiveScene)
+                                                      {
+                                                          return;
+                                                      }
+                                                      s_ServerInputHandler.ProcessInput(*s_ActiveScene, senderClientID,
+                                                                                        data, size);
+                                                  });
+
         return true;
     }
 
@@ -156,6 +182,40 @@ namespace OloEngine
             s_Client.reset();
             return false;
         }
+
+        // Register default handlers for snapshot reception
+        s_Client->GetDispatcher().RegisterHandler(ENetworkMessageType::EntitySnapshot,
+                                                  [](u32 /*senderClientID*/, const u8* data, u32 size)
+                                                  {
+                                                      // Full snapshot — push into interpolator with server tick
+                                                      std::vector<u8> snapshotData(data, data + size);
+                                                      s_ClientInterpolator.PushSnapshot(s_TickCounter++,
+                                                                                        std::move(snapshotData));
+                                                  });
+
+        s_Client->GetDispatcher().RegisterHandler(ENetworkMessageType::DeltaSnapshot,
+                                                  [](u32 /*senderClientID*/, const u8* data, u32 size)
+                                                  {
+                                                      // Delta snapshot — apply delta, then push result
+                                                      // Delta snapshots have the same format as full (just fewer entities)
+                                                      std::vector<u8> deltaData(data, data + size);
+                                                      s_ClientInterpolator.PushSnapshot(s_TickCounter++,
+                                                                                        std::move(deltaData));
+                                                  });
+
+        // Register InputAck handler — server sends these to confirm processed input tick
+        s_Client->GetDispatcher().RegisterHandler(ENetworkMessageType::InputAck,
+                                                  [](u32 /*senderClientID*/, const u8* data, u32 size)
+                                                  {
+                                                      if (size < sizeof(u32) || !s_ActiveScene)
+                                                      {
+                                                          return;
+                                                      }
+                                                      FMemoryReader reader(data, static_cast<i64>(size));
+                                                      u32 lastProcessedTick = 0;
+                                                      reader << lastProcessedTick;
+                                                      s_ClientPrediction.Reconcile(*s_ActiveScene, lastProcessedTick);
+                                                  });
 
         return true;
     }
@@ -257,5 +317,154 @@ namespace OloEngine
     NetworkClient* NetworkManager::GetClient()
     {
         return s_Client.get();
+    }
+
+    void NetworkManager::SetSnapshotRate(u32 hz)
+    {
+        s_SnapshotRateHz = hz;
+        s_ClientInterpolator.SetServerTickRate(hz);
+    }
+
+    u32 NetworkManager::GetSnapshotRate()
+    {
+        return s_SnapshotRateHz;
+    }
+
+    void NetworkManager::SetActiveScene(Scene* scene)
+    {
+        s_ActiveScene = scene;
+    }
+
+    void NetworkManager::TickSnapshots()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_ActiveScene)
+        {
+            return;
+        }
+
+        // Server: capture and broadcast snapshots at the configured rate
+        if (s_Server && s_Server->IsRunning())
+        {
+            ++s_TickCounter;
+
+            // Capture a full snapshot and store in the buffer
+            auto snapshot = EntitySnapshot::Capture(*s_ActiveScene);
+            if (!snapshot.empty())
+            {
+                // Try delta against baseline
+                const auto* baseline = s_SnapshotBuffer.GetLatest();
+                if (baseline)
+                {
+                    auto delta = EntitySnapshot::CaptureDelta(*s_ActiveScene, baseline->Data);
+                    if (!delta.empty())
+                    {
+                        // Send delta
+                        s_Server->BroadcastMessage(ENetworkMessageType::DeltaSnapshot, delta.data(),
+                                                   static_cast<u32>(delta.size()), k_nSteamNetworkingSend_Unreliable);
+                    }
+                    // else: nothing changed, no need to send
+                }
+                else
+                {
+                    // No baseline — send full snapshot
+                    s_Server->BroadcastMessage(ENetworkMessageType::EntitySnapshot, snapshot.data(),
+                                               static_cast<u32>(snapshot.size()), k_nSteamNetworkingSend_Unreliable);
+                }
+
+                // Always store the full snapshot in the buffer for future baselines
+                s_SnapshotBuffer.Push(s_TickCounter, std::move(snapshot));
+            }
+        }
+    }
+
+    SnapshotBuffer& NetworkManager::GetSnapshotBuffer()
+    {
+        return s_SnapshotBuffer;
+    }
+
+    SnapshotInterpolator& NetworkManager::GetClientInterpolator()
+    {
+        return s_ClientInterpolator;
+    }
+
+    u32 NetworkManager::GetCurrentTick()
+    {
+        return s_TickCounter;
+    }
+
+    void NetworkManager::SendInput(u64 entityUUID, std::vector<u8> inputData)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!s_Client || !s_Client->IsConnected())
+        {
+            OLO_CORE_WARN("SendInput: not connected to a server");
+            return;
+        }
+
+        u32 tick = s_TickCounter;
+
+        // Record locally for prediction
+        s_ClientPrediction.RecordInput(tick, entityUUID, inputData);
+
+        // Serialize: tick(u32) + entityUUID(u64) + inputData
+        std::vector<u8> payload;
+        FMemoryWriter writer(payload);
+        writer << tick;
+        writer << entityUUID;
+        writer.Serialize(inputData.data(), static_cast<i64>(inputData.size()));
+
+        s_Client->SendMessage(ENetworkMessageType::InputCommand, payload.data(), static_cast<u32>(payload.size()),
+                              k_nSteamNetworkingSend_Reliable);
+    }
+
+    void NetworkManager::SetInputApplyCallback(InputApplyCallback callback)
+    {
+        s_ClientPrediction.SetInputApplyCallback(callback);
+        s_ServerInputHandler.SetInputApplyCallback(callback);
+    }
+
+    ClientPrediction& NetworkManager::GetClientPrediction()
+    {
+        return s_ClientPrediction;
+    }
+
+    ServerInputHandler& NetworkManager::GetServerInputHandler()
+    {
+        return s_ServerInputHandler;
+    }
+
+    i32 NetworkManager::GetClientPingMs(u32 clientID)
+    {
+        if (!s_Server || !s_Server->IsRunning())
+        {
+            return -1;
+        }
+
+        for (const auto& [connHandle, conn] : s_Server->GetConnections())
+        {
+            if (conn.GetClientID() == clientID)
+            {
+                return s_Server->GetClientPingMs(connHandle);
+            }
+        }
+        return -1;
+    }
+
+    LagCompensator& NetworkManager::GetLagCompensator()
+    {
+        return s_LagCompensator;
+    }
+
+    NetworkSession* NetworkManager::GetSession()
+    {
+        return &s_Session;
+    }
+
+    NetworkLobby* NetworkManager::GetLobby()
+    {
+        return &s_Lobby;
     }
 } // namespace OloEngine

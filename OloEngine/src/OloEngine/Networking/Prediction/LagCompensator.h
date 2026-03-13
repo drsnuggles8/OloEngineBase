@@ -1,0 +1,35 @@
+#pragma once
+
+#include "OloEngine/Core/Base.h"
+#include "OloEngine/Networking/Replication/SnapshotBuffer.h"
+
+#include <functional>
+#include <vector>
+
+namespace OloEngine
+{
+    class Scene;
+
+    // Server-side lag compensation.
+    // Temporarily rewinds entity positions to a past tick using the SnapshotBuffer,
+    // executes a callback (e.g. hit detection), then restores the current state.
+    class LagCompensator
+    {
+      public:
+        LagCompensator();
+
+        // Rewind the scene to the given tick using snapshot history, execute the callback,
+        // then restore the current state. Clamps rewind to MaxRewindMs.
+        // Returns true if rewind was performed, false if tick was out of range or clamped.
+        using RewindCallback = std::function<void(Scene&)>;
+        bool PerformLagCompensatedCheck(Scene& scene, const SnapshotBuffer& history, u32 targetTick,
+                                        u32 currentTick, u32 tickRateHz, const RewindCallback& callback);
+
+        // Set the maximum allowed rewind in milliseconds (default 200ms).
+        void SetMaxRewindMs(f32 maxMs);
+        [[nodiscard]] f32 GetMaxRewindMs() const;
+
+      private:
+        f32 m_MaxRewindMs = 200.0f;
+    };
+} // namespace OloEngine

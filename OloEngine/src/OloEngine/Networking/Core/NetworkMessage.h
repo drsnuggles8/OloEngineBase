@@ -16,10 +16,41 @@ namespace OloEngine
         Ping,
         Pong,
         EntitySnapshot,
+        DeltaSnapshot,
         RPC,
+        InputCommand,
+        InputAck,
+        EntitySpawn,
+        EntityDespawn,
+
+        // Lockstep
+        LockstepInput,
+        StateHash,
+        ResyncRequest,
+        ResyncResponse,
+
+        // P2P
+        HostMigration,
+        PeerIntroduction,
+
+        // Lobby / Session
+        LobbyCreate,
+        LobbyJoin,
+        LobbyLeave,
+        LobbyReady,
+        LobbyStart,
+        SessionStart,
+        SessionEnd,
 
         // Range for user-defined messages
         UserMessage = 1000
+    };
+
+    // Distinguishes full vs delta snapshot payloads
+    enum class ESnapshotType : u8
+    {
+        Full = 0,
+        Delta
     };
 
     struct NetworkMessageHeader

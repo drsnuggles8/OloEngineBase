@@ -35,6 +35,10 @@ namespace OloEngine
         [[nodiscard]] NetworkMessageDispatcher& GetDispatcher();
         [[nodiscard]] const NetworkStats& GetStats() const;
 
+        // Get the round-trip time in milliseconds for a specific client connection.
+        // Returns -1 if the connection is not found or RTT is unavailable.
+        [[nodiscard]] i32 GetClientPingMs(HSteamNetConnection connection) const;
+
         void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
 
       private:

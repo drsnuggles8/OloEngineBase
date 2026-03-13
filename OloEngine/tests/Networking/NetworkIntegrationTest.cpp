@@ -64,7 +64,8 @@ TEST_F(NetworkIntegrationTest, ClientConnectDisconnect)
     EXPECT_TRUE(NetworkManager::IsClient());
 
     // Wait for GNS callback to establish the connection
-    bool connected = WaitUntil([] { return NetworkManager::IsConnected(); });
+    bool connected = WaitUntil([]
+                               { return NetworkManager::IsConnected(); });
     EXPECT_TRUE(connected) << "Client failed to connect within timeout";
 
     NetworkManager::Disconnect();
@@ -77,7 +78,8 @@ TEST_F(NetworkIntegrationTest, ServerTracksConnectedClient)
 {
     ASSERT_TRUE(NetworkManager::StartServer(kTestPort));
     ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", kTestPort));
-    ASSERT_TRUE(WaitUntil([] { return NetworkManager::IsConnected(); }));
+    ASSERT_TRUE(WaitUntil([]
+                          { return NetworkManager::IsConnected(); }));
 
     auto const* server = NetworkManager::GetServer();
     ASSERT_NE(server, nullptr);
@@ -105,10 +107,11 @@ TEST_F(NetworkIntegrationTest, ClientToServerMessage)
 {
     ASSERT_TRUE(NetworkManager::StartServer(kTestPort));
     ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", kTestPort));
-    ASSERT_TRUE(WaitUntil([] { return NetworkManager::IsConnected(); }));
+    ASSERT_TRUE(WaitUntil([]
+                          { return NetworkManager::IsConnected(); }));
 
     // Register handler on the server for a user-defined message
-    std::atomic<bool> received{false};
+    std::atomic<bool> received{ false };
     u32 receivedValue = 0;
 
     NetworkManager::GetServerDispatcher().RegisterHandler(
@@ -148,7 +151,8 @@ TEST_F(NetworkIntegrationTest, ServerToClientMessage)
 {
     ASSERT_TRUE(NetworkManager::StartServer(kTestPort));
     ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", kTestPort));
-    ASSERT_TRUE(WaitUntil([] { return NetworkManager::IsConnected(); }));
+    ASSERT_TRUE(WaitUntil([]
+                          { return NetworkManager::IsConnected(); }));
 
     // Wait for server to see the connected client
     auto* server = NetworkManager::GetServer();
@@ -167,7 +171,7 @@ TEST_F(NetworkIntegrationTest, ServerToClientMessage)
         }));
 
     // Register handler on the client
-    std::atomic<bool> received{false};
+    std::atomic<bool> received{ false };
     u32 receivedValue = 0;
 
     NetworkManager::GetClientDispatcher().RegisterHandler(
@@ -206,14 +210,16 @@ TEST_F(NetworkIntegrationTest, PingPongBuiltin)
 {
     ASSERT_TRUE(NetworkManager::StartServer(kTestPort));
     ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", kTestPort));
-    ASSERT_TRUE(WaitUntil([] { return NetworkManager::IsConnected(); }));
+    ASSERT_TRUE(WaitUntil([]
+                          { return NetworkManager::IsConnected(); }));
 
     // Register a Pong handler on the client — server should reply with Pong when it receives Ping
-    std::atomic<bool> pongReceived{false};
+    std::atomic<bool> pongReceived{ false };
 
     NetworkManager::GetClientDispatcher().RegisterHandler(
         ENetworkMessageType::Pong,
-        [&](u32, const u8*, u32) { pongReceived.store(true, std::memory_order_release); });
+        [&](u32, const u8*, u32)
+        { pongReceived.store(true, std::memory_order_release); });
 
     // Client sends a Ping message to the server
     auto* client = NetworkManager::GetClient();
@@ -240,7 +246,8 @@ TEST_F(NetworkIntegrationTest, StatsTrackSentAndReceived)
 {
     ASSERT_TRUE(NetworkManager::StartServer(kTestPort));
     ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", kTestPort));
-    ASSERT_TRUE(WaitUntil([] { return NetworkManager::IsConnected(); }));
+    ASSERT_TRUE(WaitUntil([]
+                          { return NetworkManager::IsConnected(); }));
 
     auto* client = NetworkManager::GetClient();
     auto* server = NetworkManager::GetServer();

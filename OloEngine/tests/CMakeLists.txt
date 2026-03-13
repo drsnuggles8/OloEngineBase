@@ -66,6 +66,17 @@ add_executable(OloEngine-Tests
 		Networking/ComponentReplicatorTest.cpp
 		Networking/EntitySnapshotTest.cpp
 		Networking/NetworkIdentityComponentTest.cpp
+		Networking/SnapshotBufferTest.cpp
+		Networking/DeltaSnapshotTest.cpp
+		Networking/SnapshotInterpolatorTest.cpp
+		Networking/InputBufferTest.cpp
+		Networking/PredictionReconciliationTest.cpp
+		Networking/AuthorityRejectionTest.cpp
+		Networking/LagCompensatorTest.cpp
+		Networking/InterestManagerTest.cpp
+		Networking/LockstepTest.cpp
+		Networking/P2PRollbackTest.cpp
+		Networking/SessionLobbyTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

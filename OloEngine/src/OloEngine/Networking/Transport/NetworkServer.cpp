@@ -234,6 +234,20 @@ namespace OloEngine
         return m_Stats;
     }
 
+    i32 NetworkServer::GetClientPingMs(HSteamNetConnection connection) const
+    {
+        if (!m_Interface)
+        {
+            return -1;
+        }
+        SteamNetConnectionRealTimeStatus_t status{};
+        if (m_Interface->GetConnectionRealTimeStatus(connection, &status, 0, nullptr) != k_EResultOK)
+        {
+            return -1;
+        }
+        return status.m_nPing;
+    }
+
     void NetworkServer::HandlePing(HSteamNetConnection senderConn, const u8* data, u32 size)
     {
         // Respond with Pong, echoing the payload (typically a timestamp)

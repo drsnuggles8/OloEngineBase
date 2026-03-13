@@ -2049,6 +2049,13 @@ namespace OloEngine
             TrySetEnum(nic.Authority, networkIdentityComponent["Authority"]);
             TrySet(nic.IsReplicated, networkIdentityComponent["IsReplicated"]);
         }
+
+        if (auto networkInterestComponent = entity["NetworkInterestComponent"]; networkInterestComponent)
+        {
+            auto& nic = deserializedEntity.AddComponent<NetworkInterestComponent>();
+            TrySet(nic.RelevanceRadius, networkInterestComponent["RelevanceRadius"]);
+            TrySet(nic.InterestGroup, networkInterestComponent["InterestGroup"]);
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -3321,6 +3328,18 @@ namespace OloEngine
             out << YAML::Key << "IsReplicated" << YAML::Value << nic.IsReplicated;
 
             out << YAML::EndMap; // NetworkIdentityComponent
+        }
+
+        if (entity.HasComponent<NetworkInterestComponent>())
+        {
+            out << YAML::Key << "NetworkInterestComponent";
+            out << YAML::BeginMap;
+
+            auto const& nic = entity.GetComponent<NetworkInterestComponent>();
+            out << YAML::Key << "RelevanceRadius" << YAML::Value << nic.RelevanceRadius;
+            out << YAML::Key << "InterestGroup" << YAML::Value << nic.InterestGroup;
+
+            out << YAML::EndMap; // NetworkInterestComponent
         }
 
         out << YAML::EndMap; // Entity

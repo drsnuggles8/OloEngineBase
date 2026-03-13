@@ -1,5 +1,7 @@
 #include "NetworkDebugPanel.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
+#include "OloEngine/Networking/Core/NetworkSession.h"
+#include "OloEngine/Networking/Core/NetworkLobby.h"
 #include "OloEngine/Networking/Transport/NetworkServer.h"
 #include "OloEngine/Networking/Transport/NetworkClient.h"
 
@@ -153,6 +155,52 @@ namespace OloEngine
                     }
                     ImGui::EndTable();
                 }
+            }
+        }
+
+        // Session info
+        if (auto const* session = NetworkManager::GetSession())
+        {
+            ImGui::Separator();
+            if (ImGui::CollapsingHeader("Session", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                const char* stateStr = "None";
+                switch (session->GetState())
+                {
+                    case ESessionState::Lobby:
+                        stateStr = "Lobby";
+                        break;
+                    case ESessionState::Loading:
+                        stateStr = "Loading";
+                        break;
+                    case ESessionState::InGame:
+                        stateStr = "In Game";
+                        break;
+                    case ESessionState::PostGame:
+                        stateStr = "Post Game";
+                        break;
+                    default:
+                        break;
+                }
+                ImGui::Text("Session: %s", session->GetSessionName().c_str());
+                ImGui::Text("State:   %s", stateStr);
+                ImGui::Text("Players: %u", session->GetPlayerCount());
+                ImGui::Text("All Ready: %s", session->AreAllPlayersReady() ? "Yes" : "No");
+            }
+        }
+
+        // Lobby info
+        if (auto const* lobby = NetworkManager::GetLobby())
+        {
+            ImGui::Separator();
+            if (ImGui::CollapsingHeader("Lobby"))
+            {
+                ImGui::Text("Lobby: %s", lobby->GetLobbyName().c_str());
+                ImGui::Text("Hosting: %s", lobby->IsHosting() ? "Yes" : "No");
+                ImGui::Text("In Lobby: %s", lobby->IsInLobby() ? "Yes" : "No");
+                ImGui::Text("Ready: %s", lobby->IsReady() ? "Yes" : "No");
+                ImGui::Text("Port: %u", lobby->GetPort());
+                ImGui::Text("Max Players: %u", lobby->GetMaxPlayers());
             }
         }
 

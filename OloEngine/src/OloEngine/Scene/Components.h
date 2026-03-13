@@ -1134,6 +1134,18 @@ namespace OloEngine
         NetworkIdentityComponent& operator=(NetworkIdentityComponent&&) noexcept = default;
     };
 
+    struct NetworkInterestComponent
+    {
+        f32 RelevanceRadius = 0.0f; // 0 = always relevant (no distance culling)
+        u32 InterestGroup = 0;      // 0 = default group (always included)
+
+        NetworkInterestComponent() = default;
+        NetworkInterestComponent(const NetworkInterestComponent&) = default;
+        NetworkInterestComponent& operator=(const NetworkInterestComponent&) = default;
+        NetworkInterestComponent(NetworkInterestComponent&&) noexcept = default;
+        NetworkInterestComponent& operator=(NetworkInterestComponent&&) noexcept = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -1196,5 +1208,6 @@ namespace OloEngine
         LightProbeComponent,
         LightProbeVolumeComponent,
         StreamingVolumeComponent,
-        NetworkIdentityComponent>;
+        NetworkIdentityComponent,
+        NetworkInterestComponent>;
 } // namespace OloEngine

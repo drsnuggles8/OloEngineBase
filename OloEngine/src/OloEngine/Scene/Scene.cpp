@@ -3314,3 +3314,8 @@ template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::NetworkIdentityComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NetworkIdentityComponent& component)
 {
 }
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::NetworkInterestComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NetworkInterestComponent& component)
+{
+}

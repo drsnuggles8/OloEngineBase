@@ -2,6 +2,13 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Networking/Core/NetworkMessage.h"
+#include "OloEngine/Networking/Core/NetworkSession.h"
+#include "OloEngine/Networking/Core/NetworkLobby.h"
+#include "OloEngine/Networking/Prediction/ClientPrediction.h"
+#include "OloEngine/Networking/Prediction/LagCompensator.h"
+#include "OloEngine/Networking/Prediction/ServerInputHandler.h"
+#include "OloEngine/Networking/Replication/SnapshotBuffer.h"
+#include "OloEngine/Networking/Replication/SnapshotInterpolator.h"
 
 #include <string>
 
@@ -11,6 +18,7 @@ namespace OloEngine
 {
     class NetworkServer;
     class NetworkClient;
+    class Scene;
 
     class NetworkManager
     {
@@ -52,9 +60,74 @@ namespace OloEngine
         // Connection status callback (called by GNS)
         static void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
 
+        // Snapshot broadcast configuration
+        static void SetSnapshotRate(u32 hz);
+        [[nodiscard]] static u32 GetSnapshotRate();
+
+        // Set the active scene for snapshot capture/apply.
+        static void SetActiveScene(Scene* scene);
+
+        // Called by the network thread each tick. Captures + broadcasts server snapshots
+        // at the configured rate, and on client side applies received snapshots to the interpolator.
+        static void TickSnapshots();
+
+        // Access server snapshot buffer (for delta baselines, lag compensation)
+        [[nodiscard]] static SnapshotBuffer& GetSnapshotBuffer();
+
+        // Access client interpolator
+        [[nodiscard]] static SnapshotInterpolator& GetClientInterpolator();
+
+        // Current server tick counter (incremented each TickSnapshots call on server)
+        [[nodiscard]] static u32 GetCurrentTick();
+
+        // --- Prediction & Input (Phase 2) ---
+
+        // Client: record an input, apply locally (prediction), and send to server.
+        // Serialized payload format: tick(u32) + entityUUID(u64) + inputData.
+        static void SendInput(u64 entityUUID, std::vector<u8> inputData);
+
+        // Set the callback defining how inputs are applied to the simulation.
+        // Used by both client prediction and server input processing.
+        static void SetInputApplyCallback(InputApplyCallback callback);
+
+        // Access client prediction state
+        [[nodiscard]] static ClientPrediction& GetClientPrediction();
+
+        // Access server input handler
+        [[nodiscard]] static ServerInputHandler& GetServerInputHandler();
+
+        // --- Lag Compensation (Phase 3) ---
+
+        // Get the RTT in milliseconds for a specific client (server-side only).
+        // Returns -1 if the connection is not found.
+        [[nodiscard]] static i32 GetClientPingMs(u32 clientID);
+
+        // Access the lag compensator for server-side rewind checks.
+        [[nodiscard]] static LagCompensator& GetLagCompensator();
+
+        // --- Session & Lobby (Phase 7) ---
+
+        // Access the session manager.
+        [[nodiscard]] static NetworkSession* GetSession();
+
+        // Access the lobby manager.
+        [[nodiscard]] static NetworkLobby* GetLobby();
+
       private:
         static bool s_Initialized;
         static Scope<NetworkServer> s_Server;
         static Scope<NetworkClient> s_Client;
+
+        static u32 s_SnapshotRateHz;
+        static u32 s_TickCounter;
+        static f32 s_SnapshotAccumulator;
+        static Scene* s_ActiveScene;
+        static SnapshotBuffer s_SnapshotBuffer;
+        static SnapshotInterpolator s_ClientInterpolator;
+        static ClientPrediction s_ClientPrediction;
+        static ServerInputHandler s_ServerInputHandler;
+        static LagCompensator s_LagCompensator;
+        static NetworkSession s_Session;
+        static NetworkLobby s_Lobby;
     };
 } // namespace OloEngine

@@ -21,7 +21,7 @@ TEST(NetworkMessageDispatcherTest, RegisterAndDispatch)
                                    receivedSize = size;
                                });
 
-    u8 payload[] = {1, 2, 3, 4};
+    u8 payload[] = { 1, 2, 3, 4 };
     dispatcher.Dispatch(42, ENetworkMessageType::Ping, payload, 4);
 
     EXPECT_TRUE(called);
@@ -46,7 +46,7 @@ TEST(NetworkMessageDispatcherTest, UnregisteredTypeDoesNotCrash)
     NetworkMessageDispatcher dispatcher;
 
     // Should not crash — just logs a warning
-    u8 payload[] = {0};
+    u8 payload[] = { 0 };
     dispatcher.Dispatch(0, ENetworkMessageType::RPC, payload, 1);
 }
 
@@ -57,8 +57,10 @@ TEST(NetworkMessageDispatcherTest, MultipleHandlersForDifferentTypes)
     int pingCount = 0;
     int pongCount = 0;
 
-    dispatcher.RegisterHandler(ENetworkMessageType::Ping, [&](u32, const u8*, u32) { ++pingCount; });
-    dispatcher.RegisterHandler(ENetworkMessageType::Pong, [&](u32, const u8*, u32) { ++pongCount; });
+    dispatcher.RegisterHandler(ENetworkMessageType::Ping, [&](u32, const u8*, u32)
+                               { ++pingCount; });
+    dispatcher.RegisterHandler(ENetworkMessageType::Pong, [&](u32, const u8*, u32)
+                               { ++pongCount; });
 
     dispatcher.Dispatch(1, ENetworkMessageType::Ping, nullptr, 0);
     dispatcher.Dispatch(2, ENetworkMessageType::Ping, nullptr, 0);
@@ -75,8 +77,10 @@ TEST(NetworkMessageDispatcherTest, HandlerReplacesExisting)
     int firstCount = 0;
     int secondCount = 0;
 
-    dispatcher.RegisterHandler(ENetworkMessageType::Ping, [&](u32, const u8*, u32) { ++firstCount; });
-    dispatcher.RegisterHandler(ENetworkMessageType::Ping, [&](u32, const u8*, u32) { ++secondCount; });
+    dispatcher.RegisterHandler(ENetworkMessageType::Ping, [&](u32, const u8*, u32)
+                               { ++firstCount; });
+    dispatcher.RegisterHandler(ENetworkMessageType::Ping, [&](u32, const u8*, u32)
+                               { ++secondCount; });
 
     dispatcher.Dispatch(0, ENetworkMessageType::Ping, nullptr, 0);
 
