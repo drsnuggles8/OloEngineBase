@@ -130,7 +130,84 @@ namespace OloEngine
 
     bool NetworkInterestManager::IsEntityRelevant(u32 clientID, u64 entityUUID, Scene& scene) const
     {
-        auto relevant = GetRelevantEntities(clientID, scene);
-        return std::find(relevant.begin(), relevant.end(), entityUUID) != relevant.end();
+        OLO_PROFILE_FUNCTION();
+
+        // Get client observer position (default to origin if not set)
+        glm::vec3 clientPos{ 0.0f };
+        if (auto it = m_ClientPositions.find(clientID); it != m_ClientPositions.end())
+        {
+            clientPos = it->second;
+        }
+
+        // Get client interest groups
+        const std::unordered_set<u32>* clientGroups = nullptr;
+        if (auto it = m_ClientInterestGroups.find(clientID); it != m_ClientInterestGroups.end())
+        {
+            clientGroups = &it->second;
+        }
+
+        // Find the specific entity in the scene
+        auto view = scene.GetAllEntitiesWith<IDComponent, TransformComponent>();
+        for (auto entityHandle : view)
+        {
+            Entity entity{ entityHandle, &scene };
+            u64 const uuid = static_cast<u64>(entity.GetUUID());
+
+            if (uuid != entityUUID)
+            {
+                continue;
+            }
+
+            // Found the entity — apply the same relevance checks as GetRelevantEntities
+
+            if (entity.HasComponent<NetworkIdentityComponent>())
+            {
+                auto const& nic = entity.GetComponent<NetworkIdentityComponent>();
+                if (!nic.IsReplicated)
+                {
+                    return false;
+                }
+            }
+
+            if (entity.HasComponent<NetworkInterestComponent>())
+            {
+                auto const& interest = entity.GetComponent<NetworkInterestComponent>();
+
+                // Check interest group
+                if (interest.InterestGroup != 0)
+                {
+                    if (!clientGroups || clientGroups->find(interest.InterestGroup) == clientGroups->end())
+                    {
+                        return false;
+                    }
+                }
+
+                // Check distance
+                if (interest.RelevanceRadius > 0.0f)
+                {
+                    if (m_SpatialGrid.GetEntityCount() > 0)
+                    {
+                        auto nearby = m_SpatialGrid.QueryRadius(clientPos, interest.RelevanceRadius);
+                        if (std::find(nearby.begin(), nearby.end(), uuid) == nearby.end())
+                        {
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        auto const& tc = entity.GetComponent<TransformComponent>();
+                        f32 const distSq = glm::distance2(clientPos, tc.Translation);
+                        if (distSq > interest.RelevanceRadius * interest.RelevanceRadius)
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            return true; // Passed all checks
+        }
+
+        return false; // Entity not found in scene
     }
 } // namespace OloEngine

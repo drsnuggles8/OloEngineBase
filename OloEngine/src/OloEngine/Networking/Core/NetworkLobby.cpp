@@ -1,4 +1,5 @@
 #include "OloEngine/Networking/Core/NetworkLobby.h"
+#include "OloEngine/Core/Log.h"
 
 namespace OloEngine
 {
@@ -30,6 +31,7 @@ namespace OloEngine
         // packet on LAN and collect responses.  For now, return
         // an empty result set so callers can build UI without
         // the transport layer being wired up.
+        OLO_CORE_WARN("[NetworkLobby] FindLobbies is a stub — no LAN discovery implemented yet");
         if (callback)
         {
             callback({});

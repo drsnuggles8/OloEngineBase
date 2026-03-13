@@ -6,6 +6,7 @@
 #include "OloEngine/Networking/Replication/EntitySnapshot.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include "OloEngine/Serialization/Archive.h"
 
@@ -14,11 +15,13 @@
 
 namespace OloEngine
 {
+    FMutex NetworkManager::s_Mutex;
     bool NetworkManager::s_Initialized = false;
     Scope<NetworkServer> NetworkManager::s_Server = nullptr;
     Scope<NetworkClient> NetworkManager::s_Client = nullptr;
     u32 NetworkManager::s_SnapshotRateHz = 20;
     u32 NetworkManager::s_TickCounter = 0;
+    u32 NetworkManager::s_ClientReceivedTick = 0;
     f32 NetworkManager::s_SnapshotAccumulator = 0.0f;
     Scene* NetworkManager::s_ActiveScene = nullptr;
     SnapshotBuffer NetworkManager::s_SnapshotBuffer;
@@ -56,6 +59,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(s_Mutex);
+
         if (s_Initialized)
         {
             OLO_CORE_WARN("NetworkManager::Init() called when already initialized");
@@ -87,9 +92,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Initialized)
         {
-            return;
+            TUniqueLock<FMutex> lock(s_Mutex);
+            if (!s_Initialized)
+            {
+                return;
+            }
         }
 
         StopServer();
@@ -97,18 +105,23 @@ namespace OloEngine
         NetworkThread::Stop();
 
         GameNetworkingSockets_Kill();
+
+        TUniqueLock<FMutex> lock(s_Mutex);
         s_Initialized = false;
         OLO_CORE_INFO("NetworkManager shut down");
     }
 
     bool NetworkManager::IsInitialized()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         return s_Initialized;
     }
 
     bool NetworkManager::StartServer(u16 port)
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(s_Mutex);
 
         if (!s_Initialized)
         {
@@ -148,6 +161,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(s_Mutex);
+
         if (s_Server)
         {
             s_Server->Stop();
@@ -157,12 +172,15 @@ namespace OloEngine
 
     bool NetworkManager::IsServer()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         return s_Server != nullptr && s_Server->IsRunning();
     }
 
     bool NetworkManager::Connect(const std::string& address, u16 port)
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(s_Mutex);
 
         if (!s_Initialized)
         {
@@ -187,19 +205,18 @@ namespace OloEngine
         s_Client->GetDispatcher().RegisterHandler(ENetworkMessageType::EntitySnapshot,
                                                   [](u32 /*senderClientID*/, const u8* data, u32 size)
                                                   {
-                                                      // Full snapshot — push into interpolator with server tick
+                                                      // Full snapshot — push into interpolator with client-side tick
                                                       std::vector<u8> snapshotData(data, data + size);
-                                                      s_ClientInterpolator.PushSnapshot(s_TickCounter++,
+                                                      s_ClientInterpolator.PushSnapshot(s_ClientReceivedTick++,
                                                                                         std::move(snapshotData));
                                                   });
 
         s_Client->GetDispatcher().RegisterHandler(ENetworkMessageType::DeltaSnapshot,
                                                   [](u32 /*senderClientID*/, const u8* data, u32 size)
                                                   {
-                                                      // Delta snapshot — apply delta, then push result
-                                                      // Delta snapshots have the same format as full (just fewer entities)
+                                                      // Delta snapshot — push result with client-side tick
                                                       std::vector<u8> deltaData(data, data + size);
-                                                      s_ClientInterpolator.PushSnapshot(s_TickCounter++,
+                                                      s_ClientInterpolator.PushSnapshot(s_ClientReceivedTick++,
                                                                                         std::move(deltaData));
                                                   });
 
@@ -224,6 +241,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(s_Mutex);
+
         if (s_Client)
         {
             s_Client->Disconnect();
@@ -233,16 +252,20 @@ namespace OloEngine
 
     bool NetworkManager::IsClient()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         return s_Client != nullptr;
     }
 
     bool NetworkManager::IsConnected()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         return s_Client != nullptr && s_Client->IsConnected();
     }
 
     void NetworkManager::OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo)
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
+
         if (s_Server)
         {
             s_Server->OnConnectionStatusChanged(pInfo);
@@ -258,6 +281,8 @@ namespace OloEngine
                                             i32 sendFlags)
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(s_Mutex);
 
         if (s_Client && s_Client->IsConnected())
         {
@@ -277,6 +302,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(s_Mutex);
+
         if (s_Server && s_Server->IsRunning())
         {
             s_Server->BroadcastMessage(ENetworkMessageType::EntitySnapshot, snapshotData, snapshotSize,
@@ -286,18 +313,22 @@ namespace OloEngine
 
     NetworkMessageDispatcher& NetworkManager::GetServerDispatcher()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         OLO_CORE_ASSERT(s_Server, "No server active");
         return s_Server->GetDispatcher();
     }
 
     NetworkMessageDispatcher& NetworkManager::GetClientDispatcher()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         OLO_CORE_ASSERT(s_Client, "No client active");
         return s_Client->GetDispatcher();
     }
 
     const NetworkStats* NetworkManager::GetStats()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
+
         if (s_Server)
         {
             return &s_Server->GetStats();
@@ -311,33 +342,40 @@ namespace OloEngine
 
     NetworkServer* NetworkManager::GetServer()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         return s_Server.get();
     }
 
     NetworkClient* NetworkManager::GetClient()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         return s_Client.get();
     }
 
     void NetworkManager::SetSnapshotRate(u32 hz)
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         s_SnapshotRateHz = hz;
         s_ClientInterpolator.SetServerTickRate(hz);
     }
 
     u32 NetworkManager::GetSnapshotRate()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         return s_SnapshotRateHz;
     }
 
     void NetworkManager::SetActiveScene(Scene* scene)
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         s_ActiveScene = scene;
     }
 
     void NetworkManager::TickSnapshots()
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(s_Mutex);
 
         if (!s_ActiveScene)
         {
@@ -398,6 +436,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(s_Mutex);
+
         if (!s_Client || !s_Client->IsConnected())
         {
             OLO_CORE_WARN("SendInput: not connected to a server");
@@ -438,6 +478,8 @@ namespace OloEngine
 
     i32 NetworkManager::GetClientPingMs(u32 clientID)
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
+
         if (!s_Server || !s_Server->IsRunning())
         {
             return -1;

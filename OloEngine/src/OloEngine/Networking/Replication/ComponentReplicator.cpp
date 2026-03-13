@@ -46,5 +46,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         // Currently using static overloads. Future: register via function map for extensibility.
+        OLO_CORE_TRACE("[ComponentReplicator] RegisterDefaults: using static Serialize overloads "
+                       "(Transform, Rigidbody2D, Rigidbody3D)");
     }
 } // namespace OloEngine

@@ -9,6 +9,7 @@
 #include "OloEngine/Networking/Prediction/ServerInputHandler.h"
 #include "OloEngine/Networking/Replication/SnapshotBuffer.h"
 #include "OloEngine/Networking/Replication/SnapshotInterpolator.h"
+#include "OloEngine/Threading/Mutex.h"
 
 #include <string>
 
@@ -114,12 +115,15 @@ namespace OloEngine
         [[nodiscard]] static NetworkLobby* GetLobby();
 
       private:
+        static FMutex s_Mutex; // Protects all static members accessed from network thread callbacks
+
         static bool s_Initialized;
         static Scope<NetworkServer> s_Server;
         static Scope<NetworkClient> s_Client;
 
         static u32 s_SnapshotRateHz;
         static u32 s_TickCounter;
+        static u32 s_ClientReceivedTick; // Separate counter for client-received snapshots
         static f32 s_SnapshotAccumulator;
         static Scene* s_ActiveScene;
         static SnapshotBuffer s_SnapshotBuffer;
