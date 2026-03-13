@@ -67,6 +67,12 @@ namespace OloEngine
                     if (entityOpt.has_value() && entityOpt->HasComponent<TransformComponent>())
                     {
                         auto& transform = entityOpt->GetComponent<TransformComponent>();
+                        f32 const error = glm::length(transform.Translation - prePos);
+                        if (m_HardSnapThreshold > 0.0f && error >= m_HardSnapThreshold)
+                        {
+                            // Error exceeds threshold — keep the post-resimulation position (hard snap)
+                            continue;
+                        }
                         transform.Translation = glm::mix(prePos, transform.Translation, m_SmoothingRate);
                     }
                 }
@@ -107,5 +113,15 @@ namespace OloEngine
     u32 ClientPrediction::GetCurrentTick() const
     {
         return m_CurrentTick;
+    }
+
+    void ClientPrediction::SetHardSnapThreshold(f32 distance)
+    {
+        m_HardSnapThreshold = distance;
+    }
+
+    f32 ClientPrediction::GetHardSnapThreshold() const
+    {
+        return m_HardSnapThreshold;
     }
 } // namespace OloEngine

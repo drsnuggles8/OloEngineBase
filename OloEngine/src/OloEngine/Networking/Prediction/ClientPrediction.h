@@ -41,6 +41,11 @@ namespace OloEngine
         void SetSmoothingRate(f32 rate);
         [[nodiscard]] f32 GetSmoothingRate() const;
 
+        // Set the distance threshold beyond which corrections snap immediately
+        // instead of smoothing. Default = 5.0 units. Set to 0 to always smooth.
+        void SetHardSnapThreshold(f32 distance);
+        [[nodiscard]] f32 GetHardSnapThreshold() const;
+
         // Get the input buffer (for inspection/testing).
         [[nodiscard]] NetworkInputBuffer& GetInputBuffer();
         [[nodiscard]] const NetworkInputBuffer& GetInputBuffer() const;
@@ -57,5 +62,6 @@ namespace OloEngine
         u32 m_CurrentTick = 0;
         u32 m_LastConfirmedTick = 0;
         f32 m_SmoothingRate = 0.1f;
+        f32 m_HardSnapThreshold = 5.0f;
     };
 } // namespace OloEngine

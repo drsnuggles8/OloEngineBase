@@ -46,6 +46,8 @@ namespace OloEngine
 
     void SnapshotInterpolator::PushSnapshot(u32 tick, std::vector<u8> data)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_Buffer.Push(tick, std::move(data));
         if (tick > m_LatestReceivedTick)
         {

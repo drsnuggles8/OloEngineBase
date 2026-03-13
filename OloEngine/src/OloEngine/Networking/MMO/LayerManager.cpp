@@ -4,6 +4,9 @@
 
 namespace OloEngine
 {
+    static constexpr LayerID kLayerZoneIDOffset = 20000;
+    static constexpr LayerID kMaxLayerID = 9999; // Keeps zone IDs in [20000, 29999]
+
     void LayerManager::SetConfig(const LayerConfig& config)
     {
         m_Config = config;
@@ -12,9 +15,11 @@ namespace OloEngine
     LayerID LayerManager::CreateLayer(const ZoneDefinition& templateZone)
     {
         LayerID const layerID = m_NextLayerID++;
+        OLO_CORE_ASSERT(layerID <= kMaxLayerID,
+                        "LayerManager: layer ID overflow — would collide with other zone ID spaces");
 
         ZoneDefinition layerDef = templateZone;
-        layerDef.ID = 20000 + layerID; // Offset to avoid zone/instance ID conflicts
+        layerDef.ID = kLayerZoneIDOffset + layerID;
         layerDef.Name = templateZone.Name + "_Layer_" + std::to_string(layerID);
 
         ZoneServer server;

@@ -1,9 +1,10 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Threading/Mutex.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <functional>
-#include <mutex>
 #include <queue>
 #include <vector>
 
@@ -38,14 +39,14 @@ namespace OloEngine
         // Push a message onto the bus (thread-safe).
         void Push(InterZoneMessage message)
         {
-            std::lock_guard lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             m_Queue.push(std::move(message));
         }
 
         // Drain all pending messages. Returns them in FIFO order.
         [[nodiscard]] std::vector<InterZoneMessage> DrainAll()
         {
-            std::lock_guard lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             std::vector<InterZoneMessage> result;
             result.reserve(m_Queue.size());
             while (!m_Queue.empty())
@@ -59,7 +60,7 @@ namespace OloEngine
         // Drain messages targeted at a specific zone (or broadcast messages with targetZoneID=0).
         [[nodiscard]] std::vector<InterZoneMessage> DrainForZone(u32 zoneID)
         {
-            std::lock_guard lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             std::vector<InterZoneMessage> result;
             std::queue<InterZoneMessage> remaining;
             while (!m_Queue.empty())
@@ -82,19 +83,19 @@ namespace OloEngine
         // Check if the bus has any pending messages.
         [[nodiscard]] bool HasMessages() const
         {
-            std::lock_guard lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             return !m_Queue.empty();
         }
 
         // Get the number of pending messages.
         [[nodiscard]] u32 GetPendingCount() const
         {
-            std::lock_guard lock(m_Mutex);
+            TUniqueLock<FMutex> lock(m_Mutex);
             return static_cast<u32>(m_Queue.size());
         }
 
       private:
-        mutable std::mutex m_Mutex;
+        mutable FMutex m_Mutex;
         std::queue<InterZoneMessage> m_Queue;
     };
 } // namespace OloEngine

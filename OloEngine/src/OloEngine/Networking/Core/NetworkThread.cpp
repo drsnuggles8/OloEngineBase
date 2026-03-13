@@ -64,6 +64,11 @@ namespace OloEngine
         return s_Running.load(std::memory_order_acquire);
     }
 
+    u32 NetworkThread::GetTickRate()
+    {
+        return s_TickRateHz;
+    }
+
     void NetworkThread::ThreadFunc()
     {
         OLO_PROFILE_FUNCTION();

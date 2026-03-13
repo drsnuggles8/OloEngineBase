@@ -385,6 +385,17 @@ namespace OloEngine
         // Server: capture and broadcast snapshots at the configured rate
         if (s_Server && s_Server->IsRunning())
         {
+            // Rate-limit snapshot broadcasts: accumulate time from network thread tick
+            f32 const dt = 1.0f / static_cast<f32>(NetworkThread::GetTickRate());
+            s_SnapshotAccumulator += dt;
+
+            f32 const snapshotInterval = 1.0f / static_cast<f32>(s_SnapshotRateHz);
+            if (s_SnapshotAccumulator < snapshotInterval)
+            {
+                return;
+            }
+            s_SnapshotAccumulator -= snapshotInterval;
+
             ++s_TickCounter;
 
             // Capture a full snapshot and store in the buffer

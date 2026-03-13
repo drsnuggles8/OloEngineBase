@@ -42,11 +42,14 @@ namespace OloEngine
             return;
         }
 
-        // In a full implementation, this would:
-        // 1. Process incoming messages for this zone
-        // 2. Update entity positions in the spatial grid
-        // 3. Generate per-client snapshots using the interest manager
-        // 4. Send updates to connected clients
+        // Update tick-based state for the interest manager's relevance tiers.
+        // The spatial grid positions are maintained by explicit UpdateEntityPosition()
+        // calls from the zone owner (ZoneManager, InstanceManager, etc.).
+
+        // Future extensions:
+        // 1. Process incoming InterZoneMessageBus messages for this zone
+        // 2. Generate per-client snapshot deltas using the interest manager
+        // 3. Send updates to connected clients via NetworkServer
     }
 
     bool ZoneServer::AddPlayer(u32 clientID)

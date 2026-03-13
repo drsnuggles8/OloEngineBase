@@ -13,6 +13,7 @@ namespace OloEngine
         static void Start(u32 tickRateHz = 60);
         static void Stop();
         static bool IsRunning();
+        [[nodiscard]] static u32 GetTickRate();
 
       private:
         static void ThreadFunc();

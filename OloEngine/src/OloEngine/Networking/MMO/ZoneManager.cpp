@@ -5,8 +5,13 @@
 
 namespace OloEngine
 {
+    static constexpr ZoneID kMaxBaseZoneID = 9999; // Base zone IDs must stay below instance/layer ranges
+
     void ZoneManager::RegisterZone(const ZoneDefinition& definition)
     {
+        OLO_CORE_ASSERT(definition.ID <= kMaxBaseZoneID,
+                        "ZoneManager: base zone ID must be < 10000 to avoid collision with instance/layer ID spaces");
+
         if (m_Zones.contains(definition.ID))
         {
             OLO_CORE_WARN("[ZoneManager] Zone ID {} already registered", definition.ID);

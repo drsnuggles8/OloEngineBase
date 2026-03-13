@@ -4,12 +4,17 @@
 
 namespace OloEngine
 {
+    static constexpr InstanceID kInstanceZoneIDOffset = 10000;
+    static constexpr InstanceID kMaxInstanceID = 9999; // Keeps zone IDs in [10000, 19999]
+
     InstanceID InstanceManager::CreateInstance(const ZoneDefinition& templateZone, EInstanceType type, u32 maxPlayers)
     {
         InstanceID const instanceID = m_NextInstanceID++;
+        OLO_CORE_ASSERT(instanceID <= kMaxInstanceID,
+                        "InstanceManager: instance ID overflow — would collide with layer zone ID space");
 
         ZoneDefinition instanceDef = templateZone;
-        instanceDef.ID = 10000 + instanceID; // Offset to avoid conflicting with zone IDs
+        instanceDef.ID = kInstanceZoneIDOffset + instanceID;
         instanceDef.MaxPlayers = maxPlayers;
         instanceDef.Name = templateZone.Name + "_Instance_" + std::to_string(instanceID);
 

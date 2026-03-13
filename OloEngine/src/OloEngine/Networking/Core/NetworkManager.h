@@ -21,6 +21,22 @@ namespace OloEngine
     class NetworkClient;
     class Scene;
 
+    // Static singleton facade for the networking subsystem.
+    //
+    // Threading contract:
+    //   - The network thread (NetworkThread) calls SteamNetworkingSockets::RunCallbacks(),
+    //     dispatches queued tasks, and invokes TickSnapshots(). All calls from this thread
+    //     acquire s_Mutex before accessing shared state.
+    //   - The game thread calls the public API (Init, Shutdown, Connect, StartServer,
+    //     SendInput, SetActiveScene, etc.). These also acquire s_Mutex.
+    //   - s_Server, s_Client, s_ActiveScene, s_SnapshotRateHz, s_TickCounter,
+    //     s_SnapshotAccumulator, s_SnapshotBuffer, and s_ClientInterpolator are shared
+    //     between both threads and are always protected by s_Mutex.
+    //   - s_ClientPrediction, s_ServerInputHandler, and s_LagCompensator are only
+    //     mutated from the game thread (via handler callbacks registered at connection
+    //     time). Their accessors intentionally do NOT acquire s_Mutex to avoid
+    //     locking overhead on game-thread-only state.
+    //   - s_Session and s_Lobby are game-thread-only.
     class NetworkManager
     {
       public:

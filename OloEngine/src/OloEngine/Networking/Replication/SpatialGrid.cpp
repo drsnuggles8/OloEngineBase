@@ -16,6 +16,8 @@ namespace OloEngine
 
     void SpatialGrid::InsertOrUpdate(u64 uuid, const glm::vec3& position)
     {
+        OLO_PROFILE_FUNCTION();
+
         CellKey const newCell = PositionToCell(position);
         m_EntityPositions[uuid] = position;
 
@@ -42,6 +44,8 @@ namespace OloEngine
 
     void SpatialGrid::Remove(u64 uuid)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto it = m_EntityCells.find(uuid);
         if (it == m_EntityCells.end())
         {
