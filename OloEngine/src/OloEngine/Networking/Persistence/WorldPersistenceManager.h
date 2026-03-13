@@ -3,10 +3,15 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Networking/Persistence/IWorldDatabase.h"
 
+#include <functional>
 #include <unordered_set>
 
 namespace OloEngine
 {
+    // Callback to retrieve entity data for saving. Parameters: (uuid) → (zoneID, data).
+    // Returns false if the entity cannot be serialized.
+    using EntityDataProvider = std::function<bool(u64 uuid, ZoneID& outZone, std::vector<u8>& outData)>;
+
     // Periodically saves dirty entities to the world database.
     // Entities are marked dirty when their state changes, and saved at a configurable interval.
     class WorldPersistenceManager
@@ -32,6 +37,9 @@ namespace OloEngine
         // Force save all dirty entities immediately.
         void SaveAll();
 
+        // Set the callback that provides entity data for saving.
+        void SetEntityDataProvider(EntityDataProvider provider);
+
         // Save a specific entity.
         bool SaveEntity(u64 uuid, ZoneID zoneID, const std::vector<u8>& data);
 
@@ -47,6 +55,7 @@ namespace OloEngine
 
       private:
         IWorldDatabase* m_Database = nullptr;
+        EntityDataProvider m_DataProvider;
         f32 m_SaveInterval = 300.0f;
         f32 m_TimeSinceLastSave = 0.0f;
         std::unordered_set<u64> m_DirtyEntities;

@@ -35,6 +35,17 @@ namespace OloEngine
             return;
         }
 
+        // Reject out-of-order or duplicate ticks
+        if (auto it = m_LastProcessedTicks.find(senderClientID); it != m_LastProcessedTicks.end())
+        {
+            if (tick <= it->second)
+            {
+                OLO_CORE_TRACE("[ServerInputHandler] Ignoring stale tick {} from client {} (last processed: {})",
+                               tick, senderClientID, it->second);
+                return;
+            }
+        }
+
         // Authority enforcement: verify the sender owns this entity
         auto entityOpt = scene.TryGetEntityWithUUID(UUID(entityUUID));
         if (!entityOpt.has_value())

@@ -5,6 +5,8 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 
+#include <algorithm>
+
 namespace OloEngine
 {
     RollbackManager::RollbackManager() = default;
@@ -121,12 +123,22 @@ namespace OloEngine
 
         // Re-simulate from toTick to current tick
         u32 const originalTick = m_CurrentTick;
+
+        // Collect and sort peer IDs for deterministic resimulation order
+        std::vector<u32> sortedPeers;
+        sortedPeers.reserve(m_Inputs.size());
+        for (auto const& [peerID, tickInputs] : m_Inputs)
+        {
+            sortedPeers.push_back(peerID);
+        }
+        std::sort(sortedPeers.begin(), sortedPeers.end());
+
         for (u32 tick = toTick + 1; tick <= originalTick; ++tick)
         {
             // Apply all peer inputs for this tick (using real or predicted)
             if (m_ApplyCallback)
             {
-                for (auto const& [peerID, tickInputs] : m_Inputs)
+                for (u32 peerID : sortedPeers)
                 {
                     const auto* input = GetInputForTick(peerID, tick);
                     if (input)

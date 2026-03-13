@@ -28,7 +28,7 @@ namespace OloEngine
         return m_InputDelay;
     }
 
-    void LockstepManager::SetPeers(std::unordered_set<u32> peerIDs)
+    void LockstepManager::SetPeers(std::set<u32> peerIDs)
     {
         m_Peers = std::move(peerIDs);
     }

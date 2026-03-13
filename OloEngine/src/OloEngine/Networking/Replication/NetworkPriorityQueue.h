@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <algorithm>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine
@@ -29,44 +30,57 @@ namespace OloEngine
             f32 const staleness = std::max(static_cast<f32>(ticksSinceLastUpdate), 1.0f);
             f32 const score = staleness / dist; // Staler + closer = higher priority
 
-            // Check if already in queue
-            for (auto& entry : m_Entries)
+            // O(1) lookup via index map
+            if (auto it = m_UUIDToIndex.find(uuid); it != m_UUIDToIndex.end())
             {
-                if (entry.EntityUUID == uuid)
-                {
-                    entry.Score = score;
-                    return;
-                }
+                m_Entries[it->second].Score = score;
+                return;
             }
+            m_UUIDToIndex[uuid] = static_cast<u32>(m_Entries.size());
             m_Entries.push_back({ uuid, score });
         }
 
-        // Sort by priority (descending) and return top N entries.
+        // Partially sort by priority (descending) and return top N entries.
         [[nodiscard]] std::vector<PriorityEntry> GetTopN(u32 count) const
         {
             auto sorted = m_Entries;
-            std::sort(sorted.begin(), sorted.end(),
-                      [](const PriorityEntry& a, const PriorityEntry& b)
-                      { return a.Score > b.Score; });
-
-            if (sorted.size() > count)
-            {
-                sorted.resize(count);
-            }
+            u32 const n = std::min(count, static_cast<u32>(sorted.size()));
+            std::partial_sort(sorted.begin(), sorted.begin() + n, sorted.end(),
+                              [](const PriorityEntry& a, const PriorityEntry& b)
+                              { return a.Score > b.Score; });
+            sorted.resize(n);
             return sorted;
         }
 
         // Remove an entity from the queue.
         void Remove(u64 uuid)
         {
-            std::erase_if(m_Entries, [uuid](const PriorityEntry& e)
-                          { return e.EntityUUID == uuid; });
+            auto it = m_UUIDToIndex.find(uuid);
+            if (it == m_UUIDToIndex.end())
+            {
+                return;
+            }
+
+            u32 const index = it->second;
+            u32 const lastIndex = static_cast<u32>(m_Entries.size()) - 1;
+
+            if (index != lastIndex)
+            {
+                // Swap with last element and update the swapped element's index
+                u64 const lastUUID = m_Entries[lastIndex].EntityUUID;
+                std::swap(m_Entries[index], m_Entries[lastIndex]);
+                m_UUIDToIndex[lastUUID] = index;
+            }
+
+            m_Entries.pop_back();
+            m_UUIDToIndex.erase(it);
         }
 
         // Clear all entries.
         void Clear()
         {
             m_Entries.clear();
+            m_UUIDToIndex.clear();
         }
 
         // Get the number of entries.
@@ -77,5 +91,6 @@ namespace OloEngine
 
       private:
         std::vector<PriorityEntry> m_Entries;
+        std::unordered_map<u64, u32> m_UUIDToIndex; // uuid → index in m_Entries
     };
 } // namespace OloEngine

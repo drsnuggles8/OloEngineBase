@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <unordered_map>
 
+#include <glm/gtc/quaternion.hpp>
+
 namespace OloEngine
 {
     // Parse a snapshot buffer into a map of UUID → TransformComponent.
@@ -93,9 +95,20 @@ namespace OloEngine
         f32 const tickRange = static_cast<f32>(after->Tick - before->Tick);
         f32 const alpha = std::clamp((renderTick - static_cast<f32>(before->Tick)) / tickRange, 0.0f, 1.0f);
 
-        // Parse both snapshots
-        auto beforeEntities = ParseSnapshot(before->Data);
-        auto afterEntities = ParseSnapshot(after->Data);
+        // Parse both snapshots (with caching)
+        if (before->Tick != m_CachedBeforeTick)
+        {
+            m_CachedBefore = ParseSnapshot(before->Data);
+            m_CachedBeforeTick = before->Tick;
+        }
+        if (after->Tick != m_CachedAfterTick)
+        {
+            m_CachedAfter = ParseSnapshot(after->Data);
+            m_CachedAfterTick = after->Tick;
+        }
+
+        const auto& beforeEntities = m_CachedBefore;
+        const auto& afterEntities = m_CachedAfter;
 
         // Interpolate and apply to the scene
         auto view = scene.GetAllEntitiesWith<NetworkIdentityComponent, TransformComponent>();
@@ -127,8 +140,11 @@ namespace OloEngine
 
                 // Lerp translation
                 transform.Translation = glm::mix(tb.Translation, ta.Translation, alpha);
-                // Lerp rotation (Euler angles — good enough for small deltas)
-                transform.Rotation = glm::mix(tb.Rotation, ta.Rotation, alpha);
+                // Slerp rotation via quaternion for correct spherical interpolation
+                glm::quat const qBefore = glm::quat(tb.Rotation);
+                glm::quat const qAfter = glm::quat(ta.Rotation);
+                glm::quat const qInterp = glm::slerp(qBefore, qAfter, alpha);
+                transform.Rotation = glm::eulerAngles(qInterp);
                 // Lerp scale
                 transform.Scale = glm::mix(tb.Scale, ta.Scale, alpha);
             }

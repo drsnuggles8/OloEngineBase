@@ -125,9 +125,20 @@ namespace OloEngine
         {
             return;
         }
+
         m_CellSize = cellSize;
         m_InvCellSize = 1.0f / cellSize;
-        // Note: existing entities are NOT re-hashed. Call Clear() + re-insert if cell size changes at runtime.
+
+        // Re-hash all entities with the new cell size
+        auto positions = std::move(m_EntityPositions);
+        m_Cells.clear();
+        m_EntityCells.clear();
+        m_EntityPositions.clear();
+
+        for (auto const& [uuid, pos] : positions)
+        {
+            InsertOrUpdate(uuid, pos);
+        }
     }
 
     u32 SpatialGrid::GetCellPopulation(const glm::vec3& position) const

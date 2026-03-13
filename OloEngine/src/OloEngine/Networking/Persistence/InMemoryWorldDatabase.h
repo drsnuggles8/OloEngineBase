@@ -1,8 +1,8 @@
 #pragma once
 
 #include "OloEngine/Networking/Persistence/IWorldDatabase.h"
+#include "OloEngine/Threading/Mutex.h"
 
-#include <mutex>
 #include <unordered_map>
 
 namespace OloEngine
@@ -39,7 +39,7 @@ namespace OloEngine
 
       private:
         bool m_Initialized = false;
-        mutable std::mutex m_Mutex;
+        mutable FMutex m_Mutex;
 
         std::unordered_map<u32, PlayerStatePacket> m_PlayerStates;
 

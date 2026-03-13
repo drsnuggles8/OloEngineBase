@@ -19,6 +19,36 @@ namespace OloEngine
         m_ClientInterestGroups[clientID] = std::move(groups);
     }
 
+    void NetworkInterestManager::UpdateSpatialGrid(Scene& scene)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        m_SpatialGrid.Clear();
+        auto view = scene.GetAllEntitiesWith<IDComponent, TransformComponent>();
+        for (auto entityHandle : view)
+        {
+            Entity entity{ entityHandle, &scene };
+
+            if (entity.HasComponent<NetworkIdentityComponent>())
+            {
+                auto const& nic = entity.GetComponent<NetworkIdentityComponent>();
+                if (!nic.IsReplicated)
+                {
+                    continue;
+                }
+            }
+
+            u64 const uuid = static_cast<u64>(entity.GetUUID());
+            auto const& tc = entity.GetComponent<TransformComponent>();
+            m_SpatialGrid.InsertOrUpdate(uuid, tc.Translation);
+        }
+    }
+
+    const SpatialGrid& NetworkInterestManager::GetSpatialGrid() const
+    {
+        return m_SpatialGrid;
+    }
+
     std::vector<u64> NetworkInterestManager::GetRelevantEntities(u32 clientID, Scene& scene) const
     {
         OLO_PROFILE_FUNCTION();
@@ -59,7 +89,6 @@ namespace OloEngine
             if (entity.HasComponent<NetworkInterestComponent>())
             {
                 auto const& interest = entity.GetComponent<NetworkInterestComponent>();
-                auto const& tc = entity.GetComponent<TransformComponent>();
 
                 // Check interest group
                 if (interest.InterestGroup != 0)
@@ -70,13 +99,25 @@ namespace OloEngine
                     }
                 }
 
-                // Check distance
+                // Use SpatialGrid for distance check when grid is populated, else fall back to direct check
                 if (interest.RelevanceRadius > 0.0f)
                 {
-                    f32 const distSq = glm::distance2(clientPos, tc.Translation);
-                    if (distSq > interest.RelevanceRadius * interest.RelevanceRadius)
+                    if (m_SpatialGrid.GetEntityCount() > 0)
                     {
-                        continue; // Too far away
+                        auto nearby = m_SpatialGrid.QueryRadius(clientPos, interest.RelevanceRadius);
+                        if (std::find(nearby.begin(), nearby.end(), uuid) == nearby.end())
+                        {
+                            continue; // Too far away
+                        }
+                    }
+                    else
+                    {
+                        auto const& tc = entity.GetComponent<TransformComponent>();
+                        f32 const distSq = glm::distance2(clientPos, tc.Translation);
+                        if (distSq > interest.RelevanceRadius * interest.RelevanceRadius)
+                        {
+                            continue; // Too far away
+                        }
                     }
                 }
             }

@@ -47,6 +47,22 @@ namespace OloEngine
                 zone.Tick(dt);
             }
         }
+
+        // Expire stale handoff transactions
+        std::vector<u32> expiredHandoffs;
+        for (auto& [txID, tx] : m_ActiveHandoffs)
+        {
+            tx.ElapsedTime += dt;
+            if (tx.ElapsedTime >= m_HandoffTimeout)
+            {
+                expiredHandoffs.push_back(txID);
+            }
+        }
+        for (u32 txID : expiredHandoffs)
+        {
+            OLO_CORE_WARN("[ZoneManager] Handoff {} timed out after {:.1f}s", txID, m_HandoffTimeout);
+            RejectHandoff(txID);
+        }
     }
 
     ZoneServer* ZoneManager::GetZoneAt(const glm::vec3& position)
@@ -295,5 +311,15 @@ namespace OloEngine
             return nullptr;
         }
         return &it->second;
+    }
+
+    void ZoneManager::SetHandoffTimeout(f32 seconds)
+    {
+        m_HandoffTimeout = seconds;
+    }
+
+    f32 ZoneManager::GetHandoffTimeout() const
+    {
+        return m_HandoffTimeout;
     }
 } // namespace OloEngine

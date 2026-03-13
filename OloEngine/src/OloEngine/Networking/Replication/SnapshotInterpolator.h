@@ -2,6 +2,9 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Networking/Replication/SnapshotBuffer.h"
+#include "OloEngine/Scene/Components.h"
+
+#include <unordered_map>
 
 namespace OloEngine
 {
@@ -42,5 +45,11 @@ namespace OloEngine
         u32 m_ServerTickRate = 20; // ticks per second
         f32 m_CurrentTime = 0.0f;  // accumulated time in seconds
         u32 m_LatestReceivedTick = 0;
+
+        // Parsed snapshot cache to avoid re-parsing every frame
+        u32 m_CachedBeforeTick = UINT32_MAX;
+        u32 m_CachedAfterTick = UINT32_MAX;
+        std::unordered_map<u64, TransformComponent> m_CachedBefore;
+        std::unordered_map<u64, TransformComponent> m_CachedAfter;
     };
 } // namespace OloEngine

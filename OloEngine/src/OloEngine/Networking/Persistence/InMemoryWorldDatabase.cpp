@@ -1,19 +1,20 @@
 #include "OloEnginePCH.h"
 #include "InMemoryWorldDatabase.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 namespace OloEngine
 {
     bool InMemoryWorldDatabase::SavePlayerState(u32 accountID, const PlayerStatePacket& state)
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         m_PlayerStates[accountID] = state;
         return true;
     }
 
     bool InMemoryWorldDatabase::LoadPlayerState(u32 accountID, PlayerStatePacket& outState)
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         auto it = m_PlayerStates.find(accountID);
         if (it == m_PlayerStates.end())
         {
@@ -25,20 +26,20 @@ namespace OloEngine
 
     bool InMemoryWorldDatabase::DeletePlayerState(u32 accountID)
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_PlayerStates.erase(accountID) > 0;
     }
 
     bool InMemoryWorldDatabase::SaveEntityState(u64 uuid, ZoneID zoneID, const std::vector<u8>& data)
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         m_EntityStates[uuid] = { zoneID, data };
         return true;
     }
 
     bool InMemoryWorldDatabase::LoadEntitiesForZone(ZoneID zoneID, std::vector<std::pair<u64, std::vector<u8>>>& outEntities)
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         outEntities.clear();
         for (auto const& [uuid, record] : m_EntityStates)
         {
@@ -52,20 +53,20 @@ namespace OloEngine
 
     bool InMemoryWorldDatabase::DeleteEntityState(u64 uuid)
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_EntityStates.erase(uuid) > 0;
     }
 
     bool InMemoryWorldDatabase::SetWorldState(const std::string& key, const std::string& value)
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         m_WorldState[key] = value;
         return true;
     }
 
     bool InMemoryWorldDatabase::GetWorldState(const std::string& key, std::string& outValue)
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         auto it = m_WorldState.find(key);
         if (it == m_WorldState.end())
         {
@@ -84,7 +85,7 @@ namespace OloEngine
 
     void InMemoryWorldDatabase::Shutdown()
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         m_PlayerStates.clear();
         m_EntityStates.clear();
         m_WorldState.clear();
@@ -98,19 +99,19 @@ namespace OloEngine
 
     u32 InMemoryWorldDatabase::GetPlayerCount() const
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         return static_cast<u32>(m_PlayerStates.size());
     }
 
     u32 InMemoryWorldDatabase::GetEntityCount() const
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         return static_cast<u32>(m_EntityStates.size());
     }
 
     void InMemoryWorldDatabase::Clear()
     {
-        std::lock_guard lock(m_Mutex);
+        TUniqueLock<FMutex> lock(m_Mutex);
         m_PlayerStates.clear();
         m_EntityStates.clear();
         m_WorldState.clear();

@@ -4,6 +4,7 @@
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <steam/isteamnetworkingutils.h>
 
@@ -45,6 +46,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         if (m_Interface && m_Connection != k_HSteamNetConnection_Invalid)
         {
             m_Interface->CloseConnection(m_Connection, 0, "Client disconnect", false);
@@ -57,6 +60,8 @@ namespace OloEngine
     void NetworkClient::PollMessages()
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_Interface || m_Connection == k_HSteamNetConnection_Invalid)
         {
@@ -116,6 +121,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         if (!m_Interface || m_Connection == k_HSteamNetConnection_Invalid)
         {
             return false;
@@ -162,12 +169,15 @@ namespace OloEngine
 
     const NetworkStats& NetworkClient::GetStats() const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_Stats;
     }
 
     void NetworkClient::OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo)
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         // Only handle callbacks for our own connection
         if (pInfo->m_hConn != m_Connection)

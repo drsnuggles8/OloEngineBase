@@ -4,6 +4,7 @@
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <steam/isteamnetworkingutils.h>
 
@@ -52,6 +53,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         if (!m_Interface)
         {
             return;
@@ -82,6 +85,8 @@ namespace OloEngine
     void NetworkServer::PollMessages()
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_Interface || m_PollGroup == k_HSteamNetPollGroup_Invalid)
         {
@@ -158,6 +163,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         for (auto& [handle, connection] : m_Connections)
         {
             if (connection.GetState() == EConnectionState::Connected)
@@ -221,6 +228,7 @@ namespace OloEngine
 
     const std::unordered_map<HSteamNetConnection, NetworkConnection>& NetworkServer::GetConnections() const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_Connections;
     }
 
@@ -231,6 +239,7 @@ namespace OloEngine
 
     const NetworkStats& NetworkServer::GetStats() const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_Stats;
     }
 
@@ -257,6 +266,8 @@ namespace OloEngine
     void NetworkServer::OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo)
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         // Only handle connections that belong to our listen socket or are already tracked
         if (pInfo->m_info.m_hListenSocket != k_HSteamListenSocket_Invalid && pInfo->m_info.m_hListenSocket != m_ListenSocket)
@@ -292,7 +303,7 @@ namespace OloEngine
                 NetworkConnection conn(pInfo->m_hConn);
                 conn.SetState(EConnectionState::Connecting);
                 conn.SetClientID(m_NextClientID++);
-                m_Connections.emplace(pInfo->m_hConn, conn);
+                m_Connections.emplace(pInfo->m_hConn, std::move(conn));
 
                 OLO_CORE_INFO("[NetworkServer] Client connecting (ID: {})", conn.GetClientID());
                 break;

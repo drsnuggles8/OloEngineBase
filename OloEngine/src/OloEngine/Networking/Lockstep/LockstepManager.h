@@ -5,8 +5,8 @@
 #include "OloEngine/Networking/Replication/SnapshotBuffer.h"
 
 #include <functional>
+#include <set>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace OloEngine
@@ -33,7 +33,7 @@ namespace OloEngine
         [[nodiscard]] u32 GetInputDelay() const;
 
         // Register the set of peer IDs participating in the lockstep session.
-        void SetPeers(std::unordered_set<u32> peerIDs);
+        void SetPeers(std::set<u32> peerIDs);
 
         // Submit local input for a future tick (CurrentTick + InputDelay).
         void SubmitInput(u32 localPeerID, std::vector<u8> data);
@@ -78,7 +78,7 @@ namespace OloEngine
         u32 m_HashCheckInterval = 60;
         bool m_Desynced = false;
 
-        std::unordered_set<u32> m_Peers;
+        std::set<u32> m_Peers;
 
         // tick → (peerID → input data)
         std::unordered_map<u32, std::unordered_map<u32, std::vector<u8>>> m_InputsByTick;

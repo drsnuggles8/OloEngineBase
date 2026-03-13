@@ -72,10 +72,15 @@ namespace OloEngine
         // Get the number of registered zones.
         [[nodiscard]] u32 GetZoneCount() const;
 
+        // Set the handoff timeout in seconds. Handoffs exceeding this are auto-rejected.
+        void SetHandoffTimeout(f32 seconds);
+        [[nodiscard]] f32 GetHandoffTimeout() const;
+
       private:
         std::unordered_map<ZoneID, ZoneServer> m_Zones;
         std::unordered_map<u32, ZoneID> m_PlayerZoneMap; // clientID → zoneID
         std::unordered_map<u32, HandoffTransaction> m_ActiveHandoffs;
         u32 m_NextTransactionID = 1;
+        f32 m_HandoffTimeout = 10.0f; // seconds
     };
 } // namespace OloEngine

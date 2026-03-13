@@ -10,6 +10,40 @@ namespace OloEngine
     {
     }
 
+    NetworkConnection::~NetworkConnection()
+    {
+        if (m_State != EConnectionState::None && m_Handle != k_HSteamNetConnection_Invalid)
+        {
+            Close();
+        }
+    }
+
+    NetworkConnection::NetworkConnection(NetworkConnection&& other) noexcept
+        : m_Handle(other.m_Handle), m_State(other.m_State), m_ClientID(other.m_ClientID)
+    {
+        other.m_Handle = k_HSteamNetConnection_Invalid;
+        other.m_State = EConnectionState::None;
+        other.m_ClientID = 0;
+    }
+
+    NetworkConnection& NetworkConnection::operator=(NetworkConnection&& other) noexcept
+    {
+        if (this != &other)
+        {
+            if (m_State != EConnectionState::None && m_Handle != k_HSteamNetConnection_Invalid)
+            {
+                Close();
+            }
+            m_Handle = other.m_Handle;
+            m_State = other.m_State;
+            m_ClientID = other.m_ClientID;
+            other.m_Handle = k_HSteamNetConnection_Invalid;
+            other.m_State = EConnectionState::None;
+            other.m_ClientID = 0;
+        }
+        return *this;
+    }
+
     HSteamNetConnection NetworkConnection::GetHandle() const
     {
         return m_Handle;

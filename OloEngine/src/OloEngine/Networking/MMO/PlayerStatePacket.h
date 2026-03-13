@@ -55,6 +55,7 @@ namespace OloEngine
         ZoneID SourceZoneID = 0;
         ZoneID TargetZoneID = 0;
         EHandoffState State = EHandoffState::None;
+        f32 ElapsedTime = 0.0f; // Time since handoff was initiated
         PlayerStatePacket PlayerState;
     };
 } // namespace OloEngine

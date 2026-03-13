@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Networking/Transport/NetworkConnection.h"
 #include "OloEngine/Networking/Core/NetworkMessage.h"
+#include "OloEngine/Threading/Mutex.h"
 
 #include <steam/steamnetworkingsockets.h>
 #include <unordered_map>
@@ -52,5 +53,6 @@ namespace OloEngine
 
         NetworkMessageDispatcher m_Dispatcher;
         NetworkStats m_Stats;
+        mutable FMutex m_Mutex;
     };
 } // namespace OloEngine

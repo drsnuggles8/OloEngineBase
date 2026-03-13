@@ -191,6 +191,15 @@ namespace OloEngine
                     m_PlayerLayerMap[clientID] = target;
                 }
 
+                // Update party layer mappings: any party pointing to source now points to target
+                for (auto& [partyID, layerID] : m_PartyLayerMap)
+                {
+                    if (layerID == source)
+                    {
+                        layerID = target;
+                    }
+                }
+
                 // Update counts
                 auto targetInfoIt = m_LayerInfos.find(target);
                 auto sourceInfoIt = m_LayerInfos.find(source);

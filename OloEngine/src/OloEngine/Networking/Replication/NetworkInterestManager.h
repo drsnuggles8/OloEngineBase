@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Networking/Replication/SpatialGrid.h"
 
 #include <unordered_map>
 #include <unordered_set>
@@ -13,7 +14,7 @@ namespace OloEngine
     class Scene;
 
     // Controls which entities are relevant to each client for snapshot replication.
-    // Filters by distance (RelevanceRadius) and interest group membership.
+    // Uses a SpatialGrid internally for efficient spatial queries.
     class NetworkInterestManager
     {
       public:
@@ -37,8 +38,16 @@ namespace OloEngine
         // Check if a specific entity is relevant to a client.
         [[nodiscard]] bool IsEntityRelevant(u32 clientID, u64 entityUUID, Scene& scene) const;
 
+        // Update the spatial grid with all replicated entities from the scene.
+        // Should be called once per tick before querying relevance.
+        void UpdateSpatialGrid(Scene& scene);
+
+        // Access the spatial grid (for testing/debugging).
+        [[nodiscard]] const SpatialGrid& GetSpatialGrid() const;
+
       private:
         std::unordered_map<u32, glm::vec3> m_ClientPositions;
         std::unordered_map<u32, std::unordered_set<u32>> m_ClientInterestGroups;
+        SpatialGrid m_SpatialGrid{ 64.0f };
     };
 } // namespace OloEngine

@@ -5,6 +5,9 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Debug/Profiler.h"
 
+#include <glm/glm.hpp>
+#include <unordered_map>
+
 namespace OloEngine
 {
     ClientPrediction::ClientPrediction() = default;
@@ -36,10 +39,37 @@ namespace OloEngine
         if (m_ApplyCallback)
         {
             auto unconfirmed = m_InputBuffer.GetUnconfirmedInputs(lastProcessedInputTick);
+
+            // Capture server-authoritative positions before resimulation for smoothing
+            std::unordered_map<u64, glm::vec3> preReconcilePositions;
+            for (const auto* input : unconfirmed)
+            {
+                auto entityOpt = scene.TryGetEntityWithUUID(UUID(input->EntityUUID));
+                if (entityOpt.has_value() && entityOpt->HasComponent<TransformComponent>())
+                {
+                    preReconcilePositions[input->EntityUUID] =
+                        entityOpt->GetComponent<TransformComponent>().Translation;
+                }
+            }
+
             for (const auto* input : unconfirmed)
             {
                 m_ApplyCallback(scene, input->EntityUUID, input->Data.data(),
                                 static_cast<u32>(input->Data.size()));
+            }
+
+            // Blend between pre-reconciliation and post-resimulation positions
+            if (m_SmoothingRate < 1.0f)
+            {
+                for (const auto& [entityUUID, prePos] : preReconcilePositions)
+                {
+                    auto entityOpt = scene.TryGetEntityWithUUID(UUID(entityUUID));
+                    if (entityOpt.has_value() && entityOpt->HasComponent<TransformComponent>())
+                    {
+                        auto& transform = entityOpt->GetComponent<TransformComponent>();
+                        transform.Translation = glm::mix(prePos, transform.Translation, m_SmoothingRate);
+                    }
+                }
             }
         }
     }

@@ -20,6 +20,13 @@ namespace OloEngine
     {
       public:
         explicit NetworkConnection(HSteamNetConnection handle);
+        ~NetworkConnection();
+
+        // Non-copyable, movable
+        NetworkConnection(const NetworkConnection&) = delete;
+        NetworkConnection& operator=(const NetworkConnection&) = delete;
+        NetworkConnection(NetworkConnection&& other) noexcept;
+        NetworkConnection& operator=(NetworkConnection&& other) noexcept;
 
         [[nodiscard]] HSteamNetConnection GetHandle() const;
         [[nodiscard]] EConnectionState GetState() const;

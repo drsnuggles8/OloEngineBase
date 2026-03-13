@@ -111,6 +111,10 @@ namespace OloEngine
         FMemoryWriter writer(buffer);
         writer.ArIsNetArchive = true;
 
+        // Reusable buffer for per-entity transform serialization
+        std::vector<u8> currentTransformBuf;
+        currentTransformBuf.reserve(kTransformBytes);
+
         auto view = scene.GetAllEntitiesWith<NetworkIdentityComponent, TransformComponent>();
         for (auto entityHandle : view)
         {
@@ -123,8 +127,8 @@ namespace OloEngine
 
             u64 uuid = static_cast<u64>(entity.GetUUID());
 
-            // Serialize the current transform to a temporary buffer for comparison
-            std::vector<u8> currentTransformBuf;
+            // Serialize the current transform to the reusable buffer for comparison
+            currentTransformBuf.clear();
             FMemoryWriter tmpWriter(currentTransformBuf);
             tmpWriter.ArIsNetArchive = true;
             auto& transform = entity.GetComponent<TransformComponent>();

@@ -42,10 +42,7 @@ namespace OloEngine
         if (m_TimeSinceLastSave >= m_SaveInterval && !m_DirtyEntities.empty())
         {
             OLO_CORE_INFO("[WorldPersistenceManager] Auto-save triggered ({} dirty entities)", m_DirtyEntities.size());
-            // In a full implementation, this would save all dirty entities to the database.
-            // For now, we just clear the dirty set to signal that save was "processed".
-            m_DirtyEntities.clear();
-            m_TimeSinceLastSave = 0.0f;
+            SaveAll();
         }
     }
 
@@ -57,8 +54,27 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("[WorldPersistenceManager] Saving all {} dirty entities", m_DirtyEntities.size());
+
+        if (m_DataProvider)
+        {
+            for (u64 uuid : m_DirtyEntities)
+            {
+                ZoneID zoneID = 0;
+                std::vector<u8> data;
+                if (m_DataProvider(uuid, zoneID, data))
+                {
+                    m_Database->SaveEntityState(uuid, zoneID, data);
+                }
+            }
+        }
+
         m_DirtyEntities.clear();
         m_TimeSinceLastSave = 0.0f;
+    }
+
+    void WorldPersistenceManager::SetEntityDataProvider(EntityDataProvider provider)
+    {
+        m_DataProvider = std::move(provider);
     }
 
     bool WorldPersistenceManager::SaveEntity(u64 uuid, ZoneID zoneID, const std::vector<u8>& data)

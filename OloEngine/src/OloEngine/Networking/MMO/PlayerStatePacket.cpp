@@ -53,13 +53,22 @@ namespace OloEngine
         return buffer;
     }
 
-    PlayerStatePacket PlayerStatePacket::Deserialize(const u8* data, [[maybe_unused]] i64 size)
+    PlayerStatePacket PlayerStatePacket::Deserialize(const u8* data, i64 size)
     {
         PlayerStatePacket packet;
         i64 offset = 0;
 
+        auto canRead = [&](i64 bytes) -> bool
+        {
+            return offset + bytes <= size;
+        };
+
         auto readU32 = [&]() -> u32
         {
+            if (!canRead(static_cast<i64>(sizeof(u32))))
+            {
+                return 0;
+            }
             u32 val = 0;
             std::memcpy(&val, data + offset, sizeof(u32));
             offset += sizeof(u32);
@@ -67,6 +76,10 @@ namespace OloEngine
         };
         auto readU64 = [&]() -> u64
         {
+            if (!canRead(static_cast<i64>(sizeof(u64))))
+            {
+                return 0;
+            }
             u64 val = 0;
             std::memcpy(&val, data + offset, sizeof(u64));
             offset += sizeof(u64);
@@ -74,6 +87,10 @@ namespace OloEngine
         };
         auto readF32 = [&]() -> f32
         {
+            if (!canRead(static_cast<i64>(sizeof(f32))))
+            {
+                return 0.0f;
+            }
             f32 val = 0.0f;
             std::memcpy(&val, data + offset, sizeof(f32));
             offset += sizeof(f32);
@@ -81,6 +98,10 @@ namespace OloEngine
         };
         auto readBool = [&]() -> bool
         {
+            if (!canRead(1))
+            {
+                return false;
+            }
             bool val = data[offset] != 0;
             offset += 1;
             return val;
@@ -105,7 +126,7 @@ namespace OloEngine
         packet.IsReplicated = readBool();
 
         u32 blobSize = readU32();
-        if (blobSize > 0)
+        if (blobSize > 0 && canRead(static_cast<i64>(blobSize)))
         {
             packet.GameStateBlob.assign(data + offset, data + offset + blobSize);
         }
