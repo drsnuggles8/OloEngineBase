@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Networking/Core/NetworkMessage.h"
 
 #include <string>
 
@@ -29,6 +30,24 @@ namespace OloEngine
         static void Disconnect();
         [[nodiscard]] static bool IsClient();
         [[nodiscard]] static bool IsConnected();
+
+        // Message sending (high-level)
+        // Client: sends to server. Server: broadcasts to all clients.
+        static bool SendNetworkMessage(ENetworkMessageType type, const u8* payload, u32 payloadSize, i32 sendFlags);
+
+        // Server-only: broadcast a snapshot to all connected clients
+        static void BroadcastSnapshot(const u8* snapshotData, u32 snapshotSize);
+
+        // Message dispatching
+        static NetworkMessageDispatcher& GetServerDispatcher();
+        static NetworkMessageDispatcher& GetClientDispatcher();
+
+        // Statistics
+        [[nodiscard]] static const NetworkStats* GetStats();
+
+        // Access to server/client (for debug panel, etc.)
+        [[nodiscard]] static NetworkServer* GetServer();
+        [[nodiscard]] static NetworkClient* GetClient();
 
         // Connection status callback (called by GNS)
         static void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);

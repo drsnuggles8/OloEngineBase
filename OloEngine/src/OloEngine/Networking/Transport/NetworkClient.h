@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Networking/Transport/NetworkConnection.h"
+#include "OloEngine/Networking/Core/NetworkMessage.h"
 
 #include <steam/steamnetworkingsockets.h>
 #include <string>
@@ -15,11 +16,17 @@ namespace OloEngine
         void Disconnect();
         void PollMessages();
 
+        // Send raw data to the server
+        bool Send(const void* data, u32 size, i32 sendFlags);
+
+        // Send a typed message to the server
+        bool SendMessage(ENetworkMessageType type, const u8* payload, u32 payloadSize, i32 sendFlags);
+
         [[nodiscard]] bool IsConnected() const;
         [[nodiscard]] EConnectionState GetState() const;
         [[nodiscard]] HSteamNetConnection GetConnectionHandle() const;
-
-        bool Send(const void* data, u32 size, i32 sendFlags);
+        [[nodiscard]] NetworkMessageDispatcher& GetDispatcher();
+        [[nodiscard]] const NetworkStats& GetStats() const;
 
         void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
 
@@ -27,5 +34,8 @@ namespace OloEngine
         HSteamNetConnection m_Connection = k_HSteamNetConnection_Invalid;
         ISteamNetworkingSockets* m_Interface = nullptr;
         EConnectionState m_State = EConnectionState::None;
+
+        NetworkMessageDispatcher m_Dispatcher;
+        NetworkStats m_Stats;
     };
 } // namespace OloEngine

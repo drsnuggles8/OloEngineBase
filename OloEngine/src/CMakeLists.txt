@@ -656,6 +656,7 @@
 		"OloEngine/Networking/Core/NetworkThread.h"
 		"OloEngine/Networking/Core/NetworkThread.cpp"
 		"OloEngine/Networking/Core/NetworkMessage.h"
+		"OloEngine/Networking/Core/NetworkMessage.cpp"
 		"OloEngine/Networking/Transport/NetworkConnection.h"
 		"OloEngine/Networking/Transport/NetworkConnection.cpp"
 		"OloEngine/Networking/Transport/NetworkServer.h"

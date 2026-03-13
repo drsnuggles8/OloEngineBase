@@ -4,6 +4,7 @@
 #include "OloEngine/Networking/Transport/NetworkClient.h"
 
 #include <imgui.h>
+#include <steam/steamnetworkingsockets.h>
 
 namespace OloEngine
 {
@@ -73,6 +74,84 @@ namespace OloEngine
                     {
                         NetworkManager::Disconnect();
                     }
+                }
+            }
+        }
+
+        // Statistics
+        const NetworkStats* stats = NetworkManager::GetStats();
+        if (stats)
+        {
+            ImGui::Separator();
+            if (ImGui::CollapsingHeader("Statistics", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                ImGui::Text("Messages Sent:     %u", stats->TotalMessagesSent);
+                ImGui::Text("Messages Received: %u", stats->TotalMessagesReceived);
+                ImGui::Text("Bytes Sent:        %llu", stats->TotalBytesSent);
+                ImGui::Text("Bytes Received:    %llu", stats->TotalBytesReceived);
+                ImGui::Separator();
+                ImGui::Text("Send Rate:    %.1f msg/s  (%.1f KB/s)", stats->MessagesSentPerSec,
+                            stats->BytesSentPerSec / 1024.0f);
+                ImGui::Text("Recv Rate:    %.1f msg/s  (%.1f KB/s)", stats->MessagesReceivedPerSec,
+                            stats->BytesReceivedPerSec / 1024.0f);
+            }
+        }
+
+        // Connected peers (server only)
+        if (auto const* server = NetworkManager::GetServer())
+        {
+            ImGui::Separator();
+            if (ImGui::CollapsingHeader("Connected Peers", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                auto const& connections = server->GetConnections();
+                if (connections.empty())
+                {
+                    ImGui::TextDisabled("No clients connected");
+                }
+                else
+                {
+                    ImGui::BeginTable("PeersTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+                    ImGui::TableSetupColumn("Client ID");
+                    ImGui::TableSetupColumn("State");
+                    ImGui::TableSetupColumn("Ping");
+                    ImGui::TableHeadersRow();
+
+                    for (auto const& [handle, conn] : connections)
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%u", conn.GetClientID());
+
+                        ImGui::TableNextColumn();
+                        const char* stateStr = "Unknown";
+                        switch (conn.GetState())
+                        {
+                            case EConnectionState::Connecting:
+                                stateStr = "Connecting";
+                                break;
+                            case EConnectionState::Connected:
+                                stateStr = "Connected";
+                                break;
+                            case EConnectionState::ClosedByPeer:
+                                stateStr = "Closed";
+                                break;
+                            default:
+                                break;
+                        }
+                        ImGui::Text("%s", stateStr);
+
+                        ImGui::TableNextColumn();
+                        SteamNetConnectionRealTimeStatus_t status;
+                        if (SteamNetworkingSockets()->GetConnectionRealTimeStatus(handle, &status, 0, nullptr) == k_EResultOK)
+                        {
+                            ImGui::Text("%d ms", status.m_nPing);
+                        }
+                        else
+                        {
+                            ImGui::TextDisabled("N/A");
+                        }
+                    }
+                    ImGui::EndTable();
                 }
             }
         }

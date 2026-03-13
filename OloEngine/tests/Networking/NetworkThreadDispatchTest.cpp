@@ -12,7 +12,7 @@ using namespace OloEngine::Tasks;
 
 class NetworkThreadDispatchTest : public ::testing::Test
 {
-protected:
+  protected:
     void SetUp() override
     {
         // Attach the game thread so we can process tasks dispatched back to it
@@ -34,15 +34,13 @@ TEST_F(NetworkThreadDispatchTest, EnqueueNetworkThreadTask)
     std::atomic<std::thread::id> executionThreadId{};
 
     EnqueueNetworkThreadTask([&]()
-    {
+                             {
         executed.store(true, std::memory_order_release);
-        executionThreadId.store(std::this_thread::get_id(), std::memory_order_release);
-    }, "TestTask");
+        executionThreadId.store(std::this_thread::get_id(), std::memory_order_release); }, "TestTask");
 
     // Wait for the network thread to process the task (up to 2 seconds)
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (!executed.load(std::memory_order_acquire)
-           && std::chrono::steady_clock::now() < deadline)
+    while (!executed.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -61,12 +59,8 @@ TEST_F(NetworkThreadDispatchTest, EnqueueGameThreadFromNetwork)
 
     // From the network thread, dispatch a callback to the game thread
     EnqueueNetworkThreadTask([&]()
-    {
-        EnqueueGameThreadTask([&]()
-        {
-            gameThreadTaskExecuted.store(true, std::memory_order_release);
-        }, "GameThreadCallback");
-    }, "NetworkToGameBridge");
+                             { EnqueueGameThreadTask([&]()
+                                                     { gameThreadTaskExecuted.store(true, std::memory_order_release); }, "GameThreadCallback"); }, "NetworkToGameBridge");
 
     // Give the network thread time to enqueue the game-thread callback
     std::this_thread::sleep_for(std::chrono::milliseconds(100));

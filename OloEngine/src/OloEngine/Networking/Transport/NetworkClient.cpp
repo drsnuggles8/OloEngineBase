@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Networking/Transport/NetworkClient.h"
+#include "OloEngine/Networking/Core/NetworkMessage.h"
+#include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 
@@ -65,10 +67,32 @@ namespace OloEngine
         i32 numMsgs = m_Interface->ReceiveMessagesOnConnection(m_Connection, &pIncomingMsg, 1);
         while (numMsgs > 0)
         {
-            // Process message - for now just release it
-            // Future: deserialize NetworkMessageHeader and dispatch
-            pIncomingMsg->Release();
+            u32 msgSize = pIncomingMsg->m_cbSize;
+            m_Stats.RecordReceive(msgSize);
 
+            if (msgSize >= NetworkMessageHeader::kSerializedSize)
+            {
+                const auto* rawData = static_cast<const u8*>(pIncomingMsg->m_pData);
+                FMemoryReader reader(rawData, static_cast<i64>(msgSize));
+                reader.ArIsNetArchive = true;
+
+                NetworkMessageHeader header;
+                reader << header.Type;
+                reader << header.Size;
+                reader << header.Flags;
+
+                if (!reader.IsError())
+                {
+                    u32 payloadOffset = static_cast<u32>(reader.Tell());
+                    const u8* payload = rawData + payloadOffset;
+                    u32 payloadSize = msgSize - payloadOffset;
+
+                    // Server has clientID 0
+                    m_Dispatcher.Dispatch(0, header.Type, payload, payloadSize);
+                }
+            }
+
+            pIncomingMsg->Release();
             numMsgs = m_Interface->ReceiveMessagesOnConnection(m_Connection, &pIncomingMsg, 1);
         }
     }
@@ -100,12 +124,56 @@ namespace OloEngine
         EResult result = m_Interface->SendMessageToConnection(
             m_Connection, data, size, sendFlags, nullptr);
 
-        return result == k_EResultOK;
+        if (result == k_EResultOK)
+        {
+            m_Stats.RecordSend(size);
+            return true;
+        }
+        return false;
+    }
+
+    bool NetworkClient::SendMessage(ENetworkMessageType type, const u8* payload, u32 payloadSize, i32 sendFlags)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<u8> buffer;
+        FMemoryWriter writer(buffer);
+        writer.ArIsNetArchive = true;
+
+        NetworkMessageHeader header;
+        header.Type = type;
+        header.Size = payloadSize;
+        writer << header.Type;
+        writer << header.Size;
+        writer << header.Flags;
+
+        if (payload && payloadSize > 0)
+        {
+            buffer.insert(buffer.end(), payload, payload + payloadSize);
+        }
+
+        return Send(buffer.data(), static_cast<u32>(buffer.size()), sendFlags);
+    }
+
+    NetworkMessageDispatcher& NetworkClient::GetDispatcher()
+    {
+        return m_Dispatcher;
+    }
+
+    const NetworkStats& NetworkClient::GetStats() const
+    {
+        return m_Stats;
     }
 
     void NetworkClient::OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Only handle callbacks for our own connection
+        if (pInfo->m_hConn != m_Connection)
+        {
+            return;
+        }
 
         switch (pInfo->m_info.m_eState)
         {

@@ -193,4 +193,69 @@ namespace OloEngine
             s_Client->OnConnectionStatusChanged(pInfo);
         }
     }
+
+    bool NetworkManager::SendNetworkMessage(ENetworkMessageType type, const u8* payload, u32 payloadSize,
+                                            i32 sendFlags)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (s_Client && s_Client->IsConnected())
+        {
+            return s_Client->SendMessage(type, payload, payloadSize, sendFlags);
+        }
+
+        if (s_Server && s_Server->IsRunning())
+        {
+            s_Server->BroadcastMessage(type, payload, payloadSize, sendFlags);
+            return true;
+        }
+
+        return false;
+    }
+
+    void NetworkManager::BroadcastSnapshot(const u8* snapshotData, u32 snapshotSize)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (s_Server && s_Server->IsRunning())
+        {
+            s_Server->BroadcastMessage(ENetworkMessageType::EntitySnapshot, snapshotData, snapshotSize,
+                                       k_nSteamNetworkingSend_Unreliable);
+        }
+    }
+
+    NetworkMessageDispatcher& NetworkManager::GetServerDispatcher()
+    {
+        OLO_CORE_ASSERT(s_Server, "No server active");
+        return s_Server->GetDispatcher();
+    }
+
+    NetworkMessageDispatcher& NetworkManager::GetClientDispatcher()
+    {
+        OLO_CORE_ASSERT(s_Client, "No client active");
+        return s_Client->GetDispatcher();
+    }
+
+    const NetworkStats* NetworkManager::GetStats()
+    {
+        if (s_Server)
+        {
+            return &s_Server->GetStats();
+        }
+        if (s_Client)
+        {
+            return &s_Client->GetStats();
+        }
+        return nullptr;
+    }
+
+    NetworkServer* NetworkManager::GetServer()
+    {
+        return s_Server.get();
+    }
+
+    NetworkClient* NetworkManager::GetClient()
+    {
+        return s_Client.get();
+    }
 } // namespace OloEngine
