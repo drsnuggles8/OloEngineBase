@@ -93,6 +93,7 @@ target_include_directories(OloEngine PUBLIC
 	vendor/stb_image-build/include
 	mono/include
 	${Vulkan_INCLUDE_DIRS}
+	vendor/GameNetworkingSockets-src/include
 )
 
 target_link_libraries(OloEngine
@@ -111,6 +112,7 @@ target_link_libraries(OloEngine
 	stb_image
 	TracyClient
 	yaml-cpp
+	GameNetworkingSockets_s
 	Vulkan::Vulkan
 	Vulkan::glslang
 	Vulkan::SPIRV-Tools

@@ -1112,6 +1112,28 @@ namespace OloEngine
         LODGroupComponent& operator=(LODGroupComponent&&) noexcept = default;
     };
 
+    // ── Networking ───────────────────────────────────────────────────────
+
+    enum class ENetworkAuthority : u8
+    {
+        Server = 0,
+        Client,
+        Shared
+    };
+
+    struct NetworkIdentityComponent
+    {
+        u32 OwnerClientID = 0;
+        ENetworkAuthority Authority = ENetworkAuthority::Server;
+        bool IsReplicated = true;
+
+        NetworkIdentityComponent() = default;
+        NetworkIdentityComponent(const NetworkIdentityComponent&) = default;
+        NetworkIdentityComponent& operator=(const NetworkIdentityComponent&) = default;
+        NetworkIdentityComponent(NetworkIdentityComponent&&) noexcept = default;
+        NetworkIdentityComponent& operator=(NetworkIdentityComponent&&) noexcept = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -1173,5 +1195,6 @@ namespace OloEngine
         LODGroupComponent,
         LightProbeComponent,
         LightProbeVolumeComponent,
-        StreamingVolumeComponent>;
+        StreamingVolumeComponent,
+        NetworkIdentityComponent>;
 } // namespace OloEngine

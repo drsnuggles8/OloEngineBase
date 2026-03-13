@@ -650,6 +650,23 @@
 		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue.h"
 
+		# Networking subsystem
+		"OloEngine/Networking/Core/NetworkManager.h"
+		"OloEngine/Networking/Core/NetworkManager.cpp"
+		"OloEngine/Networking/Core/NetworkThread.h"
+		"OloEngine/Networking/Core/NetworkThread.cpp"
+		"OloEngine/Networking/Core/NetworkMessage.h"
+		"OloEngine/Networking/Transport/NetworkConnection.h"
+		"OloEngine/Networking/Transport/NetworkConnection.cpp"
+		"OloEngine/Networking/Transport/NetworkServer.h"
+		"OloEngine/Networking/Transport/NetworkServer.cpp"
+		"OloEngine/Networking/Transport/NetworkClient.h"
+		"OloEngine/Networking/Transport/NetworkClient.cpp"
+		"OloEngine/Networking/Replication/ComponentReplicator.h"
+		"OloEngine/Networking/Replication/ComponentReplicator.cpp"
+		"OloEngine/Networking/Replication/EntitySnapshot.h"
+		"OloEngine/Networking/Replication/EntitySnapshot.cpp"
+
 		"OloEngine/UI/UI.h"
 		"OloEngine/UI/UILayoutSystem.h"
 		"OloEngine/UI/UILayoutSystem.cpp"

@@ -131,6 +131,33 @@ FetchContent_Declare(
 	GIT_SHALLOW		TRUE
 )
 
+# --- libsodium (crypto backend for GameNetworkingSockets) ---
+FetchContent_Declare(
+	libsodium
+	GIT_REPOSITORY	https://github.com/jedisct1/libsodium.git
+	GIT_TAG			1.0.20-RELEASE
+	GIT_SHALLOW		TRUE
+)
+
+# --- Protobuf (required by GameNetworkingSockets) ---
+FetchContent_Declare(
+	protobuf
+	GIT_REPOSITORY	https://github.com/protocolbuffers/protobuf.git
+	GIT_TAG			v3.21.12
+	GIT_SHALLOW		TRUE
+	SOURCE_SUBDIR	cmake
+	EXCLUDE_FROM_ALL
+)
+
+# --- GameNetworkingSockets (Valve networking library) ---
+FetchContent_Declare(
+	GameNetworkingSockets
+	GIT_REPOSITORY	https://github.com/ValveSoftware/GameNetworkingSockets.git
+	GIT_TAG			master
+	GIT_SHALLOW		TRUE
+	EXCLUDE_FROM_ALL
+)
+
 FetchContent_GetProperties(zlib)
 FetchContent_MakeAvailable(zlib)
 set(ZLIB_LIBRARY_DEBUG "${zlib_BINARY_DIR}/Debug/${CMAKE_STATIC_LIBRARY_PREFIX}zlibd${CMAKE_STATIC_LIBRARY_SUFFIX}")
@@ -315,6 +342,121 @@ endif()
 
 set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
 set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")
+
+# --- Build libsodium (must be before GNS) ---
+FetchContent_GetProperties(libsodium)
+if(NOT libsodium_POPULATED)
+	FetchContent_Populate(libsodium)
+	# libsodium doesn't have a root CMakeLists.txt; build manually from sources
+	file(GLOB_RECURSE SODIUM_SOURCES "${libsodium_SOURCE_DIR}/src/libsodium/*.c")
+	add_library(sodium STATIC ${SODIUM_SOURCES})
+	target_include_directories(sodium PUBLIC
+		"${libsodium_SOURCE_DIR}/src/libsodium/include"
+		"${libsodium_SOURCE_DIR}/src/libsodium/include/sodium"
+	)
+	# Platform-specific configuration header
+	if(MSVC)
+		target_compile_definitions(sodium PRIVATE
+			SODIUM_STATIC=1
+			SODIUM_EXPORT=
+			CONFIGURED=1
+			NATIVE_LITTLE_ENDIAN=1
+			_CRT_SECURE_NO_WARNINGS
+		)
+		target_include_directories(sodium PRIVATE
+			"${libsodium_SOURCE_DIR}/builds/msvc"
+		)
+		# Copy the MSVC version.h to where libsodium expects it
+		configure_file(
+			"${libsodium_SOURCE_DIR}/builds/msvc/version.h"
+			"${libsodium_SOURCE_DIR}/src/libsodium/include/sodium/version.h"
+			COPYONLY
+		)
+	else()
+		target_compile_definitions(sodium PRIVATE
+			SODIUM_STATIC=1
+			SODIUM_EXPORT=
+			CONFIGURED=1
+			HAVE_TI_MODE=1
+			NATIVE_LITTLE_ENDIAN=1
+		)
+	endif()
+	target_compile_definitions(sodium PUBLIC SODIUM_STATIC=1)
+endif()
+# Set variables for GNS's FindSodium.cmake
+set(sodium_INCLUDE_DIR "${libsodium_SOURCE_DIR}/src/libsodium/include" CACHE PATH "" FORCE)
+set(sodium_LIBRARY_RELEASE sodium CACHE STRING "" FORCE)
+set(sodium_LIBRARY_DEBUG sodium CACHE STRING "" FORCE)
+
+# --- Build Protobuf (must be before GNS) ---
+set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_PROTOC_BINARIES ON CACHE BOOL "" FORCE)
+set(protobuf_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
+set(protobuf_WITH_ZLIB OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(protobuf)
+
+# Make protobuf_generate_cpp available (from CMake's built-in FindProtobuf)
+# GNS calls find_package(Protobuf) which needs this function
+set(Protobuf_FOUND TRUE CACHE BOOL "" FORCE)
+set(PROTOBUF_FOUND TRUE CACHE BOOL "" FORCE)
+if(TARGET protobuf::protoc)
+	get_target_property(Protobuf_PROTOC_EXECUTABLE protobuf::protoc IMPORTED_LOCATION)
+	if(NOT Protobuf_PROTOC_EXECUTABLE)
+		set(Protobuf_PROTOC_EXECUTABLE "$<TARGET_FILE:protoc>")
+	endif()
+endif()
+set(Protobuf_PROTOC_EXECUTABLE "${Protobuf_PROTOC_EXECUTABLE}" CACHE FILEPATH "" FORCE)
+set(Protobuf_INCLUDE_DIRS "${protobuf_SOURCE_DIR}/src" CACHE PATH "" FORCE)
+
+# --- Build GameNetworkingSockets ---
+set(BUILD_STATIC_LIB ON CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIB OFF CACHE BOOL "" FORCE)
+
+# Use normal (non-cache) variable to shadow BUILD_TESTS for GNS only.
+# GNS checks BUILD_TESTS; a normal var shadows the cache in child scope
+# without corrupting the root-level option.
+set(BUILD_TESTS OFF)
+
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(USE_CRYPTO "libsodium" CACHE STRING "" FORCE)
+set(USE_CRYPTO25519 "libsodium" CACHE STRING "" FORCE)
+set(Protobuf_USE_STATIC_LIBS ON CACHE BOOL "" FORCE)
+set(ENABLE_ICE OFF CACHE BOOL "" FORCE)
+set(USE_STEAMWEBRTC OFF CACHE BOOL "" FORCE)
+# Skip GNS install rules to avoid export-set errors with FetchContent targets
+set(_OLD_SKIP_INSTALL_RULES ${CMAKE_SKIP_INSTALL_RULES})
+set(CMAKE_SKIP_INSTALL_RULES TRUE)
+FetchContent_MakeAvailable(GameNetworkingSockets)
+set(CMAKE_SKIP_INSTALL_RULES ${_OLD_SKIP_INSTALL_RULES})
+
+# Organize new vendor targets into IDE folders
+if(TARGET sodium)
+	set_target_properties(sodium PROPERTIES FOLDER "Utilities/libsodium")
+endif()
+if(TARGET protobuf::libprotobuf OR TARGET libprotobuf)
+	if(TARGET libprotobuf)
+		set_target_properties(libprotobuf PROPERTIES FOLDER "Utilities/protobuf")
+	endif()
+	if(TARGET protoc)
+		set_target_properties(protoc PROPERTIES FOLDER "Utilities/protobuf")
+	endif()
+	if(TARGET libprotobuf-lite)
+		set_target_properties(libprotobuf-lite PROPERTIES FOLDER "Utilities/protobuf")
+	endif()
+	if(TARGET libprotoc)
+		set_target_properties(libprotoc PROPERTIES FOLDER "Utilities/protobuf")
+	endif()
+endif()
+if(TARGET GameNetworkingSockets_s)
+	set_target_properties(GameNetworkingSockets_s PROPERTIES FOLDER "Utilities/GNS")
+endif()
+if(TARGET GameNetworkingSockets)
+	set_target_properties(GameNetworkingSockets PROPERTIES FOLDER "Utilities/GNS")
+endif()
+
+set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
 set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
 set_target_properties(simde PROPERTIES FOLDER "Utilities/box2d")
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")

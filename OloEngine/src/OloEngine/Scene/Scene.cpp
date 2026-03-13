@@ -3309,3 +3309,8 @@ template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::StreamingVolumeComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::StreamingVolumeComponent& component)
 {
 }
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::NetworkIdentityComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NetworkIdentityComponent& component)
+{
+}
