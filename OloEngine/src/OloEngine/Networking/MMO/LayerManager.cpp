@@ -211,9 +211,15 @@ namespace OloEngine
                 // Check if combined count would exceed SoftCap
                 auto targetInfoIt = m_LayerInfos.find(target);
                 auto sourceInfoIt = m_LayerInfos.find(source);
-                if (targetInfoIt == m_LayerInfos.end() || sourceInfoIt == m_LayerInfos.end())
+                if (targetInfoIt == m_LayerInfos.end())
                 {
-                    // Missing layer info — skip this candidate pair
+                    // Target layer info missing — remove invalid target
+                    mergeCandidates.erase(mergeCandidates.begin());
+                    continue;
+                }
+                if (sourceInfoIt == m_LayerInfos.end())
+                {
+                    // Source layer info missing — remove invalid source
                     mergeCandidates.erase(mergeCandidates.begin() + 1);
                     continue;
                 }
@@ -228,7 +234,8 @@ namespace OloEngine
                 auto* sourceServer = GetLayerServer(source);
                 if (!targetServer)
                 {
-                    mergeCandidates.erase(mergeCandidates.begin() + 1);
+                    // Target server unavailable — remove invalid target
+                    mergeCandidates.erase(mergeCandidates.begin());
                     continue;
                 }
 

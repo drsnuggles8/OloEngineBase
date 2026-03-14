@@ -460,9 +460,9 @@ namespace OloEngine
                 case k_ESteamNetworkingConnectionState_ClosedByPeer:
                 case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
                 {
-                    if (auto it = m_ConnectionToPeer.find(pInfo->m_hConn); it != m_ConnectionToPeer.end())
+                    if (auto connIter = m_ConnectionToPeer.find(pInfo->m_hConn); connIter != m_ConnectionToPeer.end())
                     {
-                        u32 const peerID = it->second;
+                        u32 const peerID = connIter->second;
                         OLO_CORE_INFO("[NetworkPeerMesh] Peer {} disconnected: {}", peerID, pInfo->m_info.m_szEndDebug);
                         if (peerID == m_HostPeerID)
                         {
@@ -470,7 +470,7 @@ namespace OloEngine
                         }
                         m_Peers.erase(peerID);
                         m_PeerConnections.erase(peerID);
-                        m_ConnectionToPeer.erase(it);
+                        m_ConnectionToPeer.erase(connIter);
                     }
                     if (m_Interface)
                     {

@@ -90,7 +90,6 @@ namespace OloEngine
 
     f32 LagCompensator::GetMaxRewindMs() const
     {
-        OLO_PROFILE_FUNCTION();
         return m_MaxRewindMs;
     }
 } // namespace OloEngine

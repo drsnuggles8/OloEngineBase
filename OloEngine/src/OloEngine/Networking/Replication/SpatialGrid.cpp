@@ -14,6 +14,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(cellSize > 0.0f, "SpatialGrid: cellSize must be > 0");
         if (cellSize <= 0.0f)
         {
+            OLO_CORE_WARN("SpatialGrid: invalid cellSize {}, clamping to 1.0f", cellSize);
             cellSize = 1.0f;
         }
         m_CellSize = cellSize;
@@ -149,7 +150,7 @@ namespace OloEngine
             return;
         }
 
-        if (cellSize == m_CellSize)
+        if (std::fabs(cellSize - m_CellSize) < 1e-6f)
         {
             return;
         }

@@ -58,6 +58,11 @@ TEST_F(RollbackManagerTest, SaveAndRestoreState)
     u32 depth = m_Manager.ReceiveRemoteInput(2, 1, { 0xAA }, *m_Scene);
     EXPECT_EQ(depth, 2u); // Rolled back from tick 3 to tick 1
 
+    // Verify the input-application callback was invoked during re-sim
+    ASSERT_FALSE(m_AppliedInputs.empty());
+    // Re-sim covers ticks 2 and 3, so expect at least 2 callback invocations
+    EXPECT_GE(m_AppliedInputs.size(), 2u);
+
     // Entity should be at the restored position after re-sim
     EXPECT_EQ(m_Manager.GetRollbackCount(), 1u);
 }

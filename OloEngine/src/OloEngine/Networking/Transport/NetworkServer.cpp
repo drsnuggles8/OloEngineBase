@@ -12,6 +12,7 @@ namespace OloEngine
 {
     static std::vector<u8> BuildMessageBuffer(ENetworkMessageType type, const u8* payload, u32 payloadSize)
     {
+        OLO_PROFILE_FUNCTION();
         std::vector<u8> buffer;
         FMemoryWriter writer(buffer);
         writer.ArIsNetArchive = true;
@@ -248,6 +249,7 @@ namespace OloEngine
 
     bool NetworkServer::IsRunning() const
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_ListenSocket != k_HSteamListenSocket_Invalid;
     }
@@ -378,24 +380,28 @@ namespace OloEngine
 
     void NetworkServer::SetMaxConnections(u32 maxConnections)
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         m_MaxConnections = maxConnections;
     }
 
     u32 NetworkServer::GetMaxConnections() const
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_MaxConnections;
     }
 
     void NetworkServer::SetIdleTimeout(f32 timeoutSeconds)
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         m_IdleTimeout = timeoutSeconds;
     }
 
     f32 NetworkServer::GetIdleTimeout() const
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_IdleTimeout;
     }

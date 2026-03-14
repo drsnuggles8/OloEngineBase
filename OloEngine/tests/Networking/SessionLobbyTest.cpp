@@ -154,10 +154,7 @@ TEST(NetworkLobby, JoinLobbyFailsIfAlreadyInLobby)
     NetworkLobby lobby;
     lobby.CreateLobby("Already In", 27015);
 
-    LobbyInfo info;
-    info.Name = "Other";
-    info.HostAddress = "127.0.0.1";
-    info.HostPort = 27016;
+    LobbyInfo info{ .Name = "Other", .HostAddress = "127.0.0.1", .HostPort = 27016 };
 
     EXPECT_FALSE(lobby.JoinLobby(info));
 }
