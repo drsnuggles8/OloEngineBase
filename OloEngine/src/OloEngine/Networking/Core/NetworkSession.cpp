@@ -1,5 +1,6 @@
 #include "OloEngine/Networking/Core/NetworkSession.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Profiler.h"
 
 namespace OloEngine
 {
@@ -7,6 +8,14 @@ namespace OloEngine
 
     void NetworkSession::Create(ENetworkModel model, const std::string& sessionName)
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (model == ENetworkModel::None)
+        {
+            OLO_CORE_WARN("[NetworkSession] Cannot create session with model None");
+            return;
+        }
+
         m_Model = model;
         m_SessionName = sessionName;
         m_State = ESessionState::Lobby;
@@ -15,6 +24,8 @@ namespace OloEngine
 
     void NetworkSession::Reset()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_Model = ENetworkModel::None;
         m_State = ESessionState::None;
         m_SessionName.clear();
@@ -23,6 +34,8 @@ namespace OloEngine
 
     void NetworkSession::TransitionTo(ESessionState newState)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Validate state transitions
         bool valid = false;
         switch (m_State)
@@ -56,9 +69,12 @@ namespace OloEngine
 
     void NetworkSession::AddPlayer(u32 clientID, const std::string& name, bool isHost)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Players.contains(clientID))
         {
-            OLO_CORE_WARN("[NetworkSession] AddPlayer: client {} already in session, overwriting", clientID);
+            OLO_CORE_WARN("[NetworkSession] AddPlayer: client {} already in session, ignoring", clientID);
+            return;
         }
 
         SessionPlayer player;

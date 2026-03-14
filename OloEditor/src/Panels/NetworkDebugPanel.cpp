@@ -4,6 +4,7 @@
 #include "OloEngine/Networking/Core/NetworkLobby.h"
 #include "OloEngine/Networking/Transport/NetworkServer.h"
 #include "OloEngine/Networking/Transport/NetworkClient.h"
+#include "OloEngine/Debug/Profiler.h"
 
 #include <imgui.h>
 #include <steam/steamnetworkingsockets.h>
@@ -12,6 +13,8 @@ namespace OloEngine
 {
     void NetworkDebugPanel::OnImGuiRender()
     {
+        OLO_PROFILE_FUNCTION();
+
         ImGui::Begin("Network Debug");
 
         // Connection state

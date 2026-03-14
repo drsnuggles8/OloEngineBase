@@ -62,14 +62,7 @@ namespace OloEngine
         self.IsHost = false;
         m_Peers[localPeerID] = self;
 
-        // Record the host
-        PeerInfo host;
-        host.Address = hostAddress;
-        host.Port = hostPort;
-        host.IsHost = true;
-        // Host peer ID will be learned during connection handshake
-        // For now mark as 0 (unknown until PeerIntroduction is received)
-        m_HostPeerID = 0;
+        m_HostPeerID = 0; // Will be learned during connection handshake
 
         OLO_CORE_INFO("[NetworkPeerMesh] Joining session at {}:{}", hostAddress, hostPort);
     }
@@ -119,6 +112,8 @@ namespace OloEngine
 
     void NetworkPeerMesh::AddPeer(u32 peerID, const std::string& address, u16 port)
     {
+        OLO_PROFILE_FUNCTION();
+
         TUniqueLock<FMutex> lock(m_Mutex);
         if (m_Peers.find(peerID) == m_Peers.end())
         {
@@ -171,6 +166,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         if (!m_Interface)
         {
             m_Interface = SteamNetworkingSockets();
@@ -209,7 +206,6 @@ namespace OloEngine
 
         m_Interface->SetConnectionPollGroup(conn, m_PollGroup);
 
-        TUniqueLock<FMutex> lock(m_Mutex);
         m_PeerConnections[peerID] = conn;
         m_ConnectionToPeer[conn] = peerID;
 
@@ -348,6 +344,8 @@ namespace OloEngine
 
     void NetworkPeerMesh::BroadcastToPeers(ENetworkMessageType type, const u8* data, u32 size, i32 sendFlags)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Collect peer IDs under lock, then send without lock to avoid deadlock
         // (SendToPeer also acquires the mutex).
         std::vector<u32> peerIDs;

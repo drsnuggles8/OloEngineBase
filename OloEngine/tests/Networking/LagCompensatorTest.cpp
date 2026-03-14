@@ -43,7 +43,7 @@ TEST_F(LagCompensatorTest, RewindAndRestoreWorks)
     bool callbackCalled = false;
 
     bool result = m_Compensator.PerformLagCompensatedCheck(
-        *m_Scene, m_Buffer, 1, 5, 20,
+        *m_Scene, m_Buffer, { .TargetTick = 1, .CurrentTick = 5, .TickRateHz = 20 },
         [&](Scene& scene)
         {
             callbackCalled = true;
@@ -63,7 +63,7 @@ TEST_F(LagCompensatorTest, RewindAndRestoreWorks)
 TEST_F(LagCompensatorTest, RejectsFutureTick)
 {
     bool result = m_Compensator.PerformLagCompensatedCheck(
-        *m_Scene, m_Buffer, 10, 5, 20,
+        *m_Scene, m_Buffer, { .TargetTick = 10, .CurrentTick = 5, .TickRateHz = 20 },
         [](Scene&) {});
 
     EXPECT_FALSE(result);
@@ -76,7 +76,7 @@ TEST_F(LagCompensatorTest, RejectsExcessiveRewind)
     m_Buffer.Push(1, EntitySnapshot::Capture(*m_Scene));
 
     bool result = m_Compensator.PerformLagCompensatedCheck(
-        *m_Scene, m_Buffer, 1, 11, 20,
+        *m_Scene, m_Buffer, { .TargetTick = 1, .CurrentTick = 11, .TickRateHz = 20 },
         [](Scene&) {});
 
     EXPECT_FALSE(result); // 10 ticks at 20Hz = 500ms > 200ms max
@@ -93,7 +93,7 @@ TEST_F(LagCompensatorTest, RejectsWhenNoHistoryAvailable)
 {
     // Empty buffer
     bool result = m_Compensator.PerformLagCompensatedCheck(
-        *m_Scene, m_Buffer, 1, 3, 20,
+        *m_Scene, m_Buffer, { .TargetTick = 1, .CurrentTick = 3, .TickRateHz = 20 },
         [](Scene&) {});
 
     EXPECT_FALSE(result);

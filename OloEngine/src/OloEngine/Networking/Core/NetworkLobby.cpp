@@ -1,6 +1,9 @@
 #include "OloEngine/Networking/Core/NetworkLobby.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Serialization/Archive.h"
+
+#include <chrono>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -20,10 +23,10 @@ static inline void CloseSocketHandle(SocketType s)
 {
     closesocket(s);
 }
-static inline void SetNonBlocking(SocketType s)
+static inline bool SetNonBlocking(SocketType s)
 {
     u_long mode = 1;
-    ioctlsocket(s, FIONBIO, &mode);
+    return ioctlsocket(s, FIONBIO, &mode) != kSocketError;
 }
 #else
 #include <sys/socket.h>
@@ -44,13 +47,14 @@ static inline void CloseSocketHandle(SocketType s)
 {
     close(s);
 }
-static inline void SetNonBlocking(SocketType s)
+static inline bool SetNonBlocking(SocketType s)
 {
     int flags = fcntl(s, F_GETFL, 0);
-    if (flags >= 0)
+    if (flags < 0)
     {
-        fcntl(s, F_SETFL, flags | O_NONBLOCK);
+        return false;
     }
+    return fcntl(s, F_SETFL, flags | O_NONBLOCK) >= 0;
 }
 #endif
 
@@ -72,7 +76,11 @@ namespace OloEngine
             return kInvalidSocket;
         }
 
-        SetNonBlocking(sock);
+        if (!SetNonBlocking(sock))
+        {
+            CloseSocketHandle(sock);
+            return kInvalidSocket;
+        }
         return sock;
     }
 
@@ -91,6 +99,8 @@ namespace OloEngine
 
     void NetworkLobby::CreateLobby(const std::string& name, u16 port, u32 maxPlayers)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Close any existing discovery socket to prevent leaks
         if (m_DiscoverySocket != UINT64_MAX)
         {
@@ -156,6 +166,8 @@ namespace OloEngine
 
     void NetworkLobby::PollDiscovery()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_DiscoverySocket == UINT64_MAX || !m_Hosting)
         {
             return;
@@ -211,6 +223,8 @@ namespace OloEngine
 
     void NetworkLobby::FindLobbies(std::function<void(const std::vector<LobbyInfo>&)> callback)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!callback)
         {
             return;
@@ -255,18 +269,27 @@ namespace OloEngine
         sendto(sock, reinterpret_cast<const char*>(probe), sizeof(probe), 0,
                reinterpret_cast<sockaddr*>(&broadcastAddr), sizeof(broadcastAddr));
 
-        // Collect responses with a timeout using select()
+        // Collect responses with a deadline-based timeout using select()
         std::vector<LobbyInfo> results;
 
-        fd_set readSet;
-        timeval tv;
-        tv.tv_sec = 0;
-        tv.tv_usec = static_cast<long>(kDiscoveryTimeoutMs * 1000);
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kDiscoveryTimeoutMs);
 
         for (;;)
         {
+            auto remaining = std::chrono::duration_cast<std::chrono::microseconds>(
+                deadline - std::chrono::steady_clock::now());
+            if (remaining.count() <= 0)
+            {
+                break;
+            }
+
+            fd_set readSet;
             FD_ZERO(&readSet);
             FD_SET(sock, &readSet);
+
+            timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = static_cast<long>(remaining.count());
 
             int ready = select(static_cast<int>(sock + 1), &readSet, nullptr, nullptr, &tv);
             if (ready <= 0)
@@ -312,8 +335,8 @@ namespace OloEngine
 
             // Read lobby name from remaining bytes
             std::string name;
-            i64 const remaining = reader.TotalSize() - reader.Tell();
-            u8 const actualNameLen = static_cast<u8>(std::min<i64>(nameLen, remaining));
+            i64 const remainingBytes = reader.TotalSize() - reader.Tell();
+            u8 const actualNameLen = static_cast<u8>(std::min<i64>(nameLen, remainingBytes));
             if (actualNameLen > 0)
             {
                 name.assign(reinterpret_cast<const char*>(raw + reader.Tell()), actualNameLen);
@@ -330,13 +353,6 @@ namespace OloEngine
             info.PlayerCount = playerCount;
             info.MaxPlayers = maxPlayers;
             results.push_back(std::move(info));
-
-            // Reduce remaining timeout for next iteration (rough: halve it)
-            tv.tv_usec /= 2;
-            if (tv.tv_usec < 10000)
-            {
-                break; // Less than 10 ms left — stop
-            }
         }
 
         CloseSocketHandle(sock);

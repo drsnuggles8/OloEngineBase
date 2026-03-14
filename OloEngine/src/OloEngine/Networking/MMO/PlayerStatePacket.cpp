@@ -1,4 +1,5 @@
 #include "OloEngine/Networking/MMO/PlayerStatePacket.h"
+#include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Serialization/Archive.h"
 
 #include <cstring>
@@ -7,6 +8,8 @@ namespace OloEngine
 {
     std::vector<u8> PlayerStatePacket::Serialize() const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::vector<u8> buffer;
         FMemoryWriter writer(buffer);
         writer.ArIsNetArchive = true;
@@ -36,7 +39,7 @@ namespace OloEngine
         writer << blobSize;
         if (!GameStateBlob.empty())
         {
-            buffer.insert(buffer.end(), GameStateBlob.begin(), GameStateBlob.end());
+            writer.Serialize(const_cast<u8*>(GameStateBlob.data()), static_cast<i64>(GameStateBlob.size()));
         }
 
         return buffer;
@@ -44,7 +47,14 @@ namespace OloEngine
 
     PlayerStatePacket PlayerStatePacket::Deserialize(const u8* data, i64 size)
     {
+        OLO_PROFILE_FUNCTION();
+
         PlayerStatePacket packet;
+
+        if (!data || size <= 0)
+        {
+            return packet;
+        }
 
         FMemoryReader reader(data, size);
         reader.ArIsNetArchive = true;
@@ -75,6 +85,11 @@ namespace OloEngine
             {
                 packet.GameStateBlob.resize(blobSize);
                 std::memcpy(packet.GameStateBlob.data(), data + reader.Tell(), blobSize);
+            }
+            else
+            {
+                OLO_CORE_WARN("[PlayerStatePacket] Truncated blob: need {} bytes but only {} remaining", blobSize, remaining);
+                reader.SetError();
             }
         }
         else if (blobSize > kMaxBlobSize)

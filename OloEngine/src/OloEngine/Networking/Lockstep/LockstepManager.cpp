@@ -97,9 +97,11 @@ namespace OloEngine
         // Clean up old inputs (keep some history for debugging)
         if (m_CurrentTick > s_HistoryRetentionTicks)
         {
-            u32 const cleanupTick = m_CurrentTick - s_HistoryRetentionTicks;
-            m_InputsByTick.erase(cleanupTick);
-            m_LocalHashes.erase(cleanupTick);
+            u32 const cutoff = m_CurrentTick - s_HistoryRetentionTicks;
+            std::erase_if(m_InputsByTick, [cutoff](const auto& entry)
+                          { return entry.first < cutoff; });
+            std::erase_if(m_LocalHashes, [cutoff](const auto& entry)
+                          { return entry.first < cutoff; });
         }
 
         return true;
@@ -128,7 +130,7 @@ namespace OloEngine
         }
     }
 
-    bool LockstepManager::CompareRemoteHash(u32 /*peerID*/, u32 tick, u32 remoteHash)
+    bool LockstepManager::CompareRemoteHash(u32 peerID, u32 tick, u32 remoteHash)
     {
         auto it = m_LocalHashes.find(tick);
         if (it == m_LocalHashes.end())
@@ -138,8 +140,8 @@ namespace OloEngine
 
         if (it->second != remoteHash)
         {
-            OLO_CORE_ERROR("[LockstepManager] Desync detected at tick {}! Local hash {:08X} != remote {:08X}", tick,
-                           it->second, remoteHash);
+            OLO_CORE_ERROR("[LockstepManager] Desync detected at tick {} from peer {}! Local hash {:08X} != remote {:08X}",
+                           tick, peerID, it->second, remoteHash);
             m_Desynced = true;
             return false;
         }

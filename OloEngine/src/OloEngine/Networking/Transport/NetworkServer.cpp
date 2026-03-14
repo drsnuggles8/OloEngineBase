@@ -88,65 +88,91 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        TUniqueLock<FMutex> lock(m_Mutex);
-
-        if (!m_Interface || m_PollGroup == k_HSteamNetPollGroup_Invalid)
+        // Collect messages under lock, then dispatch outside to avoid deadlock
+        // if callbacks call back into the server (e.g., SendTo, Broadcast).
+        struct ReceivedMessage
         {
-            return;
-        }
+            u32 SenderClientID = 0;
+            ENetworkMessageType Type = ENetworkMessageType::None;
+            std::vector<u8> Payload;
+        };
+        std::vector<ReceivedMessage> pendingMessages;
+        std::vector<std::pair<HSteamNetConnection, std::vector<u8>>> pendingPings;
 
-        ISteamNetworkingMessage* pIncomingMsg = nullptr;
-        i32 numMsgs = m_Interface->ReceiveMessagesOnPollGroup(m_PollGroup, &pIncomingMsg, 1);
-        while (numMsgs > 0)
         {
-            u32 msgSize = pIncomingMsg->m_cbSize;
-            m_Stats.RecordReceive(msgSize);
+            TUniqueLock<FMutex> lock(m_Mutex);
 
-            if (msgSize >= NetworkMessageHeader::kSerializedSize)
+            if (!m_Interface || m_PollGroup == k_HSteamNetPollGroup_Invalid)
             {
-                const auto* rawData = static_cast<const u8*>(pIncomingMsg->m_pData);
-                FMemoryReader reader(rawData, static_cast<i64>(msgSize));
-                reader.ArIsNetArchive = true;
-
-                NetworkMessageHeader header;
-                reader << header.Type;
-                reader << header.Size;
-                reader << header.Flags;
-                reader << header.Version;
-
-                if (!reader.IsError())
-                {
-                    u32 payloadOffset = static_cast<u32>(reader.Tell());
-                    const u8* payload = rawData + payloadOffset;
-                    u32 payloadSize = msgSize - payloadOffset;
-
-                    // Resolve the sender's client ID from the connection handle
-                    u32 senderClientID = 0;
-                    if (auto it = m_Connections.find(pIncomingMsg->m_conn); it != m_Connections.end())
-                    {
-                        senderClientID = it->second.GetClientID();
-                    }
-
-                    // Built-in Ping handling
-                    if (header.Type == ENetworkMessageType::Ping)
-                    {
-                        HandlePing(pIncomingMsg->m_conn, payload, payloadSize);
-                    }
-                    else
-                    {
-                        m_Dispatcher.Dispatch(senderClientID, header.Type, payload, payloadSize);
-                    }
-                }
+                return;
             }
 
-            pIncomingMsg->Release();
-            numMsgs = m_Interface->ReceiveMessagesOnPollGroup(m_PollGroup, &pIncomingMsg, 1);
+            ISteamNetworkingMessage* pIncomingMsg = nullptr;
+            i32 numMsgs = m_Interface->ReceiveMessagesOnPollGroup(m_PollGroup, &pIncomingMsg, 1);
+            while (numMsgs > 0)
+            {
+                u32 msgSize = pIncomingMsg->m_cbSize;
+                m_Stats.RecordReceive(msgSize);
+
+                if (msgSize >= NetworkMessageHeader::kSerializedSize)
+                {
+                    const auto* rawData = static_cast<const u8*>(pIncomingMsg->m_pData);
+                    FMemoryReader reader(rawData, static_cast<i64>(msgSize));
+                    reader.ArIsNetArchive = true;
+
+                    NetworkMessageHeader header;
+                    reader << header.Type;
+                    reader << header.Size;
+                    reader << header.Flags;
+                    reader << header.Version;
+
+                    if (!reader.IsError())
+                    {
+                        u32 payloadOffset = static_cast<u32>(reader.Tell());
+                        const u8* payload = rawData + payloadOffset;
+                        u32 payloadSize = msgSize - payloadOffset;
+
+                        // Resolve the sender's client ID from the connection handle
+                        u32 senderClientID = 0;
+                        if (auto it = m_Connections.find(pIncomingMsg->m_conn); it != m_Connections.end())
+                        {
+                            senderClientID = it->second.GetClientID();
+                        }
+
+                        if (header.Type == ENetworkMessageType::Ping)
+                        {
+                            pendingPings.push_back(
+                                { pIncomingMsg->m_conn, std::vector<u8>(payload, payload + payloadSize) });
+                        }
+                        else
+                        {
+                            pendingMessages.push_back(
+                                { senderClientID, header.Type, std::vector<u8>(payload, payload + payloadSize) });
+                        }
+                    }
+                }
+
+                pIncomingMsg->Release();
+                numMsgs = m_Interface->ReceiveMessagesOnPollGroup(m_PollGroup, &pIncomingMsg, 1);
+            }
+        }
+
+        // Dispatch outside lock
+        for (auto& [conn, data] : pendingPings)
+        {
+            HandlePing(conn, data.data(), static_cast<u32>(data.size()));
+        }
+        for (auto& msg : pendingMessages)
+        {
+            m_Dispatcher.Dispatch(msg.SenderClientID, msg.Type, msg.Payload.data(), static_cast<u32>(msg.Payload.size()));
         }
     }
 
     bool NetworkServer::SendTo(HSteamNetConnection connection, const void* data, u32 size, i32 sendFlags)
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (!m_Interface)
         {
@@ -166,14 +192,22 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        TUniqueLock<FMutex> lock(m_Mutex);
-
-        for (auto& [handle, connection] : m_Connections)
+        // Collect connected handles under lock, then send outside to avoid
+        // deadlock (SendTo also acquires m_Mutex).
+        std::vector<HSteamNetConnection> connected;
         {
-            if (connection.GetState() == EConnectionState::Connected)
+            TUniqueLock<FMutex> lock(m_Mutex);
+            for (auto& [handle, connection] : m_Connections)
             {
-                SendTo(handle, data, size, sendFlags);
+                if (connection.GetState() == EConnectionState::Connected)
+                {
+                    connected.push_back(handle);
+                }
             }
+        }
+        for (HSteamNetConnection handle : connected)
+        {
+            SendTo(handle, data, size, sendFlags);
         }
     }
 

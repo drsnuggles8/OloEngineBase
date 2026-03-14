@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Debug/Profiler.h"
 
 #include <algorithm>
 #include <unordered_map>
@@ -27,6 +28,8 @@ namespace OloEngine
         // Staler + closer = higher priority.
         void UpdatePriority(u64 uuid, f32 distanceSq, u32 ticksSinceLastUpdate)
         {
+            OLO_PROFILE_FUNCTION();
+
             f32 const dist = std::max(distanceSq, 1.0f);
             f32 const staleness = std::max(static_cast<f32>(ticksSinceLastUpdate), 1.0f);
             f32 const score = staleness / dist; // Staler + closer = higher priority
@@ -44,6 +47,8 @@ namespace OloEngine
         // Partially sort by priority (descending) and return top N entries.
         [[nodiscard]] std::vector<PriorityEntry> GetTopN(u32 count) const
         {
+            OLO_PROFILE_FUNCTION();
+
             auto sorted = m_Entries;
             u32 const n = std::min(count, static_cast<u32>(sorted.size()));
             std::partial_sort(sorted.begin(), sorted.begin() + n, sorted.end(),

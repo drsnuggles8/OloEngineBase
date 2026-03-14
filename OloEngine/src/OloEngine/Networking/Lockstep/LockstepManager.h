@@ -2,7 +2,6 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Networking/Lockstep/StateHash.h"
-#include "OloEngine/Networking/Replication/SnapshotBuffer.h"
 
 #include <functional>
 #include <set>

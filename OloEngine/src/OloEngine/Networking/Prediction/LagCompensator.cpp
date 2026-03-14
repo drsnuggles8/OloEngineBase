@@ -9,10 +9,14 @@ namespace OloEngine
 {
     LagCompensator::LagCompensator() = default;
 
-    bool LagCompensator::PerformLagCompensatedCheck(Scene& scene, const SnapshotBuffer& history, u32 targetTick,
-                                                    u32 currentTick, u32 tickRateHz, const RewindCallback& callback)
+    bool LagCompensator::PerformLagCompensatedCheck(Scene& scene, const SnapshotBuffer& history,
+                                                    const LagCompensationParams& params, const RewindCallback& callback)
     {
         OLO_PROFILE_FUNCTION();
+
+        u32 const targetTick = params.TargetTick;
+        u32 const currentTick = params.CurrentTick;
+        u32 const tickRateHz = params.TickRateHz;
 
         if (targetTick >= currentTick)
         {
@@ -56,10 +60,18 @@ namespace OloEngine
         EntitySnapshot::Apply(scene, targetSnapshot->Data);
 
         // Execute the lag-compensated callback (e.g. raycast / hit detection)
-        callback(scene);
+        // Use RAII to guarantee state restoration even if callback throws
+        struct StateRestorer
+        {
+            Scene& SceneRef;
+            const std::vector<u8>& State;
+            ~StateRestorer()
+            {
+                EntitySnapshot::Apply(SceneRef, State);
+            }
+        } restorer{ scene, currentState };
 
-        // Restore: apply the current state back
-        EntitySnapshot::Apply(scene, currentState);
+        callback(scene);
 
         return true;
     }

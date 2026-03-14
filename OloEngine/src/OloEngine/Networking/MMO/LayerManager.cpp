@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "LayerManager.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Profiler.h"
 
 namespace OloEngine
 {
@@ -9,14 +10,20 @@ namespace OloEngine
 
     void LayerManager::SetConfig(const LayerConfig& config)
     {
+        OLO_PROFILE_FUNCTION();
         m_Config = config;
     }
 
     LayerID LayerManager::CreateLayer(const ZoneDefinition& templateZone)
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_NextLayerID > kMaxLayerID)
+        {
+            OLO_CORE_ERROR("LayerManager: layer ID exhausted (max {})", kMaxLayerID);
+            return 0;
+        }
         LayerID const layerID = m_NextLayerID++;
-        OLO_CORE_ASSERT(layerID <= kMaxLayerID,
-                        "LayerManager: layer ID overflow — would collide with other zone ID spaces");
 
         ZoneDefinition layerDef = templateZone;
         layerDef.ID = kLayerZoneIDOffset + layerID;
@@ -41,6 +48,8 @@ namespace OloEngine
 
     LayerID LayerManager::AssignPlayerToLayer(ZoneID zoneID, u32 clientID, u32 partyID)
     {
+        OLO_PROFILE_FUNCTION();
+
         // If player has a party, check if party already has a layer
         if (partyID != 0)
         {
@@ -48,14 +57,20 @@ namespace OloEngine
             if (partyIt != m_PartyLayerMap.end())
             {
                 LayerID layerID = partyIt->second;
-                auto* server = GetLayerServer(layerID);
-                if (server)
+                // Validate the cached layer belongs to the requested zone
+                auto infoIt = m_LayerInfos.find(layerID);
+                if (infoIt != m_LayerInfos.end() && infoIt->second.ZoneTemplateID == zoneID)
                 {
-                    server->AddPlayer(clientID);
-                    m_PlayerLayerMap[clientID] = layerID;
-                    m_LayerInfos[layerID].PlayerCount++;
-                    return layerID;
+                    auto* server = GetLayerServer(layerID);
+                    if (server && server->AddPlayer(clientID))
+                    {
+                        m_PlayerLayerMap[clientID] = layerID;
+                        infoIt->second.PlayerCount++;
+                        return layerID;
+                    }
                 }
+                // Stale or wrong-zone entry — remove and fall through to normal allocation
+                m_PartyLayerMap.erase(partyIt);
             }
         }
 
@@ -91,6 +106,8 @@ namespace OloEngine
 
     void LayerManager::RemovePlayerFromLayer(u32 clientID)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto it = m_PlayerLayerMap.find(clientID);
         if (it == m_PlayerLayerMap.end())
         {
@@ -115,6 +132,8 @@ namespace OloEngine
 
     LayerID LayerManager::GetPlayerLayer(u32 clientID) const
     {
+        OLO_PROFILE_FUNCTION();
+
         auto it = m_PlayerLayerMap.find(clientID);
         if (it == m_PlayerLayerMap.end())
         {
@@ -125,6 +144,8 @@ namespace OloEngine
 
     ZoneServer* LayerManager::GetLayerServer(LayerID layerID)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto it = m_Layers.find(layerID);
         if (it == m_Layers.end())
         {
@@ -135,6 +156,8 @@ namespace OloEngine
 
     std::vector<LayerID> LayerManager::GetLayersForZone(ZoneID zoneID) const
     {
+        OLO_PROFILE_FUNCTION();
+
         auto it = m_ZoneLayers.find(zoneID);
         if (it == m_ZoneLayers.end())
         {
@@ -145,11 +168,14 @@ namespace OloEngine
 
     u32 LayerManager::GetLayerCount() const
     {
+        OLO_PROFILE_FUNCTION();
         return static_cast<u32>(m_Layers.size());
     }
 
     u32 LayerManager::TryMergeLayers()
     {
+        OLO_PROFILE_FUNCTION();
+
         u32 mergeCount = 0;
 
         for (auto& [zoneID, layerIDs] : m_ZoneLayers)
@@ -192,6 +218,14 @@ namespace OloEngine
                 }
 
                 // Move all players from source to target
+                auto* targetServer = GetLayerServer(target);
+                auto* sourceServer = GetLayerServer(source);
+                if (!targetServer)
+                {
+                    mergeCandidates.erase(mergeCandidates.begin() + 1);
+                    continue;
+                }
+
                 std::vector<u32> playersToMove;
                 for (auto& [clientID, layerID] : m_PlayerLayerMap)
                 {
@@ -201,12 +235,39 @@ namespace OloEngine
                     }
                 }
 
-                auto* targetServer = GetLayerServer(target);
+                // Two-phase: attempt all adds first
+                std::vector<u32> movedClients;
+                bool mergeOk = true;
                 for (u32 clientID : playersToMove)
                 {
-                    if (targetServer)
+                    if (targetServer->AddPlayer(clientID))
                     {
-                        targetServer->AddPlayer(clientID);
+                        movedClients.push_back(clientID);
+                    }
+                    else
+                    {
+                        // Rollback successful adds
+                        for (u32 movedID : movedClients)
+                        {
+                            targetServer->RemovePlayer(movedID);
+                        }
+                        mergeOk = false;
+                        break;
+                    }
+                }
+
+                if (!mergeOk)
+                {
+                    mergeCandidates.erase(mergeCandidates.begin() + 1);
+                    continue;
+                }
+
+                // Remove from source and update player map
+                for (u32 clientID : movedClients)
+                {
+                    if (sourceServer)
+                    {
+                        sourceServer->RemovePlayer(clientID);
                     }
                     m_PlayerLayerMap[clientID] = target;
                 }
@@ -248,6 +309,8 @@ namespace OloEngine
 
     void LayerManager::TickAll(f32 dt)
     {
+        OLO_PROFILE_FUNCTION();
+
         for (auto& [id, server] : m_Layers)
         {
             if (server.IsRunning())

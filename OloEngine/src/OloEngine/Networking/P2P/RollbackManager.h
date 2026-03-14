@@ -23,8 +23,8 @@ namespace OloEngine
     class RollbackManager
     {
       public:
-        static constexpr u32 kDefaultMaxRollbackFrames = 7;
-        static constexpr u32 kDefaultStateBufferSize = 16;
+        static constexpr u32 s_DefaultMaxRollbackFrames = 7;
+        static constexpr u32 s_DefaultStateBufferSize = 16;
 
         RollbackManager();
 
@@ -60,12 +60,12 @@ namespace OloEngine
       private:
         void Rollback(u32 toTick, Scene& scene);
 
-        u32 m_MaxRollbackFrames = kDefaultMaxRollbackFrames;
+        u32 m_MaxRollbackFrames = s_DefaultMaxRollbackFrames;
         u32 m_CurrentTick = 0;
         u32 m_RollbackCount = 0;
 
         // State history: tick → snapshot data
-        SnapshotBuffer m_StateBuffer{ kDefaultStateBufferSize };
+        SnapshotBuffer m_StateBuffer{ s_DefaultStateBufferSize };
 
         // Input history: peerID → (tick → data)
         std::unordered_map<u32, std::unordered_map<u32, std::vector<u8>>> m_Inputs;

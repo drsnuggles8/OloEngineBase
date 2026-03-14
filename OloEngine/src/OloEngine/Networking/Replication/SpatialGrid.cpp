@@ -132,6 +132,8 @@ namespace OloEngine
 
     void SpatialGrid::SetCellSize(f32 cellSize)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (cellSize <= 0.0f)
         {
             return;
