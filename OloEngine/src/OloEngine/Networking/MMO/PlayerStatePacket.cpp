@@ -77,6 +77,11 @@ namespace OloEngine
                 std::memcpy(packet.GameStateBlob.data(), data + reader.Tell(), blobSize);
             }
         }
+        else if (blobSize > kMaxBlobSize)
+        {
+            OLO_CORE_WARN("[PlayerStatePacket] Rejecting oversized blob: {} bytes (max {})", blobSize, kMaxBlobSize);
+            reader.SetError();
+        }
 
         return packet;
     }

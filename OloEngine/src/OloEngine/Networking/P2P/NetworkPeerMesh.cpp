@@ -14,7 +14,13 @@ namespace OloEngine
 
     NetworkPeerMesh::~NetworkPeerMesh()
     {
-        if (m_InSession)
+        bool inSession = false;
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            inSession = m_InSession;
+        }
+
+        if (inSession)
         {
             LeaveSession();
         }
@@ -271,9 +277,9 @@ namespace OloEngine
                         u32 const payloadSize = msgSize - payloadOffset;
 
                         u32 senderPeerID = 0;
-                        if (auto it = m_ConnectionToPeer.find(pIncomingMsg->m_conn); it != m_ConnectionToPeer.end())
+                        if (auto connectionIter = m_ConnectionToPeer.find(pIncomingMsg->m_conn); connectionIter != m_ConnectionToPeer.end())
                         {
-                            senderPeerID = it->second;
+                            senderPeerID = connectionIter->second;
                         }
 
                         ReceivedMessage msg;

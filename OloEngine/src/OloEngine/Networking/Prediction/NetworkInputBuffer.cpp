@@ -21,6 +21,8 @@ namespace OloEngine
 
     const InputCommand* NetworkInputBuffer::GetByTick(u32 tick) const
     {
+        // tick==0 is the sentinel value for cleared entries (see DiscardUpTo),
+        // so skip the search to avoid matching stale slots.
         if (tick == 0)
         {
             return nullptr;

@@ -179,13 +179,16 @@ namespace OloEngine
                 // Check if combined count would exceed SoftCap
                 auto targetInfoIt = m_LayerInfos.find(target);
                 auto sourceInfoIt = m_LayerInfos.find(source);
-                if (targetInfoIt != m_LayerInfos.end() && sourceInfoIt != m_LayerInfos.end())
+                if (targetInfoIt == m_LayerInfos.end() || sourceInfoIt == m_LayerInfos.end())
                 {
-                    if (targetInfoIt->second.PlayerCount + sourceInfoIt->second.PlayerCount > m_Config.SoftCap)
-                    {
-                        mergeCandidates.erase(mergeCandidates.begin() + 1);
-                        continue;
-                    }
+                    // Missing layer info — skip this candidate pair
+                    mergeCandidates.erase(mergeCandidates.begin() + 1);
+                    continue;
+                }
+                if (targetInfoIt->second.PlayerCount + sourceInfoIt->second.PlayerCount > m_Config.SoftCap)
+                {
+                    mergeCandidates.erase(mergeCandidates.begin() + 1);
+                    continue;
                 }
 
                 // Move all players from source to target
@@ -217,13 +220,8 @@ namespace OloEngine
                     }
                 }
 
-                // Update counts (reuse iterators from capacity check above)
-                targetInfoIt = m_LayerInfos.find(target);
-                sourceInfoIt = m_LayerInfos.find(source);
-                if (targetInfoIt != m_LayerInfos.end() && sourceInfoIt != m_LayerInfos.end())
-                {
-                    targetInfoIt->second.PlayerCount += sourceInfoIt->second.PlayerCount;
-                }
+                // Update counts (iterators from capacity check are still valid)
+                targetInfoIt->second.PlayerCount += sourceInfoIt->second.PlayerCount;
 
                 // Destroy source layer
                 auto sourceIt = m_Layers.find(source);

@@ -83,6 +83,8 @@ namespace OloEngine
         void AccumulateWaitTime(f32 dt);
 
       private:
+        static constexpr u32 s_HistoryRetentionTicks = 64;
+
         u32 m_TickRate = 10;
         u32 m_InputDelay = 2;
         u32 m_CurrentTick = 0;

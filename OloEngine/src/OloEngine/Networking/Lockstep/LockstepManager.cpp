@@ -95,9 +95,9 @@ namespace OloEngine
         m_WaitAccumulator = 0.0f;
 
         // Clean up old inputs (keep some history for debugging)
-        if (m_CurrentTick > 64)
+        if (m_CurrentTick > s_HistoryRetentionTicks)
         {
-            u32 const cleanupTick = m_CurrentTick - 64;
+            u32 const cleanupTick = m_CurrentTick - s_HistoryRetentionTicks;
             m_InputsByTick.erase(cleanupTick);
             m_LocalHashes.erase(cleanupTick);
         }
