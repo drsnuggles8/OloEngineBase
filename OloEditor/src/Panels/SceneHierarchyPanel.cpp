@@ -940,6 +940,11 @@ namespace OloEngine
             DisplayAddComponentEntry<LightProbeVolumeComponent>("Light Probe Volume");
             DisplayAddComponentEntry<StreamingVolumeComponent>("Streaming Volume");
 
+            ImGui::Separator();
+
+            // Networking
+            DisplayAddComponentEntry<NetworkIdentityComponent>("Network Identity");
+
             ImGui::EndPopup();
         }
 

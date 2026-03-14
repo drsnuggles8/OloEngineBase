@@ -33,7 +33,6 @@ namespace OloEngine
         void BroadcastMessage(ENetworkMessageType type, const u8* payload, u32 payloadSize, i32 sendFlags);
 
         [[nodiscard]] bool IsRunning() const;
-        [[nodiscard]] const std::unordered_map<HSteamNetConnection, NetworkConnection>& GetConnections() const;
         [[nodiscard]] u32 GetConnectionCount() const;
 
         // Thread-safe iteration over connections — holds the mutex for the duration.
@@ -41,7 +40,7 @@ namespace OloEngine
         void ForEachConnection(Fn&& fn) const;
 
         [[nodiscard]] NetworkMessageDispatcher& GetDispatcher();
-        [[nodiscard]] const NetworkStats& GetStats() const;
+        [[nodiscard]] NetworkStats GetStats() const;
 
         // Get the round-trip time in milliseconds for a specific client connection.
         // Returns -1 if the connection is not found or RTT is unavailable.

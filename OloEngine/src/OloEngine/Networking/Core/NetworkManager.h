@@ -12,6 +12,7 @@
 #include "OloEngine/Networking/Replication/SnapshotInterpolator.h"
 #include "OloEngine/Threading/Mutex.h"
 
+#include <optional>
 #include <string>
 
 struct SteamNetConnectionStatusChangedCallback_t;
@@ -69,7 +70,7 @@ namespace OloEngine
         static NetworkMessageDispatcher& GetClientDispatcher();
 
         // Statistics
-        [[nodiscard]] static const NetworkStats* GetStats();
+        [[nodiscard]] static std::optional<NetworkStats> GetStats();
 
         // Access to server/client (for debug panel, etc.)
         [[nodiscard]] static NetworkServer* GetServer();

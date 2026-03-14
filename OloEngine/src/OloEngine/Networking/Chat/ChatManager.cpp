@@ -22,6 +22,7 @@ namespace OloEngine
 
     ChatChannel* ChatManager::GetChannel(u32 channelID)
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         auto it = m_Channels.find(channelID);
         if (it == m_Channels.end())
         {
@@ -33,22 +34,22 @@ namespace OloEngine
     bool ChatManager::JoinChannel(u32 channelID, u32 clientID)
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        auto* channel = GetChannel(channelID);
-        if (!channel)
+        auto it = m_Channels.find(channelID);
+        if (it == m_Channels.end())
         {
             return false;
         }
-        channel->Join(clientID);
+        it->second.Join(clientID);
         return true;
     }
 
     void ChatManager::LeaveChannel(u32 channelID, u32 clientID)
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        auto* channel = GetChannel(channelID);
-        if (channel)
+        auto it = m_Channels.find(channelID);
+        if (it != m_Channels.end())
         {
-            channel->Leave(clientID);
+            it->second.Leave(clientID);
         }
     }
 
@@ -71,8 +72,8 @@ namespace OloEngine
             return {};
         }
 
-        auto* channel = GetChannel(message.ChannelID);
-        if (!channel)
+        auto it = m_Channels.find(message.ChannelID);
+        if (it == m_Channels.end())
         {
             return {};
         }
@@ -80,7 +81,7 @@ namespace OloEngine
         m_TotalMessagesRouted++;
 
         // Return all subscribers as recipients
-        const auto& subscribers = channel->GetSubscribers();
+        const auto& subscribers = it->second.GetSubscribers();
         return { subscribers.begin(), subscribers.end() };
     }
 

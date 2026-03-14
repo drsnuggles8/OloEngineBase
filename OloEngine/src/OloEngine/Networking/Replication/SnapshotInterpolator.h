@@ -43,7 +43,6 @@ namespace OloEngine
         SnapshotBuffer m_Buffer;
         f32 m_RenderDelay = 0.1f;  // seconds behind latest tick
         u32 m_ServerTickRate = 20; // ticks per second
-        f32 m_CurrentTime = 0.0f;  // accumulated time in seconds
         u32 m_LatestReceivedTick = 0;
 
         // Parsed snapshot cache to avoid re-parsing every frame

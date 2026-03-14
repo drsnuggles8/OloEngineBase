@@ -58,6 +58,7 @@ namespace OloEngine
         }
 
         // Drain messages targeted at a specific zone (or broadcast messages with targetZoneID=0).
+        // Broadcast messages are COPIED to every drainer; targeted messages are consumed.
         [[nodiscard]] std::vector<InterZoneMessage> DrainForZone(u32 zoneID)
         {
             std::queue<InterZoneMessage> snapshot;
@@ -72,9 +73,16 @@ namespace OloEngine
             while (!snapshot.empty())
             {
                 auto& msg = snapshot.front();
-                if (msg.TargetZoneID == zoneID || msg.TargetZoneID == 0)
+                if (msg.TargetZoneID == zoneID)
                 {
+                    // Targeted message — consume (move to result, don't put back)
                     result.push_back(std::move(msg));
+                }
+                else if (msg.TargetZoneID == 0)
+                {
+                    // Broadcast — copy to result, put original back for other zones
+                    result.push_back(msg);
+                    remaining.push(std::move(msg));
                 }
                 else
                 {

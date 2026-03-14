@@ -171,7 +171,7 @@ namespace OloEngine
         return m_Dispatcher;
     }
 
-    const NetworkStats& NetworkClient::GetStats() const
+    NetworkStats NetworkClient::GetStats() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_Stats;

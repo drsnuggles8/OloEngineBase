@@ -229,12 +229,6 @@ namespace OloEngine
         return m_ListenSocket != k_HSteamListenSocket_Invalid;
     }
 
-    const std::unordered_map<HSteamNetConnection, NetworkConnection>& NetworkServer::GetConnections() const
-    {
-        TUniqueLock<FMutex> lock(m_Mutex);
-        return m_Connections;
-    }
-
     u32 NetworkServer::GetConnectionCount() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
@@ -246,7 +240,7 @@ namespace OloEngine
         return m_Dispatcher;
     }
 
-    const NetworkStats& NetworkServer::GetStats() const
+    NetworkStats NetworkServer::GetStats() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_Stats;
@@ -320,10 +314,11 @@ namespace OloEngine
 
                 NetworkConnection conn(pInfo->m_hConn);
                 conn.SetState(EConnectionState::Connecting);
-                conn.SetClientID(m_NextClientID++);
+                u32 const clientID = m_NextClientID++;
+                conn.SetClientID(clientID);
                 m_Connections.emplace(pInfo->m_hConn, std::move(conn));
 
-                OLO_CORE_INFO("[NetworkServer] Client connecting (ID: {})", conn.GetClientID());
+                OLO_CORE_INFO("[NetworkServer] Client connecting (ID: {})", clientID);
                 break;
             }
 

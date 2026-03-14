@@ -195,6 +195,6 @@ TEST(InterZoneMessageBus, DrainForZone)
     auto zone1Msgs = bus.DrainForZone(1);
     EXPECT_EQ(zone1Msgs.size(), 2u); // msg1 + msg3 (broadcast)
 
-    // msg2 should still be in the bus
-    EXPECT_EQ(bus.GetPendingCount(), 1u);
+    // msg2 and msg3 (broadcast, preserved for other zones) should still be in the bus
+    EXPECT_EQ(bus.GetPendingCount(), 2u);
 }

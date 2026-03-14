@@ -62,10 +62,13 @@ namespace OloEngine
 
         CloseTransport();
 
-        m_Peers.clear();
-        m_InSession = false;
-        m_LocalPeerID = 0;
-        m_HostPeerID = 0;
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_Peers.clear();
+            m_InSession = false;
+            m_LocalPeerID = 0;
+            m_HostPeerID = 0;
+        }
 
         OLO_CORE_INFO("[NetworkPeerMesh] Left session");
     }
@@ -76,7 +79,7 @@ namespace OloEngine
         return m_LocalPeerID;
     }
 
-    const std::unordered_map<u32, PeerInfo>& NetworkPeerMesh::GetPeers() const
+    std::unordered_map<u32, PeerInfo> NetworkPeerMesh::GetPeers() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_Peers;
@@ -95,6 +98,19 @@ namespace OloEngine
     }
 
     // ── GNS Transport ────────────────────────────────────────────────
+
+    void NetworkPeerMesh::AddPeer(u32 peerID, const std::string& address, u16 port)
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        if (m_Peers.find(peerID) == m_Peers.end())
+        {
+            PeerInfo info;
+            info.PeerID = peerID;
+            info.Address = address;
+            info.Port = port;
+            m_Peers[peerID] = info;
+        }
+    }
 
     bool NetworkPeerMesh::StartListening(u16 port)
     {
@@ -249,13 +265,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         if (m_Peers.find(peerID) == m_Peers.end())
         {
             OLO_CORE_WARN("[NetworkPeerMesh] Peer {} not found", peerID);
             return;
         }
-
-        TUniqueLock<FMutex> lock(m_Mutex);
 
         auto connIt = m_PeerConnections.find(peerID);
         if (connIt == m_PeerConnections.end() || !m_Interface)
@@ -288,12 +304,23 @@ namespace OloEngine
 
     void NetworkPeerMesh::BroadcastToPeers(ENetworkMessageType type, const u8* data, u32 size, i32 sendFlags)
     {
-        for (auto const& [peerID, info] : m_Peers)
+        // Collect peer IDs under lock, then send without lock to avoid deadlock
+        // (SendToPeer also acquires the mutex).
+        std::vector<u32> peerIDs;
         {
-            if (peerID != m_LocalPeerID)
+            TUniqueLock<FMutex> lock(m_Mutex);
+            peerIDs.reserve(m_Peers.size());
+            for (auto const& [peerID, info] : m_Peers)
             {
-                SendToPeer(peerID, type, data, size, sendFlags);
+                if (peerID != m_LocalPeerID)
+                {
+                    peerIDs.push_back(peerID);
+                }
             }
+        }
+        for (u32 peerID : peerIDs)
+        {
+            SendToPeer(peerID, type, data, size, sendFlags);
         }
     }
 
@@ -380,6 +407,8 @@ namespace OloEngine
     void NetworkPeerMesh::PerformHostMigration()
     {
         OLO_PROFILE_FUNCTION();
+
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         if (m_Peers.empty())
         {

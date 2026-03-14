@@ -93,7 +93,7 @@ namespace OloEngine
                 FEventCountToken token = Queue.PrepareWait();
                 if (!Queue.HasPendingTasks(true) && s_Running.load(std::memory_order_acquire))
                 {
-                    u32 sleepMs = (s_TickRateHz > 0) ? (1000 / s_TickRateHz) : 16;
+                    u32 sleepMs = (s_TickRateHz > 0) ? std::max(1u, 1000 / s_TickRateHz) : 16;
                     Queue.WaitFor(token, FMonotonicTimeSpan::FromMilliseconds(sleepMs));
                 }
             }

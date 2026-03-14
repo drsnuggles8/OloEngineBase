@@ -4,9 +4,9 @@
 namespace OloEngine
 {
     NetworkInputBuffer::NetworkInputBuffer(u32 capacity)
-        : m_Capacity(capacity)
+        : m_Capacity(capacity > 0 ? capacity : kDefaultCapacity)
     {
-        m_Entries.resize(capacity);
+        m_Entries.resize(m_Capacity);
     }
 
     void NetworkInputBuffer::Push(u32 tick, u64 entityUUID, std::vector<u8> data)
@@ -55,8 +55,10 @@ namespace OloEngine
 
     void NetworkInputBuffer::DiscardUpTo(u32 confirmedTick)
     {
-        // Walk from oldest to newest, clearing confirmed entries
-        u32 discarded = 0;
+        // Walk from oldest to newest, clearing confirmed entries.
+        // Do NOT adjust m_Count — GetByTick / GetUnconfirmedInputs already filter
+        // by tick value, and adjusting m_Count after non-contiguous clears can
+        // cause valid entries to be skipped during iteration.
         for (u32 i = m_Count; i > 0; --i)
         {
             u32 const idx = (m_Head + m_Capacity - i) % m_Capacity;
@@ -65,10 +67,8 @@ namespace OloEngine
                 m_Entries[idx].Tick = 0;
                 m_Entries[idx].EntityUUID = 0;
                 m_Entries[idx].Data.clear();
-                ++discarded;
             }
         }
-        m_Count -= discarded;
     }
 
     u32 NetworkInputBuffer::Size() const

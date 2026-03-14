@@ -11,15 +11,19 @@ namespace OloEngine
     // Unique identifier for a zone.
     using ZoneID = u32;
 
+    // Sentinel value representing an invalid/unassigned zone.
+    static constexpr ZoneID InvalidZoneID = 0;
+
     // Axis-aligned bounding box for zone boundaries.
     struct ZoneBounds
     {
         glm::vec3 Min{ 0.0f };
         glm::vec3 Max{ 0.0f };
 
+        // Half-open containment: Min is inclusive, Max is exclusive.
         [[nodiscard]] bool Contains(const glm::vec3& point) const
         {
-            return point.x >= Min.x && point.x <= Max.x && point.y >= Min.y && point.y <= Max.y && point.z >= Min.z && point.z <= Max.z;
+            return point.x >= Min.x && point.x < Max.x && point.y >= Min.y && point.y < Max.y && point.z >= Min.z && point.z < Max.z;
         }
     };
 

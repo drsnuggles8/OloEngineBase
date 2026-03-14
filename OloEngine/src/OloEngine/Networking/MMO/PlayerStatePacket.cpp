@@ -11,16 +11,24 @@ namespace OloEngine
         FMemoryWriter writer(buffer);
         writer.ArIsNetArchive = true;
 
-        writer << const_cast<u32&>(ClientID);
-        writer << const_cast<u64&>(EntityUUID);
-        writer << const_cast<ZoneID&>(SourceZoneID);
-        writer << const_cast<ZoneID&>(TargetZoneID);
+        u32 clientID = ClientID;
+        u64 entityUUID = EntityUUID;
+        ZoneID sourceZoneID = SourceZoneID;
+        ZoneID targetZoneID = TargetZoneID;
+        writer << clientID;
+        writer << entityUUID;
+        writer << sourceZoneID;
+        writer << targetZoneID;
 
-        writer << const_cast<f32&>(Position.x) << const_cast<f32&>(Position.y) << const_cast<f32&>(Position.z);
-        writer << const_cast<f32&>(Rotation.x) << const_cast<f32&>(Rotation.y) << const_cast<f32&>(Rotation.z);
-        writer << const_cast<f32&>(Scale.x) << const_cast<f32&>(Scale.y) << const_cast<f32&>(Scale.z);
+        glm::vec3 pos = Position;
+        glm::vec3 rot = Rotation;
+        glm::vec3 scl = Scale;
+        writer << pos.x << pos.y << pos.z;
+        writer << rot.x << rot.y << rot.z;
+        writer << scl.x << scl.y << scl.z;
 
-        writer << const_cast<u32&>(OwnerClientID);
+        u32 ownerClientID = OwnerClientID;
+        writer << ownerClientID;
         u8 replicated = IsReplicated ? 1 : 0;
         writer << replicated;
 

@@ -88,14 +88,14 @@ TEST_F(NetworkIntegrationTest, ServerTracksConnectedClient)
     bool hasClient = WaitUntil(
         [server]
         {
-            for (auto const& [h, conn] : server->GetConnections())
-            {
+            bool found = false;
+            server->ForEachConnection([&](HSteamNetConnection, const NetworkConnection& conn)
+                                      {
                 if (conn.GetState() == EConnectionState::Connected)
                 {
-                    return true;
-                }
-            }
-            return false;
+                    found = true;
+                } });
+            return found;
         });
     EXPECT_TRUE(hasClient) << "Server did not register the client connection";
 
@@ -160,14 +160,14 @@ TEST_F(NetworkIntegrationTest, ServerToClientMessage)
     ASSERT_TRUE(WaitUntil(
         [server]
         {
-            for (auto const& [h, conn] : server->GetConnections())
-            {
+            bool found = false;
+            server->ForEachConnection([&](HSteamNetConnection, const NetworkConnection& conn)
+                                      {
                 if (conn.GetState() == EConnectionState::Connected)
                 {
-                    return true;
-                }
-            }
-            return false;
+                    found = true;
+                } });
+            return found;
         }));
 
     // Register handler on the client
@@ -258,14 +258,14 @@ TEST_F(NetworkIntegrationTest, StatsTrackSentAndReceived)
     ASSERT_TRUE(WaitUntil(
         [server]
         {
-            for (auto const& [h, conn] : server->GetConnections())
-            {
+            bool found = false;
+            server->ForEachConnection([&](HSteamNetConnection, const NetworkConnection& conn)
+                                      {
                 if (conn.GetState() == EConnectionState::Connected)
                 {
-                    return true;
-                }
-            }
-            return false;
+                    found = true;
+                } });
+            return found;
         }));
 
     // Send a message from client

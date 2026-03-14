@@ -145,14 +145,14 @@ TEST(PeerMeshTest, HostMigrationSelectsLowestID)
     NetworkPeerMesh mesh;
     mesh.CreateSession(3);
 
-    // Manually add peers (simulating established connections)
-    auto& peers = const_cast<std::unordered_map<u32, PeerInfo>&>(mesh.GetPeers());
-    peers[1] = PeerInfo{ 1, "", 0, false };
-    peers[2] = PeerInfo{ 2, "", 0, false };
+    // Add peers to topology (no transport needed)
+    mesh.AddPeer(1);
+    mesh.AddPeer(2);
 
     mesh.PerformHostMigration();
 
     EXPECT_EQ(mesh.GetHostPeerID(), 1u);
+    auto peers = mesh.GetPeers();
     EXPECT_TRUE(peers[1].IsHost);
     EXPECT_FALSE(peers[2].IsHost);
     EXPECT_FALSE(peers[3].IsHost);
@@ -182,8 +182,7 @@ TEST(PeerMeshTest, SendToPeerNoTransportIsNoOp)
     NetworkPeerMesh mesh;
     mesh.CreateSession(1);
 
-    auto& peers = const_cast<std::unordered_map<u32, PeerInfo>&>(mesh.GetPeers());
-    peers[2] = PeerInfo{ 2, "127.0.0.1", 27016, false };
+    mesh.AddPeer(2, "127.0.0.1", 27016);
 
     u8 const payload = 0xAA;
     // Should not crash — just logs a warning
@@ -195,9 +194,8 @@ TEST(PeerMeshTest, BroadcastWithoutTransportIsNoOp)
     NetworkPeerMesh mesh;
     mesh.CreateSession(1);
 
-    auto& peers = const_cast<std::unordered_map<u32, PeerInfo>&>(mesh.GetPeers());
-    peers[2] = PeerInfo{ 2, "127.0.0.1", 27016, false };
-    peers[3] = PeerInfo{ 3, "127.0.0.1", 27017, false };
+    mesh.AddPeer(2, "127.0.0.1", 27016);
+    mesh.AddPeer(3, "127.0.0.1", 27017);
 
     u8 const payload = 0xBB;
     // Should not crash

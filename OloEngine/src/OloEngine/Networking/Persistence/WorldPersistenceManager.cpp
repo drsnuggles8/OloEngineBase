@@ -57,18 +57,29 @@ namespace OloEngine
 
         if (m_DataProvider)
         {
+            std::vector<u64> saved;
             for (u64 uuid : m_DirtyEntities)
             {
                 ZoneID zoneID = 0;
                 std::vector<u8> data;
                 if (m_DataProvider(uuid, zoneID, data))
                 {
-                    m_Database->SaveEntityState(uuid, zoneID, data);
+                    if (m_Database->SaveEntityState(uuid, zoneID, data))
+                    {
+                        saved.push_back(uuid);
+                    }
                 }
             }
+            for (u64 uuid : saved)
+            {
+                m_DirtyEntities.erase(uuid);
+            }
+        }
+        else
+        {
+            m_DirtyEntities.clear();
         }
 
-        m_DirtyEntities.clear();
         m_TimeSinceLastSave = 0.0f;
     }
 

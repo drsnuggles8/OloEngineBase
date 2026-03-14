@@ -4,9 +4,9 @@
 namespace OloEngine
 {
     SnapshotBuffer::SnapshotBuffer(u32 capacity)
-        : m_Capacity(capacity)
+        : m_Capacity(capacity > 0 ? capacity : kDefaultCapacity)
     {
-        m_Entries.resize(capacity);
+        m_Entries.resize(m_Capacity);
     }
 
     void SnapshotBuffer::Push(u32 tick, std::vector<u8> data)

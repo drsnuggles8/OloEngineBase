@@ -70,6 +70,12 @@ namespace OloEngine
                 auto& transform = entity.GetComponent<TransformComponent>();
                 ComponentReplicator::Serialize(reader, transform);
             }
+            else
+            {
+                // Entity exists but lacks TransformComponent — skip the transform data
+                TransformComponent dummy;
+                ComponentReplicator::Serialize(reader, dummy);
+            }
         }
     }
 
@@ -147,7 +153,7 @@ namespace OloEngine
             if (changed)
             {
                 writer << uuid;
-                buffer.insert(buffer.end(), currentTransformBuf.begin(), currentTransformBuf.end());
+                ComponentReplicator::Serialize(writer, transform);
             }
         }
 

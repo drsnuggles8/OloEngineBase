@@ -58,33 +58,12 @@ namespace OloEngine
             if (!AudioEngine::Init())
             {
                 OLO_CORE_CRITICAL("Failed to initialize AudioEngine! Application cannot continue.");
-
-                // Cleanup resources in reverse order of initialization
-                Renderer::Shutdown();
-
-#ifdef OLO_DEBUG
-                ShaderDebugger::GetInstance().Shutdown();
-                GPUResourceInspector::GetInstance().Shutdown();
-                OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown after AudioEngine failure");
-#endif
-
-                m_Window.reset();
-                s_Instance = nullptr;
-
                 throw std::runtime_error("AudioEngine initialization failed");
             }
 
             if (!NetworkManager::Init())
             {
                 OLO_CORE_CRITICAL("Failed to initialize NetworkManager!");
-                AudioEngine::Shutdown();
-                Renderer::Shutdown();
-#ifdef OLO_DEBUG
-                ShaderDebugger::GetInstance().Shutdown();
-                GPUResourceInspector::GetInstance().Shutdown();
-#endif
-                m_Window.reset();
-                s_Instance = nullptr;
                 throw std::runtime_error("NetworkManager initialization failed");
             }
             OLO_CORE_INFO("NetworkManager initialized successfully");

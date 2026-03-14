@@ -57,13 +57,16 @@ namespace OloEngine
         [[nodiscard]] u32 GetLocalPeerID() const;
 
         // Get all connected peers (including self).
-        [[nodiscard]] const std::unordered_map<u32, PeerInfo>& GetPeers() const;
+        [[nodiscard]] std::unordered_map<u32, PeerInfo> GetPeers() const;
 
         // Check if this peer is the host.
         [[nodiscard]] bool IsHost() const;
 
         // Check if a session is active.
         [[nodiscard]] bool IsInSession() const;
+
+        // Register a peer in the topology without establishing a transport connection.
+        void AddPeer(u32 peerID, const std::string& address = "", u16 port = 0);
 
         // Send a framed message to a specific peer via GNS.
         void SendToPeer(u32 peerID, ENetworkMessageType type, const u8* data, u32 size, i32 sendFlags);

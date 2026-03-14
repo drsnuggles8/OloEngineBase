@@ -59,8 +59,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        m_CurrentTime += dt;
-
         if (m_Buffer.Size() < 2)
         {
             return;

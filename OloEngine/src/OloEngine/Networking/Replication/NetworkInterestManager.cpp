@@ -105,25 +105,14 @@ namespace OloEngine
                     }
                 }
 
-                // Use SpatialGrid for distance check when grid is populated, else fall back to direct check
+                // Distance-based relevance check
                 if (interest.RelevanceRadius > 0.0f)
                 {
-                    if (m_SpatialGrid.GetEntityCount() > 0)
+                    auto const& tc = entity.GetComponent<TransformComponent>();
+                    f32 const distSq = glm::distance2(clientPos, tc.Translation);
+                    if (distSq > interest.RelevanceRadius * interest.RelevanceRadius)
                     {
-                        auto nearby = m_SpatialGrid.QueryRadius(clientPos, interest.RelevanceRadius);
-                        if (std::find(nearby.begin(), nearby.end(), uuid) == nearby.end())
-                        {
-                            continue; // Too far away
-                        }
-                    }
-                    else
-                    {
-                        auto const& tc = entity.GetComponent<TransformComponent>();
-                        f32 const distSq = glm::distance2(clientPos, tc.Translation);
-                        if (distSq > interest.RelevanceRadius * interest.RelevanceRadius)
-                        {
-                            continue; // Too far away
-                        }
+                        continue; // Too far away
                     }
                 }
             }

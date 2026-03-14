@@ -9,6 +9,8 @@ namespace OloEngine
 
     void ZoneManager::RegisterZone(const ZoneDefinition& definition)
     {
+        OLO_CORE_ASSERT(definition.ID != InvalidZoneID,
+                        "ZoneManager: cannot register a zone with InvalidZoneID (0)");
         OLO_CORE_ASSERT(definition.ID <= kMaxBaseZoneID,
                         "ZoneManager: base zone ID must be < 10000 to avoid collision with instance/layer ID spaces");
 
@@ -94,19 +96,26 @@ namespace OloEngine
 
     ZoneID ZoneManager::RoutePlayerToZone(u32 clientID, const glm::vec3& position)
     {
-        // Remove from current zone if any
-        RemovePlayer(clientID);
-
         auto* zone = GetZoneAt(position);
         if (!zone)
         {
             OLO_CORE_WARN("[ZoneManager] No zone found for position ({}, {}, {})", position.x, position.y, position.z);
-            return 0;
+            return InvalidZoneID;
         }
 
         if (!zone->AddPlayer(clientID))
         {
-            return 0; // Zone full
+            return InvalidZoneID; // Zone full
+        }
+
+        // Successfully added — now remove from old zone
+        auto it = m_PlayerZoneMap.find(clientID);
+        if (it != m_PlayerZoneMap.end())
+        {
+            if (auto* oldZone = GetZone(it->second))
+            {
+                oldZone->RemovePlayer(clientID);
+            }
         }
 
         ZoneID const zoneID = zone->GetZoneID();
@@ -127,13 +136,20 @@ namespace OloEngine
             return false;
         }
 
-        // Remove from current zone
-        RemovePlayer(clientID);
-
-        // Add to target zone
+        // Add to target zone first
         if (!target->AddPlayer(clientID))
         {
             return false;
+        }
+
+        // Successfully added — now remove from old zone
+        auto it = m_PlayerZoneMap.find(clientID);
+        if (it != m_PlayerZoneMap.end())
+        {
+            if (auto* oldZone = GetZone(it->second))
+            {
+                oldZone->RemovePlayer(clientID);
+            }
         }
 
         m_PlayerZoneMap[clientID] = targetZone;
@@ -161,7 +177,7 @@ namespace OloEngine
         auto it = m_PlayerZoneMap.find(clientID);
         if (it == m_PlayerZoneMap.end())
         {
-            return 0;
+            return InvalidZoneID;
         }
         return it->second;
     }
@@ -191,7 +207,7 @@ namespace OloEngine
         }
 
         ZoneID sourceZoneID = GetPlayerZone(clientID);
-        if (sourceZoneID == 0)
+        if (sourceZoneID == InvalidZoneID)
         {
             return 0;
         }

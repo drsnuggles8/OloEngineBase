@@ -27,7 +27,7 @@ namespace OloEngine
         [[nodiscard]] EConnectionState GetState() const;
         [[nodiscard]] HSteamNetConnection GetConnectionHandle() const;
         [[nodiscard]] NetworkMessageDispatcher& GetDispatcher();
-        [[nodiscard]] const NetworkStats& GetStats() const;
+        [[nodiscard]] NetworkStats GetStats() const;
 
         void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
 

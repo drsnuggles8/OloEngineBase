@@ -335,19 +335,19 @@ namespace OloEngine
         return s_Client->GetDispatcher();
     }
 
-    const NetworkStats* NetworkManager::GetStats()
+    std::optional<NetworkStats> NetworkManager::GetStats()
     {
         TUniqueLock<FMutex> lock(s_Mutex);
 
         if (s_Server)
         {
-            return &s_Server->GetStats();
+            return s_Server->GetStats();
         }
         if (s_Client)
         {
-            return &s_Client->GetStats();
+            return s_Client->GetStats();
         }
-        return nullptr;
+        return std::nullopt;
     }
 
     NetworkServer* NetworkManager::GetServer()

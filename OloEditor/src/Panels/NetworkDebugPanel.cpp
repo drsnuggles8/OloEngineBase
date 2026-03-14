@@ -81,7 +81,7 @@ namespace OloEngine
         }
 
         // Statistics
-        const NetworkStats* stats = NetworkManager::GetStats();
+        auto stats = NetworkManager::GetStats();
         if (stats)
         {
             ImGui::Separator();
@@ -109,9 +109,9 @@ namespace OloEngine
                 {
                     ImGui::TextDisabled("No clients connected");
                 }
-                else
+                else if (
+                    ImGui::BeginTable("PeersTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
                 {
-                    ImGui::BeginTable("PeersTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
                     ImGui::TableSetupColumn("Client ID");
                     ImGui::TableSetupColumn("State");
                     ImGui::TableSetupColumn("Ping");
