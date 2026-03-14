@@ -50,6 +50,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Idempotency: if the player is already assigned, return their current layer
+        if (auto existingIt = m_PlayerLayerMap.find(clientID); existingIt != m_PlayerLayerMap.end())
+        {
+            return existingIt->second;
+        }
+
         // If player has a party, check if party already has a layer
         if (partyID != 0)
         {

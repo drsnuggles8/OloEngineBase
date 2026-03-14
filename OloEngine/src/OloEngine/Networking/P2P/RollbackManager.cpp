@@ -6,6 +6,7 @@
 #include "OloEngine/Debug/Profiler.h"
 
 #include <algorithm>
+#include <optional>
 
 namespace OloEngine
 {
@@ -63,19 +64,19 @@ namespace OloEngine
         return rollbackDepth;
     }
 
-    const std::vector<u8>* RollbackManager::GetInputForTick(u32 peerID, u32 tick) const
+    std::optional<std::vector<u8>> RollbackManager::GetInputForTick(u32 peerID, u32 tick) const
     {
         auto peerIt = m_Inputs.find(peerID);
         if (peerIt == m_Inputs.end())
         {
-            return nullptr;
+            return std::nullopt;
         }
 
         // Try exact tick
         auto tickIt = peerIt->second.find(tick);
         if (tickIt != peerIt->second.end())
         {
-            return &tickIt->second;
+            return tickIt->second;
         }
 
         // Input prediction: find the most recent input before this tick
@@ -89,7 +90,11 @@ namespace OloEngine
                 bestInput = &d;
             }
         }
-        return bestInput;
+        if (bestInput)
+        {
+            return *bestInput;
+        }
+        return std::nullopt;
     }
 
     u32 RollbackManager::GetCurrentTick() const
@@ -140,7 +145,7 @@ namespace OloEngine
             {
                 for (u32 peerID : sortedPeers)
                 {
-                    const auto* input = GetInputForTick(peerID, tick);
+                    const auto input = GetInputForTick(peerID, tick);
                     if (input)
                     {
                         m_ApplyCallback(scene, peerID, input->data(), static_cast<u32>(input->size()));

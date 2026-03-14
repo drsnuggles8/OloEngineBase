@@ -217,8 +217,12 @@ namespace OloEngine
             response.insert(response.end(), m_LobbyName.begin(), m_LobbyName.begin() + nameLen);
         }
 
-        sendto(sock, reinterpret_cast<const char*>(response.data()), static_cast<int>(response.size()), 0,
-               reinterpret_cast<sockaddr*>(&senderAddr), addrLen);
+        int const sent = sendto(sock, reinterpret_cast<const char*>(response.data()), static_cast<int>(response.size()), 0,
+                                reinterpret_cast<sockaddr*>(&senderAddr), addrLen);
+        if (sent == kSocketError)
+        {
+            OLO_CORE_WARN("[NetworkLobby] PollDiscovery: sendto failed (error {})", GetLastSocketError());
+        }
     }
 
     void NetworkLobby::FindLobbies(std::function<void(const std::vector<LobbyInfo>&)> callback)

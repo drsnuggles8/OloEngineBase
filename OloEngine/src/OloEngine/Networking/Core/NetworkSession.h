@@ -34,8 +34,8 @@ namespace OloEngine
       public:
         NetworkSession();
 
-        // Create a new session with the given model.
-        void Create(ENetworkModel model, const std::string& sessionName);
+        // Create a new session with the given model. Returns false if model is None.
+        [[nodiscard]] bool Create(ENetworkModel model, const std::string& sessionName);
 
         // Reset the session to its initial state.
         void Reset();

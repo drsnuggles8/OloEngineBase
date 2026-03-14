@@ -28,24 +28,25 @@ TEST(PlayerStatePacket, SerializeDeserializeRoundtrip)
     ASSERT_FALSE(buffer.empty());
 
     auto restored = PlayerStatePacket::Deserialize(buffer.data(), static_cast<i64>(buffer.size()));
+    ASSERT_TRUE(restored.has_value());
 
-    EXPECT_EQ(restored.ClientID, 42u);
-    EXPECT_EQ(restored.EntityUUID, 12345u);
-    EXPECT_EQ(restored.SourceZoneID, 1u);
-    EXPECT_EQ(restored.TargetZoneID, 2u);
-    EXPECT_FLOAT_EQ(restored.Position.x, 10.0f);
-    EXPECT_FLOAT_EQ(restored.Position.y, 20.0f);
-    EXPECT_FLOAT_EQ(restored.Position.z, 30.0f);
-    EXPECT_FLOAT_EQ(restored.Rotation.x, 0.1f);
-    EXPECT_FLOAT_EQ(restored.Rotation.y, 0.2f);
-    EXPECT_FLOAT_EQ(restored.Rotation.z, 0.3f);
-    EXPECT_FLOAT_EQ(restored.Scale.x, 1.5f);
-    EXPECT_FLOAT_EQ(restored.Scale.y, 2.0f);
-    EXPECT_FLOAT_EQ(restored.Scale.z, 0.5f);
-    EXPECT_EQ(restored.OwnerClientID, 42u);
-    EXPECT_TRUE(restored.IsReplicated);
-    ASSERT_EQ(restored.GameStateBlob.size(), 4u);
-    EXPECT_EQ(restored.GameStateBlob[0], 0xDE);
+    EXPECT_EQ(restored->ClientID, 42u);
+    EXPECT_EQ(restored->EntityUUID, 12345u);
+    EXPECT_EQ(restored->SourceZoneID, 1u);
+    EXPECT_EQ(restored->TargetZoneID, 2u);
+    EXPECT_FLOAT_EQ(restored->Position.x, 10.0f);
+    EXPECT_FLOAT_EQ(restored->Position.y, 20.0f);
+    EXPECT_FLOAT_EQ(restored->Position.z, 30.0f);
+    EXPECT_FLOAT_EQ(restored->Rotation.x, 0.1f);
+    EXPECT_FLOAT_EQ(restored->Rotation.y, 0.2f);
+    EXPECT_FLOAT_EQ(restored->Rotation.z, 0.3f);
+    EXPECT_FLOAT_EQ(restored->Scale.x, 1.5f);
+    EXPECT_FLOAT_EQ(restored->Scale.y, 2.0f);
+    EXPECT_FLOAT_EQ(restored->Scale.z, 0.5f);
+    EXPECT_EQ(restored->OwnerClientID, 42u);
+    EXPECT_TRUE(restored->IsReplicated);
+    ASSERT_EQ(restored->GameStateBlob.size(), 4u);
+    EXPECT_EQ(restored->GameStateBlob[0], 0xDE);
 }
 
 TEST(PlayerStatePacket, EmptyGameStateBlob)
@@ -56,9 +57,10 @@ TEST(PlayerStatePacket, EmptyGameStateBlob)
 
     auto buffer = original.Serialize();
     auto restored = PlayerStatePacket::Deserialize(buffer.data(), static_cast<i64>(buffer.size()));
+    ASSERT_TRUE(restored.has_value());
 
-    EXPECT_EQ(restored.ClientID, 1u);
-    EXPECT_TRUE(restored.GameStateBlob.empty());
+    EXPECT_EQ(restored->ClientID, 1u);
+    EXPECT_TRUE(restored->GameStateBlob.empty());
 }
 
 // ============================================================================

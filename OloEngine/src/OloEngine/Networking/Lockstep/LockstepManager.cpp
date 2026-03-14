@@ -46,6 +46,19 @@ namespace OloEngine
 
     void LockstepManager::ReceiveInput(u32 peerID, u32 tick, std::vector<u8> data)
     {
+        if (!m_Peers.contains(peerID))
+        {
+            OLO_CORE_WARN("[LockstepManager] ReceiveInput: unknown peer {}", peerID);
+            return;
+        }
+
+        if (tick < m_CurrentTick || tick > m_CurrentTick + s_MaxFutureTicks)
+        {
+            OLO_CORE_WARN("[LockstepManager] ReceiveInput: tick {} from peer {} outside window [{}, {}]",
+                          tick, peerID, m_CurrentTick, m_CurrentTick + s_MaxFutureTicks);
+            return;
+        }
+
         m_InputsByTick[tick][peerID] = std::move(data);
     }
 
@@ -79,15 +92,18 @@ namespace OloEngine
         }
 
         // Apply all peer inputs for this tick in deterministic order
-        if (m_ApplyCallback)
+        if (!m_ApplyCallback)
         {
-            auto& inputs = m_InputsByTick[nextTick];
-            for (u32 peerID : m_Peers)
+            OLO_CORE_ERROR("[LockstepManager] AdvanceTick: no input apply callback set");
+            return false;
+        }
+
+        auto& inputs = m_InputsByTick[nextTick];
+        for (u32 peerID : m_Peers)
+        {
+            if (auto it = inputs.find(peerID); it != inputs.end())
             {
-                if (auto it = inputs.find(peerID); it != inputs.end())
-                {
-                    m_ApplyCallback(scene, peerID, it->second.data(), static_cast<u32>(it->second.size()));
-                }
+                m_ApplyCallback(scene, peerID, it->second.data(), static_cast<u32>(it->second.size()));
             }
         }
 

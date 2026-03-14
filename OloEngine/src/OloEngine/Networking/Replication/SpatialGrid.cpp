@@ -12,6 +12,10 @@ namespace OloEngine
     SpatialGrid::SpatialGrid(f32 cellSize)
     {
         OLO_CORE_ASSERT(cellSize > 0.0f, "SpatialGrid: cellSize must be > 0");
+        if (cellSize <= 0.0f)
+        {
+            cellSize = 1.0f;
+        }
         m_CellSize = cellSize;
         m_InvCellSize = 1.0f / cellSize;
     }
@@ -67,6 +71,7 @@ namespace OloEngine
 
     void SpatialGrid::Clear()
     {
+        OLO_PROFILE_FUNCTION();
         m_Cells.clear();
         m_EntityCells.clear();
         m_EntityPositions.clear();
@@ -77,6 +82,11 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         std::vector<u64> result;
+        if (radius < 0.0f)
+        {
+            return result;
+        }
+
         f32 const radiusSq = radius * radius;
 
         // Determine the range of cells that could contain entities within radius
@@ -135,6 +145,11 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         if (cellSize <= 0.0f)
+        {
+            return;
+        }
+
+        if (cellSize == m_CellSize)
         {
             return;
         }

@@ -4,6 +4,7 @@
 #include "OloEngine/Networking/MMO/ZoneDefinition.h"
 
 #include <glm/glm.hpp>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -33,8 +34,8 @@ namespace OloEngine
         // Serialize to byte buffer
         [[nodiscard]] std::vector<u8> Serialize() const;
 
-        // Deserialize from byte buffer
-        static PlayerStatePacket Deserialize(const u8* data, i64 size);
+        // Deserialize from byte buffer. Returns std::nullopt on parse error.
+        [[nodiscard]] static std::optional<PlayerStatePacket> Deserialize(const u8* data, i64 size);
     };
 
     // Tracks the state of an in-progress zone handoff.

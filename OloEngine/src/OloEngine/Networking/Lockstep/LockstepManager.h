@@ -83,6 +83,7 @@ namespace OloEngine
 
       private:
         static constexpr u32 s_HistoryRetentionTicks = 64;
+        static constexpr u32 s_MaxFutureTicks = 10;
 
         u32 m_TickRate = 10;
         u32 m_InputDelay = 2;

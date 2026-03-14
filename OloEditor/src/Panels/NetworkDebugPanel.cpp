@@ -7,7 +7,6 @@
 #include "OloEngine/Debug/Profiler.h"
 
 #include <imgui.h>
-#include <steam/steamnetworkingsockets.h>
 
 namespace OloEngine
 {
@@ -15,35 +14,45 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        ImGui::Begin("Network Debug");
+        if (!ImGui::Begin("Network Debug"))
+        {
+            ImGui::End();
+            return;
+        }
+
+        // Snapshot NetworkManager state once per frame to avoid repeated static calls
+        bool const isServer = NetworkManager::IsServer();
+        bool const isClient = NetworkManager::IsClient();
+        bool const isConnected = NetworkManager::IsConnected();
+        bool const isInitialized = NetworkManager::IsInitialized();
 
         // Connection state
         const char* mode = "None";
-        if (NetworkManager::IsServer())
+        if (isServer)
         {
             mode = "Server";
         }
-        else if (NetworkManager::IsClient())
+        else if (isClient)
         {
             mode = "Client";
         }
         ImGui::Text("Mode: %s", mode);
 
-        if (NetworkManager::IsClient())
+        if (isClient)
         {
-            ImGui::Text("Connected: %s", NetworkManager::IsConnected() ? "Yes" : "No");
+            ImGui::Text("Connected: %s", isConnected ? "Yes" : "No");
         }
 
         ImGui::Separator();
 
         // Controls
-        if (!NetworkManager::IsInitialized())
+        if (!isInitialized)
         {
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.0f, 1.0f), "NetworkManager not initialized");
         }
         else
         {
-            if (!NetworkManager::IsServer() && !NetworkManager::IsClient())
+            if (!isServer && !isClient)
             {
                 static u16 serverPort = 27015;
                 ImGui::InputScalar("Port", ImGuiDataType_U16, &serverPort);
@@ -65,7 +74,7 @@ namespace OloEngine
             }
             else
             {
-                if (NetworkManager::IsServer())
+                if (isServer)
                 {
                     if (ImGui::Button("Stop Server"))
                     {
@@ -73,7 +82,7 @@ namespace OloEngine
                     }
                 }
 
-                if (NetworkManager::IsClient())
+                if (isClient)
                 {
                     if (ImGui::Button("Disconnect"))
                     {
@@ -102,13 +111,28 @@ namespace OloEngine
             }
         }
 
-        // Connected peers (server only)
+        // Connected peers (server only) — snapshot data to avoid holding raw pointer
         if (auto const* server = NetworkManager::GetServer())
         {
+            struct PeerEntry
+            {
+                u32 ClientID = 0;
+                EConnectionState State = EConnectionState::None;
+                i32 PingMs = -1;
+            };
+            std::vector<PeerEntry> peerSnapshot;
+            server->ForEachConnection([&peerSnapshot, server](HSteamNetConnection handle, const NetworkConnection& conn)
+                                      {
+                PeerEntry entry;
+                entry.ClientID = conn.GetClientID();
+                entry.State = conn.GetState();
+                entry.PingMs = server->GetClientPingMs(handle);
+                peerSnapshot.push_back(entry); });
+
             ImGui::Separator();
             if (ImGui::CollapsingHeader("Connected Peers", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                if (server->GetConnectionCount() == 0)
+                if (peerSnapshot.empty())
                 {
                     ImGui::TextDisabled("No clients connected");
                 }
@@ -120,15 +144,15 @@ namespace OloEngine
                     ImGui::TableSetupColumn("Ping");
                     ImGui::TableHeadersRow();
 
-                    server->ForEachConnection([](HSteamNetConnection handle, const NetworkConnection& conn)
-                                              {
+                    for (auto const& peer : peerSnapshot)
+                    {
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
-                        ImGui::Text("%u", conn.GetClientID());
+                        ImGui::Text("%u", peer.ClientID);
 
                         ImGui::TableNextColumn();
                         const char* stateStr = "Unknown";
-                        switch (conn.GetState())
+                        switch (peer.State)
                         {
                             case EConnectionState::Connecting:
                                 stateStr = "Connecting";
@@ -145,16 +169,15 @@ namespace OloEngine
                         ImGui::Text("%s", stateStr);
 
                         ImGui::TableNextColumn();
-                        SteamNetConnectionRealTimeStatus_t status;
-                        auto* gns = SteamNetworkingSockets();
-                        if (gns && gns->GetConnectionRealTimeStatus(handle, &status, 0, nullptr) == k_EResultOK)
+                        if (peer.PingMs >= 0)
                         {
-                            ImGui::Text("%d ms", status.m_nPing);
+                            ImGui::Text("%d ms", peer.PingMs);
                         }
                         else
                         {
                             ImGui::TextDisabled("N/A");
-                        } });
+                        }
+                    }
                     ImGui::EndTable();
                 }
             }

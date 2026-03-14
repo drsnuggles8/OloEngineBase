@@ -4,6 +4,7 @@
 #include "OloEngine/Networking/Replication/SnapshotBuffer.h"
 
 #include <functional>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -48,7 +49,7 @@ namespace OloEngine
 
         // Get the predicted input for a peer at a given tick.
         // If no real input is available, returns the last known input (input prediction).
-        [[nodiscard]] const std::vector<u8>* GetInputForTick(u32 peerID, u32 tick) const;
+        [[nodiscard]] std::optional<std::vector<u8>> GetInputForTick(u32 peerID, u32 tick) const;
 
         // Get the current rollback frame (tick).
         [[nodiscard]] u32 GetCurrentTick() const;

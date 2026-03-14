@@ -12,7 +12,7 @@ using namespace OloEngine;
 TEST(NetworkSession, CreateSetsModelAndState)
 {
     NetworkSession session;
-    session.Create(ENetworkModel::ClientServerAuthoritative, "TestGame");
+    ASSERT_TRUE(session.Create(ENetworkModel::ClientServerAuthoritative, "TestGame"));
 
     EXPECT_EQ(session.GetModel(), ENetworkModel::ClientServerAuthoritative);
     EXPECT_EQ(session.GetState(), ESessionState::Lobby);
@@ -23,7 +23,7 @@ TEST(NetworkSession, CreateSetsModelAndState)
 TEST(NetworkSession, ResetClearsEverything)
 {
     NetworkSession session;
-    session.Create(ENetworkModel::Lockstep, "MySession");
+    ASSERT_TRUE(session.Create(ENetworkModel::Lockstep, "MySession"));
     session.AddPlayer(1, "Alice", true);
     session.Reset();
 
@@ -36,7 +36,7 @@ TEST(NetworkSession, ResetClearsEverything)
 TEST(NetworkSession, TransitionToChangesState)
 {
     NetworkSession session;
-    session.Create(ENetworkModel::PeerToPeer, "P2PGame");
+    ASSERT_TRUE(session.Create(ENetworkModel::PeerToPeer, "P2PGame"));
     EXPECT_EQ(session.GetState(), ESessionState::Lobby);
 
     session.TransitionTo(ESessionState::Loading);
@@ -52,7 +52,7 @@ TEST(NetworkSession, TransitionToChangesState)
 TEST(NetworkSession, AddRemovePlayer)
 {
     NetworkSession session;
-    session.Create(ENetworkModel::TurnBased, "TurnGame");
+    ASSERT_TRUE(session.Create(ENetworkModel::TurnBased, "TurnGame"));
 
     session.AddPlayer(1, "Host", true);
     session.AddPlayer(2, "Client");
@@ -72,7 +72,7 @@ TEST(NetworkSession, AddRemovePlayer)
 TEST(NetworkSession, AreAllPlayersReady)
 {
     NetworkSession session;
-    session.Create(ENetworkModel::ClientServerAuthoritative, "ReadyTest");
+    ASSERT_TRUE(session.Create(ENetworkModel::ClientServerAuthoritative, "ReadyTest"));
 
     // Empty session — not ready
     EXPECT_FALSE(session.AreAllPlayersReady());
@@ -99,7 +99,7 @@ TEST(NetworkSession, AreAllPlayersReady)
 TEST(NetworkSession, SessionLifecycle)
 {
     NetworkSession session;
-    session.Create(ENetworkModel::ClientServerAuthoritative, "Lifecycle");
+    ASSERT_TRUE(session.Create(ENetworkModel::ClientServerAuthoritative, "Lifecycle"));
     session.AddPlayer(1, "Host", true);
     session.AddPlayer(2, "Player");
     session.SetPlayerReady(1, true);

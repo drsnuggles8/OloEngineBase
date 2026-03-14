@@ -24,8 +24,9 @@ namespace OloEngine
         NetworkPriorityQueue() = default;
 
         // Add or update an entity's priority score.
-        // Score formula: ticksSinceLastUpdate / max(distanceSq, 1.0)
-        // Staler + closer = higher priority.
+        // Score formula: max(ticksSinceLastUpdate, 1) / max(distanceSq, 1.0)
+        // Staler + closer = higher priority. Both inputs are clamped to >= 1 to avoid
+        // division by zero and zero-staleness edge cases.
         void UpdatePriority(u64 uuid, f32 distanceSq, u32 ticksSinceLastUpdate)
         {
             OLO_PROFILE_FUNCTION();
@@ -49,13 +50,13 @@ namespace OloEngine
         {
             OLO_PROFILE_FUNCTION();
 
-            auto sorted = m_Entries;
-            u32 const n = std::min(count, static_cast<u32>(sorted.size()));
-            std::partial_sort(sorted.begin(), sorted.begin() + n, sorted.end(),
-                              [](const PriorityEntry& a, const PriorityEntry& b)
-                              { return a.Score > b.Score; });
-            sorted.resize(n);
-            return sorted;
+            u32 const n = std::min(count, static_cast<u32>(m_Entries.size()));
+            std::vector<PriorityEntry> result(n);
+            std::partial_sort_copy(m_Entries.begin(), m_Entries.end(),
+                                   result.begin(), result.end(),
+                                   [](const PriorityEntry& a, const PriorityEntry& b)
+                                   { return a.Score > b.Score; });
+            return result;
         }
 
         // Remove an entity from the queue.

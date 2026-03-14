@@ -112,6 +112,8 @@ namespace OloEngine
         u32 m_LocalPeerID = 0;
         u32 m_HostPeerID = 0;
         bool m_InSession = false;
+        std::string m_HostAddress;
+        u16 m_HostPort = 0;
         std::unordered_map<u32, PeerInfo> m_Peers;
         PeerMessageCallback m_MessageCallback;
 

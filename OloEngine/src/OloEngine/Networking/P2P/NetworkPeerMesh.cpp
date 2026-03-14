@@ -56,6 +56,8 @@ namespace OloEngine
 
         m_LocalPeerID = localPeerID;
         m_InSession = true;
+        m_HostAddress = hostAddress;
+        m_HostPort = hostPort;
 
         PeerInfo self;
         self.PeerID = localPeerID;
@@ -86,24 +88,28 @@ namespace OloEngine
 
     u32 NetworkPeerMesh::GetLocalPeerID() const
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_LocalPeerID;
     }
 
     std::unordered_map<u32, PeerInfo> NetworkPeerMesh::GetPeers() const
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_Peers;
     }
 
     bool NetworkPeerMesh::IsHost() const
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_InSession && m_LocalPeerID == m_HostPeerID;
     }
 
     bool NetworkPeerMesh::IsInSession() const
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_InSession;
     }
@@ -130,6 +136,21 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         TUniqueLock<FMutex> lock(m_Mutex);
+
+        // Clean up existing transport handles before creating new ones
+        if (m_Interface)
+        {
+            if (m_PollGroup != k_HSteamNetPollGroup_Invalid)
+            {
+                m_Interface->DestroyPollGroup(m_PollGroup);
+                m_PollGroup = k_HSteamNetPollGroup_Invalid;
+            }
+            if (m_ListenSocket != k_HSteamListenSocket_Invalid)
+            {
+                m_Interface->CloseListenSocket(m_ListenSocket);
+                m_ListenSocket = k_HSteamListenSocket_Invalid;
+            }
+        }
 
         m_Interface = SteamNetworkingSockets();
         if (!m_Interface)
@@ -204,7 +225,12 @@ namespace OloEngine
             return false;
         }
 
-        m_Interface->SetConnectionPollGroup(conn, m_PollGroup);
+        if (!m_Interface->SetConnectionPollGroup(conn, m_PollGroup))
+        {
+            OLO_CORE_ERROR("[NetworkPeerMesh] Failed to assign connection to poll group for peer {}", peerID);
+            m_Interface->CloseConnection(conn, 0, nullptr, false);
+            return false;
+        }
 
         m_PeerConnections[peerID] = conn;
         m_ConnectionToPeer[conn] = peerID;
@@ -338,8 +364,13 @@ namespace OloEngine
             buffer.insert(buffer.end(), data, data + size);
         }
 
-        m_Interface->SendMessageToConnection(connIt->second, buffer.data(), static_cast<u32>(buffer.size()), sendFlags,
-                                             nullptr);
+        EResult const result = m_Interface->SendMessageToConnection(
+            connIt->second, buffer.data(), static_cast<u32>(buffer.size()), sendFlags, nullptr);
+        if (result != k_EResultOK)
+        {
+            OLO_CORE_WARN("[NetworkPeerMesh] SendToPeer: failed to send to peer {} (result {})", peerID,
+                          static_cast<int>(result));
+        }
     }
 
     void NetworkPeerMesh::BroadcastToPeers(ENetworkMessageType type, const u8* data, u32 size, i32 sendFlags)
@@ -368,6 +399,7 @@ namespace OloEngine
 
     void NetworkPeerMesh::SetMessageCallback(PeerMessageCallback callback)
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         m_MessageCallback = std::move(callback);
     }
@@ -376,72 +408,85 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        TUniqueLock<FMutex> lock(m_Mutex);
+        bool needsHostMigration = false;
 
-        // Only handle connections belonging to our listen socket or already tracked
-        if (pInfo->m_info.m_hListenSocket != k_HSteamListenSocket_Invalid &&
-            pInfo->m_info.m_hListenSocket != m_ListenSocket)
         {
-            return;
-        }
-        if (pInfo->m_info.m_hListenSocket == k_HSteamListenSocket_Invalid &&
-            m_ConnectionToPeer.find(pInfo->m_hConn) == m_ConnectionToPeer.end() &&
-            m_PeerConnections.empty())
-        {
-            return;
-        }
+            TUniqueLock<FMutex> lock(m_Mutex);
 
-        switch (pInfo->m_info.m_eState)
-        {
-            case k_ESteamNetworkingConnectionState_Connecting:
+            // Only handle connections belonging to our listen socket or already tracked
+            if (pInfo->m_info.m_hListenSocket != k_HSteamListenSocket_Invalid &&
+                pInfo->m_info.m_hListenSocket != m_ListenSocket)
             {
-                // Accept incoming connections on our listen socket (host mode)
-                if (m_Interface && m_ListenSocket != k_HSteamListenSocket_Invalid &&
-                    pInfo->m_info.m_hListenSocket == m_ListenSocket)
+                return;
+            }
+            if (pInfo->m_info.m_hListenSocket == k_HSteamListenSocket_Invalid &&
+                m_ConnectionToPeer.find(pInfo->m_hConn) == m_ConnectionToPeer.end() &&
+                m_PeerConnections.empty())
+            {
+                return;
+            }
+
+            switch (pInfo->m_info.m_eState)
+            {
+                case k_ESteamNetworkingConnectionState_Connecting:
                 {
-                    if (m_Interface->AcceptConnection(pInfo->m_hConn) != k_EResultOK)
+                    // Accept incoming connections on our listen socket (host mode)
+                    if (m_Interface && m_ListenSocket != k_HSteamListenSocket_Invalid &&
+                        pInfo->m_info.m_hListenSocket == m_ListenSocket)
+                    {
+                        if (m_Interface->AcceptConnection(pInfo->m_hConn) != k_EResultOK)
+                        {
+                            m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                            OLO_CORE_WARN("[NetworkPeerMesh] Failed to accept peer connection");
+                            break;
+                        }
+                        if (!m_Interface->SetConnectionPollGroup(pInfo->m_hConn, m_PollGroup))
+                        {
+                            m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                            OLO_CORE_WARN("[NetworkPeerMesh] Failed to assign connection to poll group");
+                            break;
+                        }
+                        OLO_CORE_INFO("[NetworkPeerMesh] Peer connecting (handle {})", pInfo->m_hConn);
+                    }
+                    break;
+                }
+
+                case k_ESteamNetworkingConnectionState_Connected:
+                {
+                    OLO_CORE_INFO("[NetworkPeerMesh] Peer connection established (handle {})", pInfo->m_hConn);
+                    break;
+                }
+
+                case k_ESteamNetworkingConnectionState_ClosedByPeer:
+                case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+                {
+                    if (auto it = m_ConnectionToPeer.find(pInfo->m_hConn); it != m_ConnectionToPeer.end())
+                    {
+                        u32 const peerID = it->second;
+                        OLO_CORE_INFO("[NetworkPeerMesh] Peer {} disconnected: {}", peerID, pInfo->m_info.m_szEndDebug);
+                        if (peerID == m_HostPeerID)
+                        {
+                            needsHostMigration = true;
+                        }
+                        m_Peers.erase(peerID);
+                        m_PeerConnections.erase(peerID);
+                        m_ConnectionToPeer.erase(it);
+                    }
+                    if (m_Interface)
                     {
                         m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                        OLO_CORE_WARN("[NetworkPeerMesh] Failed to accept peer connection");
-                        break;
                     }
-                    if (!m_Interface->SetConnectionPollGroup(pInfo->m_hConn, m_PollGroup))
-                    {
-                        m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                        OLO_CORE_WARN("[NetworkPeerMesh] Failed to assign connection to poll group");
-                        break;
-                    }
-                    OLO_CORE_INFO("[NetworkPeerMesh] Peer connecting (handle {})", pInfo->m_hConn);
+                    break;
                 }
-                break;
-            }
 
-            case k_ESteamNetworkingConnectionState_Connected:
-            {
-                OLO_CORE_INFO("[NetworkPeerMesh] Peer connection established (handle {})", pInfo->m_hConn);
-                break;
+                default:
+                    break;
             }
+        } // lock released
 
-            case k_ESteamNetworkingConnectionState_ClosedByPeer:
-            case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-            {
-                if (auto it = m_ConnectionToPeer.find(pInfo->m_hConn); it != m_ConnectionToPeer.end())
-                {
-                    u32 const peerID = it->second;
-                    OLO_CORE_INFO("[NetworkPeerMesh] Peer {} disconnected: {}", peerID, pInfo->m_info.m_szEndDebug);
-                    m_Peers.erase(peerID);
-                    m_PeerConnections.erase(peerID);
-                    m_ConnectionToPeer.erase(it);
-                }
-                if (m_Interface)
-                {
-                    m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                }
-                break;
-            }
-
-            default:
-                break;
+        if (needsHostMigration)
+        {
+            PerformHostMigration();
         }
     }
 
@@ -480,6 +525,7 @@ namespace OloEngine
 
     u32 NetworkPeerMesh::GetHostPeerID() const
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_HostPeerID;
     }
@@ -488,6 +534,7 @@ namespace OloEngine
 
     void NetworkPeerMesh::CloseTransport()
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
 
         if (m_Interface)

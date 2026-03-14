@@ -6,20 +6,21 @@ namespace OloEngine
 {
     NetworkSession::NetworkSession() = default;
 
-    void NetworkSession::Create(ENetworkModel model, const std::string& sessionName)
+    bool NetworkSession::Create(ENetworkModel model, const std::string& sessionName)
     {
         OLO_PROFILE_FUNCTION();
 
         if (model == ENetworkModel::None)
         {
             OLO_CORE_WARN("[NetworkSession] Cannot create session with model None");
-            return;
+            return false;
         }
 
         m_Model = model;
         m_SessionName = sessionName;
         m_State = ESessionState::Lobby;
         m_Players.clear();
+        return true;
     }
 
     void NetworkSession::Reset()
@@ -87,11 +88,13 @@ namespace OloEngine
 
     void NetworkSession::RemovePlayer(u32 clientID)
     {
+        OLO_PROFILE_FUNCTION();
         m_Players.erase(clientID);
     }
 
     void NetworkSession::SetPlayerReady(u32 clientID, bool ready)
     {
+        OLO_PROFILE_FUNCTION();
         if (auto it = m_Players.find(clientID); it != m_Players.end())
         {
             it->second.IsReady = ready;
@@ -100,6 +103,8 @@ namespace OloEngine
 
     bool NetworkSession::AreAllPlayersReady() const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Players.empty())
         {
             return false;

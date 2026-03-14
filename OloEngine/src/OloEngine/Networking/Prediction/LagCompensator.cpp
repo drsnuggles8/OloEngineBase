@@ -78,11 +78,19 @@ namespace OloEngine
 
     void LagCompensator::SetMaxRewindMs(f32 maxMs)
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (maxMs <= 0.0f)
+        {
+            OLO_CORE_WARN("[LagCompensator] SetMaxRewindMs: invalid value {}ms, must be > 0", maxMs);
+            return;
+        }
         m_MaxRewindMs = maxMs;
     }
 
     f32 LagCompensator::GetMaxRewindMs() const
     {
+        OLO_PROFILE_FUNCTION();
         return m_MaxRewindMs;
     }
 } // namespace OloEngine

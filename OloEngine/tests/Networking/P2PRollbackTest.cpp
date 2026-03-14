@@ -93,8 +93,8 @@ TEST_F(RollbackManagerTest, InputPredictionRepeatsLastKnown)
     m_Manager.SubmitLocalInput(1, 5, { 0xAA, 0xBB });
 
     // Request tick 7 — no real input, should get tick 5's input (most recent before 7)
-    const auto* predicted = m_Manager.GetInputForTick(1, 7);
-    ASSERT_NE(predicted, nullptr);
+    const auto predicted = m_Manager.GetInputForTick(1, 7);
+    ASSERT_TRUE(predicted.has_value());
     EXPECT_EQ(*predicted, (std::vector<u8>{ 0xAA, 0xBB }));
 }
 

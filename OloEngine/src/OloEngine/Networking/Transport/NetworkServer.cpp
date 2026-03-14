@@ -10,6 +10,28 @@
 
 namespace OloEngine
 {
+    static std::vector<u8> BuildMessageBuffer(ENetworkMessageType type, const u8* payload, u32 payloadSize)
+    {
+        std::vector<u8> buffer;
+        FMemoryWriter writer(buffer);
+        writer.ArIsNetArchive = true;
+
+        NetworkMessageHeader header;
+        header.Type = type;
+        header.Size = payloadSize;
+        writer << header.Type;
+        writer << header.Size;
+        writer << header.Flags;
+        writer << header.Version;
+
+        if (payload && payloadSize > 0)
+        {
+            buffer.insert(buffer.end(), payload, payload + payloadSize);
+        }
+
+        return buffer;
+    }
+
     bool NetworkServer::Start(u16 port)
     {
         OLO_PROFILE_FUNCTION();
@@ -26,10 +48,6 @@ namespace OloEngine
         SteamNetworkingIPAddr serverAddr;
         serverAddr.Clear();
         serverAddr.m_port = port;
-
-        SteamNetworkingConfigValue_t opt;
-        opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged,
-                   reinterpret_cast<void*>(nullptr)); // Callback handled via NetworkManager
 
         m_ListenSocket = m_Interface->CreateListenSocketIP(serverAddr, 0, nullptr);
         if (m_ListenSocket == k_HSteamListenSocket_Invalid)
@@ -216,23 +234,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<u8> buffer;
-        FMemoryWriter writer(buffer);
-        writer.ArIsNetArchive = true;
-
-        NetworkMessageHeader header;
-        header.Type = type;
-        header.Size = payloadSize;
-        writer << header.Type;
-        writer << header.Size;
-        writer << header.Flags;
-        writer << header.Version;
-
-        if (payload && payloadSize > 0)
-        {
-            buffer.insert(buffer.end(), payload, payload + payloadSize);
-        }
-
+        auto buffer = BuildMessageBuffer(type, payload, payloadSize);
         return SendTo(connection, buffer.data(), static_cast<u32>(buffer.size()), sendFlags);
     }
 
@@ -240,28 +242,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<u8> buffer;
-        FMemoryWriter writer(buffer);
-        writer.ArIsNetArchive = true;
-
-        NetworkMessageHeader header;
-        header.Type = type;
-        header.Size = payloadSize;
-        writer << header.Type;
-        writer << header.Size;
-        writer << header.Flags;
-        writer << header.Version;
-
-        if (payload && payloadSize > 0)
-        {
-            buffer.insert(buffer.end(), payload, payload + payloadSize);
-        }
-
+        auto buffer = BuildMessageBuffer(type, payload, payloadSize);
         Broadcast(buffer.data(), static_cast<u32>(buffer.size()), sendFlags);
     }
 
     bool NetworkServer::IsRunning() const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_ListenSocket != k_HSteamListenSocket_Invalid;
     }
 
@@ -284,6 +271,8 @@ namespace OloEngine
 
     i32 NetworkServer::GetClientPingMs(HSteamNetConnection connection) const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         if (!m_Interface)
         {
             return -1;
@@ -389,21 +378,25 @@ namespace OloEngine
 
     void NetworkServer::SetMaxConnections(u32 maxConnections)
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         m_MaxConnections = maxConnections;
     }
 
     u32 NetworkServer::GetMaxConnections() const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_MaxConnections;
     }
 
     void NetworkServer::SetIdleTimeout(f32 timeoutSeconds)
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         m_IdleTimeout = timeoutSeconds;
     }
 
     f32 NetworkServer::GetIdleTimeout() const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_IdleTimeout;
     }
 } // namespace OloEngine

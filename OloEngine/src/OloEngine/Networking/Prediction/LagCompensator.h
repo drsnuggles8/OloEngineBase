@@ -27,8 +27,8 @@ namespace OloEngine
         LagCompensator();
 
         // Rewind the scene to the given tick using snapshot history, execute the callback,
-        // then restore the current state. Clamps rewind to MaxRewindMs.
-        // Returns true if rewind was performed, false if tick was out of range or clamped.
+        // then restore the current state. Rejects rewind if duration exceeds MaxRewindMs.
+        // Returns true if rewind was performed, false if tick was out of range or rejected.
         using RewindCallback = std::function<void(Scene&)>;
         bool PerformLagCompensatedCheck(Scene& scene, const SnapshotBuffer& history,
                                         const LagCompensationParams& params, const RewindCallback& callback);

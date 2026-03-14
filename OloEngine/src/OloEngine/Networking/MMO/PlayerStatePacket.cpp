@@ -3,6 +3,8 @@
 #include "OloEngine/Serialization/Archive.h"
 
 #include <cstring>
+#include <limits>
+#include <optional>
 
 namespace OloEngine
 {
@@ -36,6 +38,11 @@ namespace OloEngine
         writer << replicated;
 
         auto blobSize = static_cast<u32>(GameStateBlob.size());
+        if (GameStateBlob.size() > static_cast<size_t>(std::numeric_limits<u32>::max()))
+        {
+            OLO_CORE_ERROR("[PlayerStatePacket] GameStateBlob size {} exceeds u32 max", GameStateBlob.size());
+            return {};
+        }
         writer << blobSize;
         if (!GameStateBlob.empty())
         {
@@ -45,19 +52,19 @@ namespace OloEngine
         return buffer;
     }
 
-    PlayerStatePacket PlayerStatePacket::Deserialize(const u8* data, i64 size)
+    std::optional<PlayerStatePacket> PlayerStatePacket::Deserialize(const u8* data, i64 size)
     {
         OLO_PROFILE_FUNCTION();
 
-        PlayerStatePacket packet;
-
         if (!data || size <= 0)
         {
-            return packet;
+            return std::nullopt;
         }
 
         FMemoryReader reader(data, size);
         reader.ArIsNetArchive = true;
+
+        PlayerStatePacket packet;
 
         reader << packet.ClientID;
         reader << packet.EntityUUID;
@@ -96,6 +103,11 @@ namespace OloEngine
         {
             OLO_CORE_WARN("[PlayerStatePacket] Rejecting oversized blob: {} bytes (max {})", blobSize, kMaxBlobSize);
             reader.SetError();
+        }
+
+        if (reader.IsError())
+        {
+            return std::nullopt;
         }
 
         return packet;
