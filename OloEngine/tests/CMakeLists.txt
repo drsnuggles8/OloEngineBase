@@ -58,6 +58,33 @@ add_executable(OloEngine-Tests
 		Rendering/RenderingRegressionTest.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
+		Networking/NetworkManagerTest.cpp
+		Networking/NetworkMessageTest.cpp
+		Networking/NetworkMessageDispatcherTest.cpp
+		Networking/NetworkThreadDispatchTest.cpp
+		Networking/NetworkIntegrationTest.cpp
+		Networking/ComponentReplicatorTest.cpp
+		Networking/EntitySnapshotTest.cpp
+		Networking/NetworkIdentityComponentTest.cpp
+		Networking/SnapshotBufferTest.cpp
+		Networking/DeltaSnapshotTest.cpp
+		Networking/SnapshotInterpolatorTest.cpp
+		Networking/InputBufferTest.cpp
+		Networking/PredictionReconciliationTest.cpp
+		Networking/AuthorityRejectionTest.cpp
+		Networking/LagCompensatorTest.cpp
+		Networking/InterestManagerTest.cpp
+		Networking/LockstepTest.cpp
+		Networking/P2PRollbackTest.cpp
+		Networking/SessionLobbyTest.cpp
+		# MMO Networking Tests (Phases 8-14)
+		Networking/SpatialGridTest.cpp
+		Networking/ZoneServerTest.cpp
+		Networking/ZoneHandoffTest.cpp
+		Networking/InstanceLayerTest.cpp
+		Networking/ChatTest.cpp
+		Networking/PersistenceTest.cpp
+		Networking/MMOOptimizationTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

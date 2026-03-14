@@ -430,6 +430,7 @@ namespace OloEngine
             ImGui::MenuItem("Terrain Editor", nullptr, &m_ShowTerrainEditor);
             ImGui::MenuItem("Scene Streaming", nullptr, &m_ShowStreamingPanel);
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
+            ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
 
             ImGui::EndMenu();
         }
@@ -711,6 +712,12 @@ namespace OloEngine
         if (m_ShowInputSettings)
         {
             m_InputSettingsPanel.OnImGuiRender();
+        }
+
+        // Network Debug Panel
+        if (m_ShowNetworkDebug)
+        {
+            m_NetworkDebugPanel.OnImGuiRender();
         }
     }
 

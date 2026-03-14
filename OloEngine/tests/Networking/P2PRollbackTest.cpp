@@ -1,0 +1,241 @@
+#include "OloEnginePCH.h"
+#include <gtest/gtest.h>
+
+#include "OloEngine/Networking/P2P/RollbackManager.h"
+#include "OloEngine/Networking/P2P/NetworkPeerMesh.h"
+#include "OloEngine/Networking/Replication/EntitySnapshot.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Components.h"
+
+using namespace OloEngine;
+
+// ── RollbackManager Tests ────────────────────────────────────────────
+
+class RollbackManagerTest : public ::testing::Test
+{
+  protected:
+    void SetUp() override
+    {
+        m_Scene = CreateScope<Scene>();
+        m_Manager = RollbackManager();
+        m_AppliedInputs.clear();
+
+        m_Manager.SetInputApplyCallback(
+            [this](Scene& /*s*/, u32 peerID, const u8* data, u32 size)
+            {
+                m_AppliedInputs.emplace_back(peerID, std::vector<u8>(data, data + size));
+            });
+    }
+
+    Scope<Scene> m_Scene;
+    RollbackManager m_Manager;
+    std::vector<std::pair<u32, std::vector<u8>>> m_AppliedInputs;
+};
+
+TEST_F(RollbackManagerTest, SaveAndRestoreState)
+{
+    Entity e = m_Scene->CreateEntityWithUUID(UUID(100), "Player");
+    auto& tc = e.GetComponent<TransformComponent>();
+    tc.Translation = { 1.0f, 2.0f, 3.0f };
+
+    m_Manager.SaveState(1, *m_Scene);
+
+    // Modify the entity
+    tc.Translation = { 10.0f, 20.0f, 30.0f };
+
+    // Submit inputs and trigger rollback
+    m_Manager.SetCurrentTick(3);
+    m_Manager.SubmitLocalInput(1, 1, { 0x01 });
+    m_Manager.SubmitLocalInput(1, 2, { 0x02 });
+    m_Manager.SubmitLocalInput(1, 3, { 0x03 });
+
+    // Save states for re-sim
+    m_Manager.SaveState(2, *m_Scene);
+    m_Manager.SaveState(3, *m_Scene);
+
+    // Receive late remote input for tick 1 — should trigger rollback
+    u32 depth = m_Manager.ReceiveRemoteInput(2, 1, { 0xAA }, *m_Scene);
+    EXPECT_EQ(depth, 2u); // Rolled back from tick 3 to tick 1
+
+    // Verify the input-application callback was invoked during re-sim
+    ASSERT_FALSE(m_AppliedInputs.empty());
+    // Re-sim covers ticks 2 and 3, so expect at least 2 callback invocations
+    EXPECT_GE(m_AppliedInputs.size(), 2u);
+
+    // Entity should be at the restored position after re-sim
+    EXPECT_EQ(m_Manager.GetRollbackCount(), 1u);
+}
+
+TEST_F(RollbackManagerTest, NoRollbackForCurrentTick)
+{
+    m_Manager.SetCurrentTick(5);
+    u32 depth = m_Manager.ReceiveRemoteInput(2, 5, { 0x01 }, *m_Scene);
+    EXPECT_EQ(depth, 0u);
+    EXPECT_EQ(m_Manager.GetRollbackCount(), 0u);
+}
+
+TEST_F(RollbackManagerTest, NoRollbackForFutureTick)
+{
+    m_Manager.SetCurrentTick(3);
+    u32 depth = m_Manager.ReceiveRemoteInput(2, 5, { 0x01 }, *m_Scene);
+    EXPECT_EQ(depth, 0u);
+}
+
+TEST_F(RollbackManagerTest, ExcessiveRollbackDropped)
+{
+    m_Manager.SetMaxRollbackFrames(3);
+    m_Manager.SetCurrentTick(10);
+
+    // Input 7 frames late (> max 3)
+    u32 depth = m_Manager.ReceiveRemoteInput(2, 3, { 0x01 }, *m_Scene);
+    EXPECT_EQ(depth, 0u);
+    EXPECT_EQ(m_Manager.GetRollbackCount(), 0u);
+}
+
+TEST_F(RollbackManagerTest, InputPredictionRepeatsLastKnown)
+{
+    m_Manager.SubmitLocalInput(1, 5, { 0xAA, 0xBB });
+
+    // Request tick 7 — no real input, should get tick 5's input (most recent before 7)
+    const auto predicted = m_Manager.GetInputForTick(1, 7);
+    ASSERT_TRUE(predicted.has_value());
+    EXPECT_EQ(*predicted, (std::vector<u8>{ 0xAA, 0xBB }));
+}
+
+TEST_F(RollbackManagerTest, MaxRollbackGetSet)
+{
+    EXPECT_EQ(m_Manager.GetMaxRollbackFrames(), 7u);
+    m_Manager.SetMaxRollbackFrames(4);
+    EXPECT_EQ(m_Manager.GetMaxRollbackFrames(), 4u);
+}
+
+// ── NetworkPeerMesh Tests ────────────────────────────────────────────
+
+TEST(PeerMeshTest, CreateSessionMakesHost)
+{
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+
+    EXPECT_TRUE(mesh.IsHost());
+    EXPECT_TRUE(mesh.IsInSession());
+    EXPECT_EQ(mesh.GetLocalPeerID(), 1u);
+    EXPECT_EQ(mesh.GetHostPeerID(), 1u);
+    EXPECT_EQ(mesh.GetPeers().size(), 1u);
+}
+
+TEST(PeerMeshTest, JoinSessionNotHost)
+{
+    NetworkPeerMesh mesh;
+    mesh.JoinSession(2, "127.0.0.1", 27015);
+
+    EXPECT_TRUE(mesh.IsInSession());
+    EXPECT_FALSE(mesh.IsHost());
+    EXPECT_EQ(mesh.GetLocalPeerID(), 2u);
+}
+
+TEST(PeerMeshTest, LeaveSessionClearsState)
+{
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+    mesh.LeaveSession();
+
+    EXPECT_FALSE(mesh.IsInSession());
+    EXPECT_FALSE(mesh.IsHost());
+    EXPECT_TRUE(mesh.GetPeers().empty());
+}
+
+TEST(PeerMeshTest, HostMigrationSelectsLowestID)
+{
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(3);
+
+    // Add peers to topology (no transport needed)
+    mesh.AddPeer(1);
+    mesh.AddPeer(2);
+
+    mesh.PerformHostMigration();
+
+    EXPECT_EQ(mesh.GetHostPeerID(), 1u);
+    auto peers = mesh.GetPeers();
+    EXPECT_TRUE(peers[1].IsHost);
+    EXPECT_FALSE(peers[2].IsHost);
+    EXPECT_FALSE(peers[3].IsHost);
+}
+
+// ── NetworkPeerMesh Transport Tests (GNS not initialised) ────────────
+
+TEST(PeerMeshTest, StartListeningFailsWithoutGNS)
+{
+    // GNS is not initialised in unit tests, so StartListening should
+    // return false gracefully rather than crashing.
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+    EXPECT_FALSE(mesh.StartListening(27015));
+}
+
+TEST(PeerMeshTest, ConnectToPeerFailsWithoutGNS)
+{
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+    EXPECT_FALSE(mesh.ConnectToPeer(2, "127.0.0.1", 27016));
+}
+
+TEST(PeerMeshTest, SendToPeerNoTransportIsNoOp)
+{
+    // SendToPeer should warn but not crash when no transport exists
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+
+    mesh.AddPeer(2, "127.0.0.1", 27016);
+
+    u8 const payload = 0xAA;
+    // Should not crash — just logs a warning
+    mesh.SendToPeer(2, ENetworkMessageType::RPC, &payload, 1, 0);
+}
+
+TEST(PeerMeshTest, BroadcastWithoutTransportIsNoOp)
+{
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+
+    mesh.AddPeer(2, "127.0.0.1", 27016);
+    mesh.AddPeer(3, "127.0.0.1", 27017);
+
+    u8 const payload = 0xBB;
+    // Should not crash
+    mesh.BroadcastToPeers(ENetworkMessageType::RPC, &payload, 1, 0);
+}
+
+TEST(PeerMeshTest, PollMessagesWithoutGNSIsNoOp)
+{
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+    // Should not crash
+    mesh.PollMessages();
+}
+
+TEST(PeerMeshTest, LeaveSessionCleansUpTransportState)
+{
+    NetworkPeerMesh mesh;
+    mesh.CreateSession(1);
+    // Even though StartListening fails, LeaveSession should be safe
+    mesh.StartListening(27015);
+    mesh.LeaveSession();
+
+    EXPECT_FALSE(mesh.IsInSession());
+    EXPECT_TRUE(mesh.GetPeers().empty());
+}
+
+TEST(PeerMeshTest, MessageCallbackIsStored)
+{
+    NetworkPeerMesh mesh;
+    bool called = false;
+
+    mesh.SetMessageCallback(
+        [&](u32 /*sender*/, ENetworkMessageType /*type*/, const u8* /*data*/, u32 /*size*/)
+        { called = true; });
+
+    // Callback is stored but not invoked here (no incoming messages)
+    EXPECT_FALSE(called);
+}

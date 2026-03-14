@@ -1112,6 +1112,89 @@ namespace OloEngine
         LODGroupComponent& operator=(LODGroupComponent&&) noexcept = default;
     };
 
+    // ── Networking ───────────────────────────────────────────────────────
+
+    enum class ENetworkAuthority : u8
+    {
+        Server = 0,
+        Client,
+        Shared
+    };
+
+    struct NetworkIdentityComponent
+    {
+        u32 OwnerClientID = 0;
+        ENetworkAuthority Authority = ENetworkAuthority::Server;
+        bool IsReplicated = true;
+
+        NetworkIdentityComponent() = default;
+        NetworkIdentityComponent(const NetworkIdentityComponent&) = default;
+        NetworkIdentityComponent& operator=(const NetworkIdentityComponent&) = default;
+        NetworkIdentityComponent(NetworkIdentityComponent&&) noexcept = default;
+        NetworkIdentityComponent& operator=(NetworkIdentityComponent&&) noexcept = default;
+    };
+
+    struct NetworkInterestComponent
+    {
+        f32 RelevanceRadius = 0.0f; // 0 = always relevant (no distance culling)
+        u32 InterestGroup = 0;      // 0 = default group (always included)
+
+        NetworkInterestComponent() = default;
+        NetworkInterestComponent(const NetworkInterestComponent&) = default;
+        NetworkInterestComponent& operator=(const NetworkInterestComponent&) = default;
+        NetworkInterestComponent(NetworkInterestComponent&&) noexcept = default;
+        NetworkInterestComponent& operator=(NetworkInterestComponent&&) noexcept = default;
+    };
+
+    // ── MMO Networking Components ────────────────────────────────────
+
+    // Phasing visibility filter — entities with matching PhaseID are visible.
+    // PhaseID 0 means visible to all (default).
+    struct PhaseComponent
+    {
+        u32 PhaseID = 0;
+
+        PhaseComponent() = default;
+        PhaseComponent(const PhaseComponent&) = default;
+        PhaseComponent& operator=(const PhaseComponent&) = default;
+        PhaseComponent(PhaseComponent&&) noexcept = default;
+        PhaseComponent& operator=(PhaseComponent&&) noexcept = default;
+    };
+
+    // Instance portal — interaction triggers instance creation or join.
+    struct InstancePortalComponent
+    {
+        u32 TargetZoneID = 0;
+        u8 InstanceType = 0; // Maps to EInstanceType
+        u32 MaxPlayers = 5;
+
+        InstancePortalComponent() = default;
+        InstancePortalComponent(const InstancePortalComponent&) = default;
+        InstancePortalComponent& operator=(const InstancePortalComponent&) = default;
+        InstancePortalComponent(InstancePortalComponent&&) noexcept = default;
+        InstancePortalComponent& operator=(InstancePortalComponent&&) noexcept = default;
+    };
+
+    // Per-entity network update detail level.
+    enum class ENetworkLOD : u8
+    {
+        Full = 0, // All components replicated
+        Reduced,  // Position only (skip rotation/scale)
+        Minimal,  // Position at reduced rate
+        Dormant   // No updates sent
+    };
+
+    struct NetworkLODComponent
+    {
+        ENetworkLOD Level = ENetworkLOD::Full;
+
+        NetworkLODComponent() = default;
+        NetworkLODComponent(const NetworkLODComponent&) = default;
+        NetworkLODComponent& operator=(const NetworkLODComponent&) = default;
+        NetworkLODComponent(NetworkLODComponent&&) noexcept = default;
+        NetworkLODComponent& operator=(NetworkLODComponent&&) noexcept = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -1173,5 +1256,10 @@ namespace OloEngine
         LODGroupComponent,
         LightProbeComponent,
         LightProbeVolumeComponent,
-        StreamingVolumeComponent>;
+        StreamingVolumeComponent,
+        NetworkIdentityComponent,
+        NetworkInterestComponent,
+        PhaseComponent,
+        InstancePortalComponent,
+        NetworkLODComponent>;
 } // namespace OloEngine

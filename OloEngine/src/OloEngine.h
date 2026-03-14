@@ -55,3 +55,14 @@
 #include "OloEngine/Audio/AudioLoader.h"
 
 // ------------------------------
+
+// --Networking------------------
+#include "OloEngine/Networking/Core/NetworkManager.h"
+#include "OloEngine/Networking/Core/NetworkThread.h"
+#include "OloEngine/Networking/Core/NetworkMessage.h"
+#include "OloEngine/Networking/Transport/NetworkConnection.h"
+#include "OloEngine/Networking/Transport/NetworkServer.h"
+#include "OloEngine/Networking/Transport/NetworkClient.h"
+#include "OloEngine/Networking/Replication/ComponentReplicator.h"
+#include "OloEngine/Networking/Replication/EntitySnapshot.h"
+// ------------------------------

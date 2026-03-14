@@ -468,5 +468,22 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void Scene_SetStreamingEnabled(ref bool v);
 		#endregion
+
+		#region Networking
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Network_IsServer();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Network_IsClient();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Network_IsConnected();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Network_Connect(string address, ushort port);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Network_Disconnect();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Network_StartServer(ushort port);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Network_StopServer();
+		#endregion
 	}
 }

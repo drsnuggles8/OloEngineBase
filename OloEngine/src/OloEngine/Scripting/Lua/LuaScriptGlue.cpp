@@ -6,6 +6,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
+#include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputActionManager.h"
 
@@ -224,6 +225,22 @@ namespace OloEngine
                                             "defaultUnloadRadius", &StreamingSettings::DefaultUnloadRadius,
                                             "maxLoadedRegions", &StreamingSettings::MaxLoadedRegions,
                                             "regionDirectory", &StreamingSettings::RegionDirectory);
+
+        // --- NetworkIdentityComponent ---
+        lua.new_usertype<NetworkIdentityComponent>("NetworkIdentityComponent",
+                                                   "ownerClientID", &NetworkIdentityComponent::OwnerClientID,
+                                                   "authority", &NetworkIdentityComponent::Authority,
+                                                   "isReplicated", &NetworkIdentityComponent::IsReplicated);
+
+        // --- NetworkManager (static functions as table) ---
+        auto networkTable = lua.create_named_table("Network");
+        networkTable.set_function("isServer", &NetworkManager::IsServer);
+        networkTable.set_function("isClient", &NetworkManager::IsClient);
+        networkTable.set_function("isConnected", &NetworkManager::IsConnected);
+        networkTable.set_function("connect", &NetworkManager::Connect);
+        networkTable.set_function("disconnect", &NetworkManager::Disconnect);
+        networkTable.set_function("startServer", &NetworkManager::StartServer);
+        networkTable.set_function("stopServer", &NetworkManager::StopServer);
 
         // --- Input (raw + action mapping) ---
         auto inputTable = lua.create_named_table("Input");

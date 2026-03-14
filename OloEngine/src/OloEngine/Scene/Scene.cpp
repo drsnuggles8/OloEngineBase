@@ -3309,3 +3309,28 @@ template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::StreamingVolumeComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::StreamingVolumeComponent& component)
 {
 }
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::NetworkIdentityComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NetworkIdentityComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::NetworkInterestComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NetworkInterestComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::PhaseComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::PhaseComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::InstancePortalComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::InstancePortalComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::NetworkLODComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::NetworkLODComponent& component)
+{
+}

@@ -10,6 +10,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
+#include "OloEngine/Networking/Core/NetworkManager.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -1302,6 +1303,46 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
+    // Networking /////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static bool Network_IsServer()
+    {
+        return NetworkManager::IsServer();
+    }
+
+    static bool Network_IsClient()
+    {
+        return NetworkManager::IsClient();
+    }
+
+    static bool Network_IsConnected()
+    {
+        return NetworkManager::IsConnected();
+    }
+
+    static bool Network_Connect(MonoString* address, u16 port)
+    {
+        std::string addr = Utils::MonoStringToString(address);
+        return NetworkManager::Connect(addr, port);
+    }
+
+    static void Network_Disconnect()
+    {
+        NetworkManager::Disconnect();
+    }
+
+    static bool Network_StartServer(u16 port)
+    {
+        return NetworkManager::StartServer(port);
+    }
+
+    static void Network_StopServer()
+    {
+        NetworkManager::StopServer();
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1619,6 +1660,17 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Scene_UnloadRegion);
         OLO_ADD_INTERNAL_CALL(Scene_GetStreamingEnabled);
         OLO_ADD_INTERNAL_CALL(Scene_SetStreamingEnabled);
+
+        ///////////////////////////////////////////////////////////////
+        // Networking ////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Network_IsServer);
+        OLO_ADD_INTERNAL_CALL(Network_IsClient);
+        OLO_ADD_INTERNAL_CALL(Network_IsConnected);
+        OLO_ADD_INTERNAL_CALL(Network_Connect);
+        OLO_ADD_INTERNAL_CALL(Network_Disconnect);
+        OLO_ADD_INTERNAL_CALL(Network_StartServer);
+        OLO_ADD_INTERNAL_CALL(Network_StopServer);
     }
 
 } // namespace OloEngine

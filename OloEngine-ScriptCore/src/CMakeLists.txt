@@ -2,6 +2,7 @@
 		"OloEngine/Input.cs"
 		"OloEngine/InternalCalls.cs"
 		"OloEngine/KeyCode.cs"
+		"OloEngine/NetworkManager.cs"
 		"OloEngine/Vector2.cs"
 		"OloEngine/Vector3.cs"
 		"OloEngine/Vector4.cs"
