@@ -23,7 +23,8 @@ namespace OloEngine
         NetworkPriorityQueue() = default;
 
         // Add or update an entity's priority score.
-        // Score formula: 1.0 / (distanceSq * ticksSinceLastUpdate)
+        // Score formula: ticksSinceLastUpdate / max(distanceSq, 1.0)
+        // Staler + closer = higher priority.
         void UpdatePriority(u64 uuid, f32 distanceSq, u32 ticksSinceLastUpdate)
         {
             f32 const dist = std::max(distanceSq, 1.0f);

@@ -41,6 +41,7 @@ namespace OloEngine
             zone.Stop();
         }
         m_PlayerZoneMap.clear();
+        m_ActiveHandoffs.clear();
     }
 
     void ZoneManager::TickAll(f32 dt)
@@ -219,6 +220,10 @@ namespace OloEngine
         }
 
         u32 transactionID = m_NextTransactionID++;
+        if (transactionID == 0)
+        {
+            transactionID = m_NextTransactionID++; // Skip 0 (sentinel)
+        }
 
         HandoffTransaction tx;
         tx.TransactionID = transactionID;

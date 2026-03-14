@@ -20,6 +20,6 @@ namespace OloEngine
 
         static FThread s_Thread;
         static std::atomic<bool> s_Running;
-        static u32 s_TickRateHz;
+        static std::atomic<u32> s_TickRateHz;
     };
 } // namespace OloEngine

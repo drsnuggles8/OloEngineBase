@@ -143,7 +143,8 @@ namespace OloEngine
 
                         ImGui::TableNextColumn();
                         SteamNetConnectionRealTimeStatus_t status;
-                        if (SteamNetworkingSockets()->GetConnectionRealTimeStatus(handle, &status, 0, nullptr) == k_EResultOK)
+                        auto* gns = SteamNetworkingSockets();
+                        if (gns && gns->GetConnectionRealTimeStatus(handle, &status, 0, nullptr) == k_EResultOK)
                         {
                             ImGui::Text("%d ms", status.m_nPing);
                         }

@@ -14,6 +14,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         m_Interface = SteamNetworkingSockets();
         if (!m_Interface)
         {

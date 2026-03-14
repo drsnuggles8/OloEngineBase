@@ -56,6 +56,11 @@ namespace OloEngine
 
     void NetworkSession::AddPlayer(u32 clientID, const std::string& name, bool isHost)
     {
+        if (m_Players.contains(clientID))
+        {
+            OLO_CORE_WARN("[NetworkSession] AddPlayer: client {} already in session, overwriting", clientID);
+        }
+
         SessionPlayer player;
         player.ClientID = clientID;
         player.Name = name;

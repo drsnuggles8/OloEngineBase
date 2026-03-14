@@ -176,6 +176,18 @@ namespace OloEngine
                 LayerID target = mergeCandidates[0];
                 LayerID source = mergeCandidates[1];
 
+                // Check if combined count would exceed SoftCap
+                auto targetInfoIt = m_LayerInfos.find(target);
+                auto sourceInfoIt = m_LayerInfos.find(source);
+                if (targetInfoIt != m_LayerInfos.end() && sourceInfoIt != m_LayerInfos.end())
+                {
+                    if (targetInfoIt->second.PlayerCount + sourceInfoIt->second.PlayerCount > m_Config.SoftCap)
+                    {
+                        mergeCandidates.erase(mergeCandidates.begin() + 1);
+                        continue;
+                    }
+                }
+
                 // Move all players from source to target
                 std::vector<u32> playersToMove;
                 for (auto& [clientID, layerID] : m_PlayerLayerMap)
@@ -205,9 +217,9 @@ namespace OloEngine
                     }
                 }
 
-                // Update counts
-                auto targetInfoIt = m_LayerInfos.find(target);
-                auto sourceInfoIt = m_LayerInfos.find(source);
+                // Update counts (reuse iterators from capacity check above)
+                targetInfoIt = m_LayerInfos.find(target);
+                sourceInfoIt = m_LayerInfos.find(source);
                 if (targetInfoIt != m_LayerInfos.end() && sourceInfoIt != m_LayerInfos.end())
                 {
                     targetInfoIt->second.PlayerCount += sourceInfoIt->second.PlayerCount;

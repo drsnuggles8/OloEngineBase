@@ -91,6 +91,13 @@ namespace OloEngine
 
     void NetworkLobby::CreateLobby(const std::string& name, u16 port, u32 maxPlayers)
     {
+        // Close any existing discovery socket to prevent leaks
+        if (m_DiscoverySocket != UINT64_MAX)
+        {
+            CloseSocketHandle(static_cast<SocketType>(m_DiscoverySocket));
+            m_DiscoverySocket = UINT64_MAX;
+        }
+
         m_LobbyName = name;
         m_Port = port;
         m_MaxPlayers = maxPlayers;
@@ -227,7 +234,13 @@ namespace OloEngine
         bindAddr.sin_family = AF_INET;
         bindAddr.sin_addr.s_addr = INADDR_ANY;
         bindAddr.sin_port = 0;
-        bind(sock, reinterpret_cast<sockaddr*>(&bindAddr), sizeof(bindAddr));
+        if (bind(sock, reinterpret_cast<sockaddr*>(&bindAddr), sizeof(bindAddr)) == kSocketError)
+        {
+            OLO_CORE_WARN("[NetworkLobby] FindLobbies: bind failed (error {})", GetLastSocketError());
+            CloseSocketHandle(sock);
+            callback({});
+            return;
+        }
 
         // Send broadcast probe
         sockaddr_in broadcastAddr{};

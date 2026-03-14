@@ -4,6 +4,7 @@
 #include "OloEngine/Networking/Replication/SnapshotBuffer.h"
 
 #include <functional>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine

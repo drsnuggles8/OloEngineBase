@@ -21,6 +21,11 @@ namespace OloEngine
 
     const InputCommand* NetworkInputBuffer::GetByTick(u32 tick) const
     {
+        if (tick == 0)
+        {
+            return nullptr;
+        }
+
         for (u32 i = 0; i < m_Count; ++i)
         {
             u32 const idx = (m_Head + m_Capacity - 1 - i) % m_Capacity;

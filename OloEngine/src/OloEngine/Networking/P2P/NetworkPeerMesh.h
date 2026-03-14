@@ -43,6 +43,10 @@ namespace OloEngine
     {
       public:
         NetworkPeerMesh();
+        ~NetworkPeerMesh();
+
+        NetworkPeerMesh(const NetworkPeerMesh&) = delete;
+        NetworkPeerMesh& operator=(const NetworkPeerMesh&) = delete;
 
         // Create a new P2P session. This peer becomes the host.
         void CreateSession(u32 localPeerID);

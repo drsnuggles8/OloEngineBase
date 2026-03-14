@@ -66,7 +66,9 @@ namespace OloEngine
         u32 blobSize = 0;
         reader << blobSize;
 
-        if (!reader.IsError() && blobSize > 0)
+        // Guard against excessively large blob sizes (allocation DoS)
+        static constexpr u32 kMaxBlobSize = 1024 * 1024; // 1 MB
+        if (!reader.IsError() && blobSize > 0 && blobSize <= kMaxBlobSize)
         {
             i64 const remaining = size - reader.Tell();
             if (static_cast<i64>(blobSize) <= remaining)

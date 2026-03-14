@@ -12,6 +12,18 @@ namespace OloEngine
 {
     NetworkPeerMesh::NetworkPeerMesh() = default;
 
+    NetworkPeerMesh::~NetworkPeerMesh()
+    {
+        if (m_InSession)
+        {
+            LeaveSession();
+        }
+        else
+        {
+            CloseTransport();
+        }
+    }
+
     void NetworkPeerMesh::CreateSession(u32 localPeerID)
     {
         OLO_PROFILE_FUNCTION();
@@ -116,6 +128,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        TUniqueLock<FMutex> lock(m_Mutex);
+
         m_Interface = SteamNetworkingSockets();
         if (!m_Interface)
         {
@@ -211,53 +225,77 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        TUniqueLock<FMutex> lock(m_Mutex);
-
-        if (!m_Interface || m_PollGroup == k_HSteamNetPollGroup_Invalid)
+        // Collect messages under lock, dispatch without lock to avoid deadlock
+        // if callbacks call back into the mesh (e.g., SendToPeer).
+        struct ReceivedMessage
         {
-            return;
-        }
+            u32 SenderPeerID = 0;
+            ENetworkMessageType Type = ENetworkMessageType::None;
+            std::vector<u8> Payload;
+        };
+        std::vector<ReceivedMessage> pendingMessages;
+        PeerMessageCallback callbackCopy;
 
-        ISteamNetworkingMessage* pIncomingMsg = nullptr;
-        i32 numMsgs = m_Interface->ReceiveMessagesOnPollGroup(m_PollGroup, &pIncomingMsg, 1);
-        while (numMsgs > 0)
         {
-            u32 const msgSize = pIncomingMsg->m_cbSize;
+            TUniqueLock<FMutex> lock(m_Mutex);
 
-            if (msgSize >= NetworkMessageHeader::kSerializedSize)
+            if (!m_Interface || m_PollGroup == k_HSteamNetPollGroup_Invalid)
             {
-                auto const* rawData = static_cast<const u8*>(pIncomingMsg->m_pData);
-                FMemoryReader reader(rawData, static_cast<i64>(msgSize));
-                reader.ArIsNetArchive = true;
-
-                NetworkMessageHeader header;
-                reader << header.Type;
-                reader << header.Size;
-                reader << header.Flags;
-                reader << header.Version;
-
-                if (!reader.IsError())
-                {
-                    u32 const payloadOffset = static_cast<u32>(reader.Tell());
-                    const u8* payload = rawData + payloadOffset;
-                    u32 const payloadSize = msgSize - payloadOffset;
-
-                    // Resolve sender peer ID from the connection handle
-                    u32 senderPeerID = 0;
-                    if (auto it = m_ConnectionToPeer.find(pIncomingMsg->m_conn); it != m_ConnectionToPeer.end())
-                    {
-                        senderPeerID = it->second;
-                    }
-
-                    if (m_MessageCallback)
-                    {
-                        m_MessageCallback(senderPeerID, header.Type, payload, payloadSize);
-                    }
-                }
+                return;
             }
 
-            pIncomingMsg->Release();
-            numMsgs = m_Interface->ReceiveMessagesOnPollGroup(m_PollGroup, &pIncomingMsg, 1);
+            callbackCopy = m_MessageCallback;
+
+            ISteamNetworkingMessage* pIncomingMsg = nullptr;
+            i32 numMsgs = m_Interface->ReceiveMessagesOnPollGroup(m_PollGroup, &pIncomingMsg, 1);
+            while (numMsgs > 0)
+            {
+                u32 const msgSize = pIncomingMsg->m_cbSize;
+
+                if (msgSize >= NetworkMessageHeader::kSerializedSize)
+                {
+                    auto const* rawData = static_cast<const u8*>(pIncomingMsg->m_pData);
+                    FMemoryReader reader(rawData, static_cast<i64>(msgSize));
+                    reader.ArIsNetArchive = true;
+
+                    NetworkMessageHeader header;
+                    reader << header.Type;
+                    reader << header.Size;
+                    reader << header.Flags;
+                    reader << header.Version;
+
+                    if (!reader.IsError())
+                    {
+                        u32 const payloadOffset = static_cast<u32>(reader.Tell());
+                        const u8* payload = rawData + payloadOffset;
+                        u32 const payloadSize = msgSize - payloadOffset;
+
+                        u32 senderPeerID = 0;
+                        if (auto it = m_ConnectionToPeer.find(pIncomingMsg->m_conn); it != m_ConnectionToPeer.end())
+                        {
+                            senderPeerID = it->second;
+                        }
+
+                        ReceivedMessage msg;
+                        msg.SenderPeerID = senderPeerID;
+                        msg.Type = header.Type;
+                        msg.Payload.assign(payload, payload + payloadSize);
+                        pendingMessages.push_back(std::move(msg));
+                    }
+                }
+
+                pIncomingMsg->Release();
+                numMsgs = m_Interface->ReceiveMessagesOnPollGroup(m_PollGroup, &pIncomingMsg, 1);
+            }
+        }
+
+        // Dispatch outside the lock
+        if (callbackCopy)
+        {
+            for (auto const& msg : pendingMessages)
+            {
+                callbackCopy(msg.SenderPeerID, msg.Type, msg.Payload.data(), static_cast<u32>(msg.Payload.size()));
+            }
         }
     }
 
@@ -326,6 +364,7 @@ namespace OloEngine
 
     void NetworkPeerMesh::SetMessageCallback(PeerMessageCallback callback)
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         m_MessageCallback = std::move(callback);
     }
 
@@ -437,6 +476,7 @@ namespace OloEngine
 
     u32 NetworkPeerMesh::GetHostPeerID() const
     {
+        TUniqueLock<FMutex> lock(m_Mutex);
         return m_HostPeerID;
     }
 

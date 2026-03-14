@@ -92,14 +92,11 @@ namespace OloEngine
         }
         server->RemovePlayer(clientID);
 
-        // Update last player time
-        if (server->GetPlayerCount() > 0)
+        // Always update last player time when a player leaves
+        auto infoIt = m_InstanceInfos.find(instanceID);
+        if (infoIt != m_InstanceInfos.end())
         {
-            auto infoIt = m_InstanceInfos.find(instanceID);
-            if (infoIt != m_InstanceInfos.end())
-            {
-                infoIt->second.LastPlayerTime = std::chrono::steady_clock::now();
-            }
+            infoIt->second.LastPlayerTime = std::chrono::steady_clock::now();
         }
     }
 

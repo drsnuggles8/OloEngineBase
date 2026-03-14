@@ -31,6 +31,9 @@ namespace OloEngine
         NetworkLobby();
         ~NetworkLobby();
 
+        NetworkLobby(const NetworkLobby&) = delete;
+        NetworkLobby& operator=(const NetworkLobby&) = delete;
+
         // Host a new lobby and start the discovery beacon.
         void CreateLobby(const std::string& name, u16 port, u32 maxPlayers = 8);
 

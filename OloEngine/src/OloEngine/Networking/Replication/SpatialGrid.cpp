@@ -12,6 +12,7 @@ namespace OloEngine
     SpatialGrid::SpatialGrid(f32 cellSize)
         : m_CellSize(cellSize), m_InvCellSize(1.0f / cellSize)
     {
+        OLO_CORE_ASSERT(cellSize > 0.0f, "SpatialGrid: cellSize must be > 0");
     }
 
     void SpatialGrid::InsertOrUpdate(u64 uuid, const glm::vec3& position)

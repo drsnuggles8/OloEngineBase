@@ -30,6 +30,8 @@ namespace OloEngine
         }
         m_Running = false;
         m_Players.clear();
+        m_TransitioningPlayers.clear();
+        m_GhostEntities.clear();
         m_SpatialGrid.Clear();
         OLO_CORE_INFO("[ZoneServer] Zone '{}' (ID={}) stopped", m_Definition.Name, m_Definition.ID);
     }
@@ -90,6 +92,7 @@ namespace OloEngine
     void ZoneServer::RemovePlayer(u32 clientID)
     {
         m_Players.erase(clientID);
+        m_TransitioningPlayers.erase(clientID);
     }
 
     bool ZoneServer::HasPlayer(u32 clientID) const

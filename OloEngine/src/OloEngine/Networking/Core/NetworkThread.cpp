@@ -11,7 +11,7 @@ namespace OloEngine
 {
     FThread NetworkThread::s_Thread;
     std::atomic<bool> NetworkThread::s_Running{ false };
-    u32 NetworkThread::s_TickRateHz = 60;
+    std::atomic<u32> NetworkThread::s_TickRateHz{ 60 };
 
     void NetworkThread::Start(u32 tickRateHz)
     {
@@ -23,7 +23,13 @@ namespace OloEngine
             return;
         }
 
-        s_TickRateHz = tickRateHz;
+        if (tickRateHz == 0)
+        {
+            OLO_CORE_ERROR("NetworkThread::Start() called with tickRateHz=0, using default 60");
+            tickRateHz = 60;
+        }
+
+        s_TickRateHz.store(tickRateHz, std::memory_order_release);
         s_Running.store(true, std::memory_order_release);
 
         s_Thread = FThread(
@@ -66,7 +72,7 @@ namespace OloEngine
 
     u32 NetworkThread::GetTickRate()
     {
-        return s_TickRateHz;
+        return s_TickRateHz.load(std::memory_order_acquire);
     }
 
     void NetworkThread::ThreadFunc()
@@ -81,7 +87,11 @@ namespace OloEngine
             OLO_PROFILE_SCOPE("NetworkThread::Tick");
 
             // Run GNS callbacks (connection status changes, etc.)
-            SteamNetworkingSockets()->RunCallbacks();
+            ISteamNetworkingSockets* pSockets = SteamNetworkingSockets();
+            if (pSockets)
+            {
+                pSockets->RunCallbacks();
+            }
 
             // Process tasks queued to the network thread
             auto& Queue = Tasks::FNamedThreadManager::Get().GetQueue(Tasks::ENamedThread::NetworkThread);
@@ -93,7 +103,8 @@ namespace OloEngine
                 FEventCountToken token = Queue.PrepareWait();
                 if (!Queue.HasPendingTasks(true) && s_Running.load(std::memory_order_acquire))
                 {
-                    u32 sleepMs = (s_TickRateHz > 0) ? std::max(1u, 1000 / s_TickRateHz) : 16;
+                    u32 const hz = s_TickRateHz.load(std::memory_order_acquire);
+                    u32 sleepMs = (hz > 0) ? std::max(1u, 1000 / hz) : 16;
                     Queue.WaitFor(token, FMonotonicTimeSpan::FromMilliseconds(sleepMs));
                 }
             }

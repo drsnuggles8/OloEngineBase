@@ -10,6 +10,11 @@ namespace OloEngine
 
     void LockstepManager::SetTickRate(u32 hz)
     {
+        if (hz == 0)
+        {
+            OLO_CORE_WARN("[LockstepManager] SetTickRate(0) is invalid, using 1");
+            hz = 1;
+        }
         m_TickRate = hz;
     }
 
@@ -92,7 +97,9 @@ namespace OloEngine
         // Clean up old inputs (keep some history for debugging)
         if (m_CurrentTick > 64)
         {
-            m_InputsByTick.erase(m_CurrentTick - 64);
+            u32 const cleanupTick = m_CurrentTick - 64;
+            m_InputsByTick.erase(cleanupTick);
+            m_LocalHashes.erase(cleanupTick);
         }
 
         return true;
@@ -110,6 +117,11 @@ namespace OloEngine
 
     void LockstepManager::RecordStateHash(const std::vector<u8>& snapshotData)
     {
+        if (m_HashCheckInterval == 0)
+        {
+            return;
+        }
+
         if (m_CurrentTick % m_HashCheckInterval == 0)
         {
             m_LocalHashes[m_CurrentTick] = StateHash::Compute(snapshotData);

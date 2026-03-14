@@ -265,6 +265,11 @@ namespace OloEngine
 
     u32 StateHash::Compute(const u8* data, u32 size)
     {
+        if (!data || size == 0)
+        {
+            return 0;
+        }
+
         u32 crc = 0xFFFFFFFF;
         for (u32 i = 0; i < size; ++i)
         {
