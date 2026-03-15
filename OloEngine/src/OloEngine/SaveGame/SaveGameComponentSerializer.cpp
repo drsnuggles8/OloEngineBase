@@ -39,18 +39,18 @@ namespace OloEngine
         {
             f32 sf = m.GetStaticFriction();
             f32 df = m.GetDynamicFriction();
-            f32 r = m.GetRestitution();
-            f32 d = m.GetDensity();
-            ar << sf << df << r << d;
+            f32 restitution = m.GetRestitution();
+            f32 density = m.GetDensity();
+            ar << sf << df << restitution << density;
         }
         else
         {
-            f32 sf{}, df{}, r{}, d{};
-            ar << sf << df << r << d;
+            f32 sf{}, df{}, restitution{}, density{};
+            ar << sf << df << restitution << density;
             m.SetStaticFriction(sf);
             m.SetDynamicFriction(df);
-            m.SetRestitution(r);
-            m.SetDensity(d);
+            m.SetRestitution(restitution);
+            m.SetDensity(density);
         }
     }
 
@@ -978,15 +978,19 @@ namespace OloEngine
         ar << c.LoadRadius << c.UnloadRadius;
     }
 
-// ========================================================================
-// Registry
-// ========================================================================
+    // ========================================================================
+    // Registry
+    // ========================================================================
 
-// Helper macro to register a component serializer
-#define REGISTER_SAVE_COMPONENT(ComponentType)      \
-    Register(Hash::GenerateFNVHash(#ComponentType), \
-             [](FArchive& ar, void* comp)           \
-             { Serialize(ar, *static_cast<ComponentType*>(comp)); })
+    template<typename ComponentType>
+    void SaveGameComponentSerializer::RegisterSaveComponent(const char* name)
+    {
+        Register(Hash::GenerateFNVHash(name),
+                 [](FArchive& ar, void* comp)
+                 { Serialize(ar, *static_cast<ComponentType*>(comp)); });
+    }
+
+#define REGISTER_SAVE_COMPONENT(ComponentType) RegisterSaveComponent<ComponentType>(#ComponentType)
 
     void SaveGameComponentSerializer::RegisterAll()
     {

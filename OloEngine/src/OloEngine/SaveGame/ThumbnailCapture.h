@@ -7,6 +7,12 @@
 
 namespace OloEngine
 {
+    struct ImageSize
+    {
+        u32 Width = 0;
+        u32 Height = 0;
+    };
+
     // Captures the current viewport framebuffer as a PNG thumbnail.
     class ThumbnailCapture
     {
@@ -21,8 +27,7 @@ namespace OloEngine
       private:
         // Simple box-filter downscale of RGBA data
         static std::vector<u8> Downscale(const std::vector<u8>& srcData,
-                                         u32 srcWidth, u32 srcHeight,
-                                         u32 dstWidth, u32 dstHeight);
+                                         ImageSize src, ImageSize dst);
     };
 
 } // namespace OloEngine

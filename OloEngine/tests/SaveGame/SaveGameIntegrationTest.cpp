@@ -79,7 +79,9 @@ TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)
     EXPECT_EQ(entityCount, 3u);
 
     // Verify component data by finding entities by tag
-    bool foundPlayer = false, foundCamera = false, foundSprite = false;
+    bool foundPlayer = false;
+    bool foundCamera = false;
+    bool foundSprite = false;
     for (auto e : view)
     {
         Entity entity = { e, newScene.get() };

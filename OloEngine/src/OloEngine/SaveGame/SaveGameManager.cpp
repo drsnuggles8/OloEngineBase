@@ -390,14 +390,17 @@ namespace OloEngine
             return SaveLoadResult::IOError;
         }
 
-        OLO_CORE_INFO("[SaveGameManager] Saved '{}' ({} entities, {:.1f} KB)",
-                      slotName, entityCount,
-                      [&path]() -> f32
-                      {
-                          std::error_code ec;
-                          auto size = std::filesystem::file_size(path, ec);
-                          return ec ? 0.0f : static_cast<f32>(size) / 1024.0f;
-                      }());
+        {
+            std::error_code ec;
+            auto fileSize = std::filesystem::file_size(path, ec);
+            if (ec)
+            {
+                OLO_CORE_WARN("[SaveGameManager] Could not read file size for '{}': {}", path.string(), ec.message());
+            }
+            OLO_CORE_INFO("[SaveGameManager] Saved '{}' ({} entities, {:.1f} KB)",
+                          slotName, entityCount,
+                          ec ? 0.0f : static_cast<f32>(fileSize) / 1024.0f);
+        }
 
         return SaveLoadResult::Success;
     }

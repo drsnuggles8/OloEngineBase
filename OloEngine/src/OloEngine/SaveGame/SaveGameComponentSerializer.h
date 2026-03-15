@@ -156,6 +156,10 @@ namespace OloEngine
         static void ClearRegistry();
 
       private:
+        // Type-safe registration helper used by RegisterAll()
+        template<typename ComponentType>
+        static void RegisterSaveComponent(const char* name);
+
         static std::unordered_map<u32, SaveGameSerializeFn> s_Registry;
     };
 

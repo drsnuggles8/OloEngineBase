@@ -395,129 +395,75 @@ namespace OloEngine
 
                 // Match typeHash to component and deserialize
                 bool matched = false;
+
+#define TRY_LOAD_COMPONENT(ComponentType) \
+    if (!matched)                         \
+    LOAD_COMPONENT(ComponentType, entity, typeHash, compData)
+
                 LOAD_COMPONENT(IDComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(TagComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(PrefabComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(TransformComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(RelationshipComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(SpriteRendererComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(CircleRendererComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(CameraComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(Rigidbody2DComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(BoxCollider2DComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(CircleCollider2DComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(Rigidbody3DComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(BoxCollider3DComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(SphereCollider3DComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(CapsuleCollider3DComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(MeshCollider3DComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(ConvexMeshCollider3DComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(TriangleMeshCollider3DComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(CharacterController3DComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(TextComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(ScriptComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(AudioSourceComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(AudioListenerComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(MaterialComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(DirectionalLightComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(PointLightComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(SpotLightComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(EnvironmentMapComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(LightProbeComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(LightProbeVolumeComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UICanvasComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UIRectTransformComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UIImageComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UIPanelComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UITextComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UIButtonComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UISliderComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UICheckboxComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UIProgressBarComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UIInputFieldComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UIScrollViewComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UIDropdownComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UIGridLayoutComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(UIToggleComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(ParticleSystemComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(TerrainComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(FoliageComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(WaterComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(SnowDeformerComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(FogVolumeComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(DecalComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(LODGroupComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(NetworkIdentityComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(NetworkInterestComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(PhaseComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(InstancePortalComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(NetworkLODComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(SubmeshComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(MeshComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(ModelComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(AnimationStateComponent, entity, typeHash, compData);
-                if (!matched)
-                    LOAD_COMPONENT(StreamingVolumeComponent, entity, typeHash, compData);
+                TRY_LOAD_COMPONENT(TagComponent);
+                TRY_LOAD_COMPONENT(PrefabComponent);
+                TRY_LOAD_COMPONENT(TransformComponent);
+                TRY_LOAD_COMPONENT(RelationshipComponent);
+                TRY_LOAD_COMPONENT(SpriteRendererComponent);
+                TRY_LOAD_COMPONENT(CircleRendererComponent);
+                TRY_LOAD_COMPONENT(CameraComponent);
+                TRY_LOAD_COMPONENT(Rigidbody2DComponent);
+                TRY_LOAD_COMPONENT(BoxCollider2DComponent);
+                TRY_LOAD_COMPONENT(CircleCollider2DComponent);
+                TRY_LOAD_COMPONENT(Rigidbody3DComponent);
+                TRY_LOAD_COMPONENT(BoxCollider3DComponent);
+                TRY_LOAD_COMPONENT(SphereCollider3DComponent);
+                TRY_LOAD_COMPONENT(CapsuleCollider3DComponent);
+                TRY_LOAD_COMPONENT(MeshCollider3DComponent);
+                TRY_LOAD_COMPONENT(ConvexMeshCollider3DComponent);
+                TRY_LOAD_COMPONENT(TriangleMeshCollider3DComponent);
+                TRY_LOAD_COMPONENT(CharacterController3DComponent);
+                TRY_LOAD_COMPONENT(TextComponent);
+                TRY_LOAD_COMPONENT(ScriptComponent);
+                TRY_LOAD_COMPONENT(AudioSourceComponent);
+                TRY_LOAD_COMPONENT(AudioListenerComponent);
+                TRY_LOAD_COMPONENT(MaterialComponent);
+                TRY_LOAD_COMPONENT(DirectionalLightComponent);
+                TRY_LOAD_COMPONENT(PointLightComponent);
+                TRY_LOAD_COMPONENT(SpotLightComponent);
+                TRY_LOAD_COMPONENT(EnvironmentMapComponent);
+                TRY_LOAD_COMPONENT(LightProbeComponent);
+                TRY_LOAD_COMPONENT(LightProbeVolumeComponent);
+                TRY_LOAD_COMPONENT(UICanvasComponent);
+                TRY_LOAD_COMPONENT(UIRectTransformComponent);
+                TRY_LOAD_COMPONENT(UIImageComponent);
+                TRY_LOAD_COMPONENT(UIPanelComponent);
+                TRY_LOAD_COMPONENT(UITextComponent);
+                TRY_LOAD_COMPONENT(UIButtonComponent);
+                TRY_LOAD_COMPONENT(UISliderComponent);
+                TRY_LOAD_COMPONENT(UICheckboxComponent);
+                TRY_LOAD_COMPONENT(UIProgressBarComponent);
+                TRY_LOAD_COMPONENT(UIInputFieldComponent);
+                TRY_LOAD_COMPONENT(UIScrollViewComponent);
+                TRY_LOAD_COMPONENT(UIDropdownComponent);
+                TRY_LOAD_COMPONENT(UIGridLayoutComponent);
+                TRY_LOAD_COMPONENT(UIToggleComponent);
+                TRY_LOAD_COMPONENT(ParticleSystemComponent);
+                TRY_LOAD_COMPONENT(TerrainComponent);
+                TRY_LOAD_COMPONENT(FoliageComponent);
+                TRY_LOAD_COMPONENT(WaterComponent);
+                TRY_LOAD_COMPONENT(SnowDeformerComponent);
+                TRY_LOAD_COMPONENT(FogVolumeComponent);
+                TRY_LOAD_COMPONENT(DecalComponent);
+                TRY_LOAD_COMPONENT(LODGroupComponent);
+                TRY_LOAD_COMPONENT(NetworkIdentityComponent);
+                TRY_LOAD_COMPONENT(NetworkInterestComponent);
+                TRY_LOAD_COMPONENT(PhaseComponent);
+                TRY_LOAD_COMPONENT(InstancePortalComponent);
+                TRY_LOAD_COMPONENT(NetworkLODComponent);
+                TRY_LOAD_COMPONENT(SubmeshComponent);
+                TRY_LOAD_COMPONENT(MeshComponent);
+                TRY_LOAD_COMPONENT(ModelComponent);
+                TRY_LOAD_COMPONENT(AnimationStateComponent);
+                TRY_LOAD_COMPONENT(StreamingVolumeComponent);
+
+#undef TRY_LOAD_COMPONENT
 
                 // Unknown component types are silently skipped (forward compatible)
             }

@@ -63,29 +63,22 @@ namespace OloEngine
 
     void SaveFileWorldDatabase::Shutdown()
     {
-        bool wasDirty = false;
+        TUniqueLock<FMutex> lock(m_Mutex);
+        if (!m_Initialized)
         {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            if (!m_Initialized)
-            {
-                return;
-            }
-            wasDirty = m_Dirty;
-            m_Initialized = false;
+            return;
         }
 
-        // Flush outside the lock — FlushToDisk acquires its own lock
-        if (wasDirty)
+        // Flush while still initialized so FlushToDiskLocked can serialize
+        if (m_Dirty)
         {
-            FlushToDisk();
+            FlushToDiskLocked();
         }
 
-        {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            m_PlayerStates.clear();
-            m_EntityStates.clear();
-            m_WorldState.clear();
-        }
+        m_Initialized = false;
+        m_PlayerStates.clear();
+        m_EntityStates.clear();
+        m_WorldState.clear();
         OLO_CORE_INFO("[SaveFileWorldDatabase] Shut down");
     }
 
@@ -237,6 +230,11 @@ namespace OloEngine
             return false;
         }
 
+        return FlushToDiskLocked();
+    }
+
+    bool SaveFileWorldDatabase::FlushToDiskLocked()
+    {
         auto payload = SerializeToPayload();
 
         // Compress

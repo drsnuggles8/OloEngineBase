@@ -41,6 +41,11 @@ namespace OloEngine
         bool FlushToDisk();
 
       private:
+        // Internal flush that assumes caller holds (or has released) m_Mutex and
+        // does NOT check m_Initialized. Used by Shutdown() after m_Initialized
+        // has already been cleared.
+        bool FlushToDiskLocked();
+
         // Serialize all in-memory data to a binary payload
         [[nodiscard]] std::vector<u8> SerializeToPayload() const;
 

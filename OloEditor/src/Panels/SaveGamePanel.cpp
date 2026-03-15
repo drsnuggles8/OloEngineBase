@@ -173,30 +173,40 @@ namespace OloEngine
                 }
                 ImGui::PopStyleColor();
 
-                if (ImGui::BeginPopupModal("Confirm Delete", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-                {
-                    ImGui::Text("Delete save \"%s\"?", m_PendingDeleteSlot.c_str());
-                    ImGui::Separator();
-                    if (ImGui::Button("Confirm", ImVec2(120, 0)))
-                    {
-                        SaveGameManager::DeleteSave(m_PendingDeleteSlot);
-                        m_NeedsRefresh = true;
-                        m_PendingDeleteSlot.clear();
-                        ImGui::CloseCurrentPopup();
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Cancel", ImVec2(120, 0)))
-                    {
-                        m_PendingDeleteSlot.clear();
-                        ImGui::CloseCurrentPopup();
-                    }
-                    ImGui::EndPopup();
-                }
-
                 ImGui::TreePop();
             }
 
             ImGui::PopID();
+        }
+
+        // Modal rendered outside TreeNode so it stays open even if the node is collapsed
+        if (ImGui::BeginPopupModal("Confirm Delete", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::Text("Delete save \"%s\"?", m_PendingDeleteSlot.c_str());
+            ImGui::Separator();
+            if (ImGui::Button("Confirm", ImVec2(120, 0)))
+            {
+                if (SaveGameManager::DeleteSave(m_PendingDeleteSlot))
+                {
+                    m_StatusMessage = "Deleted: " + m_PendingDeleteSlot;
+                    m_StatusTimer = 3.0f;
+                }
+                else
+                {
+                    m_StatusMessage = "Delete failed: " + m_PendingDeleteSlot;
+                    m_StatusTimer = 3.0f;
+                }
+                m_NeedsRefresh = true;
+                m_PendingDeleteSlot.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+            {
+                m_PendingDeleteSlot.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
     }
 

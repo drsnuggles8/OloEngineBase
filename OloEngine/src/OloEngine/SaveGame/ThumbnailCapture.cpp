@@ -72,10 +72,16 @@ namespace OloEngine
             thumbHeight = std::max(thumbHeight, 1u);
         }
 
-        // Downscale if needed
-        std::vector<u8> thumbData = (thumbWidth != fbWidth || thumbHeight != fbHeight)
-                                        ? Downscale(pixelData, fbWidth, fbHeight, thumbWidth, thumbHeight)
-                                        : pixelData;
+        // Downscale if needed, move when no scaling required
+        std::vector<u8> thumbData;
+        if (thumbWidth != fbWidth || thumbHeight != fbHeight)
+        {
+            thumbData = Downscale(pixelData, { fbWidth, fbHeight }, { thumbWidth, thumbHeight });
+        }
+        else
+        {
+            thumbData = std::move(pixelData);
+        }
 
         // Flip vertically (OpenGL convention: origin at bottom-left)
         std::vector<u8> flipped(thumbData.size());
@@ -110,19 +116,18 @@ namespace OloEngine
     }
 
     std::vector<u8> ThumbnailCapture::Downscale(const std::vector<u8>& srcData,
-                                                u32 srcWidth, u32 srcHeight,
-                                                u32 dstWidth, u32 dstHeight)
+                                                ImageSize src, ImageSize dst)
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<u8> dst(dstWidth * dstHeight * 4);
+        std::vector<u8> dstData(dst.Width * dst.Height * 4);
 
-        f32 xRatio = static_cast<f32>(srcWidth) / static_cast<f32>(dstWidth);
-        f32 yRatio = static_cast<f32>(srcHeight) / static_cast<f32>(dstHeight);
+        f32 xRatio = static_cast<f32>(src.Width) / static_cast<f32>(dst.Width);
+        f32 yRatio = static_cast<f32>(src.Height) / static_cast<f32>(dst.Height);
 
-        for (u32 dy = 0; dy < dstHeight; ++dy)
+        for (u32 dy = 0; dy < dst.Height; ++dy)
         {
-            for (u32 dx = 0; dx < dstWidth; ++dx)
+            for (u32 dx = 0; dx < dst.Width; ++dx)
             {
                 // Box filter: average all source pixels that map to this destination pixel
                 u32 sx0 = static_cast<u32>(static_cast<f32>(dx) * xRatio);
@@ -130,12 +135,12 @@ namespace OloEngine
                 u32 sx1 = static_cast<u32>(static_cast<f32>(dx + 1) * xRatio);
                 u32 sy1 = static_cast<u32>(static_cast<f32>(dy + 1) * yRatio);
 
-                sx1 = std::min(sx1, srcWidth);
-                sy1 = std::min(sy1, srcHeight);
+                sx1 = std::min(sx1, src.Width);
+                sy1 = std::min(sy1, src.Height);
                 if (sx0 == sx1)
-                    sx1 = std::min(sx0 + 1, srcWidth);
+                    sx1 = std::min(sx0 + 1, src.Width);
                 if (sy0 == sy1)
-                    sy1 = std::min(sy0 + 1, srcHeight);
+                    sy1 = std::min(sy0 + 1, src.Height);
 
                 u32 r = 0, g = 0, b = 0, a = 0;
                 u32 count = 0;
@@ -144,7 +149,7 @@ namespace OloEngine
                 {
                     for (u32 sx = sx0; sx < sx1; ++sx)
                     {
-                        u32 srcIdx = (sy * srcWidth + sx) * 4;
+                        u32 srcIdx = (sy * src.Width + sx) * 4;
                         r += srcData[srcIdx + 0];
                         g += srcData[srcIdx + 1];
                         b += srcData[srcIdx + 2];
@@ -153,15 +158,15 @@ namespace OloEngine
                     }
                 }
 
-                u32 dstIdx = (dy * dstWidth + dx) * 4;
-                dst[dstIdx + 0] = static_cast<u8>(r / count);
-                dst[dstIdx + 1] = static_cast<u8>(g / count);
-                dst[dstIdx + 2] = static_cast<u8>(b / count);
-                dst[dstIdx + 3] = static_cast<u8>(a / count);
+                u32 dstIdx = (dy * dst.Width + dx) * 4;
+                dstData[dstIdx + 0] = static_cast<u8>(r / count);
+                dstData[dstIdx + 1] = static_cast<u8>(g / count);
+                dstData[dstIdx + 2] = static_cast<u8>(b / count);
+                dstData[dstIdx + 3] = static_cast<u8>(a / count);
             }
         }
 
-        return dst;
+        return dstData;
     }
 
 } // namespace OloEngine
