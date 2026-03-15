@@ -31,6 +31,7 @@ namespace OloEngine
 
     class LightProbeVolumeAsset;
     class ParticleSystemAsset;
+    class DialogueTreeAsset;
 
     struct AssetSerializationInfo
     {
@@ -354,6 +355,30 @@ namespace OloEngine
 
         [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+    };
+
+    class DialogueTreeSerializer : public AssetSerializer
+    {
+      public:
+        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
+        // Public for testing
+        std::string TestSerializeToYAML(const Ref<DialogueTreeAsset>& dialogueAsset) const
+        {
+            return SerializeToYAML(dialogueAsset);
+        }
+        [[nodiscard]] bool TestDeserializeFromYAML(const std::string& yamlString, Ref<DialogueTreeAsset>& dialogueAsset) const
+        {
+            return DeserializeFromYAML(yamlString, dialogueAsset);
+        }
+
+      private:
+        std::string SerializeToYAML(const Ref<DialogueTreeAsset>& dialogueAsset) const;
+        [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<DialogueTreeAsset>& dialogueAsset) const;
     };
 
 } // namespace OloEngine

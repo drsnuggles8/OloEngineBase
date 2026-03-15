@@ -11,6 +11,8 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
+#include "OloEngine/Dialogue/DialogueSystem.h"
+#include "OloEngine/Dialogue/DialogueVariables.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -1343,6 +1345,279 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
+    // Dialogue ///////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static void DialogueComponent_StartDialogue(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        auto* dialogueSystem = scene->GetDialogueSystem();
+        if (dialogueSystem)
+            dialogueSystem->StartDialogue(entity);
+    }
+
+    static void DialogueComponent_AdvanceDialogue(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        auto* dialogueSystem = scene->GetDialogueSystem();
+        if (dialogueSystem)
+            dialogueSystem->AdvanceDialogue(entity);
+    }
+
+    static void DialogueComponent_SelectChoice(UUID entityID, i32 choiceIndex)
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        auto* dialogueSystem = scene->GetDialogueSystem();
+        if (dialogueSystem)
+            dialogueSystem->SelectChoice(entity, choiceIndex);
+    }
+
+    static bool DialogueComponent_IsDialogueActive(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return entity.HasComponent<DialogueStateComponent>();
+    }
+
+    static void DialogueComponent_EndDialogue(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        auto* dialogueSystem = scene->GetDialogueSystem();
+        if (dialogueSystem)
+            dialogueSystem->EndDialogue(entity);
+    }
+
+    static u64 DialogueComponent_GetDialogueTree(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return static_cast<u64>(entity.GetComponent<DialogueComponent>().m_DialogueTree);
+    }
+
+    static void DialogueComponent_SetDialogueTree(UUID entityID, u64 handle)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<DialogueComponent>().m_DialogueTree = handle;
+    }
+
+    static bool DialogueComponent_GetAutoTrigger(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return entity.GetComponent<DialogueComponent>().m_AutoTrigger;
+    }
+
+    static void DialogueComponent_SetAutoTrigger(UUID entityID, bool value)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<DialogueComponent>().m_AutoTrigger = value;
+    }
+
+    static f32 DialogueComponent_GetTriggerRadius(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return entity.GetComponent<DialogueComponent>().m_TriggerRadius;
+    }
+
+    static void DialogueComponent_SetTriggerRadius(UUID entityID, f32 value)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<DialogueComponent>().m_TriggerRadius = value;
+    }
+
+    static bool DialogueComponent_GetTriggerOnce(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return entity.GetComponent<DialogueComponent>().m_TriggerOnce;
+    }
+
+    static void DialogueComponent_SetTriggerOnce(UUID entityID, bool value)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<DialogueComponent>().m_TriggerOnce = value;
+    }
+
+    static bool DialogueComponent_GetHasTriggered(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return entity.GetComponent<DialogueComponent>().m_HasTriggered;
+    }
+
+    static void DialogueComponent_SetHasTriggered(UUID entityID, bool value)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<DialogueComponent>().m_HasTriggered = value;
+    }
+
+    static bool DialogueVariables_GetBool(MonoString* key, bool defaultValue)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return defaultValue;
+        }
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return scene->GetDialogueVariables().GetBool(Utils::MonoStringToString(key), defaultValue);
+    }
+
+    static void DialogueVariables_SetBool(MonoString* key, bool value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetDialogueVariables().SetBool(Utils::MonoStringToString(key), value);
+    }
+
+    static i32 DialogueVariables_GetInt(MonoString* key, i32 defaultValue)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return defaultValue;
+        }
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return scene->GetDialogueVariables().GetInt(Utils::MonoStringToString(key), defaultValue);
+    }
+
+    static void DialogueVariables_SetInt(MonoString* key, i32 value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetDialogueVariables().SetInt(Utils::MonoStringToString(key), value);
+    }
+
+    static f32 DialogueVariables_GetFloat(MonoString* key, f32 defaultValue)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return defaultValue;
+        }
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return scene->GetDialogueVariables().GetFloat(Utils::MonoStringToString(key), defaultValue);
+    }
+
+    static void DialogueVariables_SetFloat(MonoString* key, f32 value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetDialogueVariables().SetFloat(Utils::MonoStringToString(key), value);
+    }
+
+    static MonoString* DialogueVariables_GetString(MonoString* key, MonoString* defaultValue)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return defaultValue;
+        }
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        std::string result = scene->GetDialogueVariables().GetString(
+            Utils::MonoStringToString(key),
+            defaultValue ? Utils::MonoStringToString(defaultValue) : "");
+        return ScriptEngine::CreateString(result.c_str());
+    }
+
+    static void DialogueVariables_SetString(MonoString* key, MonoString* value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetDialogueVariables().SetString(
+            Utils::MonoStringToString(key),
+            value ? Utils::MonoStringToString(value) : "");
+    }
+
+    static bool DialogueVariables_Has(MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return false;
+        }
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return scene->GetDialogueVariables().Has(Utils::MonoStringToString(key));
+    }
+
+    static void DialogueVariables_Clear()
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetDialogueVariables().Clear();
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1671,6 +1946,36 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Network_Disconnect);
         OLO_ADD_INTERNAL_CALL(Network_StartServer);
         OLO_ADD_INTERNAL_CALL(Network_StopServer);
+
+        ///////////////////////////////////////////////////////////////
+        // Dialogue //////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_StartDialogue);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_AdvanceDialogue);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_SelectChoice);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_IsDialogueActive);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_EndDialogue);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_GetDialogueTree);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_SetDialogueTree);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_GetAutoTrigger);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_SetAutoTrigger);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_GetTriggerRadius);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_SetTriggerRadius);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_GetTriggerOnce);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_SetTriggerOnce);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_GetHasTriggered);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_SetHasTriggered);
+
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_GetBool);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_SetBool);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_GetInt);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_SetInt);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_GetFloat);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_SetFloat);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_GetString);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_SetString);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_Has);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_Clear);
     }
 
 } // namespace OloEngine

@@ -945,6 +945,11 @@ namespace OloEngine
             // Networking
             DisplayAddComponentEntry<NetworkIdentityComponent>("Network Identity");
 
+            ImGui::Separator();
+
+            // Dialogue
+            DisplayAddComponentEntry<DialogueComponent>("Dialogue");
+
             ImGui::EndPopup();
         }
 
@@ -3095,6 +3100,93 @@ namespace OloEngine
             }
 
             ImGui::Checkbox("Is Replicated", &component.IsReplicated); });
+
+        DrawComponent<DialogueComponent>("Dialogue", entity, [](auto& component)
+                                         {
+            // Asset handle display
+            if (component.m_DialogueTree != 0)
+            {
+                auto metadata = AssetManager::GetAssetMetadata(component.m_DialogueTree);
+                if (metadata.IsValid())
+                    ImGui::Text("Asset: %s", metadata.FilePath.filename().string().c_str());
+                else
+                    ImGui::Text("Asset: <invalid handle>");
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No dialogue assigned");
+            }
+
+            // Browse button
+            if (ImGui::Button("Browse...##DialogueAsset"))
+            {
+                std::string filepath = FileDialogs::OpenFile(
+                    "Dialogue Tree (*.olodialogue)\0*.olodialogue\0"
+                    "All Files (*.*)\0*.*\0");
+                if (!filepath.empty())
+                {
+                    auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
+                    if (assetManager)
+                    {
+                        AssetHandle importedHandle = assetManager->ImportAsset(filepath);
+                        if (importedHandle != 0)
+                        {
+                            auto metadata = AssetManager::GetAssetMetadata(importedHandle);
+                            if (metadata.Type == AssetType::DialogueTree)
+                                component.m_DialogueTree = importedHandle;
+                            else
+                                OLO_CORE_WARN("Imported asset is not a DialogueTree");
+                        }
+                    }
+                }
+            }
+
+            if (component.m_DialogueTree != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear"))
+                    component.m_DialogueTree = 0;
+            }
+
+            // Drag-drop target (also accepts drops on the Browse button)
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    auto* const path = static_cast<wchar_t*>(payload->Data);
+                    std::filesystem::path assetPath(path);
+                    if (assetPath.extension() == ".olodialogue")
+                    {
+                        auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
+                        if (assetManager)
+                        {
+                            AssetHandle importedHandle = assetManager->ImportAsset(assetPath);
+                            if (importedHandle != 0)
+                            {
+                                auto metadata = AssetManager::GetAssetMetadata(importedHandle);
+                                if (metadata.Type == AssetType::DialogueTree)
+                                    component.m_DialogueTree = importedHandle;
+                                else
+                                    OLO_CORE_WARN("Dropped asset is not a DialogueTree");
+                            }
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            ImGui::Separator();
+            ImGui::Checkbox("Auto Trigger", &component.m_AutoTrigger);
+            ImGui::DragFloat("Trigger Radius", &component.m_TriggerRadius, 0.1f, 0.0f, 100.0f);
+            ImGui::Checkbox("Trigger Once", &component.m_TriggerOnce);
+
+            if (component.m_HasTriggered)
+            {
+                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(Already triggered)");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Reset"))
+                    component.m_HasTriggered = false;
+            } });
     }
 
     template<typename T>

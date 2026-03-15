@@ -22,6 +22,7 @@
 #include "OloEngine/Renderer/LOD.h"
 #include "OloEngine/Renderer/SphericalHarmonics.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
+#include "OloEngine/Dialogue/DialogueTypes.h"
 
 #include <box2d/id.h>
 
@@ -1195,6 +1196,58 @@ namespace OloEngine
         NetworkLODComponent& operator=(NetworkLODComponent&&) noexcept = default;
     };
 
+    // ----- Dialogue -----
+
+    struct DialogueComponent
+    {
+        AssetHandle m_DialogueTree = 0;
+        bool m_AutoTrigger = false;
+        f32 m_TriggerRadius = 3.0f;
+        bool m_HasTriggered = false; // runtime-only, not serialized
+        bool m_TriggerOnce = true;
+
+        DialogueComponent() = default;
+        DialogueComponent(const DialogueComponent& other)
+            : m_DialogueTree(other.m_DialogueTree), m_AutoTrigger(other.m_AutoTrigger), m_TriggerRadius(other.m_TriggerRadius), m_HasTriggered(false), m_TriggerOnce(other.m_TriggerOnce)
+        {
+        }
+        DialogueComponent& operator=(const DialogueComponent& other)
+        {
+            if (this != &other)
+            {
+                m_DialogueTree = other.m_DialogueTree;
+                m_AutoTrigger = other.m_AutoTrigger;
+                m_TriggerRadius = other.m_TriggerRadius;
+                m_HasTriggered = false;
+                m_TriggerOnce = other.m_TriggerOnce;
+            }
+            return *this;
+        }
+    };
+
+    enum class DialogueState : u8
+    {
+        Inactive,
+        Displaying,       // showing text, waiting for advance input
+        WaitingForChoice, // showing choices, waiting for selection
+        Processing        // evaluating condition/action nodes (single frame)
+    };
+
+    struct DialogueStateComponent
+    {
+        UUID m_CurrentNodeID = 0;
+        DialogueState m_State = DialogueState::Inactive;
+        std::string m_CurrentText;
+        std::string m_CurrentSpeaker;
+        std::vector<DialogueChoice> m_AvailableChoices;
+        i32 m_SelectedChoiceIndex = -1;
+        i32 m_HoveredChoiceIndex = -1;
+        f32 m_TextRevealProgress = 0.0f; // 0..1 for typewriter effect
+        f32 m_TextRevealSpeed = 30.0f;   // characters per second
+
+        DialogueStateComponent() = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -1261,5 +1314,6 @@ namespace OloEngine
         NetworkInterestComponent,
         PhaseComponent,
         InstancePortalComponent,
-        NetworkLODComponent>;
+        NetworkLODComponent,
+        DialogueComponent>;
 } // namespace OloEngine

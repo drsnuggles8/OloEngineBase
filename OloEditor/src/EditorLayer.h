@@ -9,6 +9,7 @@
 #include "Panels/StreamingPanel.h"
 #include "Panels/InputSettingsPanel.h"
 #include "Panels/NetworkDebugPanel.h"
+#include "Panels/DialogueEditorPanel.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
@@ -95,6 +96,7 @@ namespace OloEngine
 
         void SetEditorScene(const Ref<Scene>& scene);
         void SyncWindowTitle() const;
+        void BindContentBrowserSelectionCallback();
 
         // Terrain editing: screen-to-world raycast against heightmap
         bool TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;
@@ -154,12 +156,14 @@ namespace OloEngine
         StreamingPanel m_StreamingPanel;
         InputSettingsPanel m_InputSettingsPanel;
         NetworkDebugPanel m_NetworkDebugPanel;
+        DialogueEditorPanel m_DialogueEditorPanel;
         bool m_ShowAnimationPanel = true;
         bool m_ShowPostProcessSettings = true;
         bool m_ShowTerrainEditor = false;
         bool m_ShowStreamingPanel = false;
         bool m_ShowInputSettings = false;
         bool m_ShowNetworkDebug = false;
+        bool m_ShowDialogueEditor = false;
 
         // Terrain brush preview UBO (binding 11)
         Ref<UniformBuffer> m_BrushPreviewUBO;

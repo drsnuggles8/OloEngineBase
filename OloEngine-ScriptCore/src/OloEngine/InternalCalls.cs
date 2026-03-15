@@ -485,5 +485,59 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void Network_StopServer();
 		#endregion
+
+		#region Dialogue
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_StartDialogue(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_AdvanceDialogue(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_SelectChoice(ulong entityID, int choiceIndex);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DialogueComponent_IsDialogueActive(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_EndDialogue(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong DialogueComponent_GetDialogueTree(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_SetDialogueTree(ulong entityID, ulong handle);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DialogueComponent_GetAutoTrigger(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_SetAutoTrigger(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float DialogueComponent_GetTriggerRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_SetTriggerRadius(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DialogueComponent_GetTriggerOnce(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_SetTriggerOnce(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DialogueComponent_GetHasTriggered(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_SetHasTriggered(ulong entityID, bool value);
+
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DialogueVariables_GetBool(string key, bool defaultValue);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueVariables_SetBool(string key, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int DialogueVariables_GetInt(string key, int defaultValue);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueVariables_SetInt(string key, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float DialogueVariables_GetFloat(string key, float defaultValue);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueVariables_SetFloat(string key, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string DialogueVariables_GetString(string key, string defaultValue);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueVariables_SetString(string key, string value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DialogueVariables_Has(string key);
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueVariables_Clear();
+		#endregion
 	}
 }

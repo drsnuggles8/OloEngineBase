@@ -1,0 +1,93 @@
+DialogueTree:
+  RootNodeID: 1001
+  Nodes:
+    - ID: 1001
+      Type: dialogue
+      Name: Greeting
+      EditorPosition: [100, 200]
+      Properties:
+        speaker:
+          type: string
+          value: Guard
+        text:
+          type: string
+          value: "Halt! Who goes there?"
+    - ID: 1002
+      Type: choice
+      Name: PlayerResponse
+      EditorPosition: [300, 200]
+      Properties: {}
+    - ID: 1003
+      Type: condition
+      Name: HasTownPass
+      EditorPosition: [500, 100]
+      Properties:
+        conditionExpression:
+          type: string
+          value: hasTownPass
+    - ID: 1004
+      Type: dialogue
+      Name: WelcomeBack
+      EditorPosition: [700, 50]
+      Properties:
+        speaker:
+          type: string
+          value: Guard
+        text:
+          type: string
+          value: "Ah, welcome back!"
+    - ID: 1005
+      Type: dialogue
+      Name: DontBelieve
+      EditorPosition: [700, 150]
+      Properties:
+        speaker:
+          type: string
+          value: Guard
+        text:
+          type: string
+          value: "I don't believe you. Move along."
+    - ID: 1006
+      Type: action
+      Name: SetMetGuard
+      EditorPosition: [500, 300]
+      Properties:
+        actionName:
+          type: string
+          value: setMetGuard
+    - ID: 1007
+      Type: dialogue
+      Name: PassingThrough
+      EditorPosition: [700, 300]
+      Properties:
+        speaker:
+          type: string
+          value: Guard
+        text:
+          type: string
+          value: "Very well, but keep your nose clean."
+  Connections:
+    - SourceNodeID: 1001
+      TargetNodeID: 1002
+      SourcePort: output
+      TargetPort: input
+    - SourceNodeID: 1002
+      TargetNodeID: 1003
+      SourcePort: "I'm a friend."
+      TargetPort: input
+    - SourceNodeID: 1002
+      TargetNodeID: 1006
+      SourcePort: "I'm just passing through."
+      TargetPort: input
+    - SourceNodeID: 1003
+      TargetNodeID: 1004
+      SourcePort: "true"
+      TargetPort: input
+    - SourceNodeID: 1003
+      TargetNodeID: 1005
+      SourcePort: "false"
+      TargetPort: input
+    - SourceNodeID: 1006
+      TargetNodeID: 1007
+      SourcePort: output
+      TargetPort: input

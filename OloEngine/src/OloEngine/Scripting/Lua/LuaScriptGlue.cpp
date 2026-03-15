@@ -9,6 +9,11 @@
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputActionManager.h"
+#include "OloEngine/Dialogue/DialogueSystem.h"
+#include "OloEngine/Dialogue/DialogueVariables.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scripting/C#/ScriptEngine.h"
 
 namespace OloEngine
 {
@@ -263,6 +268,123 @@ namespace OloEngine
         inputTable["IsActionJustReleased"] = [](const std::string& name)
         {
             return InputActionManager::IsActionJustReleased(name);
+        };
+
+        // --- DialogueComponent ---
+        lua.new_usertype<DialogueComponent>("DialogueComponent",
+                                            "dialogueTree", &DialogueComponent::m_DialogueTree,
+                                            "autoTrigger", &DialogueComponent::m_AutoTrigger,
+                                            "triggerRadius", &DialogueComponent::m_TriggerRadius,
+                                            "hasTriggered", &DialogueComponent::m_HasTriggered,
+                                            "triggerOnce", &DialogueComponent::m_TriggerOnce);
+
+        // --- Dialogue system functions ---
+        auto dialogueTable = lua.create_named_table("dialogue");
+        dialogueTable["start"] = [](Entity* entity)
+        {
+            if (!entity)
+                return;
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene && scene->GetDialogueSystem())
+                scene->GetDialogueSystem()->StartDialogue(*entity);
+        };
+        dialogueTable["advance"] = [](Entity* entity)
+        {
+            if (!entity)
+                return;
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene && scene->GetDialogueSystem())
+                scene->GetDialogueSystem()->AdvanceDialogue(*entity);
+        };
+        dialogueTable["select_choice"] = [](Entity* entity, i32 index)
+        {
+            if (!entity)
+                return;
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene && scene->GetDialogueSystem())
+                scene->GetDialogueSystem()->SelectChoice(*entity, index);
+        };
+        dialogueTable["is_active"] = [](Entity* entity) -> bool
+        {
+            if (!entity)
+                return false;
+            return entity->HasComponent<DialogueStateComponent>();
+        };
+        dialogueTable["end_dialogue"] = [](Entity* entity)
+        {
+            if (!entity)
+                return;
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene && scene->GetDialogueSystem())
+                scene->GetDialogueSystem()->EndDialogue(*entity);
+        };
+
+        // --- Dialogue variables ---
+        auto varsTable = lua.create_named_table("dialogue_vars");
+        varsTable["get_bool"] = [](const std::string& key) -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return false;
+            return scene->GetDialogueVariables().GetBool(key);
+        };
+        varsTable["set_bool"] = [](const std::string& key, bool val)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene)
+                scene->GetDialogueVariables().SetBool(key, val);
+        };
+        varsTable["get_int"] = [](const std::string& key) -> i32
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return 0;
+            return scene->GetDialogueVariables().GetInt(key);
+        };
+        varsTable["set_int"] = [](const std::string& key, i32 val)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene)
+                scene->GetDialogueVariables().SetInt(key, val);
+        };
+        varsTable["get_float"] = [](const std::string& key) -> f32
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return 0.0f;
+            return scene->GetDialogueVariables().GetFloat(key);
+        };
+        varsTable["set_float"] = [](const std::string& key, f32 val)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene)
+                scene->GetDialogueVariables().SetFloat(key, val);
+        };
+        varsTable["get_string"] = [](const std::string& key) -> std::string
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return "";
+            return scene->GetDialogueVariables().GetString(key);
+        };
+        varsTable["set_string"] = [](const std::string& key, const std::string& val)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene)
+                scene->GetDialogueVariables().SetString(key, val);
+        };
+        varsTable["has"] = [](const std::string& key) -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return false;
+            return scene->GetDialogueVariables().Has(key);
+        };
+        varsTable["clear"] = []()
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene)
+                scene->GetDialogueVariables().Clear();
         };
     }
 } // namespace OloEngine

@@ -4,6 +4,9 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Core/YAMLConverters.h"
+#include "OloEngine/Dialogue/DialogueTreeAsset.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Dialogue/DialogueTreeSerializer.h"
 
 #include <imgui.h>
 #include <yaml-cpp/yaml.h>
@@ -54,6 +57,8 @@ namespace OloEngine
         { ".hlsl", ContentFileType::Shader },
         // Streaming Regions
         { ".oloregion", ContentFileType::StreamingRegion },
+        // Dialogue
+        { ".olodialogue", ContentFileType::Dialogue },
     };
 
     ContentBrowserPanel::ContentBrowserPanel()
@@ -89,6 +94,10 @@ namespace OloEngine
         m_ShaderIcon = Texture2D::Create("Resources/Icons/ContentBrowser/ShaderIcon.png");
         if (!m_ShaderIcon || !m_ShaderIcon->IsLoaded())
             m_ShaderIcon = m_FileIcon;
+
+        m_DialogueIcon = Texture2D::Create("Resources/Icons/ContentBrowser/DialogueIcon.png");
+        if (!m_DialogueIcon || !m_DialogueIcon->IsLoaded())
+            m_DialogueIcon = m_FileIcon;
     }
 
     ContentFileType ContentBrowserPanel::GetFileType(const std::filesystem::path& filepath) const
@@ -239,6 +248,9 @@ namespace OloEngine
                     case ContentFileType::StreamingRegion:
                         ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.8f, 1.0f), "Streaming Region");
                         break;
+                    case ContentFileType::Dialogue:
+                        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Dialogue Tree");
+                        break;
                     default:
                         break;
                 }
@@ -372,6 +384,45 @@ namespace OloEngine
                     fout.close();
 
                     OLO_CORE_INFO("Created material: {}", matPath.string());
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Dialogue Tree"))
+            {
+                static char dialogueName[256] = "NewDialogue";
+                ImGui::InputText("Name", dialogueName, sizeof(dialogueName));
+                if (ImGui::Button("Create##DialogueTree"))
+                {
+                    std::string baseName = dialogueName;
+                    std::filesystem::path dialoguePath = m_CurrentDirectory / (baseName + ".olodialogue");
+                    int counter = 1;
+                    while (std::filesystem::exists(dialoguePath))
+                    {
+                        dialoguePath = m_CurrentDirectory / (baseName + "_" + std::to_string(counter++) + ".olodialogue");
+                    }
+
+                    auto dialogueAsset = Ref<DialogueTreeAsset>::Create();
+                    DialogueNodeData rootNode;
+                    rootNode.ID = UUID(1);
+                    rootNode.Type = "dialogue";
+                    rootNode.Name = "Start";
+                    rootNode.Properties["speaker"] = std::string("NPC");
+                    rootNode.Properties["text"] = std::string("Hello there!");
+                    rootNode.EditorPosition = { 0.0f, 0.0f };
+                    dialogueAsset->GetNodesWritable().push_back(std::move(rootNode));
+                    dialogueAsset->SetRootNodeID(UUID(1));
+                    dialogueAsset->RebuildNodeIndex();
+
+                    AssetMetadata metadata;
+                    metadata.FilePath = std::filesystem::relative(dialoguePath, Project::GetAssetDirectory());
+                    metadata.Type = AssetType::DialogueTree;
+
+                    DialogueTreeSerializer serializer;
+                    serializer.Serialize(metadata, dialogueAsset);
+
+                    OLO_CORE_INFO("Created dialogue tree: {}", dialoguePath.string());
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::EndMenu();
@@ -534,6 +585,8 @@ namespace OloEngine
                 return m_ShaderIcon;
             case ContentFileType::StreamingRegion:
                 return m_SceneIcon;
+            case ContentFileType::Dialogue:
+                return m_DialogueIcon;
             default:
                 return m_FileIcon;
         }
