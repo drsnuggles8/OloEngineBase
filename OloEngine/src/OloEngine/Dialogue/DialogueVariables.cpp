@@ -23,6 +23,16 @@ namespace OloEngine
         return defaultValue;
     }
 
+    f32 DialogueVariables::GetFloat(const std::string& key, f32 defaultValue) const
+    {
+        auto it = m_Variables.find(key);
+        if (it == m_Variables.end())
+            return defaultValue;
+        if (const auto* val = std::get_if<f32>(&it->second))
+            return *val;
+        return defaultValue;
+    }
+
     std::string DialogueVariables::GetString(const std::string& key, const std::string& defaultValue) const
     {
         auto it = m_Variables.find(key);
@@ -39,6 +49,11 @@ namespace OloEngine
     }
 
     void DialogueVariables::SetInt(const std::string& key, i32 value)
+    {
+        m_Variables[key] = value;
+    }
+
+    void DialogueVariables::SetFloat(const std::string& key, f32 value)
     {
         m_Variables[key] = value;
     }

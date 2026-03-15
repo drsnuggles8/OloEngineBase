@@ -45,8 +45,8 @@ namespace OloEngine
         // Layout: left = canvas, right = property panel + preview
         f32 const availWidth = ImGui::GetContentRegionAvail().x;
         f32 const canvasWidth = m_ShowPreview || m_SelectedNodeID != 0
-            ? availWidth - s_PropertyPanelWidth
-            : availWidth;
+                                    ? availWidth - s_PropertyPanelWidth
+                                    : availWidth;
 
         // Left side: node canvas
         ImGui::BeginChild("##NodeCanvas", ImVec2(canvasWidth, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove);
@@ -80,6 +80,8 @@ namespace OloEngine
     void DialogueEditorPanel::OpenDialogue(const std::filesystem::path& path)
     {
         LoadDialogue(path);
+        if (!m_Nodes.empty())
+            m_CurrentFilePath = path;
     }
 
     void DialogueEditorPanel::OpenDialogue(AssetHandle handle)
@@ -89,8 +91,12 @@ namespace OloEngine
         if (metadata.IsValid())
         {
             auto fsPath = Project::GetAssetFileSystemPath(metadata.FilePath);
-            m_CurrentAssetHandle = handle;
             LoadDialogue(fsPath);
+            if (!m_Nodes.empty())
+            {
+                m_CurrentAssetHandle = handle;
+                m_CurrentFilePath = fsPath;
+            }
         }
     }
 
@@ -229,8 +235,8 @@ namespace OloEngine
                 if (auto* str = std::get_if<std::string>(&it->second))
                 {
                     drawList->AddText(nullptr, 11.0f * m_Zoom,
-                        ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
-                        IM_COL32(255, 200, 100, 220), str->c_str());
+                                      ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
+                                      IM_COL32(255, 200, 100, 220), str->c_str());
                     contentY += 14.0f * m_Zoom;
                 }
             }
@@ -242,8 +248,8 @@ namespace OloEngine
                     if (preview.size() > 35)
                         preview = preview.substr(0, 32) + "...";
                     drawList->AddText(nullptr, 10.0f * m_Zoom,
-                        ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
-                        IM_COL32(200, 200, 200, 200), preview.c_str());
+                                      ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
+                                      IM_COL32(200, 200, 200, 200), preview.c_str());
                 }
             }
         }
@@ -255,8 +261,8 @@ namespace OloEngine
                 {
                     std::string label = "if: " + *str;
                     drawList->AddText(nullptr, 11.0f * m_Zoom,
-                        ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
-                        IM_COL32(150, 200, 255, 220), label.c_str());
+                                      ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
+                                      IM_COL32(150, 200, 255, 220), label.c_str());
                 }
             }
         }
@@ -268,8 +274,8 @@ namespace OloEngine
                 {
                     std::string label = "do: " + *str;
                     drawList->AddText(nullptr, 11.0f * m_Zoom,
-                        ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
-                        IM_COL32(255, 180, 150, 220), label.c_str());
+                                      ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
+                                      IM_COL32(255, 180, 150, 220), label.c_str());
                 }
             }
         }
@@ -344,19 +350,27 @@ namespace OloEngine
 
     ImU32 DialogueEditorPanel::GetNodeColor(const std::string& type) const
     {
-        if (type == "dialogue")   return IM_COL32(50, 55, 75, 230);
-        if (type == "choice")     return IM_COL32(60, 50, 70, 230);
-        if (type == "condition")  return IM_COL32(50, 65, 70, 230);
-        if (type == "action")     return IM_COL32(70, 55, 50, 230);
+        if (type == "dialogue")
+            return IM_COL32(50, 55, 75, 230);
+        if (type == "choice")
+            return IM_COL32(60, 50, 70, 230);
+        if (type == "condition")
+            return IM_COL32(50, 65, 70, 230);
+        if (type == "action")
+            return IM_COL32(70, 55, 50, 230);
         return IM_COL32(55, 55, 55, 230);
     }
 
     ImU32 DialogueEditorPanel::GetNodeHeaderColor(const std::string& type) const
     {
-        if (type == "dialogue")   return IM_COL32(60, 100, 170, 240);
-        if (type == "choice")     return IM_COL32(140, 80, 160, 240);
-        if (type == "condition")  return IM_COL32(70, 150, 160, 240);
-        if (type == "action")     return IM_COL32(180, 100, 60, 240);
+        if (type == "dialogue")
+            return IM_COL32(60, 100, 170, 240);
+        if (type == "choice")
+            return IM_COL32(140, 80, 160, 240);
+        if (type == "condition")
+            return IM_COL32(70, 150, 160, 240);
+        if (type == "action")
+            return IM_COL32(180, 100, 60, 240);
         return IM_COL32(100, 100, 100, 240);
     }
 
@@ -456,10 +470,13 @@ namespace OloEngine
             const DialogueNodeData* dstNode = nullptr;
             for (const auto& n : m_Nodes)
             {
-                if (n.ID == conn.SourceNodeID) srcNode = &n;
-                if (n.ID == conn.TargetNodeID) dstNode = &n;
+                if (n.ID == conn.SourceNodeID)
+                    srcNode = &n;
+                if (n.ID == conn.TargetNodeID)
+                    dstNode = &n;
             }
-            if (!srcNode || !dstNode) continue;
+            if (!srcNode || !dstNode)
+                continue;
 
             // Find port positions
             ImVec2 const srcNodePos = WorldToScreen(srcNode->EditorPosition, canvasOrigin);
@@ -531,7 +548,8 @@ namespace OloEngine
                 break;
             }
         }
-        if (!srcNode) return;
+        if (!srcNode)
+            return;
 
         ImVec2 const srcNodePos = WorldToScreen(srcNode->EditorPosition, canvasOrigin);
         auto srcPorts = GetNodePorts(*srcNode, srcNodePos);
@@ -589,8 +607,8 @@ namespace OloEngine
             f32 const nx = mmOrigin.x + 4.0f + (node.EditorPosition.x - minX) * mmScale;
             f32 const ny = mmOrigin.y + 4.0f + (node.EditorPosition.y - minY) * mmScale;
             ImU32 const color = (node.ID == m_SelectedNodeID)
-                ? IM_COL32(255, 200, 50, 255)
-                : GetNodeHeaderColor(node.Type);
+                                    ? IM_COL32(255, 200, 50, 255)
+                                    : GetNodeHeaderColor(node.Type);
             drawList->AddRectFilled(ImVec2(nx, ny), ImVec2(nx + 4.0f, ny + 3.0f), color);
         }
     }
@@ -621,7 +639,7 @@ namespace OloEngine
 
         // Pan with middle mouse button or Alt+left click
         bool const wantPan = ImGui::IsMouseDragging(ImGuiMouseButton_Middle) ||
-            (ImGui::IsMouseDragging(ImGuiMouseButton_Left) && ImGui::GetIO().KeyAlt);
+                             (ImGui::IsMouseDragging(ImGuiMouseButton_Left) && ImGui::GetIO().KeyAlt);
 
         if (isHovered && wantPan)
         {
@@ -667,7 +685,7 @@ namespace OloEngine
         }
 
         // Delete selected node
-        if (m_SelectedNodeID != 0 && ImGui::IsKeyPressed(ImGuiKey_Delete))
+        if (m_SelectedNodeID != 0 && ImGui::IsKeyPressed(ImGuiKey_Delete) && !ImGui::IsAnyItemActive())
         {
             DeleteNode(m_SelectedNodeID);
         }
@@ -802,7 +820,8 @@ namespace OloEngine
                         break;
                     }
                 }
-                if (connected) break;
+                if (connected)
+                    break;
             }
 
             m_IsCreatingConnection = false;
@@ -1426,7 +1445,7 @@ namespace OloEngine
                 out << YAML::Key << key << YAML::Value << YAML::BeginMap;
 
                 std::visit([&out](auto&& arg)
-                {
+                           {
                     using T = std::decay_t<decltype(arg)>;
                     if constexpr (std::is_same_v<T, bool>)
                     {
@@ -1447,8 +1466,7 @@ namespace OloEngine
                     {
                         out << YAML::Key << "type" << YAML::Value << "string";
                         out << YAML::Key << "value" << YAML::Value << arg;
-                    }
-                }, value);
+                    } }, value);
 
                 out << YAML::EndMap;
             }
@@ -1590,6 +1608,8 @@ namespace OloEngine
         m_SelectedNodeID = 0;
         m_IsDirty = false;
         m_NextNodeID = 1000;
+        m_CurrentFilePath.clear();
+        m_CurrentAssetHandle = 0;
 
         // Create a default start node
         m_RootNodeID = CreateNode("dialogue", { 100.0f, 200.0f });
@@ -1660,16 +1680,17 @@ namespace OloEngine
         // Remove connections
         m_Connections.erase(
             std::remove_if(m_Connections.begin(), m_Connections.end(),
-                [nodeID](const DialogueConnection& c)
-                {
-                    return c.SourceNodeID == nodeID || c.TargetNodeID == nodeID;
-                }),
+                           [nodeID](const DialogueConnection& c)
+                           {
+                               return c.SourceNodeID == nodeID || c.TargetNodeID == nodeID;
+                           }),
             m_Connections.end());
 
         // Remove node
         m_Nodes.erase(
             std::remove_if(m_Nodes.begin(), m_Nodes.end(),
-                [nodeID](const DialogueNodeData& n) { return n.ID == nodeID; }),
+                           [nodeID](const DialogueNodeData& n)
+                           { return n.ID == nodeID; }),
             m_Nodes.end());
 
         if (m_SelectedNodeID == nodeID)
@@ -1693,12 +1714,18 @@ namespace OloEngine
         if (!srcNode)
             return;
 
-        UUID newID = CreateNode(srcNode->Type, srcNode->EditorPosition + glm::vec2(30.0f, 30.0f));
+        // Copy data before CreateNode, which may reallocate m_Nodes and invalidate srcNode
+        std::string srcType = srcNode->Type;
+        glm::vec2 srcPos = srcNode->EditorPosition + glm::vec2(30.0f, 30.0f);
+        std::string srcName = srcNode->Name + " (copy)";
+        auto srcProperties = srcNode->Properties;
+
+        UUID newID = CreateNode(srcType, srcPos);
         auto* newNode = FindNodeMutable(newID);
         if (newNode)
         {
-            newNode->Name = srcNode->Name + " (copy)";
-            newNode->Properties = srcNode->Properties;
+            newNode->Name = std::move(srcName);
+            newNode->Properties = std::move(srcProperties);
         }
     }
 

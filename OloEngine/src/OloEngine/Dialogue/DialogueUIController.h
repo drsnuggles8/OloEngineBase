@@ -3,7 +3,6 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 
-#include <entt.hpp>
 #include <vector>
 
 namespace OloEngine
@@ -27,16 +26,18 @@ namespace OloEngine
         void UpdateChoiceEntities(Scene& scene);
         void ClearChoiceEntities(Scene& scene);
 
-        // Entity handles for the dialogue UI hierarchy
-        entt::entity m_CanvasEntity = entt::null;
-        entt::entity m_PanelEntity = entt::null;
-        entt::entity m_SpeakerNameEntity = entt::null;
-        entt::entity m_DialogueBodyEntity = entt::null;
-        entt::entity m_PortraitEntity = entt::null;
-        std::vector<entt::entity> m_ChoiceEntities;
+        // Entity UUIDs for the dialogue UI hierarchy (resolved via scene each frame)
+        UUID m_CanvasEntity = 0;
+        UUID m_PanelEntity = 0;
+        UUID m_SpeakerNameEntity = 0;
+        UUID m_DialogueBodyEntity = 0;
+        UUID m_PortraitEntity = 0;
+        std::vector<UUID> m_ChoiceEntities;
 
         bool m_IsVisible = false;
-        entt::entity m_ActiveNpcEntity = entt::null;
+        UUID m_ActiveNpcEntity = 0;
+
+        bool m_AdvanceKeyWasPressed = false;
     };
 
 } // namespace OloEngine

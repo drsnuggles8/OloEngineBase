@@ -2063,6 +2063,8 @@ namespace OloEngine
             TrySet(dc.m_DialogueTree, dialogueComponent["DialogueTree"]);
             TrySet(dc.m_AutoTrigger, dialogueComponent["AutoTrigger"]);
             TrySet(dc.m_TriggerRadius, dialogueComponent["TriggerRadius"]);
+            if (!std::isfinite(dc.m_TriggerRadius) || dc.m_TriggerRadius < 0.0f)
+                dc.m_TriggerRadius = 3.0f;
             TrySet(dc.m_TriggerOnce, dialogueComponent["TriggerOnce"]);
         }
     }

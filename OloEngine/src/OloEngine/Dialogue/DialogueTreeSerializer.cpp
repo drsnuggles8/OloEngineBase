@@ -18,7 +18,7 @@ namespace OloEngine
         std::string PropertyValueToString(const DialoguePropertyValue& value)
         {
             return std::visit([](const auto& v) -> std::string
-            {
+                              {
                 using T = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<T, bool>)
                     return v ? "true" : "false";
@@ -29,14 +29,13 @@ namespace OloEngine
                 else if constexpr (std::is_same_v<T, std::string>)
                     return v;
                 else
-                    return "";
-            }, value);
+                    return ""; }, value);
         }
 
         std::string PropertyValueTypeString(const DialoguePropertyValue& value)
         {
             return std::visit([](const auto& v) -> std::string
-            {
+                              {
                 using T = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<T, bool>)
                     return "bool";
@@ -47,18 +46,24 @@ namespace OloEngine
                 else if constexpr (std::is_same_v<T, std::string>)
                     return "string";
                 else
-                    return "unknown";
-            }, value);
+                    return "unknown"; }, value);
         }
 
         DialoguePropertyValue ParsePropertyValue(const std::string& typeStr, const std::string& valueStr)
         {
-            if (typeStr == "bool")
-                return valueStr == "true";
-            if (typeStr == "int")
-                return static_cast<i32>(std::stoi(valueStr));
-            if (typeStr == "float")
-                return std::stof(valueStr);
+            try
+            {
+                if (typeStr == "bool")
+                    return valueStr == "true";
+                if (typeStr == "int")
+                    return static_cast<i32>(std::stoi(valueStr));
+                if (typeStr == "float")
+                    return std::stof(valueStr);
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_WARN("DialogueTreeSerializer - Failed to parse property value '{}' as {}: {}", valueStr, typeStr, e.what());
+            }
             return valueStr; // default to string
         }
     } // namespace
@@ -250,7 +255,20 @@ namespace OloEngine
             OLO_CORE_ERROR("DialogueTreeSerializer - Missing 'RootNodeID'");
             return false;
         }
-        dialogueAsset->m_RootNodeID = dialogueTree["RootNodeID"].as<u64>();
+
+        UUID localRootID;
+        std::vector<DialogueNodeData> localNodes;
+        std::vector<DialogueConnection> localConnections;
+
+        try
+        {
+            localRootID = dialogueTree["RootNodeID"].as<u64>();
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("DialogueTreeSerializer - Failed to parse RootNodeID: {}", e.what());
+            return false;
+        }
 
         // Nodes
         std::unordered_set<u64> nodeIDs;
@@ -259,7 +277,21 @@ namespace OloEngine
             for (const auto& nodeYAML : nodesNode)
             {
                 DialogueNodeData node;
-                node.ID = nodeYAML["ID"].as<u64>();
+                try
+                {
+                    if (!nodeYAML["ID"] || !nodeYAML["Type"])
+                    {
+                        OLO_CORE_ERROR("DialogueTreeSerializer - Node missing required ID or Type field");
+                        return false;
+                    }
+                    node.ID = nodeYAML["ID"].as<u64>();
+                    node.Type = nodeYAML["Type"].as<std::string>();
+                }
+                catch (const YAML::Exception& e)
+                {
+                    OLO_CORE_ERROR("DialogueTreeSerializer - Failed to parse node ID/Type: {}", e.what());
+                    return false;
+                }
 
                 // Check for duplicate node IDs
                 if (nodeIDs.contains(static_cast<u64>(node.ID)))
@@ -269,43 +301,55 @@ namespace OloEngine
                 }
                 nodeIDs.insert(static_cast<u64>(node.ID));
 
-                node.Type = nodeYAML["Type"].as<std::string>();
-                node.Name = nodeYAML["Name"] ? nodeYAML["Name"].as<std::string>() : "";
+                node.Name = nodeYAML["Name"] ? nodeYAML["Name"].as<std::string>("") : "";
 
                 if (auto editorPos = nodeYAML["EditorPosition"]; editorPos && editorPos.IsSequence() && editorPos.size() >= 2)
                 {
-                    node.EditorPosition.x = editorPos[0].as<f32>();
-                    node.EditorPosition.y = editorPos[1].as<f32>();
+                    try
+                    {
+                        node.EditorPosition.x = editorPos[0].as<f32>();
+                        node.EditorPosition.y = editorPos[1].as<f32>();
+                    }
+                    catch (const YAML::Exception& e)
+                    {
+                        OLO_CORE_WARN("DialogueTreeSerializer - Failed to parse EditorPosition for node {}: {}", static_cast<u64>(node.ID), e.what());
+                    }
                 }
 
                 if (auto propsNode = nodeYAML["Properties"]; propsNode && propsNode.IsMap())
                 {
                     for (const auto& prop : propsNode)
                     {
-                        std::string propKey = prop.first.as<std::string>();
-                        auto propVal = prop.second;
-                        if (propVal.IsMap() && propVal["type"] && propVal["value"])
+                        try
                         {
-                            std::string typeStr = propVal["type"].as<std::string>();
-                            std::string valueStr = propVal["value"].as<std::string>();
-                            node.Properties[propKey] = ParsePropertyValue(typeStr, valueStr);
+                            std::string propKey = prop.first.as<std::string>();
+                            auto propVal = prop.second;
+                            if (propVal.IsMap() && propVal["type"] && propVal["value"])
+                            {
+                                std::string typeStr = propVal["type"].as<std::string>();
+                                std::string valueStr = propVal["value"].as<std::string>();
+                                node.Properties[propKey] = ParsePropertyValue(typeStr, valueStr);
+                            }
+                            else if (propVal.IsScalar())
+                            {
+                                node.Properties[propKey] = propVal.as<std::string>();
+                            }
                         }
-                        else if (propVal.IsScalar())
+                        catch (const YAML::Exception& e)
                         {
-                            // Simple string value fallback
-                            node.Properties[propKey] = propVal.as<std::string>();
+                            OLO_CORE_WARN("DialogueTreeSerializer - Failed to parse property: {}", e.what());
                         }
                     }
                 }
 
-                dialogueAsset->m_Nodes.push_back(std::move(node));
+                localNodes.push_back(std::move(node));
             }
         }
 
         // Validate root node exists
-        if (!nodeIDs.contains(static_cast<u64>(dialogueAsset->m_RootNodeID)))
+        if (!nodeIDs.contains(static_cast<u64>(localRootID)))
         {
-            OLO_CORE_ERROR("DialogueTreeSerializer - Root node ID {} not found in nodes", static_cast<u64>(dialogueAsset->m_RootNodeID));
+            OLO_CORE_ERROR("DialogueTreeSerializer - Root node ID {} not found in nodes", static_cast<u64>(localRootID));
             return false;
         }
 
@@ -315,10 +359,23 @@ namespace OloEngine
             for (const auto& connYAML : connectionsNode)
             {
                 DialogueConnection conn;
-                conn.SourceNodeID = connYAML["SourceNodeID"].as<u64>();
-                conn.TargetNodeID = connYAML["TargetNodeID"].as<u64>();
-                conn.SourcePort = connYAML["SourcePort"] ? connYAML["SourcePort"].as<std::string>() : "output";
-                conn.TargetPort = connYAML["TargetPort"] ? connYAML["TargetPort"].as<std::string>() : "input";
+                try
+                {
+                    if (!connYAML["SourceNodeID"] || !connYAML["TargetNodeID"])
+                    {
+                        OLO_CORE_ERROR("DialogueTreeSerializer - Connection missing required SourceNodeID or TargetNodeID");
+                        return false;
+                    }
+                    conn.SourceNodeID = connYAML["SourceNodeID"].as<u64>();
+                    conn.TargetNodeID = connYAML["TargetNodeID"].as<u64>();
+                }
+                catch (const YAML::Exception& e)
+                {
+                    OLO_CORE_ERROR("DialogueTreeSerializer - Failed to parse connection: {}", e.what());
+                    return false;
+                }
+                conn.SourcePort = connYAML["SourcePort"] ? connYAML["SourcePort"].as<std::string>("output") : "output";
+                conn.TargetPort = connYAML["TargetPort"] ? connYAML["TargetPort"].as<std::string>("input") : "input";
 
                 // Validate connection references
                 if (!nodeIDs.contains(static_cast<u64>(conn.SourceNodeID)))
@@ -332,10 +389,15 @@ namespace OloEngine
                     return false;
                 }
 
-                dialogueAsset->m_Connections.push_back(std::move(conn));
+                localConnections.push_back(std::move(conn));
             }
         }
 
+        // All validation passed — commit to asset
+        dialogueAsset->m_RootNodeID = localRootID;
+        dialogueAsset->m_Nodes = std::move(localNodes);
+        dialogueAsset->m_Connections = std::move(localConnections);
+        dialogueAsset->RebuildNodeIndex();
         return true;
     }
 

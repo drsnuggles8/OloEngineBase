@@ -83,6 +83,7 @@ class DialogueTreeAssetTest : public ::testing::Test
         asset->GetConnectionsWritable().push_back(std::move(conn4));
 
         asset->SetRootNodeID(UUID(100));
+        asset->RebuildNodeIndex();
         return asset;
     }
 };
@@ -174,14 +175,14 @@ TEST_F(DialogueTreeAssetTest, NodePropertyAccess)
 TEST(DialogueStateComponentTest, DefaultValues)
 {
     DialogueStateComponent state;
-    EXPECT_EQ(state.State, DialogueState::Inactive);
-    EXPECT_TRUE(state.CurrentText.empty());
-    EXPECT_TRUE(state.CurrentSpeaker.empty());
-    EXPECT_TRUE(state.AvailableChoices.empty());
-    EXPECT_EQ(state.SelectedChoiceIndex, -1);
-    EXPECT_EQ(state.HoveredChoiceIndex, -1);
-    EXPECT_FLOAT_EQ(state.TextRevealProgress, 0.0f);
-    EXPECT_FLOAT_EQ(state.TextRevealSpeed, 30.0f);
+    EXPECT_EQ(state.m_State, DialogueState::Inactive);
+    EXPECT_TRUE(state.m_CurrentText.empty());
+    EXPECT_TRUE(state.m_CurrentSpeaker.empty());
+    EXPECT_TRUE(state.m_AvailableChoices.empty());
+    EXPECT_EQ(state.m_SelectedChoiceIndex, -1);
+    EXPECT_EQ(state.m_HoveredChoiceIndex, -1);
+    EXPECT_FLOAT_EQ(state.m_TextRevealProgress, 0.0f);
+    EXPECT_FLOAT_EQ(state.m_TextRevealSpeed, 30.0f);
 }
 
 TEST(DialogueComponentTest, DefaultValues)

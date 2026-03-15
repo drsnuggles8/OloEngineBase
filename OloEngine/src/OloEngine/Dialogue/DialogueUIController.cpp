@@ -26,7 +26,7 @@ namespace OloEngine
             rect.m_AnchorMin = { 0.0f, 0.0f };
             rect.m_AnchorMax = { 1.0f, 1.0f };
 
-            m_CanvasEntity = static_cast<entt::entity>(canvasEntity);
+            m_CanvasEntity = canvasEntity.GetUUID();
         }
 
         // Panel entity — dialogue box background
@@ -42,16 +42,19 @@ namespace OloEngine
 
             // Parent to canvas
             auto& rel = panelEntity.AddComponent<RelationshipComponent>();
-            if (m_CanvasEntity != entt::null)
+            if (static_cast<u64>(m_CanvasEntity) != 0)
             {
-                Entity canvasEnt{ m_CanvasEntity, &scene };
-                rel.m_ParentHandle = canvasEnt.GetUUID();
-                if (!canvasEnt.HasComponent<RelationshipComponent>())
-                    canvasEnt.AddComponent<RelationshipComponent>();
-                canvasEnt.GetComponent<RelationshipComponent>().m_Children.push_back(panelEntity.GetUUID());
+                Entity canvasEnt = scene.GetEntityByUUID(m_CanvasEntity);
+                if (canvasEnt)
+                {
+                    rel.m_ParentHandle = canvasEnt.GetUUID();
+                    if (!canvasEnt.HasComponent<RelationshipComponent>())
+                        canvasEnt.AddComponent<RelationshipComponent>();
+                    canvasEnt.GetComponent<RelationshipComponent>().m_Children.push_back(panelEntity.GetUUID());
+                }
             }
 
-            m_PanelEntity = static_cast<entt::entity>(panelEntity);
+            m_PanelEntity = panelEntity.GetUUID();
         }
 
         // Speaker name entity
@@ -68,14 +71,17 @@ namespace OloEngine
 
             // Parent to panel
             auto& rel = speakerEntity.AddComponent<RelationshipComponent>();
-            if (m_PanelEntity != entt::null)
+            if (static_cast<u64>(m_PanelEntity) != 0)
             {
-                Entity panelEnt{ m_PanelEntity, &scene };
-                rel.m_ParentHandle = panelEnt.GetUUID();
-                panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(speakerEntity.GetUUID());
+                Entity panelEnt = scene.GetEntityByUUID(m_PanelEntity);
+                if (panelEnt && panelEnt.HasComponent<RelationshipComponent>())
+                {
+                    rel.m_ParentHandle = panelEnt.GetUUID();
+                    panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(speakerEntity.GetUUID());
+                }
             }
 
-            m_SpeakerNameEntity = static_cast<entt::entity>(speakerEntity);
+            m_SpeakerNameEntity = speakerEntity.GetUUID();
         }
 
         // Dialogue body text entity
@@ -92,14 +98,17 @@ namespace OloEngine
 
             // Parent to panel
             auto& rel = bodyEntity.AddComponent<RelationshipComponent>();
-            if (m_PanelEntity != entt::null)
+            if (static_cast<u64>(m_PanelEntity) != 0)
             {
-                Entity panelEnt{ m_PanelEntity, &scene };
-                rel.m_ParentHandle = panelEnt.GetUUID();
-                panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(bodyEntity.GetUUID());
+                Entity panelEnt = scene.GetEntityByUUID(m_PanelEntity);
+                if (panelEnt && panelEnt.HasComponent<RelationshipComponent>())
+                {
+                    rel.m_ParentHandle = panelEnt.GetUUID();
+                    panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(bodyEntity.GetUUID());
+                }
             }
 
-            m_DialogueBodyEntity = static_cast<entt::entity>(bodyEntity);
+            m_DialogueBodyEntity = bodyEntity.GetUUID();
         }
 
         HideDialogueBox(scene);
@@ -109,13 +118,14 @@ namespace OloEngine
     {
         ClearChoiceEntities(scene);
 
-        auto destroyIfValid = [&](entt::entity& handle)
+        auto destroyIfValid = [&](UUID& uuid)
         {
-            if (handle != entt::null)
+            if (static_cast<u64>(uuid) != 0)
             {
-                Entity ent{ handle, &scene };
-                scene.DestroyEntity(ent);
-                handle = entt::null;
+                Entity ent = scene.GetEntityByUUID(uuid);
+                if (ent)
+                    scene.DestroyEntity(ent);
+                uuid = 0;
             }
         };
 
@@ -126,7 +136,7 @@ namespace OloEngine
         destroyIfValid(m_CanvasEntity);
 
         m_IsVisible = false;
-        m_ActiveNpcEntity = entt::null;
+        m_ActiveNpcEntity = 0;
     }
 
     void DialogueUIController::Update(Scene& scene)
@@ -140,7 +150,7 @@ namespace OloEngine
             for (auto e : view)
             {
                 auto& state = view.get<DialogueStateComponent>(e);
-                if (state.State != DialogueState::Inactive)
+                if (state.m_State != DialogueState::Inactive)
                 {
                     activeEntity = e;
                     break;
@@ -154,11 +164,12 @@ namespace OloEngine
             {
                 HideDialogueBox(scene);
             }
+            m_AdvanceKeyWasPressed = false;
             return;
         }
 
-        m_ActiveNpcEntity = activeEntity;
         Entity npcEntity{ activeEntity, &scene };
+        m_ActiveNpcEntity = npcEntity.GetUUID();
         auto& state = npcEntity.GetComponent<DialogueStateComponent>();
 
         if (!m_IsVisible)
@@ -167,36 +178,36 @@ namespace OloEngine
         }
 
         // Update speaker name
-        if (m_SpeakerNameEntity != entt::null)
+        if (static_cast<u64>(m_SpeakerNameEntity) != 0)
         {
-            Entity speakerEnt{ m_SpeakerNameEntity, &scene };
-            if (speakerEnt.HasComponent<UITextComponent>())
+            Entity speakerEnt = scene.GetEntityByUUID(m_SpeakerNameEntity);
+            if (speakerEnt && speakerEnt.HasComponent<UITextComponent>())
             {
-                speakerEnt.GetComponent<UITextComponent>().m_Text = state.CurrentSpeaker;
+                speakerEnt.GetComponent<UITextComponent>().m_Text = state.m_CurrentSpeaker;
             }
         }
 
         // Update dialogue body with typewriter effect
-        if (m_DialogueBodyEntity != entt::null)
+        if (static_cast<u64>(m_DialogueBodyEntity) != 0)
         {
-            Entity bodyEnt{ m_DialogueBodyEntity, &scene };
-            if (bodyEnt.HasComponent<UITextComponent>())
+            Entity bodyEnt = scene.GetEntityByUUID(m_DialogueBodyEntity);
+            if (bodyEnt && bodyEnt.HasComponent<UITextComponent>())
             {
-                if (state.TextRevealProgress >= 1.0f || state.CurrentText.empty())
+                if (state.m_TextRevealProgress >= 1.0f || state.m_CurrentText.empty())
                 {
-                    bodyEnt.GetComponent<UITextComponent>().m_Text = state.CurrentText;
+                    bodyEnt.GetComponent<UITextComponent>().m_Text = state.m_CurrentText;
                 }
                 else
                 {
                     auto charCount = static_cast<size_t>(
-                        state.TextRevealProgress * static_cast<f32>(state.CurrentText.size()));
-                    bodyEnt.GetComponent<UITextComponent>().m_Text = state.CurrentText.substr(0, charCount);
+                        state.m_TextRevealProgress * static_cast<f32>(state.m_CurrentText.size()));
+                    bodyEnt.GetComponent<UITextComponent>().m_Text = state.m_CurrentText.substr(0, charCount);
                 }
             }
         }
 
         // Update choices
-        if (state.State == DialogueState::WaitingForChoice)
+        if (state.m_State == DialogueState::WaitingForChoice)
         {
             UpdateChoiceEntities(scene);
         }
@@ -205,10 +216,11 @@ namespace OloEngine
             ClearChoiceEntities(scene);
         }
 
-        // Handle input for advancing dialogue
-        if (state.State == DialogueState::Displaying)
+        // Handle input for advancing dialogue (rising-edge detection)
+        bool keyPressed = Input::IsKeyPressed(Key::Space) || Input::IsKeyPressed(Key::Enter);
+        if (state.m_State == DialogueState::Displaying)
         {
-            if (Input::IsKeyPressed(Key::Space) || Input::IsKeyPressed(Key::Enter))
+            if (keyPressed && !m_AdvanceKeyWasPressed)
             {
                 auto* dialogueSystem = scene.GetDialogueSystem();
                 if (dialogueSystem)
@@ -217,15 +229,15 @@ namespace OloEngine
                 }
             }
         }
+        m_AdvanceKeyWasPressed = keyPressed;
     }
 
     void DialogueUIController::ShowDialogueBox(Scene& scene)
     {
-        // Make canvas visible by ensuring it has a UICanvasComponent
-        if (m_CanvasEntity != entt::null)
+        if (static_cast<u64>(m_CanvasEntity) != 0)
         {
-            Entity canvasEnt{ m_CanvasEntity, &scene };
-            if (canvasEnt.HasComponent<UICanvasComponent>())
+            Entity canvasEnt = scene.GetEntityByUUID(m_CanvasEntity);
+            if (canvasEnt && canvasEnt.HasComponent<UICanvasComponent>())
             {
                 canvasEnt.GetComponent<UICanvasComponent>().m_SortOrder = 100;
             }
@@ -235,29 +247,28 @@ namespace OloEngine
 
     void DialogueUIController::HideDialogueBox(Scene& scene)
     {
-        // Hide by setting sort order to a negative value (below render threshold)
-        if (m_CanvasEntity != entt::null)
+        if (static_cast<u64>(m_CanvasEntity) != 0)
         {
-            Entity canvasEnt{ m_CanvasEntity, &scene };
-            if (canvasEnt.HasComponent<UICanvasComponent>())
+            Entity canvasEnt = scene.GetEntityByUUID(m_CanvasEntity);
+            if (canvasEnt && canvasEnt.HasComponent<UICanvasComponent>())
             {
                 canvasEnt.GetComponent<UICanvasComponent>().m_SortOrder = -9999;
             }
         }
         m_IsVisible = false;
-        m_ActiveNpcEntity = entt::null;
+        m_ActiveNpcEntity = 0;
     }
 
     void DialogueUIController::UpdateChoiceEntities(Scene& scene)
     {
-        Entity npcEntity{ m_ActiveNpcEntity, &scene };
-        if (!npcEntity.HasComponent<DialogueStateComponent>())
+        Entity npcEntity = scene.GetEntityByUUID(m_ActiveNpcEntity);
+        if (!npcEntity || !npcEntity.HasComponent<DialogueStateComponent>())
             return;
 
         auto& state = npcEntity.GetComponent<DialogueStateComponent>();
 
         // Ensure we have the right number of choice entities
-        while (m_ChoiceEntities.size() < state.AvailableChoices.size())
+        while (m_ChoiceEntities.size() < state.m_AvailableChoices.size())
         {
             Entity choiceEntity = scene.CreateEntity("DialogueChoice_" + std::to_string(m_ChoiceEntities.size()));
             auto& rect = choiceEntity.AddComponent<UIRectTransformComponent>();
@@ -277,36 +288,41 @@ namespace OloEngine
 
             // Parent to panel
             auto& rel = choiceEntity.AddComponent<RelationshipComponent>();
-            if (m_PanelEntity != entt::null)
+            if (static_cast<u64>(m_PanelEntity) != 0)
             {
-                Entity panelEnt{ m_PanelEntity, &scene };
-                rel.m_ParentHandle = panelEnt.GetUUID();
-                panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(choiceEntity.GetUUID());
+                Entity panelEnt = scene.GetEntityByUUID(m_PanelEntity);
+                if (panelEnt && panelEnt.HasComponent<RelationshipComponent>())
+                {
+                    rel.m_ParentHandle = panelEnt.GetUUID();
+                    panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(choiceEntity.GetUUID());
+                }
             }
 
-            m_ChoiceEntities.push_back(static_cast<entt::entity>(choiceEntity));
+            m_ChoiceEntities.push_back(choiceEntity.GetUUID());
         }
 
         // Update text and state for each choice
-        for (size_t i = 0; i < state.AvailableChoices.size(); ++i)
+        for (size_t i = 0; i < state.m_AvailableChoices.size(); ++i)
         {
-            Entity choiceEnt{ m_ChoiceEntities[i], &scene };
+            Entity choiceEnt = scene.GetEntityByUUID(m_ChoiceEntities[i]);
+            if (!choiceEnt)
+                continue;
             if (choiceEnt.HasComponent<UITextComponent>())
             {
-                choiceEnt.GetComponent<UITextComponent>().m_Text = state.AvailableChoices[i].Text;
+                choiceEnt.GetComponent<UITextComponent>().m_Text = state.m_AvailableChoices[i].Text;
             }
             if (choiceEnt.HasComponent<UIButtonComponent>())
             {
                 auto& btn = choiceEnt.GetComponent<UIButtonComponent>();
-                btn.m_State = (static_cast<i32>(i) == state.HoveredChoiceIndex) ? UIButtonState::Hovered : UIButtonState::Normal;
+                btn.m_State = (static_cast<i32>(i) == state.m_HoveredChoiceIndex) ? UIButtonState::Hovered : UIButtonState::Normal;
             }
         }
 
         // Hide excess choice entities
-        for (size_t i = state.AvailableChoices.size(); i < m_ChoiceEntities.size(); ++i)
+        for (size_t i = state.m_AvailableChoices.size(); i < m_ChoiceEntities.size(); ++i)
         {
-            Entity choiceEnt{ m_ChoiceEntities[i], &scene };
-            if (choiceEnt.HasComponent<UITextComponent>())
+            Entity choiceEnt = scene.GetEntityByUUID(m_ChoiceEntities[i]);
+            if (choiceEnt && choiceEnt.HasComponent<UITextComponent>())
             {
                 choiceEnt.GetComponent<UITextComponent>().m_Text.clear();
             }
@@ -315,10 +331,11 @@ namespace OloEngine
 
     void DialogueUIController::ClearChoiceEntities(Scene& scene)
     {
-        for (auto e : m_ChoiceEntities)
+        for (auto uuid : m_ChoiceEntities)
         {
-            Entity ent{ e, &scene };
-            scene.DestroyEntity(ent);
+            Entity ent = scene.GetEntityByUUID(uuid);
+            if (ent)
+                scene.DestroyEntity(ent);
         }
         m_ChoiceEntities.clear();
     }

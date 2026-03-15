@@ -3,23 +3,50 @@ using OloEngine;
 public class GuardDialogue : Entity
 {
     private Entity m_Player;
+    private bool m_HasStartedDialogue;
 
     public override void OnCreate()
     {
         m_Player = FindEntityByName("Player");
+        m_HasStartedDialogue = false;
     }
 
     public override void OnUpdate(float ts)
     {
+        if (m_Player == null)
+            return;
+
         var dialogue = GetComponent<DialogueComponent>();
+        if (dialogue == null)
+            return;
+
         if (dialogue.IsActive)
             return;
 
-        var npcPos = GetComponent<TransformComponent>().Translation;
-        var playerPos = m_Player.GetComponent<TransformComponent>().Translation;
+        var npcTransform = GetComponent<TransformComponent>();
+        if (npcTransform == null)
+            return;
+
+        var playerTransform = m_Player.GetComponent<TransformComponent>();
+        if (playerTransform == null)
+            return;
+
+        var npcPos = npcTransform.Translation;
+        var playerPos = playerTransform.Translation;
         float dist = Vector3.Distance(npcPos, playerPos);
 
         if (dist < 3.0f)
-            dialogue.StartDialogue();
+        {
+            if (!m_HasStartedDialogue)
+            {
+                dialogue.StartDialogue();
+                m_HasStartedDialogue = true;
+            }
+        }
+        else
+        {
+            // Player exited range — allow re-triggering
+            m_HasStartedDialogue = false;
+        }
     }
 }

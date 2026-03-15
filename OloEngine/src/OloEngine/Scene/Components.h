@@ -1220,15 +1220,15 @@ namespace OloEngine
 
     struct DialogueStateComponent
     {
-        UUID CurrentNodeID = 0;
-        DialogueState State = DialogueState::Inactive;
-        std::string CurrentText;
-        std::string CurrentSpeaker;
-        std::vector<DialogueChoice> AvailableChoices;
-        i32 SelectedChoiceIndex = -1;
-        i32 HoveredChoiceIndex = -1;
-        f32 TextRevealProgress = 0.0f; // 0..1 for typewriter effect
-        f32 TextRevealSpeed = 30.0f;   // characters per second
+        UUID m_CurrentNodeID = 0;
+        DialogueState m_State = DialogueState::Inactive;
+        std::string m_CurrentText;
+        std::string m_CurrentSpeaker;
+        std::vector<DialogueChoice> m_AvailableChoices;
+        i32 m_SelectedChoiceIndex = -1;
+        i32 m_HoveredChoiceIndex = -1;
+        f32 m_TextRevealProgress = 0.0f; // 0..1 for typewriter effect
+        f32 m_TextRevealSpeed = 30.0f;   // characters per second
 
         DialogueStateComponent() = default;
     };

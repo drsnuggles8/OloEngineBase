@@ -1353,6 +1353,7 @@ namespace OloEngine
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
         auto* dialogueSystem = scene->GetDialogueSystem();
         if (dialogueSystem)
             dialogueSystem->StartDialogue(entity);
@@ -1363,6 +1364,7 @@ namespace OloEngine
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
         auto* dialogueSystem = scene->GetDialogueSystem();
         if (dialogueSystem)
             dialogueSystem->AdvanceDialogue(entity);
@@ -1373,6 +1375,7 @@ namespace OloEngine
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
         auto* dialogueSystem = scene->GetDialogueSystem();
         if (dialogueSystem)
             dialogueSystem->SelectChoice(entity, choiceIndex);
@@ -1383,6 +1386,7 @@ namespace OloEngine
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
         return entity.HasComponent<DialogueStateComponent>();
     }
 
@@ -1391,6 +1395,7 @@ namespace OloEngine
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
         auto* dialogueSystem = scene->GetDialogueSystem();
         if (dialogueSystem)
             dialogueSystem->EndDialogue(entity);
@@ -1398,6 +1403,8 @@ namespace OloEngine
 
     static bool DialogueVariables_GetBool(MonoString* key, bool defaultValue)
     {
+        if (!key)
+            return defaultValue;
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         return scene->GetDialogueVariables().GetBool(Utils::MonoStringToString(key), defaultValue);
@@ -1405,6 +1412,8 @@ namespace OloEngine
 
     static void DialogueVariables_SetBool(MonoString* key, bool value)
     {
+        if (!key)
+            return;
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         scene->GetDialogueVariables().SetBool(Utils::MonoStringToString(key), value);
@@ -1412,6 +1421,8 @@ namespace OloEngine
 
     static i32 DialogueVariables_GetInt(MonoString* key, i32 defaultValue)
     {
+        if (!key)
+            return defaultValue;
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         return scene->GetDialogueVariables().GetInt(Utils::MonoStringToString(key), defaultValue);
@@ -1419,6 +1430,8 @@ namespace OloEngine
 
     static void DialogueVariables_SetInt(MonoString* key, i32 value)
     {
+        if (!key)
+            return;
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         scene->GetDialogueVariables().SetInt(Utils::MonoStringToString(key), value);
@@ -1426,25 +1439,31 @@ namespace OloEngine
 
     static MonoString* DialogueVariables_GetString(MonoString* key, MonoString* defaultValue)
     {
+        if (!key)
+            return defaultValue;
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         std::string result = scene->GetDialogueVariables().GetString(
             Utils::MonoStringToString(key),
-            Utils::MonoStringToString(defaultValue));
+            defaultValue ? Utils::MonoStringToString(defaultValue) : "");
         return ScriptEngine::CreateString(result.c_str());
     }
 
     static void DialogueVariables_SetString(MonoString* key, MonoString* value)
     {
+        if (!key)
+            return;
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         scene->GetDialogueVariables().SetString(
             Utils::MonoStringToString(key),
-            Utils::MonoStringToString(value));
+            value ? Utils::MonoStringToString(value) : "");
     }
 
     static bool DialogueVariables_Has(MonoString* key)
     {
+        if (!key)
+            return false;
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         return scene->GetDialogueVariables().Has(Utils::MonoStringToString(key));

@@ -19,7 +19,7 @@ namespace OloEngine
 {
     class DialogueEditorPanel
     {
-    public:
+      public:
         DialogueEditorPanel() = default;
         ~DialogueEditorPanel() = default;
 
@@ -30,10 +30,16 @@ namespace OloEngine
         void OpenDialogue(AssetHandle handle);
 
         // Check if panel has unsaved changes
-        [[nodiscard]] bool HasUnsavedChanges() const { return m_IsDirty; }
-        [[nodiscard]] bool IsOpen() const { return m_IsOpen; }
+        [[nodiscard]] bool HasUnsavedChanges() const
+        {
+            return m_IsDirty;
+        }
+        [[nodiscard]] bool IsOpen() const
+        {
+            return m_IsOpen;
+        }
 
-    private:
+      private:
         // --- Canvas rendering ---
         void DrawCanvas();
         void DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize);
@@ -51,7 +57,7 @@ namespace OloEngine
         // --- Port helpers ---
         struct PortInfo
         {
-            ImVec2 Position;    // Screen-space
+            ImVec2 Position; // Screen-space
             UUID NodeID;
             std::string Name;
             bool IsOutput;
@@ -96,7 +102,7 @@ namespace OloEngine
         DialogueNodeData* FindNodeMutable(UUID nodeID);
         UUID GenerateNodeID();
 
-    private:
+      private:
         bool m_IsOpen = true;
 
         // Asset state

@@ -392,7 +392,13 @@ namespace OloEngine
                 ImGui::InputText("Name", dialogueName, sizeof(dialogueName));
                 if (ImGui::Button("Create##DialogueTree"))
                 {
-                    std::filesystem::path dialoguePath = m_CurrentDirectory / (std::string(dialogueName) + ".olodialogue");
+                    std::string baseName = dialogueName;
+                    std::filesystem::path dialoguePath = m_CurrentDirectory / (baseName + ".olodialogue");
+                    int counter = 1;
+                    while (std::filesystem::exists(dialoguePath))
+                    {
+                        dialoguePath = m_CurrentDirectory / (baseName + "_" + std::to_string(counter++) + ".olodialogue");
+                    }
                     YAML::Emitter out;
                     out << YAML::BeginMap;
                     out << YAML::Key << "DialogueTree" << YAML::Value << YAML::BeginMap;

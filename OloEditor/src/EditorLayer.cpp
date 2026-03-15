@@ -1136,6 +1136,10 @@ namespace OloEngine
             {
                 m_DialogueEditorPanel.OpenDialogue(path);
                 m_ShowDialogueEditor = true;
+            }
+            else if (type == ContentFileType::Scene)
+            {
+                OpenScene(path);
             } });
         m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
     }
@@ -1171,6 +1175,10 @@ namespace OloEngine
                 {
                     m_DialogueEditorPanel.OpenDialogue(path);
                     m_ShowDialogueEditor = true;
+                }
+                else if (type == ContentFileType::Scene)
+                {
+                    OpenScene(path);
                 } });
             m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
 

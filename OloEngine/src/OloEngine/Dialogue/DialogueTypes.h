@@ -14,6 +14,8 @@ namespace OloEngine
 {
     using DialoguePropertyValue = std::variant<bool, i32, f32, std::string>;
 
+    // Plain data-transfer structs: members intentionally use PascalCase without m_ prefix
+    // to keep them lightweight POD-style types matching their YAML serialization keys.
     struct DialogueNodeData
     {
         UUID ID;

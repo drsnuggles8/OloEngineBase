@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "OloEngine/Scene/Scene.h"  // Required: AssetSerializer.h uses Ref<Scene> inline
+#include "OloEngine/Scene/Scene.h" // Required: AssetSerializer.h uses Ref<Scene> inline
 #include "OloEngine/Dialogue/DialogueTreeAsset.h"
 #include "OloEngine/Dialogue/DialogueTreeSerializer.h"
 
@@ -54,6 +54,7 @@ class DialogueTreeSerializationTest : public ::testing::Test
         asset->GetConnectionsWritable().push_back(std::move(conn2));
 
         asset->SetRootNodeID(UUID(1001));
+        asset->RebuildNodeIndex();
         return asset;
     }
 
@@ -82,9 +83,23 @@ TEST_F(DialogueTreeSerializationTest, SerializeAndDeserializeRoundTrip)
     auto it = root->Properties.find("speaker");
     ASSERT_NE(it, root->Properties.end());
     EXPECT_EQ(std::get<std::string>(it->second), "Guard");
+    EXPECT_FLOAT_EQ(root->EditorPosition.x, 100.0f);
+    EXPECT_FLOAT_EQ(root->EditorPosition.y, 200.0f);
+
+    // Verify response node text
+    auto* response = deserialized->FindNode(UUID(1003));
+    ASSERT_NE(response, nullptr);
+    auto textIt = response->Properties.find("text");
+    ASSERT_NE(textIt, response->Properties.end());
+    EXPECT_EQ(std::get<std::string>(textIt->second), "Move along.");
 
     // Verify connections
-    EXPECT_EQ(deserialized->GetConnections().size(), 2u);
+    ASSERT_EQ(deserialized->GetConnections().size(), 2u);
+    const auto& conns = deserialized->GetConnections();
+    EXPECT_EQ(conns[0].SourcePort, "output");
+    EXPECT_EQ(conns[0].TargetPort, "input");
+    EXPECT_EQ(conns[1].SourcePort, "I'm a friend.");
+    EXPECT_EQ(conns[1].TargetPort, "input");
 }
 
 TEST_F(DialogueTreeSerializationTest, DeserializeRejectsMissingRootNode)
@@ -158,6 +173,7 @@ TEST_F(DialogueTreeSerializationTest, EmptyDialogueTree)
 
     asset->GetNodesWritable().push_back(std::move(rootNode));
     asset->SetRootNodeID(UUID(5000));
+    asset->RebuildNodeIndex();
 
     std::string yaml = serializer.TestSerializeToYAML(asset);
     ASSERT_FALSE(yaml.empty());

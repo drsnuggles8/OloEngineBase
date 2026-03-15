@@ -497,6 +497,7 @@ namespace OloEngine
             // Update dialogue system
             if (m_DialogueSystem)
             {
+                OLO_PROFILE_SCOPE("DialogueSystem::Update");
                 m_DialogueSystem->Update(ts);
             }
 

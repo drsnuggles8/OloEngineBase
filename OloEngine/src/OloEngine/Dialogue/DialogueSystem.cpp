@@ -31,14 +31,14 @@ namespace OloEngine
         for (auto entityHandle : view)
         {
             auto& state = view.get<DialogueStateComponent>(entityHandle);
-            if (state.State == DialogueState::Displaying)
+            if (state.m_State == DialogueState::Displaying)
             {
                 // Advance typewriter effect
-                if (state.TextRevealProgress < 1.0f && !state.CurrentText.empty())
+                if (state.m_TextRevealProgress < 1.0f && !state.m_CurrentText.empty())
                 {
-                    f32 const totalChars = static_cast<f32>(state.CurrentText.size());
-                    f32 const increment = (state.TextRevealSpeed * ts.GetSeconds()) / totalChars;
-                    state.TextRevealProgress = std::min(state.TextRevealProgress + increment, 1.0f);
+                    f32 const totalChars = static_cast<f32>(state.m_CurrentText.size());
+                    f32 const increment = (state.m_TextRevealSpeed * ts.GetSeconds()) / totalChars;
+                    state.m_TextRevealProgress = std::min(state.m_TextRevealProgress + increment, 1.0f);
                 }
             }
         }
@@ -86,16 +86,16 @@ namespace OloEngine
         }
 
         auto& state = entity.GetComponent<DialogueStateComponent>();
-        state.CurrentNodeID = dialogueTree->GetRootNodeID();
-        state.State = DialogueState::Processing;
-        state.CurrentText.clear();
-        state.CurrentSpeaker.clear();
-        state.AvailableChoices.clear();
-        state.SelectedChoiceIndex = -1;
-        state.HoveredChoiceIndex = -1;
-        state.TextRevealProgress = 0.0f;
+        state.m_CurrentNodeID = dialogueTree->GetRootNodeID();
+        state.m_State = DialogueState::Processing;
+        state.m_CurrentText.clear();
+        state.m_CurrentSpeaker.clear();
+        state.m_AvailableChoices.clear();
+        state.m_SelectedChoiceIndex = -1;
+        state.m_HoveredChoiceIndex = -1;
+        state.m_TextRevealProgress = 0.0f;
 
-        ProcessNode(entity, state.CurrentNodeID);
+        ProcessNode(entity, state.m_CurrentNodeID, 0);
     }
 
     void DialogueSystem::AdvanceDialogue(Entity entity)
@@ -108,15 +108,15 @@ namespace OloEngine
         }
 
         auto& state = entity.GetComponent<DialogueStateComponent>();
-        if (state.State != DialogueState::Displaying)
+        if (state.m_State != DialogueState::Displaying)
         {
             return;
         }
 
         // If typewriter isn't done, snap to full text
-        if (state.TextRevealProgress < 1.0f)
+        if (state.m_TextRevealProgress < 1.0f)
         {
-            state.TextRevealProgress = 1.0f;
+            state.m_TextRevealProgress = 1.0f;
             return;
         }
 
@@ -129,7 +129,7 @@ namespace OloEngine
             return;
         }
 
-        auto connections = dialogueTree->GetConnectionsFrom(state.CurrentNodeID);
+        auto connections = dialogueTree->GetConnectionsFrom(state.m_CurrentNodeID);
         if (connections.empty())
         {
             // No more nodes — end the dialogue
@@ -138,8 +138,8 @@ namespace OloEngine
         }
 
         // Take the first connection (default output)
-        state.State = DialogueState::Processing;
-        ProcessNode(entity, connections[0].TargetNodeID);
+        state.m_State = DialogueState::Processing;
+        ProcessNode(entity, connections[0].TargetNodeID, 0);
     }
 
     void DialogueSystem::SelectChoice(Entity entity, i32 choiceIndex)
@@ -152,21 +152,21 @@ namespace OloEngine
         }
 
         auto& state = entity.GetComponent<DialogueStateComponent>();
-        if (state.State != DialogueState::WaitingForChoice)
+        if (state.m_State != DialogueState::WaitingForChoice)
         {
             return;
         }
 
-        if (choiceIndex < 0 || choiceIndex >= static_cast<i32>(state.AvailableChoices.size()))
+        if (choiceIndex < 0 || choiceIndex >= static_cast<i32>(state.m_AvailableChoices.size()))
         {
             OLO_CORE_WARN("DialogueSystem::SelectChoice - Invalid choice index: {}", choiceIndex);
             return;
         }
 
-        UUID targetNodeID = state.AvailableChoices[choiceIndex].TargetNodeID;
-        state.SelectedChoiceIndex = choiceIndex;
-        state.State = DialogueState::Processing;
-        ProcessNode(entity, targetNodeID);
+        UUID targetNodeID = state.m_AvailableChoices[choiceIndex].TargetNodeID;
+        state.m_SelectedChoiceIndex = choiceIndex;
+        state.m_State = DialogueState::Processing;
+        ProcessNode(entity, targetNodeID, 0);
     }
 
     void DialogueSystem::EndDialogue(Entity entity)
@@ -195,9 +195,16 @@ namespace OloEngine
         m_ActionHandlers[name] = std::move(handler);
     }
 
-    void DialogueSystem::ProcessNode(Entity entity, UUID nodeID)
+    void DialogueSystem::ProcessNode(Entity entity, UUID nodeID, int hopCount)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (hopCount >= s_MaxHopCount)
+        {
+            OLO_CORE_ERROR("DialogueSystem::ProcessNode - Exceeded max hop count ({}), possible cycle detected at node {}", s_MaxHopCount, static_cast<u64>(nodeID));
+            EndDialogue(entity);
+            return;
+        }
 
         auto& dialogueComp = entity.GetComponent<DialogueComponent>();
         auto dialogueTree = AssetManager::GetAsset<DialogueTreeAsset>(dialogueComp.m_DialogueTree);
@@ -216,34 +223,34 @@ namespace OloEngine
         }
 
         auto& state = entity.GetComponent<DialogueStateComponent>();
-        state.CurrentNodeID = nodeID;
+        state.m_CurrentNodeID = nodeID;
 
         if (node->Type == "dialogue")
         {
             // Extract text and speaker from properties
-            state.CurrentText.clear();
-            state.CurrentSpeaker.clear();
+            state.m_CurrentText.clear();
+            state.m_CurrentSpeaker.clear();
 
             if (auto it = node->Properties.find("text"); it != node->Properties.end())
             {
                 if (auto* str = std::get_if<std::string>(&it->second))
-                    state.CurrentText = *str;
+                    state.m_CurrentText = *str;
             }
             if (auto it = node->Properties.find("speaker"); it != node->Properties.end())
             {
                 if (auto* str = std::get_if<std::string>(&it->second))
-                    state.CurrentSpeaker = *str;
+                    state.m_CurrentSpeaker = *str;
             }
 
-            state.AvailableChoices.clear();
-            state.TextRevealProgress = 0.0f;
-            state.State = DialogueState::Displaying;
+            state.m_AvailableChoices.clear();
+            state.m_TextRevealProgress = 0.0f;
+            state.m_State = DialogueState::Displaying;
         }
         else if (node->Type == "choice")
         {
             // Populate choices from outgoing connections
             auto connections = dialogueTree->GetConnectionsFrom(nodeID);
-            state.AvailableChoices.clear();
+            state.m_AvailableChoices.clear();
 
             for (const auto& conn : connections)
             {
@@ -272,12 +279,20 @@ namespace OloEngine
                         continue; // Skip unavailable choices
                 }
 
-                state.AvailableChoices.push_back(std::move(choice));
+                state.m_AvailableChoices.push_back(std::move(choice));
             }
 
-            state.SelectedChoiceIndex = -1;
-            state.HoveredChoiceIndex = -1;
-            state.State = DialogueState::WaitingForChoice;
+            if (state.m_AvailableChoices.empty())
+            {
+                // No valid choices available — end the dialogue instead of trapping
+                OLO_CORE_WARN("DialogueSystem::ProcessNode - Choice node {} has no available choices", static_cast<u64>(nodeID));
+                EndDialogue(entity);
+                return;
+            }
+
+            state.m_SelectedChoiceIndex = -1;
+            state.m_HoveredChoiceIndex = -1;
+            state.m_State = DialogueState::WaitingForChoice;
         }
         else if (node->Type == "condition")
         {
@@ -328,7 +343,7 @@ namespace OloEngine
                 }
             }
 
-            ProcessNode(entity, nextNodeID);
+            ProcessNode(entity, nextNodeID, hopCount + 1);
         }
         else if (node->Type == "action")
         {
@@ -356,7 +371,7 @@ namespace OloEngine
                 EndDialogue(entity);
                 return;
             }
-            ProcessNode(entity, connections[0].TargetNodeID);
+            ProcessNode(entity, connections[0].TargetNodeID, hopCount + 1);
         }
         else
         {
@@ -367,6 +382,8 @@ namespace OloEngine
 
     bool DialogueSystem::EvaluateCondition(const std::string& conditionName, const std::string& args)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Check registered handlers first
         if (auto it = m_ConditionHandlers.find(conditionName); it != m_ConditionHandlers.end())
         {
@@ -385,6 +402,8 @@ namespace OloEngine
 
     void DialogueSystem::ExecuteAction(const std::string& actionName, const std::string& args)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Check registered handlers first
         if (auto it = m_ActionHandlers.find(actionName); it != m_ActionHandlers.end())
         {
