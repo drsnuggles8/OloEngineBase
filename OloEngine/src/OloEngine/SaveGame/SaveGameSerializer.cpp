@@ -341,11 +341,20 @@ namespace OloEngine
     // Deserialize entities into a staging scene. Returns whether parsing succeeded.
     static bool DeserializeEntitiesInto(Scene& staging, FMemoryReader& reader)
     {
+        OLO_PROFILE_FUNCTION();
+
         u32 entityCount = 0;
         reader << entityCount;
         if (reader.IsError())
         {
             OLO_CORE_ERROR("[SaveGameSerializer] Failed to read entity count");
+            return false;
+        }
+
+        static constexpr u32 kMaxEntityCount = 1'000'000;
+        if (entityCount > kMaxEntityCount)
+        {
+            OLO_CORE_ERROR("[SaveGameSerializer] Entity count {} exceeds maximum {}", entityCount, kMaxEntityCount);
             return false;
         }
 

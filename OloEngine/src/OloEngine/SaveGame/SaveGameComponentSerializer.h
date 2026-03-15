@@ -10,10 +10,12 @@ namespace OloEngine
     class FArchive;
 
     // Forward-declare all component types
-    // NOTE: When adding a new component, update THREE places:
+    // NOTE: When adding a new component, update FIVE places:
     //   1. Forward declaration here
     //   2. Serialize() overload declaration below
     //   3. RegisterAll() in SaveGameComponentSerializer.cpp
+    //   4. ScriptCore (C#) bindings in OloEngine-ScriptCore
+    //   5. LuaScriptCore (Lua) bindings in OloEngine-LuaScriptCore
     struct IDComponent;
     struct TagComponent;
     struct PrefabComponent;

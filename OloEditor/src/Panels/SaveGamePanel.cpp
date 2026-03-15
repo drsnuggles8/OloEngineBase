@@ -65,9 +65,9 @@ namespace OloEngine
                 }
 
                 auto result = SaveGameManager::Save(*m_Scene, m_NewSaveName, m_NewSaveName, thumbnail);
-                if (result == SaveLoadResult::Success)
+                if (result == SaveLoadResult::Success || result == SaveLoadResult::Pending)
                 {
-                    m_StatusMessage = "Saved: " + std::string(m_NewSaveName);
+                    m_StatusMessage = "Saving: " + std::string(m_NewSaveName);
                     m_StatusTimer = 3.0f;
                     m_NeedsRefresh = true;
                 }
@@ -247,9 +247,9 @@ namespace OloEngine
             }
 
             auto result = SaveGameManager::QuickSave(*m_Scene, thumbnail);
-            if (result == SaveLoadResult::Success)
+            if (result == SaveLoadResult::Success || result == SaveLoadResult::Pending)
             {
-                m_StatusMessage = "Quick Save complete";
+                m_StatusMessage = "Quick Save in progress";
                 m_StatusTimer = 2.0f;
                 m_NeedsRefresh = true;
             }

@@ -1360,7 +1360,7 @@ namespace OloEngine
         }
         if (!slotName)
         {
-            return static_cast<i32>(SaveLoadResult::IOError);
+            return static_cast<i32>(SaveLoadResult::InvalidInput);
         }
         std::string slot = Utils::MonoStringToString(slotName);
         std::string name = displayName ? Utils::MonoStringToString(displayName) : slot;
@@ -1378,7 +1378,7 @@ namespace OloEngine
         }
         if (!slotName)
         {
-            return static_cast<i32>(SaveLoadResult::IOError);
+            return static_cast<i32>(SaveLoadResult::InvalidInput);
         }
         std::string slot = Utils::MonoStringToString(slotName);
         return static_cast<i32>(SaveGameManager::Load(*scene, slot));

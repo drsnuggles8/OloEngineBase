@@ -121,12 +121,28 @@ namespace OloEngine
         ar << count;
         if (ar.IsLoading())
         {
-            count = std::min(count, static_cast<u32>(curve.Keys.size()));
-            curve.KeyCount = count;
+            u32 fileCount = count;
+            u32 cap = static_cast<u32>(curve.Keys.size());
+            curve.KeyCount = std::min(fileCount, cap);
+            for (u32 i = 0; i < fileCount; ++i)
+            {
+                if (i < cap)
+                {
+                    ar << curve.Keys[i].Time << curve.Keys[i].Value;
+                }
+                else
+                {
+                    f32 discardTime{}, discardValue{};
+                    ar << discardTime << discardValue;
+                }
+            }
         }
-        for (u32 i = 0; i < count; ++i)
+        else
         {
-            ar << curve.Keys[i].Time << curve.Keys[i].Value;
+            for (u32 i = 0; i < count; ++i)
+            {
+                ar << curve.Keys[i].Time << curve.Keys[i].Value;
+            }
         }
     }
 
@@ -266,12 +282,28 @@ namespace OloEngine
         ar << burstCount;
         if (ar.IsLoading())
         {
-            burstCount = std::min(burstCount, 1024u);
-            e.Bursts.resize(burstCount);
+            u32 fileCount = burstCount;
+            u32 clampedCount = std::min(fileCount, 1024u);
+            e.Bursts.resize(clampedCount);
+            for (u32 i = 0; i < fileCount; ++i)
+            {
+                if (i < clampedCount)
+                {
+                    SerializeBurstEntry(ar, e.Bursts[i]);
+                }
+                else
+                {
+                    BurstEntry discard{};
+                    SerializeBurstEntry(ar, discard);
+                }
+            }
         }
-        for (u32 i = 0; i < burstCount; ++i)
+        else
         {
-            SerializeBurstEntry(ar, e.Bursts[i]);
+            for (u32 i = 0; i < burstCount; ++i)
+            {
+                SerializeBurstEntry(ar, e.Bursts[i]);
+            }
         }
     }
 

@@ -16,7 +16,9 @@ class SaveGameFileTest : public ::testing::Test
   protected:
     void SetUp() override
     {
-        m_TempPath = std::filesystem::temp_directory_path() / "olo_test_savegame.olosave";
+        const auto* testInfo = ::testing::UnitTest::GetInstance()->current_test_info();
+        std::string testName = std::string(testInfo->test_suite_name()) + "_" + testInfo->name();
+        m_TempPath = std::filesystem::temp_directory_path() / ("olo_test_" + testName + ".olosave");
         // Clean up any leftover
         std::error_code ec;
         std::filesystem::remove(m_TempPath, ec);

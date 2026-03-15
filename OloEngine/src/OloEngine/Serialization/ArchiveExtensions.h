@@ -16,6 +16,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <concepts>
+#include <limits>
 #include <unordered_map>
 #include <vector>
 
@@ -133,6 +134,16 @@ namespace OloEngine
     template<typename T>
     FArchive& operator<<(FArchive& ar, std::vector<T>& vec)
     {
+        if (!ar.IsLoading())
+        {
+            sizet rawSize = vec.size();
+            if (rawSize > kMaxContainerDeserializeCount || rawSize > std::numeric_limits<u32>::max())
+            {
+                ar.SetError();
+                return ar;
+            }
+        }
+
         u32 count = static_cast<u32>(vec.size());
         ar << count;
 
@@ -156,6 +167,16 @@ namespace OloEngine
     template<typename K, typename V>
     FArchive& operator<<(FArchive& ar, std::unordered_map<K, V>& map)
     {
+        if (!ar.IsLoading())
+        {
+            sizet rawSize = map.size();
+            if (rawSize > kMaxContainerDeserializeCount || rawSize > std::numeric_limits<u32>::max())
+            {
+                ar.SetError();
+                return ar;
+            }
+        }
+
         u32 count = static_cast<u32>(map.size());
         ar << count;
 

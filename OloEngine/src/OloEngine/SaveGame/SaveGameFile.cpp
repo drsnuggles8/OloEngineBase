@@ -168,6 +168,14 @@ namespace OloEngine
             return true;
         }
 
+        // Reject suspiciously large metadata (1 MB cap)
+        static constexpr u64 kMaxMetadataSize = 1ULL << 20;
+        if (outHeader.MetadataSize > kMaxMetadataSize)
+        {
+            OLO_CORE_ERROR("[SaveGameFile] MetadataSize {} exceeds cap", outHeader.MetadataSize);
+            return false;
+        }
+
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open())
         {
@@ -218,6 +226,14 @@ namespace OloEngine
             return true;
         }
 
+        // Reject suspiciously large thumbnails (64 MB cap)
+        static constexpr u64 kMaxThumbnailSize = 64ULL << 20;
+        if (header.ThumbnailSize > kMaxThumbnailSize)
+        {
+            OLO_CORE_ERROR("[SaveGameFile] ThumbnailSize {} exceeds cap", header.ThumbnailSize);
+            return false;
+        }
+
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open())
         {
@@ -258,6 +274,14 @@ namespace OloEngine
         {
             outPayload.clear();
             return true;
+        }
+
+        // Reject suspiciously large compressed payloads (1 GB cap)
+        static constexpr u64 kMaxCompressedPayloadSize = 1ULL << 30;
+        if (header.PayloadSize > kMaxCompressedPayloadSize)
+        {
+            OLO_CORE_ERROR("[SaveGameFile] PayloadSize {} exceeds cap", header.PayloadSize);
+            return false;
         }
 
         std::ifstream file(path, std::ios::binary);

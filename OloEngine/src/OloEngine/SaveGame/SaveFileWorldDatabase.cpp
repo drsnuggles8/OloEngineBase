@@ -14,6 +14,8 @@ namespace OloEngine
 {
     SaveFileWorldDatabase::~SaveFileWorldDatabase()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Initialized)
         {
             Shutdown();
@@ -271,9 +273,13 @@ namespace OloEngine
 
         {
             TUniqueLock<FMutex> lock(m_Mutex);
-            if (!m_Initialized || !m_Dirty)
+            if (!m_Initialized)
             {
-                return !m_Dirty;
+                return false;
+            }
+            if (!m_Dirty)
+            {
+                return true;
             }
             if (m_IsCorrupt)
             {

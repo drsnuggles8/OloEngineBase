@@ -10,7 +10,8 @@ namespace OloEngine
 		SerializationFailed,
 		NoActiveScene,
 		IOError,
-		InvalidInput
+		InvalidInput,
+		Pending
 	}
 
 	public static class SaveGame

@@ -7,6 +7,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Task/Task.h"
+#include "OloEngine/Task/NamedThreads.h"
 
 #include <chrono>
 
@@ -20,6 +21,8 @@ namespace OloEngine
     // Reject slot names containing path separators, "..", or other dangerous patterns
     static bool IsValidSlotName(const std::string& slotName)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (slotName.empty())
         {
             return false;
@@ -90,15 +93,19 @@ namespace OloEngine
             return SaveLoadResult::InvalidInput;
         }
 
-        std::string name = displayName.empty() ? slotName : displayName;
-        SaveLoadResult result = SaveInternal(scene, slotName, name, SaveSlotType::Manual, thumbnailPNG);
-
-        if (callback)
+        // Reject manager-reserved slot prefixes
+        if (slotName.starts_with("quicksave_") || slotName.starts_with("autosave_"))
         {
-            callback(result, slotName);
+            OLO_CORE_ERROR("[SaveGameManager] Slot name '{}' uses a reserved prefix", slotName);
+            if (callback)
+            {
+                callback(SaveLoadResult::InvalidInput, slotName);
+            }
+            return SaveLoadResult::InvalidInput;
         }
 
-        return result;
+        std::string name = displayName.empty() ? slotName : displayName;
+        return SaveAsync(scene, slotName, name, SaveSlotType::Manual, thumbnailPNG, callback);
     }
 
     SaveLoadResult SaveGameManager::QuickSave(Scene& scene,
@@ -108,14 +115,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         std::string slotName = GetRotatingSlotName("quicksave", kMaxQuickSaveSlots);
-        SaveLoadResult result = SaveInternal(scene, slotName, "Quick Save", SaveSlotType::QuickSave, thumbnailPNG);
-
-        if (callback)
-        {
-            callback(result, slotName);
-        }
-
-        return result;
+        return SaveAsync(scene, slotName, "Quick Save", SaveSlotType::QuickSave, thumbnailPNG, callback);
     }
 
     SaveLoadResult SaveGameManager::AutoSave(Scene& scene,
@@ -125,14 +125,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         std::string slotName = GetRotatingSlotName("autosave", kMaxAutoSaveSlots);
-        SaveLoadResult result = SaveInternal(scene, slotName, "Auto Save", SaveSlotType::AutoSave, thumbnailPNG);
-
-        if (callback)
-        {
-            callback(result, slotName);
-        }
-
-        return result;
+        return SaveAsync(scene, slotName, "Auto Save", SaveSlotType::AutoSave, thumbnailPNG, callback);
     }
 
     // ========================================================================
@@ -252,6 +245,10 @@ namespace OloEngine
                 info.FilePath = entry.path();
                 info.Metadata = metadata;
                 info.FileSizeBytes = entry.file_size(ec);
+                if (ec)
+                {
+                    info.FileSizeBytes = 0;
+                }
                 info.HasThumbnail = metadata.ThumbnailAvailable;
                 saves.push_back(std::move(info));
             }
@@ -291,6 +288,10 @@ namespace OloEngine
         std::error_code ec;
         outInfo.FilePath = path;
         outInfo.FileSizeBytes = std::filesystem::file_size(path, ec);
+        if (ec)
+        {
+            outInfo.FileSizeBytes = 0;
+        }
         outInfo.HasThumbnail = outInfo.Metadata.ThumbnailAvailable;
         return true;
     }
@@ -379,12 +380,20 @@ namespace OloEngine
 
     std::filesystem::path SaveGameManager::GetSaveDirectory()
     {
+        OLO_PROFILE_FUNCTION();
+
         return Project::GetProjectDirectory() / "Saves";
     }
 
     std::filesystem::path SaveGameManager::GetSaveFilePath(const std::string& slotName)
     {
-        OLO_CORE_ASSERT(IsValidSlotName(slotName), "GetSaveFilePath called with invalid slot name");
+        OLO_PROFILE_FUNCTION();
+
+        if (!IsValidSlotName(slotName))
+        {
+            OLO_CORE_ERROR("[SaveGameManager] GetSaveFilePath called with invalid slot name: '{}'", slotName);
+            return {};
+        }
         return GetSaveDirectory() / (slotName + std::string(kSaveFileExtension));
     }
 
@@ -405,41 +414,40 @@ namespace OloEngine
     // Internal Implementation
     // ========================================================================
 
-    SaveLoadResult SaveGameManager::SaveInternal(Scene& scene,
-                                                 const std::string& slotName,
-                                                 const std::string& displayName,
-                                                 SaveSlotType slotType,
-                                                 const std::vector<u8>& thumbnailPNG)
+    SaveLoadResult SaveGameManager::SaveAsync(Scene& scene,
+                                              const std::string& slotName,
+                                              const std::string& displayName,
+                                              SaveSlotType slotType,
+                                              const std::vector<u8>& thumbnailPNG,
+                                              SaveLoadCompletionCallback callback)
     {
         OLO_PROFILE_FUNCTION();
 
         if (!IsValidSlotName(slotName))
         {
-            OLO_CORE_ERROR("[SaveGameManager] SaveInternal called with invalid slot name: '{}'", slotName);
+            OLO_CORE_ERROR("[SaveGameManager] SaveAsync called with invalid slot name: '{}'", slotName);
+            if (callback)
+            {
+                callback(SaveLoadResult::InvalidInput, slotName);
+            }
             return SaveLoadResult::InvalidInput;
         }
 
         EnsureSaveDirectory();
 
-        // Capture scene state to binary
+        // --- Main-thread work: capture scene state to binary ---
         std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(scene);
         if (payload.empty())
         {
             OLO_CORE_ERROR("[SaveGameManager] Failed to capture scene state");
+            if (callback)
+            {
+                callback(SaveLoadResult::SerializationFailed, slotName);
+            }
             return SaveLoadResult::SerializationFailed;
         }
 
-        // Compress payload
-        std::vector<u8> compressedPayload;
-        bool compressed = SaveGameFile::Compress(payload, compressedPayload);
-
-        // Only use compression if it actually reduces size
-        if (compressed && compressedPayload.size() >= payload.size())
-        {
-            compressed = false;
-        }
-
-        // Build metadata
+        // Build metadata (needs Scene access, so must be on caller thread)
         SaveGameMetadata metadata;
         metadata.DisplayName = displayName;
         metadata.SceneName = scene.GetName();
@@ -449,46 +457,76 @@ namespace OloEngine
         metadata.SlotType = slotType;
         metadata.ThumbnailAvailable = !thumbnailPNG.empty();
 
-        // Count entities
-        u32 entityCount = 0;
         auto view = scene.GetAllEntitiesWith<IDComponent>();
-        for ([[maybe_unused]] auto e : view)
-        {
-            ++entityCount;
-        }
+        u32 entityCount = static_cast<u32>(view.size());
         metadata.EntityCount = entityCount;
 
-        // Build header
-        SaveGameHeader header;
-        header.EntityCount = entityCount;
-        if (compressed)
-        {
-            header.SetCompression(SaveGameCompression::Zlib);
-            header.PayloadUncompressedSize = payload.size();
-        }
-
-        // Write to disk
-        const auto& writePayload = compressed ? compressedPayload : payload;
         auto path = GetSaveFilePath(slotName);
-        if (!SaveGameFile::Write(path, header, metadata, thumbnailPNG, writePayload))
-        {
-            OLO_CORE_ERROR("[SaveGameManager] Failed to write save file: {}", path.string());
-            return SaveLoadResult::IOError;
-        }
 
-        {
-            std::error_code ec;
-            auto fileSize = std::filesystem::file_size(path, ec);
-            if (ec)
+        // --- Dispatch compression + I/O to background thread ---
+        Tasks::Launch(
+            "SaveGameToDisk",
+            [payload = std::move(payload),
+             thumbnailPNG,
+             metadata,
+             entityCount,
+             path,
+             slotName,
+             callback]() mutable
             {
-                OLO_CORE_WARN("[SaveGameManager] Could not read file size for '{}': {}", path.string(), ec.message());
-            }
-            OLO_CORE_INFO("[SaveGameManager] Saved '{}' ({} entities, {:.1f} KB)",
-                          slotName, entityCount,
-                          ec ? 0.0f : static_cast<f32>(fileSize) / 1024.0f);
-        }
+                OLO_PROFILE_SCOPE("SaveGameToDisk");
 
-        return SaveLoadResult::Success;
+                // Compress payload
+                std::vector<u8> compressedPayload;
+                bool compressed = SaveGameFile::Compress(payload, compressedPayload);
+                if (compressed && compressedPayload.size() >= payload.size())
+                {
+                    compressed = false;
+                }
+
+                // Build header
+                SaveGameHeader header;
+                header.EntityCount = entityCount;
+                if (compressed)
+                {
+                    header.SetCompression(SaveGameCompression::Zlib);
+                    header.PayloadUncompressedSize = payload.size();
+                }
+
+                // Write to disk
+                const auto& writePayload = compressed ? compressedPayload : payload;
+                SaveLoadResult result = SaveLoadResult::Success;
+                if (!SaveGameFile::Write(path, header, metadata, thumbnailPNG, writePayload))
+                {
+                    OLO_CORE_ERROR("[SaveGameManager] Failed to write save file: {}", path.string());
+                    result = SaveLoadResult::IOError;
+                }
+                else
+                {
+                    std::error_code ec;
+                    auto fileSize = std::filesystem::file_size(path, ec);
+                    if (ec)
+                    {
+                        OLO_CORE_WARN("[SaveGameManager] Could not read file size for '{}': {}", path.string(), ec.message());
+                    }
+                    OLO_CORE_INFO("[SaveGameManager] Saved '{}' ({} entities, {:.1f} KB)",
+                                  slotName, entityCount,
+                                  ec ? 0.0f : static_cast<f32>(fileSize) / 1024.0f);
+                }
+
+                // Dispatch callback back to game thread
+                if (callback)
+                {
+                    Tasks::EnqueueGameThreadTask(
+                        [callback, result, slotName]()
+                        {
+                            callback(result, slotName);
+                        },
+                        "SaveGameComplete");
+                }
+            });
+
+        return SaveLoadResult::Pending;
     }
 
     void SaveGameManager::EnsureSaveDirectory()

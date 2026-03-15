@@ -102,9 +102,9 @@ TEST(ArchiveExtensionsTest, Mat3Roundtrip)
     FMemoryReader reader(buffer);
     reader << loaded;
 
-    for (int col = 0; col < 3; ++col)
+    for (i32 col = 0; col < 3; ++col)
     {
-        for (int row = 0; row < 3; ++row)
+        for (i32 row = 0; row < 3; ++row)
         {
             EXPECT_FLOAT_EQ(loaded[col][row], original[col][row]);
         }
@@ -127,9 +127,9 @@ TEST(ArchiveExtensionsTest, Mat4Roundtrip)
     FMemoryReader reader(buffer);
     reader << loaded;
 
-    for (int col = 0; col < 4; ++col)
+    for (i32 col = 0; col < 4; ++col)
     {
-        for (int row = 0; row < 4; ++row)
+        for (i32 row = 0; row < 4; ++row)
         {
             EXPECT_FLOAT_EQ(loaded[col][row], original[col][row]);
         }
@@ -213,7 +213,7 @@ TEST(ArchiveExtensionsTest, VectorOfFloatsRoundtrip)
     reader << loaded;
 
     ASSERT_EQ(loaded.size(), original.size());
-    for (size_t i = 0; i < original.size(); ++i)
+    for (sizet i = 0; i < original.size(); ++i)
     {
         EXPECT_FLOAT_EQ(loaded[i], original[i]);
     }
@@ -270,7 +270,7 @@ TEST(ArchiveExtensionsTest, VectorOfStringsRoundtrip)
     reader << loaded;
 
     ASSERT_EQ(loaded.size(), original.size());
-    for (size_t i = 0; i < original.size(); ++i)
+    for (sizet i = 0; i < original.size(); ++i)
     {
         EXPECT_EQ(loaded[i], original[i]);
     }
@@ -335,7 +335,7 @@ TEST(ArchiveExtensionsTest, VectorOfUUIDsRoundtrip)
     reader << loaded;
 
     ASSERT_EQ(loaded.size(), original.size());
-    for (size_t i = 0; i < original.size(); ++i)
+    for (sizet i = 0; i < original.size(); ++i)
     {
         EXPECT_EQ(static_cast<u64>(loaded[i]), static_cast<u64>(original[i]));
     }

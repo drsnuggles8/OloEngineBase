@@ -34,7 +34,8 @@ namespace OloEngine
         SerializationFailed,
         NoActiveScene,
         IOError,
-        InvalidInput
+        InvalidInput,
+        Pending // Async save dispatched, result delivered via callback
     };
 
     // Callback for async save/load completion
@@ -43,6 +44,12 @@ namespace OloEngine
     // High-level save game manager — public API for saving and loading game state.
     // Handles file naming, directory management, auto-save, quick-save slots,
     // thumbnail capture, and async I/O via the Task system.
+    //
+    // Save operations (Save, QuickSave, AutoSave) are asynchronous:
+    // - Scene capture/serialization happens on the calling thread (must be game thread)
+    // - Compression and disk I/O are dispatched to a background worker thread
+    // - The completion callback is invoked on the game thread on the next frame
+    // - Returns SaveLoadResult::Pending on successful dispatch
     class SaveGameManager
     {
       public:
@@ -118,12 +125,13 @@ namespace OloEngine
         static bool ValidateSave(const std::string& slotName);
 
       private:
-        // Internal save implementation
-        static SaveLoadResult SaveInternal(Scene& scene,
-                                           const std::string& slotName,
-                                           const std::string& displayName,
-                                           SaveSlotType slotType,
-                                           const std::vector<u8>& thumbnailPNG);
+        // Capture scene state on the calling thread, then dispatch compression + I/O to background
+        static SaveLoadResult SaveAsync(Scene& scene,
+                                        const std::string& slotName,
+                                        const std::string& displayName,
+                                        SaveSlotType slotType,
+                                        const std::vector<u8>& thumbnailPNG,
+                                        SaveLoadCompletionCallback callback);
 
         // Ensure save directory exists
         static void EnsureSaveDirectory();

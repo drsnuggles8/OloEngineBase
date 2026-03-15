@@ -19,7 +19,9 @@ class SaveGameIntegrationTest : public ::testing::Test
     void SetUp() override
     {
         m_Scene = Ref<Scene>::Create();
-        m_TempPath = std::filesystem::temp_directory_path() / "olo_integration_test.olosave";
+        const auto* testInfo = ::testing::UnitTest::GetInstance()->current_test_info();
+        std::string testName = std::string(testInfo->test_suite_name()) + "_" + testInfo->name();
+        m_TempPath = std::filesystem::temp_directory_path() / ("olo_integration_" + testName + ".olosave");
         std::error_code ec;
         std::filesystem::remove(m_TempPath, ec);
     }
