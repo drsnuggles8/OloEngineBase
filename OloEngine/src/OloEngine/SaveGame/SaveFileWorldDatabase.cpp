@@ -89,7 +89,10 @@ namespace OloEngine
         // Flush while still initialized so FlushToDiskLocked can serialize
         if (m_Dirty)
         {
-            FlushToDiskLocked();
+            if (!FlushToDiskLocked())
+            {
+                OLO_CORE_ERROR("[SaveFileWorldDatabase] Flush failed during shutdown of '{}', data may be lost", m_SlotName);
+            }
         }
 
         m_Initialized = false;
@@ -111,6 +114,8 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::SavePlayerState(u32 accountID, const PlayerStatePacket& state)
     {
+        OLO_PROFILE_FUNCTION();
+
         TUniqueLock<FMutex> lock(m_Mutex);
         if (!m_Initialized)
         {
@@ -123,6 +128,8 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::LoadPlayerState(u32 accountID, PlayerStatePacket& outState)
     {
+        OLO_PROFILE_FUNCTION();
+
         TUniqueLock<FMutex> lock(m_Mutex);
         if (!m_Initialized)
         {
@@ -139,6 +146,8 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::DeletePlayerState(u32 accountID)
     {
+        OLO_PROFILE_FUNCTION();
+
         TUniqueLock<FMutex> lock(m_Mutex);
         if (!m_Initialized)
         {
@@ -158,6 +167,8 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::SaveEntityState(u64 uuid, ZoneID zoneID, const std::vector<u8>& data)
     {
+        OLO_PROFILE_FUNCTION();
+
         TUniqueLock<FMutex> lock(m_Mutex);
         if (!m_Initialized)
         {
@@ -170,6 +181,8 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::LoadEntitiesForZone(ZoneID zoneID, std::vector<std::pair<u64, std::vector<u8>>>& outEntities)
     {
+        OLO_PROFILE_FUNCTION();
+
         TUniqueLock<FMutex> lock(m_Mutex);
         if (!m_Initialized)
         {
@@ -188,6 +201,8 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::DeleteEntityState(u64 uuid)
     {
+        OLO_PROFILE_FUNCTION();
+
         TUniqueLock<FMutex> lock(m_Mutex);
         if (!m_Initialized)
         {
@@ -207,6 +222,8 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::SetWorldState(const std::string& key, const std::string& value)
     {
+        OLO_PROFILE_FUNCTION();
+
         TUniqueLock<FMutex> lock(m_Mutex);
         if (!m_Initialized)
         {
@@ -219,6 +236,8 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::GetWorldState(const std::string& key, std::string& outValue)
     {
+        OLO_PROFILE_FUNCTION();
+
         TUniqueLock<FMutex> lock(m_Mutex);
         if (!m_Initialized)
         {
@@ -289,6 +308,11 @@ namespace OloEngine
         // Ensure directory exists
         std::error_code ec;
         std::filesystem::create_directories(m_FilePath.parent_path(), ec);
+        if (ec)
+        {
+            OLO_CORE_ERROR("[SaveFileWorldDatabase] Failed to create directory '{}': {}", m_FilePath.parent_path().string(), ec.message());
+            return false;
+        }
 
         if (!SaveGameFile::Write(m_FilePath, header, metadata, {}, compressed))
         {

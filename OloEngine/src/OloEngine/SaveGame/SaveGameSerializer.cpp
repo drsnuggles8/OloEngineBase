@@ -50,9 +50,10 @@ namespace OloEngine
 #define LOAD_COMPONENT(ComponentType, entity, typeHashVar, dataBuf)                                              \
     if ((typeHashVar) == Hash::GenerateFNVHash(#ComponentType))                                                  \
     {                                                                                                            \
-        auto& comp = (entity).HasComponent<ComponentType>()                                                      \
-                         ? (entity).GetComponent<ComponentType>()                                                \
-                         : (entity).AddComponent<ComponentType>();                                               \
+        bool wasAdded = !(entity).HasComponent<ComponentType>();                                                 \
+        auto& comp = wasAdded                                                                                    \
+                         ? (entity).AddComponent<ComponentType>()                                                \
+                         : (entity).GetComponent<ComponentType>();                                               \
         FMemoryReader cr(dataBuf);                                                                               \
         cr.ArIsSaveGame = true;                                                                                  \
         SaveGameComponentSerializer::Serialize(cr, comp);                                                        \
@@ -60,6 +61,10 @@ namespace OloEngine
         {                                                                                                        \
             OLO_CORE_WARN("[SaveGameSerializer] Incomplete deserialization of " #ComponentType " ({}/{} bytes)", \
                           cr.Tell(), (dataBuf).size());                                                          \
+            if (wasAdded)                                                                                        \
+            {                                                                                                    \
+                (entity).RemoveComponent<ComponentType>();                                                       \
+            }                                                                                                    \
         }                                                                                                        \
         matched = true;                                                                                          \
     }
@@ -70,6 +75,7 @@ namespace OloEngine
 
     static void SerializePostProcessSettings(FArchive& ar, PostProcessSettings& s)
     {
+        OLO_PROFILE_FUNCTION();
         ar << s.Tonemap << s.Exposure << s.Gamma;
         ar << s.BloomEnabled << s.BloomThreshold << s.BloomIntensity << s.BloomIterations;
         ar << s.VignetteEnabled << s.VignetteIntensity << s.VignetteSmoothness;
@@ -84,6 +90,7 @@ namespace OloEngine
 
     static void SerializeSnowSettings(FArchive& ar, SnowSettings& s)
     {
+        OLO_PROFILE_FUNCTION();
         ar << s.Enabled;
         ar << s.HeightStart << s.HeightFull << s.SlopeStart << s.SlopeFull;
         ar << s.Albedo << s.Roughness;
@@ -95,6 +102,7 @@ namespace OloEngine
 
     static void SerializeFogSettings(FArchive& ar, FogSettings& s)
     {
+        OLO_PROFILE_FUNCTION();
         ar << s.Enabled << s.Mode << s.Color << s.Density;
         ar << s.Start << s.End << s.HeightFalloff << s.HeightOffset << s.MaxOpacity;
         ar << s.EnableScattering << s.RayleighStrength << s.MieStrength << s.MieDirectionality;
@@ -106,6 +114,7 @@ namespace OloEngine
 
     static void SerializeWindSettings(FArchive& ar, WindSettings& s)
     {
+        OLO_PROFILE_FUNCTION();
         ar << s.Enabled << s.Direction << s.Speed;
         ar << s.GustStrength << s.GustFrequency;
         ar << s.TurbulenceIntensity << s.TurbulenceScale;
@@ -113,6 +122,7 @@ namespace OloEngine
 
     static void SerializeSnowAccumulationSettings(FArchive& ar, SnowAccumulationSettings& s)
     {
+        OLO_PROFILE_FUNCTION();
         ar << s.Enabled << s.AccumulationRate << s.MaxDepth << s.MeltRate << s.RestorationRate;
         ar << s.DisplacementScale;
         ar << s.ClipmapResolution << s.ClipmapExtent << s.NumClipmapRings;
@@ -121,6 +131,7 @@ namespace OloEngine
 
     static void SerializeSnowEjectaSettings(FArchive& ar, SnowEjectaSettings& s)
     {
+        OLO_PROFILE_FUNCTION();
         ar << s.Enabled << s.ParticlesPerDeform << s.EjectaSpeed << s.SpeedVariance;
         ar << s.UpwardBias << s.LifetimeMin << s.LifetimeMax;
         ar << s.InitialSize << s.SizeVariance;
@@ -133,6 +144,7 @@ namespace OloEngine
 
     static void SerializePrecipitationSettings(FArchive& ar, PrecipitationSettings& s)
     {
+        OLO_PROFILE_FUNCTION();
         ar << s.Enabled << s.Type << s.Intensity << s.TransitionSpeed;
         ar << s.BaseEmissionRate << s.MaxParticlesNearField << s.MaxParticlesFarField;
         ar << s.NearFieldExtent << s.NearFieldParticleSize << s.NearFieldSizeVariance;
@@ -151,6 +163,7 @@ namespace OloEngine
 
     static void SerializeStreamingSettings(FArchive& ar, StreamingSettings& s)
     {
+        OLO_PROFILE_FUNCTION();
         ar << s.Enabled << s.DefaultLoadRadius << s.DefaultUnloadRadius;
         ar << s.MaxLoadedRegions << s.RegionDirectory;
     }
@@ -372,18 +385,34 @@ namespace OloEngine
 
         u32 entityCount = 0;
         reader << entityCount;
+        if (reader.IsError())
+        {
+            OLO_CORE_ERROR("[SaveGameSerializer] Failed to read entity count");
+            return false;
+        }
 
         for (u32 i = 0; i < entityCount; ++i)
         {
             UUID uuid;
             reader << uuid;
+            if (reader.IsError())
+            {
+                OLO_CORE_ERROR("[SaveGameSerializer] Failed to read UUID for entity {}", i);
+                return false;
+            }
 
             // Create entity with the saved UUID
             Entity entity = scene.CreateEntityWithUUID(uuid, "");
 
             // Read component blocks until end-of-entity sentinel (typeHash == 0)
-            while (!reader.AtEnd())
+            while (true)
             {
+                if (reader.AtEnd() || reader.IsError())
+                {
+                    OLO_CORE_ERROR("[SaveGameSerializer] Unexpected end of data at entity {} (missing end marker)", i);
+                    return false;
+                }
+
                 u32 typeHash = 0;
                 reader << typeHash;
 

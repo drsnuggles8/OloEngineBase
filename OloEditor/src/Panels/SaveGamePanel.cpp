@@ -49,7 +49,7 @@ namespace OloEngine
         if (ImGui::Button("Save Game", ImVec2(-1, 0)))
         {
             std::string saveName(m_NewSaveName);
-            bool nameValid = !saveName.empty() && saveName.find_first_not_of(' ') != std::string::npos && saveName.find("..") == std::string::npos && saveName.find('/') == std::string::npos && saveName.find('\\') == std::string::npos;
+            bool nameValid = !saveName.empty() && saveName.find_first_not_of(' ') != std::string::npos && saveName.find("..") == std::string::npos && saveName.find('/') == std::string::npos && saveName.find('\\') == std::string::npos && saveName.find(':') == std::string::npos;
 
             if (!nameValid)
             {
@@ -286,12 +286,24 @@ namespace OloEngine
 
     void SaveGamePanel::FormatTimestamp(i64 timestamp, char* buffer, sizet bufferSize) const
     {
+        if (bufferSize == 0)
+        {
+            return;
+        }
+        buffer[0] = '\0';
+
         auto time = static_cast<std::time_t>(timestamp);
-        struct tm tmBuf;
+        struct tm tmBuf = {};
 #ifdef _WIN32
-        localtime_s(&tmBuf, &time);
+        if (localtime_s(&tmBuf, &time) != 0)
+        {
+            return;
+        }
 #else
-        localtime_r(&time, &tmBuf);
+        if (!localtime_r(&time, &tmBuf))
+        {
+            return;
+        }
 #endif
         std::strftime(buffer, bufferSize, "%Y-%m-%d %H:%M", &tmBuf);
     }

@@ -87,6 +87,10 @@ namespace OloEngine
         if (!IsValidSlotName(slotName))
         {
             OLO_CORE_ERROR("[SaveGameManager] Invalid slot name: '{}'", slotName);
+            if (callback)
+            {
+                callback(SaveLoadResult::IOError, slotName);
+            }
             return SaveLoadResult::IOError;
         }
 
@@ -345,12 +349,14 @@ namespace OloEngine
 
     void SaveGameManager::SetAutoSaveInterval(f32 intervalSeconds)
     {
+        OLO_PROFILE_FUNCTION();
         s_AutoSaveInterval = std::max(0.0f, intervalSeconds);
         s_AutoSaveTimer = 0.0f;
     }
 
     f32 SaveGameManager::GetAutoSaveInterval()
     {
+        OLO_PROFILE_FUNCTION();
         return s_AutoSaveInterval;
     }
 
@@ -485,16 +491,23 @@ namespace OloEngine
 
     void SaveGameManager::EnsureSaveDirectory()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto saveDir = GetSaveDirectory();
         if (!std::filesystem::exists(saveDir))
         {
             std::error_code ec;
             std::filesystem::create_directories(saveDir, ec);
+            if (ec)
+            {
+                OLO_CORE_ERROR("[SaveGameManager] Failed to create save directory '{}': {}", saveDir.string(), ec.message());
+            }
         }
     }
 
     std::string SaveGameManager::GetRotatingSlotName(const std::string& prefix, u32 maxSlots)
     {
+        OLO_PROFILE_FUNCTION();
         // Find the oldest slot to overwrite
         i64 oldestTimestamp = std::numeric_limits<i64>::max();
         std::string oldestSlot;

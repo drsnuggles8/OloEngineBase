@@ -418,10 +418,12 @@ namespace OloEngine
         };
         saveGameTable["GetAutoSaveInterval"] = []()
         {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::GetAutoSaveInterval");
             return SaveGameManager::GetAutoSaveInterval();
         };
         saveGameTable["SetAutoSaveInterval"] = [](f32 interval)
         {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::SetAutoSaveInterval");
             SaveGameManager::SetAutoSaveInterval(interval);
         };
     }

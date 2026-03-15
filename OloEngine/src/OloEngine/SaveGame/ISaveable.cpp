@@ -1,9 +1,11 @@
 #include "OloEnginePCH.h"
 #include "ISaveable.h"
 #include "OloEngine/Serialization/ArchiveExtensions.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 namespace OloEngine
 {
+    FMutex SaveableRegistry::s_Mutex;
     std::unordered_map<std::string, SaveLoadCallback> SaveableRegistry::s_Registry;
 
     void SaveableRegistry::Register(const std::string& className, SaveLoadCallback callback)
@@ -14,34 +16,44 @@ namespace OloEngine
             OLO_CORE_WARN("[SaveableRegistry] Ignoring empty callback for '{}'", className);
             return;
         }
+        TUniqueLock<FMutex> lock(s_Mutex);
         s_Registry[className] = std::move(callback);
     }
 
     void SaveableRegistry::Unregister(const std::string& className)
     {
         OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(s_Mutex);
         s_Registry.erase(className);
     }
 
     bool SaveableRegistry::Has(const std::string& className)
     {
         OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(s_Mutex);
         return s_Registry.contains(className);
     }
 
     void SaveableRegistry::Invoke(const std::string& className, FArchive& ar, UUID entityID)
     {
         OLO_PROFILE_FUNCTION();
-        auto it = s_Registry.find(className);
-        if (it != s_Registry.end() && it->second)
+        SaveLoadCallback callbackCopy;
         {
-            it->second(ar, entityID);
+            TUniqueLock<FMutex> lock(s_Mutex);
+            auto it = s_Registry.find(className);
+            if (it == s_Registry.end() || !it->second)
+            {
+                return;
+            }
+            callbackCopy = it->second;
         }
+        callbackCopy(ar, entityID);
     }
 
     void SaveableRegistry::Clear()
     {
         OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(s_Mutex);
         s_Registry.clear();
     }
 

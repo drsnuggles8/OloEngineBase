@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Serialization/Archive.h"
+#include "OloEngine/Threading/Mutex.h"
 
 #include <functional>
 #include <string>
@@ -37,6 +38,7 @@ namespace OloEngine
         static void Clear();
 
       private:
+        static FMutex s_Mutex;
         static std::unordered_map<std::string, SaveLoadCallback> s_Registry;
     };
 

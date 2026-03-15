@@ -120,6 +120,19 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (dst.Width == 0 || dst.Height == 0)
+        {
+            OLO_CORE_ERROR("[ThumbnailCapture] Downscale destination has zero dimensions");
+            return {};
+        }
+
+        sizet expectedSrcSize = static_cast<sizet>(src.Width) * src.Height * 4;
+        if (srcData.size() < expectedSrcSize)
+        {
+            OLO_CORE_ERROR("[ThumbnailCapture] Source buffer too small ({} < {})", srcData.size(), expectedSrcSize);
+            return {};
+        }
+
         std::vector<u8> dstData(dst.Width * dst.Height * 4);
 
         f32 xRatio = static_cast<f32>(src.Width) / static_cast<f32>(dst.Width);

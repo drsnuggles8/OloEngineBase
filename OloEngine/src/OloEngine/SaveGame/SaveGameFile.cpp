@@ -105,6 +105,9 @@ namespace OloEngine
             if (!file.good())
             {
                 OLO_CORE_ERROR("[SaveGameFile] Write to '{}' failed", tempPath.string());
+                file.close();
+                std::error_code removeEc;
+                std::filesystem::remove(tempPath, removeEc);
                 return false;
             }
         }
@@ -326,34 +329,41 @@ namespace OloEngine
             return header.ChecksumCRC32 == 0;
         }
 
+        // Read data after header in fixed-size chunks and compute CRC incrementally
         u64 dataSize = fileSize - kSaveGameHeaderSize;
-        if (dataSize > std::numeric_limits<std::size_t>::max())
-        {
-            OLO_CORE_ERROR("[SaveGameFile] Data size exceeds addressable range");
-            return false;
-        }
         file.seekg(kSaveGameHeaderSize);
-        std::vector<u8> data(static_cast<std::size_t>(dataSize));
-        file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(dataSize));
-        if (!file.good())
+        u64 remaining = dataSize;
+        uLong crc = ::crc32(0L, Z_NULL, 0);
+        constexpr sizet kChunkSize = 64 * 1024; // 64 KB
+        u8 chunkBuf[kChunkSize];
+
+        while (remaining > 0)
         {
-            return false;
+            auto toRead = static_cast<std::streamsize>(std::min(remaining, static_cast<u64>(kChunkSize)));
+            file.read(reinterpret_cast<char*>(chunkBuf), toRead);
+            if (!file.good() && !file.eof())
+            {
+                return false;
+            }
+            auto bytesRead = static_cast<sizet>(file.gcount());
+            if (bytesRead == 0)
+            {
+                return false;
+            }
+
+            // Feed chunk to CRC (handle >4GB via sub-chunks for zlib's uInt limit)
+            const u8* ptr = chunkBuf;
+            sizet left = bytesRead;
+            while (left > 0)
+            {
+                uInt chunk = static_cast<uInt>(std::min(left, static_cast<sizet>(std::numeric_limits<uInt>::max())));
+                crc = ::crc32(crc, ptr, chunk);
+                ptr += chunk;
+                left -= chunk;
+            }
+            remaining -= bytesRead;
         }
 
-        auto crc32Chunked = [](uLong crcIn, const u8* buf, sizet size) -> uLong
-        {
-            while (size > 0)
-            {
-                uInt chunk = static_cast<uInt>(std::min(size, static_cast<sizet>(std::numeric_limits<uInt>::max())));
-                crcIn = ::crc32(crcIn, buf, chunk);
-                buf += chunk;
-                size -= chunk;
-            }
-            return crcIn;
-        };
-
-        uLong crc = ::crc32(0L, Z_NULL, 0);
-        crc = crc32Chunked(crc, data.data(), data.size());
         return static_cast<u32>(crc) == header.ChecksumCRC32;
     }
 
