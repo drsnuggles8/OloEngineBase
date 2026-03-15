@@ -17,6 +17,8 @@ namespace OloEngine
     std::atomic<f32> SaveGameManager::s_AutoSaveInterval{ 0.0f };
     std::atomic<f32> SaveGameManager::s_AutoSaveTimer{ 0.0f };
     std::atomic<bool> SaveGameManager::s_Initialized{ false };
+    std::atomic<u32> SaveGameManager::s_QuickSaveSlotIndex{ 0 };
+    std::atomic<u32> SaveGameManager::s_AutoSaveSlotIndex{ 0 };
 
     // Reject slot names containing path separators, "..", or other dangerous patterns
     static bool IsValidSlotName(const std::string& slotName)
@@ -33,7 +35,8 @@ namespace OloEngine
         }
         for (char c : slotName)
         {
-            if (c == '/' || c == '\\' || c == ':' || c == '\0')
+            // Reject control characters, path separators, and Windows-invalid filename characters
+            if (c <= 31 || c == '/' || c == '\\' || c == ':' || c == '\0' || c == '?' || c == '*' || c == '<' || c == '>' || c == '"' || c == '|')
             {
                 return false;
             }
@@ -56,6 +59,8 @@ namespace OloEngine
 
         s_AutoSaveInterval.store(0.0f, std::memory_order_relaxed);
         s_AutoSaveTimer.store(0.0f, std::memory_order_relaxed);
+        s_QuickSaveSlotIndex.store(0, std::memory_order_relaxed);
+        s_AutoSaveSlotIndex.store(0, std::memory_order_relaxed);
         s_Initialized.store(true, std::memory_order_release);
 
         EnsureSaveDirectory();
@@ -88,7 +93,10 @@ namespace OloEngine
             OLO_CORE_ERROR("[SaveGameManager] Invalid slot name: '{}'", slotName);
             if (callback)
             {
-                callback(SaveLoadResult::InvalidInput, slotName);
+                Tasks::EnqueueGameThreadTask(
+                    [callback, slotName]()
+                    { callback(SaveLoadResult::InvalidInput, slotName); },
+                    "SaveValidationFailed");
             }
             return SaveLoadResult::InvalidInput;
         }
@@ -99,7 +107,10 @@ namespace OloEngine
             OLO_CORE_ERROR("[SaveGameManager] Slot name '{}' uses a reserved prefix", slotName);
             if (callback)
             {
-                callback(SaveLoadResult::InvalidInput, slotName);
+                Tasks::EnqueueGameThreadTask(
+                    [callback, slotName]()
+                    { callback(SaveLoadResult::InvalidInput, slotName); },
+                    "SaveReservedPrefix");
             }
             return SaveLoadResult::InvalidInput;
         }
@@ -114,7 +125,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::string slotName = GetRotatingSlotName("quicksave", kMaxQuickSaveSlots);
+        u32 slotIndex = s_QuickSaveSlotIndex.fetch_add(1, std::memory_order_relaxed) % kMaxQuickSaveSlots;
+        std::string slotName = "quicksave_" + std::to_string(slotIndex);
         return SaveAsync(scene, slotName, "Quick Save", SaveSlotType::QuickSave, thumbnailPNG, callback);
     }
 
@@ -124,7 +136,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::string slotName = GetRotatingSlotName("autosave", kMaxAutoSaveSlots);
+        u32 slotIndex = s_AutoSaveSlotIndex.fetch_add(1, std::memory_order_relaxed) % kMaxAutoSaveSlots;
+        std::string slotName = "autosave_" + std::to_string(slotIndex);
         return SaveAsync(scene, slotName, "Auto Save", SaveSlotType::AutoSave, thumbnailPNG, callback);
     }
 
@@ -428,7 +441,10 @@ namespace OloEngine
             OLO_CORE_ERROR("[SaveGameManager] SaveAsync called with invalid slot name: '{}'", slotName);
             if (callback)
             {
-                callback(SaveLoadResult::InvalidInput, slotName);
+                Tasks::EnqueueGameThreadTask(
+                    [callback, slotName]()
+                    { callback(SaveLoadResult::InvalidInput, slotName); },
+                    "SaveAsyncValidationFailed");
             }
             return SaveLoadResult::InvalidInput;
         }
@@ -442,7 +458,10 @@ namespace OloEngine
             OLO_CORE_ERROR("[SaveGameManager] Failed to capture scene state");
             if (callback)
             {
-                callback(SaveLoadResult::SerializationFailed, slotName);
+                Tasks::EnqueueGameThreadTask(
+                    [callback, slotName]()
+                    { callback(SaveLoadResult::SerializationFailed, slotName); },
+                    "SaveAsyncCaptureFailed");
             }
             return SaveLoadResult::SerializationFailed;
         }

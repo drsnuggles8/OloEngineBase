@@ -48,6 +48,12 @@ namespace OloEngine
         m_SlotName = connectionString;
         m_FilePath = SaveGameManager::GetSaveFilePath(m_SlotName);
 
+        if (m_FilePath.empty())
+        {
+            OLO_CORE_ERROR("[SaveFileWorldDatabase] GetSaveFilePath returned empty path for slot '{}'", m_SlotName);
+            return false;
+        }
+
         // Attempt to load existing data from disk
         if (std::filesystem::exists(m_FilePath))
         {
@@ -93,7 +99,8 @@ namespace OloEngine
         {
             if (!FlushToDiskLocked())
             {
-                OLO_CORE_ERROR("[SaveFileWorldDatabase] Flush failed during shutdown of '{}', data may be lost", m_SlotName);
+                OLO_CORE_ERROR("[SaveFileWorldDatabase] Flush failed during shutdown of '{}', retaining in-memory state", m_SlotName);
+                return;
             }
         }
 

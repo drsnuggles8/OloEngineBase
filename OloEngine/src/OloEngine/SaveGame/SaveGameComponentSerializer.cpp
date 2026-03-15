@@ -386,12 +386,25 @@ namespace OloEngine
         ar << count;
         if (ar.IsLoading())
         {
-            count = std::min(count, 1024u);
-            m.Entries.resize(count);
+            u32 clampedCount = std::min(count, 1024u);
+            m.Entries.resize(clampedCount);
+            for (u32 i = 0; i < clampedCount; ++i)
+            {
+                SerializeSubEmitterEntry(ar, m.Entries[i]);
+            }
+            // Drain excess entries to keep stream aligned
+            for (u32 i = clampedCount; i < count; ++i)
+            {
+                SubEmitterEntry discard{};
+                SerializeSubEmitterEntry(ar, discard);
+            }
         }
-        for (u32 i = 0; i < count; ++i)
+        else
         {
-            SerializeSubEmitterEntry(ar, m.Entries[i]);
+            for (u32 i = 0; i < count; ++i)
+            {
+                SerializeSubEmitterEntry(ar, m.Entries[i]);
+            }
         }
     }
 

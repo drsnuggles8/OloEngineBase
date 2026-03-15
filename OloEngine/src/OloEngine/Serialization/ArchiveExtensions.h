@@ -111,10 +111,11 @@ namespace OloEngine
     // UUID and AssetHandle
     // ========================================================================
 
-    inline FArchive& operator<<(FArchive& ar, UUID& uuid)
+    template<std::derived_from<FArchive> Ar>
+    Ar& operator<<(Ar& ar, UUID& uuid)
     {
         u64 val = static_cast<u64>(uuid);
-        ar << val;
+        static_cast<FArchive&>(ar) << val;
         if (ar.IsLoading())
         {
             uuid = UUID(val);
@@ -131,8 +132,8 @@ namespace OloEngine
     // Sanity cap for container deserialization to prevent huge allocations from corrupt data
     static constexpr u32 kMaxContainerDeserializeCount = 10'000'000;
 
-    template<typename T>
-    FArchive& operator<<(FArchive& ar, std::vector<T>& vec)
+    template<std::derived_from<FArchive> Ar, typename T>
+    Ar& operator<<(Ar& ar, std::vector<T>& vec)
     {
         if (!ar.IsLoading())
         {
@@ -145,7 +146,7 @@ namespace OloEngine
         }
 
         u32 count = static_cast<u32>(vec.size());
-        ar << count;
+        static_cast<FArchive&>(ar) << count;
 
         if (ar.IsLoading())
         {
@@ -154,18 +155,29 @@ namespace OloEngine
                 ar.SetError();
                 return ar;
             }
-            vec.resize(count);
+            std::vector<T> temp(count);
+            for (u32 i = 0; i < count; ++i)
+            {
+                ar << temp[i];
+                if (ar.IsError())
+                {
+                    return ar;
+                }
+            }
+            vec = std::move(temp);
         }
-
-        for (u32 i = 0; i < count; ++i)
+        else
         {
-            ar << vec[i];
+            for (u32 i = 0; i < count; ++i)
+            {
+                ar << vec[i];
+            }
         }
         return ar;
     }
 
-    template<typename K, typename V>
-    FArchive& operator<<(FArchive& ar, std::unordered_map<K, V>& map)
+    template<std::derived_from<FArchive> Ar, typename K, typename V>
+    Ar& operator<<(Ar& ar, std::unordered_map<K, V>& map)
     {
         if (!ar.IsLoading())
         {
@@ -178,7 +190,7 @@ namespace OloEngine
         }
 
         u32 count = static_cast<u32>(map.size());
-        ar << count;
+        static_cast<FArchive&>(ar) << count;
 
         if (ar.IsLoading())
         {
@@ -187,15 +199,25 @@ namespace OloEngine
                 ar.SetError();
                 return ar;
             }
-            map.clear();
-            map.reserve(count);
+            std::unordered_map<K, V> temp;
+            temp.reserve(count);
             for (u32 i = 0; i < count; ++i)
             {
                 K key{};
                 V value{};
                 ar << key << value;
-                map.emplace(std::move(key), std::move(value));
+                if (ar.IsError())
+                {
+                    return ar;
+                }
+                auto [it, inserted] = temp.emplace(std::move(key), std::move(value));
+                if (!inserted)
+                {
+                    ar.SetError();
+                    return ar;
+                }
             }
+            map = std::move(temp);
         }
         else
         {

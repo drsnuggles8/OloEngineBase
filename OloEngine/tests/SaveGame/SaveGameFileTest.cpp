@@ -241,8 +241,12 @@ TEST_F(SaveGameFileTest, ChecksumValidation)
 
 TEST_F(SaveGameFileTest, ReadNonExistentFile)
 {
+    auto missingPath = m_TempPath.parent_path() / "olo_test_guaranteed_missing.olosave";
+    std::error_code ec;
+    std::filesystem::remove(missingPath, ec);
+
     SaveGameHeader header;
-    EXPECT_FALSE(SaveGameFile::ReadHeader("nonexistent.olosave", header));
+    EXPECT_FALSE(SaveGameFile::ReadHeader(missingPath, header));
 }
 
 TEST_F(SaveGameFileTest, EmptyThumbnail)

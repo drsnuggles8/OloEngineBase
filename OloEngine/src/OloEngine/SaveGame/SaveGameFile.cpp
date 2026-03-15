@@ -321,6 +321,12 @@ namespace OloEngine
             return Decompress(compressedData, header.PayloadUncompressedSize, outPayload);
         }
 
+        if (header.GetCompression() != SaveGameCompression::None)
+        {
+            OLO_CORE_ERROR("[SaveGameFile] Unknown compression type: {}", static_cast<u32>(header.GetCompression()));
+            return false;
+        }
+
         outPayload = std::move(compressedData);
         return true;
     }

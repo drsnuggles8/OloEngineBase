@@ -114,6 +114,8 @@ namespace OloEngine
             return;
         }
 
+        bool openDeletePopup = false;
+
         for (sizet i = 0; i < m_SaveFiles.size(); ++i)
         {
             const auto& save = m_SaveFiles[i];
@@ -177,7 +179,7 @@ namespace OloEngine
                 if (ImGui::Button("Delete"))
                 {
                     m_PendingDeleteSlot = save.FilePath.stem().string();
-                    ImGui::OpenPopup("Confirm Delete");
+                    openDeletePopup = true;
                 }
                 ImGui::PopStyleColor();
 
@@ -187,7 +189,12 @@ namespace OloEngine
             ImGui::PopID();
         }
 
-        // Modal rendered outside TreeNode so it stays open even if the node is collapsed
+        // OpenPopup must be called at the same ID stack level as BeginPopupModal
+        if (openDeletePopup)
+        {
+            ImGui::OpenPopup("Confirm Delete");
+        }
+
         if (ImGui::BeginPopupModal("Confirm Delete", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
             ImGui::Text("Delete save \"%s\"?", m_PendingDeleteSlot.c_str());

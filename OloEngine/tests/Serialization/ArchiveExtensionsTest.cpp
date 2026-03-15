@@ -365,3 +365,90 @@ TEST(ArchiveExtensionsTest, Mat4ProducesExpectedSize)
 
     EXPECT_EQ(buffer.size(), 16 * sizeof(f32));
 }
+
+// ============================================================================
+// Negative-Path Tests
+// ============================================================================
+
+TEST(ArchiveExtensionsTest, TruncatedVectorFailsKeepsDestination)
+{
+    // Write a count of 5 but only 2 elements
+    std::vector<u8> buffer;
+    FMemoryWriter writer(buffer);
+    u32 fakeCount = 5;
+    static_cast<FArchive&>(writer) << fakeCount;
+    f32 v1 = 1.0f, v2 = 2.0f;
+    static_cast<FArchive&>(writer) << v1 << v2;
+
+    std::vector<f32> loaded{ 10.0f, 20.0f, 30.0f };
+    std::vector<f32> original = loaded;
+    FMemoryReader reader(buffer);
+    reader << loaded;
+
+    EXPECT_TRUE(reader.IsError());
+    // Original destination preserved on failure (transactional)
+    EXPECT_EQ(loaded, original);
+}
+
+TEST(ArchiveExtensionsTest, OversizeCountFailsKeepsDestination)
+{
+    // Write a count larger than kMaxContainerDeserializeCount
+    std::vector<u8> buffer;
+    FMemoryWriter writer(buffer);
+    u32 hugeCount = 10'000'001;
+    static_cast<FArchive&>(writer) << hugeCount;
+
+    std::vector<u32> loaded{ 42, 99 };
+    std::vector<u32> original = loaded;
+    FMemoryReader reader(buffer);
+    reader << loaded;
+
+    EXPECT_TRUE(reader.IsError());
+    // Original destination preserved
+    EXPECT_EQ(loaded, original);
+}
+
+TEST(ArchiveExtensionsTest, DuplicateKeyMapFailsKeepsDestination)
+{
+    // Write a map with duplicate keys: count=2, same key "dup" twice
+    std::vector<u8> buffer;
+    FMemoryWriter writer(buffer);
+    u32 count = 2;
+    static_cast<FArchive&>(writer) << count;
+    std::string key1 = "dup";
+    f32 val1 = 1.0f;
+    static_cast<FArchive&>(writer) << key1 << val1;
+    std::string key2 = "dup";
+    f32 val2 = 2.0f;
+    static_cast<FArchive&>(writer) << key2 << val2;
+
+    std::unordered_map<std::string, f32> loaded{ { "original", 99.0f } };
+    std::unordered_map<std::string, f32> original = loaded;
+    FMemoryReader reader(buffer);
+    reader << loaded;
+
+    EXPECT_TRUE(reader.IsError());
+    // Original destination preserved
+    EXPECT_EQ(loaded, original);
+}
+
+TEST(ArchiveExtensionsTest, TruncatedMapFailsKeepsDestination)
+{
+    // Write a count of 3 but only 1 key-value pair
+    std::vector<u8> buffer;
+    FMemoryWriter writer(buffer);
+    u32 count = 3;
+    static_cast<FArchive&>(writer) << count;
+    std::string key = "only";
+    u32 val = 42;
+    static_cast<FArchive&>(writer) << key << val;
+
+    std::unordered_map<std::string, u32> loaded{ { "existing", 1u } };
+    std::unordered_map<std::string, u32> original = loaded;
+    FMemoryReader reader(buffer);
+    reader << loaded;
+
+    EXPECT_TRUE(reader.IsError());
+    // Original destination preserved
+    EXPECT_EQ(loaded, original);
+}

@@ -142,6 +142,8 @@ namespace OloEngine
         static std::atomic<f32> s_AutoSaveInterval;
         static std::atomic<f32> s_AutoSaveTimer;
         static std::atomic<bool> s_Initialized;
+        static std::atomic<u32> s_QuickSaveSlotIndex;
+        static std::atomic<u32> s_AutoSaveSlotIndex;
 
         static constexpr u32 kMaxQuickSaveSlots = 3;
         static constexpr u32 kMaxAutoSaveSlots = 3;

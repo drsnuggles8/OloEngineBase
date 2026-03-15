@@ -69,8 +69,12 @@ namespace OloEngine
             {                                                                                                    \
                 (entity).RemoveComponent<ComponentType>();                                                       \
             }                                                                                                    \
+            loadFailed = true;                                                                                   \
         }                                                                                                        \
-        matched = true;                                                                                          \
+        else                                                                                                     \
+        {                                                                                                        \
+            matched = true;                                                                                      \
+        }                                                                                                        \
     }
 
     // ========================================================================
@@ -217,7 +221,15 @@ namespace OloEngine
                 }
             }
         }
-        // 3D: read from Jolt runtime bodies
+        // 3D: read from Jolt runtime bodies into temporaries, then write to component,
+        // serialize, and restore the original "initial" values afterwards.
+        struct Rigidbody3DVelocityBackup
+        {
+            entt::entity Entity;
+            glm::vec3 LinearVelocity;
+            glm::vec3 AngularVelocity;
+        };
+        std::vector<Rigidbody3DVelocityBackup> rb3dBackups;
         if (auto* joltScene = scene.GetJoltScene(); joltScene && joltScene->IsInitialized())
         {
             auto rb3dView = scene.m_Registry.view<Rigidbody3DComponent>();
@@ -227,6 +239,7 @@ namespace OloEngine
                 Entity ent = { e, &scene };
                 if (auto body = joltScene->GetBody(ent))
                 {
+                    rb3dBackups.push_back({ e, rb3d.m_InitialLinearVelocity, rb3d.m_InitialAngularVelocity });
                     rb3d.m_InitialLinearVelocity = body->GetLinearVelocity();
                     rb3d.m_InitialAngularVelocity = body->GetAngularVelocity();
                 }
@@ -331,6 +344,14 @@ namespace OloEngine
             writer << endMarker;
         }
 
+        // Restore original initial velocities for 3D rigidbodies
+        for (auto const& backup : rb3dBackups)
+        {
+            auto& rb3d = scene.m_Registry.get<Rigidbody3DComponent>(backup.Entity);
+            rb3d.m_InitialLinearVelocity = backup.LinearVelocity;
+            rb3d.m_InitialAngularVelocity = backup.AngularVelocity;
+        }
+
         return buffer;
     }
 
@@ -370,6 +391,8 @@ namespace OloEngine
 
             // Create entity with the saved UUID
             Entity entity = staging.CreateEntityWithUUID(uuid, "");
+
+            bool loadFailed = false;
 
             // Read component blocks until end-of-entity sentinel (typeHash == 0)
             while (true)
@@ -498,6 +521,12 @@ namespace OloEngine
                 }
 
                 // Unknown component types are silently skipped (forward compatible)
+            }
+
+            if (loadFailed)
+            {
+                OLO_CORE_ERROR("[SaveGameSerializer] Component deserialization failed for entity {} (UUID {})", i, static_cast<u64>(uuid));
+                return false;
             }
         }
 
