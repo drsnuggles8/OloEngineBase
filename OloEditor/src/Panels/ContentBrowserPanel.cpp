@@ -100,6 +100,10 @@ namespace OloEngine
         m_DialogueIcon = Texture2D::Create("Resources/Icons/ContentBrowser/DialogueIcon.png");
         if (!m_DialogueIcon || !m_DialogueIcon->IsLoaded())
             m_DialogueIcon = m_FileIcon;
+
+        m_SaveGameIcon = Texture2D::Create("Resources/Icons/ContentBrowser/SaveGameIcon.png");
+        if (!m_SaveGameIcon || !m_SaveGameIcon->IsLoaded())
+            m_SaveGameIcon = m_FileIcon;
     }
 
     ContentFileType ContentBrowserPanel::GetFileType(const std::filesystem::path& filepath) const
@@ -603,7 +607,7 @@ namespace OloEngine
             case ContentFileType::Dialogue:
                 return m_DialogueIcon;
             case ContentFileType::SaveGame:
-                return m_FileIcon;
+                return m_SaveGameIcon;
             default:
                 return m_FileIcon;
         }

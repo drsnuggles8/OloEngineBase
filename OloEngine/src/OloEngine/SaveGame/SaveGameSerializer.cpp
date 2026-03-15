@@ -271,8 +271,8 @@ namespace OloEngine
             if (entity.HasComponent<ScriptComponent>())
             {
                 const auto& sc = entity.GetComponent<ScriptComponent>();
-                auto saveableBlob = CollectSaveableData(uuid, sc.ClassName);
-                if (!saveableBlob.empty())
+                std::vector<u8> saveableBlob;
+                if (CollectSaveableData(uuid, sc.ClassName, saveableBlob) && !saveableBlob.empty())
                 {
                     u32 saveableHash = kSaveableTypeHash;
                     u32 dataSize = static_cast<u32>(saveableBlob.size());
@@ -493,7 +493,10 @@ namespace OloEngine
                 {
                     if (entity.HasComponent<ScriptComponent>())
                     {
-                        RestoreSaveableData(uuid, entity.GetComponent<ScriptComponent>().ClassName, compData);
+                        if (!RestoreSaveableData(uuid, entity.GetComponent<ScriptComponent>().ClassName, compData))
+                        {
+                            OLO_CORE_WARN("[SaveGameSerializer] ISaveable restore failed for entity {}", static_cast<u64>(uuid));
+                        }
                     }
                     matched = true;
                 }

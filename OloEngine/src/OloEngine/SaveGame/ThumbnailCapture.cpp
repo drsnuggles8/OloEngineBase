@@ -96,14 +96,14 @@ namespace OloEngine
         // Encode as PNG to memory
         std::vector<u8> pngData;
         pngData.reserve(thumbWidth * thumbHeight); // rough estimate
-        stbi_write_png_to_func(StbiWriteCallback, &pngData,
-                               static_cast<int>(thumbWidth),
-                               static_cast<int>(thumbHeight),
-                               4, // RGBA
-                               flipped.data(),
-                               static_cast<int>(rowBytes));
+        int writeResult = stbi_write_png_to_func(StbiWriteCallback, &pngData,
+                                                 static_cast<int>(thumbWidth),
+                                                 static_cast<int>(thumbHeight),
+                                                 4, // RGBA
+                                                 flipped.data(),
+                                                 static_cast<int>(rowBytes));
 
-        if (pngData.empty())
+        if (writeResult == 0 || pngData.empty())
         {
             OLO_CORE_ERROR("[ThumbnailCapture] PNG encoding failed");
             return {};

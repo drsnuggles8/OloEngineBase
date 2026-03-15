@@ -26,11 +26,15 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::Initialize(const std::string& connectionString)
     {
+        OLO_PROFILE_FUNCTION();
+
         TUniqueLock<FMutex> lock(m_Mutex);
         if (m_Initialized)
         {
             return false;
         }
+
+        m_IsCorrupt = false;
 
         // Reject dangerous slot names
         if (connectionString.empty() || connectionString.find("..") != std::string::npos || connectionString.find('/') != std::string::npos || connectionString.find('\\') != std::string::npos || connectionString.find(':') != std::string::npos)
@@ -74,6 +78,8 @@ namespace OloEngine
 
     void SaveFileWorldDatabase::Shutdown()
     {
+        OLO_PROFILE_FUNCTION();
+
         TUniqueLock<FMutex> lock(m_Mutex);
         if (!m_Initialized)
         {
@@ -246,6 +252,8 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::FlushToDiskLocked()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_IsCorrupt)
         {
             OLO_CORE_ERROR("[SaveFileWorldDatabase] Refusing to flush corrupt database '{}'", m_SlotName);
@@ -300,6 +308,8 @@ namespace OloEngine
 
     std::vector<u8> SaveFileWorldDatabase::SerializeToPayload() const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::vector<u8> buffer;
         FMemoryWriter ar(buffer);
 
@@ -347,6 +357,8 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::DeserializeFromPayload(const std::vector<u8>& payload)
     {
+        OLO_PROFILE_FUNCTION();
+
         static constexpr u32 kMaxPlayers = 100000;
         static constexpr u32 kMaxEntities = 1000000;
         static constexpr u32 kMaxWorldKeys = 1000000;

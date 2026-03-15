@@ -392,6 +392,7 @@ namespace OloEngine
         auto saveGameTable = lua.create_named_table("SaveGame");
         saveGameTable["EnumerateSaves"] = [&lua]() -> sol::table
         {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::EnumerateSaves");
             auto saves = SaveGameManager::EnumerateSaves();
             sol::table result = lua.create_table(static_cast<int>(saves.size()), 0);
             int index = 1;
@@ -407,10 +408,12 @@ namespace OloEngine
         };
         saveGameTable["DeleteSave"] = [](const std::string& slotName)
         {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::DeleteSave");
             return SaveGameManager::DeleteSave(slotName);
         };
         saveGameTable["ValidateSave"] = [](const std::string& slotName)
         {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::ValidateSave");
             return SaveGameManager::ValidateSave(slotName);
         };
         saveGameTable["GetAutoSaveInterval"] = []()

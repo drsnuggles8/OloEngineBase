@@ -42,9 +42,11 @@ namespace OloEngine
 
     // Convenience: collect ISaveable data for an entity's script during save.
     // Returns serialized custom data blob, or empty if class has no ISaveable.
-    std::vector<u8> CollectSaveableData(UUID entityID, const std::string& className);
+    // Returns false if serialization encountered an error.
+    bool CollectSaveableData(UUID entityID, const std::string& className, std::vector<u8>& outData);
 
     // Convenience: restore ISaveable data for an entity's script during load.
-    void RestoreSaveableData(UUID entityID, const std::string& className, const std::vector<u8>& data);
+    // Returns false if deserialization encountered an error.
+    bool RestoreSaveableData(UUID entityID, const std::string& className, const std::vector<u8>& data);
 
 } // namespace OloEngine

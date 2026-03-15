@@ -72,33 +72,54 @@ namespace OloEngine
             header.ChecksumCRC32 = static_cast<u32>(crc);
         }
 
-        // Write to disk
-        std::ofstream file(path, std::ios::binary | std::ios::trunc);
-        if (!file.is_open())
+        // Write to a temporary file, then atomically rename
+        auto tempPath = path;
+        tempPath += ".tmp";
+
         {
-            OLO_CORE_ERROR("[SaveGameFile] Failed to open '{}' for writing", path.string());
+            std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+            if (!file.is_open())
+            {
+                OLO_CORE_ERROR("[SaveGameFile] Failed to open '{}' for writing", tempPath.string());
+                return false;
+            }
+
+            file.write(reinterpret_cast<const char*>(&header), sizeof(SaveGameHeader));
+            if (!metaBlob.empty())
+            {
+                file.write(reinterpret_cast<const char*>(metaBlob.data()),
+                           static_cast<std::streamsize>(metaBlob.size()));
+            }
+            if (!thumbnailPNG.empty())
+            {
+                file.write(reinterpret_cast<const char*>(thumbnailPNG.data()),
+                           static_cast<std::streamsize>(thumbnailPNG.size()));
+            }
+            if (!payload.empty())
+            {
+                file.write(reinterpret_cast<const char*>(payload.data()),
+                           static_cast<std::streamsize>(payload.size()));
+            }
+
+            file.flush();
+            if (!file.good())
+            {
+                OLO_CORE_ERROR("[SaveGameFile] Write to '{}' failed", tempPath.string());
+                return false;
+            }
+        }
+
+        // Atomic rename (overwrites existing file)
+        std::error_code ec;
+        std::filesystem::rename(tempPath, path, ec);
+        if (ec)
+        {
+            OLO_CORE_ERROR("[SaveGameFile] Rename '{}' -> '{}' failed: {}", tempPath.string(), path.string(), ec.message());
+            std::filesystem::remove(tempPath, ec);
             return false;
         }
 
-        file.write(reinterpret_cast<const char*>(&header), sizeof(SaveGameHeader));
-        if (!metaBlob.empty())
-        {
-            file.write(reinterpret_cast<const char*>(metaBlob.data()),
-                       static_cast<std::streamsize>(metaBlob.size()));
-        }
-        if (!thumbnailPNG.empty())
-        {
-            file.write(reinterpret_cast<const char*>(thumbnailPNG.data()),
-                       static_cast<std::streamsize>(thumbnailPNG.size()));
-        }
-        if (!payload.empty())
-        {
-            file.write(reinterpret_cast<const char*>(payload.data()),
-                       static_cast<std::streamsize>(payload.size()));
-        }
-
-        file.flush();
-        return file.good();
+        return true;
     }
 
     // ========================================================================
@@ -150,10 +171,10 @@ namespace OloEngine
             return false;
         }
 
-        // Bounds check: metadata must fit within the file
+        // Bounds check: metadata must fit within the file (overflow-safe)
         file.seekg(0, std::ios::end);
         auto actualFileSize = static_cast<u64>(file.tellg());
-        if (outHeader.MetadataOffset + outHeader.MetadataSize > actualFileSize)
+        if (outHeader.MetadataSize > actualFileSize || outHeader.MetadataOffset > actualFileSize - outHeader.MetadataSize)
         {
             OLO_CORE_ERROR("[SaveGameFile] Metadata region exceeds file size");
             return false;
@@ -200,10 +221,10 @@ namespace OloEngine
             return false;
         }
 
-        // Bounds check: thumbnail must fit within the file
+        // Bounds check: thumbnail must fit within the file (overflow-safe)
         file.seekg(0, std::ios::end);
         auto actualFileSize = static_cast<u64>(file.tellg());
-        if (header.ThumbnailOffset + header.ThumbnailSize > actualFileSize)
+        if (header.ThumbnailSize > actualFileSize || header.ThumbnailOffset > actualFileSize - header.ThumbnailSize)
         {
             OLO_CORE_ERROR("[SaveGameFile] Thumbnail region exceeds file size");
             return false;
@@ -242,10 +263,10 @@ namespace OloEngine
             return false;
         }
 
-        // Bounds check: payload must fit within the file
+        // Bounds check: payload must fit within the file (overflow-safe)
         file.seekg(0, std::ios::end);
         auto actualFileSize = static_cast<u64>(file.tellg());
-        if (header.PayloadOffset + header.PayloadSize > actualFileSize)
+        if (header.PayloadSize > actualFileSize || header.PayloadOffset > actualFileSize - header.PayloadSize)
         {
             OLO_CORE_ERROR("[SaveGameFile] Payload region exceeds file size");
             return false;
@@ -263,6 +284,13 @@ namespace OloEngine
         // Decompress if needed
         if (header.GetCompression() == SaveGameCompression::Zlib)
         {
+            // Cap uncompressed size to prevent excessive allocation (1 GB)
+            static constexpr u64 kMaxUncompressedSize = 1ULL << 30;
+            if (header.PayloadUncompressedSize > kMaxUncompressedSize)
+            {
+                OLO_CORE_ERROR("[SaveGameFile] PayloadUncompressedSize {} exceeds cap", header.PayloadUncompressedSize);
+                return false;
+            }
             return Decompress(compressedData, header.PayloadUncompressedSize, outPayload);
         }
 

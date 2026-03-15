@@ -218,7 +218,7 @@ namespace OloEngine
         }
     }
 
-    void SaveGamePanel::DrawSettingsSection()
+    void SaveGamePanel::DrawSettingsSection() // NOLINT(readability-convert-member-functions-to-static)
     {
         f32 interval = SaveGameManager::GetAutoSaveInterval();
         if (ImGui::SliderFloat("Auto-Save Interval (s)", &interval, 0.0f, 600.0f, "%.0f"))

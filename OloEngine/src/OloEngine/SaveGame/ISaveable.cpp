@@ -9,6 +9,11 @@ namespace OloEngine
     void SaveableRegistry::Register(const std::string& className, SaveLoadCallback callback)
     {
         OLO_PROFILE_FUNCTION();
+        if (!callback)
+        {
+            OLO_CORE_WARN("[SaveableRegistry] Ignoring empty callback for '{}'", className);
+            return;
+        }
         s_Registry[className] = std::move(callback);
     }
 
@@ -20,6 +25,7 @@ namespace OloEngine
 
     bool SaveableRegistry::Has(const std::string& className)
     {
+        OLO_PROFILE_FUNCTION();
         return s_Registry.contains(className);
     }
 
@@ -27,7 +33,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         auto it = s_Registry.find(className);
-        if (it != s_Registry.end())
+        if (it != s_Registry.end() && it->second)
         {
             it->second(ar, entityID);
         }
@@ -39,30 +45,39 @@ namespace OloEngine
         s_Registry.clear();
     }
 
-    std::vector<u8> CollectSaveableData(UUID entityID, const std::string& className)
+    bool CollectSaveableData(UUID entityID, const std::string& className, std::vector<u8>& outData)
     {
         OLO_PROFILE_FUNCTION();
 
+        outData.clear();
+
         if (!SaveableRegistry::Has(className))
         {
-            return {};
+            return true; // No callback = no data, not an error
         }
 
-        std::vector<u8> buffer;
-        FMemoryWriter writer(buffer);
+        FMemoryWriter writer(outData);
         writer.ArIsSaveGame = true;
 
         SaveableRegistry::Invoke(className, writer, entityID);
-        return buffer;
+
+        if (writer.IsError())
+        {
+            OLO_CORE_ERROR("[ISaveable] CollectSaveableData failed for '{}' (entityID={})", className, static_cast<u64>(entityID));
+            outData.clear();
+            return false;
+        }
+
+        return true;
     }
 
-    void RestoreSaveableData(UUID entityID, const std::string& className, const std::vector<u8>& data)
+    bool RestoreSaveableData(UUID entityID, const std::string& className, const std::vector<u8>& data)
     {
         OLO_PROFILE_FUNCTION();
 
         if (data.empty() || !SaveableRegistry::Has(className))
         {
-            return;
+            return true; // Nothing to restore, not an error
         }
 
         auto dataCopy = data;
@@ -70,6 +85,14 @@ namespace OloEngine
         reader.ArIsSaveGame = true;
 
         SaveableRegistry::Invoke(className, reader, entityID);
+
+        if (reader.IsError())
+        {
+            OLO_CORE_ERROR("[ISaveable] RestoreSaveableData failed for '{}' (entityID={})", className, static_cast<u64>(entityID));
+            return false;
+        }
+
+        return true;
     }
 
 } // namespace OloEngine

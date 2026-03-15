@@ -30,7 +30,7 @@ namespace OloEngine
       private:
         void DrawSaveSection();
         void DrawLoadSection();
-        void DrawSettingsSection();
+        static void DrawSettingsSection();
         void RefreshSaveList();
         void FormatTimestamp(i64 timestamp, char* buffer, sizet bufferSize) const;
 

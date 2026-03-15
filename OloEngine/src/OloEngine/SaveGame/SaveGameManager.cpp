@@ -46,6 +46,8 @@ namespace OloEngine
 
     void SaveGameManager::Initialize()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (s_Initialized)
         {
             return;
@@ -64,6 +66,8 @@ namespace OloEngine
 
     void SaveGameManager::Shutdown()
     {
+        OLO_PROFILE_FUNCTION();
+
         s_Initialized = false;
         OLO_CORE_INFO("[SaveGameManager] Shutdown");
     }
@@ -193,6 +197,11 @@ namespace OloEngine
             SaveFileInfo info;
             if (GetSaveInfo(slotName, info) && info.Metadata.TimestampUTC > bestTimestamp)
             {
+                if (!ValidateSave(slotName))
+                {
+                    OLO_CORE_WARN("[SaveGameManager] Skipping corrupt quick-save: {}", slotName);
+                    continue;
+                }
                 bestTimestamp = info.Metadata.TimestampUTC;
                 bestSlot = slotName;
                 bestInfo = info;
@@ -262,6 +271,8 @@ namespace OloEngine
 
     bool SaveGameManager::GetSaveInfo(const std::string& slotName, SaveFileInfo& outInfo)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!IsValidSlotName(slotName))
         {
             return false;
@@ -288,6 +299,8 @@ namespace OloEngine
 
     bool SaveGameManager::ReadThumbnail(const std::string& slotName, std::vector<u8>& outPNG)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!IsValidSlotName(slotName))
         {
             return false;
@@ -303,6 +316,8 @@ namespace OloEngine
 
     bool SaveGameManager::DeleteSave(const std::string& slotName)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!IsValidSlotName(slotName))
         {
             OLO_CORE_ERROR("[SaveGameManager] Invalid slot name: '{}'", slotName);
@@ -330,7 +345,7 @@ namespace OloEngine
 
     void SaveGameManager::SetAutoSaveInterval(f32 intervalSeconds)
     {
-        s_AutoSaveInterval = intervalSeconds;
+        s_AutoSaveInterval = std::max(0.0f, intervalSeconds);
         s_AutoSaveTimer = 0.0f;
     }
 
@@ -367,11 +382,14 @@ namespace OloEngine
 
     std::filesystem::path SaveGameManager::GetSaveFilePath(const std::string& slotName)
     {
+        OLO_CORE_ASSERT(IsValidSlotName(slotName), "GetSaveFilePath called with invalid slot name");
         return GetSaveDirectory() / (slotName + std::string(kSaveFileExtension));
     }
 
     bool SaveGameManager::ValidateSave(const std::string& slotName)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!IsValidSlotName(slotName))
         {
             return false;
