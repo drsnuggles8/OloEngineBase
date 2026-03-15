@@ -324,6 +324,7 @@ namespace OloEngine
         u64 m_StreamingFrameCounter = 0;
         bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
+        glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };       // FPS fly-camera mouse tracking
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
         PostProcessSettings m_PostProcessSettings;             // Post-processing settings
         SnowSettings m_SnowSettings;                           // Snow rendering settings

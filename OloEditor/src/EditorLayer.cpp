@@ -950,7 +950,7 @@ namespace OloEngine
             // Gizmos
             case Key::Q:
             {
-                if ((!ImGuizmo::IsUsing()) && editing)
+                if ((!ImGuizmo::IsUsing()) && editing && !m_EditorCamera.IsFlying())
                 {
                     m_GizmoType = -1;
                 }
@@ -958,7 +958,7 @@ namespace OloEngine
             }
             case Key::W:
             {
-                if ((!ImGuizmo::IsUsing()) && editing)
+                if ((!ImGuizmo::IsUsing()) && editing && !m_EditorCamera.IsFlying())
                 {
                     m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
                 }
@@ -966,7 +966,7 @@ namespace OloEngine
             }
             case Key::E:
             {
-                if ((!ImGuizmo::IsUsing()) && editing)
+                if ((!ImGuizmo::IsUsing()) && editing && !m_EditorCamera.IsFlying())
                 {
                     m_GizmoType = ImGuizmo::OPERATION::ROTATE;
                 }
@@ -983,6 +983,21 @@ namespace OloEngine
                     if ((!ImGuizmo::IsUsing()) && editing)
                     {
                         m_GizmoType = ImGuizmo::OPERATION::SCALE;
+                    }
+                }
+                break;
+            }
+
+            // Entity deletion
+            case Key::Delete:
+            {
+                if (m_SceneState == SceneState::Edit)
+                {
+                    Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+                    if (selectedEntity)
+                    {
+                        m_EditorScene->DestroyEntity(selectedEntity);
+                        m_SceneHierarchyPanel.SetSelectedEntity({});
                     }
                 }
                 break;
@@ -1316,6 +1331,30 @@ namespace OloEngine
         m_SceneState = SceneState::Play;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
+
+        // Validate that the scene has a primary camera before starting runtime
+        Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
+        if (!cameraEntity)
+        {
+            OLO_CORE_ERROR("Cannot enter Play mode: no entity with a primary CameraComponent found in the scene. "
+                           "Add an entity with a CameraComponent and set Primary = true.");
+            m_ActiveScene = m_EditorScene;
+            m_SceneState = SceneState::Edit;
+            return;
+        }
+
+        // Warn about orthographic cameras in 3D mode (common misconfiguration)
+        if (m_Is3DMode)
+        {
+            auto& cam = cameraEntity.GetComponent<CameraComponent>();
+            if (cam.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
+            {
+                OLO_CORE_WARN("Primary camera '{}' uses Orthographic projection in 3D mode. "
+                              "This may cause the viewport to appear empty. Consider switching to Perspective.",
+                              cameraEntity.GetName());
+            }
+        }
+
         m_ActiveScene->OnRuntimeStart();
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);

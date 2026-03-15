@@ -57,13 +57,15 @@ namespace OloEngine
         return speed;
     }
 
-    void EditorCamera::OnUpdate([[maybe_unused]] Timestep const ts)
+    void EditorCamera::OnUpdate(Timestep const ts)
     {
+        const glm::vec2 mouse{ Input::GetMouseX(), Input::GetMouseY() };
+        const glm::vec2 delta = (mouse - m_InitialMousePosition) * 0.003f;
+        m_InitialMousePosition = mouse;
+
         if (Input::IsKeyPressed(Key::LeftAlt))
         {
-            const glm::vec2& mouse{ Input::GetMouseX(), Input::GetMouseY() };
-            glm::vec2 const delta = (mouse - m_InitialMousePosition) * 0.003f;
-            m_InitialMousePosition = mouse;
+            m_Flying = false;
 
             if (Input::IsMouseButtonPressed(Mouse::ButtonMiddle))
             {
@@ -77,6 +79,55 @@ namespace OloEngine
             {
                 MouseZoom(delta.y);
             }
+        }
+        else if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
+        {
+            m_Flying = true;
+
+            // Mouse look
+            MouseRotate(delta);
+
+            // WASD + QE movement
+            f32 speed = m_FlySpeed * ts;
+            if (Input::IsKeyPressed(Key::LeftShift))
+            {
+                speed *= 3.0f;
+            }
+
+            glm::vec3 movement(0.0f);
+            if (Input::IsKeyPressed(Key::W))
+            {
+                movement += GetForwardDirection();
+            }
+            if (Input::IsKeyPressed(Key::S))
+            {
+                movement -= GetForwardDirection();
+            }
+            if (Input::IsKeyPressed(Key::A))
+            {
+                movement -= GetRightDirection();
+            }
+            if (Input::IsKeyPressed(Key::D))
+            {
+                movement += GetRightDirection();
+            }
+            if (Input::IsKeyPressed(Key::Q))
+            {
+                movement -= glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+            if (Input::IsKeyPressed(Key::E))
+            {
+                movement += glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+
+            if (glm::length(movement) > 0.0f)
+            {
+                m_FocalPoint += glm::normalize(movement) * speed;
+            }
+        }
+        else
+        {
+            m_Flying = false;
         }
 
         UpdateView();
@@ -92,7 +143,15 @@ namespace OloEngine
     bool EditorCamera::OnMouseScroll(const MouseScrolledEvent& e)
     {
         const f32 delta = e.GetYOffset() * 0.1f;
-        MouseZoom(delta);
+        if (m_Flying)
+        {
+            // Adjust fly speed with scroll wheel while in fly mode
+            m_FlySpeed = std::max(0.5f, m_FlySpeed + e.GetYOffset() * 0.5f);
+        }
+        else
+        {
+            MouseZoom(delta);
+        }
         UpdateView();
         return false;
     }

@@ -52,8 +52,8 @@ namespace OloEngine
                 m_SelectionContext = {};
             }
 
-            // Right-click on blank space
-            if (ImGui::BeginPopupContextWindow(nullptr, 1))
+            // Right-click on blank space (not on an entity item)
+            if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
             {
                 if (ImGui::MenuItem("Create Empty Entity"))
                 {
@@ -253,12 +253,7 @@ namespace OloEngine
 
         if (opened)
         {
-            flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-            opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str());
-            if (opened)
-            {
-                ImGui::TreePop();
-            }
+            // TODO: Render actual child entities here when parent-child hierarchy is implemented
             ImGui::TreePop();
         }
 
@@ -1027,6 +1022,13 @@ namespace OloEngine
 				}
 
 				ImGui::Checkbox("Fixed Aspect Ratio", &component.FixedAspectRatio);
+			}
+
+			ImGui::Separator();
+			ImGui::Checkbox("Runtime Control (FPS Fly)", &component.RuntimeControl);
+			if (component.RuntimeControl)
+			{
+				ImGui::DragFloat("Fly Speed", &component.FlySpeed, 0.1f, 0.1f, 100.0f);
 			} });
 
         DrawComponent<ScriptComponent>("Script", entity, [entity, scene = m_Context](auto& component) mutable
