@@ -2,6 +2,11 @@
 		"EditorLayer.cpp"
 		"EditorLayer.h"
 		"OloEditorApp.cpp"
+
+		"UndoRedo/EditorCommand.h"
+		"UndoRedo/EntityCommands.h"
+		"UndoRedo/ComponentCommands.h"
+		"UndoRedo/SpecializedCommands.h"
 		
 		"Panels/AnimationPanel.cpp"
 		"Panels/AnimationPanel.h"

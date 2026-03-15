@@ -59,7 +59,7 @@ namespace OloEngine
         void OnUpdateEditor(Timestep ts, EditorCamera const& camera);
         void OnViewportResize(u32 width, u32 height);
 
-        void DuplicateEntity(Entity entity);
+        [[nodiscard]] Entity DuplicateEntity(Entity entity);
 
         [[nodiscard("Store this!")]] Entity FindEntityByName(std::string_view name);
         [[nodiscard("Store this!")]] Entity GetEntityByUUID(UUID uuid);
@@ -324,7 +324,7 @@ namespace OloEngine
         u64 m_StreamingFrameCounter = 0;
         bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
-        glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };       // FPS fly-camera mouse tracking
+        glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };      // FPS fly-camera mouse tracking
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
         PostProcessSettings m_PostProcessSettings;             // Post-processing settings
         SnowSettings m_SnowSettings;                           // Snow rendering settings

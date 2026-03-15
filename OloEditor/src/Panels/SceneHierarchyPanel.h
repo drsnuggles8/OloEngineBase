@@ -6,6 +6,8 @@
 
 namespace OloEngine
 {
+    class CommandHistory;
+
     class SceneHierarchyPanel
     {
       public:
@@ -13,6 +15,10 @@ namespace OloEngine
         SceneHierarchyPanel(const Ref<Scene>& context);
 
         void SetContext(const Ref<Scene>& context);
+        void SetCommandHistory(CommandHistory* history)
+        {
+            m_CommandHistory = history;
+        }
 
         void OnImGuiRender();
 
@@ -35,5 +41,9 @@ namespace OloEngine
       private:
         Ref<Scene> m_Context;
         Entity m_SelectionContext;
+        CommandHistory* m_CommandHistory = nullptr;
+
+        // Rename tracking for undo
+        std::string m_RenameOldName;
     };
 } // namespace OloEngine

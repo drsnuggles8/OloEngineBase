@@ -11,6 +11,7 @@
 #include "Panels/NetworkDebugPanel.h"
 #include "Panels/DialogueEditorPanel.h"
 
+#include "UndoRedo/EditorCommand.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -87,7 +88,7 @@ namespace OloEngine
         void UI_MenuBar();
         void UI_Toolbar();
         void UI_Viewport();
-        void UI_Gizmos() const;
+        void UI_Gizmos();
         void UI_RendererStats();
         void UI_Settings();
         void UI_DebugTools();
@@ -164,6 +165,13 @@ namespace OloEngine
         bool m_ShowInputSettings = false;
         bool m_ShowNetworkDebug = false;
         bool m_ShowDialogueEditor = false;
+
+        // Undo/Redo
+        CommandHistory m_CommandHistory;
+        bool m_GizmoWasUsing = false;
+        glm::vec3 m_GizmoStartTranslation{};
+        glm::vec3 m_GizmoStartRotation{};
+        glm::vec3 m_GizmoStartScale{};
 
         // Terrain brush preview UBO (binding 11)
         Ref<UniformBuffer> m_BrushPreviewUBO;

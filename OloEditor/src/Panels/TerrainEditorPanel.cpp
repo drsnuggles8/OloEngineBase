@@ -4,6 +4,7 @@
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/Editor/TerrainErosion.h"
+#include "../UndoRedo/SpecializedCommands.h"
 
 #include <imgui.h>
 
@@ -182,6 +183,110 @@ namespace OloEngine
         m_BrushWorldPos = hitPos;
         m_HasBrushHit = hasHit;
 
+        // Stroke end detection: was painting but mouse released
+        if (m_StrokeActive && !mouseDown)
+        {
+            // Finalize stroke and push undo command
+            if (m_CommandHistory && m_StrokeDirtyW > 0 && m_StrokeDirtyH > 0)
+            {
+                if (m_EditMode == TerrainEditMode::Sculpt && m_StrokeTerrainData)
+                {
+                    // Extract old heights for the dirty region from the full snapshot
+                    u32 resolution = m_StrokeTerrainData->GetResolution();
+                    std::vector<f32> oldRegion(m_StrokeDirtyW * m_StrokeDirtyH);
+                    for (u32 row = 0; row < m_StrokeDirtyH; ++row)
+                    {
+                        u32 srcIdx = (m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX;
+                        u32 dstIdx = row * m_StrokeDirtyW;
+                        std::memcpy(&oldRegion[dstIdx], &m_StrokeOldHeights[srcIdx], m_StrokeDirtyW * sizeof(f32));
+                    }
+
+                    // Capture new heights from the dirty region
+                    const auto& fullData = m_StrokeTerrainData->GetHeightData();
+                    std::vector<f32> newHeights(m_StrokeDirtyW * m_StrokeDirtyH);
+                    for (u32 row = 0; row < m_StrokeDirtyH; ++row)
+                    {
+                        u32 srcIdx = (m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX;
+                        u32 dstIdx = row * m_StrokeDirtyW;
+                        std::memcpy(&newHeights[dstIdx], &fullData[srcIdx], m_StrokeDirtyW * sizeof(f32));
+                    }
+
+                    m_CommandHistory->PushAlreadyExecuted(
+                        std::make_unique<TerrainSculptCommand>(
+                            m_StrokeTerrainData, m_StrokeChunkManager,
+                            m_StrokeWorldSizeX, m_StrokeWorldSizeZ, m_StrokeHeightScale,
+                            m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH,
+                            std::move(oldRegion), std::move(newHeights)));
+                }
+                else if (m_EditMode == TerrainEditMode::Paint && m_StrokeMaterial)
+                {
+                    u32 resolution = m_StrokeMaterial->GetSplatmapResolution();
+                    constexpr u32 channels = 4;
+
+                    // Extract old splatmap0 region from full snapshot
+                    std::vector<u8> oldRegion0(m_StrokeDirtyW * m_StrokeDirtyH * channels);
+                    for (u32 row = 0; row < m_StrokeDirtyH; ++row)
+                    {
+                        u32 srcIdx = ((m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX) * channels;
+                        u32 dstIdx = row * m_StrokeDirtyW * channels;
+                        std::memcpy(&oldRegion0[dstIdx], &m_StrokeOldSplatmap0[srcIdx], m_StrokeDirtyW * channels);
+                    }
+
+                    // Capture new splatmap data
+                    auto& splatmap0 = m_StrokeMaterial->GetSplatmapData(0);
+                    std::vector<u8> newSplatmap0(m_StrokeDirtyW * m_StrokeDirtyH * channels);
+                    for (u32 row = 0; row < m_StrokeDirtyH; ++row)
+                    {
+                        u32 srcIdx = ((m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX) * channels;
+                        u32 dstIdx = row * m_StrokeDirtyW * channels;
+                        std::memcpy(&newSplatmap0[dstIdx], &splatmap0[srcIdx], m_StrokeDirtyW * channels);
+                    }
+
+                    m_CommandHistory->PushAlreadyExecuted(
+                        std::make_unique<TerrainPaintCommand>(
+                            m_StrokeMaterial, 0,
+                            m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH,
+                            std::move(oldRegion0), std::move(newSplatmap0)));
+
+                    // If using second splatmap (>4 layers), push a second command
+                    if (m_StrokeMaterial->GetLayerCount() > 4 && !m_StrokeOldSplatmap1.empty())
+                    {
+                        std::vector<u8> oldRegion1(m_StrokeDirtyW * m_StrokeDirtyH * channels);
+                        for (u32 row = 0; row < m_StrokeDirtyH; ++row)
+                        {
+                            u32 srcIdx = ((m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX) * channels;
+                            u32 dstIdx = row * m_StrokeDirtyW * channels;
+                            std::memcpy(&oldRegion1[dstIdx], &m_StrokeOldSplatmap1[srcIdx], m_StrokeDirtyW * channels);
+                        }
+
+                        auto& splatmap1 = m_StrokeMaterial->GetSplatmapData(1);
+                        std::vector<u8> newSplatmap1(m_StrokeDirtyW * m_StrokeDirtyH * channels);
+                        for (u32 row = 0; row < m_StrokeDirtyH; ++row)
+                        {
+                            u32 srcIdx = ((m_StrokeDirtyY + row) * resolution + m_StrokeDirtyX) * channels;
+                            u32 dstIdx = row * m_StrokeDirtyW * channels;
+                            std::memcpy(&newSplatmap1[dstIdx], &splatmap1[srcIdx], m_StrokeDirtyW * channels);
+                        }
+
+                        m_CommandHistory->PushAlreadyExecuted(
+                            std::make_unique<TerrainPaintCommand>(
+                                m_StrokeMaterial, 1,
+                                m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH,
+                                std::move(oldRegion1), std::move(newSplatmap1)));
+                    }
+                }
+            }
+
+            m_StrokeActive = false;
+            m_StrokeDirtyX = m_StrokeDirtyY = m_StrokeDirtyW = m_StrokeDirtyH = 0;
+            m_StrokeOldHeights.clear();
+            m_StrokeOldSplatmap0.clear();
+            m_StrokeOldSplatmap1.clear();
+            m_StrokeTerrainData = nullptr;
+            m_StrokeChunkManager = nullptr;
+            m_StrokeMaterial = nullptr;
+        }
+
         if (!hasHit || !mouseDown || m_EditMode == TerrainEditMode::None || !m_Context)
             return;
 
@@ -196,6 +301,20 @@ namespace OloEngine
 
             if (m_EditMode == TerrainEditMode::Sculpt)
             {
+                // Snapshot full heightmap on stroke start (before any modifications)
+                if (m_CommandHistory && !m_StrokeActive)
+                {
+                    m_StrokeActive = true;
+                    m_StrokeTerrainData = terrain.m_TerrainData;
+                    m_StrokeChunkManager = terrain.m_ChunkManager;
+                    m_StrokeWorldSizeX = terrain.m_WorldSizeX;
+                    m_StrokeWorldSizeZ = terrain.m_WorldSizeZ;
+                    m_StrokeHeightScale = terrain.m_HeightScale;
+                    m_StrokeDirtyX = m_StrokeDirtyY = m_StrokeDirtyW = m_StrokeDirtyH = 0;
+                    // Full copy of heightmap for old-state extraction at stroke end
+                    m_StrokeOldHeights = terrain.m_TerrainData->GetHeightData();
+                }
+
                 auto dirty = TerrainBrush::Apply(
                     *terrain.m_TerrainData,
                     m_SculptSettings,
@@ -209,6 +328,30 @@ namespace OloEngine
                     TerrainBrush::RebuildDirtyChunks(
                         *terrain.m_ChunkManager, *terrain.m_TerrainData,
                         dirty, terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+
+                    // Expand stroke dirty region
+                    if (m_StrokeDirtyW == 0)
+                    {
+                        // First dirty region — snapshot the old heights before the apply above changed them
+                        // Note: the apply already happened, so for the very first frame we need the old data.
+                        // We snapshotted the full heightmap on stroke start, so extract from there.
+                        m_StrokeDirtyX = dirty.X;
+                        m_StrokeDirtyY = dirty.Y;
+                        m_StrokeDirtyW = dirty.Width;
+                        m_StrokeDirtyH = dirty.Height;
+                    }
+                    else
+                    {
+                        // Expand bounding rect
+                        u32 minX = std::min(m_StrokeDirtyX, dirty.X);
+                        u32 minY = std::min(m_StrokeDirtyY, dirty.Y);
+                        u32 maxX = std::max(m_StrokeDirtyX + m_StrokeDirtyW, dirty.X + dirty.Width);
+                        u32 maxY = std::max(m_StrokeDirtyY + m_StrokeDirtyH, dirty.Y + dirty.Height);
+                        m_StrokeDirtyX = minX;
+                        m_StrokeDirtyY = minY;
+                        m_StrokeDirtyW = maxX - minX;
+                        m_StrokeDirtyH = maxY - minY;
+                    }
                 }
             }
             else if (m_EditMode == TerrainEditMode::Paint)
@@ -221,6 +364,22 @@ namespace OloEngine
                 {
                     u32 splatRes = terrain.m_TerrainData->GetResolution();
                     terrain.m_Material->InitializeCPUSplatmaps(splatRes);
+                }
+
+                // Snapshot splatmap on stroke start
+                if (m_CommandHistory && !m_StrokeActive)
+                {
+                    m_StrokeActive = true;
+                    m_StrokeMaterial = terrain.m_Material;
+                    m_StrokeWorldSizeX = terrain.m_WorldSizeX;
+                    m_StrokeWorldSizeZ = terrain.m_WorldSizeZ;
+                    m_StrokeDirtyX = m_StrokeDirtyY = m_StrokeDirtyW = m_StrokeDirtyH = 0;
+                    // Full copy of splatmap(s) for old-state extraction at stroke end
+                    m_StrokeOldSplatmap0 = terrain.m_Material->GetSplatmapData(0);
+                    if (terrain.m_Material->GetLayerCount() > 4)
+                    {
+                        m_StrokeOldSplatmap1 = terrain.m_Material->GetSplatmapData(1);
+                    }
                 }
 
                 auto dirty = TerrainPaintBrush::Apply(
@@ -237,6 +396,26 @@ namespace OloEngine
                     if (terrain.m_Material->GetLayerCount() > 4)
                     {
                         terrain.m_Material->UploadSplatmapRegion(1, dirty.X, dirty.Y, dirty.Width, dirty.Height);
+                    }
+
+                    // Expand stroke dirty region
+                    if (m_StrokeDirtyW == 0)
+                    {
+                        m_StrokeDirtyX = dirty.X;
+                        m_StrokeDirtyY = dirty.Y;
+                        m_StrokeDirtyW = dirty.Width;
+                        m_StrokeDirtyH = dirty.Height;
+                    }
+                    else
+                    {
+                        u32 minX = std::min(m_StrokeDirtyX, dirty.X);
+                        u32 minY = std::min(m_StrokeDirtyY, dirty.Y);
+                        u32 maxX = std::max(m_StrokeDirtyX + m_StrokeDirtyW, dirty.X + dirty.Width);
+                        u32 maxY = std::max(m_StrokeDirtyY + m_StrokeDirtyH, dirty.Y + dirty.Height);
+                        m_StrokeDirtyX = minX;
+                        m_StrokeDirtyY = minY;
+                        m_StrokeDirtyW = maxX - minX;
+                        m_StrokeDirtyH = maxY - minY;
                     }
                 }
             }

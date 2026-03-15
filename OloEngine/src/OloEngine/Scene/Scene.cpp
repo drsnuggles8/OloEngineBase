@@ -678,12 +678,30 @@ namespace OloEngine
                             speed *= 3.0f;
                         }
 
-                        if (Input::IsKeyPressed(Key::W)) { transform.Translation += forward * speed; }
-                        if (Input::IsKeyPressed(Key::S)) { transform.Translation -= forward * speed; }
-                        if (Input::IsKeyPressed(Key::A)) { transform.Translation -= right * speed; }
-                        if (Input::IsKeyPressed(Key::D)) { transform.Translation += right * speed; }
-                        if (Input::IsKeyPressed(Key::E)) { transform.Translation.y += speed; }
-                        if (Input::IsKeyPressed(Key::Q)) { transform.Translation.y -= speed; }
+                        if (Input::IsKeyPressed(Key::W))
+                        {
+                            transform.Translation += forward * speed;
+                        }
+                        if (Input::IsKeyPressed(Key::S))
+                        {
+                            transform.Translation -= forward * speed;
+                        }
+                        if (Input::IsKeyPressed(Key::A))
+                        {
+                            transform.Translation -= right * speed;
+                        }
+                        if (Input::IsKeyPressed(Key::D))
+                        {
+                            transform.Translation += right * speed;
+                        }
+                        if (Input::IsKeyPressed(Key::E))
+                        {
+                            transform.Translation.y += speed;
+                        }
+                        if (Input::IsKeyPressed(Key::Q))
+                        {
+                            transform.Translation.y -= speed;
+                        }
                     }
 
                     mainCamera = &camera.Camera;
@@ -960,11 +978,13 @@ namespace OloEngine
         m_StepFrames = frames;
     }
 
-    void Scene::DuplicateEntity(Entity entity)
+    [[nodiscard]] Entity Scene::DuplicateEntity(Entity entity)
     {
         const Entity newEntity = CreateEntity(entity.GetName());
 
         CopyComponentIfExists(AllComponents{}, newEntity, entity);
+
+        return newEntity;
     }
 
     void Scene::SetName(std::string_view name)

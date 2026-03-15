@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "EditorLayer.h"
 #include "Panels/AssetPackBuilderPanel.h"
+#include "UndoRedo/EntityCommands.h"
+#include "UndoRedo/ComponentCommands.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -374,6 +376,31 @@ namespace OloEngine
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("Edit"))
+        {
+            std::string undoLabel = "Undo";
+            if (m_CommandHistory.CanUndo())
+            {
+                undoLabel += " (" + m_CommandHistory.GetUndoDescription() + ")";
+            }
+            if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, m_CommandHistory.CanUndo()))
+            {
+                m_CommandHistory.Undo();
+            }
+
+            std::string redoLabel = "Redo";
+            if (m_CommandHistory.CanRedo())
+            {
+                redoLabel += " (" + m_CommandHistory.GetRedoDescription() + ")";
+            }
+            if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, m_CommandHistory.CanRedo()))
+            {
+                m_CommandHistory.Redo();
+            }
+
+            ImGui::EndMenu();
+        }
+
         if (ImGui::BeginMenu("Script"))
         {
             if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
@@ -502,7 +529,12 @@ namespace OloEngine
                     const Ref<Texture2D> texture = Texture2D::Create(path.string());
                     if (texture->IsLoaded())
                     {
+                        auto oldComponent = m_HoveredEntity.GetComponent<SpriteRendererComponent>();
                         m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
+                        auto newComponent = m_HoveredEntity.GetComponent<SpriteRendererComponent>();
+                        m_CommandHistory.PushAlreadyExecuted(
+                            std::make_unique<ComponentChangeCommand<SpriteRendererComponent>>(
+                                m_EditorScene, m_HoveredEntity.GetUUID(), oldComponent, newComponent));
                     }
                     else
                     {
@@ -519,7 +551,7 @@ namespace OloEngine
         ImGui::PopStyleVar();
     }
 
-    void EditorLayer::UI_Gizmos() const
+    void EditorLayer::UI_Gizmos()
     {
         Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
         if (!selectedEntity || !selectedEntity.HasComponent<TransformComponent>())
@@ -560,7 +592,17 @@ namespace OloEngine
                                  nullptr,
                                  snap ? snapValues.data() : nullptr);
 
-            if (ImGuizmo::IsUsing())
+            const bool isUsing = ImGuizmo::IsUsing();
+
+            // Capture transform at the start of gizmo interaction
+            if (isUsing && !m_GizmoWasUsing)
+            {
+                m_GizmoStartTranslation = tc.Translation;
+                m_GizmoStartRotation = tc.Rotation;
+                m_GizmoStartScale = tc.Scale;
+            }
+
+            if (isUsing)
             {
                 glm::vec3 translation;
                 glm::vec3 rotation;
@@ -572,6 +614,17 @@ namespace OloEngine
                 tc.Rotation += deltaRotation;
                 tc.Scale = scale;
             }
+
+            // Push undo command when gizmo interaction ends
+            if (!isUsing && m_GizmoWasUsing && m_SceneState == SceneState::Edit)
+            {
+                m_CommandHistory.PushAlreadyExecuted(std::make_unique<TransformChangeCommand>(
+                    m_EditorScene, selectedEntity.GetUUID(),
+                    m_GizmoStartTranslation, m_GizmoStartRotation, m_GizmoStartScale,
+                    tc.Translation, tc.Rotation, tc.Scale));
+            }
+
+            m_GizmoWasUsing = isUsing;
         }
     }
 
@@ -937,6 +990,24 @@ namespace OloEngine
                 break;
             }
 
+            // Undo/Redo
+            case Key::Z:
+            {
+                if (control && m_SceneState == SceneState::Edit)
+                {
+                    m_CommandHistory.Undo();
+                }
+                break;
+            }
+            case Key::Y:
+            {
+                if (control && m_SceneState == SceneState::Edit)
+                {
+                    m_CommandHistory.Redo();
+                }
+                break;
+            }
+
             // Scene Commands
             case Key::D:
             {
@@ -996,8 +1067,12 @@ namespace OloEngine
                     Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
                     if (selectedEntity)
                     {
-                        m_EditorScene->DestroyEntity(selectedEntity);
-                        m_SceneHierarchyPanel.SetSelectedEntity({});
+                        m_CommandHistory.Execute(std::make_unique<DeleteEntityCommand>(
+                            m_EditorScene, selectedEntity,
+                            [this]()
+                            { m_SceneHierarchyPanel.SetSelectedEntity({}); },
+                            [this](Entity restored)
+                            { m_SceneHierarchyPanel.SetSelectedEntity(restored); }));
                     }
                 }
                 break;
@@ -1414,11 +1489,21 @@ namespace OloEngine
 
         m_EditorScene = scene;
         m_SceneHierarchyPanel.SetContext(m_EditorScene);
+        m_SceneHierarchyPanel.SetCommandHistory(&m_CommandHistory);
         m_AnimationPanel.SetContext(m_EditorScene);
+        m_AnimationPanel.SetCommandHistory(&m_CommandHistory);
+        m_PostProcessSettingsPanel.SetCommandHistory(&m_CommandHistory);
         m_TerrainEditorPanel.SetContext(m_EditorScene);
+        m_TerrainEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_StreamingPanel.SetContext(m_EditorScene);
+        m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
+        m_DialogueEditorPanel.SetCommandHistory(&m_CommandHistory);
+        m_InputSettingsPanel.SetCommandHistory(&m_CommandHistory);
 
         m_ActiveScene = m_EditorScene;
+
+        // Clear undo history when switching scenes
+        m_CommandHistory.Clear();
 
         SyncWindowTitle();
     }
@@ -1560,7 +1645,20 @@ namespace OloEngine
         const Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
         if (selectedEntity)
         {
-            m_EditorScene->DuplicateEntity(selectedEntity);
+            Entity newEntity = m_EditorScene->DuplicateEntity(selectedEntity);
+
+            // Snapshot the new entity so undo can delete it and redo can restore it
+            auto deleteCmd = std::make_unique<DeleteEntityCommand>(
+                m_EditorScene, newEntity,
+                [this]()
+                { m_SceneHierarchyPanel.SetSelectedEntity({}); },
+                [this](Entity restored)
+                { m_SceneHierarchyPanel.SetSelectedEntity(restored); });
+
+            m_CommandHistory.PushAlreadyExecuted(
+                std::make_unique<DuplicateUndoCommand>(std::move(deleteCmd)));
+
+            m_SceneHierarchyPanel.SetSelectedEntity(newEntity);
         }
     }
 
