@@ -74,4 +74,18 @@ namespace OloEngine
         }
         return {};
     }
+    MessagePromptResult MessagePrompt::YesNoCancel(const char* const title, const char* const message)
+    {
+        HWND hwnd = GLFWAPI::glfwGetWin32Window(static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow()));
+        int const result = ::MessageBoxA(hwnd, message, title, MB_YESNOCANCEL | MB_ICONWARNING);
+        switch (result)
+        {
+            case IDYES:
+                return MessagePromptResult::Yes;
+            case IDNO:
+                return MessagePromptResult::No;
+            default:
+                return MessagePromptResult::Cancel;
+        }
+    }
 } // namespace OloEngine

@@ -43,7 +43,10 @@ namespace UndoTest
       public:
         explicit CompoundCommand(std::string description) : m_Description(std::move(description)) {}
 
-        void Add(std::unique_ptr<EditorCommand> command) { m_Commands.push_back(std::move(command)); }
+        void Add(std::unique_ptr<EditorCommand> command)
+        {
+            m_Commands.push_back(std::move(command));
+        }
 
         void Execute() override
         {
@@ -57,9 +60,18 @@ namespace UndoTest
                 (*it)->Undo();
         }
 
-        [[nodiscard]] std::string GetDescription() const override { return m_Description; }
-        [[nodiscard]] bool IsEmpty() const { return m_Commands.empty(); }
-        [[nodiscard]] std::size_t Size() const { return m_Commands.size(); }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return m_Description;
+        }
+        [[nodiscard]] bool IsEmpty() const
+        {
+            return m_Commands.empty();
+        }
+        [[nodiscard]] std::size_t Size() const
+        {
+            return m_Commands.size();
+        }
 
       private:
         std::vector<std::unique_ptr<EditorCommand>> m_Commands;
@@ -74,54 +86,123 @@ namespace UndoTest
         void Execute(std::unique_ptr<EditorCommand> command)
         {
             command->Execute();
+            if (!m_RedoStack.empty() && m_SavePointValid && m_SavePointVersion > m_Version)
+            {
+                m_SavePointValid = false;
+            }
             m_UndoStack.push_back(std::move(command));
             m_RedoStack.clear();
+            ++m_Version;
             while (m_UndoStack.size() > MaxHistorySize)
+            {
                 m_UndoStack.pop_front();
+                TrimSavePoint();
+            }
         }
 
         void PushAlreadyExecuted(std::unique_ptr<EditorCommand> command)
         {
+            if (!m_RedoStack.empty() && m_SavePointValid && m_SavePointVersion > m_Version)
+            {
+                m_SavePointValid = false;
+            }
             m_UndoStack.push_back(std::move(command));
             m_RedoStack.clear();
+            ++m_Version;
             while (m_UndoStack.size() > MaxHistorySize)
+            {
                 m_UndoStack.pop_front();
+                TrimSavePoint();
+            }
         }
 
         void Undo()
         {
-            if (m_UndoStack.empty()) return;
+            if (m_UndoStack.empty())
+                return;
             auto command = std::move(m_UndoStack.back());
             m_UndoStack.pop_back();
             command->Undo();
             m_RedoStack.push_back(std::move(command));
+            --m_Version;
         }
 
         void Redo()
         {
-            if (m_RedoStack.empty()) return;
+            if (m_RedoStack.empty())
+                return;
             auto command = std::move(m_RedoStack.back());
             m_RedoStack.pop_back();
             command->Execute();
             m_UndoStack.push_back(std::move(command));
+            ++m_Version;
         }
 
-        [[nodiscard]] bool CanUndo() const { return !m_UndoStack.empty(); }
-        [[nodiscard]] bool CanRedo() const { return !m_RedoStack.empty(); }
-        [[nodiscard]] std::string GetUndoDescription() const { return m_UndoStack.empty() ? "" : m_UndoStack.back()->GetDescription(); }
-        [[nodiscard]] std::string GetRedoDescription() const { return m_RedoStack.empty() ? "" : m_RedoStack.back()->GetDescription(); }
-        [[nodiscard]] std::size_t UndoSize() const { return m_UndoStack.size(); }
-        [[nodiscard]] std::size_t RedoSize() const { return m_RedoStack.size(); }
+        [[nodiscard]] bool CanUndo() const
+        {
+            return !m_UndoStack.empty();
+        }
+        [[nodiscard]] bool CanRedo() const
+        {
+            return !m_RedoStack.empty();
+        }
+        [[nodiscard]] std::string GetUndoDescription() const
+        {
+            return m_UndoStack.empty() ? "" : m_UndoStack.back()->GetDescription();
+        }
+        [[nodiscard]] std::string GetRedoDescription() const
+        {
+            return m_RedoStack.empty() ? "" : m_RedoStack.back()->GetDescription();
+        }
+        [[nodiscard]] std::size_t UndoSize() const
+        {
+            return m_UndoStack.size();
+        }
+        [[nodiscard]] std::size_t RedoSize() const
+        {
+            return m_RedoStack.size();
+        }
+
+        void MarkSaved()
+        {
+            m_SavePointVersion = m_Version;
+            m_SavePointValid = true;
+        }
+
+        [[nodiscard]] bool IsDirty() const
+        {
+            if (!m_SavePointValid)
+                return true;
+            return m_Version != m_SavePointVersion;
+        }
 
         void Clear()
         {
             m_UndoStack.clear();
             m_RedoStack.clear();
+            m_Version = 0;
+            m_SavePointVersion = 0;
+            m_SavePointValid = true;
         }
 
       private:
+        void TrimSavePoint()
+        {
+            if (m_SavePointValid && m_SavePointVersion > 0)
+            {
+                --m_SavePointVersion;
+            }
+            else if (m_SavePointVersion == 0)
+            {
+                m_SavePointValid = false;
+            }
+        }
+
         std::deque<std::unique_ptr<EditorCommand>> m_UndoStack;
         std::deque<std::unique_ptr<EditorCommand>> m_RedoStack;
+        std::size_t m_Version = 0;
+        std::size_t m_SavePointVersion = 0;
+        bool m_SavePointValid = true;
     };
 
     // =========================================================================
@@ -133,9 +214,18 @@ namespace UndoTest
         explicit IncrementCommand(int& target, int amount = 1)
             : m_Target(target), m_Amount(amount) {}
 
-        void Execute() override { m_Target += m_Amount; }
-        void Undo() override { m_Target -= m_Amount; }
-        [[nodiscard]] std::string GetDescription() const override { return "Increment"; }
+        void Execute() override
+        {
+            m_Target += m_Amount;
+        }
+        void Undo() override
+        {
+            m_Target -= m_Amount;
+        }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Increment";
+        }
 
       private:
         int& m_Target;
@@ -155,15 +245,25 @@ namespace UndoTest
               m_OldT(oldT), m_OldR(oldR), m_OldS(oldS),
               m_NewT(newT), m_NewR(newR), m_NewS(newS) {}
 
-        void Execute() override { Apply(m_NewT, m_NewR, m_NewS); }
-        void Undo() override { Apply(m_OldT, m_OldR, m_OldS); }
-        [[nodiscard]] std::string GetDescription() const override { return "Transform Change"; }
+        void Execute() override
+        {
+            Apply(m_NewT, m_NewR, m_NewS);
+        }
+        void Undo() override
+        {
+            Apply(m_OldT, m_OldR, m_OldS);
+        }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Transform Change";
+        }
 
       private:
         void Apply(const glm::vec3& t, const glm::vec3& r, const glm::vec3& s)
         {
             auto e = m_Scene->TryGetEntityWithUUID(m_UUID);
-            if (!e) return;
+            if (!e)
+                return;
             auto& tc = e->GetComponent<TransformComponent>();
             tc.Translation = t;
             tc.Rotation = r;
@@ -198,23 +298,32 @@ namespace UndoTest
                 entity = m_Scene->CreateEntity(m_Name);
                 m_UUID = entity.GetUUID();
             }
-            if (m_OnCreated) m_OnCreated(entity);
+            if (m_OnCreated)
+                m_OnCreated(entity);
         }
 
         void Undo() override
         {
             auto e = m_Scene->TryGetEntityWithUUID(m_UUID);
-            if (e) m_Scene->DestroyEntity(*e);
-            if (m_OnDestroyed) m_OnDestroyed();
+            if (e)
+                m_Scene->DestroyEntity(*e);
+            if (m_OnDestroyed)
+                m_OnDestroyed();
         }
 
-        [[nodiscard]] std::string GetDescription() const override { return "Create Entity '" + m_Name + "'"; }
-        [[nodiscard]] UUID GetEntityUUID() const { return m_UUID; }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Create Entity '" + m_Name + "'";
+        }
+        [[nodiscard]] UUID GetEntityUUID() const
+        {
+            return m_UUID;
+        }
 
       private:
         Ref<Scene> m_Scene;
         std::string m_Name;
-        UUID m_UUID{0};
+        UUID m_UUID{ 0 };
         std::function<void(Entity)> m_OnCreated;
         std::function<void()> m_OnDestroyed;
     };
@@ -237,7 +346,8 @@ namespace UndoTest
         void Execute() override
         {
             auto e = m_Scene->TryGetEntityWithUUID(m_UUID);
-            if (e) m_Scene->DestroyEntity(*e);
+            if (e)
+                m_Scene->DestroyEntity(*e);
         }
 
         void Undo() override
@@ -247,7 +357,10 @@ namespace UndoTest
                 restored.GetComponent<TransformComponent>() = m_Transform;
         }
 
-        [[nodiscard]] std::string GetDescription() const override { return "Delete Entity '" + m_Name + "'"; }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Delete Entity '" + m_Name + "'";
+        }
 
       private:
         Ref<Scene> m_Scene;
@@ -267,15 +380,25 @@ namespace UndoTest
             : m_Scene(std::move(scene)), m_UUID(uuid),
               m_OldName(std::move(oldName)), m_NewName(std::move(newName)) {}
 
-        void Execute() override { SetName(m_NewName); }
-        void Undo() override { SetName(m_OldName); }
-        [[nodiscard]] std::string GetDescription() const override { return "Rename Entity"; }
+        void Execute() override
+        {
+            SetName(m_NewName);
+        }
+        void Undo() override
+        {
+            SetName(m_OldName);
+        }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Rename Entity";
+        }
 
       private:
         void SetName(const std::string& name)
         {
             auto e = m_Scene->TryGetEntityWithUUID(m_UUID);
-            if (e) e->GetComponent<TagComponent>().Tag = name;
+            if (e)
+                e->GetComponent<TagComponent>().Tag = name;
         }
 
         Ref<Scene> m_Scene;
@@ -295,16 +418,21 @@ namespace UndoTest
         void Execute() override
         {
             auto e = m_Scene->TryGetEntityWithUUID(m_UUID);
-            if (e && !e->HasComponent<T>()) e->AddComponent<T>();
+            if (e && !e->HasComponent<T>())
+                e->AddComponent<T>();
         }
 
         void Undo() override
         {
             auto e = m_Scene->TryGetEntityWithUUID(m_UUID);
-            if (e && e->HasComponent<T>()) e->RemoveComponent<T>();
+            if (e && e->HasComponent<T>())
+                e->RemoveComponent<T>();
         }
 
-        [[nodiscard]] std::string GetDescription() const override { return "Add Component"; }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Add Component";
+        }
 
       private:
         Ref<Scene> m_Scene;
@@ -321,16 +449,21 @@ namespace UndoTest
         void Execute() override
         {
             auto e = m_Scene->TryGetEntityWithUUID(m_UUID);
-            if (e && e->HasComponent<T>()) e->RemoveComponent<T>();
+            if (e && e->HasComponent<T>())
+                e->RemoveComponent<T>();
         }
 
         void Undo() override
         {
             auto e = m_Scene->TryGetEntityWithUUID(m_UUID);
-            if (e && !e->HasComponent<T>()) e->AddOrReplaceComponent<T>(m_Snapshot);
+            if (e && !e->HasComponent<T>())
+                e->AddOrReplaceComponent<T>(m_Snapshot);
         }
 
-        [[nodiscard]] std::string GetDescription() const override { return "Remove Component"; }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Remove Component";
+        }
 
       private:
         Ref<Scene> m_Scene;
@@ -352,16 +485,21 @@ namespace UndoTest
         void Execute() override
         {
             auto e = m_Scene->TryGetEntityWithUUID(m_UUID);
-            if (e && e->HasComponent<T>()) e->GetComponent<T>() = m_NewData;
+            if (e && e->HasComponent<T>())
+                e->GetComponent<T>() = m_NewData;
         }
 
         void Undo() override
         {
             auto e = m_Scene->TryGetEntityWithUUID(m_UUID);
-            if (e && e->HasComponent<T>()) e->GetComponent<T>() = m_OldData;
+            if (e && e->HasComponent<T>())
+                e->GetComponent<T>() = m_OldData;
         }
 
-        [[nodiscard]] std::string GetDescription() const override { return m_Description; }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return m_Description;
+        }
 
       private:
         Ref<Scene> m_Scene;
@@ -380,9 +518,20 @@ namespace UndoTest
                                  PostProcessSettings oldSettings, PostProcessSettings newSettings)
             : m_Target(target), m_OldSettings(oldSettings), m_NewSettings(newSettings) {}
 
-        void Execute() override { if (m_Target) *m_Target = m_NewSettings; }
-        void Undo() override { if (m_Target) *m_Target = m_OldSettings; }
-        [[nodiscard]] std::string GetDescription() const override { return "Post-Process Change"; }
+        void Execute() override
+        {
+            if (m_Target)
+                *m_Target = m_NewSettings;
+        }
+        void Undo() override
+        {
+            if (m_Target)
+                *m_Target = m_OldSettings;
+        }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Post-Process Change";
+        }
 
       private:
         PostProcessSettings* m_Target;
@@ -403,9 +552,18 @@ namespace UndoTest
               m_RegionX(regionX), m_RegionY(regionY), m_RegionW(regionW), m_RegionH(regionH),
               m_OldHeights(std::move(oldHeights)), m_NewHeights(std::move(newHeights)) {}
 
-        void Execute() override { ApplyHeights(m_NewHeights); }
-        void Undo() override { ApplyHeights(m_OldHeights); }
-        [[nodiscard]] std::string GetDescription() const override { return "Terrain Sculpt"; }
+        void Execute() override
+        {
+            ApplyHeights(m_NewHeights);
+        }
+        void Undo() override
+        {
+            ApplyHeights(m_OldHeights);
+        }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Terrain Sculpt";
+        }
 
       private:
         void ApplyHeights(const std::vector<f32>& heights)
@@ -434,9 +592,18 @@ namespace UndoTest
                                        StreamingSettings oldSettings, StreamingSettings newSettings)
             : m_Target(target), m_OldSettings(std::move(oldSettings)), m_NewSettings(std::move(newSettings)) {}
 
-        void Execute() override { m_Target = m_NewSettings; }
-        void Undo() override { m_Target = m_OldSettings; }
-        [[nodiscard]] std::string GetDescription() const override { return "Streaming Settings Change"; }
+        void Execute() override
+        {
+            m_Target = m_NewSettings;
+        }
+        void Undo() override
+        {
+            m_Target = m_OldSettings;
+        }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Streaming Settings Change";
+        }
 
       private:
         StreamingSettings& m_Target;
@@ -463,9 +630,18 @@ namespace UndoTest
             : m_OldState(std::move(oldState)), m_NewState(std::move(newState)),
               m_ApplyFn(std::move(applyFn)), m_Description(std::move(desc)) {}
 
-        void Execute() override { m_ApplyFn(m_NewState); }
-        void Undo() override { m_ApplyFn(m_OldState); }
-        [[nodiscard]] std::string GetDescription() const override { return m_Description; }
+        void Execute() override
+        {
+            m_ApplyFn(m_NewState);
+        }
+        void Undo() override
+        {
+            m_ApplyFn(m_OldState);
+        }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return m_Description;
+        }
 
       private:
         DialogueEditorSnapshot m_OldState;
@@ -486,9 +662,18 @@ namespace UndoTest
             : m_Target(target), m_OldMap(std::move(oldMap)), m_NewMap(std::move(newMap)),
               m_Description(std::move(desc)) {}
 
-        void Execute() override { m_Target = m_NewMap; }
-        void Undo() override { m_Target = m_OldMap; }
-        [[nodiscard]] std::string GetDescription() const override { return m_Description; }
+        void Execute() override
+        {
+            m_Target = m_NewMap;
+        }
+        void Undo() override
+        {
+            m_Target = m_OldMap;
+        }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return m_Description;
+        }
 
       private:
         InputActionMap& m_Target;
@@ -685,9 +870,18 @@ TEST(CompoundCommand, UndoesInReverseOrder)
     struct OrderTracker : UndoTest::EditorCommand
     {
         OrderTracker(std::vector<int>& log, int id) : m_Log(log), m_Id(id) {}
-        void Execute() override { m_Log.push_back(m_Id); }
-        void Undo() override { m_Log.push_back(-m_Id); }
-        [[nodiscard]] std::string GetDescription() const override { return "Track"; }
+        void Execute() override
+        {
+            m_Log.push_back(m_Id);
+        }
+        void Undo() override
+        {
+            m_Log.push_back(-m_Id);
+        }
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Track";
+        }
         std::vector<int>& m_Log;
         int m_Id;
     };
@@ -698,11 +892,11 @@ TEST(CompoundCommand, UndoesInReverseOrder)
     compound->Add(std::make_unique<OrderTracker>(order, 3));
 
     compound->Execute();
-    EXPECT_EQ(order, (std::vector<int>{1, 2, 3}));
+    EXPECT_EQ(order, (std::vector<int>{ 1, 2, 3 }));
 
     order.clear();
     compound->Undo();
-    EXPECT_EQ(order, (std::vector<int>{-3, -2, -1}));
+    EXPECT_EQ(order, (std::vector<int>{ -3, -2, -1 }));
 }
 
 TEST(CompoundCommand, WorksWithCommandHistory)
@@ -735,10 +929,11 @@ TEST(CreateEntityCommand, CreatesAndDestroysEntity)
 {
     auto scene = MakeScene();
     UndoTest::CommandHistory history;
-    UUID createdUUID{0};
+    UUID createdUUID{ 0 };
 
     auto cmd = std::make_unique<UndoTest::CreateEntityCommand>(scene, "TestEntity",
-        [&](Entity e) { createdUUID = e.GetUUID(); });
+                                                               [&](Entity e)
+                                                               { createdUUID = e.GetUUID(); });
 
     history.Execute(std::move(cmd));
     EXPECT_NE(createdUUID, UUID(0));
@@ -909,7 +1104,7 @@ TEST(ComponentChangeCommand, ChangesAndRestoresComponent)
 TEST(ComponentChangeCommand, RobustToEntityNotFound)
 {
     auto scene = MakeScene();
-    UUID bogusUUID{9999999};
+    UUID bogusUUID{ 9999999 };
 
     TransformComponent old{}, new_{};
     new_.Translation = glm::vec3(1.0f);
@@ -943,8 +1138,8 @@ TEST(PostProcessChangeCommand, ChangesAndRestoresSettings)
 
     history.Undo();
     EXPECT_FALSE(settings.BloomEnabled);
-    EXPECT_FLOAT_EQ(settings.BloomThreshold, 1.0f);  // default
-    EXPECT_FLOAT_EQ(settings.Exposure, 1.0f);         // default
+    EXPECT_FLOAT_EQ(settings.BloomThreshold, 1.0f); // default
+    EXPECT_FLOAT_EQ(settings.Exposure, 1.0f);       // default
 
     history.Redo();
     EXPECT_TRUE(settings.BloomEnabled);
@@ -1019,8 +1214,8 @@ TEST(TerrainSculptCommand, ModifiesAndRestoresHeightRegion)
     std::vector<f32> heightmap(resolution * resolution, 0.0f);
 
     // Old heights for a 2x2 region at (1,1)
-    std::vector<f32> oldHeights = {0.0f, 0.0f, 0.0f, 0.0f};
-    std::vector<f32> newHeights = {0.5f, 0.6f, 0.7f, 0.8f};
+    std::vector<f32> oldHeights = { 0.0f, 0.0f, 0.0f, 0.0f };
+    std::vector<f32> newHeights = { 0.5f, 0.6f, 0.7f, 0.8f };
 
     UndoTest::CommandHistory history;
     history.Execute(std::make_unique<UndoTest::TerrainSculptCommand>(
@@ -1082,11 +1277,12 @@ TEST(UndoRedoIntegration, CreateThenModifyThenDelete)
 {
     auto scene = MakeScene();
     UndoTest::CommandHistory history;
-    UUID uuid{0};
+    UUID uuid{ 0 };
 
     // 1. Create entity
     history.Execute(std::make_unique<UndoTest::CreateEntityCommand>(scene, "Player",
-        [&](Entity e) { uuid = e.GetUUID(); }));
+                                                                    [&](Entity e)
+                                                                    { uuid = e.GetUUID(); }));
     ASSERT_NE(uuid, UUID(0));
 
     // 2. Modify transform
@@ -1156,16 +1352,17 @@ TEST(UndoRedoIntegration, CompoundCreateWithComponents)
 {
     auto scene = MakeScene();
     UndoTest::CommandHistory history;
-    UUID uuid{0};
+    UUID uuid{ 0 };
 
     auto compound = std::make_unique<UndoTest::CompoundCommand>("Create Entity with Components");
 
     // This simulates what the editor does when importing an animated model
     auto createCmd = std::make_unique<UndoTest::CreateEntityCommand>(scene, "AnimatedModel",
-        [&](Entity e) {
-            uuid = e.GetUUID();
-            e.AddComponent<SpriteRendererComponent>();
-        });
+                                                                     [&](Entity e)
+                                                                     {
+                                                                         uuid = e.GetUUID();
+                                                                         e.AddComponent<SpriteRendererComponent>();
+                                                                     });
 
     compound->Add(std::move(createCmd));
 
@@ -1219,13 +1416,13 @@ TEST(UndoRedoIntegration, TerrainSculptMultipleStrokes)
 
     // Stroke 1: raise region (0,0)-(2,2)
     std::vector<f32> old1(4, 0.0f);
-    std::vector<f32> new1 = {1.0f, 1.0f, 1.0f, 1.0f};
+    std::vector<f32> new1 = { 1.0f, 1.0f, 1.0f, 1.0f };
     history.Execute(std::make_unique<UndoTest::TerrainSculptCommand>(
         heightmap, resolution, 0, 0, 2, 2, old1, new1));
 
     // Stroke 2: raise region (3,3)-(2,2)
     std::vector<f32> old2(4, 0.0f);
-    std::vector<f32> new2 = {2.0f, 2.0f, 2.0f, 2.0f};
+    std::vector<f32> new2 = { 2.0f, 2.0f, 2.0f, 2.0f };
     history.Execute(std::make_unique<UndoTest::TerrainSculptCommand>(
         heightmap, resolution, 3, 3, 2, 2, old2, new2));
 
@@ -1560,4 +1757,118 @@ TEST(InputActionMapCommand, ResetToEmpty)
     history.Redo();
 
     EXPECT_TRUE(map.Actions.empty());
+}
+
+// =============================================================================
+// Save-Point / Dirty Tracking Tests
+// =============================================================================
+
+TEST(UndoRedoTest, SavePoint_CleanAfterClear)
+{
+    UndoTest::CommandHistory history;
+    EXPECT_FALSE(history.IsDirty());
+}
+
+TEST(UndoRedoTest, SavePoint_DirtyAfterExecute)
+{
+    int value = 0;
+    UndoTest::CommandHistory history;
+    history.Execute(std::make_unique<UndoTest::IncrementCommand>(value));
+    EXPECT_TRUE(history.IsDirty());
+}
+
+TEST(UndoRedoTest, SavePoint_CleanAfterSave)
+{
+    int value = 0;
+    UndoTest::CommandHistory history;
+    history.Execute(std::make_unique<UndoTest::IncrementCommand>(value));
+    EXPECT_TRUE(history.IsDirty());
+    history.MarkSaved();
+    EXPECT_FALSE(history.IsDirty());
+}
+
+TEST(UndoRedoTest, SavePoint_DirtyAfterUndoPastSave)
+{
+    int value = 0;
+    UndoTest::CommandHistory history;
+    history.Execute(std::make_unique<UndoTest::IncrementCommand>(value));
+    history.MarkSaved();
+    history.Undo();
+    EXPECT_TRUE(history.IsDirty());
+}
+
+TEST(UndoRedoTest, SavePoint_CleanAfterRedoBackToSave)
+{
+    int value = 0;
+    UndoTest::CommandHistory history;
+    history.Execute(std::make_unique<UndoTest::IncrementCommand>(value));
+    history.MarkSaved();
+    history.Undo();
+    EXPECT_TRUE(history.IsDirty());
+    history.Redo();
+    EXPECT_FALSE(history.IsDirty());
+}
+
+TEST(UndoRedoTest, SavePoint_DirtyAfterBranch)
+{
+    int value = 0;
+    UndoTest::CommandHistory history;
+    // Push A, B, C and save
+    history.Execute(std::make_unique<UndoTest::IncrementCommand>(value, 1));
+    history.Execute(std::make_unique<UndoTest::IncrementCommand>(value, 2));
+    history.Execute(std::make_unique<UndoTest::IncrementCommand>(value, 3));
+    history.MarkSaved();
+    EXPECT_FALSE(history.IsDirty());
+
+    // Undo once then push a new command (branch)
+    history.Undo();
+    history.Execute(std::make_unique<UndoTest::IncrementCommand>(value, 10));
+    // Even though version count matches, save point is invalidated by branching
+    EXPECT_TRUE(history.IsDirty());
+}
+
+TEST(UndoRedoTest, SavePoint_CleanAfterClearFollowedByMark)
+{
+    int value = 0;
+    UndoTest::CommandHistory history;
+    history.Execute(std::make_unique<UndoTest::IncrementCommand>(value));
+    history.MarkSaved();
+    history.Clear();
+    // After Clear, state is clean (fresh scene)
+    EXPECT_FALSE(history.IsDirty());
+}
+
+TEST(UndoRedoTest, SavePoint_DirtyAfterPushAlreadyExecuted)
+{
+    int value = 42;
+    UndoTest::CommandHistory history;
+    history.MarkSaved();
+    EXPECT_FALSE(history.IsDirty());
+    history.PushAlreadyExecuted(std::make_unique<UndoTest::IncrementCommand>(value));
+    EXPECT_TRUE(history.IsDirty());
+}
+
+TEST(UndoRedoTest, SavePoint_MultipleUndoRedoCycles)
+{
+    int value = 0;
+    UndoTest::CommandHistory history;
+    history.Execute(std::make_unique<UndoTest::IncrementCommand>(value, 1));
+    history.Execute(std::make_unique<UndoTest::IncrementCommand>(value, 2));
+    history.MarkSaved(); // saved at version 2
+
+    // Undo to version 1 → dirty
+    history.Undo();
+    EXPECT_TRUE(history.IsDirty());
+
+    // Undo to version 0 → dirty
+    history.Undo();
+    EXPECT_TRUE(history.IsDirty());
+
+    // Redo to version 1 → still dirty
+    history.Redo();
+    EXPECT_TRUE(history.IsDirty());
+
+    // Redo to version 2 → clean
+    history.Redo();
+    EXPECT_FALSE(history.IsDirty());
 }

@@ -14,6 +14,20 @@ namespace OloEngine
         static std::string SaveFile(const char* filter, const char* initialDir = nullptr);
     };
 
+    enum class MessagePromptResult
+    {
+        Yes,
+        No,
+        Cancel
+    };
+
+    class MessagePrompt
+    {
+      public:
+        // Show a Yes / No / Cancel dialog. Returns which button was pressed.
+        static MessagePromptResult YesNoCancel(const char* title, const char* message);
+    };
+
     class Time
     {
       public:

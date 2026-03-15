@@ -99,6 +99,10 @@ namespace OloEngine
         void SyncWindowTitle() const;
         void BindContentBrowserSelectionCallback();
 
+        // Unsaved-changes prompt: returns true if ok to proceed, false if cancelled
+        bool ConfirmDiscardChanges();
+        bool OnWindowClose(WindowCloseEvent const& e);
+
         // Terrain editing: screen-to-world raycast against heightmap
         bool TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;
 
@@ -168,6 +172,7 @@ namespace OloEngine
 
         // Undo/Redo
         CommandHistory m_CommandHistory;
+        bool m_LastKnownDirtyState = false;
         bool m_GizmoWasUsing = false;
         glm::vec3 m_GizmoStartTranslation{};
         glm::vec3 m_GizmoStartRotation{};

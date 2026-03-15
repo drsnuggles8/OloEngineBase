@@ -255,6 +255,13 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Update window title when dirty state changes (covers panel edits via CommandHistory)
+        if (bool const dirty = m_CommandHistory.IsDirty(); dirty != m_LastKnownDirtyState)
+        {
+            m_LastKnownDirtyState = dirty;
+            SyncWindowTitle();
+        }
+
         // Note: Switch this to true to enable dockspace
         static bool dockspaceOpen = true;
         const static bool opt_fullscreen_persistant = true;
@@ -370,7 +377,10 @@ namespace OloEngine
 
             if (ImGui::MenuItem("Exit"))
             {
-                Application::Get().Close();
+                if (ConfirmDiscardChanges())
+                {
+                    Application::Get().Close();
+                }
             }
 
             ImGui::EndMenu();
@@ -386,6 +396,7 @@ namespace OloEngine
             if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, m_CommandHistory.CanUndo()))
             {
                 m_CommandHistory.Undo();
+                SyncWindowTitle();
             }
 
             std::string redoLabel = "Redo";
@@ -396,6 +407,7 @@ namespace OloEngine
             if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, m_CommandHistory.CanRedo()))
             {
                 m_CommandHistory.Redo();
+                SyncWindowTitle();
             }
 
             ImGui::EndMenu();
@@ -521,8 +533,11 @@ namespace OloEngine
 
                 if (path.extension() == ".olo") // Load scene
                 {
-                    m_HoveredEntity = Entity();
-                    OpenScene(path);
+                    if (ConfirmDiscardChanges())
+                    {
+                        m_HoveredEntity = Entity();
+                        OpenScene(path);
+                    }
                 }
                 else if (((path.extension() == ".png") || (path.extension() == ".jpeg")) && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
                 {
@@ -939,6 +954,7 @@ namespace OloEngine
         dispatcher.Dispatch<KeyPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
         dispatcher.Dispatch<MouseButtonPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
         dispatcher.Dispatch<AssetReloadedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetReloaded));
+        dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnWindowClose));
     }
 
     bool EditorLayer::OnKeyPressed(KeyPressedEvent const& e)
@@ -996,6 +1012,7 @@ namespace OloEngine
                 if (control && m_SceneState == SceneState::Edit)
                 {
                     m_CommandHistory.Undo();
+                    SyncWindowTitle();
                 }
                 break;
             }
@@ -1004,6 +1021,7 @@ namespace OloEngine
                 if (control && m_SceneState == SceneState::Edit)
                 {
                     m_CommandHistory.Redo();
+                    SyncWindowTitle();
                 }
                 break;
             }
@@ -1226,7 +1244,10 @@ namespace OloEngine
             }
             else if (type == ContentFileType::Scene)
             {
-                OpenScene(path);
+                if (ConfirmDiscardChanges())
+                {
+                    OpenScene(path);
+                }
             } });
     }
 
@@ -1242,6 +1263,10 @@ namespace OloEngine
 
     bool EditorLayer::OpenProject()
     {
+        if (!ConfirmDiscardChanges())
+        {
+            return false;
+        }
         std::error_code ec;
         auto const cwd = std::filesystem::current_path(ec).string();
         const char* initialDir = ec ? nullptr : cwd.c_str();
@@ -1297,6 +1322,11 @@ namespace OloEngine
             return;
         }
 
+        if (!ConfirmDiscardChanges())
+        {
+            return;
+        }
+
         Ref<Scene> newScene = Ref<Scene>::Create();
         SetEditorScene(newScene);
         m_EditorScenePath = std::filesystem::path();
@@ -1304,6 +1334,10 @@ namespace OloEngine
 
     void EditorLayer::OpenScene()
     {
+        if (!ConfirmDiscardChanges())
+        {
+            return;
+        }
         std::error_code ec;
         auto const dir = Project::GetActive()
                              ? Project::GetAssetDirectory().string()
@@ -1358,6 +1392,8 @@ namespace OloEngine
             m_ActiveScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
             m_ActiveScene->SetFogSettings(Renderer3D::GetFogSettings());
             SerializeScene(m_ActiveScene, m_EditorScenePath);
+            m_CommandHistory.MarkSaved();
+            SyncWindowTitle();
         }
         else
         {
@@ -1386,6 +1422,7 @@ namespace OloEngine
             m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
             m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
             SerializeScene(m_EditorScene, filepath);
+            m_CommandHistory.MarkSaved();
             SyncWindowTitle();
         }
     }
@@ -1512,7 +1549,45 @@ namespace OloEngine
     {
         std::string const& projectName = Project::GetActive()->GetConfig().Name;
         std::string title = projectName + " - " + m_ActiveScene->GetName() + " - OloEditor";
+        if (m_CommandHistory.IsDirty())
+        {
+            title += " *";
+        }
         Application::Get().GetWindow().SetTitle(title);
+    }
+
+    bool EditorLayer::ConfirmDiscardChanges()
+    {
+        if (!m_CommandHistory.IsDirty())
+        {
+            return true;
+        }
+
+        auto const result = MessagePrompt::YesNoCancel(
+            "Unsaved Changes",
+            "The current scene has unsaved changes. Do you want to save before continuing?");
+
+        switch (result)
+        {
+            case MessagePromptResult::Yes:
+                SaveScene();
+                return true;
+            case MessagePromptResult::No:
+                return true;
+            case MessagePromptResult::Cancel:
+            default:
+                return false;
+        }
+    }
+
+    bool EditorLayer::OnWindowClose([[maybe_unused]] WindowCloseEvent const& e)
+    {
+        if (!ConfirmDiscardChanges())
+        {
+            Application::Get().CancelClose();
+            return true;
+        }
+        return false;
     }
 
     bool EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const

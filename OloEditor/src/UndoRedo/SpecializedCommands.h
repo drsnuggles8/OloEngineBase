@@ -255,12 +255,18 @@ namespace OloEngine
 
         void Execute() override
         {
-            if (m_ApplyFn) { m_ApplyFn(m_NewSettings); }
+            if (m_ApplyFn)
+            {
+                m_ApplyFn(m_NewSettings);
+            }
         }
 
         void Undo() override
         {
-            if (m_ApplyFn) { m_ApplyFn(m_OldSettings); }
+            if (m_ApplyFn)
+            {
+                m_ApplyFn(m_OldSettings);
+            }
         }
 
         [[nodiscard]] std::string GetDescription() const override
@@ -291,12 +297,18 @@ namespace OloEngine
 
         void Execute() override
         {
-            if (m_ApplyFn) { m_ApplyFn(m_NewState); }
+            if (m_ApplyFn)
+            {
+                m_ApplyFn(m_NewState);
+            }
         }
 
         void Undo() override
         {
-            if (m_ApplyFn) { m_ApplyFn(m_OldState); }
+            if (m_ApplyFn)
+            {
+                m_ApplyFn(m_OldState);
+            }
         }
 
         [[nodiscard]] std::string GetDescription() const override

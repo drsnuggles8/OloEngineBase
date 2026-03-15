@@ -76,25 +76,37 @@ namespace OloEngine
         void Execute(std::unique_ptr<EditorCommand> command)
         {
             command->Execute();
+            if (!m_RedoStack.empty() && m_SavePointValid && m_SavePointVersion > m_Version)
+            {
+                m_SavePointValid = false;
+            }
             m_UndoStack.push_back(std::move(command));
             m_RedoStack.clear();
+            ++m_Version;
 
             // Limit history size
             while (m_UndoStack.size() > MaxHistorySize)
             {
                 m_UndoStack.pop_front();
+                TrimSavePoint();
             }
         }
 
         // Push a command that has already been applied (e.g. ImGui widget already changed the value)
         void PushAlreadyExecuted(std::unique_ptr<EditorCommand> command)
         {
+            if (!m_RedoStack.empty() && m_SavePointValid && m_SavePointVersion > m_Version)
+            {
+                m_SavePointValid = false;
+            }
             m_UndoStack.push_back(std::move(command));
             m_RedoStack.clear();
+            ++m_Version;
 
             while (m_UndoStack.size() > MaxHistorySize)
             {
                 m_UndoStack.pop_front();
+                TrimSavePoint();
             }
         }
 
@@ -109,6 +121,7 @@ namespace OloEngine
             m_UndoStack.pop_back();
             command->Undo();
             m_RedoStack.push_back(std::move(command));
+            --m_Version;
         }
 
         void Redo()
@@ -122,6 +135,7 @@ namespace OloEngine
             m_RedoStack.pop_back();
             command->Execute();
             m_UndoStack.push_back(std::move(command));
+            ++m_Version;
         }
 
         [[nodiscard]] bool CanUndo() const
@@ -143,14 +157,49 @@ namespace OloEngine
             return m_RedoStack.empty() ? "" : m_RedoStack.back()->GetDescription();
         }
 
+        // Save-point tracking for unsaved-changes detection
+        void MarkSaved()
+        {
+            m_SavePointVersion = m_Version;
+            m_SavePointValid = true;
+        }
+
+        [[nodiscard]] bool IsDirty() const
+        {
+            if (!m_SavePointValid)
+            {
+                return true;
+            }
+            return m_Version != m_SavePointVersion;
+        }
+
         void Clear()
         {
             m_UndoStack.clear();
             m_RedoStack.clear();
+            m_Version = 0;
+            m_SavePointVersion = 0;
+            m_SavePointValid = true;
         }
 
       private:
+        void TrimSavePoint()
+        {
+            // When oldest entry is discarded, save point may become unreachable
+            if (m_SavePointValid && m_SavePointVersion > 0)
+            {
+                --m_SavePointVersion;
+            }
+            else if (m_SavePointVersion == 0)
+            {
+                m_SavePointValid = false;
+            }
+        }
+
         std::deque<std::unique_ptr<EditorCommand>> m_UndoStack;
         std::deque<std::unique_ptr<EditorCommand>> m_RedoStack;
+        std::size_t m_Version = 0;
+        std::size_t m_SavePointVersion = 0;
+        bool m_SavePointValid = true;
     };
 } // namespace OloEngine
