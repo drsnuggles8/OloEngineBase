@@ -539,5 +539,20 @@ namespace OloEngine
 		[MethodImplAttribute(MethodImplOptions.InternalCall)]
 		internal static extern void DialogueVariables_Clear();
 		#endregion
+
+		#region SaveGame
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int SaveGame_Save(string slotName, string displayName);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int SaveGame_Load(string slotName);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int SaveGame_QuickSave();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int SaveGame_QuickLoad();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool SaveGame_DeleteSave(string slotName);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool SaveGame_ValidateSave(string slotName);
+		#endregion
 	}
 }

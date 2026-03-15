@@ -59,6 +59,8 @@ namespace OloEngine
         { ".oloregion", ContentFileType::StreamingRegion },
         // Dialogue
         { ".olodialogue", ContentFileType::Dialogue },
+        // Save Games
+        { ".olosave", ContentFileType::SaveGame },
     };
 
     ContentBrowserPanel::ContentBrowserPanel()

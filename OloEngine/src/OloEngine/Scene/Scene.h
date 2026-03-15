@@ -355,5 +355,6 @@ namespace OloEngine
         friend class SceneStreamer;
         friend class SceneHierarchyPanel;
         friend class LightProbeBaker;
+        friend class SaveGameSerializer;
     };
 } // namespace OloEngine

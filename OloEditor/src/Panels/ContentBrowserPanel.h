@@ -21,7 +21,8 @@ namespace OloEngine
         Material,
         Shader,
         StreamingRegion,
-        Dialogue
+        Dialogue,
+        SaveGame
     };
 
     class ContentBrowserPanel

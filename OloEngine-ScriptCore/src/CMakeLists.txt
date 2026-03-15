@@ -1,8 +1,10 @@
 ﻿set(SOURCES
 		"OloEngine/Input.cs"
 		"OloEngine/InternalCalls.cs"
+		"OloEngine/ISaveable.cs"
 		"OloEngine/KeyCode.cs"
 		"OloEngine/NetworkManager.cs"
+		"OloEngine/SaveGame.cs"
 		"OloEngine/Vector2.cs"
 		"OloEngine/Vector3.cs"
 		"OloEngine/Vector4.cs"

@@ -1,0 +1,67 @@
+Scene: SaveLoadTest.olo
+Entities:
+  - Entity: 10000000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 5, 10]
+      Rotation: [-0.349065840, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.00999999978
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 10000000000000002
+    TagComponent:
+      Tag: Player
+    TransformComponent:
+      Translation: [0, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.2, 0.6, 1, 1]
+    ScriptComponent:
+      ClassName: OloEngine.SaveLoadTestPlayer
+      ScriptFields:
+        []
+  - Entity: 10000000000000003
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Translation: [0, -0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [20, 1, 20]
+    SpriteRendererComponent:
+      Color: [0.3, 0.3, 0.3, 1]
+  - Entity: 10000000000000004
+    TagComponent:
+      Tag: Collectible_1
+    TransformComponent:
+      Translation: [3, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 0.5, 0.5]
+    SpriteRendererComponent:
+      Color: [1, 0.843, 0, 1]
+  - Entity: 10000000000000005
+    TagComponent:
+      Tag: Collectible_2
+    TransformComponent:
+      Translation: [-3, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 0.5, 0.5]
+    SpriteRendererComponent:
+      Color: [1, 0.843, 0, 1]
+  - Entity: 10000000000000006
+    TagComponent:
+      Tag: DirectionalLight
+    TransformComponent:
+      Translation: [0, 10, 0]
+      Rotation: [-0.785398185, 0.392699093, 0]
+      Scale: [1, 1, 1]

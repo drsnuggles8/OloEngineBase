@@ -91,6 +91,8 @@ target_include_directories(OloEngine PUBLIC
 	vendor/tracy-src/public
 	vendor/sol2-src/include
 	vendor/stb_image-build/include
+	vendor/zlib-src
+	vendor/zlib-build
 	mono/include
 	${Vulkan_INCLUDE_DIRS}
 	vendor/GameNetworkingSockets-src/include

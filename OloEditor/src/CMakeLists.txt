@@ -23,6 +23,8 @@
 		"Panels/StreamingPanel.h"
 		"Panels/NetworkDebugPanel.cpp"
 		"Panels/NetworkDebugPanel.h"
+		"Panels/SaveGamePanel.cpp"
+		"Panels/SaveGamePanel.h"
 )
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES "../assets/shaders/*.glsl")

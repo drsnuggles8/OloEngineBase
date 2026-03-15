@@ -14,6 +14,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/SaveGame/SaveGameManager.h"
 
 namespace OloEngine
 {
@@ -385,6 +386,36 @@ namespace OloEngine
             Scene* scene = ScriptEngine::GetSceneContext();
             if (scene)
                 scene->GetDialogueVariables().Clear();
+        };
+
+        // --- SaveGame ---
+        auto saveGameTable = lua.create_named_table("SaveGame");
+        saveGameTable["EnumerateSaves"] = []() -> sol::as_table_t<std::vector<std::string>>
+        {
+            auto saves = SaveGameManager::EnumerateSaves();
+            std::vector<std::string> names;
+            names.reserve(saves.size());
+            for (const auto& info : saves)
+            {
+                names.push_back(info.Metadata.DisplayName);
+            }
+            return sol::as_table(std::move(names));
+        };
+        saveGameTable["DeleteSave"] = [](const std::string& slotName)
+        {
+            return SaveGameManager::DeleteSave(slotName);
+        };
+        saveGameTable["ValidateSave"] = [](const std::string& slotName)
+        {
+            return SaveGameManager::ValidateSave(slotName);
+        };
+        saveGameTable["GetAutoSaveInterval"] = []()
+        {
+            return SaveGameManager::GetAutoSaveInterval();
+        };
+        saveGameTable["SetAutoSaveInterval"] = [](f32 interval)
+        {
+            SaveGameManager::SetAutoSaveInterval(interval);
         };
     }
 } // namespace OloEngine

@@ -13,6 +13,7 @@
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
+#include "OloEngine/SaveGame/SaveGameManager.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -1344,6 +1345,53 @@ namespace OloEngine
         NetworkManager::StopServer();
     }
 
+    // ==========================================================================
+    // SaveGame
+    // ==========================================================================
+
+    static i32 SaveGame_Save(MonoString* slotName, MonoString* displayName)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        std::string slot = Utils::MonoStringToString(slotName);
+        std::string name = displayName ? Utils::MonoStringToString(displayName) : slot;
+        return static_cast<i32>(SaveGameManager::Save(*scene, slot, name));
+    }
+
+    static i32 SaveGame_Load(MonoString* slotName)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        std::string slot = Utils::MonoStringToString(slotName);
+        return static_cast<i32>(SaveGameManager::Load(*scene, slot));
+    }
+
+    static i32 SaveGame_QuickSave()
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return static_cast<i32>(SaveGameManager::QuickSave(*scene));
+    }
+
+    static i32 SaveGame_QuickLoad()
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return static_cast<i32>(SaveGameManager::QuickLoad(*scene));
+    }
+
+    static bool SaveGame_DeleteSave(MonoString* slotName)
+    {
+        std::string slot = Utils::MonoStringToString(slotName);
+        return SaveGameManager::DeleteSave(slot);
+    }
+
+    static bool SaveGame_ValidateSave(MonoString* slotName)
+    {
+        std::string slot = Utils::MonoStringToString(slotName);
+        return SaveGameManager::ValidateSave(slot);
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     // Dialogue ///////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1976,6 +2024,16 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(DialogueVariables_SetString);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_Has);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_Clear);
+
+        ///////////////////////////////////////////////////////////////
+        // SaveGame //////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(SaveGame_Save);
+        OLO_ADD_INTERNAL_CALL(SaveGame_Load);
+        OLO_ADD_INTERNAL_CALL(SaveGame_QuickSave);
+        OLO_ADD_INTERNAL_CALL(SaveGame_QuickLoad);
+        OLO_ADD_INTERNAL_CALL(SaveGame_DeleteSave);
+        OLO_ADD_INTERNAL_CALL(SaveGame_ValidateSave);
     }
 
 } // namespace OloEngine
