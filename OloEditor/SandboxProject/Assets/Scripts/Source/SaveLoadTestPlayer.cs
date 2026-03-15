@@ -73,6 +73,7 @@ namespace Sandbox
 			Health = br.ReadSingle();
 			Score = br.ReadInt32();
 			PlayTime = br.ReadSingle();
+			m_PKeyPreviouslyDown = false;
 			Console.WriteLine($"SaveLoadTestPlayer.OnLoad - Health={Health}, Score={Score}, PlayTime={PlayTime:F1}");
 		}
 	}

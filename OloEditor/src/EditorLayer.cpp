@@ -375,11 +375,13 @@ namespace OloEngine
             bool playMode = m_SceneState == SceneState::Play;
             if (ImGui::MenuItem("Quick Save", "F5", false, playMode))
             {
+                m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
                 m_SaveGamePanel.TriggerQuickSave();
             }
 
             if (ImGui::MenuItem("Quick Load", "F9", false, playMode))
             {
+                m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
                 m_SaveGamePanel.TriggerQuickLoad();
             }
 
@@ -1020,6 +1022,7 @@ namespace OloEngine
             {
                 if (m_SceneState == SceneState::Play)
                 {
+                    m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
                     m_SaveGamePanel.TriggerQuickSave();
                 }
                 break;
@@ -1028,6 +1031,7 @@ namespace OloEngine
             {
                 if (m_SceneState == SceneState::Play)
                 {
+                    m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
                     m_SaveGamePanel.TriggerQuickLoad();
                 }
                 break;

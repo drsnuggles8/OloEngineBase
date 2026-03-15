@@ -11,6 +11,10 @@ namespace OloEngine
     class FArchive;
 
     // Forward-declare all component types
+    // NOTE: When adding a new component, update THREE places:
+    //   1. Forward declaration here
+    //   2. Serialize() overload declaration below
+    //   3. RegisterAll() in SaveGameComponentSerializer.cpp
     struct IDComponent;
     struct TagComponent;
     struct PrefabComponent;

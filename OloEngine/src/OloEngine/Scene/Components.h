@@ -146,6 +146,10 @@ namespace OloEngine
         BodyType Type = BodyType::Static;
         bool FixedRotation = false;
 
+        // Persisted velocity — snapshot from runtime before save, applied on body creation
+        glm::vec2 LinearVelocity = { 0.0f, 0.0f };
+        f32 AngularVelocity = 0.0f;
+
         // Storage for runtime
         b2BodyId RuntimeBody = b2_nullBodyId;
 

@@ -77,6 +77,11 @@ namespace OloEngine
         if (thumbWidth != fbWidth || thumbHeight != fbHeight)
         {
             thumbData = Downscale(pixelData, { fbWidth, fbHeight }, { thumbWidth, thumbHeight });
+            if (thumbData.empty())
+            {
+                OLO_CORE_WARN("[ThumbnailCapture] Downscale returned empty data");
+                return {};
+            }
         }
         else
         {

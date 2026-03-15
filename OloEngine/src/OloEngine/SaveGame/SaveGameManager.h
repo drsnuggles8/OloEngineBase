@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/SaveGame/SaveGameTypes.h"
 
+#include <atomic>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -129,11 +130,9 @@ namespace OloEngine
         // Generate rotating slot name (e.g. "quicksave_0", "quicksave_1")
         static std::string GetRotatingSlotName(const std::string& prefix, u32 maxSlots);
 
-        static f32 s_AutoSaveInterval;
+        static std::atomic<f32> s_AutoSaveInterval;
         static f32 s_AutoSaveTimer;
-        static u32 s_QuickSaveIndex;
-        static u32 s_AutoSaveIndex;
-        static bool s_Initialized;
+        static std::atomic<bool> s_Initialized;
 
         static constexpr u32 kMaxQuickSaveSlots = 3;
         static constexpr u32 kMaxAutoSaveSlots = 3;

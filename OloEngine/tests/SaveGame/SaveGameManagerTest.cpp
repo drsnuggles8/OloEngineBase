@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
+#include "OloEngine/SaveGame/ISaveable.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/SaveGame/SaveGameTypes.h"
+#include "OloEngine/Serialization/ArchiveExtensions.h"
 
 #include <filesystem>
 
@@ -31,9 +33,6 @@ TEST(SaveGameManagerTest, AutoSaveInterval)
 // ========================================================================
 // ISaveable Registry
 // ========================================================================
-
-#include "OloEngine/SaveGame/ISaveable.h"
-#include "OloEngine/Serialization/ArchiveExtensions.h"
 
 TEST(SaveableRegistryTest, RegisterAndInvoke)
 {

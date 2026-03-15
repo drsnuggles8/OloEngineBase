@@ -121,6 +121,7 @@ namespace OloEngine
         ar << count;
         if (ar.IsLoading())
         {
+            count = std::min(count, static_cast<u32>(curve.Keys.size()));
             curve.KeyCount = count;
         }
         for (u32 i = 0; i < count; ++i)
@@ -265,6 +266,7 @@ namespace OloEngine
         ar << burstCount;
         if (ar.IsLoading())
         {
+            burstCount = std::min(burstCount, 1024u);
             e.Bursts.resize(burstCount);
         }
         for (u32 i = 0; i < burstCount; ++i)
@@ -352,6 +354,7 @@ namespace OloEngine
         ar << count;
         if (ar.IsLoading())
         {
+            count = std::min(count, 1024u);
             m.Entries.resize(count);
         }
         for (u32 i = 0; i < count; ++i)
@@ -467,6 +470,7 @@ namespace OloEngine
     void SaveGameComponentSerializer::Serialize(FArchive& ar, Rigidbody2DComponent& c)
     {
         ar << c.Type << c.FixedRotation;
+        ar << c.LinearVelocity << c.AngularVelocity;
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, BoxCollider2DComponent& c)
@@ -759,6 +763,7 @@ namespace OloEngine
         ar << optCount;
         if (ar.IsLoading())
         {
+            optCount = std::min(optCount, 1024u);
             c.m_Options.resize(optCount);
         }
         for (u32 i = 0; i < optCount; ++i)
@@ -819,6 +824,7 @@ namespace OloEngine
         ar << ffCount;
         if (ar.IsLoading())
         {
+            ffCount = std::min(ffCount, 1024u);
             ps.ForceFields.resize(ffCount);
         }
         for (u32 i = 0; i < ffCount; ++i)
@@ -856,6 +862,7 @@ namespace OloEngine
         ar << layerCount;
         if (ar.IsLoading())
         {
+            layerCount = std::min(layerCount, 1024u);
             c.m_Layers.resize(layerCount);
         }
         for (u32 i = 0; i < layerCount; ++i)
@@ -904,6 +911,7 @@ namespace OloEngine
         ar << levelCount;
         if (ar.IsLoading())
         {
+            levelCount = std::min(levelCount, 1024u);
             c.m_LODGroup.Levels.resize(levelCount);
         }
         for (u32 i = 0; i < levelCount; ++i)

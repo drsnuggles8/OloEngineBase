@@ -260,13 +260,84 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        TUniqueLock<FMutex> lock(m_Mutex);
-        if (!m_Initialized)
+        // Snapshot data under lock, then release lock before I/O
+        std::vector<u8> payload;
+        std::string slotName;
+        std::filesystem::path filePath;
+        u32 entityCount = 0;
+        sizet playerCount = 0;
+        sizet worldKeyCount = 0;
+
         {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            if (!m_Initialized || !m_Dirty)
+            {
+                return !m_Dirty;
+            }
+            if (m_IsCorrupt)
+            {
+                OLO_CORE_ERROR("[SaveFileWorldDatabase] Refusing to flush corrupt database '{}'", m_SlotName);
+                return false;
+            }
+
+            payload = SerializeToPayload();
+            slotName = m_SlotName;
+            filePath = m_FilePath;
+            entityCount = static_cast<u32>(m_EntityStates.size());
+            playerCount = m_PlayerStates.size();
+            worldKeyCount = m_WorldState.size();
+            m_Dirty = false; // Optimistic: assume write will succeed
+        }
+        // Lock released — concurrent mutations will re-set m_Dirty
+
+        // Compress
+        std::vector<u8> compressed;
+        if (!SaveGameFile::Compress(payload, compressed))
+        {
+            OLO_CORE_ERROR("[SaveFileWorldDatabase] Compression failed");
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_Dirty = true; // Restore dirty flag so next flush retries
             return false;
         }
 
-        return FlushToDiskLocked();
+        // Build metadata
+        SaveGameMetadata metadata;
+        metadata.DisplayName = slotName;
+        metadata.SceneName = "WorldDatabase";
+        metadata.TimestampUTC = std::chrono::duration_cast<std::chrono::seconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
+        metadata.SlotType = SaveSlotType::Manual;
+        metadata.EntityCount = entityCount;
+
+        // Build header
+        SaveGameHeader header;
+        header.EntityCount = entityCount;
+        header.SetCompression(SaveGameCompression::Zlib);
+        header.PayloadUncompressedSize = payload.size();
+
+        // Ensure directory exists
+        std::error_code ec;
+        std::filesystem::create_directories(filePath.parent_path(), ec);
+        if (ec)
+        {
+            OLO_CORE_ERROR("[SaveFileWorldDatabase] Failed to create directory '{}': {}", filePath.parent_path().string(), ec.message());
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_Dirty = true;
+            return false;
+        }
+
+        if (!SaveGameFile::Write(filePath, header, metadata, {}, compressed))
+        {
+            OLO_CORE_ERROR("[SaveFileWorldDatabase] Failed to write '{}'", filePath.string());
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_Dirty = true;
+            return false;
+        }
+
+        OLO_CORE_TRACE("[SaveFileWorldDatabase] Flushed to disk: {} players, {} entities, {} world keys",
+                       playerCount, entityCount, worldKeyCount);
+        return true;
     }
 
     bool SaveFileWorldDatabase::FlushToDiskLocked()

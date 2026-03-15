@@ -3,6 +3,8 @@
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Core/Hash.h"
+#include "OloEngine/Physics3D/JoltBody.h"
+#include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/SaveGame/ISaveable.h"
 #include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
 #include "OloEngine/Scene/Components.h"
@@ -11,6 +13,8 @@
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Serialization/ArchiveExtensions.h"
+
+#include "box2d/box2d.h"
 
 namespace OloEngine
 {
@@ -197,6 +201,38 @@ namespace OloEngine
         u32 entitiesMarker = 0x454E5453; // "ENTS"
         writer << entitiesMarker;
 
+        // Snapshot runtime physics velocities into component fields before serialization
+        // 2D: read from Box2D runtime bodies
+        if (b2World_IsValid(scene.m_PhysicsWorld))
+        {
+            auto rb2dView = scene.m_Registry.view<Rigidbody2DComponent>();
+            for (auto e : rb2dView)
+            {
+                auto& rb2d = rb2dView.get<Rigidbody2DComponent>(e);
+                if (b2Body_IsValid(rb2d.RuntimeBody))
+                {
+                    b2Vec2 linVel = b2Body_GetLinearVelocity(rb2d.RuntimeBody);
+                    rb2d.LinearVelocity = { linVel.x, linVel.y };
+                    rb2d.AngularVelocity = b2Body_GetAngularVelocity(rb2d.RuntimeBody);
+                }
+            }
+        }
+        // 3D: read from Jolt runtime bodies
+        if (auto* joltScene = scene.GetJoltScene(); joltScene && joltScene->IsInitialized())
+        {
+            auto rb3dView = scene.m_Registry.view<Rigidbody3DComponent>();
+            for (auto e : rb3dView)
+            {
+                auto& rb3d = rb3dView.get<Rigidbody3DComponent>(e);
+                Entity ent = { e, &scene };
+                if (auto body = joltScene->GetBody(ent))
+                {
+                    rb3d.m_InitialLinearVelocity = body->GetLinearVelocity();
+                    rb3d.m_InitialAngularVelocity = body->GetAngularVelocity();
+                }
+            }
+        }
+
         // Count entities with IDComponent (all real entities)
         auto view = scene.GetAllEntitiesWith<IDComponent>();
         u32 entityCount = 0;
@@ -306,83 +342,9 @@ namespace OloEngine
     // RestoreSceneState
     // ========================================================================
 
-    bool SaveGameSerializer::RestoreSceneState(Scene& scene, const std::vector<u8>& data)
+    // Deserialize entities into a staging scene. Returns whether parsing succeeded.
+    static bool DeserializeEntitiesInto(Scene& staging, FMemoryReader& reader)
     {
-        OLO_PROFILE_FUNCTION();
-
-        if (data.empty())
-        {
-            return false;
-        }
-
-        FMemoryReader reader(data);
-        reader.ArIsSaveGame = true;
-
-        // --- Scene settings ---
-        u32 settingsMarker = 0;
-        reader << settingsMarker;
-        if (settingsMarker != 0x53455453)
-        {
-            OLO_CORE_ERROR("[SaveGameSerializer] Invalid settings marker");
-            return false;
-        }
-
-        SerializePostProcessSettings(reader, scene.m_PostProcessSettings);
-        SerializeSnowSettings(reader, scene.m_SnowSettings);
-        SerializeFogSettings(reader, scene.m_FogSettings);
-        SerializeWindSettings(reader, scene.m_WindSettings);
-        SerializeSnowAccumulationSettings(reader, scene.m_SnowAccumulationSettings);
-        SerializeSnowEjectaSettings(reader, scene.m_SnowEjectaSettings);
-        SerializePrecipitationSettings(reader, scene.m_PrecipitationSettings);
-        SerializeStreamingSettings(reader, scene.m_StreamingSettings);
-
-        // --- Entities ---
-        u32 entitiesMarker = 0;
-        reader << entitiesMarker;
-        if (entitiesMarker != 0x454E5453)
-        {
-            OLO_CORE_ERROR("[SaveGameSerializer] Invalid entities marker");
-            return false;
-        }
-
-        // Destroy all existing entities (children before parents)
-        {
-            auto allEntities = scene.GetAllEntitiesWith<IDComponent>();
-            std::vector<Entity> toDestroy;
-            for (auto e : allEntities)
-            {
-                toDestroy.emplace_back(e, &scene);
-            }
-
-            // Sort by depth: entities with parents come first (children before parents)
-            auto getDepth = [](Entity& ent) -> u32
-            {
-                u32 depth = 0;
-                Entity current = ent;
-                while (current.GetParentUUID() != UUID(0))
-                {
-                    ++depth;
-                    current = current.GetParent();
-                    if (!current)
-                    {
-                        break;
-                    }
-                }
-                return depth;
-            };
-
-            std::sort(toDestroy.begin(), toDestroy.end(),
-                      [&getDepth](Entity& a, Entity& b)
-                      {
-                          return getDepth(a) > getDepth(b);
-                      });
-
-            for (auto& entity : toDestroy)
-            {
-                scene.DestroyEntity(entity);
-            }
-        }
-
         u32 entityCount = 0;
         reader << entityCount;
         if (reader.IsError())
@@ -402,7 +364,7 @@ namespace OloEngine
             }
 
             // Create entity with the saved UUID
-            Entity entity = scene.CreateEntityWithUUID(uuid, "");
+            Entity entity = staging.CreateEntityWithUUID(uuid, "");
 
             // Read component blocks until end-of-entity sentinel (typeHash == 0)
             while (true)
@@ -535,6 +497,133 @@ namespace OloEngine
         }
 
         return !reader.IsError();
+    }
+
+    bool SaveGameSerializer::RestoreSceneState(Scene& scene, const std::vector<u8>& data)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (data.empty())
+        {
+            return false;
+        }
+
+        FMemoryReader reader(data);
+        reader.ArIsSaveGame = true;
+
+        // --- Parse settings into local temporaries ---
+        u32 settingsMarker = 0;
+        reader << settingsMarker;
+        if (settingsMarker != 0x53455453)
+        {
+            OLO_CORE_ERROR("[SaveGameSerializer] Invalid settings marker");
+            return false;
+        }
+
+        PostProcessSettings postProcess{};
+        SnowSettings snow{};
+        FogSettings fog{};
+        WindSettings wind{};
+        SnowAccumulationSettings snowAccum{};
+        SnowEjectaSettings snowEjecta{};
+        PrecipitationSettings precipitation{};
+        StreamingSettings streaming{};
+
+        SerializePostProcessSettings(reader, postProcess);
+        SerializeSnowSettings(reader, snow);
+        SerializeFogSettings(reader, fog);
+        SerializeWindSettings(reader, wind);
+        SerializeSnowAccumulationSettings(reader, snowAccum);
+        SerializeSnowEjectaSettings(reader, snowEjecta);
+        SerializePrecipitationSettings(reader, precipitation);
+        SerializeStreamingSettings(reader, streaming);
+
+        if (reader.IsError())
+        {
+            OLO_CORE_ERROR("[SaveGameSerializer] Failed to parse scene settings");
+            return false;
+        }
+
+        // --- Entities marker ---
+        u32 entitiesMarker = 0;
+        reader << entitiesMarker;
+        if (entitiesMarker != 0x454E5453)
+        {
+            OLO_CORE_ERROR("[SaveGameSerializer] Invalid entities marker");
+            return false;
+        }
+
+        // --- Deserialize entities into a staging scene ---
+        // If deserialization fails, the real scene is untouched.
+        Ref<Scene> staging = Ref<Scene>::Create();
+        staging->m_ViewportWidth = scene.m_ViewportWidth;
+        staging->m_ViewportHeight = scene.m_ViewportHeight;
+
+        if (!DeserializeEntitiesInto(*staging, reader))
+        {
+            OLO_CORE_ERROR("[SaveGameSerializer] Entity deserialization failed, scene is unchanged");
+            return false;
+        }
+
+        // --- All parsing succeeded — commit to real scene ---
+
+        // Apply settings
+        scene.m_PostProcessSettings = std::move(postProcess);
+        scene.m_SnowSettings = std::move(snow);
+        scene.m_FogSettings = std::move(fog);
+        scene.m_WindSettings = std::move(wind);
+        scene.m_SnowAccumulationSettings = std::move(snowAccum);
+        scene.m_SnowEjectaSettings = std::move(snowEjecta);
+        scene.m_PrecipitationSettings = std::move(precipitation);
+        scene.m_StreamingSettings = std::move(streaming);
+
+        // Destroy all existing entities in the real scene (children before parents)
+        {
+            auto allEntities = scene.GetAllEntitiesWith<IDComponent>();
+            std::vector<Entity> toDestroy;
+            for (auto e : allEntities)
+            {
+                toDestroy.emplace_back(e, &scene);
+            }
+
+            auto getDepth = [](Entity& ent) -> u32
+            {
+                u32 depth = 0;
+                Entity current = ent;
+                while (current.GetParentUUID() != UUID(0))
+                {
+                    ++depth;
+                    current = current.GetParent();
+                    if (!current)
+                    {
+                        break;
+                    }
+                }
+                return depth;
+            };
+
+            std::sort(toDestroy.begin(), toDestroy.end(),
+                      [&getDepth](Entity& a, Entity& b)
+                      {
+                          return getDepth(a) > getDepth(b);
+                      });
+
+            for (auto& entity : toDestroy)
+            {
+                scene.DestroyEntity(entity);
+            }
+        }
+
+        // Swap ECS registry and entity map from staging into the real scene
+        std::swap(scene.m_Registry, staging->m_Registry);
+        std::swap(scene.m_EntityMap, staging->m_EntityMap);
+
+        // Fix up all Entity scene pointers: entities now reference the staging scene's
+        // registry, which we swapped into `scene`, but Entity wrappers created later
+        // will point to `scene` correctly. The swap means the registries are now owned
+        // by the correct Scene objects.
+
+        return true;
     }
 
 #undef SAVE_COMPONENT

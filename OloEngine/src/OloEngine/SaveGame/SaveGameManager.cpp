@@ -13,11 +13,9 @@
 namespace OloEngine
 {
     // Static member definitions
-    f32 SaveGameManager::s_AutoSaveInterval = 0.0f;
+    std::atomic<f32> SaveGameManager::s_AutoSaveInterval{ 0.0f };
     f32 SaveGameManager::s_AutoSaveTimer = 0.0f;
-    u32 SaveGameManager::s_QuickSaveIndex = 0;
-    u32 SaveGameManager::s_AutoSaveIndex = 0;
-    bool SaveGameManager::s_Initialized = false;
+    std::atomic<bool> SaveGameManager::s_Initialized{ false };
 
     // Reject slot names containing path separators, "..", or other dangerous patterns
     static bool IsValidSlotName(const std::string& slotName)
@@ -48,16 +46,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (s_Initialized)
+        if (s_Initialized.load(std::memory_order_acquire))
         {
             return;
         }
 
-        s_AutoSaveInterval = 0.0f;
+        s_AutoSaveInterval.store(0.0f, std::memory_order_relaxed);
         s_AutoSaveTimer = 0.0f;
-        s_QuickSaveIndex = 0;
-        s_AutoSaveIndex = 0;
-        s_Initialized = true;
+        s_Initialized.store(true, std::memory_order_release);
 
         EnsureSaveDirectory();
 
@@ -68,7 +64,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        s_Initialized = false;
+        s_Initialized.store(false, std::memory_order_release);
         OLO_CORE_INFO("[SaveGameManager] Shutdown");
     }
 
@@ -350,27 +346,28 @@ namespace OloEngine
     void SaveGameManager::SetAutoSaveInterval(f32 intervalSeconds)
     {
         OLO_PROFILE_FUNCTION();
-        s_AutoSaveInterval = std::max(0.0f, intervalSeconds);
+        s_AutoSaveInterval.store(std::max(0.0f, intervalSeconds), std::memory_order_relaxed);
         s_AutoSaveTimer = 0.0f;
     }
 
     f32 SaveGameManager::GetAutoSaveInterval()
     {
         OLO_PROFILE_FUNCTION();
-        return s_AutoSaveInterval;
+        return s_AutoSaveInterval.load(std::memory_order_relaxed);
     }
 
     void SaveGameManager::Tick(f32 deltaTime, Scene& scene)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (s_AutoSaveInterval <= 0.0f)
+        const f32 interval = s_AutoSaveInterval.load(std::memory_order_relaxed);
+        if (interval <= 0.0f)
         {
             return;
         }
 
         s_AutoSaveTimer += deltaTime;
-        if (s_AutoSaveTimer >= s_AutoSaveInterval)
+        if (s_AutoSaveTimer >= interval)
         {
             s_AutoSaveTimer = 0.0f;
             AutoSave(scene);

@@ -15,7 +15,11 @@ namespace OloEngine
 	public static class SaveGame
 	{
 		public static SaveLoadResult Save(string slotName, string displayName = null)
-			=> (SaveLoadResult)InternalCalls.SaveGame_Save(slotName, displayName ?? slotName);
+		{
+			if (string.IsNullOrEmpty(slotName))
+				throw new System.ArgumentException("slotName cannot be null or empty", nameof(slotName));
+			return (SaveLoadResult)InternalCalls.SaveGame_Save(slotName, displayName ?? slotName);
+		}
 
 		public static SaveLoadResult Load(string slotName)
 			=> (SaveLoadResult)InternalCalls.SaveGame_Load(slotName);
