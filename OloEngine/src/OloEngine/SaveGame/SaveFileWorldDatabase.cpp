@@ -104,6 +104,7 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::IsInitialized() const
     {
+        OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_Initialized;
     }
@@ -286,7 +287,14 @@ namespace OloEngine
             entityCount = static_cast<u32>(m_EntityStates.size());
             playerCount = m_PlayerStates.size();
             worldKeyCount = m_WorldState.size();
-            m_Dirty = false; // Optimistic: assume write will succeed
+            // Optimistic clear: we clear m_Dirty while holding m_Mutex so the
+            // snapshot is consistent.  After we release the lock, concurrent
+            // writers may set m_Dirty back to true — that is expected and correct.
+            // On I/O failure below we re-acquire m_Mutex and set m_Dirty = true,
+            // but we must not assume it was still false during the window; the
+            // restore only ensures the flag is true if no concurrent writer
+            // already did so.
+            m_Dirty = false;
         }
         // Lock released — concurrent mutations will re-set m_Dirty
 

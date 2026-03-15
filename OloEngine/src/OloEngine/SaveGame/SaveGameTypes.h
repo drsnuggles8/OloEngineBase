@@ -87,6 +87,12 @@ namespace OloEngine
             return Magic == kSaveGameMagic && FormatVersion == kSaveGameFormatVersion;
         }
 
+        // Check whether the save was produced by a compatible engine version
+        [[nodiscard]] bool IsCompatible() const
+        {
+            return IsValid() && EngineVersion == 1;
+        }
+
         [[nodiscard]] SaveGameCompression GetCompression() const
         {
             return static_cast<SaveGameCompression>(Flags & 0xFF);

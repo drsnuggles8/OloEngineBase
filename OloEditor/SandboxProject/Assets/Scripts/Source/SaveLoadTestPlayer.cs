@@ -11,6 +11,9 @@ namespace Sandbox
 	/// </summary>
 	public class SaveLoadTestPlayer : Entity, ISaveable
 	{
+		// sizeof(float) + sizeof(int) + sizeof(float) = 12
+		private const int kExpectedSaveDataSize = sizeof(float) + sizeof(int) + sizeof(float);
+
 		private TransformComponent m_Transform;
 		private bool m_PKeyPreviouslyDown = false;
 
@@ -65,7 +68,7 @@ namespace Sandbox
 
 		public void OnLoad(byte[] data)
 		{
-			if (data == null || data.Length < 12)
+			if (data == null || data.Length < kExpectedSaveDataSize)
 				return;
 
 			using var ms = new MemoryStream(data);

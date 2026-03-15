@@ -381,6 +381,13 @@ namespace OloEngine
             return true;
         }
 
+        if (input.size() > static_cast<sizet>(std::numeric_limits<uLong>::max()))
+        {
+            OLO_CORE_ERROR("[SaveGameFile] Input too large for zlib compress ({} bytes)", input.size());
+            output.clear();
+            return false;
+        }
+
         uLongf destLen = compressBound(static_cast<uLong>(input.size()));
         output.resize(destLen);
 
@@ -416,6 +423,13 @@ namespace OloEngine
         if (result != Z_OK)
         {
             OLO_CORE_ERROR("[SaveGameFile] zlib uncompress failed with code {}", result);
+            output.clear();
+            return false;
+        }
+
+        if (destLen != static_cast<uLongf>(uncompressedSize))
+        {
+            OLO_CORE_ERROR("[SaveGameFile] Decompressed size mismatch: expected {} but got {}", uncompressedSize, static_cast<u64>(destLen));
             output.clear();
             return false;
         }

@@ -1078,22 +1078,26 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Register(u32 typeHash, SaveGameSerializeFn serializer)
     {
-        s_Registry[typeHash] = std::move(serializer);
+        OLO_PROFILE_FUNCTION();
+        s_Registry[typeHash] = serializer;
     }
 
     const SaveGameSerializeFn* SaveGameComponentSerializer::GetSerializer(u32 typeHash)
     {
+        OLO_PROFILE_FUNCTION();
         auto it = s_Registry.find(typeHash);
         return it != s_Registry.end() ? &it->second : nullptr;
     }
 
     const std::unordered_map<u32, SaveGameSerializeFn>& SaveGameComponentSerializer::GetRegistry()
     {
+        OLO_PROFILE_FUNCTION();
         return s_Registry;
     }
 
     void SaveGameComponentSerializer::ClearRegistry()
     {
+        OLO_PROFILE_FUNCTION();
         s_Registry.clear();
     }
 

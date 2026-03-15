@@ -92,8 +92,7 @@ namespace OloEngine
             return true; // Nothing to restore, not an error
         }
 
-        auto dataCopy = data;
-        FMemoryReader reader(dataCopy);
+        FMemoryReader reader(data);
         reader.ArIsSaveGame = true;
 
         SaveableRegistry::Invoke(className, reader, entityID);

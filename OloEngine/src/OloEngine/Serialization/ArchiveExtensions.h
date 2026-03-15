@@ -180,6 +180,8 @@ namespace OloEngine
         {
             for (auto& [key, value] : map)
             {
+                // Copy to mutable local: FArchive::operator<< takes non-const ref,
+                // but structured binding key is const for map types.
                 K k = key;
                 ar << k << value;
             }

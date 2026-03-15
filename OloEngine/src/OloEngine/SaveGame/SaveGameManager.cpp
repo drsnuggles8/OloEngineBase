@@ -14,7 +14,7 @@ namespace OloEngine
 {
     // Static member definitions
     std::atomic<f32> SaveGameManager::s_AutoSaveInterval{ 0.0f };
-    f32 SaveGameManager::s_AutoSaveTimer = 0.0f;
+    std::atomic<f32> SaveGameManager::s_AutoSaveTimer{ 0.0f };
     std::atomic<bool> SaveGameManager::s_Initialized{ false };
 
     // Reject slot names containing path separators, "..", or other dangerous patterns
@@ -52,7 +52,7 @@ namespace OloEngine
         }
 
         s_AutoSaveInterval.store(0.0f, std::memory_order_relaxed);
-        s_AutoSaveTimer = 0.0f;
+        s_AutoSaveTimer.store(0.0f, std::memory_order_relaxed);
         s_Initialized.store(true, std::memory_order_release);
 
         EnsureSaveDirectory();
@@ -85,9 +85,9 @@ namespace OloEngine
             OLO_CORE_ERROR("[SaveGameManager] Invalid slot name: '{}'", slotName);
             if (callback)
             {
-                callback(SaveLoadResult::IOError, slotName);
+                callback(SaveLoadResult::InvalidInput, slotName);
             }
-            return SaveLoadResult::IOError;
+            return SaveLoadResult::InvalidInput;
         }
 
         std::string name = displayName.empty() ? slotName : displayName;
@@ -146,7 +146,7 @@ namespace OloEngine
         if (!IsValidSlotName(slotName))
         {
             OLO_CORE_ERROR("[SaveGameManager] Invalid slot name: '{}'", slotName);
-            return SaveLoadResult::IOError;
+            return SaveLoadResult::InvalidInput;
         }
 
         auto path = GetSaveFilePath(slotName);
@@ -167,8 +167,8 @@ namespace OloEngine
         std::vector<u8> payload;
         if (!SaveGameFile::ReadPayload(path, payload))
         {
-            OLO_CORE_ERROR("[SaveGameManager] Failed to read payload: {}", path.string());
-            return SaveLoadResult::DecompressionFailed;
+            OLO_CORE_ERROR("[SaveGameManager] Failed to read/decompress payload: {}", path.string());
+            return SaveLoadResult::IOError;
         }
 
         // Restore scene state
@@ -187,7 +187,6 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Find the most recent quick-save
-        SaveFileInfo bestInfo;
         std::string bestSlot;
         i64 bestTimestamp = 0;
 
@@ -204,7 +203,6 @@ namespace OloEngine
                 }
                 bestTimestamp = info.Metadata.TimestampUTC;
                 bestSlot = slotName;
-                bestInfo = info;
             }
         }
 
@@ -347,7 +345,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         s_AutoSaveInterval.store(std::max(0.0f, intervalSeconds), std::memory_order_relaxed);
-        s_AutoSaveTimer = 0.0f;
+        s_AutoSaveTimer.store(0.0f, std::memory_order_relaxed);
     }
 
     f32 SaveGameManager::GetAutoSaveInterval()
@@ -366,12 +364,13 @@ namespace OloEngine
             return;
         }
 
-        s_AutoSaveTimer += deltaTime;
-        if (s_AutoSaveTimer >= interval)
+        f32 timer = s_AutoSaveTimer.load(std::memory_order_relaxed) + deltaTime;
+        if (timer >= interval)
         {
-            s_AutoSaveTimer = 0.0f;
+            timer = 0.0f;
             AutoSave(scene);
         }
+        s_AutoSaveTimer.store(timer, std::memory_order_relaxed);
     }
 
     // ========================================================================
@@ -413,6 +412,12 @@ namespace OloEngine
                                                  const std::vector<u8>& thumbnailPNG)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (!IsValidSlotName(slotName))
+        {
+            OLO_CORE_ERROR("[SaveGameManager] SaveInternal called with invalid slot name: '{}'", slotName);
+            return SaveLoadResult::InvalidInput;
+        }
 
         EnsureSaveDirectory();
 
@@ -505,6 +510,13 @@ namespace OloEngine
     std::string SaveGameManager::GetRotatingSlotName(const std::string& prefix, u32 maxSlots)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (maxSlots == 0)
+        {
+            OLO_CORE_ERROR("[SaveGameManager] GetRotatingSlotName called with maxSlots == 0");
+            return {};
+        }
+
         // Find the oldest slot to overwrite
         i64 oldestTimestamp = std::numeric_limits<i64>::max();
         std::string oldestSlot;

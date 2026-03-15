@@ -9,7 +9,8 @@ namespace OloEngine
 		DecompressionFailed,
 		SerializationFailed,
 		NoActiveScene,
-		IOError
+		IOError,
+		InvalidInput
 	}
 
 	public static class SaveGame
@@ -22,7 +23,11 @@ namespace OloEngine
 		}
 
 		public static SaveLoadResult Load(string slotName)
-			=> (SaveLoadResult)InternalCalls.SaveGame_Load(slotName);
+		{
+			if (string.IsNullOrEmpty(slotName))
+				throw new System.ArgumentException("slotName cannot be null or empty", nameof(slotName));
+			return (SaveLoadResult)InternalCalls.SaveGame_Load(slotName);
+		}
 
 		public static SaveLoadResult QuickSave()
 			=> (SaveLoadResult)InternalCalls.SaveGame_QuickSave();
@@ -31,9 +36,17 @@ namespace OloEngine
 			=> (SaveLoadResult)InternalCalls.SaveGame_QuickLoad();
 
 		public static bool DeleteSave(string slotName)
-			=> InternalCalls.SaveGame_DeleteSave(slotName);
+		{
+			if (string.IsNullOrEmpty(slotName))
+				throw new System.ArgumentException("slotName cannot be null or empty", nameof(slotName));
+			return InternalCalls.SaveGame_DeleteSave(slotName);
+		}
 
 		public static bool ValidateSave(string slotName)
-			=> InternalCalls.SaveGame_ValidateSave(slotName);
+		{
+			if (string.IsNullOrEmpty(slotName))
+				throw new System.ArgumentException("slotName cannot be null or empty", nameof(slotName));
+			return InternalCalls.SaveGame_ValidateSave(slotName);
+		}
 	}
 }

@@ -33,7 +33,8 @@ namespace OloEngine
         DecompressionFailed,
         SerializationFailed,
         NoActiveScene,
-        IOError
+        IOError,
+        InvalidInput
     };
 
     // Callback for async save/load completion
@@ -131,7 +132,7 @@ namespace OloEngine
         static std::string GetRotatingSlotName(const std::string& prefix, u32 maxSlots);
 
         static std::atomic<f32> s_AutoSaveInterval;
-        static f32 s_AutoSaveTimer;
+        static std::atomic<f32> s_AutoSaveTimer;
         static std::atomic<bool> s_Initialized;
 
         static constexpr u32 kMaxQuickSaveSlots = 3;

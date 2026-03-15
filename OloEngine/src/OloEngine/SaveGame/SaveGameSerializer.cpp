@@ -235,11 +235,7 @@ namespace OloEngine
 
         // Count entities with IDComponent (all real entities)
         auto view = scene.GetAllEntitiesWith<IDComponent>();
-        u32 entityCount = 0;
-        for ([[maybe_unused]] auto entity : view)
-        {
-            ++entityCount;
-        }
+        u32 entityCount = static_cast<u32>(view.size());
         writer << entityCount;
 
         // Serialize each entity
@@ -614,14 +610,14 @@ namespace OloEngine
             }
         }
 
-        // Swap ECS registry and entity map from staging into the real scene
+        // Swap ECS registry and entity map from staging into the real scene.
+        // After this swap the registries are owned by the correct Scene objects.
+        // NOTE: Any Entity wrappers created during DeserializeEntitiesInto pointed
+        // at the staging Scene, but those are temporaries local to that call and
+        // are not cached.  Callers must NOT hold Entity objects across a
+        // RestoreSceneState call — the swap invalidates them.
         std::swap(scene.m_Registry, staging->m_Registry);
         std::swap(scene.m_EntityMap, staging->m_EntityMap);
-
-        // Fix up all Entity scene pointers: entities now reference the staging scene's
-        // registry, which we swapped into `scene`, but Entity wrappers created later
-        // will point to `scene` correctly. The swap means the registries are now owned
-        // by the correct Scene objects.
 
         return true;
     }

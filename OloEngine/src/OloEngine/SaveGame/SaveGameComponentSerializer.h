@@ -2,7 +2,6 @@
 
 #include "OloEngine/Core/Base.h"
 
-#include <functional>
 #include <string>
 #include <unordered_map>
 
@@ -78,8 +77,8 @@ namespace OloEngine
     struct AnimationStateComponent;
     struct StreamingVolumeComponent;
 
-    // Type-erased save-game serialization function
-    using SaveGameSerializeFn = std::function<void(FArchive&, void*)>;
+    // Type-erased save-game serialization function (raw pointer: no heap allocation)
+    using SaveGameSerializeFn = void (*)(FArchive&, void*);
 
     // Save-game component serializer — covers ALL serializable components.
     // Separate from ComponentReplicator which only handles network-replicated subset.

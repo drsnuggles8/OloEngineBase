@@ -176,6 +176,19 @@ namespace OloEngine
                     }
                 }
 
+                if (count == 0)
+                {
+                    // Fallback: sample a single clamped pixel
+                    u32 cx = std::min(sx0, src.Width - 1);
+                    u32 cy = std::min(sy0, src.Height - 1);
+                    u32 srcIdx = (cy * src.Width + cx) * 4;
+                    r = srcData[srcIdx + 0];
+                    g = srcData[srcIdx + 1];
+                    b = srcData[srcIdx + 2];
+                    a = srcData[srcIdx + 3];
+                    count = 1;
+                }
+
                 u32 dstIdx = (dy * dst.Width + dx) * 4;
                 dstData[dstIdx + 0] = static_cast<u8>(r / count);
                 dstData[dstIdx + 1] = static_cast<u8>(g / count);

@@ -390,6 +390,38 @@ namespace OloEngine
 
         // --- SaveGame ---
         auto saveGameTable = lua.create_named_table("SaveGame");
+        saveGameTable["Save"] = [](const std::string& slotName, const std::string& displayName) -> i32
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::Save");
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(SaveGameManager::Save(*scene, slotName, displayName));
+        };
+        saveGameTable["Load"] = [](const std::string& slotName) -> i32
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::Load");
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(SaveGameManager::Load(*scene, slotName));
+        };
+        saveGameTable["QuickSave"] = []() -> i32
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::QuickSave");
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(SaveGameManager::QuickSave(*scene));
+        };
+        saveGameTable["QuickLoad"] = []() -> i32
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::QuickLoad");
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(SaveGameManager::QuickLoad(*scene));
+        };
         saveGameTable["EnumerateSaves"] = [&lua]() -> sol::table
         {
             OLO_PROFILE_SCOPE("Lua::SaveGame::EnumerateSaves");
