@@ -396,7 +396,7 @@ namespace OloEngine
         std::vector<PortInfo> ports;
         ImVec2 const nodeSize = GetNodeSize(node);
 
-        f32 const portAreaY = nodeScreenPos.y + s_NodeHeaderHeight * m_Zoom + GetNodeSize(node).y * 0.4f;
+        f32 const portAreaY = nodeScreenPos.y + s_NodeHeaderHeight * m_Zoom + nodeSize.y * 0.4f;
 
         // Input port (all nodes except root conceptually have one, but we always draw it)
         {
@@ -1236,8 +1236,17 @@ namespace OloEngine
         }
     }
 
-    void DialogueEditorPanel::PreviewAdvance()
+    void DialogueEditorPanel::PreviewAdvance(u32 hopCount)
     {
+        if (hopCount >= 256)
+        {
+            m_PreviewActive = false;
+            m_PreviewCurrentText = "[Exceeded max hop count - possible cycle]";
+            m_PreviewCurrentSpeaker.clear();
+            m_PreviewChoices.clear();
+            return;
+        }
+
         auto* node = FindNodeMutable(m_PreviewCurrentNodeID);
         if (!node)
         {
@@ -1327,7 +1336,7 @@ namespace OloEngine
             if (static_cast<u64>(nextID) != 0)
             {
                 m_PreviewCurrentNodeID = nextID;
-                PreviewAdvance();
+                PreviewAdvance(hopCount + 1);
             }
             else
             {

@@ -160,7 +160,7 @@ DialogueTree:
     EXPECT_FALSE(serializer.TestDeserializeFromYAML(yaml, asset));
 }
 
-TEST_F(DialogueTreeSerializationTest, EmptyDialogueTree)
+TEST_F(DialogueTreeSerializationTest, SingleNodeNoConnections)
 {
     auto asset = Ref<DialogueTreeAsset>::Create();
 

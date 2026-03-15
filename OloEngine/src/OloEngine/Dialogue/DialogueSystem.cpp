@@ -272,6 +272,16 @@ namespace OloEngine
                     choice.Text = "...";
                 }
 
+                // Populate per-choice condition from target node properties
+                if (targetNode)
+                {
+                    if (auto it = targetNode->Properties.find("condition"); it != targetNode->Properties.end())
+                    {
+                        if (const auto* str = std::get_if<std::string>(&it->second))
+                            choice.Condition = *str;
+                    }
+                }
+
                 // Check condition if specified
                 if (!choice.Condition.empty())
                 {

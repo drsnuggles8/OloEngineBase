@@ -51,7 +51,6 @@ namespace OloEngine
         // --- Node rendering ---
         void DrawNode(ImDrawList* drawList, const ImVec2& canvasOrigin, DialogueNodeData& node);
         ImVec2 GetNodeSize(const DialogueNodeData& node) const;
-        ImVec2 GetNodeSize(const DialogueNodeData& node) const;
         ImU32 GetNodeColor(const std::string& type) const;
         ImU32 GetNodeHeaderColor(const std::string& type) const;
         // --- Port helpers ---
@@ -76,7 +75,7 @@ namespace OloEngine
 
         // --- Preview / playtest ---
         void DrawPreviewPanel();
-        void PreviewAdvance();
+        void PreviewAdvance(u32 hopCount = 0);
         void PreviewSelectChoice(i32 index);
         void PreviewReset();
 
