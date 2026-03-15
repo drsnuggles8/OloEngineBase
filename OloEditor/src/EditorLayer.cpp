@@ -750,7 +750,6 @@ namespace OloEngine
         // Save Game Panel
         if (m_ShowSaveGamePanel)
         {
-            m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
             m_SaveGamePanel.OnImGuiRender();
         }
     }

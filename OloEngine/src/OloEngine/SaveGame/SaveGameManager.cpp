@@ -513,6 +513,7 @@ namespace OloEngine
 
         if (maxSlots == 0)
         {
+            OLO_CORE_ASSERT(false, "GetRotatingSlotName called with maxSlots == 0");
             OLO_CORE_ERROR("[SaveGameManager] GetRotatingSlotName called with maxSlots == 0");
             return {};
         }
