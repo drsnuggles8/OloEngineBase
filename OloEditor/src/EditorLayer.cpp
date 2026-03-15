@@ -526,6 +526,15 @@ namespace OloEngine
         }
         ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 
+        // Play-mode visual indicator: draw colored border around viewport
+        if (m_SceneState != SceneState::Edit)
+        {
+            ImU32 borderColor = (m_SceneState == SceneState::Play) ? IM_COL32(220, 30, 30, 255) : IM_COL32(220, 200, 30, 255);
+            ImVec2 pMin = ImGui::GetItemRectMin();
+            ImVec2 pMax = ImGui::GetItemRectMax();
+            ImGui::GetWindowDrawList()->AddRect(pMin, pMax, borderColor, 0.0f, 0, 3.0f);
+        }
+
         if (ImGui::BeginDragDropTarget())
         {
             if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
@@ -862,6 +871,45 @@ namespace OloEngine
         ImGui::DragFloat("Rotate Snap", &m_RotateSnap, 1.0f, 1.0f, 180.0f, "%.1f deg");
         ImGui::DragFloat("Scale Snap", &m_ScaleSnap, 0.05f, 0.01f, 10.0f, "%.2f");
 
+        ImGui::Separator();
+
+        // Camera Bookmarks
+        ImGui::Text("Camera Bookmarks");
+        ImGui::InputTextWithHint("##BookmarkName", "Bookmark name...", m_BookmarkNameBuffer, sizeof(m_BookmarkNameBuffer));
+        ImGui::SameLine();
+        if (ImGui::Button("Save"))
+        {
+            if (m_BookmarkNameBuffer[0] != '\0')
+            {
+                m_CameraBookmarks.push_back({ std::string(m_BookmarkNameBuffer), m_EditorCamera.GetPosition(), m_EditorCamera.GetPitch(), m_EditorCamera.GetYaw(), m_EditorCamera.GetDistance() });
+                m_BookmarkNameBuffer[0] = '\0';
+            }
+        }
+
+        i32 deleteIndex = -1;
+        for (i32 i = 0; i < static_cast<i32>(m_CameraBookmarks.size()); ++i)
+        {
+            ImGui::PushID(i);
+            auto& bm = m_CameraBookmarks[static_cast<size_t>(i)];
+            if (ImGui::Button(bm.Name.c_str()))
+            {
+                m_EditorCamera.SetPosition(bm.Position);
+                m_EditorCamera.SetPitch(bm.Pitch);
+                m_EditorCamera.SetYaw(bm.Yaw);
+                m_EditorCamera.SetDistance(bm.Distance);
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("X"))
+            {
+                deleteIndex = i;
+            }
+            ImGui::PopID();
+        }
+        if (deleteIndex >= 0)
+        {
+            m_CameraBookmarks.erase(m_CameraBookmarks.begin() + deleteIndex);
+        }
+
         if (!s_Font)
         {
             s_Font = std::make_unique<Font>("assets/fonts/opensans/OpenSans-Regular.ttf");
@@ -1045,6 +1093,22 @@ namespace OloEngine
                 if (control && editing)
                 {
                     OnDuplicateEntity();
+                }
+                break;
+            }
+            case Key::C:
+            {
+                if (control && m_SceneState == SceneState::Edit)
+                {
+                    OnCopyEntity();
+                }
+                break;
+            }
+            case Key::V:
+            {
+                if (control && m_SceneState == SceneState::Edit)
+                {
+                    OnPasteEntity();
                 }
                 break;
             }
@@ -1764,6 +1828,105 @@ namespace OloEngine
                 std::make_unique<DuplicateUndoCommand>(std::move(deleteCmd)));
 
             m_SceneHierarchyPanel.SetSelectedEntity(newEntity);
+        }
+    }
+
+    void EditorLayer::OnCopyEntity()
+    {
+        const auto& selected = m_SceneHierarchyPanel.GetSelectedEntities();
+        if (selected.empty())
+        {
+            return;
+        }
+
+        YAML::Emitter out;
+        out << YAML::BeginSeq;
+        for (const auto& entity : selected)
+        {
+            SceneSerializer::SerializeEntity(out, entity);
+        }
+        out << YAML::EndSeq;
+        m_EntityClipboard = out.c_str();
+    }
+
+    void EditorLayer::OnPasteEntity()
+    {
+        if (m_EntityClipboard.empty())
+        {
+            return;
+        }
+
+        YAML::Node entities = YAML::Load(m_EntityClipboard);
+        if (!entities || !entities.IsSequence())
+        {
+            return;
+        }
+
+        // Remap UUIDs to generate new entities
+        YAML::Emitter remapped;
+        remapped << YAML::BeginSeq;
+        for (auto entityNode : entities)
+        {
+            remapped << YAML::BeginMap;
+            for (auto it = entityNode.begin(); it != entityNode.end(); ++it)
+            {
+                std::string key = it->first.as<std::string>();
+                if (key == "Entity")
+                {
+                    // Replace UUID with a new one
+                    remapped << YAML::Key << key << YAML::Value << static_cast<u64>(UUID());
+                }
+                else
+                {
+                    remapped << YAML::Key << key << YAML::Value << it->second;
+                }
+            }
+            remapped << YAML::EndMap;
+        }
+        remapped << YAML::EndSeq;
+
+        YAML::Node remappedNode = YAML::Load(remapped.c_str());
+        SceneSerializer serializer(m_EditorScene);
+        auto createdUUIDs = serializer.DeserializeAdditive(remappedNode);
+
+        if (!createdUUIDs.empty())
+        {
+            // Create undo: wrap compound delete in DuplicateUndoCommand
+            // Undo (user presses Ctrl+Z) → inner.Execute → delete pasted entities
+            // Redo (user presses Ctrl+Y) → inner.Undo → restore pasted entities
+            if (createdUUIDs.size() == 1)
+            {
+                auto entityOpt = m_EditorScene->TryGetEntityWithUUID(createdUUIDs[0]);
+                if (entityOpt)
+                {
+                    m_CommandHistory.PushAlreadyExecuted(
+                        std::make_unique<DuplicateUndoCommand>(
+                            std::make_unique<DeleteEntityCommand>(
+                                m_EditorScene, *entityOpt,
+                                [this]()
+                                { m_SceneHierarchyPanel.ClearSelection(); },
+                                [this](Entity restored)
+                                { m_SceneHierarchyPanel.SetSelectedEntity(restored); })));
+                    m_SceneHierarchyPanel.SetSelectedEntity(*entityOpt);
+                }
+            }
+            else
+            {
+                auto compound = std::make_unique<CompoundCommand>("Delete Pasted Entities");
+                for (auto& uuid : createdUUIDs)
+                {
+                    auto entityOpt = m_EditorScene->TryGetEntityWithUUID(uuid);
+                    if (entityOpt)
+                    {
+                        compound->Add(std::make_unique<DeleteEntityCommand>(
+                            m_EditorScene, *entityOpt,
+                            []() {},
+                            [](Entity) {}));
+                    }
+                }
+                m_CommandHistory.PushAlreadyExecuted(
+                    std::make_unique<InvertedCommand>(std::move(compound)));
+            }
         }
     }
 

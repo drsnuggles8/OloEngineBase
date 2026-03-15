@@ -57,25 +57,34 @@ namespace OloEngine
 
             const bool hasFilter = m_FilterText[0] != '\0';
 
+            auto caseInsensitiveFind = [](const std::string& haystack, const char* needle) -> bool
+            {
+                if (!needle[0])
+                {
+                    return true;
+                }
+                auto it = std::search(
+                    haystack.begin(), haystack.end(),
+                    needle, needle + std::strlen(needle),
+                    [](char a, char b)
+                    { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
+                return it != haystack.end();
+            };
+
             m_Context->m_Registry.view<entt::entity>().each([&](const auto e)
                                                             {
                 Entity entity{ e, *m_Context };
+
+                // When filtering, show all matching entities flat.
+                // Otherwise, only render root entities (children drawn recursively).
+                if (!hasFilter && entity.GetParentUUID() != UUID(0))
+                {
+                    return;
+                }
+
                 if (hasFilter)
                 {
                     auto& tag = entity.GetComponent<TagComponent>().Tag;
-                    // Case-insensitive substring match
-                    auto caseInsensitiveFind = [](const std::string& haystack, const char* needle) -> bool
-                    {
-                        if (!needle[0])
-                        {
-                            return true;
-                        }
-                        auto it = std::search(
-                            haystack.begin(), haystack.end(),
-                            needle, needle + std::strlen(needle),
-                            [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
-                        return it != haystack.end();
-                    };
                     if (!caseInsensitiveFind(tag, m_FilterText))
                     {
                         return;
@@ -86,6 +95,31 @@ namespace OloEngine
             if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
             {
                 ClearSelection();
+            }
+
+            // Drag-and-Drop: drop on empty space to unparent
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+                {
+                    UUID droppedUUID = *static_cast<const UUID*>(payload->Data);
+                    auto droppedOpt = m_Context->TryGetEntityWithUUID(droppedUUID);
+                    if (droppedOpt && droppedOpt->GetParentUUID() != UUID(0))
+                    {
+                        UUID oldParent = droppedOpt->GetParentUUID();
+                        Entity parent = droppedOpt->GetParent();
+                        if (parent)
+                        {
+                            parent.RemoveChild(*droppedOpt);
+                        }
+                        if (m_CommandHistory)
+                        {
+                            m_CommandHistory->PushAlreadyExecuted(std::make_unique<ReparentEntityCommand>(
+                                m_Context, droppedUUID, oldParent, UUID(0)));
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
             }
 
             // Right-click on blank space (not on an entity item)
@@ -355,6 +389,14 @@ namespace OloEngine
 
         ImGuiTreeNodeFlags flags = (IsEntitySelected(entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
         flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
+
+        // Mark as leaf if entity has no children
+        const auto& children = entity.Children();
+        if (children.empty())
+        {
+            flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+        }
+
         bool opened = ImGui::TreeNodeEx((void*)static_cast<u64>(static_cast<u32>(entity)), flags, tag.c_str());
         if (ImGui::IsItemClicked())
         {
@@ -429,7 +471,55 @@ namespace OloEngine
                 }
             }
 
+            if (entity.GetParentUUID() != UUID(0))
+            {
+                if (ImGui::MenuItem("Unparent"))
+                {
+                    UUID oldParentUUID = entity.GetParentUUID();
+                    Entity parent = entity.GetParent();
+                    if (parent)
+                    {
+                        parent.RemoveChild(entity);
+                    }
+                    if (m_CommandHistory)
+                    {
+                        m_CommandHistory->PushAlreadyExecuted(std::make_unique<ReparentEntityCommand>(
+                            m_Context, entity.GetUUID(), oldParentUUID, UUID(0)));
+                    }
+                }
+            }
+
             ImGui::EndPopup();
+        }
+
+        // Drag-and-Drop: source
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
+        {
+            UUID entityUUID = entity.GetUUID();
+            ImGui::SetDragDropPayload("ENTITY_REPARENT", &entityUUID, sizeof(UUID));
+            ImGui::Text("%s", tag.c_str());
+            ImGui::EndDragDropSource();
+        }
+
+        // Drag-and-Drop: target
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+            {
+                UUID droppedUUID = *static_cast<const UUID*>(payload->Data);
+                auto droppedOpt = m_Context->TryGetEntityWithUUID(droppedUUID);
+                if (droppedOpt && *droppedOpt != entity && !droppedOpt->WouldCreateCycleWith(entity))
+                {
+                    UUID oldParent = droppedOpt->GetParentUUID();
+                    droppedOpt->SetParent(entity);
+                    if (m_CommandHistory)
+                    {
+                        m_CommandHistory->PushAlreadyExecuted(std::make_unique<ReparentEntityCommand>(
+                            m_Context, droppedUUID, oldParent, entity.GetUUID()));
+                    }
+                }
+            }
+            ImGui::EndDragDropTarget();
         }
 
         if (tagComponent.renaming)
@@ -453,9 +543,16 @@ namespace OloEngine
             }
         }
 
-        if (opened)
+        if (opened && !children.empty())
         {
-            // TODO: Render actual child entities here when parent-child hierarchy is implemented
+            for (const UUID& childUUID : children)
+            {
+                auto childOpt = m_Context->TryGetEntityWithUUID(childUUID);
+                if (childOpt)
+                {
+                    DrawEntityNode(*childOpt);
+                }
+            }
             ImGui::TreePop();
         }
 

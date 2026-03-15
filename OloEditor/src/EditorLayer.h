@@ -18,7 +18,9 @@
 
 #include <atomic>
 #include <mutex>
+#include <string>
 #include <thread> // For std::this_thread::yield()
+#include <vector>
 
 namespace OloEngine
 {
@@ -65,6 +67,8 @@ namespace OloEngine
         void OnScenePause();
 
         void OnDuplicateEntity();
+        void OnCopyEntity();
+        void OnPasteEntity();
 
         // Asset Pack Building
         // Initiates an asynchronous build process for packaging project assets
@@ -133,6 +137,21 @@ namespace OloEngine
         f32 m_TranslateSnap = 0.5f;
         f32 m_RotateSnap = 45.0f;
         f32 m_ScaleSnap = 0.5f;
+
+        // Entity clipboard (YAML)
+        std::string m_EntityClipboard;
+
+        // Camera bookmarks
+        struct CameraBookmark
+        {
+            std::string Name;
+            glm::vec3 Position{};
+            f32 Pitch = 0.0f;
+            f32 Yaw = 0.0f;
+            f32 Distance = 10.0f;
+        };
+        std::vector<CameraBookmark> m_CameraBookmarks;
+        char m_BookmarkNameBuffer[64] = {};
 
         // Debug windows
         bool m_ShowShaderDebugger = false;

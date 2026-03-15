@@ -328,4 +328,90 @@ namespace OloEngine
       private:
         std::unique_ptr<DeleteEntityCommand> m_Inner;
     };
+
+    // Generic swapped Execute/Undo wrapper for any EditorCommand.
+    // Used when entities already exist (e.g. paste) and undo should delete them.
+    class InvertedCommand : public EditorCommand
+    {
+      public:
+        explicit InvertedCommand(std::unique_ptr<EditorCommand> inner)
+            : m_Inner(std::move(inner))
+        {
+        }
+
+        void Execute() override
+        {
+            m_Inner->Undo();
+        }
+        void Undo() override
+        {
+            m_Inner->Execute();
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return m_Inner->GetDescription();
+        }
+
+      private:
+        std::unique_ptr<EditorCommand> m_Inner;
+    };
+
+    // Undo/Redo for entity reparenting (drag-and-drop in hierarchy)
+    class ReparentEntityCommand : public EditorCommand
+    {
+      public:
+        ReparentEntityCommand(Ref<Scene> scene, UUID childUUID, UUID oldParentUUID, UUID newParentUUID)
+            : m_Scene(std::move(scene)), m_ChildUUID(childUUID), m_OldParentUUID(oldParentUUID), m_NewParentUUID(newParentUUID)
+        {
+        }
+
+        void Execute() override
+        {
+            ApplyParent(m_NewParentUUID);
+        }
+
+        void Undo() override
+        {
+            ApplyParent(m_OldParentUUID);
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Reparent Entity";
+        }
+
+      private:
+        void ApplyParent(UUID parentUUID) const
+        {
+            auto childOpt = m_Scene->TryGetEntityWithUUID(m_ChildUUID);
+            if (!childOpt)
+            {
+                return;
+            }
+
+            if (parentUUID == UUID(0))
+            {
+                // Unparent: remove from current parent
+                Entity currentParent = childOpt->GetParent();
+                if (currentParent)
+                {
+                    currentParent.RemoveChild(*childOpt);
+                }
+            }
+            else
+            {
+                auto parentOpt = m_Scene->TryGetEntityWithUUID(parentUUID);
+                if (parentOpt)
+                {
+                    childOpt->SetParent(*parentOpt);
+                }
+            }
+        }
+
+        Ref<Scene> m_Scene;
+        UUID m_ChildUUID;
+        UUID m_OldParentUUID;
+        UUID m_NewParentUUID;
+    };
 } // namespace OloEngine
