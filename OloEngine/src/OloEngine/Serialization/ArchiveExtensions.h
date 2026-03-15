@@ -78,7 +78,7 @@ namespace OloEngine
     template<std::derived_from<FArchive> Ar>
     Ar& operator<<(Ar& ar, glm::mat3& m)
     {
-        for (int i = 0; i < 3; ++i)
+        for (i32 i = 0; i < 3; ++i)
         {
             ar << m[i];
         }
@@ -88,7 +88,7 @@ namespace OloEngine
     template<std::derived_from<FArchive> Ar>
     Ar& operator<<(Ar& ar, glm::mat4& m)
     {
-        for (int i = 0; i < 4; ++i)
+        for (i32 i = 0; i < 4; ++i)
         {
             ar << m[i];
         }

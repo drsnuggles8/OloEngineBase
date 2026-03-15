@@ -8,6 +8,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <limits>
 
 namespace OloEngine
 {
@@ -28,7 +29,7 @@ namespace OloEngine
         {
             FMemoryWriter writer(metaBlob);
             writer.ArIsSaveGame = true;
-            auto metaCopy = const_cast<SaveGameMetadata&>(metadata);
+            SaveGameMetadata metaCopy = metadata;
             writer << metaCopy;
         }
 
@@ -43,18 +44,30 @@ namespace OloEngine
 
         // Compute CRC32 over metadata + thumbnail + payload (using zlib crc32 for binary safety)
         {
+            auto crc32Chunked = [](uLong crc, const u8* data, sizet size) -> uLong
+            {
+                while (size > 0)
+                {
+                    uInt chunk = static_cast<uInt>(std::min(size, static_cast<sizet>(std::numeric_limits<uInt>::max())));
+                    crc = ::crc32(crc, data, chunk);
+                    data += chunk;
+                    size -= chunk;
+                }
+                return crc;
+            };
+
             uLong crc = ::crc32(0L, Z_NULL, 0);
             if (!metaBlob.empty())
             {
-                crc = ::crc32(crc, metaBlob.data(), static_cast<uInt>(metaBlob.size()));
+                crc = crc32Chunked(crc, metaBlob.data(), metaBlob.size());
             }
             if (!thumbnailPNG.empty())
             {
-                crc = ::crc32(crc, thumbnailPNG.data(), static_cast<uInt>(thumbnailPNG.size()));
+                crc = crc32Chunked(crc, thumbnailPNG.data(), thumbnailPNG.size());
             }
             if (!payload.empty())
             {
-                crc = ::crc32(crc, payload.data(), static_cast<uInt>(payload.size()));
+                crc = crc32Chunked(crc, payload.data(), payload.size());
             }
             header.ChecksumCRC32 = static_cast<u32>(crc);
         }
@@ -259,8 +272,13 @@ namespace OloEngine
         }
 
         u64 dataSize = fileSize - kSaveGameHeaderSize;
+        if (dataSize > std::numeric_limits<std::size_t>::max())
+        {
+            OLO_CORE_ERROR("[SaveGameFile] Data size exceeds addressable range");
+            return false;
+        }
         file.seekg(kSaveGameHeaderSize);
-        std::vector<u8> data(dataSize);
+        std::vector<u8> data(static_cast<std::size_t>(dataSize));
         file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(dataSize));
         if (!file.good())
         {

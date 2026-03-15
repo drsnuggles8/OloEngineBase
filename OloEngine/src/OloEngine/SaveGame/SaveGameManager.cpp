@@ -292,6 +292,8 @@ namespace OloEngine
 
     void SaveGameManager::Tick(f32 deltaTime, Scene& scene)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (s_AutoSaveInterval <= 0.0f)
         {
             return;
@@ -316,7 +318,7 @@ namespace OloEngine
 
     std::filesystem::path SaveGameManager::GetSaveFilePath(const std::string& slotName)
     {
-        return GetSaveDirectory() / (slotName + kSaveFileExtension);
+        return GetSaveDirectory() / (slotName + std::string(kSaveFileExtension));
     }
 
     bool SaveGameManager::ValidateSave(const std::string& slotName)
@@ -356,7 +358,8 @@ namespace OloEngine
         metadata.DisplayName = displayName;
         metadata.SceneName = scene.GetName();
         metadata.TimestampUTC = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
         metadata.SlotType = slotType;
         metadata.ThumbnailAvailable = !thumbnailPNG.empty();
 
@@ -388,8 +391,13 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("[SaveGameManager] Saved '{}' ({} entities, {:.1f} KB)",
-                       slotName, entityCount,
-                       static_cast<f32>(std::filesystem::file_size(path)) / 1024.0f);
+                      slotName, entityCount,
+                      [&path]() -> f32
+                      {
+                          std::error_code ec;
+                          auto size = std::filesystem::file_size(path, ec);
+                          return ec ? 0.0f : static_cast<f32>(size) / 1024.0f;
+                      }());
 
         return SaveLoadResult::Success;
     }

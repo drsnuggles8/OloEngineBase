@@ -39,8 +39,8 @@ namespace OloEngine
         {
             f32 sf = m.GetStaticFriction();
             f32 df = m.GetDynamicFriction();
-            f32 r  = m.GetRestitution();
-            f32 d  = m.GetDensity();
+            f32 r = m.GetRestitution();
+            f32 d = m.GetDensity();
             ar << sf << df << r << d;
         }
         else
@@ -118,7 +118,8 @@ namespace OloEngine
     static void SerializeParticleCurve(FArchive& ar, ParticleCurve& curve)
     {
         ar << curve.KeyCount;
-        for (u32 i = 0; i < 8; ++i)
+        u32 count = std::min(curve.KeyCount, static_cast<u32>(curve.Keys.size()));
+        for (u32 i = 0; i < count; ++i)
         {
             ar << curve.Keys[i].Time << curve.Keys[i].Value;
         }
@@ -143,34 +144,35 @@ namespace OloEngine
             EmissionShapeType type = GetEmissionShapeType(shape);
             ar << type;
             std::visit([&ar](auto&& s)
-            {
-                using T = std::decay_t<decltype(s)>;
-                if constexpr (std::is_same_v<T, EmitSphere>)
-                {
-                    ar << s.Radius;
-                }
-                else if constexpr (std::is_same_v<T, EmitBox>)
-                {
-                    ar << s.HalfExtents;
-                }
-                else if constexpr (std::is_same_v<T, EmitCone>)
-                {
-                    ar << s.Angle << s.Radius;
-                }
-                else if constexpr (std::is_same_v<T, EmitRing>)
-                {
-                    ar << s.InnerRadius << s.OuterRadius;
-                }
-                else if constexpr (std::is_same_v<T, EmitEdge>)
-                {
-                    ar << s.Length;
-                }
-                else if constexpr (std::is_same_v<T, EmitMesh>)
-                {
-                    ar << s.PrimitiveType;
-                }
-                // EmitPoint has no data
-            }, shape);
+                       {
+                           using T = std::decay_t<decltype(s)>;
+                           if constexpr (std::is_same_v<T, EmitSphere>)
+                           {
+                               ar << s.Radius;
+                           }
+                           else if constexpr (std::is_same_v<T, EmitBox>)
+                           {
+                               ar << s.HalfExtents;
+                           }
+                           else if constexpr (std::is_same_v<T, EmitCone>)
+                           {
+                               ar << s.Angle << s.Radius;
+                           }
+                           else if constexpr (std::is_same_v<T, EmitRing>)
+                           {
+                               ar << s.InnerRadius << s.OuterRadius;
+                           }
+                           else if constexpr (std::is_same_v<T, EmitEdge>)
+                           {
+                               ar << s.Length;
+                           }
+                           else if constexpr (std::is_same_v<T, EmitMesh>)
+                           {
+                               ar << s.PrimitiveType;
+                           }
+                           // EmitPoint has no data
+                       },
+                       shape);
         }
         else
         {
@@ -221,6 +223,12 @@ namespace OloEngine
                     EmitMesh s;
                     ar << s.PrimitiveType;
                     shape = s;
+                    break;
+                }
+                default:
+                {
+                    OLO_CORE_ERROR("[SaveGameComponentSerializer] Unknown EmissionShapeType: {}", static_cast<u32>(type));
+                    shape = EmitPoint{};
                     break;
                 }
             }
@@ -533,8 +541,8 @@ namespace OloEngine
     void SaveGameComponentSerializer::Serialize(FArchive& ar, ScriptComponent& c)
     {
         ar << c.ClassName;
-        // Script field instances are handled separately by SaveGameSerializer
-        // (via ISaveable interface or ScriptEngine field map)
+        // Script field values are persisted through ISaveable (CollectSaveableData/RestoreSaveableData)
+        // which is orchestrated by SaveGameSerializer when processing ScriptComponents.
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, AudioSourceComponent& c)
@@ -970,15 +978,15 @@ namespace OloEngine
         ar << c.LoadRadius << c.UnloadRadius;
     }
 
-    // ========================================================================
-    // Registry
-    // ========================================================================
+// ========================================================================
+// Registry
+// ========================================================================
 
-    // Helper macro to register a component serializer
-    #define REGISTER_SAVE_COMPONENT(ComponentType) \
-        Register(Hash::GenerateFNVHash(#ComponentType), \
-                 [](FArchive& ar, void* comp) \
-                 { Serialize(ar, *static_cast<ComponentType*>(comp)); })
+// Helper macro to register a component serializer
+#define REGISTER_SAVE_COMPONENT(ComponentType)      \
+    Register(Hash::GenerateFNVHash(#ComponentType), \
+             [](FArchive& ar, void* comp)           \
+             { Serialize(ar, *static_cast<ComponentType*>(comp)); })
 
     void SaveGameComponentSerializer::RegisterAll()
     {
@@ -1050,7 +1058,7 @@ namespace OloEngine
         OLO_CORE_TRACE("[SaveGameComponentSerializer] Registered {} component serializers", s_Registry.size());
     }
 
-    #undef REGISTER_SAVE_COMPONENT
+#undef REGISTER_SAVE_COMPONENT
 
     void SaveGameComponentSerializer::Register(u32 typeHash, SaveGameSerializeFn serializer)
     {

@@ -4,6 +4,7 @@
 
 #include <imgui.h>
 
+#include <cstring>
 #include <ctime>
 
 namespace OloEngine
@@ -40,7 +41,9 @@ namespace OloEngine
 
     void SaveGamePanel::DrawSaveSection()
     {
-        ImGui::InputText("Save Name", m_NewSaveName, sizeof(m_NewSaveName));
+        ImGui::InputText("Save Name", m_NewSaveName, kMaxSaveNameLength);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%zu/%zu)", std::strlen(m_NewSaveName), kMaxSaveNameLength - 1);
         ImGui::Checkbox("Include Thumbnail", &m_IncludeThumbnail);
 
         if (ImGui::Button("Save Game", ImVec2(-1, 0)))
@@ -122,9 +125,14 @@ namespace OloEngine
                 const char* slotTypeStr = "Manual";
                 switch (save.Metadata.SlotType)
                 {
-                    case SaveSlotType::QuickSave: slotTypeStr = "Quick Save"; break;
-                    case SaveSlotType::AutoSave: slotTypeStr = "Auto Save"; break;
-                    default: break;
+                    case SaveSlotType::QuickSave:
+                        slotTypeStr = "Quick Save";
+                        break;
+                    case SaveSlotType::AutoSave:
+                        slotTypeStr = "Auto Save";
+                        break;
+                    default:
+                        break;
                 }
                 ImGui::Text("Type: %s", slotTypeStr);
 
@@ -160,11 +168,30 @@ namespace OloEngine
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.15f, 0.15f, 1.0f));
                 if (ImGui::Button("Delete"))
                 {
-                    std::string slotName = save.FilePath.stem().string();
-                    SaveGameManager::DeleteSave(slotName);
-                    m_NeedsRefresh = true;
+                    m_PendingDeleteSlot = save.FilePath.stem().string();
+                    ImGui::OpenPopup("Confirm Delete");
                 }
                 ImGui::PopStyleColor();
+
+                if (ImGui::BeginPopupModal("Confirm Delete", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                {
+                    ImGui::Text("Delete save \"%s\"?", m_PendingDeleteSlot.c_str());
+                    ImGui::Separator();
+                    if (ImGui::Button("Confirm", ImVec2(120, 0)))
+                    {
+                        SaveGameManager::DeleteSave(m_PendingDeleteSlot);
+                        m_NeedsRefresh = true;
+                        m_PendingDeleteSlot.clear();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel", ImVec2(120, 0)))
+                    {
+                        m_PendingDeleteSlot.clear();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
+                }
 
                 ImGui::TreePop();
             }

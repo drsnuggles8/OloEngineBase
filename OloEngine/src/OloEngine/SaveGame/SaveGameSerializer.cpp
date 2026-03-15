@@ -20,39 +20,40 @@ namespace OloEngine
     // Sentinel value: typeHash==0 signals end of an entity's component list
     static constexpr u32 kEndOfEntityMarker = 0;
 
-    // Save: serialize a component with typeHash + dataSize for skip-ability
-    #define SAVE_COMPONENT(ComponentType, entity, writer) \
-        if ((entity).HasComponent<ComponentType>()) \
-        { \
-            auto& comp = (entity).GetComponent<ComponentType>(); \
-            constexpr u32 typeHash = Hash::GenerateFNVHash(#ComponentType); \
-            /* Serialize to temp buffer to measure size */ \
-            std::vector<u8> compBuf; \
-            { \
-                FMemoryWriter cw(compBuf); \
-                cw.ArIsSaveGame = true; \
-                SaveGameComponentSerializer::Serialize(cw, comp); \
-            } \
-            u32 dataSize = static_cast<u32>(compBuf.size()); \
-            (writer) << const_cast<u32&>(typeHash) << dataSize; \
-            if (dataSize > 0) \
-            { \
-                (writer).Serialize(compBuf.data(), static_cast<i64>(dataSize)); \
-            } \
-        }
+// Save: serialize a component with typeHash + dataSize for skip-ability
+#define SAVE_COMPONENT(ComponentType, entity, writer)                       \
+    if ((entity).HasComponent<ComponentType>())                             \
+    {                                                                       \
+        auto& comp = (entity).GetComponent<ComponentType>();                \
+        constexpr u32 typeHash = Hash::GenerateFNVHash(#ComponentType);     \
+        /* Serialize to temp buffer to measure size */                      \
+        std::vector<u8> compBuf;                                            \
+        {                                                                   \
+            FMemoryWriter cw(compBuf);                                      \
+            cw.ArIsSaveGame = true;                                         \
+            SaveGameComponentSerializer::Serialize(cw, comp);               \
+        }                                                                   \
+        u32 dataSize = static_cast<u32>(compBuf.size());                    \
+        u32 hashToWrite = typeHash;                                         \
+        (writer) << hashToWrite << dataSize;                                \
+        if (dataSize > 0)                                                   \
+        {                                                                   \
+            (writer).Serialize(compBuf.data(), static_cast<i64>(dataSize)); \
+        }                                                                   \
+    }
 
-    // Load: try to match typeHash and deserialize, or skip
-    #define LOAD_COMPONENT(ComponentType, entity, typeHashVar, dataBuf) \
-        if ((typeHashVar) == Hash::GenerateFNVHash(#ComponentType)) \
-        { \
-            auto& comp = (entity).HasComponent<ComponentType>() \
-                ? (entity).GetComponent<ComponentType>() \
-                : (entity).AddComponent<ComponentType>(); \
-            FMemoryReader cr(dataBuf); \
-            cr.ArIsSaveGame = true; \
-            SaveGameComponentSerializer::Serialize(cr, comp); \
-            matched = true; \
-        }
+// Load: try to match typeHash and deserialize, or skip
+#define LOAD_COMPONENT(ComponentType, entity, typeHashVar, dataBuf) \
+    if ((typeHashVar) == Hash::GenerateFNVHash(#ComponentType))     \
+    {                                                               \
+        auto& comp = (entity).HasComponent<ComponentType>()         \
+                         ? (entity).GetComponent<ComponentType>()   \
+                         : (entity).AddComponent<ComponentType>();  \
+        FMemoryReader cr(dataBuf);                                  \
+        cr.ArIsSaveGame = true;                                     \
+        SaveGameComponentSerializer::Serialize(cr, comp);           \
+        matched = true;                                             \
+    }
 
     // ========================================================================
     // Scene Settings serialization helpers
@@ -308,17 +309,40 @@ namespace OloEngine
             return false;
         }
 
-        // Destroy all existing entities
+        // Destroy all existing entities (children before parents)
         {
             auto allEntities = scene.GetAllEntitiesWith<IDComponent>();
-            std::vector<entt::entity> toDestroy;
+            std::vector<Entity> toDestroy;
             for (auto e : allEntities)
             {
-                toDestroy.push_back(e);
+                toDestroy.emplace_back(e, &scene);
             }
-            for (auto e : toDestroy)
+
+            // Sort by depth: entities with parents come first (children before parents)
+            auto getDepth = [](Entity& ent) -> u32
             {
-                Entity entity = { e, &scene };
+                u32 depth = 0;
+                Entity current = ent;
+                while (current.GetParentUUID() != UUID(0))
+                {
+                    ++depth;
+                    current = current.GetParent();
+                    if (!current)
+                    {
+                        break;
+                    }
+                }
+                return depth;
+            };
+
+            std::sort(toDestroy.begin(), toDestroy.end(),
+                      [&getDepth](Entity& a, Entity& b)
+                      {
+                          return getDepth(a) > getDepth(b);
+                      });
+
+            for (auto& entity : toDestroy)
+            {
                 scene.DestroyEntity(entity);
             }
         }
@@ -372,67 +396,128 @@ namespace OloEngine
                 // Match typeHash to component and deserialize
                 bool matched = false;
                 LOAD_COMPONENT(IDComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(TagComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(PrefabComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(TransformComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(RelationshipComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(SpriteRendererComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(CircleRendererComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(CameraComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(Rigidbody2DComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(BoxCollider2DComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(CircleCollider2DComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(Rigidbody3DComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(BoxCollider3DComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(SphereCollider3DComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(CapsuleCollider3DComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(MeshCollider3DComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(ConvexMeshCollider3DComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(TriangleMeshCollider3DComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(CharacterController3DComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(TextComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(ScriptComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(AudioSourceComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(AudioListenerComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(MaterialComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(DirectionalLightComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(PointLightComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(SpotLightComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(EnvironmentMapComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(LightProbeComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(LightProbeVolumeComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UICanvasComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UIRectTransformComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UIImageComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UIPanelComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UITextComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UIButtonComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UISliderComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UICheckboxComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UIProgressBarComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UIInputFieldComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UIScrollViewComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UIDropdownComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UIGridLayoutComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(UIToggleComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(ParticleSystemComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(TerrainComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(FoliageComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(WaterComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(SnowDeformerComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(FogVolumeComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(DecalComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(LODGroupComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(NetworkIdentityComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(NetworkInterestComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(PhaseComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(InstancePortalComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(NetworkLODComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(SubmeshComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(MeshComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(ModelComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(AnimationStateComponent, entity, typeHash, compData);
-                if (!matched) LOAD_COMPONENT(StreamingVolumeComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(TagComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(PrefabComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(TransformComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(RelationshipComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(SpriteRendererComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(CircleRendererComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(CameraComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(Rigidbody2DComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(BoxCollider2DComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(CircleCollider2DComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(Rigidbody3DComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(BoxCollider3DComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(SphereCollider3DComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(CapsuleCollider3DComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(MeshCollider3DComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(ConvexMeshCollider3DComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(TriangleMeshCollider3DComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(CharacterController3DComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(TextComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(ScriptComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(AudioSourceComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(AudioListenerComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(MaterialComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(DirectionalLightComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(PointLightComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(SpotLightComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(EnvironmentMapComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(LightProbeComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(LightProbeVolumeComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UICanvasComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UIRectTransformComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UIImageComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UIPanelComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UITextComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UIButtonComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UISliderComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UICheckboxComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UIProgressBarComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UIInputFieldComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UIScrollViewComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UIDropdownComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UIGridLayoutComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(UIToggleComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(ParticleSystemComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(TerrainComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(FoliageComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(WaterComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(SnowDeformerComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(FogVolumeComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(DecalComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(LODGroupComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(NetworkIdentityComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(NetworkInterestComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(PhaseComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(InstancePortalComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(NetworkLODComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(SubmeshComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(MeshComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(ModelComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(AnimationStateComponent, entity, typeHash, compData);
+                if (!matched)
+                    LOAD_COMPONENT(StreamingVolumeComponent, entity, typeHash, compData);
 
                 // Unknown component types are silently skipped (forward compatible)
             }
@@ -441,7 +526,7 @@ namespace OloEngine
         return !reader.IsError();
     }
 
-    #undef SAVE_COMPONENT
-    #undef LOAD_COMPONENT
+#undef SAVE_COMPONENT
+#undef LOAD_COMPONENT
 
 } // namespace OloEngine

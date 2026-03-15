@@ -65,3 +65,12 @@ Entities:
       Translation: [0, 10, 0]
       Rotation: [-0.785398185, 0.392699093, 0]
       Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0, -1, 0]
+      Color: [1, 1, 1]
+      Intensity: 1.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95

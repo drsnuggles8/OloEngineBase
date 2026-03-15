@@ -77,6 +77,50 @@ TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)
         ++entityCount;
     }
     EXPECT_EQ(entityCount, 3u);
+
+    // Verify component data by finding entities by tag
+    bool foundPlayer = false, foundCamera = false, foundSprite = false;
+    for (auto e : view)
+    {
+        Entity entity = { e, newScene.get() };
+        const auto& tag = entity.GetComponent<TagComponent>().Tag;
+
+        if (tag == "Player")
+        {
+            foundPlayer = true;
+            const auto& t = entity.GetComponent<TransformComponent>();
+            EXPECT_NEAR(t.Translation.x, 10.0f, 0.001f);
+            EXPECT_NEAR(t.Translation.y, 20.0f, 0.001f);
+            EXPECT_NEAR(t.Translation.z, 30.0f, 0.001f);
+            EXPECT_NEAR(t.Rotation.x, 0.1f, 0.001f);
+            EXPECT_NEAR(t.Rotation.y, 0.2f, 0.001f);
+            EXPECT_NEAR(t.Rotation.z, 0.3f, 0.001f);
+            EXPECT_NEAR(t.Scale.x, 2.0f, 0.001f);
+            EXPECT_NEAR(t.Scale.y, 2.0f, 0.001f);
+            EXPECT_NEAR(t.Scale.z, 2.0f, 0.001f);
+        }
+        else if (tag == "Camera")
+        {
+            foundCamera = true;
+            ASSERT_TRUE(entity.HasComponent<CameraComponent>());
+            const auto& c = entity.GetComponent<CameraComponent>();
+            EXPECT_TRUE(c.Primary);
+        }
+        else if (tag == "Sprite")
+        {
+            foundSprite = true;
+            ASSERT_TRUE(entity.HasComponent<SpriteRendererComponent>());
+            const auto& s = entity.GetComponent<SpriteRendererComponent>();
+            EXPECT_NEAR(s.Color.r, 1.0f, 0.001f);
+            EXPECT_NEAR(s.Color.g, 0.0f, 0.001f);
+            EXPECT_NEAR(s.Color.b, 0.0f, 0.001f);
+            EXPECT_NEAR(s.Color.a, 1.0f, 0.001f);
+            EXPECT_NEAR(s.TilingFactor, 2.5f, 0.001f);
+        }
+    }
+    EXPECT_TRUE(foundPlayer);
+    EXPECT_TRUE(foundCamera);
+    EXPECT_TRUE(foundSprite);
 }
 
 TEST_F(SaveGameIntegrationTest, FullFileRoundTrip)

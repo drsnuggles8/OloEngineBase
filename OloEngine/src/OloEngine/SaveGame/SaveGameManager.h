@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine
@@ -136,7 +137,7 @@ namespace OloEngine
 
         static constexpr u32 kMaxQuickSaveSlots = 3;
         static constexpr u32 kMaxAutoSaveSlots = 3;
-        static constexpr const char* kSaveFileExtension = ".olosave";
+        static constexpr std::string_view kSaveFileExtension = ".olosave";
     };
 
 } // namespace OloEngine

@@ -43,7 +43,11 @@ namespace OloEngine
 
         // New save state
         char m_NewSaveName[128] = "MySave";
+        static constexpr sizet kMaxSaveNameLength = sizeof(m_NewSaveName);
         bool m_IncludeThumbnail = true;
+
+        // Delete confirmation
+        std::string m_PendingDeleteSlot;
 
         // Auto-save settings
         f32 m_AutoSaveInterval = 0.0f;

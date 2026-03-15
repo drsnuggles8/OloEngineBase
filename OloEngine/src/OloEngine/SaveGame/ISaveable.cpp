@@ -37,6 +37,8 @@ namespace OloEngine
 
     std::vector<u8> CollectSaveableData(UUID entityID, const std::string& className)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!SaveableRegistry::Has(className))
         {
             return {};
@@ -55,6 +57,8 @@ namespace OloEngine
 
     void RestoreSaveableData(UUID entityID, const std::string& className, const std::vector<u8>& data)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (data.empty() || !SaveableRegistry::Has(className))
         {
             return;
@@ -67,6 +71,12 @@ namespace OloEngine
         // Read entity ID (for verification)
         UUID storedID;
         reader << storedID;
+
+        if (storedID != entityID)
+        {
+            OLO_CORE_ERROR("[ISaveable] Entity ID mismatch in RestoreSaveableData: stored={}, expected={}", static_cast<u64>(storedID), static_cast<u64>(entityID));
+            return;
+        }
 
         SaveableRegistry::Invoke(className, reader);
     }

@@ -17,8 +17,8 @@ namespace OloEngine
     }
 
     std::vector<u8> ThumbnailCapture::CaptureViewport(const Ref<Framebuffer>& framebuffer,
-                                                       u32 maxWidth,
-                                                       u32 maxHeight)
+                                                      u32 maxWidth,
+                                                      u32 maxHeight)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -73,9 +73,9 @@ namespace OloEngine
         }
 
         // Downscale if needed
-        const std::vector<u8>& thumbData = (thumbWidth != fbWidth || thumbHeight != fbHeight)
-            ? Downscale(pixelData, fbWidth, fbHeight, thumbWidth, thumbHeight)
-            : pixelData;
+        std::vector<u8> thumbData = (thumbWidth != fbWidth || thumbHeight != fbHeight)
+                                        ? Downscale(pixelData, fbWidth, fbHeight, thumbWidth, thumbHeight)
+                                        : pixelData;
 
         // Flip vertically (OpenGL convention: origin at bottom-left)
         std::vector<u8> flipped(thumbData.size());
@@ -83,8 +83,8 @@ namespace OloEngine
         for (u32 y = 0; y < thumbHeight; ++y)
         {
             std::memcpy(flipped.data() + y * rowBytes,
-                       thumbData.data() + (thumbHeight - 1 - y) * rowBytes,
-                       rowBytes);
+                        thumbData.data() + (thumbHeight - 1 - y) * rowBytes,
+                        rowBytes);
         }
 
         // Encode as PNG to memory
@@ -104,15 +104,17 @@ namespace OloEngine
         }
 
         OLO_CORE_TRACE("[ThumbnailCapture] Captured {}x{} thumbnail ({} bytes PNG)",
-                        thumbWidth, thumbHeight, pngData.size());
+                       thumbWidth, thumbHeight, pngData.size());
 
         return pngData;
     }
 
     std::vector<u8> ThumbnailCapture::Downscale(const std::vector<u8>& srcData,
-                                                 u32 srcWidth, u32 srcHeight,
-                                                 u32 dstWidth, u32 dstHeight)
+                                                u32 srcWidth, u32 srcHeight,
+                                                u32 dstWidth, u32 dstHeight)
     {
+        OLO_PROFILE_FUNCTION();
+
         std::vector<u8> dst(dstWidth * dstHeight * 4);
 
         f32 xRatio = static_cast<f32>(srcWidth) / static_cast<f32>(dstWidth);
@@ -130,8 +132,10 @@ namespace OloEngine
 
                 sx1 = std::min(sx1, srcWidth);
                 sy1 = std::min(sy1, srcHeight);
-                if (sx0 == sx1) sx1 = sx0 + 1;
-                if (sy0 == sy1) sy1 = sy0 + 1;
+                if (sx0 == sx1)
+                    sx1 = std::min(sx0 + 1, srcWidth);
+                if (sy0 == sy1)
+                    sy1 = std::min(sy0 + 1, srcHeight);
 
                 u32 r = 0, g = 0, b = 0, a = 0;
                 u32 count = 0;

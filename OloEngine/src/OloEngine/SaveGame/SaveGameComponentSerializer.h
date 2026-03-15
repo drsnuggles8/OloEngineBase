@@ -72,7 +72,6 @@ namespace OloEngine
     struct MeshComponent;
     struct ModelComponent;
     struct AnimationStateComponent;
-    struct SkeletonComponent;
     struct StreamingVolumeComponent;
 
     // Type-erased save-game serialization function

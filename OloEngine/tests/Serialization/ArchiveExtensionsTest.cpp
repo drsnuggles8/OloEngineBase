@@ -166,7 +166,7 @@ TEST(ArchiveExtensionsTest, QuatRoundtrip)
 
 TEST(ArchiveExtensionsTest, UUIDRoundtrip)
 {
-    UUID original;  // random UUID
+    UUID original; // random UUID
 
     std::vector<u8> buffer;
     FMemoryWriter writer(buffer);
@@ -228,7 +228,7 @@ TEST(ArchiveExtensionsTest, EmptyVectorRoundtrip)
     FMemoryWriter writer(buffer);
     writer << original;
 
-    std::vector<u32> loaded{ 1, 2, 3 };  // Pre-fill to verify it clears
+    std::vector<u32> loaded{ 1, 2, 3 }; // Pre-fill to verify it clears
     FMemoryReader reader(buffer);
     reader << loaded;
 

@@ -11,6 +11,7 @@ namespace Sandbox
 	public class SaveLoadTestPlayer : Entity, ISaveable
 	{
 		private TransformComponent m_Transform;
+		private bool m_PKeyPreviouslyDown = false;
 
 		public float Health = 100.0f;
 		public int Score = 0;
@@ -44,8 +45,10 @@ namespace Sandbox
 			m_Transform.Translation = translation;
 
 			// Pressing P increases score (for testing save/load of custom state)
-			if (Input.IsKeyDown(KeyCode.P))
+			bool pDown = Input.IsKeyDown(KeyCode.P);
+			if (pDown && !m_PKeyPreviouslyDown)
 				Score += 1;
+			m_PKeyPreviouslyDown = pDown;
 		}
 
 		public byte[] OnSave()

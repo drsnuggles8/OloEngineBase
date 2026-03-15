@@ -63,25 +63,29 @@ namespace OloEngine
 
     void SaveFileWorldDatabase::Shutdown()
     {
+        bool wasDirty = false;
         {
             TUniqueLock<FMutex> lock(m_Mutex);
             if (!m_Initialized)
             {
                 return;
             }
+            wasDirty = m_Dirty;
+            m_Initialized = false;
         }
 
         // Flush outside the lock — FlushToDisk acquires its own lock
-        if (m_Dirty)
+        if (wasDirty)
         {
             FlushToDisk();
         }
 
-        TUniqueLock<FMutex> lock(m_Mutex);
-        m_PlayerStates.clear();
-        m_EntityStates.clear();
-        m_WorldState.clear();
-        m_Initialized = false;
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_PlayerStates.clear();
+            m_EntityStates.clear();
+            m_WorldState.clear();
+        }
         OLO_CORE_INFO("[SaveFileWorldDatabase] Shut down");
     }
 
@@ -248,7 +252,8 @@ namespace OloEngine
         metadata.DisplayName = m_SlotName;
         metadata.SceneName = "WorldDatabase";
         metadata.TimestampUTC = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
         metadata.SlotType = SaveSlotType::Manual;
         metadata.EntityCount = static_cast<u32>(m_EntityStates.size());
 
@@ -270,7 +275,7 @@ namespace OloEngine
 
         m_Dirty = false;
         OLO_CORE_TRACE("[SaveFileWorldDatabase] Flushed to disk: {} players, {} entities, {} world keys",
-                        m_PlayerStates.size(), m_EntityStates.size(), m_WorldState.size());
+                       m_PlayerStates.size(), m_EntityStates.size(), m_WorldState.size());
         return true;
     }
 
@@ -284,8 +289,8 @@ namespace OloEngine
         FMemoryWriter ar(buffer);
 
         // Section marker
-        constexpr u32 kWorldDbMagic = 0x57444200; // "WDB\0"
-        ar << const_cast<u32&>(kWorldDbMagic);
+        u32 worldDbMagic = 0x57444200; // "WDB\0"
+        ar << worldDbMagic;
 
         // Player states
         u32 playerCount = static_cast<u32>(m_PlayerStates.size());
@@ -327,6 +332,10 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::DeserializeFromPayload(const std::vector<u8>& payload)
     {
+        static constexpr u32 kMaxPlayers = 100000;
+        static constexpr u32 kMaxEntities = 1000000;
+        static constexpr u32 kMaxWorldKeys = 1000000;
+
         auto dataCopy = payload;
         FMemoryReader ar(dataCopy);
 
@@ -334,7 +343,7 @@ namespace OloEngine
         u32 magic = 0;
         ar << magic;
         constexpr u32 kWorldDbMagic = 0x57444200;
-        if (magic != kWorldDbMagic)
+        if (ar.IsError() || magic != kWorldDbMagic)
         {
             OLO_CORE_ERROR("[SaveFileWorldDatabase] Invalid world database marker");
             return false;
@@ -343,6 +352,11 @@ namespace OloEngine
         // Player states
         u32 playerCount = 0;
         ar << playerCount;
+        if (ar.IsError() || playerCount > kMaxPlayers)
+        {
+            OLO_CORE_ERROR("[SaveFileWorldDatabase] Invalid player count: {}", playerCount);
+            return false;
+        }
         m_PlayerStates.clear();
         m_PlayerStates.reserve(playerCount);
         for (u32 i = 0; i < playerCount; ++i)
@@ -352,6 +366,18 @@ namespace OloEngine
 
             std::vector<u8> blob;
             ar << blob;
+
+            if (ar.IsError())
+            {
+                OLO_CORE_ERROR("[SaveFileWorldDatabase] Read error at player {}", i);
+                return false;
+            }
+
+            if (blob.empty())
+            {
+                OLO_CORE_ERROR("[SaveFileWorldDatabase] Empty player state blob for account {}", accountID);
+                return false;
+            }
 
             auto state = PlayerStatePacket::Deserialize(blob.data(), static_cast<i64>(blob.size()));
             if (!state)
@@ -365,6 +391,11 @@ namespace OloEngine
         // Entity states
         u32 entityCount = 0;
         ar << entityCount;
+        if (ar.IsError() || entityCount > kMaxEntities)
+        {
+            OLO_CORE_ERROR("[SaveFileWorldDatabase] Invalid entity count: {}", entityCount);
+            return false;
+        }
         m_EntityStates.clear();
         m_EntityStates.reserve(entityCount);
         for (u32 i = 0; i < entityCount; ++i)
@@ -375,12 +406,22 @@ namespace OloEngine
             ar << uuid;
             ar << zone;
             ar << data;
+            if (ar.IsError())
+            {
+                OLO_CORE_ERROR("[SaveFileWorldDatabase] Read error at entity {}", i);
+                return false;
+            }
             m_EntityStates[uuid] = { zone, std::move(data) };
         }
 
         // World state key-values
         u32 worldCount = 0;
         ar << worldCount;
+        if (ar.IsError() || worldCount > kMaxWorldKeys)
+        {
+            OLO_CORE_ERROR("[SaveFileWorldDatabase] Invalid world state count: {}", worldCount);
+            return false;
+        }
         m_WorldState.clear();
         m_WorldState.reserve(worldCount);
         for (u32 i = 0; i < worldCount; ++i)
@@ -389,6 +430,11 @@ namespace OloEngine
             std::string value;
             ar << key;
             ar << value;
+            if (ar.IsError())
+            {
+                OLO_CORE_ERROR("[SaveFileWorldDatabase] Read error at world state {}", i);
+                return false;
+            }
             m_WorldState[std::move(key)] = std::move(value);
         }
 

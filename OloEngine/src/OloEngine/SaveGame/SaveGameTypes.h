@@ -26,7 +26,7 @@ namespace OloEngine
     {
         std::string DisplayName;
         std::string SceneName;
-        i64 TimestampUTC = 0;        // Unix timestamp (seconds since epoch)
+        i64 TimestampUTC = 0; // Unix timestamp (seconds since epoch)
         f32 PlaytimeSeconds = 0.0f;
         SaveSlotType SlotType = SaveSlotType::Manual;
         u32 EntityCount = 0;
@@ -60,26 +60,27 @@ namespace OloEngine
         Zlib = 1
     };
 
+#pragma pack(push, 1)
     struct SaveGameHeader
     {
-        // u32 block (24 bytes, naturally aligned)
+        // u32 block (24 bytes)
         u32 Magic = kSaveGameMagic;
         u32 FormatVersion = kSaveGameFormatVersion;
-        u32 EngineVersion = 1;               // Bump with breaking engine changes
-        u32 Flags = 0;                       // SaveGameCompression bits
-        u32 ChecksumCRC32 = 0;               // CRC32 over everything after the header
+        u32 EngineVersion = 1; // Bump with breaking engine changes
+        u32 Flags = 0;         // SaveGameCompression bits
+        u32 ChecksumCRC32 = 0; // CRC32 over everything after the header
         u32 EntityCount = 0;
 
-        // u64 block (56 bytes, naturally aligned after 24-byte u32 block)
+        // u64 block (56 bytes)
         u64 MetadataOffset = 0;
         u64 MetadataSize = 0;
         u64 ThumbnailOffset = 0;
         u64 ThumbnailSize = 0;
         u64 PayloadOffset = 0;
-        u64 PayloadSize = 0;                 // Compressed size on disk
-        u64 PayloadUncompressedSize = 0;     // Original size before compression
+        u64 PayloadSize = 0;             // Compressed size on disk
+        u64 PayloadUncompressedSize = 0; // Original size before compression
 
-        u8 Reserved[128 - 80] = {};          // Padding to exactly 128 bytes
+        u8 Reserved[128 - 80] = {}; // Padding to exactly 128 bytes
 
         [[nodiscard]] bool IsValid() const
         {
@@ -96,6 +97,7 @@ namespace OloEngine
             Flags = (Flags & ~0xFFu) | static_cast<u32>(compression);
         }
     };
+#pragma pack(pop)
 
     static_assert(sizeof(SaveGameHeader) == kSaveGameHeaderSize, "SaveGameHeader must be exactly 128 bytes");
 

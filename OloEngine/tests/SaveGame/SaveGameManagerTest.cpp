@@ -35,9 +35,7 @@ TEST(SaveableRegistryTest, RegisterAndInvoke)
 
     bool called = false;
     SaveableRegistry::Register("TestClass", [&called](FArchive& ar)
-    {
-        called = true;
-    });
+                               { called = true; });
 
     EXPECT_TRUE(SaveableRegistry::Has("TestClass"));
     EXPECT_FALSE(SaveableRegistry::Has("OtherClass"));
@@ -68,12 +66,10 @@ TEST(SaveableRegistryTest, RoundTripWithData)
 {
     SaveableRegistry::Clear();
 
-    // Register a saveable that writes/reads an int
-    SaveableRegistry::Register("IntSaveable", [](FArchive& ar)
-    {
-        static i32 value = 42;
-        ar << value;
-    });
+    // Register a saveable that writes/reads an int via captured value
+    i32 savedValue = 42;
+    SaveableRegistry::Register("IntSaveable", [&savedValue](FArchive& ar)
+                               { ar << savedValue; });
 
     // Save
     std::vector<u8> saveData;
@@ -84,12 +80,16 @@ TEST(SaveableRegistryTest, RoundTripWithData)
     }
     EXPECT_GT(saveData.size(), 0u);
 
+    // Modify to verify load overwrites it
+    savedValue = 0;
+
     // Load
     {
         FMemoryReader reader(saveData);
         reader.ArIsSaveGame = true;
         SaveableRegistry::Invoke("IntSaveable", reader);
     }
+    EXPECT_EQ(savedValue, 42);
 
     SaveableRegistry::Clear();
 }
