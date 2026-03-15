@@ -1040,6 +1040,36 @@ namespace OloEngine
 
 	public class DialogueComponent : Component
 	{
+		public ulong DialogueTree
+		{
+			get => InternalCalls.DialogueComponent_GetDialogueTree(Entity.ID);
+			set => InternalCalls.DialogueComponent_SetDialogueTree(Entity.ID, value);
+		}
+
+		public bool AutoTrigger
+		{
+			get => InternalCalls.DialogueComponent_GetAutoTrigger(Entity.ID);
+			set => InternalCalls.DialogueComponent_SetAutoTrigger(Entity.ID, value);
+		}
+
+		public float TriggerRadius
+		{
+			get => InternalCalls.DialogueComponent_GetTriggerRadius(Entity.ID);
+			set => InternalCalls.DialogueComponent_SetTriggerRadius(Entity.ID, value);
+		}
+
+		public bool TriggerOnce
+		{
+			get => InternalCalls.DialogueComponent_GetTriggerOnce(Entity.ID);
+			set => InternalCalls.DialogueComponent_SetTriggerOnce(Entity.ID, value);
+		}
+
+		public bool HasTriggered
+		{
+			get => InternalCalls.DialogueComponent_GetHasTriggered(Entity.ID);
+			set => InternalCalls.DialogueComponent_SetHasTriggered(Entity.ID, value);
+		}
+
 		public void StartDialogue()
 			=> InternalCalls.DialogueComponent_StartDialogue(Entity.ID);
 

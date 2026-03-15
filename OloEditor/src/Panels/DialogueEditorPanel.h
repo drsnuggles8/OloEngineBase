@@ -87,6 +87,7 @@ namespace OloEngine
 
         // --- Serialization ---
         void SaveDialogue();
+        void SaveDialogueAs();
         void LoadDialogue(const std::filesystem::path& path);
 
         // --- Node operations ---

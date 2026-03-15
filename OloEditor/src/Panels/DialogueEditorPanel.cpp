@@ -3,6 +3,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -884,8 +885,10 @@ namespace OloEngine
             {
                 if (ImGui::MenuItem("New", "Ctrl+N"))
                     NewDialogue();
-                if (ImGui::MenuItem("Save", "Ctrl+S", false, !m_CurrentFilePath.empty()))
+                if (ImGui::MenuItem("Save", "Ctrl+S"))
                     SaveDialogue();
+                if (ImGui::MenuItem("Save As..."))
+                    SaveDialogueAs();
                 ImGui::EndMenu();
             }
 
@@ -1482,7 +1485,10 @@ namespace OloEngine
     void DialogueEditorPanel::SaveDialogue()
     {
         if (m_CurrentFilePath.empty())
+        {
+            SaveDialogueAs();
             return;
+        }
 
         YAML::Emitter out;
         out << YAML::BeginMap;
@@ -1565,6 +1571,22 @@ namespace OloEngine
 
         m_IsDirty = false;
         OLO_CORE_INFO("DialogueEditorPanel - Saved: {}", m_CurrentFilePath.string());
+    }
+
+    void DialogueEditorPanel::SaveDialogueAs()
+    {
+        std::string filepath = FileDialogs::SaveFile(
+            "Dialogue Tree (*.olodialogue)\0*.olodialogue\0"
+            "All Files (*.*)\0*.*\0");
+        if (filepath.empty())
+            return;
+
+        std::filesystem::path path(filepath);
+        if (path.extension() != ".olodialogue")
+            path += ".olodialogue";
+
+        m_CurrentFilePath = path;
+        SaveDialogue();
     }
 
     void DialogueEditorPanel::LoadDialogue(const std::filesystem::path& path)
@@ -1836,16 +1858,27 @@ namespace OloEngine
 
     std::string DialogueEditorPanel::ResolveSourcePort(const std::string& portName, UUID sourceNodeID)
     {
-        // "+" is a virtual add-slot on choice nodes — assign a proper label
+        // "+" is a virtual add-slot on choice nodes — assign a unique label
         if (portName == "+")
         {
-            i32 choiceCount = 0;
+            i32 maxIndex = 0;
             for (const auto& c : m_Connections)
             {
-                if (c.SourceNodeID == sourceNodeID)
-                    ++choiceCount;
+                if (c.SourceNodeID == sourceNodeID && c.SourcePort.starts_with("choice "))
+                {
+                    auto suffix = c.SourcePort.substr(7);
+                    try
+                    {
+                        i32 const idx = std::stoi(suffix);
+                        if (idx > maxIndex)
+                            maxIndex = idx;
+                    }
+                    catch (...)
+                    {
+                    }
+                }
             }
-            return "choice " + std::to_string(choiceCount + 1);
+            return "choice " + std::to_string(maxIndex + 1);
         }
 
         // Deterministic ports (out, true, false) — replace existing connection

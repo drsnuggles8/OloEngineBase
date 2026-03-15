@@ -366,15 +366,14 @@ namespace OloEngine
             }
         }
 
-        // Hide excess choice entities
+        // Destroy excess choice entities
         for (size_t i = state.m_AvailableChoices.size(); i < m_ChoiceEntities.size(); ++i)
         {
             Entity choiceEnt = scene.GetEntityByUUID(m_ChoiceEntities[i]);
-            if (choiceEnt && choiceEnt.HasComponent<UITextComponent>())
-            {
-                choiceEnt.GetComponent<UITextComponent>().m_Text.clear();
-            }
+            if (choiceEnt)
+                scene.DestroyEntity(choiceEnt);
         }
+        m_ChoiceEntities.resize(state.m_AvailableChoices.size());
     }
 
     void DialogueUIController::ClearChoiceEntities(Scene& scene)

@@ -1406,6 +1406,96 @@ namespace OloEngine
             dialogueSystem->EndDialogue(entity);
     }
 
+    static u64 DialogueComponent_GetDialogueTree(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return static_cast<u64>(entity.GetComponent<DialogueComponent>().m_DialogueTree);
+    }
+
+    static void DialogueComponent_SetDialogueTree(UUID entityID, u64 handle)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<DialogueComponent>().m_DialogueTree = handle;
+    }
+
+    static bool DialogueComponent_GetAutoTrigger(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return entity.GetComponent<DialogueComponent>().m_AutoTrigger;
+    }
+
+    static void DialogueComponent_SetAutoTrigger(UUID entityID, bool value)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<DialogueComponent>().m_AutoTrigger = value;
+    }
+
+    static f32 DialogueComponent_GetTriggerRadius(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return entity.GetComponent<DialogueComponent>().m_TriggerRadius;
+    }
+
+    static void DialogueComponent_SetTriggerRadius(UUID entityID, f32 value)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<DialogueComponent>().m_TriggerRadius = value;
+    }
+
+    static bool DialogueComponent_GetTriggerOnce(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return entity.GetComponent<DialogueComponent>().m_TriggerOnce;
+    }
+
+    static void DialogueComponent_SetTriggerOnce(UUID entityID, bool value)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<DialogueComponent>().m_TriggerOnce = value;
+    }
+
+    static bool DialogueComponent_GetHasTriggered(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return entity.GetComponent<DialogueComponent>().m_HasTriggered;
+    }
+
+    static void DialogueComponent_SetHasTriggered(UUID entityID, bool value)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<DialogueComponent>().m_HasTriggered = value;
+    }
+
     static bool DialogueVariables_GetBool(MonoString* key, bool defaultValue)
     {
         OLO_PROFILE_FUNCTION();
@@ -1865,6 +1955,16 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(DialogueComponent_SelectChoice);
         OLO_ADD_INTERNAL_CALL(DialogueComponent_IsDialogueActive);
         OLO_ADD_INTERNAL_CALL(DialogueComponent_EndDialogue);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_GetDialogueTree);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_SetDialogueTree);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_GetAutoTrigger);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_SetAutoTrigger);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_GetTriggerRadius);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_SetTriggerRadius);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_GetTriggerOnce);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_SetTriggerOnce);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_GetHasTriggered);
+        OLO_ADD_INTERNAL_CALL(DialogueComponent_SetHasTriggered);
 
         OLO_ADD_INTERNAL_CALL(DialogueVariables_GetBool);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_SetBool);

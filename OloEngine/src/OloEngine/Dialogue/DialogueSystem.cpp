@@ -12,6 +12,7 @@ namespace OloEngine
     DialogueSystem::DialogueSystem(Scene* scene)
         : m_Scene(scene)
     {
+        OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(scene, "DialogueSystem created with null scene");
         m_UIController.Initialize(*scene);
     }
@@ -80,6 +81,22 @@ namespace OloEngine
         {
             OLO_CORE_WARN("DialogueSystem::StartDialogue - DialogueTreeAsset has no nodes");
             return;
+        }
+
+        // Deactivate any other active dialogues
+        auto activeView = m_Scene->GetAllEntitiesWith<DialogueStateComponent>();
+        for (auto otherHandle : activeView)
+        {
+            if (otherHandle == static_cast<entt::entity>(entity))
+                continue;
+            auto& otherState = activeView.get<DialogueStateComponent>(otherHandle);
+            if (otherState.m_State != DialogueState::Inactive)
+            {
+                otherState.m_State = DialogueState::Inactive;
+                otherState.m_CurrentText.clear();
+                otherState.m_CurrentSpeaker.clear();
+                otherState.m_AvailableChoices.clear();
+            }
         }
 
         // Add or reset DialogueStateComponent

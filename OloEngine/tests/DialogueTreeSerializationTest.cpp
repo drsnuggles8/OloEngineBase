@@ -99,9 +99,9 @@ TEST_F(DialogueTreeSerializationTest, SerializeAndDeserializeRoundTrip)
     ASSERT_EQ(deserialized->GetConnections().size(), 2u);
     const auto& conns = deserialized->GetConnections();
     bool hasOutputConn = std::ranges::any_of(conns, [](const auto& c)
-                                             { return c.SourcePort == "output" && c.TargetPort == "input"; });
+                                             { return c.SourceNodeID == UUID(1001) && c.TargetNodeID == UUID(1002) && c.SourcePort == "output" && c.TargetPort == "input"; });
     bool hasChoiceConn = std::ranges::any_of(conns, [](const auto& c)
-                                             { return c.SourcePort == "I'm a friend." && c.TargetPort == "input"; });
+                                             { return c.SourceNodeID == UUID(1002) && c.TargetNodeID == UUID(1003) && c.SourcePort == "I'm a friend." && c.TargetPort == "input"; });
     EXPECT_TRUE(hasOutputConn);
     EXPECT_TRUE(hasChoiceConn);
 }
