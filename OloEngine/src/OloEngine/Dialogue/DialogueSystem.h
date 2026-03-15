@@ -35,11 +35,11 @@ namespace OloEngine
         void RegisterActionHandler(const std::string& name, ActionCallback handler);
 
       private:
-        void ProcessNode(Entity entity, UUID nodeID, int hopCount = 0);
+        void ProcessNode(Entity entity, UUID nodeID, u32 hopCount = 0);
         bool EvaluateCondition(const std::string& conditionName, const std::string& args);
         void ExecuteAction(const std::string& actionName, const std::string& args);
 
-        static constexpr int s_MaxHopCount = 256;
+        static constexpr u32 s_MaxHopCount = 256;
 
         Scene* m_Scene = nullptr;
         DialogueUIController m_UIController;

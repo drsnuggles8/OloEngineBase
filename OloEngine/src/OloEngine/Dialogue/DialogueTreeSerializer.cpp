@@ -49,6 +49,8 @@ namespace OloEngine
                     return "unknown"; }, value);
         }
 
+        // Contract: typeStr must be one of "bool", "int", "float", or treated as "string".
+        // Both parameters are const std::string& — callers must not swap them.
         DialoguePropertyValue ParsePropertyValue(const std::string& typeStr, const std::string& valueStr)
         {
             try
@@ -301,7 +303,7 @@ namespace OloEngine
                 }
                 nodeIDs.insert(static_cast<u64>(node.ID));
 
-                node.Name = nodeYAML["Name"] ? nodeYAML["Name"].as<std::string>("") : "";
+                node.Name = nodeYAML["Name"].as<std::string>("");
 
                 if (auto editorPos = nodeYAML["EditorPosition"]; editorPos && editorPos.IsSequence() && editorPos.size() >= 2)
                 {
@@ -374,8 +376,8 @@ namespace OloEngine
                     OLO_CORE_ERROR("DialogueTreeSerializer - Failed to parse connection: {}", e.what());
                     return false;
                 }
-                conn.SourcePort = connYAML["SourcePort"] ? connYAML["SourcePort"].as<std::string>("output") : "output";
-                conn.TargetPort = connYAML["TargetPort"] ? connYAML["TargetPort"].as<std::string>("input") : "input";
+                conn.SourcePort = connYAML["SourcePort"].as<std::string>("output");
+                conn.TargetPort = connYAML["TargetPort"].as<std::string>("input");
 
                 // Validate connection references
                 if (!nodeIDs.contains(static_cast<u64>(conn.SourceNodeID)))

@@ -195,7 +195,7 @@ namespace OloEngine
         m_ActionHandlers[name] = std::move(handler);
     }
 
-    void DialogueSystem::ProcessNode(Entity entity, UUID nodeID, int hopCount)
+    void DialogueSystem::ProcessNode(Entity entity, UUID nodeID, u32 hopCount)
     {
         OLO_PROFILE_FUNCTION();
 

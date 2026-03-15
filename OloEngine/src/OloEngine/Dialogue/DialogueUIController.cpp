@@ -74,9 +74,11 @@ namespace OloEngine
             if (static_cast<u64>(m_PanelEntity) != 0)
             {
                 Entity panelEnt = scene.GetEntityByUUID(m_PanelEntity);
-                if (panelEnt && panelEnt.HasComponent<RelationshipComponent>())
+                if (panelEnt)
                 {
                     rel.m_ParentHandle = panelEnt.GetUUID();
+                    if (!panelEnt.HasComponent<RelationshipComponent>())
+                        panelEnt.AddComponent<RelationshipComponent>();
                     panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(speakerEntity.GetUUID());
                 }
             }
@@ -101,9 +103,11 @@ namespace OloEngine
             if (static_cast<u64>(m_PanelEntity) != 0)
             {
                 Entity panelEnt = scene.GetEntityByUUID(m_PanelEntity);
-                if (panelEnt && panelEnt.HasComponent<RelationshipComponent>())
+                if (panelEnt)
                 {
                     rel.m_ParentHandle = panelEnt.GetUUID();
+                    if (!panelEnt.HasComponent<RelationshipComponent>())
+                        panelEnt.AddComponent<RelationshipComponent>();
                     panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(bodyEntity.GetUUID());
                 }
             }
@@ -247,6 +251,8 @@ namespace OloEngine
 
     void DialogueUIController::HideDialogueBox(Scene& scene)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (static_cast<u64>(m_CanvasEntity) != 0)
         {
             Entity canvasEnt = scene.GetEntityByUUID(m_CanvasEntity);
@@ -291,9 +297,11 @@ namespace OloEngine
             if (static_cast<u64>(m_PanelEntity) != 0)
             {
                 Entity panelEnt = scene.GetEntityByUUID(m_PanelEntity);
-                if (panelEnt && panelEnt.HasComponent<RelationshipComponent>())
+                if (panelEnt)
                 {
                     rel.m_ParentHandle = panelEnt.GetUUID();
+                    if (!panelEnt.HasComponent<RelationshipComponent>())
+                        panelEnt.AddComponent<RelationshipComponent>();
                     panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(choiceEntity.GetUUID());
                 }
             }
@@ -331,6 +339,8 @@ namespace OloEngine
 
     void DialogueUIController::ClearChoiceEntities(Scene& scene)
     {
+        OLO_PROFILE_FUNCTION();
+
         for (auto uuid : m_ChoiceEntities)
         {
             Entity ent = scene.GetEntityByUUID(uuid);

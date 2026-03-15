@@ -8,10 +8,9 @@ public class GuardDialogue : Entity
     public override void OnCreate()
     {
         m_Player = FindEntityByName("Player");
-        m_HasStartedDialogue = false;
     }
 
-    public override void OnUpdate(float ts)
+    public override void OnUpdate(float dt)
     {
         if (m_Player == null)
             return;

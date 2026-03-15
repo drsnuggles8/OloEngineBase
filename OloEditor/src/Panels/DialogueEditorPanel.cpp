@@ -351,26 +351,42 @@ namespace OloEngine
     ImU32 DialogueEditorPanel::GetNodeColor(const std::string& type) const
     {
         if (type == "dialogue")
+        {
             return IM_COL32(50, 55, 75, 230);
+        }
         if (type == "choice")
+        {
             return IM_COL32(60, 50, 70, 230);
+        }
         if (type == "condition")
+        {
             return IM_COL32(50, 65, 70, 230);
+        }
         if (type == "action")
+        {
             return IM_COL32(70, 55, 50, 230);
+        }
         return IM_COL32(55, 55, 55, 230);
     }
 
     ImU32 DialogueEditorPanel::GetNodeHeaderColor(const std::string& type) const
     {
         if (type == "dialogue")
+        {
             return IM_COL32(60, 100, 170, 240);
+        }
         if (type == "choice")
+        {
             return IM_COL32(140, 80, 160, 240);
+        }
         if (type == "condition")
+        {
             return IM_COL32(70, 150, 160, 240);
+        }
         if (type == "action")
+        {
             return IM_COL32(180, 100, 60, 240);
+        }
         return IM_COL32(100, 100, 100, 240);
     }
 
