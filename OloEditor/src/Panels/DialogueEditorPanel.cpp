@@ -348,7 +348,7 @@ namespace OloEngine
         return ImVec2(width, height);
     }
 
-    ImU32 DialogueEditorPanel::GetNodeColor(const std::string& type) const
+    auto DialogueEditorPanel::GetNodeColor(const std::string& type) const -> ImU32
     {
         if (type == "dialogue")
         {
@@ -369,7 +369,7 @@ namespace OloEngine
         return IM_COL32(55, 55, 55, 230);
     }
 
-    ImU32 DialogueEditorPanel::GetNodeHeaderColor(const std::string& type) const
+    auto DialogueEditorPanel::GetNodeHeaderColor(const std::string& type) const -> ImU32
     {
         if (type == "dialogue")
         {

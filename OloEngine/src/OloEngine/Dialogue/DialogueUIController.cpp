@@ -77,8 +77,6 @@ namespace OloEngine
                 if (panelEnt)
                 {
                     rel.m_ParentHandle = panelEnt.GetUUID();
-                    if (!panelEnt.HasComponent<RelationshipComponent>())
-                        panelEnt.AddComponent<RelationshipComponent>();
                     panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(speakerEntity.GetUUID());
                 }
             }
@@ -106,8 +104,6 @@ namespace OloEngine
                 if (panelEnt)
                 {
                     rel.m_ParentHandle = panelEnt.GetUUID();
-                    if (!panelEnt.HasComponent<RelationshipComponent>())
-                        panelEnt.AddComponent<RelationshipComponent>();
                     panelEnt.GetComponent<RelationshipComponent>().m_Children.push_back(bodyEntity.GetUUID());
                 }
             }
@@ -120,6 +116,8 @@ namespace OloEngine
 
     void DialogueUIController::Shutdown(Scene& scene)
     {
+        OLO_PROFILE_FUNCTION();
+
         ClearChoiceEntities(scene);
 
         auto destroyIfValid = [&](UUID& uuid)
@@ -238,6 +236,8 @@ namespace OloEngine
 
     void DialogueUIController::ShowDialogueBox(Scene& scene)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (static_cast<u64>(m_CanvasEntity) != 0)
         {
             Entity canvasEnt = scene.GetEntityByUUID(m_CanvasEntity);
@@ -267,6 +267,8 @@ namespace OloEngine
 
     void DialogueUIController::UpdateChoiceEntities(Scene& scene)
     {
+        OLO_PROFILE_FUNCTION();
+
         Entity npcEntity = scene.GetEntityByUUID(m_ActiveNpcEntity);
         if (!npcEntity || !npcEntity.HasComponent<DialogueStateComponent>())
             return;
