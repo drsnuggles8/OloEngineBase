@@ -3,6 +3,8 @@
 #include "OloEngine/Dialogue/DialogueTreeAsset.h"
 #include "OloEngine/Dialogue/DialogueTreeSerializer.h"
 
+#include <algorithm>
+
 using namespace OloEngine;
 
 class DialogueTreeSerializationTest : public ::testing::Test
@@ -93,13 +95,15 @@ TEST_F(DialogueTreeSerializationTest, SerializeAndDeserializeRoundTrip)
     ASSERT_NE(textIt, response->Properties.end());
     EXPECT_EQ(std::get<std::string>(textIt->second), "Move along.");
 
-    // Verify connections
+    // Verify connections (order-independent)
     ASSERT_EQ(deserialized->GetConnections().size(), 2u);
     const auto& conns = deserialized->GetConnections();
-    EXPECT_EQ(conns[0].SourcePort, "output");
-    EXPECT_EQ(conns[0].TargetPort, "input");
-    EXPECT_EQ(conns[1].SourcePort, "I'm a friend.");
-    EXPECT_EQ(conns[1].TargetPort, "input");
+    bool hasOutputConn = std::ranges::any_of(conns, [](const auto& c)
+                                             { return c.SourcePort == "output" && c.TargetPort == "input"; });
+    bool hasChoiceConn = std::ranges::any_of(conns, [](const auto& c)
+                                             { return c.SourcePort == "I'm a friend." && c.TargetPort == "input"; });
+    EXPECT_TRUE(hasOutputConn);
+    EXPECT_TRUE(hasChoiceConn);
 }
 
 TEST_F(DialogueTreeSerializationTest, DeserializeRejectsMissingRootNode)

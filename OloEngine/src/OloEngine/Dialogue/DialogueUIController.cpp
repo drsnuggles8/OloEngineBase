@@ -202,9 +202,15 @@ namespace OloEngine
                 }
                 else
                 {
-                    auto charCount = static_cast<size_t>(
+                    // Compute byte offset that doesn't split a UTF-8 code point
+                    auto targetBytes = static_cast<size_t>(
                         state.m_TextRevealProgress * static_cast<f32>(state.m_CurrentText.size()));
-                    bodyEnt.GetComponent<UITextComponent>().m_Text = state.m_CurrentText.substr(0, charCount);
+                    // Walk back if we're in the middle of a multi-byte sequence
+                    while (targetBytes > 0 && targetBytes < state.m_CurrentText.size() && (static_cast<unsigned char>(state.m_CurrentText[targetBytes]) & 0xC0u) == 0x80u)
+                    {
+                        --targetBytes;
+                    }
+                    bodyEnt.GetComponent<UITextComponent>().m_Text = state.m_CurrentText.substr(0, targetBytes);
                 }
             }
         }
@@ -234,6 +240,25 @@ namespace OloEngine
         }
         else if (state.m_State == DialogueState::WaitingForChoice)
         {
+            // Arrow keys to navigate choices
+            i32 const choiceCount = static_cast<i32>(state.m_AvailableChoices.size());
+            if (choiceCount > 0)
+            {
+                if (Input::IsKeyPressed(Key::Up) && !m_ArrowKeyWasPressed)
+                {
+                    state.m_HoveredChoiceIndex = (state.m_HoveredChoiceIndex <= 0)
+                                                     ? choiceCount - 1
+                                                     : state.m_HoveredChoiceIndex - 1;
+                }
+                if (Input::IsKeyPressed(Key::Down) && !m_ArrowKeyWasPressed)
+                {
+                    state.m_HoveredChoiceIndex = (state.m_HoveredChoiceIndex + 1) % choiceCount;
+                }
+                // Auto-select first choice if none hovered
+                if (state.m_HoveredChoiceIndex < 0)
+                    state.m_HoveredChoiceIndex = 0;
+            }
+
             if (keyPressed && !m_AdvanceKeyWasPressed && state.m_HoveredChoiceIndex >= 0)
             {
                 auto* dialogueSystem = scene.GetDialogueSystem();
@@ -244,6 +269,7 @@ namespace OloEngine
             }
         }
         m_AdvanceKeyWasPressed = keyPressed;
+        m_ArrowKeyWasPressed = Input::IsKeyPressed(Key::Up) || Input::IsKeyPressed(Key::Down);
     }
 
     void DialogueUIController::ShowDialogueBox(Scene& scene)

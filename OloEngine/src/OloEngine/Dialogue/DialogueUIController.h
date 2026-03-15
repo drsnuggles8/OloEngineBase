@@ -38,6 +38,7 @@ namespace OloEngine
         UUID m_ActiveNpcEntity = 0;
 
         bool m_AdvanceKeyWasPressed = false;
+        bool m_ArrowKeyWasPressed = false;
     };
 
 } // namespace OloEngine

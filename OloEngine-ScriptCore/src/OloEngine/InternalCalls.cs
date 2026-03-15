@@ -516,6 +516,8 @@ namespace OloEngine
 		internal static extern void DialogueVariables_SetString(string key, string value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool DialogueVariables_Has(string key);
+		[MethodImplAttribute(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueVariables_Clear();
 		#endregion
 	}
 }

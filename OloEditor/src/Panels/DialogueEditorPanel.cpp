@@ -538,7 +538,11 @@ namespace OloEngine
             drawList->AddBezierCubic(startPos, cp1, cp2, endPos, lineColor, 2.0f * m_Zoom);
 
             // Arrow head at end
-            glm::vec2 const dir = glm::normalize(glm::vec2(endPos.x - cp2.x, endPos.y - cp2.y));
+            glm::vec2 rawDir(endPos.x - cp2.x, endPos.y - cp2.y);
+            f32 const dirLen = glm::length(rawDir);
+            if (dirLen < 1e-6f)
+                continue;
+            glm::vec2 const dir = rawDir / dirLen;
             f32 const arrowSize = 8.0f * m_Zoom;
             ImVec2 const arrow1 = ImVec2(
                 endPos.x - dir.x * arrowSize + dir.y * arrowSize * 0.4f,
@@ -711,6 +715,12 @@ namespace OloEngine
         {
             SaveDialogue();
         }
+
+        // Ctrl+N for new dialogue
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N))
+        {
+            NewDialogue();
+        }
     }
 
     void DialogueEditorPanel::HandleNodeInteraction(const ImVec2& canvasOrigin)
@@ -816,7 +826,7 @@ namespace OloEngine
                             DialogueConnection conn;
                             conn.SourceNodeID = m_ConnectionStartNodeID;
                             conn.TargetNodeID = port.NodeID;
-                            conn.SourcePort = m_ConnectionStartPort;
+                            conn.SourcePort = ResolveSourcePort(m_ConnectionStartPort, m_ConnectionStartNodeID);
                             conn.TargetPort = port.Name;
                             // Prevent duplicate connections
                             bool duplicate = std::ranges::any_of(m_Connections, [&](const auto& c)
@@ -833,7 +843,7 @@ namespace OloEngine
                             DialogueConnection conn;
                             conn.SourceNodeID = port.NodeID;
                             conn.TargetNodeID = m_ConnectionStartNodeID;
-                            conn.SourcePort = port.Name;
+                            conn.SourcePort = ResolveSourcePort(port.Name, port.NodeID);
                             conn.TargetPort = m_ConnectionStartPort;
                             // Prevent duplicate connections
                             bool duplicate = std::ranges::any_of(m_Connections, [&](const auto& c)
@@ -1654,6 +1664,8 @@ namespace OloEngine
         catch (const YAML::Exception& e)
         {
             OLO_CORE_ERROR("DialogueEditorPanel - YAML parse error: {}", e.what());
+            m_CurrentFilePath.clear();
+            m_CurrentAssetHandle = 0;
         }
     }
 
@@ -1820,6 +1832,31 @@ namespace OloEngine
     UUID DialogueEditorPanel::GenerateNodeID()
     {
         return UUID(m_NextNodeID++);
+    }
+
+    std::string DialogueEditorPanel::ResolveSourcePort(const std::string& portName, UUID sourceNodeID)
+    {
+        // "+" is a virtual add-slot on choice nodes — assign a proper label
+        if (portName == "+")
+        {
+            i32 choiceCount = 0;
+            for (const auto& c : m_Connections)
+            {
+                if (c.SourceNodeID == sourceNodeID)
+                    ++choiceCount;
+            }
+            return "choice " + std::to_string(choiceCount + 1);
+        }
+
+        // Deterministic ports (out, true, false) — replace existing connection
+        if (portName == "out" || portName == "true" || portName == "false")
+        {
+            std::erase_if(m_Connections,
+                          [&](const DialogueConnection& c)
+                          { return c.SourceNodeID == sourceNodeID && c.SourcePort == portName; });
+        }
+
+        return portName;
     }
 
 } // namespace OloEngine

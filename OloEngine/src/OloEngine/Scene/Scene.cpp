@@ -345,6 +345,13 @@ namespace OloEngine
         m_DialogueSystem.reset();
         m_DialogueVariables.Clear();
 
+        // Reset per-entity dialogue runtime state
+        for (auto view = m_Registry.view<DialogueComponent>(); auto&& [e, dc] : view.each())
+        {
+            dc.m_HasTriggered = false;
+        }
+        m_Registry.clear<DialogueStateComponent>();
+
         for (auto view = m_Registry.view<AudioSourceComponent>(); auto&& [e, ac] : view.each())
         {
             if (ac.Source)

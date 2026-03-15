@@ -1144,6 +1144,7 @@ namespace OloEngine
     {
         Project::New();
         NewScene();
+        m_DialogueEditorPanel.NewDialogue();
         m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
         BindContentBrowserSelectionCallback();
         m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
@@ -1173,6 +1174,7 @@ namespace OloEngine
             auto startScenePath = Project::GetAssetFileSystemPath(Project::GetActive()->GetConfig().StartScene);
             OLO_ASSERT(std::filesystem::exists(startScenePath));
             OpenScene(startScenePath);
+            m_DialogueEditorPanel.NewDialogue();
             m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
             BindContentBrowserSelectionCallback();
             m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();

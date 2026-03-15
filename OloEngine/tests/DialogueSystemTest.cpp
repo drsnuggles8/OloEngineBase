@@ -229,6 +229,25 @@ TEST(DialogueComponentTest, CopyDoesNotCopyHasTriggered)
     EXPECT_FALSE(copy.m_HasTriggered); // runtime-only, not copied
 }
 
+TEST(DialogueComponentTest, AssignmentDoesNotCopyHasTriggered)
+{
+    DialogueComponent original;
+    original.m_DialogueTree = 99;
+    original.m_AutoTrigger = true;
+    original.m_TriggerRadius = 7.0f;
+    original.m_TriggerOnce = true;
+    original.m_HasTriggered = true;
+
+    DialogueComponent assigned;
+    assigned.m_HasTriggered = true; // set before assignment
+    assigned = original;
+    EXPECT_EQ(static_cast<u64>(assigned.m_DialogueTree), 99u);
+    EXPECT_TRUE(assigned.m_AutoTrigger);
+    EXPECT_FLOAT_EQ(assigned.m_TriggerRadius, 7.0f);
+    EXPECT_TRUE(assigned.m_TriggerOnce);
+    EXPECT_FALSE(assigned.m_HasTriggered); // runtime-only, not copied via assignment
+}
+
 TEST(DialogueChoiceTest, ChoiceDataStructure)
 {
     DialogueChoice choice;

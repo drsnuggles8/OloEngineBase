@@ -1076,5 +1076,7 @@ namespace OloEngine
 			=> InternalCalls.DialogueVariables_SetString(key, value);
 		public static bool Has(string key)
 			=> InternalCalls.DialogueVariables_Has(key);
+		public static void Clear()
+			=> InternalCalls.DialogueVariables_Clear();
 	}
 }

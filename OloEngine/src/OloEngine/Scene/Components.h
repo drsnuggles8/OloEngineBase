@@ -1211,6 +1211,18 @@ namespace OloEngine
             : m_DialogueTree(other.m_DialogueTree), m_AutoTrigger(other.m_AutoTrigger), m_TriggerRadius(other.m_TriggerRadius), m_HasTriggered(false), m_TriggerOnce(other.m_TriggerOnce)
         {
         }
+        DialogueComponent& operator=(const DialogueComponent& other)
+        {
+            if (this != &other)
+            {
+                m_DialogueTree = other.m_DialogueTree;
+                m_AutoTrigger = other.m_AutoTrigger;
+                m_TriggerRadius = other.m_TriggerRadius;
+                m_HasTriggered = false;
+                m_TriggerOnce = other.m_TriggerOnce;
+            }
+            return *this;
+        }
     };
 
     enum class DialogueState : u8

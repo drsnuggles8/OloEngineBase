@@ -1519,6 +1519,14 @@ namespace OloEngine
         return scene->GetDialogueVariables().Has(Utils::MonoStringToString(key));
     }
 
+    static void DialogueVariables_Clear()
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetDialogueVariables().Clear();
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -1867,6 +1875,7 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(DialogueVariables_GetString);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_SetString);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_Has);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_Clear);
     }
 
 } // namespace OloEngine

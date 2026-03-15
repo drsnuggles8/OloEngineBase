@@ -12,11 +12,14 @@ namespace OloEngine
     DialogueSystem::DialogueSystem(Scene* scene)
         : m_Scene(scene)
     {
+        OLO_CORE_ASSERT(scene, "DialogueSystem created with null scene");
         m_UIController.Initialize(*scene);
     }
 
     DialogueSystem::~DialogueSystem()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Scene)
         {
             m_UIController.Shutdown(*m_Scene);
@@ -195,11 +198,13 @@ namespace OloEngine
 
     void DialogueSystem::RegisterConditionHandler(const std::string& name, ConditionCallback handler)
     {
+        OLO_PROFILE_FUNCTION();
         m_ConditionHandlers[name] = std::move(handler);
     }
 
     void DialogueSystem::RegisterActionHandler(const std::string& name, ActionCallback handler)
     {
+        OLO_PROFILE_FUNCTION();
         m_ActionHandlers[name] = std::move(handler);
     }
 

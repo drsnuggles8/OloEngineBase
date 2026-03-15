@@ -3131,7 +3131,11 @@ namespace OloEngine
                         AssetHandle importedHandle = assetManager->ImportAsset(filepath);
                         if (importedHandle != 0)
                         {
-                            component.m_DialogueTree = importedHandle;
+                            auto metadata = AssetManager::GetAssetMetadata(importedHandle);
+                            if (metadata.Type == AssetType::DialogueTree)
+                                component.m_DialogueTree = importedHandle;
+                            else
+                                OLO_CORE_WARN("Imported asset is not a DialogueTree");
                         }
                     }
                 }

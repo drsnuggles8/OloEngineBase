@@ -373,5 +373,18 @@ namespace OloEngine
             if (scene)
                 scene->GetDialogueVariables().SetString(key, val);
         };
+        varsTable["has"] = [](const std::string& key) -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return false;
+            return scene->GetDialogueVariables().Has(key);
+        };
+        varsTable["clear"] = []()
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene)
+                scene->GetDialogueVariables().Clear();
+        };
     }
 } // namespace OloEngine

@@ -39,6 +39,9 @@ namespace OloEngine
             return m_IsOpen;
         }
 
+        // Reset the panel to a clean state (e.g. on project switch)
+        void NewDialogue();
+
       private:
         // --- Canvas rendering ---
         void DrawCanvas();
@@ -85,7 +88,6 @@ namespace OloEngine
         // --- Serialization ---
         void SaveDialogue();
         void LoadDialogue(const std::filesystem::path& path);
-        void NewDialogue();
 
         // --- Node operations ---
         UUID CreateNode(const std::string& type, const glm::vec2& position);
@@ -100,6 +102,7 @@ namespace OloEngine
         // --- Helpers ---
         DialogueNodeData* FindNodeMutable(UUID nodeID);
         UUID GenerateNodeID();
+        std::string ResolveSourcePort(const std::string& portName, UUID sourceNodeID);
 
       private:
         bool m_IsOpen = true;
