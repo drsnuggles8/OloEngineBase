@@ -4,6 +4,8 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 
+#include <vector>
+
 namespace OloEngine
 {
     class CommandHistory;
@@ -22,11 +24,20 @@ namespace OloEngine
 
         void OnImGuiRender();
 
+        // Single selection (primary — used for Properties panel and gizmos)
         [[nodiscard("Store this!")]] Entity GetSelectedEntity() const
         {
             return m_SelectionContext;
         }
         void SetSelectedEntity(Entity entity);
+
+        // Multi-selection
+        [[nodiscard("Store this!")]] const std::vector<Entity>& GetSelectedEntities() const
+        {
+            return m_SelectedEntities;
+        }
+        void ClearSelection();
+        void DeleteSelectedEntities();
 
       private:
         template<typename T>
@@ -38,12 +49,18 @@ namespace OloEngine
         Entity FindOrCreateCanvas();
         Entity CreateUIWidget(const std::string& name);
 
+        bool IsEntitySelected(Entity entity) const;
+
       private:
         Ref<Scene> m_Context;
         Entity m_SelectionContext;
+        std::vector<Entity> m_SelectedEntities;
         CommandHistory* m_CommandHistory = nullptr;
 
         // Rename tracking for undo
         std::string m_RenameOldName;
+
+        // Entity search filter
+        char m_FilterText[256] = {};
     };
 } // namespace OloEngine

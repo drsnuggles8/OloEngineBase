@@ -32,6 +32,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <algorithm>
 #include <thread>
 
 namespace OloEngine
@@ -591,10 +592,14 @@ namespace OloEngine
 
             // Snapping
             const bool snap = Input::IsKeyPressed(Key::LeftControl);
-            f32 snapValue = 0.5f;
+            f32 snapValue = m_TranslateSnap;
             if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
             {
-                snapValue = 45.0f;
+                snapValue = m_RotateSnap;
+            }
+            else if (m_GizmoType == ImGuizmo::OPERATION::SCALE)
+            {
+                snapValue = m_ScaleSnap;
             }
 
             const std::array<f32, 3> snapValues = { snapValue, snapValue, snapValue };
@@ -849,6 +854,14 @@ namespace OloEngine
             ImGui::SetTooltip("Enable expensive physics debug capture during play mode.\nOff by default for production performance.");
         }
 
+        ImGui::Separator();
+
+        // Transform Snapping
+        ImGui::Text("Transform Snapping");
+        ImGui::DragFloat("Translate Snap", &m_TranslateSnap, 0.05f, 0.01f, 100.0f, "%.2f");
+        ImGui::DragFloat("Rotate Snap", &m_RotateSnap, 1.0f, 1.0f, 180.0f, "%.1f deg");
+        ImGui::DragFloat("Scale Snap", &m_ScaleSnap, 0.05f, 0.01f, 10.0f, "%.2f");
+
         if (!s_Font)
         {
             s_Font = std::make_unique<Font>("assets/fonts/opensans/OpenSans-Regular.ttf");
@@ -1082,13 +1095,27 @@ namespace OloEngine
             {
                 if (m_SceneState == SceneState::Edit)
                 {
-                    Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
-                    if (selectedEntity)
+                    const auto& selected = m_SceneHierarchyPanel.GetSelectedEntities();
+                    if (selected.size() > 1)
                     {
+                        auto compound = std::make_unique<CompoundCommand>("Delete " + std::to_string(selected.size()) + " Entities");
+                        for (auto& entity : selected)
+                        {
+                            compound->Add(std::make_unique<DeleteEntityCommand>(
+                                m_EditorScene, entity,
+                                []() {},
+                                [](Entity) {}));
+                        }
+                        m_CommandHistory.Execute(std::move(compound));
+                        m_SceneHierarchyPanel.ClearSelection();
+                    }
+                    else if (!selected.empty())
+                    {
+                        Entity selectedEntity = selected[0];
                         m_CommandHistory.Execute(std::make_unique<DeleteEntityCommand>(
                             m_EditorScene, selectedEntity,
                             [this]()
-                            { m_SceneHierarchyPanel.SetSelectedEntity({}); },
+                            { m_SceneHierarchyPanel.ClearSelection(); },
                             [this](Entity restored)
                             { m_SceneHierarchyPanel.SetSelectedEntity(restored); }));
                     }
@@ -1131,12 +1158,18 @@ namespace OloEngine
         }
 
         // Entity outline
-        if (Entity selection = m_SceneHierarchyPanel.GetSelectedEntity(); selection)
+        const auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
+        if (!selectedEntities.empty())
         {
             Renderer2D::SetLineWidth(4.0f);
 
-            if (selection.HasComponent<TransformComponent>())
+            for (const auto& selection : selectedEntities)
             {
+                if (!selection || !selection.HasComponent<TransformComponent>())
+                {
+                    continue;
+                }
+
                 auto const& tc = selection.GetComponent<TransformComponent>();
 
                 if (selection.HasComponent<SpriteRendererComponent>())
@@ -1156,15 +1189,12 @@ namespace OloEngine
 
                     if (cc.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
                     {
-                        // For orthographic cameras, we can still use a rectangle as an indicator
                         glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(glm::quat(tc.Rotation)) * glm::scale(glm::mat4(1.0f), glm::vec3(cc.Camera.GetOrthographicSize(), cc.Camera.GetOrthographicSize(), 1.0f) + glm::vec3(0.03f));
                         Renderer2D::DrawRect(transform, glm::vec4(1, 1, 1, 1));
                     }
                     else if (cc.Camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
                     {
-                        // auto position = glm::vec3(tc.Translation.x, tc.Translation.y, 0.0f);
-                        // auto size = glm::vec2(0.5f); // adjust as needed
-                        //  TODO(olbu): Draw the selected camera properly once the Renderer2D can draw triangles/points
+                        // TODO(olbu): Draw the selected camera properly once the Renderer2D can draw triangles/points
                     }
                 }
             }

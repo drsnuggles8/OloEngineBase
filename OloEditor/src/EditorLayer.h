@@ -129,6 +129,11 @@ namespace OloEngine
         bool m_ShowPhysicsColliders = false;
         bool m_Is3DMode = true; // Toggle for 2D/3D rendering
 
+        // Transform snapping
+        f32 m_TranslateSnap = 0.5f;
+        f32 m_RotateSnap = 45.0f;
+        f32 m_ScaleSnap = 0.5f;
+
         // Debug windows
         bool m_ShowShaderDebugger = false;
         bool m_ShowGPUResourceInspector = false;

@@ -28,6 +28,7 @@
 
 #include <cstring>
 #include <unordered_map>
+#include <algorithm>
 
 namespace OloEngine
 {
@@ -40,6 +41,7 @@ namespace OloEngine
     {
         m_Context = context;
         m_SelectionContext = {};
+        m_SelectedEntities.clear();
     }
 
     void SceneHierarchyPanel::OnImGuiRender()
@@ -48,12 +50,42 @@ namespace OloEngine
 
         if (m_Context)
         {
+            // Search / filter bar
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputTextWithHint("##EntityFilter", "Search entities...", m_FilterText, sizeof(m_FilterText));
+            ImGui::Separator();
+
+            const bool hasFilter = m_FilterText[0] != '\0';
+
             m_Context->m_Registry.view<entt::entity>().each([&](const auto e)
-                                                            { DrawEntityNode({ e, *m_Context }); });
+                                                            {
+                Entity entity{ e, *m_Context };
+                if (hasFilter)
+                {
+                    auto& tag = entity.GetComponent<TagComponent>().Tag;
+                    // Case-insensitive substring match
+                    auto caseInsensitiveFind = [](const std::string& haystack, const char* needle) -> bool
+                    {
+                        if (!needle[0])
+                        {
+                            return true;
+                        }
+                        auto it = std::search(
+                            haystack.begin(), haystack.end(),
+                            needle, needle + std::strlen(needle),
+                            [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
+                        return it != haystack.end();
+                    };
+                    if (!caseInsensitiveFind(tag, m_FilterText))
+                    {
+                        return;
+                    }
+                }
+                DrawEntityNode(entity); });
 
             if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
             {
-                m_SelectionContext = {};
+                ClearSelection();
             }
 
             // Right-click on blank space (not on an entity item)
@@ -216,9 +248,13 @@ namespace OloEngine
         ImGui::End();
 
         ImGui::Begin("Properties");
-        if (m_SelectionContext)
+        if (m_SelectionContext && m_SelectedEntities.size() <= 1)
         {
             DrawComponents(m_SelectionContext);
+        }
+        else if (m_SelectedEntities.size() > 1)
+        {
+            ImGui::TextDisabled("%zu entities selected", m_SelectedEntities.size());
         }
 
         ImGui::End();
@@ -227,6 +263,62 @@ namespace OloEngine
     void SceneHierarchyPanel::SetSelectedEntity(const Entity entity)
     {
         m_SelectionContext = entity;
+        m_SelectedEntities.clear();
+        if (entity)
+        {
+            m_SelectedEntities.push_back(entity);
+        }
+    }
+
+    void SceneHierarchyPanel::ClearSelection()
+    {
+        m_SelectionContext = {};
+        m_SelectedEntities.clear();
+    }
+
+    void SceneHierarchyPanel::DeleteSelectedEntities()
+    {
+        if (m_SelectedEntities.empty())
+        {
+            return;
+        }
+
+        if (m_CommandHistory && m_SelectedEntities.size() > 1)
+        {
+            auto compound = std::make_unique<CompoundCommand>("Delete " + std::to_string(m_SelectedEntities.size()) + " Entities");
+            for (auto& entity : m_SelectedEntities)
+            {
+                compound->Add(std::make_unique<DeleteEntityCommand>(
+                    m_Context, entity,
+                    []() {},
+                    [](Entity) {}));
+            }
+            m_CommandHistory->Execute(std::move(compound));
+            ClearSelection();
+        }
+        else if (m_SelectedEntities.size() == 1)
+        {
+            Entity entity = m_SelectedEntities[0];
+            if (m_CommandHistory)
+            {
+                m_CommandHistory->Execute(std::make_unique<DeleteEntityCommand>(
+                    m_Context, entity,
+                    [this]()
+                    { ClearSelection(); },
+                    [this](Entity restored)
+                    { SetSelectedEntity(restored); }));
+            }
+            else
+            {
+                m_Context->DestroyEntity(entity);
+                ClearSelection();
+            }
+        }
+    }
+
+    bool SceneHierarchyPanel::IsEntitySelected(Entity entity) const
+    {
+        return std::ranges::find(m_SelectedEntities, entity) != m_SelectedEntities.end();
     }
 
     Entity SceneHierarchyPanel::FindOrCreateCanvas()
@@ -261,15 +353,61 @@ namespace OloEngine
         auto& tagComponent = entity.GetComponent<TagComponent>();
         auto& tag = tagComponent.Tag;
 
-        ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
+        ImGuiTreeNodeFlags flags = (IsEntitySelected(entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
         flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
         bool opened = ImGui::TreeNodeEx((void*)static_cast<u64>(static_cast<u32>(entity)), flags, tag.c_str());
         if (ImGui::IsItemClicked())
         {
-            m_SelectionContext = entity;
+            const bool ctrl = ImGui::GetIO().KeyCtrl;
+            const bool shift = ImGui::GetIO().KeyShift;
+
+            if (ctrl)
+            {
+                // Ctrl+click: toggle entity in multi-selection
+                if (auto it = std::ranges::find(m_SelectedEntities, entity); it != m_SelectedEntities.end())
+                {
+                    m_SelectedEntities.erase(it);
+                    m_SelectionContext = m_SelectedEntities.empty() ? Entity{} : m_SelectedEntities.back();
+                }
+                else
+                {
+                    m_SelectedEntities.push_back(entity);
+                    m_SelectionContext = entity;
+                }
+            }
+            else if (shift && m_SelectionContext)
+            {
+                // Shift+click: select range between last clicked and this entity
+                // Collect visible entities in order
+                std::vector<Entity> visible;
+                m_Context->m_Registry.view<entt::entity>().each([&](const auto e)
+                                                                { visible.emplace_back(e, *m_Context); });
+
+                auto itA = std::ranges::find(visible, m_SelectionContext);
+                auto itB = std::ranges::find(visible, entity);
+                if (itA != visible.end() && itB != visible.end())
+                {
+                    if (itA > itB)
+                    {
+                        std::swap(itA, itB);
+                    }
+                    m_SelectedEntities.clear();
+                    for (auto it = itA; it <= itB; ++it)
+                    {
+                        m_SelectedEntities.push_back(*it);
+                    }
+                    m_SelectionContext = entity;
+                }
+            }
+            else
+            {
+                // Regular click: single select
+                SetSelectedEntity(entity);
+            }
         }
 
         bool entityDeleted = false;
+        bool deleteAll = false;
         if (ImGui::BeginPopupContextItem())
         {
             if (ImGui::MenuItem("Rename"))
@@ -281,6 +419,14 @@ namespace OloEngine
             if (ImGui::MenuItem("Delete Entity"))
             {
                 entityDeleted = true;
+            }
+
+            if (m_SelectedEntities.size() > 1 && IsEntitySelected(entity))
+            {
+                if (ImGui::MenuItem("Delete All Selected"))
+                {
+                    deleteAll = true;
+                }
             }
 
             ImGui::EndPopup();
@@ -313,16 +459,20 @@ namespace OloEngine
             ImGui::TreePop();
         }
 
-        if (entityDeleted)
+        if (deleteAll)
+        {
+            DeleteSelectedEntities();
+        }
+        else if (entityDeleted)
         {
             if (m_CommandHistory)
             {
                 m_CommandHistory->Execute(std::make_unique<DeleteEntityCommand>(
                     m_Context, entity,
                     [this]()
-                    { m_SelectionContext = {}; },
+                    { ClearSelection(); },
                     [this](Entity restored)
-                    { m_SelectionContext = restored; }));
+                    { SetSelectedEntity(restored); }));
             }
             else
             {
@@ -331,7 +481,7 @@ namespace OloEngine
 
             if (m_SelectionContext == entity)
             {
-                m_SelectionContext = {};
+                ClearSelection();
             }
         }
     }
