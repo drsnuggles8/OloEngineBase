@@ -184,3 +184,47 @@ TEST_F(DialogueTreeSerializationTest, SingleNodeNoConnections)
     EXPECT_EQ(deserialized->GetNodes().size(), 1u);
     EXPECT_TRUE(deserialized->GetConnections().empty());
 }
+
+TEST_F(DialogueTreeSerializationTest, RoundTripPreservesAllPropertyTypes)
+{
+    auto asset = Ref<DialogueTreeAsset>::Create();
+
+    DialogueNodeData node;
+    node.ID = UUID(7000);
+    node.Type = "action";
+    node.Name = "TypeTest";
+    node.Properties["strProp"] = std::string("hello");
+    node.Properties["boolProp"] = true;
+    node.Properties["intProp"] = i32(42);
+    node.Properties["floatProp"] = f32(3.14f);
+    node.EditorPosition = { 10.0f, 20.0f };
+
+    asset->GetNodesWritable().push_back(std::move(node));
+    asset->SetRootNodeID(UUID(7000));
+    asset->RebuildNodeIndex();
+
+    std::string yaml = serializer.TestSerializeToYAML(asset);
+    ASSERT_FALSE(yaml.empty());
+
+    auto deserialized = Ref<DialogueTreeAsset>::Create();
+    ASSERT_TRUE(serializer.TestDeserializeFromYAML(yaml, deserialized));
+
+    auto* n = deserialized->FindNode(UUID(7000));
+    ASSERT_NE(n, nullptr);
+
+    auto strIt = n->Properties.find("strProp");
+    ASSERT_NE(strIt, n->Properties.end());
+    EXPECT_EQ(std::get<std::string>(strIt->second), "hello");
+
+    auto boolIt = n->Properties.find("boolProp");
+    ASSERT_NE(boolIt, n->Properties.end());
+    EXPECT_EQ(std::get<bool>(boolIt->second), true);
+
+    auto intIt = n->Properties.find("intProp");
+    ASSERT_NE(intIt, n->Properties.end());
+    EXPECT_EQ(std::get<i32>(intIt->second), 42);
+
+    auto floatIt = n->Properties.find("floatProp");
+    ASSERT_NE(floatIt, n->Properties.end());
+    EXPECT_FLOAT_EQ(std::get<f32>(floatIt->second), 3.14f);
+}

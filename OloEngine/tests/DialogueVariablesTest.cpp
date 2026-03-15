@@ -36,6 +36,15 @@ TEST_F(DialogueVariablesTest, SetAndGetString)
     EXPECT_EQ(vars.GetString("playerName"), "Villain");
 }
 
+TEST_F(DialogueVariablesTest, SetAndGetFloat)
+{
+    vars.SetFloat("speed", 1.5f);
+    EXPECT_FLOAT_EQ(vars.GetFloat("speed"), 1.5f);
+
+    vars.SetFloat("speed", 3.14f);
+    EXPECT_FLOAT_EQ(vars.GetFloat("speed"), 3.14f);
+}
+
 TEST_F(DialogueVariablesTest, GetMissingKeyReturnsDefault)
 {
     EXPECT_FALSE(vars.GetBool("nonexistent"));
@@ -43,6 +52,9 @@ TEST_F(DialogueVariablesTest, GetMissingKeyReturnsDefault)
 
     EXPECT_EQ(vars.GetInt("nonexistent"), 0);
     EXPECT_EQ(vars.GetInt("nonexistent", 42), 42);
+
+    EXPECT_FLOAT_EQ(vars.GetFloat("nonexistent"), 0.0f);
+    EXPECT_FLOAT_EQ(vars.GetFloat("nonexistent", 2.5f), 2.5f);
 
     EXPECT_EQ(vars.GetString("nonexistent"), "");
     EXPECT_EQ(vars.GetString("nonexistent", "fallback"), "fallback");

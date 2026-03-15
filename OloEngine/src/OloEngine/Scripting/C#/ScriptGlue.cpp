@@ -1350,6 +1350,7 @@ namespace OloEngine
 
     static void DialogueComponent_StartDialogue(UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1361,6 +1362,7 @@ namespace OloEngine
 
     static void DialogueComponent_AdvanceDialogue(UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1372,6 +1374,7 @@ namespace OloEngine
 
     static void DialogueComponent_SelectChoice(UUID entityID, i32 choiceIndex)
     {
+        OLO_PROFILE_FUNCTION();
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1383,6 +1386,7 @@ namespace OloEngine
 
     static bool DialogueComponent_IsDialogueActive(UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1392,6 +1396,7 @@ namespace OloEngine
 
     static void DialogueComponent_EndDialogue(UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1403,6 +1408,7 @@ namespace OloEngine
 
     static bool DialogueVariables_GetBool(MonoString* key, bool defaultValue)
     {
+        OLO_PROFILE_FUNCTION();
         if (!key)
         {
             return defaultValue;
@@ -1414,6 +1420,7 @@ namespace OloEngine
 
     static void DialogueVariables_SetBool(MonoString* key, bool value)
     {
+        OLO_PROFILE_FUNCTION();
         if (!key)
         {
             return;
@@ -1425,6 +1432,7 @@ namespace OloEngine
 
     static i32 DialogueVariables_GetInt(MonoString* key, i32 defaultValue)
     {
+        OLO_PROFILE_FUNCTION();
         if (!key)
         {
             return defaultValue;
@@ -1436,6 +1444,7 @@ namespace OloEngine
 
     static void DialogueVariables_SetInt(MonoString* key, i32 value)
     {
+        OLO_PROFILE_FUNCTION();
         if (!key)
         {
             return;
@@ -1445,8 +1454,33 @@ namespace OloEngine
         scene->GetDialogueVariables().SetInt(Utils::MonoStringToString(key), value);
     }
 
+    static f32 DialogueVariables_GetFloat(MonoString* key, f32 defaultValue)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return defaultValue;
+        }
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return scene->GetDialogueVariables().GetFloat(Utils::MonoStringToString(key), defaultValue);
+    }
+
+    static void DialogueVariables_SetFloat(MonoString* key, f32 value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        scene->GetDialogueVariables().SetFloat(Utils::MonoStringToString(key), value);
+    }
+
     static MonoString* DialogueVariables_GetString(MonoString* key, MonoString* defaultValue)
     {
+        OLO_PROFILE_FUNCTION();
         if (!key)
         {
             return defaultValue;
@@ -1461,6 +1495,7 @@ namespace OloEngine
 
     static void DialogueVariables_SetString(MonoString* key, MonoString* value)
     {
+        OLO_PROFILE_FUNCTION();
         if (!key)
         {
             return;
@@ -1474,6 +1509,7 @@ namespace OloEngine
 
     static bool DialogueVariables_Has(MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
         if (!key)
         {
             return false;
@@ -1826,6 +1862,8 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(DialogueVariables_SetBool);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_GetInt);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_SetInt);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_GetFloat);
+        OLO_ADD_INTERNAL_CALL(DialogueVariables_SetFloat);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_GetString);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_SetString);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_Has);

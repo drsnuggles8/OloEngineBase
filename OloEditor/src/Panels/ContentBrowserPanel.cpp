@@ -4,6 +4,9 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Core/YAMLConverters.h"
+#include "OloEngine/Dialogue/DialogueTreeAsset.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Dialogue/DialogueTreeSerializer.h"
 
 #include <imgui.h>
 #include <yaml-cpp/yaml.h>
@@ -399,42 +402,25 @@ namespace OloEngine
                     {
                         dialoguePath = m_CurrentDirectory / (baseName + "_" + std::to_string(counter++) + ".olodialogue");
                     }
-                    YAML::Emitter out;
-                    out << YAML::BeginMap;
-                    out << YAML::Key << "DialogueTree" << YAML::Value << YAML::BeginMap;
-                    out << YAML::Key << "RootNodeID" << YAML::Value << 1;
-                    out << YAML::Key << "Nodes" << YAML::Value << YAML::BeginSeq;
-                    out << YAML::BeginMap;
-                    out << YAML::Key << "ID" << YAML::Value << 1;
-                    out << YAML::Key << "Type" << YAML::Value << "dialogue";
-                    out << YAML::Key << "Name" << YAML::Value << "Start";
-                    out << YAML::Key << "EditorPosition" << YAML::Value << YAML::Flow << YAML::BeginSeq << 0 << 0 << YAML::EndSeq;
-                    out << YAML::Key << "Properties" << YAML::Value << YAML::BeginMap;
-                    out << YAML::Key << "speaker" << YAML::Value << YAML::BeginMap;
-                    out << YAML::Key << "type" << YAML::Value << "string";
-                    out << YAML::Key << "value" << YAML::Value << "NPC";
-                    out << YAML::EndMap;
-                    out << YAML::Key << "text" << YAML::Value << YAML::BeginMap;
-                    out << YAML::Key << "type" << YAML::Value << "string";
-                    out << YAML::Key << "value" << YAML::Value << "Hello there!";
-                    out << YAML::EndMap;
-                    out << YAML::EndMap;
-                    out << YAML::EndMap;
-                    out << YAML::EndSeq;
-                    out << YAML::Key << "Connections" << YAML::Value << YAML::BeginSeq << YAML::EndSeq;
-                    out << YAML::EndMap;
-                    out << YAML::EndMap;
 
-                    std::ofstream fout(dialoguePath);
-                    if (!fout)
-                    {
-                        OLO_CORE_ERROR("Failed to create dialogue file: {}", dialoguePath.string());
-                        ImGui::CloseCurrentPopup();
-                        ImGui::EndMenu();
-                        return;
-                    }
-                    fout << out.c_str();
-                    fout.close();
+                    auto dialogueAsset = Ref<DialogueTreeAsset>::Create();
+                    DialogueNodeData rootNode;
+                    rootNode.ID = UUID(1);
+                    rootNode.Type = "dialogue";
+                    rootNode.Name = "Start";
+                    rootNode.Properties["speaker"] = std::string("NPC");
+                    rootNode.Properties["text"] = std::string("Hello there!");
+                    rootNode.EditorPosition = { 0.0f, 0.0f };
+                    dialogueAsset->GetNodesWritable().push_back(std::move(rootNode));
+                    dialogueAsset->SetRootNodeID(UUID(1));
+                    dialogueAsset->RebuildNodeIndex();
+
+                    AssetMetadata metadata;
+                    metadata.FilePath = std::filesystem::relative(dialoguePath, Project::GetAssetDirectory());
+                    metadata.Type = AssetType::DialogueTree;
+
+                    DialogueTreeSerializer serializer;
+                    serializer.Serialize(metadata, dialogueAsset);
 
                     OLO_CORE_INFO("Created dialogue tree: {}", dialoguePath.string());
                     ImGui::CloseCurrentPopup();

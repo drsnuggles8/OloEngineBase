@@ -818,8 +818,14 @@ namespace OloEngine
                             conn.TargetNodeID = port.NodeID;
                             conn.SourcePort = m_ConnectionStartPort;
                             conn.TargetPort = port.Name;
-                            m_Connections.push_back(conn);
-                            m_IsDirty = true;
+                            // Prevent duplicate connections
+                            bool duplicate = std::ranges::any_of(m_Connections, [&](const auto& c)
+                                                                 { return c.SourceNodeID == conn.SourceNodeID && c.SourcePort == conn.SourcePort && c.TargetNodeID == conn.TargetNodeID && c.TargetPort == conn.TargetPort; });
+                            if (!duplicate)
+                            {
+                                m_Connections.push_back(conn);
+                                m_IsDirty = true;
+                            }
                             connected = true;
                         }
                         else if (!m_ConnectionStartIsOutput && port.IsOutput)
@@ -829,8 +835,14 @@ namespace OloEngine
                             conn.TargetNodeID = m_ConnectionStartNodeID;
                             conn.SourcePort = port.Name;
                             conn.TargetPort = m_ConnectionStartPort;
-                            m_Connections.push_back(conn);
-                            m_IsDirty = true;
+                            // Prevent duplicate connections
+                            bool duplicate = std::ranges::any_of(m_Connections, [&](const auto& c)
+                                                                 { return c.SourceNodeID == conn.SourceNodeID && c.SourcePort == conn.SourcePort && c.TargetNodeID == conn.TargetNodeID && c.TargetPort == conn.TargetPort; });
+                            if (!duplicate)
+                            {
+                                m_Connections.push_back(conn);
+                                m_IsDirty = true;
+                            }
                             connected = true;
                         }
                         break;
@@ -1019,6 +1031,21 @@ namespace OloEngine
                 node.Properties["conditionExpression"] = std::string(exprBuf);
                 m_IsDirty = true;
             }
+
+            std::string condArgs;
+            if (auto it = node.Properties.find("conditionArgs"); it != node.Properties.end())
+            {
+                if (auto* str = std::get_if<std::string>(&it->second))
+                    condArgs = *str;
+            }
+            char condArgsBuf[512];
+            std::snprintf(condArgsBuf, sizeof(condArgsBuf), "%s", condArgs.c_str());
+            if (ImGui::InputText("Condition Args", condArgsBuf, sizeof(condArgsBuf)))
+            {
+                node.Properties["conditionArgs"] = std::string(condArgsBuf);
+                m_IsDirty = true;
+            }
+
             ImGui::TextWrapped("Variable name checked against DialogueVariables.\ntrue/false ports route flow.");
         }
         else if (node.Type == "action")
@@ -1542,6 +1569,8 @@ namespace OloEngine
         if (!std::filesystem::exists(path))
         {
             OLO_CORE_ERROR("DialogueEditorPanel - File not found: {}", path.string());
+            m_CurrentFilePath.clear();
+            m_CurrentAssetHandle = 0;
             return;
         }
 
@@ -1552,6 +1581,8 @@ namespace OloEngine
             if (!dialogueTree)
             {
                 OLO_CORE_ERROR("DialogueEditorPanel - Invalid dialogue file: {}", path.string());
+                m_CurrentFilePath.clear();
+                m_CurrentAssetHandle = 0;
                 return;
             }
 

@@ -347,6 +347,19 @@ namespace OloEngine
             if (scene)
                 scene->GetDialogueVariables().SetInt(key, val);
         };
+        varsTable["get_float"] = [](const std::string& key) -> f32
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return 0.0f;
+            return scene->GetDialogueVariables().GetFloat(key);
+        };
+        varsTable["set_float"] = [](const std::string& key, f32 val)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (scene)
+                scene->GetDialogueVariables().SetFloat(key, val);
+        };
         varsTable["get_string"] = [](const std::string& key) -> std::string
         {
             Scene* scene = ScriptEngine::GetSceneContext();

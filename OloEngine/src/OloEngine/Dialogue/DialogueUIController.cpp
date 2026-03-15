@@ -164,6 +164,7 @@ namespace OloEngine
         {
             if (m_IsVisible)
             {
+                ClearChoiceEntities(scene);
                 HideDialogueBox(scene);
             }
             m_AdvanceKeyWasPressed = false;
@@ -228,6 +229,17 @@ namespace OloEngine
                 if (dialogueSystem)
                 {
                     dialogueSystem->AdvanceDialogue(npcEntity);
+                }
+            }
+        }
+        else if (state.m_State == DialogueState::WaitingForChoice)
+        {
+            if (keyPressed && !m_AdvanceKeyWasPressed && state.m_HoveredChoiceIndex >= 0)
+            {
+                auto* dialogueSystem = scene.GetDialogueSystem();
+                if (dialogueSystem)
+                {
+                    dialogueSystem->SelectChoice(npcEntity, state.m_HoveredChoiceIndex);
                 }
             }
         }

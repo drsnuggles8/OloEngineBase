@@ -507,6 +507,10 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void DialogueVariables_SetInt(string key, int value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float DialogueVariables_GetFloat(string key, float defaultValue);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueVariables_SetFloat(string key, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern string DialogueVariables_GetString(string key, string defaultValue);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void DialogueVariables_SetString(string key, string value);

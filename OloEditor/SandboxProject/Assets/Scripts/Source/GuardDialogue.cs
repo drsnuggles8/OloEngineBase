@@ -2,6 +2,8 @@ using OloEngine;
 
 public class GuardDialogue : Entity
 {
+    public float triggerDistance = 3f;
+
     private Entity m_Player;
     private bool m_HasStartedDialogue;
 
@@ -34,7 +36,7 @@ public class GuardDialogue : Entity
         var playerPos = playerTransform.Translation;
         float dist = Vector3.Distance(npcPos, playerPos);
 
-        if (dist < 3.0f)
+        if (dist < triggerDistance)
         {
             if (!m_HasStartedDialogue)
             {

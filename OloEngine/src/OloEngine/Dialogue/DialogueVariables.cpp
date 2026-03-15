@@ -1,10 +1,12 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 namespace OloEngine
 {
     bool DialogueVariables::GetBool(const std::string& key, bool defaultValue) const
     {
+        OLO_PROFILE_FUNCTION();
         auto it = m_Variables.find(key);
         if (it == m_Variables.end())
             return defaultValue;
@@ -15,6 +17,7 @@ namespace OloEngine
 
     i32 DialogueVariables::GetInt(const std::string& key, i32 defaultValue) const
     {
+        OLO_PROFILE_FUNCTION();
         auto it = m_Variables.find(key);
         if (it == m_Variables.end())
             return defaultValue;
@@ -25,6 +28,7 @@ namespace OloEngine
 
     f32 DialogueVariables::GetFloat(const std::string& key, f32 defaultValue) const
     {
+        OLO_PROFILE_FUNCTION();
         auto it = m_Variables.find(key);
         if (it == m_Variables.end())
             return defaultValue;
@@ -35,6 +39,7 @@ namespace OloEngine
 
     std::string DialogueVariables::GetString(const std::string& key, const std::string& defaultValue) const
     {
+        OLO_PROFILE_FUNCTION();
         auto it = m_Variables.find(key);
         if (it == m_Variables.end())
             return defaultValue;
@@ -45,31 +50,37 @@ namespace OloEngine
 
     void DialogueVariables::SetBool(const std::string& key, bool value)
     {
+        OLO_PROFILE_FUNCTION();
         m_Variables[key] = value;
     }
 
     void DialogueVariables::SetInt(const std::string& key, i32 value)
     {
+        OLO_PROFILE_FUNCTION();
         m_Variables[key] = value;
     }
 
     void DialogueVariables::SetFloat(const std::string& key, f32 value)
     {
+        OLO_PROFILE_FUNCTION();
         m_Variables[key] = value;
     }
 
     void DialogueVariables::SetString(const std::string& key, const std::string& value)
     {
+        OLO_PROFILE_FUNCTION();
         m_Variables[key] = value;
     }
 
     bool DialogueVariables::Has(const std::string& key) const
     {
+        OLO_PROFILE_FUNCTION();
         return m_Variables.contains(key);
     }
 
     void DialogueVariables::Clear()
     {
+        OLO_PROFILE_FUNCTION();
         m_Variables.clear();
     }
 

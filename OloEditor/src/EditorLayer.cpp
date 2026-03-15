@@ -1125,11 +1125,8 @@ namespace OloEngine
         // we're keeping it simple by integrating everything into the scene render.
     }
 
-    void EditorLayer::NewProject()
+    void EditorLayer::BindContentBrowserSelectionCallback()
     {
-        Project::New();
-        NewScene();
-        m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
         m_ContentBrowserPanel->SetAssetSelectedCallback([this](const std::filesystem::path& path, ContentFileType type)
                                                         {
             if (type == ContentFileType::Dialogue)
@@ -1141,6 +1138,14 @@ namespace OloEngine
             {
                 OpenScene(path);
             } });
+    }
+
+    void EditorLayer::NewProject()
+    {
+        Project::New();
+        NewScene();
+        m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
+        BindContentBrowserSelectionCallback();
         m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
     }
 
@@ -1169,17 +1174,7 @@ namespace OloEngine
             OLO_ASSERT(std::filesystem::exists(startScenePath));
             OpenScene(startScenePath);
             m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
-            m_ContentBrowserPanel->SetAssetSelectedCallback([this](const std::filesystem::path& path, ContentFileType type)
-                                                            {
-                if (type == ContentFileType::Dialogue)
-                {
-                    m_DialogueEditorPanel.OpenDialogue(path);
-                    m_ShowDialogueEditor = true;
-                }
-                else if (type == ContentFileType::Scene)
-                {
-                    OpenScene(path);
-                } });
+            BindContentBrowserSelectionCallback();
             m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
 
             // Load input action map if one exists for this project

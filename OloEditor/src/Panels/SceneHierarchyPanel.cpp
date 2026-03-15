@@ -3104,10 +3104,9 @@ namespace OloEngine
         DrawComponent<DialogueComponent>("Dialogue", entity, [](auto& component)
                                          {
             // Asset handle display
-            AssetHandle handle = component.m_DialogueTree;
-            if (handle != 0)
+            if (component.m_DialogueTree != 0)
             {
-                auto metadata = AssetManager::GetAssetMetadata(handle);
+                auto metadata = AssetManager::GetAssetMetadata(component.m_DialogueTree);
                 if (metadata.IsValid())
                     ImGui::Text("Asset: %s", metadata.FilePath.filename().string().c_str());
                 else
@@ -3138,7 +3137,7 @@ namespace OloEngine
                 }
             }
 
-            if (handle != 0)
+            if (component.m_DialogueTree != 0)
             {
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Clear"))

@@ -1066,6 +1066,10 @@ namespace OloEngine
 			=> InternalCalls.DialogueVariables_GetInt(key, defaultValue);
 		public static void SetInt(string key, int value)
 			=> InternalCalls.DialogueVariables_SetInt(key, value);
+		public static float GetFloat(string key, float defaultValue = 0f)
+			=> InternalCalls.DialogueVariables_GetFloat(key, defaultValue);
+		public static void SetFloat(string key, float value)
+			=> InternalCalls.DialogueVariables_SetFloat(key, value);
 		public static string GetString(string key, string defaultValue = "")
 			=> InternalCalls.DialogueVariables_GetString(key, defaultValue);
 		public static void SetString(string key, string value)

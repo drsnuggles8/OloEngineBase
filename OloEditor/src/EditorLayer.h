@@ -96,6 +96,7 @@ namespace OloEngine
 
         void SetEditorScene(const Ref<Scene>& scene);
         void SyncWindowTitle() const;
+        void BindContentBrowserSelectionCallback();
 
         // Terrain editing: screen-to-world raycast against heightmap
         bool TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;

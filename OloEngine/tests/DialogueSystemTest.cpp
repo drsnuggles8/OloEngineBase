@@ -199,10 +199,34 @@ TEST(DialogueComponentTest, TriggerOnceFlag)
 {
     DialogueComponent comp;
     comp.m_TriggerOnce = true;
+    EXPECT_FALSE(comp.m_HasTriggered);
+
+    // Simulate trigger
     comp.m_HasTriggered = true;
 
     // After triggering once with TriggerOnce=true, m_HasTriggered blocks re-trigger
     EXPECT_TRUE(comp.m_TriggerOnce && comp.m_HasTriggered);
+
+    // With TriggerOnce=false, m_HasTriggered does not block
+    comp.m_TriggerOnce = false;
+    EXPECT_FALSE(comp.m_TriggerOnce && comp.m_HasTriggered);
+}
+
+TEST(DialogueComponentTest, CopyDoesNotCopyHasTriggered)
+{
+    DialogueComponent original;
+    original.m_DialogueTree = 42;
+    original.m_AutoTrigger = true;
+    original.m_TriggerRadius = 5.0f;
+    original.m_TriggerOnce = false;
+    original.m_HasTriggered = true;
+
+    DialogueComponent copy(original);
+    EXPECT_EQ(static_cast<u64>(copy.m_DialogueTree), 42u);
+    EXPECT_TRUE(copy.m_AutoTrigger);
+    EXPECT_FLOAT_EQ(copy.m_TriggerRadius, 5.0f);
+    EXPECT_FALSE(copy.m_TriggerOnce);
+    EXPECT_FALSE(copy.m_HasTriggered); // runtime-only, not copied
 }
 
 TEST(DialogueChoiceTest, ChoiceDataStructure)

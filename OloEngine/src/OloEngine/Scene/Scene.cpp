@@ -287,6 +287,9 @@ namespace OloEngine
             }
         }
 
+        // Dialogue system initialization (before scripting so scripts can use it)
+        m_DialogueSystem = std::make_unique<DialogueSystem>(this);
+
         // Scripting
         {
             ScriptEngine::OnRuntimeStart(this);
@@ -323,9 +326,6 @@ namespace OloEngine
             config.RegionDirectory = m_StreamingSettings.RegionDirectory;
             m_SceneStreamer->Initialize(this, config);
         }
-
-        // Dialogue system initialization
-        m_DialogueSystem = std::make_unique<DialogueSystem>(this);
     }
 
     void Scene::OnRuntimeStop()

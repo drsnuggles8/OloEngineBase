@@ -84,6 +84,14 @@ namespace OloEngine
         {
             entity.AddComponent<DialogueStateComponent>();
         }
+        else
+        {
+            auto& existingState = entity.GetComponent<DialogueStateComponent>();
+            if (existingState.m_State != DialogueState::Inactive)
+            {
+                OLO_CORE_WARN("DialogueSystem::StartDialogue - Dialogue already active, resetting");
+            }
+        }
 
         auto& state = entity.GetComponent<DialogueStateComponent>();
         state.m_CurrentNodeID = dialogueTree->GetRootNodeID();
