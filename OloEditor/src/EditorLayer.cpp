@@ -431,6 +431,7 @@ namespace OloEngine
             ImGui::MenuItem("Scene Streaming", nullptr, &m_ShowStreamingPanel);
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
+            ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
 
             ImGui::EndMenu();
         }
@@ -718,6 +719,12 @@ namespace OloEngine
         if (m_ShowNetworkDebug)
         {
             m_NetworkDebugPanel.OnImGuiRender();
+        }
+
+        // Dialogue Editor Panel
+        if (m_ShowDialogueEditor)
+        {
+            m_DialogueEditorPanel.OnImGuiRender();
         }
     }
 
@@ -1123,6 +1130,13 @@ namespace OloEngine
         Project::New();
         NewScene();
         m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
+        m_ContentBrowserPanel->SetAssetSelectedCallback([this](const std::filesystem::path& path, ContentFileType type)
+                                                        {
+            if (type == ContentFileType::Dialogue)
+            {
+                m_DialogueEditorPanel.OpenDialogue(path);
+                m_ShowDialogueEditor = true;
+            } });
         m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
     }
 
@@ -1151,6 +1165,13 @@ namespace OloEngine
             OLO_ASSERT(std::filesystem::exists(startScenePath));
             OpenScene(startScenePath);
             m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
+            m_ContentBrowserPanel->SetAssetSelectedCallback([this](const std::filesystem::path& path, ContentFileType type)
+                                                            {
+                if (type == ContentFileType::Dialogue)
+                {
+                    m_DialogueEditorPanel.OpenDialogue(path);
+                    m_ShowDialogueEditor = true;
+                } });
             m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
 
             // Load input action map if one exists for this project

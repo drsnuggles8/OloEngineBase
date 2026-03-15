@@ -730,6 +730,17 @@
 		"OloEngine/UI/UIInputSystem.h"
 		"OloEngine/UI/UIInputSystem.cpp"
 
+		"OloEngine/Dialogue/DialogueTypes.h"
+		"OloEngine/Dialogue/DialogueTreeAsset.h"
+		"OloEngine/Dialogue/DialogueVariables.h"
+		"OloEngine/Dialogue/DialogueVariables.cpp"
+		"OloEngine/Dialogue/DialogueTreeSerializer.h"
+		"OloEngine/Dialogue/DialogueTreeSerializer.cpp"
+		"OloEngine/Dialogue/DialogueSystem.h"
+		"OloEngine/Dialogue/DialogueSystem.cpp"
+		"OloEngine/Dialogue/DialogueUIController.h"
+		"OloEngine/Dialogue/DialogueUIController.cpp"
+
 		"OloEngine/Utils/PlatformUtils.h"
 
 		"Platform/OpenGL/OpenGLContext.cpp"

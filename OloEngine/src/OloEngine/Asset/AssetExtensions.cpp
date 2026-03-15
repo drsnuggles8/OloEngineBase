@@ -89,6 +89,7 @@ namespace OloEngine
         s_ExtensionMap["olosoundgraph"] = AssetType::SoundGraphSound;
         s_ExtensionMap["oloparticle"] = AssetType::ParticleSystem;
         s_ExtensionMap["oloprobe"] = AssetType::LightProbeVolume;
+        s_ExtensionMap["olodialogue"] = AssetType::DialogueTree;
 
         // Script files
         s_ExtensionMap["cs"] = AssetType::ScriptFile;

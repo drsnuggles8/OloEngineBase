@@ -19,6 +19,7 @@
 #include "OloEngine/UI/UILayoutSystem.h"
 #include "OloEngine/UI/UIRenderer.h"
 #include "OloEngine/UI/UIInputSystem.h"
+#include "OloEngine/Dialogue/DialogueSystem.h"
 #include "OloEngine/Particle/ParticleRenderer.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Particle/TrailRenderer.h"
@@ -322,6 +323,9 @@ namespace OloEngine
             config.RegionDirectory = m_StreamingSettings.RegionDirectory;
             m_SceneStreamer->Initialize(this, config);
         }
+
+        // Dialogue system initialization
+        m_DialogueSystem = std::make_unique<DialogueSystem>(this);
     }
 
     void Scene::OnRuntimeStop()
@@ -336,6 +340,10 @@ namespace OloEngine
         }
 
         ScriptEngine::OnRuntimeStop();
+
+        // Shut down dialogue system
+        m_DialogueSystem.reset();
+        m_DialogueVariables.Clear();
 
         for (auto view = m_Registry.view<AudioSourceComponent>(); auto&& [e, ac] : view.each())
         {
@@ -484,6 +492,12 @@ namespace OloEngine
                     Entity entity = { e, this };
                     ScriptEngine::OnUpdateEntity(entity, ts);
                 }
+            }
+
+            // Update dialogue system
+            if (m_DialogueSystem)
+            {
+                m_DialogueSystem->Update(ts);
             }
 
             // Update animations
@@ -967,6 +981,10 @@ namespace OloEngine
     void Scene::OnComponentAdded<LightProbeComponent>(Entity, LightProbeComponent&) {}
     template<>
     void Scene::OnComponentAdded<LightProbeVolumeComponent>(Entity, LightProbeVolumeComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<DialogueComponent>(Entity, DialogueComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<DialogueStateComponent>(Entity, DialogueStateComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {

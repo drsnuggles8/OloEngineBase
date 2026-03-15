@@ -485,5 +485,33 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void Network_StopServer();
 		#endregion
+
+		#region Dialogue
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_StartDialogue(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_AdvanceDialogue(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_SelectChoice(ulong entityID, int choiceIndex);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DialogueComponent_IsDialogueActive(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueComponent_EndDialogue(ulong entityID);
+
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DialogueVariables_GetBool(string key, bool defaultValue);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueVariables_SetBool(string key, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int DialogueVariables_GetInt(string key, int defaultValue);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueVariables_SetInt(string key, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string DialogueVariables_GetString(string key, string defaultValue);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DialogueVariables_SetString(string key, string value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DialogueVariables_Has(string key);
+		#endregion
 	}
 }

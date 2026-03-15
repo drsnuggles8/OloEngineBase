@@ -85,6 +85,10 @@ add_executable(OloEngine-Tests
 		Networking/ChatTest.cpp
 		Networking/PersistenceTest.cpp
 		Networking/MMOOptimizationTest.cpp
+		# Dialogue system tests
+		DialogueVariablesTest.cpp
+		DialogueTreeSerializationTest.cpp
+		DialogueSystemTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

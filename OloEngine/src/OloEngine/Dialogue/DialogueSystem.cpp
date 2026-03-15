@@ -1,0 +1,405 @@
+#include "OloEnginePCH.h"
+#include "OloEngine/Dialogue/DialogueSystem.h"
+#include "OloEngine/Dialogue/DialogueTreeAsset.h"
+#include "OloEngine/Dialogue/DialogueVariables.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Components.h"
+#include "OloEngine/Asset/AssetManager.h"
+
+namespace OloEngine
+{
+    DialogueSystem::DialogueSystem(Scene* scene)
+        : m_Scene(scene)
+    {
+        m_UIController.Initialize(*scene);
+    }
+
+    DialogueSystem::~DialogueSystem()
+    {
+        if (m_Scene)
+        {
+            m_UIController.Shutdown(*m_Scene);
+        }
+    }
+
+    void DialogueSystem::Update(Timestep ts)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto view = m_Scene->GetAllEntitiesWith<DialogueStateComponent>();
+        for (auto entityHandle : view)
+        {
+            auto& state = view.get<DialogueStateComponent>(entityHandle);
+            if (state.State == DialogueState::Displaying)
+            {
+                // Advance typewriter effect
+                if (state.TextRevealProgress < 1.0f && !state.CurrentText.empty())
+                {
+                    f32 const totalChars = static_cast<f32>(state.CurrentText.size());
+                    f32 const increment = (state.TextRevealSpeed * ts.GetSeconds()) / totalChars;
+                    state.TextRevealProgress = std::min(state.TextRevealProgress + increment, 1.0f);
+                }
+            }
+        }
+
+        // Update UI controller
+        m_UIController.Update(*m_Scene);
+    }
+
+    void DialogueSystem::StartDialogue(Entity entity)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!entity.HasComponent<DialogueComponent>())
+        {
+            OLO_CORE_WARN("DialogueSystem::StartDialogue - Entity has no DialogueComponent");
+            return;
+        }
+
+        auto& dialogueComp = entity.GetComponent<DialogueComponent>();
+
+        // Check TriggerOnce
+        if (dialogueComp.m_TriggerOnce && dialogueComp.m_HasTriggered)
+        {
+            return;
+        }
+
+        // Load the dialogue tree asset
+        auto dialogueTree = AssetManager::GetAsset<DialogueTreeAsset>(dialogueComp.m_DialogueTree);
+        if (!dialogueTree)
+        {
+            OLO_CORE_ERROR("DialogueSystem::StartDialogue - Failed to load DialogueTreeAsset (handle: {})", static_cast<u64>(dialogueComp.m_DialogueTree));
+            return;
+        }
+
+        if (dialogueTree->GetNodes().empty())
+        {
+            OLO_CORE_WARN("DialogueSystem::StartDialogue - DialogueTreeAsset has no nodes");
+            return;
+        }
+
+        // Add or reset DialogueStateComponent
+        if (!entity.HasComponent<DialogueStateComponent>())
+        {
+            entity.AddComponent<DialogueStateComponent>();
+        }
+
+        auto& state = entity.GetComponent<DialogueStateComponent>();
+        state.CurrentNodeID = dialogueTree->GetRootNodeID();
+        state.State = DialogueState::Processing;
+        state.CurrentText.clear();
+        state.CurrentSpeaker.clear();
+        state.AvailableChoices.clear();
+        state.SelectedChoiceIndex = -1;
+        state.HoveredChoiceIndex = -1;
+        state.TextRevealProgress = 0.0f;
+
+        ProcessNode(entity, state.CurrentNodeID);
+    }
+
+    void DialogueSystem::AdvanceDialogue(Entity entity)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!entity.HasComponent<DialogueStateComponent>())
+        {
+            return;
+        }
+
+        auto& state = entity.GetComponent<DialogueStateComponent>();
+        if (state.State != DialogueState::Displaying)
+        {
+            return;
+        }
+
+        // If typewriter isn't done, snap to full text
+        if (state.TextRevealProgress < 1.0f)
+        {
+            state.TextRevealProgress = 1.0f;
+            return;
+        }
+
+        // Follow the default connection from current node
+        auto& dialogueComp = entity.GetComponent<DialogueComponent>();
+        auto dialogueTree = AssetManager::GetAsset<DialogueTreeAsset>(dialogueComp.m_DialogueTree);
+        if (!dialogueTree)
+        {
+            EndDialogue(entity);
+            return;
+        }
+
+        auto connections = dialogueTree->GetConnectionsFrom(state.CurrentNodeID);
+        if (connections.empty())
+        {
+            // No more nodes — end the dialogue
+            EndDialogue(entity);
+            return;
+        }
+
+        // Take the first connection (default output)
+        state.State = DialogueState::Processing;
+        ProcessNode(entity, connections[0].TargetNodeID);
+    }
+
+    void DialogueSystem::SelectChoice(Entity entity, i32 choiceIndex)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!entity.HasComponent<DialogueStateComponent>())
+        {
+            return;
+        }
+
+        auto& state = entity.GetComponent<DialogueStateComponent>();
+        if (state.State != DialogueState::WaitingForChoice)
+        {
+            return;
+        }
+
+        if (choiceIndex < 0 || choiceIndex >= static_cast<i32>(state.AvailableChoices.size()))
+        {
+            OLO_CORE_WARN("DialogueSystem::SelectChoice - Invalid choice index: {}", choiceIndex);
+            return;
+        }
+
+        UUID targetNodeID = state.AvailableChoices[choiceIndex].TargetNodeID;
+        state.SelectedChoiceIndex = choiceIndex;
+        state.State = DialogueState::Processing;
+        ProcessNode(entity, targetNodeID);
+    }
+
+    void DialogueSystem::EndDialogue(Entity entity)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (entity.HasComponent<DialogueComponent>())
+        {
+            auto& dialogueComp = entity.GetComponent<DialogueComponent>();
+            dialogueComp.m_HasTriggered = true;
+        }
+
+        if (entity.HasComponent<DialogueStateComponent>())
+        {
+            entity.RemoveComponent<DialogueStateComponent>();
+        }
+    }
+
+    void DialogueSystem::RegisterConditionHandler(const std::string& name, ConditionCallback handler)
+    {
+        m_ConditionHandlers[name] = std::move(handler);
+    }
+
+    void DialogueSystem::RegisterActionHandler(const std::string& name, ActionCallback handler)
+    {
+        m_ActionHandlers[name] = std::move(handler);
+    }
+
+    void DialogueSystem::ProcessNode(Entity entity, UUID nodeID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& dialogueComp = entity.GetComponent<DialogueComponent>();
+        auto dialogueTree = AssetManager::GetAsset<DialogueTreeAsset>(dialogueComp.m_DialogueTree);
+        if (!dialogueTree)
+        {
+            EndDialogue(entity);
+            return;
+        }
+
+        const auto* node = dialogueTree->FindNode(nodeID);
+        if (!node)
+        {
+            OLO_CORE_ERROR("DialogueSystem::ProcessNode - Node not found: {}", static_cast<u64>(nodeID));
+            EndDialogue(entity);
+            return;
+        }
+
+        auto& state = entity.GetComponent<DialogueStateComponent>();
+        state.CurrentNodeID = nodeID;
+
+        if (node->Type == "dialogue")
+        {
+            // Extract text and speaker from properties
+            state.CurrentText.clear();
+            state.CurrentSpeaker.clear();
+
+            if (auto it = node->Properties.find("text"); it != node->Properties.end())
+            {
+                if (auto* str = std::get_if<std::string>(&it->second))
+                    state.CurrentText = *str;
+            }
+            if (auto it = node->Properties.find("speaker"); it != node->Properties.end())
+            {
+                if (auto* str = std::get_if<std::string>(&it->second))
+                    state.CurrentSpeaker = *str;
+            }
+
+            state.AvailableChoices.clear();
+            state.TextRevealProgress = 0.0f;
+            state.State = DialogueState::Displaying;
+        }
+        else if (node->Type == "choice")
+        {
+            // Populate choices from outgoing connections
+            auto connections = dialogueTree->GetConnectionsFrom(nodeID);
+            state.AvailableChoices.clear();
+
+            for (const auto& conn : connections)
+            {
+                const auto* targetNode = dialogueTree->FindNode(conn.TargetNodeID);
+                DialogueChoice choice;
+                choice.TargetNodeID = conn.TargetNodeID;
+
+                // Use the source port as the choice label, or get from target node name
+                if (!conn.SourcePort.empty() && conn.SourcePort != "output")
+                {
+                    choice.Text = conn.SourcePort;
+                }
+                else if (targetNode)
+                {
+                    choice.Text = targetNode->Name;
+                }
+                else
+                {
+                    choice.Text = "...";
+                }
+
+                // Check condition if specified
+                if (!choice.Condition.empty())
+                {
+                    if (!EvaluateCondition(choice.Condition, ""))
+                        continue; // Skip unavailable choices
+                }
+
+                state.AvailableChoices.push_back(std::move(choice));
+            }
+
+            state.SelectedChoiceIndex = -1;
+            state.HoveredChoiceIndex = -1;
+            state.State = DialogueState::WaitingForChoice;
+        }
+        else if (node->Type == "condition")
+        {
+            // Evaluate condition and follow true/false branch
+            std::string conditionName;
+            std::string conditionArgs;
+
+            if (auto it = node->Properties.find("conditionExpression"); it != node->Properties.end())
+            {
+                if (auto* str = std::get_if<std::string>(&it->second))
+                    conditionName = *str;
+            }
+            if (auto it = node->Properties.find("conditionArgs"); it != node->Properties.end())
+            {
+                if (auto* str = std::get_if<std::string>(&it->second))
+                    conditionArgs = *str;
+            }
+
+            bool result = EvaluateCondition(conditionName, conditionArgs);
+
+            // Find connections by port name ("true" or "false")
+            auto connections = dialogueTree->GetConnectionsFrom(nodeID);
+            UUID nextNodeID = 0;
+
+            for (const auto& conn : connections)
+            {
+                if (result && conn.SourcePort == "true")
+                {
+                    nextNodeID = conn.TargetNodeID;
+                    break;
+                }
+                if (!result && conn.SourcePort == "false")
+                {
+                    nextNodeID = conn.TargetNodeID;
+                    break;
+                }
+            }
+
+            if (static_cast<u64>(nextNodeID) == 0)
+            {
+                // No matching branch — try default connection
+                if (!connections.empty())
+                    nextNodeID = connections[0].TargetNodeID;
+                else
+                {
+                    EndDialogue(entity);
+                    return;
+                }
+            }
+
+            ProcessNode(entity, nextNodeID);
+        }
+        else if (node->Type == "action")
+        {
+            // Execute action callback
+            std::string actionName;
+            std::string actionArgs;
+
+            if (auto it = node->Properties.find("actionName"); it != node->Properties.end())
+            {
+                if (auto* str = std::get_if<std::string>(&it->second))
+                    actionName = *str;
+            }
+            if (auto it = node->Properties.find("actionArgs"); it != node->Properties.end())
+            {
+                if (auto* str = std::get_if<std::string>(&it->second))
+                    actionArgs = *str;
+            }
+
+            ExecuteAction(actionName, actionArgs);
+
+            // Proceed to next connected node
+            auto connections = dialogueTree->GetConnectionsFrom(nodeID);
+            if (connections.empty())
+            {
+                EndDialogue(entity);
+                return;
+            }
+            ProcessNode(entity, connections[0].TargetNodeID);
+        }
+        else
+        {
+            OLO_CORE_WARN("DialogueSystem::ProcessNode - Unknown node type: {}", node->Type);
+            EndDialogue(entity);
+        }
+    }
+
+    bool DialogueSystem::EvaluateCondition(const std::string& conditionName, const std::string& args)
+    {
+        // Check registered handlers first
+        if (auto it = m_ConditionHandlers.find(conditionName); it != m_ConditionHandlers.end())
+        {
+            return it->second(conditionName, args);
+        }
+
+        // Check wildcard handler
+        if (auto it = m_ConditionHandlers.find("*"); it != m_ConditionHandlers.end())
+        {
+            return it->second(conditionName, args);
+        }
+
+        // Fallback: check DialogueVariables for a simple bool
+        return m_Scene->GetDialogueVariables().GetBool(conditionName);
+    }
+
+    void DialogueSystem::ExecuteAction(const std::string& actionName, const std::string& args)
+    {
+        // Check registered handlers first
+        if (auto it = m_ActionHandlers.find(actionName); it != m_ActionHandlers.end())
+        {
+            it->second(actionName, args);
+            return;
+        }
+
+        // Check wildcard handler
+        if (auto it = m_ActionHandlers.find("*"); it != m_ActionHandlers.end())
+        {
+            it->second(actionName, args);
+            return;
+        }
+
+        OLO_CORE_WARN("DialogueSystem::ExecuteAction - No handler registered for action: {}", actionName);
+    }
+
+} // namespace OloEngine

@@ -20,7 +20,8 @@ namespace OloEngine
         Audio,
         Material,
         Shader,
-        StreamingRegion
+        StreamingRegion,
+        Dialogue
     };
 
     class ContentBrowserPanel
@@ -56,6 +57,7 @@ namespace OloEngine
         Ref<Texture2D> m_AudioIcon;
         Ref<Texture2D> m_MaterialIcon;
         Ref<Texture2D> m_ShaderIcon;
+        Ref<Texture2D> m_DialogueIcon;
         std::unordered_map<std::filesystem::path, Ref<Texture2D>> m_ImageIcons;
 
         AssetSelectedCallback m_AssetSelectedCallback;

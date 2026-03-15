@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
+#include "OloEngine/Dialogue/DialogueVariables.h"
 
 #include <optional>
 #include <vector>
@@ -28,6 +29,7 @@ namespace OloEngine
     class Prefab;
     class JoltScene;
     class SceneStreamer;
+    class DialogueSystem;
 
     class Scene : public Asset
     {
@@ -266,6 +268,19 @@ namespace OloEngine
             return m_SceneStreamer.get();
         }
 
+        DialogueVariables& GetDialogueVariables()
+        {
+            return m_DialogueVariables;
+        }
+        const DialogueVariables& GetDialogueVariables() const
+        {
+            return m_DialogueVariables;
+        }
+        DialogueSystem* GetDialogueSystem() const
+        {
+            return m_DialogueSystem.get();
+        }
+
         // Editor-mode streamer management (allows streaming preview without entering Play mode)
         void InitializeEditorStreamer();
         void ShutdownEditorStreamer();
@@ -326,6 +341,8 @@ namespace OloEngine
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;
         std::unique_ptr<SceneStreamer> m_SceneStreamer;
+        std::unique_ptr<DialogueSystem> m_DialogueSystem;
+        DialogueVariables m_DialogueVariables;
 
         // Entity UUID -> entt::entity lookup map
         // Using TMap for O(1) lookup with better cache locality

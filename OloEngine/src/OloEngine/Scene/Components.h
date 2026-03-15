@@ -22,6 +22,7 @@
 #include "OloEngine/Renderer/LOD.h"
 #include "OloEngine/Renderer/SphericalHarmonics.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
+#include "OloEngine/Dialogue/DialogueTypes.h"
 
 #include <box2d/id.h>
 
@@ -1195,6 +1196,43 @@ namespace OloEngine
         NetworkLODComponent& operator=(NetworkLODComponent&&) noexcept = default;
     };
 
+    // ----- Dialogue -----
+
+    struct DialogueComponent
+    {
+        AssetHandle m_DialogueTree = 0;
+        bool m_AutoTrigger = false;
+        f32 m_TriggerRadius = 3.0f;
+        bool m_HasTriggered = false; // runtime-only, not serialized
+        bool m_TriggerOnce = true;
+
+        DialogueComponent() = default;
+        DialogueComponent(const DialogueComponent&) = default;
+    };
+
+    enum class DialogueState : u8
+    {
+        Inactive,
+        Displaying,       // showing text, waiting for advance input
+        WaitingForChoice, // showing choices, waiting for selection
+        Processing        // evaluating condition/action nodes (single frame)
+    };
+
+    struct DialogueStateComponent
+    {
+        UUID CurrentNodeID = 0;
+        DialogueState State = DialogueState::Inactive;
+        std::string CurrentText;
+        std::string CurrentSpeaker;
+        std::vector<DialogueChoice> AvailableChoices;
+        i32 SelectedChoiceIndex = -1;
+        i32 HoveredChoiceIndex = -1;
+        f32 TextRevealProgress = 0.0f; // 0..1 for typewriter effect
+        f32 TextRevealSpeed = 30.0f;   // characters per second
+
+        DialogueStateComponent() = default;
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -1261,5 +1299,6 @@ namespace OloEngine
         NetworkInterestComponent,
         PhaseComponent,
         InstancePortalComponent,
-        NetworkLODComponent>;
+        NetworkLODComponent,
+        DialogueComponent>;
 } // namespace OloEngine

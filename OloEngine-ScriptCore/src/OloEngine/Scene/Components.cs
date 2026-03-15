@@ -1037,4 +1037,40 @@ namespace OloEngine
 			InternalCalls.Scene_UnloadRegion(regionId);
 		}
 	}
+
+	public class DialogueComponent : Component
+	{
+		public void StartDialogue()
+			=> InternalCalls.DialogueComponent_StartDialogue(Entity.ID);
+
+		public void AdvanceDialogue()
+			=> InternalCalls.DialogueComponent_AdvanceDialogue(Entity.ID);
+
+		public void SelectChoice(int choiceIndex)
+			=> InternalCalls.DialogueComponent_SelectChoice(Entity.ID, choiceIndex);
+
+		public bool IsActive
+			=> InternalCalls.DialogueComponent_IsDialogueActive(Entity.ID);
+
+		public void EndDialogue()
+			=> InternalCalls.DialogueComponent_EndDialogue(Entity.ID);
+	}
+
+	public static class DialogueVariables
+	{
+		public static bool GetBool(string key, bool defaultValue = false)
+			=> InternalCalls.DialogueVariables_GetBool(key, defaultValue);
+		public static void SetBool(string key, bool value)
+			=> InternalCalls.DialogueVariables_SetBool(key, value);
+		public static int GetInt(string key, int defaultValue = 0)
+			=> InternalCalls.DialogueVariables_GetInt(key, defaultValue);
+		public static void SetInt(string key, int value)
+			=> InternalCalls.DialogueVariables_SetInt(key, value);
+		public static string GetString(string key, string defaultValue = "")
+			=> InternalCalls.DialogueVariables_GetString(key, defaultValue);
+		public static void SetString(string key, string value)
+			=> InternalCalls.DialogueVariables_SetString(key, value);
+		public static bool Has(string key)
+			=> InternalCalls.DialogueVariables_Has(key);
+	}
 }

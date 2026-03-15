@@ -2056,6 +2056,15 @@ namespace OloEngine
             TrySet(nic.RelevanceRadius, networkInterestComponent["RelevanceRadius"]);
             TrySet(nic.InterestGroup, networkInterestComponent["InterestGroup"]);
         }
+
+        if (auto dialogueComponent = entity["DialogueComponent"]; dialogueComponent)
+        {
+            auto& dc = deserializedEntity.AddComponent<DialogueComponent>();
+            TrySet(dc.m_DialogueTree, dialogueComponent["DialogueTree"]);
+            TrySet(dc.m_AutoTrigger, dialogueComponent["AutoTrigger"]);
+            TrySet(dc.m_TriggerRadius, dialogueComponent["TriggerRadius"]);
+            TrySet(dc.m_TriggerOnce, dialogueComponent["TriggerOnce"]);
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -3340,6 +3349,20 @@ namespace OloEngine
             out << YAML::Key << "InterestGroup" << YAML::Value << nic.InterestGroup;
 
             out << YAML::EndMap; // NetworkInterestComponent
+        }
+
+        if (entity.HasComponent<DialogueComponent>())
+        {
+            out << YAML::Key << "DialogueComponent";
+            out << YAML::BeginMap;
+
+            auto const& dc = entity.GetComponent<DialogueComponent>();
+            out << YAML::Key << "DialogueTree" << YAML::Value << dc.m_DialogueTree;
+            out << YAML::Key << "AutoTrigger" << YAML::Value << dc.m_AutoTrigger;
+            out << YAML::Key << "TriggerRadius" << YAML::Value << dc.m_TriggerRadius;
+            out << YAML::Key << "TriggerOnce" << YAML::Value << dc.m_TriggerOnce;
+
+            out << YAML::EndMap; // DialogueComponent
         }
 
         out << YAML::EndMap; // Entity

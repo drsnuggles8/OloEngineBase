@@ -54,6 +54,8 @@ namespace OloEngine
         { ".hlsl", ContentFileType::Shader },
         // Streaming Regions
         { ".oloregion", ContentFileType::StreamingRegion },
+        // Dialogue
+        { ".olodialogue", ContentFileType::Dialogue },
     };
 
     ContentBrowserPanel::ContentBrowserPanel()
@@ -89,6 +91,10 @@ namespace OloEngine
         m_ShaderIcon = Texture2D::Create("Resources/Icons/ContentBrowser/ShaderIcon.png");
         if (!m_ShaderIcon || !m_ShaderIcon->IsLoaded())
             m_ShaderIcon = m_FileIcon;
+
+        m_DialogueIcon = Texture2D::Create("Resources/Icons/ContentBrowser/DialogueIcon.png");
+        if (!m_DialogueIcon || !m_DialogueIcon->IsLoaded())
+            m_DialogueIcon = m_FileIcon;
     }
 
     ContentFileType ContentBrowserPanel::GetFileType(const std::filesystem::path& filepath) const
@@ -239,6 +245,9 @@ namespace OloEngine
                     case ContentFileType::StreamingRegion:
                         ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.8f, 1.0f), "Streaming Region");
                         break;
+                    case ContentFileType::Dialogue:
+                        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Dialogue Tree");
+                        break;
                     default:
                         break;
                 }
@@ -372,6 +381,56 @@ namespace OloEngine
                     fout.close();
 
                     OLO_CORE_INFO("Created material: {}", matPath.string());
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Dialogue Tree"))
+            {
+                static char dialogueName[256] = "NewDialogue";
+                ImGui::InputText("Name", dialogueName, sizeof(dialogueName));
+                if (ImGui::Button("Create##DialogueTree"))
+                {
+                    std::filesystem::path dialoguePath = m_CurrentDirectory / (std::string(dialogueName) + ".olodialogue");
+                    YAML::Emitter out;
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "DialogueTree" << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "RootNodeID" << YAML::Value << 1;
+                    out << YAML::Key << "Nodes" << YAML::Value << YAML::BeginSeq;
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "ID" << YAML::Value << 1;
+                    out << YAML::Key << "Type" << YAML::Value << "dialogue";
+                    out << YAML::Key << "Name" << YAML::Value << "Start";
+                    out << YAML::Key << "EditorPosition" << YAML::Value << YAML::Flow << YAML::BeginSeq << 0 << 0 << YAML::EndSeq;
+                    out << YAML::Key << "Properties" << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "speaker" << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "type" << YAML::Value << "string";
+                    out << YAML::Key << "value" << YAML::Value << "NPC";
+                    out << YAML::EndMap;
+                    out << YAML::Key << "text" << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "type" << YAML::Value << "string";
+                    out << YAML::Key << "value" << YAML::Value << "Hello there!";
+                    out << YAML::EndMap;
+                    out << YAML::EndMap;
+                    out << YAML::EndMap;
+                    out << YAML::EndSeq;
+                    out << YAML::Key << "Connections" << YAML::Value << YAML::BeginSeq << YAML::EndSeq;
+                    out << YAML::EndMap;
+                    out << YAML::EndMap;
+
+                    std::ofstream fout(dialoguePath);
+                    if (!fout)
+                    {
+                        OLO_CORE_ERROR("Failed to create dialogue file: {}", dialoguePath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        return;
+                    }
+                    fout << out.c_str();
+                    fout.close();
+
+                    OLO_CORE_INFO("Created dialogue tree: {}", dialoguePath.string());
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::EndMenu();
@@ -534,6 +593,8 @@ namespace OloEngine
                 return m_ShaderIcon;
             case ContentFileType::StreamingRegion:
                 return m_SceneIcon;
+            case ContentFileType::Dialogue:
+                return m_DialogueIcon;
             default:
                 return m_FileIcon;
         }
