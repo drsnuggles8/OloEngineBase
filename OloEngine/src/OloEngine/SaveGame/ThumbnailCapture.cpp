@@ -142,8 +142,8 @@ namespace OloEngine
                 if (sy0 == sy1)
                     sy1 = std::min(sy0 + 1, src.Height);
 
-                u32 r = 0, g = 0, b = 0, a = 0;
-                u32 count = 0;
+                u64 r = 0, g = 0, b = 0, a = 0;
+                u64 count = 0;
 
                 for (u32 sy = sy0; sy < sy1; ++sy)
                 {

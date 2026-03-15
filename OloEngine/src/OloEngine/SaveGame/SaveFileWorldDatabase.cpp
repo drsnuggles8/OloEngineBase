@@ -32,6 +32,13 @@ namespace OloEngine
             return false;
         }
 
+        // Reject dangerous slot names
+        if (connectionString.empty() || connectionString.find("..") != std::string::npos || connectionString.find('/') != std::string::npos || connectionString.find('\\') != std::string::npos || connectionString.find(':') != std::string::npos)
+        {
+            OLO_CORE_ERROR("[SaveFileWorldDatabase] Invalid connection string: '{}'", connectionString);
+            return false;
+        }
+
         m_SlotName = connectionString;
         m_FilePath = SaveGameManager::GetSaveFilePath(m_SlotName);
 
@@ -39,20 +46,24 @@ namespace OloEngine
         if (std::filesystem::exists(m_FilePath))
         {
             std::vector<u8> payload;
-            if (SaveGameFile::ReadPayload(m_FilePath, payload) && !payload.empty())
+            if (!SaveGameFile::ReadPayload(m_FilePath, payload) || payload.empty())
             {
-                if (!DeserializeFromPayload(payload))
-                {
-                    OLO_CORE_WARN("[SaveFileWorldDatabase] Failed to deserialize existing save '{}', starting fresh", m_SlotName);
-                    m_PlayerStates.clear();
-                    m_EntityStates.clear();
-                    m_WorldState.clear();
-                }
-                else
-                {
-                    OLO_CORE_INFO("[SaveFileWorldDatabase] Loaded existing data from '{}'", m_SlotName);
-                }
+                OLO_CORE_ERROR("[SaveFileWorldDatabase] Corrupt save file '{}', refusing to initialize", m_SlotName);
+                m_IsCorrupt = true;
+                return false;
             }
+
+            if (!DeserializeFromPayload(payload))
+            {
+                OLO_CORE_ERROR("[SaveFileWorldDatabase] Failed to deserialize '{}', marking as corrupt", m_SlotName);
+                m_PlayerStates.clear();
+                m_EntityStates.clear();
+                m_WorldState.clear();
+                m_IsCorrupt = true;
+                return false;
+            }
+
+            OLO_CORE_INFO("[SaveFileWorldDatabase] Loaded existing data from '{}'", m_SlotName);
         }
 
         m_Initialized = true;
@@ -235,6 +246,12 @@ namespace OloEngine
 
     bool SaveFileWorldDatabase::FlushToDiskLocked()
     {
+        if (m_IsCorrupt)
+        {
+            OLO_CORE_ERROR("[SaveFileWorldDatabase] Refusing to flush corrupt database '{}'", m_SlotName);
+            return false;
+        }
+
         auto payload = SerializeToPayload();
 
         // Compress

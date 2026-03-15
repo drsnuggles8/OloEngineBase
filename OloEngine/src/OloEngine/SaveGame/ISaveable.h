@@ -13,7 +13,8 @@ namespace OloEngine
 {
     // Callback types for C++ save/load hooks
     // The FArchive is configured for saving or loading — same function handles both directions.
-    using SaveLoadCallback = std::function<void(FArchive&)>;
+    // The UUID identifies the entity whose state is being saved/loaded.
+    using SaveLoadCallback = std::function<void(FArchive&, UUID)>;
 
     // Registry for per-class custom save/load callbacks.
     // Scripts (C#/Lua) and native code can register callbacks here.
@@ -30,7 +31,7 @@ namespace OloEngine
         static bool Has(const std::string& className);
 
         // Invoke save/load callback for a class (no-op if not registered)
-        static void Invoke(const std::string& className, FArchive& ar);
+        static void Invoke(const std::string& className, FArchive& ar, UUID entityID);
 
         // Clear all registrations
         static void Clear();

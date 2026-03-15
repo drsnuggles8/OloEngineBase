@@ -84,7 +84,7 @@ namespace OloEngine
 
         [[nodiscard]] bool IsValid() const
         {
-            return Magic == kSaveGameMagic;
+            return Magic == kSaveGameMagic && FormatVersion == kSaveGameFormatVersion;
         }
 
         [[nodiscard]] SaveGameCompression GetCompression() const

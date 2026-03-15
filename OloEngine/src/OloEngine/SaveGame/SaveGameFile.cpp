@@ -150,6 +150,15 @@ namespace OloEngine
             return false;
         }
 
+        // Bounds check: metadata must fit within the file
+        file.seekg(0, std::ios::end);
+        auto actualFileSize = static_cast<u64>(file.tellg());
+        if (outHeader.MetadataOffset + outHeader.MetadataSize > actualFileSize)
+        {
+            OLO_CORE_ERROR("[SaveGameFile] Metadata region exceeds file size");
+            return false;
+        }
+
         file.seekg(static_cast<std::streamoff>(outHeader.MetadataOffset));
         std::vector<u8> metaBlob(outHeader.MetadataSize);
         file.read(reinterpret_cast<char*>(metaBlob.data()),
@@ -191,6 +200,15 @@ namespace OloEngine
             return false;
         }
 
+        // Bounds check: thumbnail must fit within the file
+        file.seekg(0, std::ios::end);
+        auto actualFileSize = static_cast<u64>(file.tellg());
+        if (header.ThumbnailOffset + header.ThumbnailSize > actualFileSize)
+        {
+            OLO_CORE_ERROR("[SaveGameFile] Thumbnail region exceeds file size");
+            return false;
+        }
+
         file.seekg(static_cast<std::streamoff>(header.ThumbnailOffset));
         outPNG.resize(header.ThumbnailSize);
         file.read(reinterpret_cast<char*>(outPNG.data()),
@@ -221,6 +239,15 @@ namespace OloEngine
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open())
         {
+            return false;
+        }
+
+        // Bounds check: payload must fit within the file
+        file.seekg(0, std::ios::end);
+        auto actualFileSize = static_cast<u64>(file.tellg());
+        if (header.PayloadOffset + header.PayloadSize > actualFileSize)
+        {
+            OLO_CORE_ERROR("[SaveGameFile] Payload region exceeds file size");
             return false;
         }
 
@@ -285,8 +312,20 @@ namespace OloEngine
             return false;
         }
 
+        auto crc32Chunked = [](uLong crcIn, const u8* buf, sizet size) -> uLong
+        {
+            while (size > 0)
+            {
+                uInt chunk = static_cast<uInt>(std::min(size, static_cast<sizet>(std::numeric_limits<uInt>::max())));
+                crcIn = ::crc32(crcIn, buf, chunk);
+                buf += chunk;
+                size -= chunk;
+            }
+            return crcIn;
+        };
+
         uLong crc = ::crc32(0L, Z_NULL, 0);
-        crc = ::crc32(crc, data.data(), static_cast<uInt>(data.size()));
+        crc = crc32Chunked(crc, data.data(), data.size());
         return static_cast<u32>(crc) == header.ChecksumCRC32;
     }
 

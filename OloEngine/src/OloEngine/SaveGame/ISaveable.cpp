@@ -8,11 +8,13 @@ namespace OloEngine
 
     void SaveableRegistry::Register(const std::string& className, SaveLoadCallback callback)
     {
+        OLO_PROFILE_FUNCTION();
         s_Registry[className] = std::move(callback);
     }
 
     void SaveableRegistry::Unregister(const std::string& className)
     {
+        OLO_PROFILE_FUNCTION();
         s_Registry.erase(className);
     }
 
@@ -21,17 +23,19 @@ namespace OloEngine
         return s_Registry.contains(className);
     }
 
-    void SaveableRegistry::Invoke(const std::string& className, FArchive& ar)
+    void SaveableRegistry::Invoke(const std::string& className, FArchive& ar, UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
         auto it = s_Registry.find(className);
         if (it != s_Registry.end())
         {
-            it->second(ar);
+            it->second(ar, entityID);
         }
     }
 
     void SaveableRegistry::Clear()
     {
+        OLO_PROFILE_FUNCTION();
         s_Registry.clear();
     }
 
@@ -48,10 +52,7 @@ namespace OloEngine
         FMemoryWriter writer(buffer);
         writer.ArIsSaveGame = true;
 
-        // Store entity ID for context
-        writer << entityID;
-
-        SaveableRegistry::Invoke(className, writer);
+        SaveableRegistry::Invoke(className, writer, entityID);
         return buffer;
     }
 
@@ -68,17 +69,7 @@ namespace OloEngine
         FMemoryReader reader(dataCopy);
         reader.ArIsSaveGame = true;
 
-        // Read entity ID (for verification)
-        UUID storedID;
-        reader << storedID;
-
-        if (storedID != entityID)
-        {
-            OLO_CORE_ERROR("[ISaveable] Entity ID mismatch in RestoreSaveableData: stored={}, expected={}", static_cast<u64>(storedID), static_cast<u64>(entityID));
-            return;
-        }
-
-        SaveableRegistry::Invoke(className, reader);
+        SaveableRegistry::Invoke(className, reader, entityID);
     }
 
 } // namespace OloEngine

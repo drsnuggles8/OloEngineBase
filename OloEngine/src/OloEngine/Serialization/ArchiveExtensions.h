@@ -127,6 +127,9 @@ namespace OloEngine
     // Container Types
     // ========================================================================
 
+    // Sanity cap for container deserialization to prevent huge allocations from corrupt data
+    static constexpr u32 kMaxContainerDeserializeCount = 10'000'000;
+
     template<typename T>
     FArchive& operator<<(FArchive& ar, std::vector<T>& vec)
     {
@@ -135,6 +138,11 @@ namespace OloEngine
 
         if (ar.IsLoading())
         {
+            if (count > kMaxContainerDeserializeCount)
+            {
+                ar.SetError();
+                return ar;
+            }
             vec.resize(count);
         }
 
@@ -153,6 +161,11 @@ namespace OloEngine
 
         if (ar.IsLoading())
         {
+            if (count > kMaxContainerDeserializeCount)
+            {
+                ar.SetError();
+                return ar;
+            }
             map.clear();
             map.reserve(count);
             for (u32 i = 0; i < count; ++i)

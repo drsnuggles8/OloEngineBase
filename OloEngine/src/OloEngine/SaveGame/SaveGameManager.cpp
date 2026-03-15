@@ -19,6 +19,27 @@ namespace OloEngine
     u32 SaveGameManager::s_AutoSaveIndex = 0;
     bool SaveGameManager::s_Initialized = false;
 
+    // Reject slot names containing path separators, "..", or other dangerous patterns
+    static bool IsValidSlotName(const std::string& slotName)
+    {
+        if (slotName.empty())
+        {
+            return false;
+        }
+        if (slotName.find("..") != std::string::npos)
+        {
+            return false;
+        }
+        for (char c : slotName)
+        {
+            if (c == '/' || c == '\\' || c == ':' || c == '\0')
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // ========================================================================
     // Initialize / Shutdown
     // ========================================================================
@@ -58,6 +79,12 @@ namespace OloEngine
                                          SaveLoadCompletionCallback callback)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (!IsValidSlotName(slotName))
+        {
+            OLO_CORE_ERROR("[SaveGameManager] Invalid slot name: '{}'", slotName);
+            return SaveLoadResult::IOError;
+        }
 
         std::string name = displayName.empty() ? slotName : displayName;
         SaveLoadResult result = SaveInternal(scene, slotName, name, SaveSlotType::Manual, thumbnailPNG);
@@ -111,6 +138,12 @@ namespace OloEngine
     SaveLoadResult SaveGameManager::Load(Scene& scene, const std::string& slotName)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (!IsValidSlotName(slotName))
+        {
+            OLO_CORE_ERROR("[SaveGameManager] Invalid slot name: '{}'", slotName);
+            return SaveLoadResult::IOError;
+        }
 
         auto path = GetSaveFilePath(slotName);
         if (!std::filesystem::exists(path))
@@ -229,6 +262,11 @@ namespace OloEngine
 
     bool SaveGameManager::GetSaveInfo(const std::string& slotName, SaveFileInfo& outInfo)
     {
+        if (!IsValidSlotName(slotName))
+        {
+            return false;
+        }
+
         auto path = GetSaveFilePath(slotName);
         if (!std::filesystem::exists(path))
         {
@@ -250,6 +288,11 @@ namespace OloEngine
 
     bool SaveGameManager::ReadThumbnail(const std::string& slotName, std::vector<u8>& outPNG)
     {
+        if (!IsValidSlotName(slotName))
+        {
+            return false;
+        }
+
         auto path = GetSaveFilePath(slotName);
         return SaveGameFile::ReadThumbnail(path, outPNG);
     }
@@ -260,6 +303,12 @@ namespace OloEngine
 
     bool SaveGameManager::DeleteSave(const std::string& slotName)
     {
+        if (!IsValidSlotName(slotName))
+        {
+            OLO_CORE_ERROR("[SaveGameManager] Invalid slot name: '{}'", slotName);
+            return false;
+        }
+
         auto path = GetSaveFilePath(slotName);
         if (!std::filesystem::exists(path))
         {
@@ -323,6 +372,11 @@ namespace OloEngine
 
     bool SaveGameManager::ValidateSave(const std::string& slotName)
     {
+        if (!IsValidSlotName(slotName))
+        {
+            return false;
+        }
+
         auto path = GetSaveFilePath(slotName);
         return SaveGameFile::ValidateChecksum(path);
     }
@@ -352,6 +406,12 @@ namespace OloEngine
         // Compress payload
         std::vector<u8> compressedPayload;
         bool compressed = SaveGameFile::Compress(payload, compressedPayload);
+
+        // Only use compression if it actually reduces size
+        if (compressed && compressedPayload.size() >= payload.size())
+        {
+            compressed = false;
+        }
 
         // Build metadata
         SaveGameMetadata metadata;

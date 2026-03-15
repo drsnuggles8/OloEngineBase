@@ -390,16 +390,20 @@ namespace OloEngine
 
         // --- SaveGame ---
         auto saveGameTable = lua.create_named_table("SaveGame");
-        saveGameTable["EnumerateSaves"] = []() -> sol::as_table_t<std::vector<std::string>>
+        saveGameTable["EnumerateSaves"] = [&lua]() -> sol::table
         {
             auto saves = SaveGameManager::EnumerateSaves();
-            std::vector<std::string> names;
-            names.reserve(saves.size());
+            sol::table result = lua.create_table(static_cast<int>(saves.size()), 0);
+            int index = 1;
             for (const auto& info : saves)
             {
-                names.push_back(info.Metadata.DisplayName);
+                sol::table entry = lua.create_table(0, 3);
+                entry["SlotName"] = info.FilePath.stem().string();
+                entry["DisplayName"] = info.Metadata.DisplayName;
+                entry["TimestampUTC"] = info.Metadata.TimestampUTC;
+                result[index++] = entry;
             }
-            return sol::as_table(std::move(names));
+            return result;
         };
         saveGameTable["DeleteSave"] = [](const std::string& slotName)
         {

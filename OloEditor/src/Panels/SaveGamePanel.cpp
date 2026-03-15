@@ -48,7 +48,15 @@ namespace OloEngine
 
         if (ImGui::Button("Save Game", ImVec2(-1, 0)))
         {
-            if (m_Scene)
+            std::string saveName(m_NewSaveName);
+            bool nameValid = !saveName.empty() && saveName.find_first_not_of(' ') != std::string::npos && saveName.find("..") == std::string::npos && saveName.find('/') == std::string::npos && saveName.find('\\') == std::string::npos;
+
+            if (!nameValid)
+            {
+                m_StatusMessage = "Invalid save name!";
+                m_StatusTimer = 3.0f;
+            }
+            else if (m_Scene)
             {
                 std::vector<u8> thumbnail;
                 if (m_IncludeThumbnail && m_Framebuffer)

@@ -117,8 +117,12 @@ namespace OloEngine
 
     static void SerializeParticleCurve(FArchive& ar, ParticleCurve& curve)
     {
-        ar << curve.KeyCount;
         u32 count = std::min(curve.KeyCount, static_cast<u32>(curve.Keys.size()));
+        ar << count;
+        if (ar.IsLoading())
+        {
+            curve.KeyCount = count;
+        }
         for (u32 i = 0; i < count; ++i)
         {
             ar << curve.Keys[i].Time << curve.Keys[i].Value;

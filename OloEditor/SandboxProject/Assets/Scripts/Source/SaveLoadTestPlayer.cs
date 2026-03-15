@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 
 using OloEngine;
 
@@ -53,13 +54,13 @@ namespace Sandbox
 
 		public byte[] OnSave()
 		{
-			// Simple serialization: health (4 bytes) + score (4 bytes) + playtime (4 bytes)
-			byte[] data = new byte[12];
-			Buffer.BlockCopy(BitConverter.GetBytes(Health), 0, data, 0, 4);
-			Buffer.BlockCopy(BitConverter.GetBytes(Score), 0, data, 4, 4);
-			Buffer.BlockCopy(BitConverter.GetBytes(PlayTime), 0, data, 8, 4);
+			using var ms = new MemoryStream();
+			using var bw = new BinaryWriter(ms);
+			bw.Write(Health);
+			bw.Write(Score);
+			bw.Write(PlayTime);
 			Console.WriteLine($"SaveLoadTestPlayer.OnSave - Health={Health}, Score={Score}, PlayTime={PlayTime:F1}");
-			return data;
+			return ms.ToArray();
 		}
 
 		public void OnLoad(byte[] data)
@@ -67,9 +68,11 @@ namespace Sandbox
 			if (data == null || data.Length < 12)
 				return;
 
-			Health = BitConverter.ToSingle(data, 0);
-			Score = BitConverter.ToInt32(data, 4);
-			PlayTime = BitConverter.ToSingle(data, 8);
+			using var ms = new MemoryStream(data);
+			using var br = new BinaryReader(ms);
+			Health = br.ReadSingle();
+			Score = br.ReadInt32();
+			PlayTime = br.ReadSingle();
 			Console.WriteLine($"SaveLoadTestPlayer.OnLoad - Health={Health}, Score={Score}, PlayTime={PlayTime:F1}");
 		}
 	}

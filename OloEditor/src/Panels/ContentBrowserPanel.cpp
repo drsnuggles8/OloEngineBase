@@ -186,6 +186,9 @@ namespace OloEngine
                     case ContentFileType::StreamingRegion:
                         payloadType = "CONTENT_BROWSER_REGION";
                         break;
+                    case ContentFileType::SaveGame:
+                        payloadType = "CONTENT_BROWSER_SAVEGAME";
+                        break;
                     default:
                         break;
                 }
@@ -252,6 +255,9 @@ namespace OloEngine
                         break;
                     case ContentFileType::Dialogue:
                         ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Dialogue Tree");
+                        break;
+                    case ContentFileType::SaveGame:
+                        ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.4f, 1.0f), "Save Game");
                         break;
                     default:
                         break;
@@ -469,6 +475,13 @@ namespace OloEngine
                         m_AssetSelectedCallback(path, fileType);
                 }
                 break;
+            case ContentFileType::SaveGame:
+                if (ImGui::MenuItem("Load Save"))
+                {
+                    if (m_AssetSelectedCallback)
+                        m_AssetSelectedCallback(path, fileType);
+                }
+                break;
             default:
                 break;
         }
@@ -589,6 +602,8 @@ namespace OloEngine
                 return m_SceneIcon;
             case ContentFileType::Dialogue:
                 return m_DialogueIcon;
+            case ContentFileType::SaveGame:
+                return m_FileIcon;
             default:
                 return m_FileIcon;
         }

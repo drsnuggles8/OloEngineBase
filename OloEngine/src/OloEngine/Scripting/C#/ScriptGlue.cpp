@@ -1354,7 +1354,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
+        if (!scene)
+        {
+            return static_cast<i32>(SaveLoadResult::NoActiveScene);
+        }
+        if (!slotName)
+        {
+            return static_cast<i32>(SaveLoadResult::IOError);
+        }
         std::string slot = Utils::MonoStringToString(slotName);
         std::string name = displayName ? Utils::MonoStringToString(displayName) : slot;
         return static_cast<i32>(SaveGameManager::Save(*scene, slot, name));
@@ -1365,7 +1372,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
+        if (!scene)
+        {
+            return static_cast<i32>(SaveLoadResult::NoActiveScene);
+        }
+        if (!slotName)
+        {
+            return static_cast<i32>(SaveLoadResult::IOError);
+        }
         std::string slot = Utils::MonoStringToString(slotName);
         return static_cast<i32>(SaveGameManager::Load(*scene, slot));
     }
@@ -1375,7 +1389,10 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
+        if (!scene)
+        {
+            return static_cast<i32>(SaveLoadResult::NoActiveScene);
+        }
         return static_cast<i32>(SaveGameManager::QuickSave(*scene));
     }
 
@@ -1384,7 +1401,10 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         Scene* scene = ScriptEngine::GetSceneContext();
-        OLO_CORE_ASSERT(scene);
+        if (!scene)
+        {
+            return static_cast<i32>(SaveLoadResult::NoActiveScene);
+        }
         return static_cast<i32>(SaveGameManager::QuickLoad(*scene));
     }
 
@@ -1392,6 +1412,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (!slotName)
+        {
+            return false;
+        }
         std::string slot = Utils::MonoStringToString(slotName);
         return SaveGameManager::DeleteSave(slot);
     }
@@ -1400,6 +1424,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (!slotName)
+        {
+            return false;
+        }
         std::string slot = Utils::MonoStringToString(slotName);
         return SaveGameManager::ValidateSave(slot);
     }

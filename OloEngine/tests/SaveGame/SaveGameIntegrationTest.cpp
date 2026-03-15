@@ -30,6 +30,17 @@ class SaveGameIntegrationTest : public ::testing::Test
         std::filesystem::remove(m_TempPath, ec);
     }
 
+    static u32 CountEntities(const Ref<Scene>& scene)
+    {
+        u32 count = 0;
+        auto view = scene->GetAllEntitiesWith<IDComponent>();
+        for ([[maybe_unused]] auto e : view)
+        {
+            ++count;
+        }
+        return count;
+    }
+
     Ref<Scene> m_Scene;
     std::filesystem::path m_TempPath;
 };
@@ -70,18 +81,13 @@ TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)
     ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*newScene, data));
 
     // Verify entity count
-    u32 entityCount = 0;
-    auto view = newScene->GetAllEntitiesWith<IDComponent>();
-    for ([[maybe_unused]] auto e : view)
-    {
-        ++entityCount;
-    }
-    EXPECT_EQ(entityCount, 3u);
+    EXPECT_EQ(CountEntities(newScene), 3u);
 
     // Verify component data by finding entities by tag
     bool foundPlayer = false;
     bool foundCamera = false;
     bool foundSprite = false;
+    auto view = newScene->GetAllEntitiesWith<IDComponent>();
     for (auto e : view)
     {
         Entity entity = { e, newScene.get() };
@@ -177,13 +183,7 @@ TEST_F(SaveGameIntegrationTest, FullFileRoundTrip)
     ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*newScene, readPayload));
 
     // Verify
-    u32 count = 0;
-    auto view = newScene->GetAllEntitiesWith<IDComponent>();
-    for ([[maybe_unused]] auto ent : view)
-    {
-        ++count;
-    }
-    EXPECT_EQ(count, 1u);
+    EXPECT_EQ(CountEntities(newScene), 1u);
 }
 
 TEST_F(SaveGameIntegrationTest, EmptyPayloadReturnsError)

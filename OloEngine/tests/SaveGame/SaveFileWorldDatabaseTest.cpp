@@ -4,6 +4,7 @@
 #include "OloEngine/Networking/MMO/PlayerStatePacket.h"
 
 #include <filesystem>
+#include <type_traits>
 #include <vector>
 
 using namespace OloEngine;

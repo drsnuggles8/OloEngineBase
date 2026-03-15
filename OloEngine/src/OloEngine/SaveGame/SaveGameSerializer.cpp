@@ -3,6 +3,7 @@
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Core/Hash.h"
+#include "OloEngine/SaveGame/ISaveable.h"
 #include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -19,6 +20,9 @@ namespace OloEngine
 
     // Sentinel value: typeHash==0 signals end of an entity's component list
     static constexpr u32 kEndOfEntityMarker = 0;
+
+    // Reserved typeHash for ISaveable custom state blob
+    static constexpr u32 kSaveableTypeHash = 0x53415645; // "SAVE"
 
 // Save: serialize a component with typeHash + dataSize for skip-ability
 #define SAVE_COMPONENT(ComponentType, entity, writer)                       \
@@ -43,16 +47,21 @@ namespace OloEngine
     }
 
 // Load: try to match typeHash and deserialize, or skip
-#define LOAD_COMPONENT(ComponentType, entity, typeHashVar, dataBuf) \
-    if ((typeHashVar) == Hash::GenerateFNVHash(#ComponentType))     \
-    {                                                               \
-        auto& comp = (entity).HasComponent<ComponentType>()         \
-                         ? (entity).GetComponent<ComponentType>()   \
-                         : (entity).AddComponent<ComponentType>();  \
-        FMemoryReader cr(dataBuf);                                  \
-        cr.ArIsSaveGame = true;                                     \
-        SaveGameComponentSerializer::Serialize(cr, comp);           \
-        matched = true;                                             \
+#define LOAD_COMPONENT(ComponentType, entity, typeHashVar, dataBuf)                                              \
+    if ((typeHashVar) == Hash::GenerateFNVHash(#ComponentType))                                                  \
+    {                                                                                                            \
+        auto& comp = (entity).HasComponent<ComponentType>()                                                      \
+                         ? (entity).GetComponent<ComponentType>()                                                \
+                         : (entity).AddComponent<ComponentType>();                                               \
+        FMemoryReader cr(dataBuf);                                                                               \
+        cr.ArIsSaveGame = true;                                                                                  \
+        SaveGameComponentSerializer::Serialize(cr, comp);                                                        \
+        if (cr.IsError() || cr.Tell() != static_cast<i64>((dataBuf).size()))                                     \
+        {                                                                                                        \
+            OLO_CORE_WARN("[SaveGameSerializer] Incomplete deserialization of " #ComponentType " ({}/{} bytes)", \
+                          cr.Tell(), (dataBuf).size());                                                          \
+        }                                                                                                        \
+        matched = true;                                                                                          \
     }
 
     // ========================================================================
@@ -159,8 +168,8 @@ namespace OloEngine
         writer.ArIsSaveGame = true;
 
         // --- Scene settings ---
-        constexpr u32 settingsMarker = 0x53455453; // "SETS"
-        writer << const_cast<u32&>(settingsMarker);
+        u32 settingsMarker = 0x53455453; // "SETS"
+        writer << settingsMarker;
 
         SerializePostProcessSettings(writer, scene.m_PostProcessSettings);
         SerializeSnowSettings(writer, scene.m_SnowSettings);
@@ -172,8 +181,8 @@ namespace OloEngine
         SerializeStreamingSettings(writer, scene.m_StreamingSettings);
 
         // --- Entities ---
-        constexpr u32 entitiesMarker = 0x454E5453; // "ENTS"
-        writer << const_cast<u32&>(entitiesMarker);
+        u32 entitiesMarker = 0x454E5453; // "ENTS"
+        writer << entitiesMarker;
 
         // Count entities with IDComponent (all real entities)
         auto view = scene.GetAllEntitiesWith<IDComponent>();
@@ -257,6 +266,20 @@ namespace OloEngine
             SAVE_COMPONENT(ModelComponent, entity, writer);
             SAVE_COMPONENT(AnimationStateComponent, entity, writer);
             SAVE_COMPONENT(StreamingVolumeComponent, entity, writer);
+
+            // ISaveable blob for ScriptComponent custom state
+            if (entity.HasComponent<ScriptComponent>())
+            {
+                const auto& sc = entity.GetComponent<ScriptComponent>();
+                auto saveableBlob = CollectSaveableData(uuid, sc.ClassName);
+                if (!saveableBlob.empty())
+                {
+                    u32 saveableHash = kSaveableTypeHash;
+                    u32 dataSize = static_cast<u32>(saveableBlob.size());
+                    writer << saveableHash << dataSize;
+                    writer.Serialize(saveableBlob.data(), static_cast<i64>(dataSize));
+                }
+            }
 
             // End-of-entity sentinel
             u32 endMarker = kEndOfEntityMarker;
@@ -464,6 +487,16 @@ namespace OloEngine
                 TRY_LOAD_COMPONENT(StreamingVolumeComponent);
 
 #undef TRY_LOAD_COMPONENT
+
+                // ISaveable blob: restore script custom state
+                if (!matched && typeHash == kSaveableTypeHash)
+                {
+                    if (entity.HasComponent<ScriptComponent>())
+                    {
+                        RestoreSaveableData(uuid, entity.GetComponent<ScriptComponent>().ClassName, compData);
+                    }
+                    matched = true;
+                }
 
                 // Unknown component types are silently skipped (forward compatible)
             }

@@ -13,11 +13,17 @@ using namespace OloEngine;
 
 TEST(SaveGameManagerTest, AutoSaveInterval)
 {
+    // Preserve original interval
+    f32 original = SaveGameManager::GetAutoSaveInterval();
+
     SaveGameManager::SetAutoSaveInterval(120.0f);
     EXPECT_FLOAT_EQ(SaveGameManager::GetAutoSaveInterval(), 120.0f);
 
     SaveGameManager::SetAutoSaveInterval(0.0f);
     EXPECT_FLOAT_EQ(SaveGameManager::GetAutoSaveInterval(), 0.0f);
+
+    // Restore
+    SaveGameManager::SetAutoSaveInterval(original);
 }
 
 // GetSaveFilePath requires an active project, so we only test utility functions here
@@ -34,7 +40,7 @@ TEST(SaveableRegistryTest, RegisterAndInvoke)
     SaveableRegistry::Clear();
 
     bool called = false;
-    SaveableRegistry::Register("TestClass", [&called](FArchive& ar)
+    SaveableRegistry::Register("TestClass", [&called](FArchive& ar, UUID entityID)
                                { called = true; });
 
     EXPECT_TRUE(SaveableRegistry::Has("TestClass"));
@@ -43,7 +49,7 @@ TEST(SaveableRegistryTest, RegisterAndInvoke)
     std::vector<u8> buf;
     FMemoryWriter writer(buf);
     writer.ArIsSaveGame = true;
-    SaveableRegistry::Invoke("TestClass", writer);
+    SaveableRegistry::Invoke("TestClass", writer, UUID());
     EXPECT_TRUE(called);
 
     SaveableRegistry::Unregister("TestClass");
@@ -59,7 +65,7 @@ TEST(SaveableRegistryTest, InvokeNonExistent)
     // Should not crash
     std::vector<u8> buf;
     FMemoryWriter writer(buf);
-    SaveableRegistry::Invoke("NonExistent", writer);
+    SaveableRegistry::Invoke("NonExistent", writer, UUID());
 }
 
 TEST(SaveableRegistryTest, RoundTripWithData)
@@ -68,7 +74,7 @@ TEST(SaveableRegistryTest, RoundTripWithData)
 
     // Register a saveable that writes/reads an int via captured value
     i32 savedValue = 42;
-    SaveableRegistry::Register("IntSaveable", [&savedValue](FArchive& ar)
+    SaveableRegistry::Register("IntSaveable", [&savedValue](FArchive& ar, UUID entityID)
                                { ar << savedValue; });
 
     // Save
@@ -76,7 +82,7 @@ TEST(SaveableRegistryTest, RoundTripWithData)
     {
         FMemoryWriter writer(saveData);
         writer.ArIsSaveGame = true;
-        SaveableRegistry::Invoke("IntSaveable", writer);
+        SaveableRegistry::Invoke("IntSaveable", writer, UUID());
     }
     EXPECT_GT(saveData.size(), 0u);
 
@@ -87,7 +93,7 @@ TEST(SaveableRegistryTest, RoundTripWithData)
     {
         FMemoryReader reader(saveData);
         reader.ArIsSaveGame = true;
-        SaveableRegistry::Invoke("IntSaveable", reader);
+        SaveableRegistry::Invoke("IntSaveable", reader, UUID());
     }
     EXPECT_EQ(savedValue, 42);
 

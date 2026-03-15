@@ -54,6 +54,7 @@ namespace OloEngine
 
         bool m_Initialized = false;
         bool m_Dirty = false;
+        bool m_IsCorrupt = false;
         std::string m_SlotName;
         std::filesystem::path m_FilePath;
         mutable FMutex m_Mutex;
