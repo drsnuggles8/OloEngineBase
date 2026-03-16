@@ -255,6 +255,14 @@ namespace OloEngine
             return (m_EntityHandle == other.m_EntityHandle) && (m_Scene == other.m_Scene);
         }
 
+        // Check if reparenting would create a cycle in the hierarchy
+        [[nodiscard]] bool WouldCreateCycleWith(Entity potentialParent) const
+        {
+            OLO_PROFILE_FUNCTION();
+
+            return WouldCreateCycle(potentialParent);
+        }
+
       private:
         /// <summary>
         /// Low-level method to directly set the parent UUID without maintaining hierarchy invariants.

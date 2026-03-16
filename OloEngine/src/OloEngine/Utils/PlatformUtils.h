@@ -14,6 +14,32 @@ namespace OloEngine
         static std::string SaveFile(const char* filter, const char* initialDir = nullptr);
     };
 
+    enum class MessagePromptResult
+    {
+        Yes,
+        No,
+        Cancel
+    };
+
+#ifdef _WIN32
+    class MessagePrompt
+    {
+      public:
+        // Show a Yes / No / Cancel dialog. Returns which button was pressed.
+        static MessagePromptResult YesNoCancel(const char* title, const char* message);
+    };
+#else
+    // Non-Windows stub — returns No (discard) so unsaved-changes dialogs don't block the editor
+    class MessagePrompt
+    {
+      public:
+        static MessagePromptResult YesNoCancel([[maybe_unused]] const char* title, [[maybe_unused]] const char* message)
+        {
+            return MessagePromptResult::No;
+        }
+    };
+#endif
+
     class Time
     {
       public:

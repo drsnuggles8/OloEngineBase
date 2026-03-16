@@ -7,6 +7,10 @@
 #include "Platform/OpenGL/OpenGLContext.h"
 #include "Platform/Windows/WindowsWindow.h"
 
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+#include <dwmapi.h>
+
 namespace OloEngine
 {
 
@@ -75,6 +79,23 @@ namespace OloEngine
 
             m_Window = GLFWAPI::glfwCreateWindow(static_cast<int>(props.Width), static_cast<int>(props.Height), m_Data.Title.c_str(), nullptr, nullptr);
             ++s_GLFWWindowCount;
+        }
+
+        // Enable dark title bar on Windows 10 1809+ / Windows 11
+        {
+            HWND hwnd = GLFWAPI::glfwGetWin32Window(m_Window);
+            BOOL constexpr darkMode = TRUE;
+            // DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (works on Win10 1809+,
+            // enum value may not be in older SDKs)
+            ::DwmSetWindowAttribute(hwnd, 20, &darkMode, sizeof(darkMode));
+
+            // Set taskbar / window icon from embedded resource (ID 1)
+            HICON hIcon = ::LoadIconW(::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1));
+            if (hIcon)
+            {
+                ::SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(hIcon));
+                ::SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(hIcon));
+            }
         }
 
         m_Context = GraphicsContext::Create(m_Window);

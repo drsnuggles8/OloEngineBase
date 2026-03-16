@@ -130,6 +130,7 @@ target_link_libraries(OloEngine
 	debug ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/libmono-static-sgen.lib
 	optimized ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/libmono-static-sgen.lib
 	BCrypt
+	dwmapi
 	Synchronization
 	Version
 	ws2_32

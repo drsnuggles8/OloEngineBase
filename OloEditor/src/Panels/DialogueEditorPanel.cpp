@@ -1,4 +1,5 @@
 #include "DialogueEditorPanel.h"
+#include "../UndoRedo/SpecializedCommands.h"
 #include "OloEngine/Dialogue/DialogueTreeSerializer.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Project/Project.h"
@@ -16,6 +17,61 @@
 
 namespace OloEngine
 {
+    // =========================================================================
+    // Undo/Redo helpers
+    // =========================================================================
+
+    DialogueEditorSnapshot DialogueEditorPanel::CaptureSnapshot() const
+    {
+        return { m_Nodes, m_Connections, m_RootNodeID };
+    }
+
+    void DialogueEditorPanel::RestoreSnapshot(const DialogueEditorSnapshot& snapshot)
+    {
+        m_Nodes = snapshot.Nodes;
+        m_Connections = snapshot.Connections;
+        m_RootNodeID = snapshot.RootNodeID;
+        m_SelectedNodeID = 0;
+        m_IsDirty = true;
+    }
+
+    void DialogueEditorPanel::PushDialogueUndoCommand(const DialogueEditorSnapshot& oldState, const std::string& description)
+    {
+        if (!m_CommandHistory)
+        {
+            return;
+        }
+
+        auto newState = CaptureSnapshot();
+
+        // Skip no-op commands (quick structural comparison)
+        if (oldState.RootNodeID == newState.RootNodeID && oldState.Nodes.size() == newState.Nodes.size() && oldState.Connections.size() == newState.Connections.size())
+        {
+            // Check if node IDs and connection endpoints match
+            bool same = true;
+            for (sizet i = 0; i < oldState.Nodes.size() && same; ++i)
+            {
+                same = (static_cast<u64>(oldState.Nodes[i].ID) == static_cast<u64>(newState.Nodes[i].ID) && oldState.Nodes[i].Name == newState.Nodes[i].Name && oldState.Nodes[i].Type == newState.Nodes[i].Type && oldState.Nodes[i].Properties == newState.Nodes[i].Properties && oldState.Nodes[i].EditorPosition == newState.Nodes[i].EditorPosition);
+            }
+            for (sizet i = 0; i < oldState.Connections.size() && same; ++i)
+            {
+                same = (static_cast<u64>(oldState.Connections[i].SourceNodeID) == static_cast<u64>(newState.Connections[i].SourceNodeID) && static_cast<u64>(oldState.Connections[i].TargetNodeID) == static_cast<u64>(newState.Connections[i].TargetNodeID) && oldState.Connections[i].SourcePort == newState.Connections[i].SourcePort && oldState.Connections[i].TargetPort == newState.Connections[i].TargetPort);
+            }
+            if (same)
+            {
+                return;
+            }
+        }
+
+        auto* panel = this;
+        m_CommandHistory->PushAlreadyExecuted(
+            std::make_unique<DialogueEditorChangeCommand>(
+                oldState, std::move(newState),
+                [panel](const DialogueEditorSnapshot& s)
+                { panel->RestoreSnapshot(s); },
+                description));
+    }
+
     // =========================================================================
     // Public API
     // =========================================================================
@@ -766,6 +822,7 @@ namespace OloEngine
                         m_DragStartOffset = glm::vec2(
                             mousePos.x - nodePos.x,
                             mousePos.y - nodePos.y);
+                        m_DragStartSnapshot = CaptureSnapshot();
                     }
                     break;
                 }
@@ -791,6 +848,10 @@ namespace OloEngine
 
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
         {
+            if (m_IsDraggingNode)
+            {
+                PushDialogueUndoCommand(m_DragStartSnapshot, "Move Node");
+            }
             m_IsDraggingNode = false;
         }
     }
@@ -807,6 +868,7 @@ namespace OloEngine
             // Check if released on a port
             ImVec2 const mousePos = ImGui::GetIO().MousePos;
             bool connected = false;
+            auto oldSnapshot = CaptureSnapshot();
 
             for (const auto& node : m_Nodes)
             {
@@ -861,6 +923,11 @@ namespace OloEngine
                 }
                 if (connected)
                     break;
+            }
+
+            if (connected)
+            {
+                PushDialogueUndoCommand(oldSnapshot, "Create Connection");
             }
 
             m_IsCreatingConnection = false;
@@ -968,6 +1035,13 @@ namespace OloEngine
 
     void DialogueEditorPanel::DrawNodeProperties(DialogueNodeData& node)
     {
+        // Snapshot at start of edit session (not every frame)
+        if (m_CommandHistory && !m_IsEditingProperties)
+        {
+            m_PropertyEditSnapshot = CaptureSnapshot();
+        }
+
+        bool anyChanged = false;
         // Node name
         char nameBuf[256];
         std::snprintf(nameBuf, sizeof(nameBuf), "%s", node.Name.c_str());
@@ -975,6 +1049,7 @@ namespace OloEngine
         {
             node.Name = nameBuf;
             m_IsDirty = true;
+            anyChanged = true;
         }
 
         // Node type (read-only display)
@@ -991,6 +1066,7 @@ namespace OloEngine
             {
                 m_RootNodeID = node.ID;
                 m_IsDirty = true;
+                anyChanged = true;
             }
         }
 
@@ -1012,6 +1088,7 @@ namespace OloEngine
             {
                 node.Properties["speaker"] = std::string(speakerBuf);
                 m_IsDirty = true;
+                anyChanged = true;
             }
 
             // Text (multiline)
@@ -1027,6 +1104,7 @@ namespace OloEngine
             {
                 node.Properties["text"] = std::string(textBuf);
                 m_IsDirty = true;
+                anyChanged = true;
             }
         }
         else if (node.Type == "condition")
@@ -1043,6 +1121,7 @@ namespace OloEngine
             {
                 node.Properties["conditionExpression"] = std::string(exprBuf);
                 m_IsDirty = true;
+                anyChanged = true;
             }
 
             std::string condArgs;
@@ -1057,6 +1136,7 @@ namespace OloEngine
             {
                 node.Properties["conditionArgs"] = std::string(condArgsBuf);
                 m_IsDirty = true;
+                anyChanged = true;
             }
 
             ImGui::TextWrapped("Variable name checked against DialogueVariables.\ntrue/false ports route flow.");
@@ -1075,6 +1155,7 @@ namespace OloEngine
             {
                 node.Properties["actionName"] = std::string(actionBuf);
                 m_IsDirty = true;
+                anyChanged = true;
             }
 
             std::string actionArgs;
@@ -1089,6 +1170,7 @@ namespace OloEngine
             {
                 node.Properties["actionArgs"] = std::string(argsBuf);
                 m_IsDirty = true;
+                anyChanged = true;
             }
         }
         else if (node.Type == "choice")
@@ -1111,6 +1193,7 @@ namespace OloEngine
                 {
                     conn.SourcePort = labelBuf;
                     m_IsDirty = true;
+                    anyChanged = true;
                 }
 
                 ImGui::SameLine();
@@ -1138,6 +1221,7 @@ namespace OloEngine
         if (ImGui::DragFloat2("Position", &node.EditorPosition.x, 1.0f))
         {
             m_IsDirty = true;
+            anyChanged = true;
         }
 
         // Connections from/to this node
@@ -1174,6 +1258,21 @@ namespace OloEngine
                     break;
                 }
                 ++connIdx;
+            }
+        }
+
+        // Track property edit sessions for undo
+        if (m_CommandHistory)
+        {
+            if (anyChanged)
+            {
+                m_IsEditingProperties = true;
+            }
+
+            if (m_IsEditingProperties && GImGui->ActiveId == 0)
+            {
+                PushDialogueUndoCommand(m_PropertyEditSnapshot, "Edit Node Properties");
+                m_IsEditingProperties = false;
             }
         }
     }
@@ -1721,6 +1820,8 @@ namespace OloEngine
 
     UUID DialogueEditorPanel::CreateNode(const std::string& type, const glm::vec2& position)
     {
+        auto oldSnapshot = CaptureSnapshot();
+
         UUID id = GenerateNodeID();
 
         DialogueNodeData node;
@@ -1758,6 +1859,8 @@ namespace OloEngine
         if (m_Nodes.size() == 1)
             m_RootNodeID = id;
 
+        PushDialogueUndoCommand(oldSnapshot, "Create " + type + " Node");
+
         return id;
     }
 
@@ -1766,6 +1869,8 @@ namespace OloEngine
         // Don't delete root node
         if (nodeID == m_RootNodeID)
             return;
+
+        auto oldSnapshot = CaptureSnapshot();
 
         // Remove connections
         m_Connections.erase(
@@ -1787,14 +1892,17 @@ namespace OloEngine
             m_SelectedNodeID = 0;
 
         m_IsDirty = true;
+        PushDialogueUndoCommand(oldSnapshot, "Delete Node");
     }
 
     void DialogueEditorPanel::DeleteConnection(size_t index)
     {
         if (index < m_Connections.size())
         {
+            auto oldSnapshot = CaptureSnapshot();
             m_Connections.erase(m_Connections.begin() + static_cast<ptrdiff_t>(index));
             m_IsDirty = true;
+            PushDialogueUndoCommand(oldSnapshot, "Delete Connection");
         }
     }
 
@@ -1804,19 +1912,29 @@ namespace OloEngine
         if (!srcNode)
             return;
 
+        // Capture state before the whole duplicate operation
+        auto oldSnapshot = CaptureSnapshot();
+
         // Copy data before CreateNode, which may reallocate m_Nodes and invalidate srcNode
         std::string srcType = srcNode->Type;
         glm::vec2 srcPos = srcNode->EditorPosition + glm::vec2(30.0f, 30.0f);
         std::string srcName = srcNode->Name + " (copy)";
         auto srcProperties = srcNode->Properties;
 
+        // Temporarily disable CommandHistory to avoid double-push from CreateNode
+        auto* savedHistory = m_CommandHistory;
+        m_CommandHistory = nullptr;
         UUID newID = CreateNode(srcType, srcPos);
+        m_CommandHistory = savedHistory;
+
         auto* newNode = FindNodeMutable(newID);
         if (newNode)
         {
             newNode->Name = std::move(srcName);
             newNode->Properties = std::move(srcProperties);
         }
+
+        PushDialogueUndoCommand(oldSnapshot, "Duplicate Node");
     }
 
     // =========================================================================

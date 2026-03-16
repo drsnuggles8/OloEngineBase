@@ -40,4 +40,11 @@ namespace OloEngine
         std::string TargetPort;
     };
 
+    struct DialogueEditorSnapshot
+    {
+        std::vector<DialogueNodeData> Nodes;
+        std::vector<DialogueConnection> Connections;
+        UUID RootNodeID = 0;
+    };
+
 } // namespace OloEngine

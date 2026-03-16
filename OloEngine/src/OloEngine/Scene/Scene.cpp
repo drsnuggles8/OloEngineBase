@@ -287,7 +287,7 @@ namespace OloEngine
             }
         }
 
-        // Dialogue system initialization (before scripting so scripts can use it)
+        // Dialogue system initialization
         m_DialogueSystem = std::make_unique<DialogueSystem>(this);
 
         // Scripting
@@ -645,10 +645,63 @@ namespace OloEngine
         {
             for (const auto view = m_Registry.view<TransformComponent, CameraComponent>(); const auto entity : view)
             {
-                const auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entity);
+                auto& transform = view.get<TransformComponent>(entity);
+                auto& camera = view.get<CameraComponent>(entity);
 
                 if (camera.Primary)
                 {
+                    // FPS fly-camera controls: WASD/QE movement + mouse look
+                    if (camera.RuntimeControl)
+                    {
+                        const glm::vec2 mouse{ Input::GetMouseX(), Input::GetMouseY() };
+                        const glm::vec2 delta = (mouse - m_RuntimeCameraLastMouse) * 0.003f;
+                        m_RuntimeCameraLastMouse = mouse;
+
+                        // Mouse look — pitch (X rotation) and yaw (Y rotation)
+                        if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
+                        {
+                            transform.Rotation.y -= delta.x * 0.8f;
+                            transform.Rotation.x -= delta.y * 0.8f;
+                            transform.Rotation.x = glm::clamp(transform.Rotation.x, glm::radians(-89.0f), glm::radians(89.0f));
+                        }
+
+                        // WASD + QE movement (always active)
+                        const glm::quat orientation = glm::quat(transform.Rotation);
+                        const glm::vec3 forward = glm::rotate(orientation, glm::vec3(0.0f, 0.0f, -1.0f));
+                        const glm::vec3 right = glm::rotate(orientation, glm::vec3(1.0f, 0.0f, 0.0f));
+
+                        f32 speed = camera.FlySpeed * ts;
+                        if (Input::IsKeyPressed(Key::LeftShift))
+                        {
+                            speed *= 3.0f;
+                        }
+
+                        if (Input::IsKeyPressed(Key::W))
+                        {
+                            transform.Translation += forward * speed;
+                        }
+                        if (Input::IsKeyPressed(Key::S))
+                        {
+                            transform.Translation -= forward * speed;
+                        }
+                        if (Input::IsKeyPressed(Key::A))
+                        {
+                            transform.Translation -= right * speed;
+                        }
+                        if (Input::IsKeyPressed(Key::D))
+                        {
+                            transform.Translation += right * speed;
+                        }
+                        if (Input::IsKeyPressed(Key::E))
+                        {
+                            transform.Translation.y += speed;
+                        }
+                        if (Input::IsKeyPressed(Key::Q))
+                        {
+                            transform.Translation.y -= speed;
+                        }
+                    }
+
                     mainCamera = &camera.Camera;
                     cameraTransform = transform.GetTransform();
                     break;
@@ -656,7 +709,7 @@ namespace OloEngine
             }
         }
 
-        if (mainCamera)
+        if (mainCamera && m_RenderingEnabled)
         {
             // Render 3D if 3D mode is enabled
             if (m_Is3DModeEnabled)
@@ -757,7 +810,10 @@ namespace OloEngine
             UIInputSystem::ProcessInput(*this, mousePos, mouseDown, mousePressed);
         }
 
-        RenderUIOverlay();
+        if (m_RenderingEnabled)
+        {
+            RenderUIOverlay();
+        }
     }
 
     void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera const& camera)
@@ -817,13 +873,16 @@ namespace OloEngine
         }
 
         // Render based on mode
-        if (m_Is3DModeEnabled)
+        if (m_RenderingEnabled)
         {
-            RenderScene3D(camera);
-        }
-        else
-        {
-            RenderScene(camera);
+            if (m_Is3DModeEnabled)
+            {
+                RenderScene3D(camera);
+            }
+            else
+            {
+                RenderScene(camera);
+            }
         }
     }
 
@@ -855,17 +914,20 @@ namespace OloEngine
         ProcessSnowDeformers(ts, m_EditorSnowPrevPositions);
 
         // Render based on mode
-        if (m_Is3DModeEnabled)
+        if (m_RenderingEnabled)
         {
-            RenderScene3D(camera);
-        }
-        else
-        {
-            RenderScene(camera);
-        }
+            if (m_Is3DModeEnabled)
+            {
+                RenderScene3D(camera);
+            }
+            else
+            {
+                RenderScene(camera);
+            }
 
-        // UI overlay renders on top of both 2D and 3D scenes
-        RenderUIOverlay();
+            // UI overlay renders on top of both 2D and 3D scenes
+            RenderUIOverlay();
+        }
     }
 
     void Scene::InitializeEditorStreamer()
@@ -923,11 +985,28 @@ namespace OloEngine
         m_StepFrames = frames;
     }
 
-    void Scene::DuplicateEntity(Entity entity)
+    [[nodiscard]] Entity Scene::DuplicateEntity(Entity entity)
     {
-        const Entity newEntity = CreateEntity(entity.GetName());
+        Entity newEntity = CreateEntity(entity.GetName());
 
         CopyComponentIfExists(AllComponents{}, newEntity, entity);
+
+        // Fix up special-case components after bulk copy
+        // RelationshipComponent: clear parent/children to avoid sharing hierarchy links
+        if (newEntity.HasComponent<RelationshipComponent>())
+        {
+            auto& rel = newEntity.GetComponent<RelationshipComponent>();
+            rel.m_ParentHandle = UUID(0);
+            rel.m_Children.clear();
+        }
+
+        // CameraComponent: force Primary = false to avoid multiple primaries
+        if (newEntity.HasComponent<CameraComponent>())
+        {
+            newEntity.GetComponent<CameraComponent>().Primary = false;
+        }
+
+        return newEntity;
     }
 
     void Scene::SetName(std::string_view name)
@@ -2674,7 +2753,10 @@ namespace OloEngine
             camera.GetNearClip(),
             camera.GetFarClip());
 
-        Renderer3D::DrawInfiniteGrid(1.0f);
+        if (m_ShowGrid)
+        {
+            Renderer3D::DrawInfiniteGrid(m_GridSpacing);
+        }
 
         // Draw world axis helper at origin
         Renderer3D::DrawWorldAxisHelper(3.0f);

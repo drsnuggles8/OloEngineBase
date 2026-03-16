@@ -96,8 +96,8 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameManagerTest.cpp
 		SaveGame/SaveGameIntegrationTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
-		)
-		
+		UndoRedoTest.cpp
+)
 target_link_libraries(OloEngine-Tests
 	OloEngine
 	gtest)

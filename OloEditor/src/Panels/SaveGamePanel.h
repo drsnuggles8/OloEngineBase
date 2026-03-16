@@ -21,7 +21,7 @@ namespace OloEngine
             m_Framebuffer = framebuffer;
         }
 
-        void OnImGuiRender();
+        void OnImGuiRender(bool* p_open = nullptr);
 
         // Trigger save/load from outside (e.g., keyboard shortcuts)
         void TriggerQuickSave();

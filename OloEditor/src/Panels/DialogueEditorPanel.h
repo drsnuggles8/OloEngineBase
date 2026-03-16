@@ -17,6 +17,8 @@
 
 namespace OloEngine
 {
+    class CommandHistory;
+
     class DialogueEditorPanel
     {
       public:
@@ -41,6 +43,14 @@ namespace OloEngine
 
         // Reset the panel to a clean state (e.g. on project switch)
         void NewDialogue();
+
+        void SetCommandHistory(CommandHistory* history)
+        {
+            m_CommandHistory = history;
+        }
+
+        // Restore dialogue state from an undo snapshot
+        void RestoreSnapshot(const DialogueEditorSnapshot& snapshot);
 
       private:
         // --- Canvas rendering ---
@@ -116,6 +126,13 @@ namespace OloEngine
         UUID m_RootNodeID = 0;
         bool m_IsDirty = false;
 
+        // Undo/redo
+        CommandHistory* m_CommandHistory = nullptr;
+        bool m_IsEditingProperties = false;
+        DialogueEditorSnapshot m_PropertyEditSnapshot;
+        void PushDialogueUndoCommand(const DialogueEditorSnapshot& oldState, const std::string& description);
+        [[nodiscard]] DialogueEditorSnapshot CaptureSnapshot() const;
+
         // Canvas state
         glm::vec2 m_ScrollOffset = { 0.0f, 0.0f };
         f32 m_Zoom = 1.0f;
@@ -126,6 +143,7 @@ namespace OloEngine
         std::vector<UUID> m_MultiSelectedNodes;
         bool m_IsDraggingNode = false;
         glm::vec2 m_DragStartOffset = { 0.0f, 0.0f };
+        DialogueEditorSnapshot m_DragStartSnapshot;
 
         // Connection creation
         bool m_IsCreatingConnection = false;

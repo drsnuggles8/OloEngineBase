@@ -59,7 +59,7 @@ namespace OloEngine
         void OnUpdateEditor(Timestep ts, EditorCamera const& camera);
         void OnViewportResize(u32 width, u32 height);
 
-        void DuplicateEntity(Entity entity);
+        [[nodiscard]] Entity DuplicateEntity(Entity entity);
 
         [[nodiscard("Store this!")]] Entity FindEntityByName(std::string_view name);
         [[nodiscard("Store this!")]] Entity GetEntityByUUID(UUID uuid);
@@ -134,6 +134,33 @@ namespace OloEngine
         [[nodiscard("Store this!")]] bool IsIs3DModeEnabled() const
         {
             return m_Is3DModeEnabled;
+        }
+
+        // Render throttling — skip scene rendering while keeping simulation running
+        void SetRenderingEnabled(bool enabled)
+        {
+            m_RenderingEnabled = enabled;
+        }
+
+        // Viewport grid settings (editor only)
+        void SetGridVisible(bool visible)
+        {
+            m_ShowGrid = visible;
+        }
+        [[nodiscard("Store this!")]] bool IsGridVisible() const
+        {
+            return m_ShowGrid;
+        }
+        void SetGridSpacing(f32 spacing)
+        {
+            if (spacing > 0.0f)
+            {
+                m_GridSpacing = spacing;
+            }
+        }
+        [[nodiscard("Store this!")]] f32 GetGridSpacing() const
+        {
+            return m_GridSpacing;
         }
 
         // Skeleton visualization settings (editor only)
@@ -323,7 +350,11 @@ namespace OloEngine
         u64 m_TerrainFrameCounter = 0;
         u64 m_StreamingFrameCounter = 0;
         bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
+        bool m_RenderingEnabled = true;                        // Skip rendering when throttled
+        bool m_ShowGrid = true;                                // Viewport grid visibility
+        f32 m_GridSpacing = 1.0f;                              // Viewport grid spacing
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
+        glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };      // FPS fly-camera mouse tracking
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
         PostProcessSettings m_PostProcessSettings;             // Post-processing settings
         SnowSettings m_SnowSettings;                           // Snow rendering settings

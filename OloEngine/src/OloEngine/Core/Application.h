@@ -57,6 +57,7 @@ namespace OloEngine
         }
 
         void Close();
+        void CancelClose();
 
         [[nodiscard("Store this!")]] ImGuiLayer* GetImGuiLayer()
         {

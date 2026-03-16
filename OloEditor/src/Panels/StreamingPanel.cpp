@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "StreamingPanel.h"
+#include "../UndoRedo/SpecializedCommands.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
@@ -13,11 +14,11 @@
 
 namespace OloEngine
 {
-    void StreamingPanel::OnImGuiRender()
+    void StreamingPanel::OnImGuiRender(bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
 
-        ImGui::Begin("Scene Streaming");
+        ImGui::Begin("Scene Streaming", p_open);
 
         if (!m_Context)
         {
@@ -34,11 +35,22 @@ namespace OloEngine
         ImGui::End();
     }
 
+    static bool StreamingSettingsEqual(const StreamingSettings& a, const StreamingSettings& b)
+    {
+        return a.Enabled == b.Enabled && a.DefaultLoadRadius == b.DefaultLoadRadius && a.DefaultUnloadRadius == b.DefaultUnloadRadius && a.MaxLoadedRegions == b.MaxLoadedRegions && a.RegionDirectory == b.RegionDirectory;
+    }
+
     void StreamingPanel::DrawSettingsSection()
     {
         OLO_PROFILE_FUNCTION();
 
         auto& ss = m_Context->GetStreamingSettings();
+
+        // Snapshot settings before UI interaction
+        if (m_CommandHistory && !m_IsEditingSettings)
+        {
+            m_SettingsSnapshot = ss;
+        }
 
         if (ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_DefaultOpen))
         {
@@ -81,6 +93,35 @@ namespace OloEngine
             }
 
             ImGui::Unindent();
+        }
+
+        // Track edit sessions and push undo commands
+        if (m_CommandHistory)
+        {
+            bool changed = !StreamingSettingsEqual(ss, m_SettingsSnapshot);
+            bool activeWidget = ImGui::IsAnyItemActive();
+
+            if (changed)
+            {
+                m_IsEditingSettings = true;
+            }
+
+            if (m_IsEditingSettings && !activeWidget)
+            {
+                // Editing ended — push undo command if settings actually changed
+                if (changed)
+                {
+                    auto snapshot = m_SettingsSnapshot;
+                    auto scene = m_Context;
+                    m_CommandHistory->PushAlreadyExecuted(
+                        std::make_unique<StreamingSettingsChangeCommand>(
+                            snapshot, ss,
+                            [scene](const StreamingSettings& s) mutable
+                            { scene->GetStreamingSettings() = s; }));
+                }
+                m_IsEditingSettings = false;
+                m_SettingsSnapshot = ss;
+            }
         }
     }
 

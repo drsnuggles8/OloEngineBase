@@ -9,16 +9,23 @@
 
 namespace OloEngine
 {
+    class CommandHistory;
+
     class InputSettingsPanel
     {
       public:
         InputSettingsPanel() = default;
         ~InputSettingsPanel() = default;
 
-        void OnImGuiRender();
+        void OnImGuiRender(bool* p_open = nullptr);
 
         // Forward events for rebinding capture
         void OnEvent(Event& e);
+
+        void SetCommandHistory(CommandHistory* history)
+        {
+            m_CommandHistory = history;
+        }
 
       private:
         void DrawActionMapHeader();
@@ -43,6 +50,9 @@ namespace OloEngine
 
         // Dirty tracking
         bool m_Dirty = false;
+
+        // Undo/redo
+        CommandHistory* m_CommandHistory = nullptr;
     };
 
 } // namespace OloEngine

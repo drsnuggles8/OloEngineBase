@@ -1,0 +1,12 @@
+EditorPreferences:
+  ShowGrid: true
+  GridSpacing: 1
+  TranslateSnap: 0.5
+  RotateSnap: 45
+  ScaleSnap: 0.5
+  CameraFlySpeed: 5
+  ShowPhysicsColliders: false
+  Is3DMode: true
+  CapturePhysicsOnPlay: false
+  Bookmarks:
+    []
