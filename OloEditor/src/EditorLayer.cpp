@@ -15,6 +15,7 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -188,6 +189,8 @@ namespace OloEngine
                 m_EditorCamera.OnUpdate(ts);
 
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
+                m_ActiveScene->SetGridVisible(m_ShowGrid);
+                m_ActiveScene->SetGridSpacing(m_GridSpacing);
                 m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
                 break;
             }
@@ -196,6 +199,8 @@ namespace OloEngine
                 m_EditorCamera.OnUpdate(ts);
 
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
+                m_ActiveScene->SetGridVisible(m_ShowGrid);
+                m_ActiveScene->SetGridSpacing(m_GridSpacing);
                 m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
                 break;
             }
@@ -465,6 +470,8 @@ namespace OloEngine
 
         if (ImGui::BeginMenu("Window"))
         {
+            ImGui::MenuItem("Console", nullptr, &m_ShowConsolePanel);
+            ImGui::MenuItem("Scene Statistics", nullptr, &m_ShowSceneStatistics);
             ImGui::MenuItem("Animation Panel", nullptr, &m_ShowAnimationPanel);
             ImGui::MenuItem("Post Process Settings", nullptr, &m_ShowPostProcessSettings);
             ImGui::MenuItem("Terrain Editor", nullptr, &m_ShowTerrainEditor);
@@ -472,6 +479,7 @@ namespace OloEngine
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
+            ImGui::MenuItem("Editor Preferences", nullptr, &m_ShowEditorPreferences);
 
             ImGui::EndMenu();
         }
@@ -564,6 +572,24 @@ namespace OloEngine
                     else
                     {
                         OLO_WARN("Could not load texture {0}", path.filename().string());
+                    }
+                }
+                else if (path.extension() == ".oloprefab") // Instantiate prefab
+                {
+                    auto* editorManager = static_cast<EditorAssetManager*>(
+                        Project::GetActive()->GetAssetManager().get());
+                    AssetHandle handle = editorManager->ImportAsset(path);
+                    if (handle)
+                    {
+                        Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle);
+                        if (prefab)
+                        {
+                            Entity instance = prefab->Instantiate(*m_EditorScene);
+                            if (instance)
+                            {
+                                m_SceneHierarchyPanel.SetSelectedEntity(instance);
+                            }
+                        }
                     }
                 }
             }
@@ -808,6 +834,34 @@ namespace OloEngine
         {
             m_DialogueEditorPanel.OnImGuiRender();
         }
+
+        // Console Panel
+        if (m_ShowConsolePanel)
+        {
+            m_ConsolePanel.OnImGuiRender();
+        }
+
+        // Scene Statistics Panel
+        if (m_ShowSceneStatistics)
+        {
+            m_SceneStatisticsPanel.OnImGuiRender();
+        }
+
+        // Editor Preferences Panel
+        if (m_ShowEditorPreferences)
+        {
+            m_EditorPreferencesPanel.OnImGuiRender(m_Prefs);
+
+            // Sync preferences back to editor fields
+            m_ShowGrid = m_Prefs.ShowGrid;
+            m_GridSpacing = m_Prefs.GridSpacing;
+            m_TranslateSnap = m_Prefs.TranslateSnap;
+            m_RotateSnap = m_Prefs.RotateSnap;
+            m_ScaleSnap = m_Prefs.ScaleSnap;
+            m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
+            m_Is3DMode = m_Prefs.Is3DMode;
+            m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
+        }
     }
 
     void EditorLayer::ApplyDefault3DCameraPose()
@@ -829,6 +883,11 @@ namespace OloEngine
 
         // 3D Mode toggle with lazy initialization
         ImGui::Checkbox("3D Mode", &m_Is3DMode);
+        ImGui::Checkbox("Show Grid", &m_ShowGrid);
+        if (m_ShowGrid)
+        {
+            ImGui::DragFloat("Grid Spacing", &m_GridSpacing, 0.1f, 0.1f, 100.0f, "%.1f");
+        }
         if (m_Is3DMode && !Renderer3D::IsInitialized())
         {
             OLO_PROFILE_SCOPE("EditorLayer::UI_Settings_3DInit");
@@ -1399,6 +1458,17 @@ namespace OloEngine
                 }
             }
 
+            // Load editor preferences
+            m_EditorPreferencesPanel.Load(m_Prefs, Project::GetProjectDirectory());
+            m_ShowGrid = m_Prefs.ShowGrid;
+            m_GridSpacing = m_Prefs.GridSpacing;
+            m_TranslateSnap = m_Prefs.TranslateSnap;
+            m_RotateSnap = m_Prefs.RotateSnap;
+            m_ScaleSnap = m_Prefs.ScaleSnap;
+            m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
+            m_Is3DMode = m_Prefs.Is3DMode;
+            m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
+
             return true;
         }
         return false;
@@ -1488,6 +1558,20 @@ namespace OloEngine
             SerializeScene(m_ActiveScene, m_EditorScenePath);
             m_CommandHistory.MarkSaved();
             SyncWindowTitle();
+
+            // Save editor preferences alongside scene
+            m_Prefs.ShowGrid = m_ShowGrid;
+            m_Prefs.GridSpacing = m_GridSpacing;
+            m_Prefs.TranslateSnap = m_TranslateSnap;
+            m_Prefs.RotateSnap = m_RotateSnap;
+            m_Prefs.ScaleSnap = m_ScaleSnap;
+            m_Prefs.ShowPhysicsColliders = m_ShowPhysicsColliders;
+            m_Prefs.Is3DMode = m_Is3DMode;
+            m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
+            if (Project::GetActive())
+            {
+                m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());
+            }
         }
         else
         {
@@ -1566,6 +1650,7 @@ namespace OloEngine
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
         m_AnimationPanel.SetContext(m_ActiveScene);
         m_StreamingPanel.SetContext(m_ActiveScene);
+        m_SceneStatisticsPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneSimulate()
@@ -1583,6 +1668,7 @@ namespace OloEngine
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
         m_AnimationPanel.SetContext(m_ActiveScene);
         m_StreamingPanel.SetContext(m_ActiveScene);
+        m_SceneStatisticsPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneStop()
@@ -1609,6 +1695,7 @@ namespace OloEngine
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
         m_AnimationPanel.SetContext(m_ActiveScene);
         m_StreamingPanel.SetContext(m_ActiveScene);
+        m_SceneStatisticsPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
@@ -1628,6 +1715,7 @@ namespace OloEngine
         m_TerrainEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_StreamingPanel.SetContext(m_EditorScene);
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
+        m_SceneStatisticsPanel.SetContext(m_EditorScene);
         m_DialogueEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_InputSettingsPanel.SetCommandHistory(&m_CommandHistory);
 

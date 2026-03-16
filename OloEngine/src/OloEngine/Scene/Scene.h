@@ -136,6 +136,24 @@ namespace OloEngine
             return m_Is3DModeEnabled;
         }
 
+        // Viewport grid settings (editor only)
+        void SetGridVisible(bool visible)
+        {
+            m_ShowGrid = visible;
+        }
+        [[nodiscard("Store this!")]] bool IsGridVisible() const
+        {
+            return m_ShowGrid;
+        }
+        void SetGridSpacing(f32 spacing)
+        {
+            m_GridSpacing = spacing;
+        }
+        [[nodiscard("Store this!")]] f32 GetGridSpacing() const
+        {
+            return m_GridSpacing;
+        }
+
         // Skeleton visualization settings (editor only)
         struct SkeletonVisualizationSettings
         {
@@ -323,6 +341,8 @@ namespace OloEngine
         u64 m_TerrainFrameCounter = 0;
         u64 m_StreamingFrameCounter = 0;
         bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
+        bool m_ShowGrid = true;                                // Viewport grid visibility
+        f32 m_GridSpacing = 1.0f;                              // Viewport grid spacing
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
         glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };      // FPS fly-camera mouse tracking
         SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization

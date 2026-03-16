@@ -9,7 +9,10 @@
 #include "Panels/StreamingPanel.h"
 #include "Panels/InputSettingsPanel.h"
 #include "Panels/NetworkDebugPanel.h"
+#include "Panels/ConsolePanel.h"
 #include "Panels/DialogueEditorPanel.h"
+#include "Panels/SceneStatisticsPanel.h"
+#include "Panels/EditorPreferencesPanel.h"
 
 #include "UndoRedo/EditorCommand.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -132,6 +135,8 @@ namespace OloEngine
         int m_GizmoType = 0; // Default to Translate (ImGuizmo::TRANSLATE) for immediate usability
         bool m_ShowPhysicsColliders = false;
         bool m_Is3DMode = true; // Toggle for 2D/3D rendering
+        bool m_ShowGrid = true;
+        f32 m_GridSpacing = 1.0f;
 
         // Transform snapping
         f32 m_TranslateSnap = 0.5f;
@@ -185,7 +190,13 @@ namespace OloEngine
         StreamingPanel m_StreamingPanel;
         InputSettingsPanel m_InputSettingsPanel;
         NetworkDebugPanel m_NetworkDebugPanel;
+        ConsolePanel m_ConsolePanel;
+        SceneStatisticsPanel m_SceneStatisticsPanel;
         DialogueEditorPanel m_DialogueEditorPanel;
+        EditorPreferencesPanel m_EditorPreferencesPanel;
+        EditorPreferences m_Prefs;
+        bool m_ShowConsolePanel = true;
+        bool m_ShowSceneStatistics = true;
         bool m_ShowAnimationPanel = true;
         bool m_ShowPostProcessSettings = true;
         bool m_ShowTerrainEditor = false;
@@ -193,6 +204,7 @@ namespace OloEngine
         bool m_ShowInputSettings = false;
         bool m_ShowNetworkDebug = false;
         bool m_ShowDialogueEditor = false;
+        bool m_ShowEditorPreferences = false;
 
         // Undo/Redo
         CommandHistory m_CommandHistory;

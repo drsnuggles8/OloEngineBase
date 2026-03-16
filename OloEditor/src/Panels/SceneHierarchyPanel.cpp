@@ -1,5 +1,6 @@
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/UI/UI.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -8,6 +9,7 @@
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Particle/ParticlePresets.h"
@@ -397,7 +399,19 @@ namespace OloEngine
             flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
         }
 
+        // Visual indicator for prefab instances
+        bool isPrefabInstance = entity.HasComponent<PrefabComponent>() && entity.GetComponent<PrefabComponent>().IsValid();
+        if (isPrefabInstance)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.7f, 1.0f, 1.0f));
+        }
+
         bool opened = ImGui::TreeNodeEx((void*)static_cast<u64>(static_cast<u32>(entity)), flags, tag.c_str());
+
+        if (isPrefabInstance)
+        {
+            ImGui::PopStyleColor();
+        }
         if (ImGui::IsItemClicked())
         {
             const bool ctrl = ImGui::GetIO().KeyCtrl;
@@ -487,6 +501,44 @@ namespace OloEngine
                             m_Context, entity.GetUUID(), oldParentUUID, UUID(0)));
                     }
                 }
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Save as Prefab"))
+            {
+                auto& entityTag = entity.GetComponent<TagComponent>().Tag;
+                std::filesystem::path prefabDir = Project::GetAssetDirectory() / "prefabs";
+                std::filesystem::create_directories(prefabDir);
+                std::filesystem::path prefabPath = prefabDir / (entityTag + ".oloprefab");
+
+                // Create and populate the prefab
+                Ref<Prefab> prefab = Ref<Prefab>::Create();
+                AssetHandle handle = AssetManager::AddMemoryOnlyAsset(prefab);
+                prefab->Create(entity, false);
+
+                // Register with asset system and serialize to disk
+                auto* editorManager = static_cast<EditorAssetManager*>(
+                    Project::GetActive()->GetAssetManager().get());
+                auto relativePath = Project::GetAssetRelativeFileSystemPath(prefabPath);
+
+                AssetMetadata metadata;
+                metadata.Handle = handle;
+                metadata.FilePath = relativePath;
+                metadata.Type = AssetType::Prefab;
+                metadata.IsDataLoaded = true;
+                editorManager->SetMetadata(handle, metadata);
+                editorManager->SerializeAssetRegistry();
+
+                AssetImporter::Serialize(metadata, prefab);
+
+                // Mark the source entity as a prefab instance
+                if (!entity.HasComponent<PrefabComponent>())
+                {
+                    entity.AddComponent<PrefabComponent>(handle, entity.GetUUID());
+                }
+
+                OLO_CORE_INFO("Saved prefab: {}", prefabPath.string());
             }
 
             ImGui::EndPopup();

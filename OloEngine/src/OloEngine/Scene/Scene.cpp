@@ -2724,7 +2724,10 @@ namespace OloEngine
             camera.GetNearClip(),
             camera.GetFarClip());
 
-        Renderer3D::DrawInfiniteGrid(1.0f);
+        if (m_ShowGrid)
+        {
+            Renderer3D::DrawInfiniteGrid(m_GridSpacing);
+        }
 
         // Draw world axis helper at origin
         Renderer3D::DrawWorldAxisHelper(3.0f);
