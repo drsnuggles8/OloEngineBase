@@ -124,6 +124,8 @@ namespace OloEngine
         inline void ClearComponentOverride(const std::string& componentName)
         {
             m_OverriddenComponents.erase(componentName);
+            m_AddedComponents.erase(componentName);
+            m_RemovedComponents.erase(componentName);
         }
 
         inline void ClearAllOverrides()

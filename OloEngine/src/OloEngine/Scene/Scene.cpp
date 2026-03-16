@@ -226,14 +226,6 @@ namespace OloEngine
         // Create a new entity from the prefab
         Entity entity = prefab->Instantiate(*this, uuid);
 
-        // Add PrefabComponent to track the prefab source
-        if (entity)
-        {
-            auto& prefabComponent = entity.AddOrReplaceComponent<PrefabComponent>();
-            prefabComponent.m_PrefabID = prefabHandle;
-            prefabComponent.m_PrefabEntityID = uuid;
-        }
-
         return entity;
     }
 
@@ -261,7 +253,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!entity.HasComponent<PrefabComponent>())
+        if (!entity || !entity.HasComponent<PrefabComponent>())
             return;
 
         auto& pc = entity.GetComponent<PrefabComponent>();
@@ -284,7 +276,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!entity.HasComponent<PrefabComponent>())
+        if (!entity || !entity.HasComponent<PrefabComponent>())
             return;
 
         auto& pc = entity.GetComponent<PrefabComponent>();
@@ -307,7 +299,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!entity.HasComponent<PrefabComponent>())
+        if (!entity || !entity.HasComponent<PrefabComponent>())
             return;
 
         auto& pc = entity.GetComponent<PrefabComponent>();

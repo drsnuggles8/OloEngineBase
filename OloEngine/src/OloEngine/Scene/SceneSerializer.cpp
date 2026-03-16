@@ -1583,17 +1583,26 @@ namespace OloEngine
             if (auto overridden = prefabComponent["OverriddenComponents"]; overridden && overridden.IsSequence())
             {
                 for (const auto& name : overridden)
-                    pc.m_OverriddenComponents.insert(name.as<std::string>());
+                {
+                    if (name.IsDefined() && name.IsScalar())
+                        pc.m_OverriddenComponents.insert(name.as<std::string>());
+                }
             }
             if (auto added = prefabComponent["AddedComponents"]; added && added.IsSequence())
             {
                 for (const auto& name : added)
-                    pc.m_AddedComponents.insert(name.as<std::string>());
+                {
+                    if (name.IsDefined() && name.IsScalar())
+                        pc.m_AddedComponents.insert(name.as<std::string>());
+                }
             }
             if (auto removed = prefabComponent["RemovedComponents"]; removed && removed.IsSequence())
             {
                 for (const auto& name : removed)
-                    pc.m_RemovedComponents.insert(name.as<std::string>());
+                {
+                    if (name.IsDefined() && name.IsScalar())
+                        pc.m_RemovedComponents.insert(name.as<std::string>());
+                }
             }
         }
 

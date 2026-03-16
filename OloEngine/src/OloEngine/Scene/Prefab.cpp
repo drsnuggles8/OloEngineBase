@@ -74,6 +74,10 @@ namespace OloEngine
             instanceEntity.AddOrReplaceComponent<CompType>(                                            \
                 prefabRoot.GetComponent<CompType>());                                                  \
         }                                                                                              \
+        else if (instanceEntity.HasComponent<CompType>())                                              \
+        {                                                                                              \
+            instanceEntity.RemoveComponent<CompType>();                                                \
+        }                                                                                              \
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -149,6 +153,8 @@ namespace OloEngine
     Prefab::Prefab()
         : m_Scene(nullptr), m_Entity{}
     {
+        OLO_PROFILE_FUNCTION();
+
         m_Scene = Scene::Create();
     }
 
@@ -243,7 +249,10 @@ namespace OloEngine
     // Copy all serializable components (excluding ID, Tag, Prefab, Relationship)
     // ─────────────────────────────────────────────────────────────────────────
 
-    void Prefab::CopyEntityComponents(Entity sourceEntity, Entity targetEntity) const {
+    void Prefab::CopyEntityComponents(Entity sourceEntity, Entity targetEntity) const
+    {
+        OLO_PROFILE_FUNCTION();
+
         FOR_EACH_COPYABLE_COMPONENT(COPY_COMPONENT)
     }
 
@@ -376,6 +385,8 @@ namespace OloEngine
 
     Entity Prefab::ResolvePrefabEntity(Entity instanceEntity) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Scene || !m_Entity)
             return m_Entity;
 

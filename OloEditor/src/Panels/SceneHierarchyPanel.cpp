@@ -400,6 +400,24 @@ namespace OloEngine
         }
     }
 
+    // Helper: revert a list of component overrides on a prefab instance
+    static void RevertComponentList(const Ref<Prefab>& prefab, Entity entity,
+                                    const std::unordered_set<std::string>& componentNames)
+    {
+        auto copy = componentNames;
+        for (const auto& compName : copy)
+            prefab->RevertComponent(entity, compName);
+    }
+
+    // Helper: apply a list of component overrides from instance to prefab
+    static void ApplyComponentList(Ref<Prefab>& prefab, Entity entity,
+                                   const std::unordered_set<std::string>& componentNames)
+    {
+        auto copy = componentNames;
+        for (const auto& compName : copy)
+            prefab->ApplyComponentToPrefab(entity, compName);
+    }
+
     void SceneHierarchyPanel::DrawEntityNode(Entity entity)
     {
         auto& tagComponent = entity.GetComponent<TagComponent>();
@@ -597,24 +615,9 @@ namespace OloEngine
                     Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
                     if (prefab)
                     {
-                        // Revert overridden components
-                        auto overriddenCopy = pc.m_OverriddenComponents;
-                        for (const auto& compName : overriddenCopy)
-                        {
-                            prefab->RevertComponent(entity, compName);
-                        }
-                        // Revert added components (remove them from the instance)
-                        auto addedCopy = pc.m_AddedComponents;
-                        for (const auto& compName : addedCopy)
-                        {
-                            prefab->RevertComponent(entity, compName);
-                        }
-                        // Revert removed components (re-add them from the prefab)
-                        auto removedCopy = pc.m_RemovedComponents;
-                        for (const auto& compName : removedCopy)
-                        {
-                            prefab->RevertComponent(entity, compName);
-                        }
+                        RevertComponentList(prefab, entity, pc.m_OverriddenComponents);
+                        RevertComponentList(prefab, entity, pc.m_AddedComponents);
+                        RevertComponentList(prefab, entity, pc.m_RemovedComponents);
                         pc.ClearAllOverrides();
                         OLO_CORE_INFO("Reverted all overrides on '{}'", tag);
                     }
@@ -628,24 +631,9 @@ namespace OloEngine
                         Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
                         if (prefab)
                         {
-                            // Apply overridden components
-                            auto overriddenCopy = pc.m_OverriddenComponents;
-                            for (const auto& compName : overriddenCopy)
-                            {
-                                prefab->ApplyComponentToPrefab(entity, compName);
-                            }
-                            // Apply added components (add them to the prefab)
-                            auto addedCopy = pc.m_AddedComponents;
-                            for (const auto& compName : addedCopy)
-                            {
-                                prefab->ApplyComponentToPrefab(entity, compName);
-                            }
-                            // Apply removed components (remove them from the prefab)
-                            auto removedCopy = pc.m_RemovedComponents;
-                            for (const auto& compName : removedCopy)
-                            {
-                                prefab->ApplyComponentToPrefab(entity, compName);
-                            }
+                            ApplyComponentList(prefab, entity, pc.m_OverriddenComponents);
+                            ApplyComponentList(prefab, entity, pc.m_AddedComponents);
+                            ApplyComponentList(prefab, entity, pc.m_RemovedComponents);
                             pc.ClearAllOverrides();
                             OLO_CORE_INFO("Applied all overrides from '{}' to prefab", tag);
                         }
@@ -1054,20 +1042,41 @@ namespace OloEngine
     static CommandHistory* s_DrawComponentCmdHistory = nullptr;
     static Ref<Scene> s_DrawComponentScene = nullptr;
 
-    // Extract canonical component name from typeid (e.g. "struct OloEngine::TransformComponent" -> "TransformComponent")
+    // Compile-time stable component name extraction (no RTTI dependency).
+    // Uses a probe type in the OloEngine namespace to calibrate __FUNCSIG__/__PRETTY_FUNCTION__.
+    struct ComponentNameProbe_;
+
+    namespace detail
+    {
+        template<typename T>
+        constexpr std::string_view RawComponentSig()
+        {
+#if defined(_MSC_VER)
+            return { __FUNCSIG__, sizeof(__FUNCSIG__) - 1 };
+#elif defined(__clang__) || defined(__GNUC__)
+            return { __PRETTY_FUNCTION__, sizeof(__PRETTY_FUNCTION__) - 1 };
+#endif
+        }
+
+        inline constexpr auto kProbeSig = RawComponentSig<ComponentNameProbe_>();
+        inline constexpr auto kProbeTarget = std::string_view{ "ComponentNameProbe_" };
+        inline constexpr auto kProbePos = kProbeSig.find(kProbeTarget);
+        static_assert(kProbePos != std::string_view::npos, "Cannot find probe type in __FUNCSIG__");
+        inline constexpr std::size_t kPrefixLen = kProbePos;
+        inline constexpr std::size_t kSuffixLen = kProbeSig.size() - kProbePos - kProbeTarget.size();
+    } // namespace detail
+
     template<typename T>
     static std::string GetCanonicalComponentName()
     {
-        std::string fullName = typeid(T).name();
-        // MSVC: "struct OloEngine::TransformComponent" or "class OloEngine::TransformComponent"
-        auto lastColon = fullName.rfind(':');
-        if (lastColon != std::string::npos)
-            return fullName.substr(lastColon + 1);
-        // Fallback: strip leading "struct " or "class "
-        auto lastSpace = fullName.rfind(' ');
-        if (lastSpace != std::string::npos)
-            return fullName.substr(lastSpace + 1);
-        return fullName;
+        constexpr auto sig = detail::RawComponentSig<T>();
+        constexpr auto fullName = sig.substr(detail::kPrefixLen, sig.size() - detail::kPrefixLen - detail::kSuffixLen);
+        // fullName may be "OloEngine::TransformComponent" — extract unqualified name
+        constexpr auto lastColon = fullName.rfind(':');
+        if constexpr (lastColon != std::string_view::npos)
+            return std::string(fullName.substr(lastColon + 1));
+        else
+            return std::string(fullName);
     }
 
     template<typename T, typename UIFunction>
@@ -1235,19 +1244,38 @@ namespace OloEngine
                             // Only push if the component actually differs from the original snapshot
                             if (std::memcmp(editState.snapshotBytes, &component, sizeof(T)) != 0)
                             {
-                                s_DrawComponentCmdHistory->PushAlreadyExecuted(
-                                    std::make_unique<ComponentChangeCommand<T>>(
-                                        s_DrawComponentScene, entity.GetUUID(),
-                                        editState.snapshot, component, "Property Change"));
-
-                                // Auto-mark as override on prefab instances
+                                // Fold prefab override bookkeeping into the undoable command
                                 if (entity.HasComponent<PrefabComponent>())
                                 {
                                     auto& pc = entity.GetComponent<PrefabComponent>();
-                                    if (pc.IsValid())
+                                    if (pc.IsValid() && !pc.IsComponentOverridden(componentKey))
                                     {
+                                        PrefabComponent pcBefore = pc;
                                         pc.MarkComponentOverridden(componentKey);
+
+                                        auto compound = std::make_unique<CompoundCommand>("Property Change");
+                                        compound->Add(std::make_unique<ComponentChangeCommand<T>>(
+                                            s_DrawComponentScene, entity.GetUUID(),
+                                            editState.snapshot, component, "Property Change"));
+                                        compound->Add(std::make_unique<ComponentChangeCommand<PrefabComponent>>(
+                                            s_DrawComponentScene, entity.GetUUID(),
+                                            pcBefore, pc, "Mark Override"));
+                                        s_DrawComponentCmdHistory->PushAlreadyExecuted(std::move(compound));
                                     }
+                                    else
+                                    {
+                                        s_DrawComponentCmdHistory->PushAlreadyExecuted(
+                                            std::make_unique<ComponentChangeCommand<T>>(
+                                                s_DrawComponentScene, entity.GetUUID(),
+                                                editState.snapshot, component, "Property Change"));
+                                    }
+                                }
+                                else
+                                {
+                                    s_DrawComponentCmdHistory->PushAlreadyExecuted(
+                                        std::make_unique<ComponentChangeCommand<T>>(
+                                            s_DrawComponentScene, entity.GetUUID(),
+                                            editState.snapshot, component, "Property Change"));
                                 }
                             }
                             editState.isEditing = false;
