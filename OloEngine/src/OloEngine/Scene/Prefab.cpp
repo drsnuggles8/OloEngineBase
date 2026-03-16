@@ -47,25 +47,33 @@ namespace OloEngine
         return true;                                        \
     }
 
-#define APPLY_COMPONENT(CompType, Name)                   \
-    if (componentName == Name)                            \
-    {                                                     \
-        if (instanceEntity.HasComponent<CompType>())      \
-        {                                                 \
-            prefabRoot.AddOrReplaceComponent<CompType>(   \
-                instanceEntity.GetComponent<CompType>()); \
-        }                                                 \
-        return true;                                      \
+#define APPLY_COMPONENT(CompType, Name)                       \
+    if (componentName == Name)                                \
+    {                                                         \
+        if (instanceEntity.HasComponent<PrefabComponent>() && \
+            instanceEntity.GetComponent<PrefabComponent>()    \
+                .IsComponentRemoved(Name))                    \
+        {                                                     \
+            if (prefabRoot.HasComponent<CompType>())          \
+                prefabRoot.RemoveComponent<CompType>();       \
+            return true;                                      \
+        }                                                     \
+        if (instanceEntity.HasComponent<CompType>())          \
+        {                                                     \
+            prefabRoot.AddOrReplaceComponent<CompType>(       \
+                instanceEntity.GetComponent<CompType>());     \
+        }                                                     \
+        return true;                                          \
     }
 
-#define UPDATE_COMPONENT(CompType, Name)                               \
-    if (!pc.IsComponentOverridden(Name) && !pc.IsComponentAdded(Name)) \
-    {                                                                  \
-        if (prefabRoot.HasComponent<CompType>())                       \
-        {                                                              \
-            instanceEntity.AddOrReplaceComponent<CompType>(            \
-                prefabRoot.GetComponent<CompType>());                  \
-        }                                                              \
+#define UPDATE_COMPONENT(CompType, Name)                                                               \
+    if (!pc.IsComponentOverridden(Name) && !pc.IsComponentAdded(Name) && !pc.IsComponentRemoved(Name)) \
+    {                                                                                                  \
+        if (prefabRoot.HasComponent<CompType>())                                                       \
+        {                                                                                              \
+            instanceEntity.AddOrReplaceComponent<CompType>(                                            \
+                prefabRoot.GetComponent<CompType>());                                                  \
+        }                                                                                              \
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -152,6 +160,8 @@ namespace OloEngine
 
     void Prefab::Create(Entity entity, bool serialize)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_Scene = Scene::Create();
         m_Entity = CreatePrefabFromEntity(entity);
 
@@ -163,6 +173,8 @@ namespace OloEngine
 
     Entity Prefab::CreatePrefabFromEntity(Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         OLO_CORE_ASSERT(GetHandle() != 0, "Prefab handle must be set before creating prefab from entity");
 
         Entity newEntity = m_Scene->CreateEntity();
@@ -184,6 +196,8 @@ namespace OloEngine
 
     void Prefab::CreatePrefabChildrenRecursive(Entity sourceEntity, Entity prefabParent)
     {
+        OLO_PROFILE_FUNCTION();
+
         const auto& children = sourceEntity.Children();
         if (children.empty())
             return;
@@ -199,7 +213,16 @@ namespace OloEngine
 
             // Create child in prefab scene
             Entity prefabChild = m_Scene->CreateEntity();
-            prefabChild.AddComponent<PrefabComponent>(GetHandle(), prefabChild.GetComponent<IDComponent>().ID);
+
+            // Preserve nested prefab references; otherwise stamp with this prefab's handle
+            if (sourceChild.HasComponent<PrefabComponent>())
+            {
+                prefabChild.AddOrReplaceComponent<PrefabComponent>(sourceChild.GetComponent<PrefabComponent>());
+            }
+            else
+            {
+                prefabChild.AddComponent<PrefabComponent>(GetHandle(), prefabChild.GetComponent<IDComponent>().ID);
+            }
 
             if (sourceChild.HasComponent<TagComponent>())
             {
@@ -230,6 +253,8 @@ namespace OloEngine
 
     std::pair<std::unordered_set<AssetHandle>, std::unordered_set<AssetHandle>> Prefab::GetAssetList(bool recursive)
     {
+        OLO_PROFILE_FUNCTION();
+
         std::unordered_set<AssetHandle> assets;
         std::unordered_set<AssetHandle> missingAssets;
 
@@ -263,6 +288,8 @@ namespace OloEngine
 
     Entity Prefab::Instantiate(Scene& targetScene, UUID uuid) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Scene || !m_Entity)
         {
             OLO_CORE_ERROR("Prefab::Instantiate - Prefab has no valid scene or entity");
@@ -287,6 +314,11 @@ namespace OloEngine
 
         CopyEntityComponents(m_Entity, targetEntity);
 
+        // Mark root as a prefab instance
+        auto& rootPc = targetEntity.AddOrReplaceComponent<PrefabComponent>();
+        rootPc.m_PrefabID = GetHandle();
+        rootPc.m_PrefabEntityID = m_Entity.GetComponent<IDComponent>().ID;
+
         // Recursively instantiate children
         InstantiateChildrenRecursive(m_Entity, targetEntity, targetScene);
 
@@ -295,6 +327,8 @@ namespace OloEngine
 
     void Prefab::InstantiateChildrenRecursive(Entity prefabParent, Entity targetParent, Scene& targetScene) const
     {
+        OLO_PROFILE_FUNCTION();
+
         const auto& children = prefabParent.Children();
         if (children.empty())
             return;
@@ -316,16 +350,16 @@ namespace OloEngine
             Entity targetChild = targetScene.CreateEntity(childName);
             CopyEntityComponents(prefabChild, targetChild);
 
-            // Preserve the prefab link if the child was a nested prefab instance
+            // Preserve the prefab link: keep source entity ID for child-level resolution
             if (prefabChild.HasComponent<PrefabComponent>())
             {
                 auto& srcPc = prefabChild.GetComponent<PrefabComponent>();
                 auto& dstPc = targetChild.AddOrReplaceComponent<PrefabComponent>();
                 dstPc.m_PrefabID = srcPc.m_PrefabID;
-                dstPc.m_PrefabEntityID = targetChild.GetUUID();
-                dstPc.OverriddenComponents = srcPc.OverriddenComponents;
-                dstPc.AddedComponents = srcPc.AddedComponents;
-                dstPc.RemovedComponents = srcPc.RemovedComponents;
+                dstPc.m_PrefabEntityID = srcPc.m_PrefabEntityID;
+                dstPc.m_OverriddenComponents = srcPc.m_OverriddenComponents;
+                dstPc.m_AddedComponents = srcPc.m_AddedComponents;
+                dstPc.m_RemovedComponents = srcPc.m_RemovedComponents;
             }
 
             targetChild.SetParent(targetParent);
@@ -333,6 +367,26 @@ namespace OloEngine
             // Recurse
             InstantiateChildrenRecursive(prefabChild, targetChild, targetScene);
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Resolve the correct prefab-scene entity for a given instance entity.
+    // Uses PrefabComponent::m_PrefabEntityID to map children correctly.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    Entity Prefab::ResolvePrefabEntity(Entity instanceEntity) const
+    {
+        if (!m_Scene || !m_Entity)
+            return m_Entity;
+
+        if (instanceEntity.HasComponent<PrefabComponent>())
+        {
+            UUID prefabEntityID = instanceEntity.GetComponent<PrefabComponent>().m_PrefabEntityID;
+            if (auto resolved = m_Scene->TryGetEntityWithUUID(prefabEntityID))
+                return *resolved;
+        }
+
+        return m_Entity;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -344,18 +398,24 @@ namespace OloEngine
                                  std::unordered_set<std::string>& outAdded,
                                  std::unordered_set<std::string>& outRemoved) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Entity)
             return;
 
-        Entity prefabRoot = m_Entity;
+        Entity prefabRoot = ResolvePrefabEntity(instanceEntity);
 
         // Check each copyable component for presence differences
         FOR_EACH_COPYABLE_COMPONENT(CHECK_COMPONENT_PRESENCE)
 
-        // For components present in both, compare serialized YAML to detect value overrides.
-        // This is done by serializing both entities and comparing component blocks.
-        // For now, we mark as overridden any component the user has explicitly flagged.
-        // The editor will manage the OverriddenComponents set as the user modifies properties.
+        // For components present in both, populate outOverridden from the instance's
+        // tracked overrides. The editor manages OverriddenComponents as the user edits.
+        if (instanceEntity.HasComponent<PrefabComponent>())
+        {
+            const auto& pc = instanceEntity.GetComponent<PrefabComponent>();
+            for (const auto& name : pc.m_OverriddenComponents)
+                outOverridden.insert(name);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -364,10 +424,12 @@ namespace OloEngine
 
     bool Prefab::RevertComponent(Entity instanceEntity, const std::string& componentName) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Entity)
             return false;
 
-        Entity prefabRoot = m_Entity;
+        Entity prefabRoot = ResolvePrefabEntity(instanceEntity);
 
         FOR_EACH_COPYABLE_COMPONENT(REVERT_COMPONENT)
 
@@ -381,10 +443,12 @@ namespace OloEngine
 
     bool Prefab::ApplyComponentToPrefab(Entity instanceEntity, const std::string& componentName)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Entity)
             return false;
 
-        Entity prefabRoot = m_Entity;
+        Entity prefabRoot = ResolvePrefabEntity(instanceEntity);
 
         FOR_EACH_COPYABLE_COMPONENT(APPLY_COMPONENT)
 
@@ -398,6 +462,8 @@ namespace OloEngine
 
     void Prefab::UpdateInstanceFromPrefab(Entity instanceEntity) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Entity)
             return;
 
@@ -405,7 +471,7 @@ namespace OloEngine
             return;
 
         const auto& pc = instanceEntity.GetComponent<PrefabComponent>();
-        Entity prefabRoot = m_Entity;
+        Entity prefabRoot = ResolvePrefabEntity(instanceEntity);
 
         FOR_EACH_COPYABLE_COMPONENT(UPDATE_COMPONENT)
     }
@@ -416,6 +482,8 @@ namespace OloEngine
 
     bool Prefab::HasNestedPrefabs() const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Scene)
             return false;
 
@@ -434,6 +502,8 @@ namespace OloEngine
     bool Prefab::WouldCreateCycle(AssetHandle rootHandle, AssetHandle prefabHandle,
                                   std::unordered_set<AssetHandle>& visited)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (rootHandle == prefabHandle)
             return true;
 

@@ -77,7 +77,7 @@ namespace OloEngine
 
         // @brief Detect which components differ between a prefab source entity and a scene instance.
         // @param instanceEntity The in-scene instance whose components are compared against the prefab.
-        // @param outOverridden Components present in both but with different values.
+        // @param outOverridden Components explicitly marked as overridden on the instance (editor-tracked).
         // @param outAdded Components present on the instance but not in the prefab.
         // @param outRemoved Components present in the prefab but not on the instance.
         void DetectOverrides(Entity instanceEntity,
@@ -128,6 +128,11 @@ namespace OloEngine
 
         // @brief Recursively instantiate children of a prefab entity into the target scene.
         void InstantiateChildrenRecursive(Entity prefabParent, Entity targetParent, Scene& targetScene) const;
+
+        // @brief Resolve the prefab-scene entity that corresponds to a given instance entity.
+        // Uses PrefabComponent::m_PrefabEntityID to find the correct entity (root or child).
+        // Falls back to m_Entity (prefab root) if the mapping cannot be resolved.
+        Entity ResolvePrefabEntity(Entity instanceEntity) const;
 
       private:
         Ref<Scene> m_Scene;

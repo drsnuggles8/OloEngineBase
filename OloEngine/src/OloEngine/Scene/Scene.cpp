@@ -239,6 +239,8 @@ namespace OloEngine
 
     void Scene::UpdateAllPrefabInstances()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto view = GetAllEntitiesWith<PrefabComponent>();
         for (auto e : view)
         {
@@ -257,6 +259,8 @@ namespace OloEngine
 
     void Scene::RevertPrefabComponent(Entity entity, const std::string& componentName)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!entity.HasComponent<PrefabComponent>())
             return;
 
@@ -271,12 +275,15 @@ namespace OloEngine
         if (prefab->RevertComponent(entity, componentName))
         {
             pc.ClearComponentOverride(componentName);
-            pc.AddedComponents.erase(componentName);
+            pc.m_AddedComponents.erase(componentName);
+            pc.m_RemovedComponents.erase(componentName);
         }
     }
 
     void Scene::ApplyPrefabComponent(Entity entity, const std::string& componentName)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!entity.HasComponent<PrefabComponent>())
             return;
 
@@ -291,12 +298,15 @@ namespace OloEngine
         if (prefab->ApplyComponentToPrefab(entity, componentName))
         {
             pc.ClearComponentOverride(componentName);
-            pc.AddedComponents.erase(componentName);
+            pc.m_AddedComponents.erase(componentName);
+            pc.m_RemovedComponents.erase(componentName);
         }
     }
 
     void Scene::MarkPrefabComponentOverridden(Entity entity, const std::string& componentName)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!entity.HasComponent<PrefabComponent>())
             return;
 

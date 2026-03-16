@@ -597,8 +597,21 @@ namespace OloEngine
                     Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
                     if (prefab)
                     {
-                        auto overriddenCopy = pc.OverriddenComponents;
+                        // Revert overridden components
+                        auto overriddenCopy = pc.m_OverriddenComponents;
                         for (const auto& compName : overriddenCopy)
+                        {
+                            prefab->RevertComponent(entity, compName);
+                        }
+                        // Revert added components (remove them from the instance)
+                        auto addedCopy = pc.m_AddedComponents;
+                        for (const auto& compName : addedCopy)
+                        {
+                            prefab->RevertComponent(entity, compName);
+                        }
+                        // Revert removed components (re-add them from the prefab)
+                        auto removedCopy = pc.m_RemovedComponents;
+                        for (const auto& compName : removedCopy)
                         {
                             prefab->RevertComponent(entity, compName);
                         }
@@ -615,8 +628,21 @@ namespace OloEngine
                         Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
                         if (prefab)
                         {
-                            auto overriddenCopy = pc.OverriddenComponents;
+                            // Apply overridden components
+                            auto overriddenCopy = pc.m_OverriddenComponents;
                             for (const auto& compName : overriddenCopy)
+                            {
+                                prefab->ApplyComponentToPrefab(entity, compName);
+                            }
+                            // Apply added components (add them to the prefab)
+                            auto addedCopy = pc.m_AddedComponents;
+                            for (const auto& compName : addedCopy)
+                            {
+                                prefab->ApplyComponentToPrefab(entity, compName);
+                            }
+                            // Apply removed components (remove them from the prefab)
+                            auto removedCopy = pc.m_RemovedComponents;
+                            for (const auto& compName : removedCopy)
                             {
                                 prefab->ApplyComponentToPrefab(entity, compName);
                             }
@@ -1028,9 +1054,28 @@ namespace OloEngine
     static CommandHistory* s_DrawComponentCmdHistory = nullptr;
     static Ref<Scene> s_DrawComponentScene = nullptr;
 
+    // Extract canonical component name from typeid (e.g. "struct OloEngine::TransformComponent" -> "TransformComponent")
+    template<typename T>
+    static std::string GetCanonicalComponentName()
+    {
+        std::string fullName = typeid(T).name();
+        // MSVC: "struct OloEngine::TransformComponent" or "class OloEngine::TransformComponent"
+        auto lastColon = fullName.rfind(':');
+        if (lastColon != std::string::npos)
+            return fullName.substr(lastColon + 1);
+        // Fallback: strip leading "struct " or "class "
+        auto lastSpace = fullName.rfind(' ');
+        if (lastSpace != std::string::npos)
+            return fullName.substr(lastSpace + 1);
+        return fullName;
+    }
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
+        // Canonical key for PrefabComponent lookups (e.g. "TransformComponent")
+        const std::string componentKey = GetCanonicalComponentName<T>();
+
         const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_FramePadding;
         if (entity.HasComponent<T>())
         {
@@ -1049,8 +1094,8 @@ namespace OloEngine
                 const auto& pc = entity.GetComponent<PrefabComponent>();
                 if (pc.IsValid())
                 {
-                    isPrefabOverride = pc.IsComponentOverridden(name);
-                    isPrefabAdded = pc.IsComponentAdded(name);
+                    isPrefabOverride = pc.IsComponentOverridden(componentKey);
+                    isPrefabAdded = pc.IsComponentAdded(componentKey);
                 }
             }
 
@@ -1113,14 +1158,14 @@ namespace OloEngine
                             {
                                 if (s_DrawComponentScene)
                                 {
-                                    s_DrawComponentScene->RevertPrefabComponent(entity, name);
+                                    s_DrawComponentScene->RevertPrefabComponent(entity, componentKey);
                                 }
                             }
                             if (ImGui::MenuItem("Apply to Prefab"))
                             {
                                 if (s_DrawComponentScene)
                                 {
-                                    s_DrawComponentScene->ApplyPrefabComponent(entity, name);
+                                    s_DrawComponentScene->ApplyPrefabComponent(entity, componentKey);
                                 }
                             }
                         }
@@ -1130,7 +1175,7 @@ namespace OloEngine
                             {
                                 if (s_DrawComponentScene)
                                 {
-                                    s_DrawComponentScene->MarkPrefabComponentOverridden(entity, name);
+                                    s_DrawComponentScene->MarkPrefabComponentOverridden(entity, componentKey);
                                 }
                             }
                         }
@@ -1201,7 +1246,7 @@ namespace OloEngine
                                     auto& pc = entity.GetComponent<PrefabComponent>();
                                     if (pc.IsValid())
                                     {
-                                        pc.MarkComponentOverridden(name);
+                                        pc.MarkComponentOverridden(componentKey);
                                     }
                                 }
                             }

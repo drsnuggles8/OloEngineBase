@@ -1583,17 +1583,17 @@ namespace OloEngine
             if (auto overridden = prefabComponent["OverriddenComponents"]; overridden && overridden.IsSequence())
             {
                 for (const auto& name : overridden)
-                    pc.OverriddenComponents.insert(name.as<std::string>());
+                    pc.m_OverriddenComponents.insert(name.as<std::string>());
             }
             if (auto added = prefabComponent["AddedComponents"]; added && added.IsSequence())
             {
                 for (const auto& name : added)
-                    pc.AddedComponents.insert(name.as<std::string>());
+                    pc.m_AddedComponents.insert(name.as<std::string>());
             }
             if (auto removed = prefabComponent["RemovedComponents"]; removed && removed.IsSequence())
             {
                 for (const auto& name : removed)
-                    pc.RemovedComponents.insert(name.as<std::string>());
+                    pc.m_RemovedComponents.insert(name.as<std::string>());
             }
         }
 
@@ -2565,27 +2565,33 @@ namespace OloEngine
             out << YAML::Key << "PrefabID" << YAML::Value << prefabComponent.m_PrefabID;
             out << YAML::Key << "PrefabEntityID" << YAML::Value << prefabComponent.m_PrefabEntityID;
 
-            // Serialize override tracking
-            if (!prefabComponent.OverriddenComponents.empty())
+            // Serialize override tracking (sorted for deterministic output)
+            if (!prefabComponent.m_OverriddenComponents.empty())
             {
+                std::vector<std::string> sorted(prefabComponent.m_OverriddenComponents.begin(), prefabComponent.m_OverriddenComponents.end());
+                std::sort(sorted.begin(), sorted.end());
                 out << YAML::Key << "OverriddenComponents" << YAML::Value << YAML::BeginSeq;
-                for (const auto& name : prefabComponent.OverriddenComponents)
+                for (const auto& name : sorted)
                     out << name;
                 out << YAML::EndSeq;
             }
 
-            if (!prefabComponent.AddedComponents.empty())
+            if (!prefabComponent.m_AddedComponents.empty())
             {
+                std::vector<std::string> sorted(prefabComponent.m_AddedComponents.begin(), prefabComponent.m_AddedComponents.end());
+                std::sort(sorted.begin(), sorted.end());
                 out << YAML::Key << "AddedComponents" << YAML::Value << YAML::BeginSeq;
-                for (const auto& name : prefabComponent.AddedComponents)
+                for (const auto& name : sorted)
                     out << name;
                 out << YAML::EndSeq;
             }
 
-            if (!prefabComponent.RemovedComponents.empty())
+            if (!prefabComponent.m_RemovedComponents.empty())
             {
+                std::vector<std::string> sorted(prefabComponent.m_RemovedComponents.begin(), prefabComponent.m_RemovedComponents.end());
+                std::sort(sorted.begin(), sorted.end());
                 out << YAML::Key << "RemovedComponents" << YAML::Value << YAML::BeginSeq;
-                for (const auto& name : prefabComponent.RemovedComponents)
+                for (const auto& name : sorted)
                     out << name;
                 out << YAML::EndSeq;
             }

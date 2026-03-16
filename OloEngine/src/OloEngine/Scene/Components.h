@@ -75,13 +75,13 @@ namespace OloEngine
         // Component-level override tracking for prefab instances.
         // Components listed here have been intentionally modified on this instance
         // and will not be updated when the source prefab changes.
-        std::unordered_set<std::string> OverriddenComponents;
+        std::unordered_set<std::string> m_OverriddenComponents;
 
         // Components added to this instance that do not exist in the source prefab.
-        std::unordered_set<std::string> AddedComponents;
+        std::unordered_set<std::string> m_AddedComponents;
 
         // Components removed from this instance that exist in the source prefab.
-        std::unordered_set<std::string> RemovedComponents;
+        std::unordered_set<std::string> m_RemovedComponents;
 
         PrefabComponent() = default;
         PrefabComponent(const PrefabComponent&) = default;
@@ -98,39 +98,39 @@ namespace OloEngine
 
         [[nodiscard]] inline bool IsComponentOverridden(const std::string& componentName) const
         {
-            return OverriddenComponents.contains(componentName);
+            return m_OverriddenComponents.contains(componentName);
         }
 
         [[nodiscard]] inline bool IsComponentAdded(const std::string& componentName) const
         {
-            return AddedComponents.contains(componentName);
+            return m_AddedComponents.contains(componentName);
         }
 
         [[nodiscard]] inline bool IsComponentRemoved(const std::string& componentName) const
         {
-            return RemovedComponents.contains(componentName);
+            return m_RemovedComponents.contains(componentName);
         }
 
         [[nodiscard]] inline bool HasAnyOverrides() const noexcept
         {
-            return !OverriddenComponents.empty() || !AddedComponents.empty() || !RemovedComponents.empty();
+            return !m_OverriddenComponents.empty() || !m_AddedComponents.empty() || !m_RemovedComponents.empty();
         }
 
         inline void MarkComponentOverridden(const std::string& componentName)
         {
-            OverriddenComponents.insert(componentName);
+            m_OverriddenComponents.insert(componentName);
         }
 
         inline void ClearComponentOverride(const std::string& componentName)
         {
-            OverriddenComponents.erase(componentName);
+            m_OverriddenComponents.erase(componentName);
         }
 
         inline void ClearAllOverrides()
         {
-            OverriddenComponents.clear();
-            AddedComponents.clear();
-            RemovedComponents.clear();
+            m_OverriddenComponents.clear();
+            m_AddedComponents.clear();
+            m_RemovedComponents.clear();
         }
     };
 

@@ -17,7 +17,10 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace)
 class TestPrefab : public Prefab
 {
   public:
-    void SetTestHandle(AssetHandle handle) { SetHandle(handle); }
+    void SetTestHandle(AssetHandle handle)
+    {
+        SetHandle(handle);
+    }
 };
 
 static Ref<Prefab> CreateTestPrefab()
@@ -55,14 +58,14 @@ TEST_F(PrefabOverrideTest, PrefabComponent_DefaultHasNoOverrides)
 {
     PrefabComponent pc;
     EXPECT_FALSE(pc.HasAnyOverrides());
-    EXPECT_TRUE(pc.OverriddenComponents.empty());
-    EXPECT_TRUE(pc.AddedComponents.empty());
-    EXPECT_TRUE(pc.RemovedComponents.empty());
+    EXPECT_TRUE(pc.m_OverriddenComponents.empty());
+    EXPECT_TRUE(pc.m_AddedComponents.empty());
+    EXPECT_TRUE(pc.m_RemovedComponents.empty());
 }
 
 TEST_F(PrefabOverrideTest, PrefabComponent_MarkAndQueryOverride)
 {
-    PrefabComponent pc{UUID{}, UUID{}};
+    PrefabComponent pc{ UUID{}, UUID{} };
     pc.MarkComponentOverridden("TransformComponent");
     EXPECT_TRUE(pc.IsComponentOverridden("TransformComponent"));
     EXPECT_FALSE(pc.IsComponentOverridden("MeshComponent"));
@@ -71,7 +74,7 @@ TEST_F(PrefabOverrideTest, PrefabComponent_MarkAndQueryOverride)
 
 TEST_F(PrefabOverrideTest, PrefabComponent_ClearSingleOverride)
 {
-    PrefabComponent pc{UUID{}, UUID{}};
+    PrefabComponent pc{ UUID{}, UUID{} };
     pc.MarkComponentOverridden("TransformComponent");
     pc.MarkComponentOverridden("MeshComponent");
     pc.ClearComponentOverride("TransformComponent");
@@ -81,10 +84,10 @@ TEST_F(PrefabOverrideTest, PrefabComponent_ClearSingleOverride)
 
 TEST_F(PrefabOverrideTest, PrefabComponent_ClearAllOverrides)
 {
-    PrefabComponent pc{UUID{}, UUID{}};
+    PrefabComponent pc{ UUID{}, UUID{} };
     pc.MarkComponentOverridden("TransformComponent");
-    pc.AddedComponents.insert("ScriptComponent");
-    pc.RemovedComponents.insert("CameraComponent");
+    pc.m_AddedComponents.insert("ScriptComponent");
+    pc.m_RemovedComponents.insert("CameraComponent");
     EXPECT_TRUE(pc.HasAnyOverrides());
 
     pc.ClearAllOverrides();
@@ -93,12 +96,12 @@ TEST_F(PrefabOverrideTest, PrefabComponent_ClearAllOverrides)
 
 TEST_F(PrefabOverrideTest, PrefabComponent_AddedAndRemoved)
 {
-    PrefabComponent pc{UUID{}, UUID{}};
-    pc.AddedComponents.insert("ScriptComponent");
+    PrefabComponent pc{ UUID{}, UUID{} };
+    pc.m_AddedComponents.insert("ScriptComponent");
     EXPECT_TRUE(pc.IsComponentAdded("ScriptComponent"));
     EXPECT_FALSE(pc.IsComponentRemoved("ScriptComponent"));
 
-    pc.RemovedComponents.insert("CameraComponent");
+    pc.m_RemovedComponents.insert("CameraComponent");
     EXPECT_TRUE(pc.IsComponentRemoved("CameraComponent"));
     EXPECT_FALSE(pc.IsComponentAdded("CameraComponent"));
 }
@@ -168,7 +171,8 @@ TEST_F(PrefabOverrideTest, Prefab_CreatePreservesHierarchy)
     // The prefab's internal scene should have 3 entities
     int entityCount = 0;
     prefab->GetScene()->GetAllEntitiesWith<IDComponent>().each(
-        [&](auto) { entityCount++; });
+        [&](auto)
+        { entityCount++; });
     EXPECT_EQ(entityCount, 3);
 
     // Root should have children
@@ -329,7 +333,9 @@ TEST_F(PrefabOverrideTest, Prefab_UpdateInstanceFromPrefab_NonOverridden)
 
     Ref<Scene> targetScene = Scene::Create();
     Entity instance = prefab->Instantiate(*targetScene);
-    instance.AddOrReplaceComponent<PrefabComponent>(prefab->GetHandle(), instance.GetUUID());
+
+    // Instantiate now adds PrefabComponent automatically with correct prefab entity ID
+    ASSERT_TRUE(instance.HasComponent<PrefabComponent>());
 
     // Override the transform on the instance (mark it)
     instance.GetComponent<TransformComponent>().Translation = glm::vec3(99.0f);
@@ -395,4 +401,208 @@ TEST_F(PrefabOverrideTest, Scene_MarkPrefabOverridden_NoPrefabComponent)
     // Should not crash when entity has no PrefabComponent
     m_Scene->MarkPrefabComponentOverridden(entity, "TransformComponent");
     EXPECT_FALSE(entity.HasComponent<PrefabComponent>());
+}
+
+// =============================================================================
+// Removed component handling
+// =============================================================================
+
+TEST_F(PrefabOverrideTest, Prefab_UpdateInstance_SkipsRemovedComponents)
+{
+    Entity source = m_Scene->CreateEntity("Source");
+    source.AddComponent<SpriteRendererComponent>().Color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+
+    Ref<Prefab> prefab = CreateTestPrefab();
+    prefab->Create(source, false);
+
+    Ref<Scene> targetScene = Scene::Create();
+    Entity instance = prefab->Instantiate(*targetScene);
+    ASSERT_TRUE(instance.HasComponent<SpriteRendererComponent>());
+
+    // Remove the component on the instance and mark it as removed
+    instance.RemoveComponent<SpriteRendererComponent>();
+    auto& pc = instance.GetComponent<PrefabComponent>();
+    pc.m_RemovedComponents.insert("SpriteRendererComponent");
+
+    // Update should NOT re-add the removed component
+    prefab->UpdateInstanceFromPrefab(instance);
+    EXPECT_FALSE(instance.HasComponent<SpriteRendererComponent>());
+}
+
+TEST_F(PrefabOverrideTest, Prefab_ApplyRemovedComponent_RemovesFromPrefab)
+{
+    Entity source = m_Scene->CreateEntity("Source");
+    source.AddComponent<SpriteRendererComponent>();
+
+    Ref<Prefab> prefab = CreateTestPrefab();
+    prefab->Create(source, false);
+
+    Ref<Scene> targetScene = Scene::Create();
+    Entity instance = prefab->Instantiate(*targetScene);
+
+    // Remove the component on the instance and mark as removed
+    instance.RemoveComponent<SpriteRendererComponent>();
+    auto& pc = instance.GetComponent<PrefabComponent>();
+    pc.m_RemovedComponents.insert("SpriteRendererComponent");
+
+    // Apply the removal to the prefab
+    bool applied = prefab->ApplyComponentToPrefab(instance, "SpriteRendererComponent");
+    EXPECT_TRUE(applied);
+
+    // Prefab root should no longer have the component
+    Entity prefabRoot = prefab->GetRootEntity();
+    EXPECT_FALSE(prefabRoot.HasComponent<SpriteRendererComponent>());
+}
+
+TEST_F(PrefabOverrideTest, Prefab_RevertRemovedComponent_RestoresFromPrefab)
+{
+    Entity source = m_Scene->CreateEntity("Source");
+    source.AddComponent<SpriteRendererComponent>().Color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+
+    Ref<Prefab> prefab = CreateTestPrefab();
+    prefab->Create(source, false);
+
+    Ref<Scene> targetScene = Scene::Create();
+    Entity instance = prefab->Instantiate(*targetScene);
+
+    // Remove the component on the instance
+    instance.RemoveComponent<SpriteRendererComponent>();
+
+    // Revert should re-add the component from the prefab
+    bool reverted = prefab->RevertComponent(instance, "SpriteRendererComponent");
+    EXPECT_TRUE(reverted);
+    ASSERT_TRUE(instance.HasComponent<SpriteRendererComponent>());
+    EXPECT_FLOAT_EQ(instance.GetComponent<SpriteRendererComponent>().Color.r, 0.5f);
+}
+
+// =============================================================================
+// Added component handling
+// =============================================================================
+
+TEST_F(PrefabOverrideTest, Prefab_RevertAddedComponent_RemovesFromInstance)
+{
+    Entity source = m_Scene->CreateEntity("Source");
+
+    Ref<Prefab> prefab = CreateTestPrefab();
+    prefab->Create(source, false);
+
+    Ref<Scene> targetScene = Scene::Create();
+    Entity instance = prefab->Instantiate(*targetScene);
+
+    // Add a component not in the prefab
+    instance.AddComponent<SpriteRendererComponent>();
+    ASSERT_TRUE(instance.HasComponent<SpriteRendererComponent>());
+
+    // Revert should remove the added component (prefab doesn't have it)
+    bool reverted = prefab->RevertComponent(instance, "SpriteRendererComponent");
+    EXPECT_TRUE(reverted);
+    EXPECT_FALSE(instance.HasComponent<SpriteRendererComponent>());
+}
+
+// =============================================================================
+// Child entity resolution (operations on children use matched prefab child)
+// =============================================================================
+
+TEST_F(PrefabOverrideTest, Prefab_RevertComponent_ChildEntity)
+{
+    // Create a prefab with a parent and child, each with different transforms
+    Entity parent = m_Scene->CreateEntity("Parent");
+    parent.GetComponent<TransformComponent>().Translation = glm::vec3(1.0f, 0.0f, 0.0f);
+
+    Entity child = m_Scene->CreateEntity("Child");
+    child.SetParent(parent);
+    child.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f, 5.0f, 0.0f);
+
+    Ref<Prefab> prefab = CreateTestPrefab();
+    prefab->Create(parent, false);
+
+    // Instantiate into a new scene
+    Ref<Scene> targetScene = Scene::Create();
+    Entity instanceParent = prefab->Instantiate(*targetScene);
+
+    // Get the instantiated child
+    ASSERT_FALSE(instanceParent.Children().empty());
+    auto childOpt = targetScene->TryGetEntityWithUUID(instanceParent.Children()[0]);
+    ASSERT_TRUE(childOpt.has_value());
+    Entity instanceChild = *childOpt;
+
+    // Verify child has the right initial transform
+    EXPECT_FLOAT_EQ(instanceChild.GetComponent<TransformComponent>().Translation.y, 5.0f);
+
+    // Modify the child's transform
+    instanceChild.GetComponent<TransformComponent>().Translation = glm::vec3(99.0f, 99.0f, 99.0f);
+
+    // Revert the child — should use the child's prefab counterpart, not root
+    bool reverted = prefab->RevertComponent(instanceChild, "TransformComponent");
+    EXPECT_TRUE(reverted);
+    EXPECT_FLOAT_EQ(instanceChild.GetComponent<TransformComponent>().Translation.y, 5.0f);
+    // Should NOT have gotten root's x=1.0
+    EXPECT_FLOAT_EQ(instanceChild.GetComponent<TransformComponent>().Translation.x, 0.0f);
+}
+
+TEST_F(PrefabOverrideTest, Prefab_UpdateInstance_ChildEntity)
+{
+    // Create prefab with parent + child
+    Entity parent = m_Scene->CreateEntity("Parent");
+    parent.GetComponent<TransformComponent>().Translation = glm::vec3(1.0f, 0.0f, 0.0f);
+
+    Entity child = m_Scene->CreateEntity("Child");
+    child.SetParent(parent);
+    child.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f, 5.0f, 0.0f);
+    child.AddComponent<SpriteRendererComponent>().Color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+
+    Ref<Prefab> prefab = CreateTestPrefab();
+    prefab->Create(parent, false);
+
+    // Instantiate
+    Ref<Scene> targetScene = Scene::Create();
+    Entity instanceParent = prefab->Instantiate(*targetScene);
+    auto childOpt = targetScene->TryGetEntityWithUUID(instanceParent.Children()[0]);
+    ASSERT_TRUE(childOpt.has_value());
+    Entity instanceChild = *childOpt;
+
+    // Override the child's transform (mark it)
+    instanceChild.GetComponent<TransformComponent>().Translation = glm::vec3(99.0f);
+    auto& pc = instanceChild.GetComponent<PrefabComponent>();
+    pc.MarkComponentOverridden("TransformComponent");
+
+    // Modify the prefab's child SpriteRendererComponent
+    Entity prefabRoot = prefab->GetRootEntity();
+    auto prefabChildOpt = prefab->GetScene()->TryGetEntityWithUUID(prefabRoot.Children()[0]);
+    ASSERT_TRUE(prefabChildOpt.has_value());
+    Entity prefabChild = *prefabChildOpt;
+    prefabChild.GetComponent<SpriteRendererComponent>().Color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+
+    // Update instance child from prefab
+    prefab->UpdateInstanceFromPrefab(instanceChild);
+
+    // Transform should be preserved (overridden)
+    EXPECT_FLOAT_EQ(instanceChild.GetComponent<TransformComponent>().Translation.x, 99.0f);
+
+    // SpriteRendererComponent should be updated from child's prefab counterpart
+    EXPECT_FLOAT_EQ(instanceChild.GetComponent<SpriteRendererComponent>().Color.g, 1.0f);
+}
+
+TEST_F(PrefabOverrideTest, Prefab_DetectOverrides_PopulatesOverridden)
+{
+    Entity source = m_Scene->CreateEntity("Source");
+    source.GetComponent<TransformComponent>().Translation = glm::vec3(1.0f);
+
+    Ref<Prefab> prefab = CreateTestPrefab();
+    prefab->Create(source, false);
+
+    Ref<Scene> targetScene = Scene::Create();
+    Entity instance = prefab->Instantiate(*targetScene);
+
+    // Mark a component as overridden on the instance
+    auto& pc = instance.GetComponent<PrefabComponent>();
+    pc.MarkComponentOverridden("TransformComponent");
+
+    std::unordered_set<std::string> overridden, added, removed;
+    prefab->DetectOverrides(instance, overridden, added, removed);
+
+    // outOverridden should contain the explicitly tracked override
+    EXPECT_TRUE(overridden.contains("TransformComponent"));
+    EXPECT_TRUE(added.empty());
+    EXPECT_TRUE(removed.empty());
 }
