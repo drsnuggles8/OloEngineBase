@@ -28,6 +28,16 @@ namespace OloEngine
         // Show a Yes / No / Cancel dialog. Returns which button was pressed.
         static MessagePromptResult YesNoCancel(const char* title, const char* message);
     };
+#else
+    // Non-Windows stub — returns No so the editor can still compile and run
+    class MessagePrompt
+    {
+      public:
+        static MessagePromptResult YesNoCancel([[maybe_unused]] const char* title, [[maybe_unused]] const char* message)
+        {
+            return MessagePromptResult::No;
+        }
+    };
 #endif
 
     class Time

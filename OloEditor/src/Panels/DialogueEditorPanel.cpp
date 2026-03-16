@@ -51,7 +51,7 @@ namespace OloEngine
             bool same = true;
             for (sizet i = 0; i < oldState.Nodes.size() && same; ++i)
             {
-                same = (static_cast<u64>(oldState.Nodes[i].ID) == static_cast<u64>(newState.Nodes[i].ID) && oldState.Nodes[i].Name == newState.Nodes[i].Name && oldState.Nodes[i].Type == newState.Nodes[i].Type && oldState.Nodes[i].Properties == newState.Nodes[i].Properties);
+                same = (static_cast<u64>(oldState.Nodes[i].ID) == static_cast<u64>(newState.Nodes[i].ID) && oldState.Nodes[i].Name == newState.Nodes[i].Name && oldState.Nodes[i].Type == newState.Nodes[i].Type && oldState.Nodes[i].Properties == newState.Nodes[i].Properties && oldState.Nodes[i].EditorPosition == newState.Nodes[i].EditorPosition);
             }
             for (sizet i = 0; i < oldState.Connections.size() && same; ++i)
             {

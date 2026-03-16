@@ -135,13 +135,13 @@ namespace OloEngine
                         m_CommandHistory->Execute(std::make_unique<CreateEntityCommand>(
                             m_Context, "Empty Entity",
                             [this](Entity e)
-                            { m_SelectionContext = e; },
+                            { SetSelectedEntity(e); },
                             [this]()
-                            { m_SelectionContext = {}; }));
+                            { ClearSelection(); }));
                     }
                     else
                     {
-                        m_SelectionContext = m_Context->CreateEntity("Empty Entity");
+                        SetSelectedEntity(m_Context->CreateEntity("Empty Entity"));
                     }
                 }
 
@@ -157,17 +157,17 @@ namespace OloEngine
                                 {
                                     e.AddComponent<UICanvasComponent>();
                                     e.AddComponent<UIRectTransformComponent>();
-                                    m_SelectionContext = e;
+                                    SetSelectedEntity(e);
                                 },
                                 [this]()
-                                { m_SelectionContext = {}; }));
+                                { ClearSelection(); }));
                         }
                         else
                         {
                             auto canvas = m_Context->CreateEntity("UI Canvas");
                             canvas.AddComponent<UICanvasComponent>();
                             canvas.AddComponent<UIRectTransformComponent>();
-                            m_SelectionContext = canvas;
+                            SetSelectedEntity(canvas);
                         }
                     };
 
@@ -183,16 +183,16 @@ namespace OloEngine
                                     addComponentFn(e);
                                     Entity canvas = FindOrCreateCanvas();
                                     e.SetParent(canvas);
-                                    m_SelectionContext = e;
+                                    SetSelectedEntity(e);
                                 },
                                 [this]()
-                                { m_SelectionContext = {}; }));
+                                { ClearSelection(); }));
                         }
                         else
                         {
                             auto widget = CreateUIWidget(name);
                             addComponentFn(widget);
-                            m_SelectionContext = widget;
+                            SetSelectedEntity(widget);
                         }
                     };
 

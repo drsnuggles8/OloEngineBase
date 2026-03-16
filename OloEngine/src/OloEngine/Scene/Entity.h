@@ -258,6 +258,8 @@ namespace OloEngine
         // Check if reparenting would create a cycle in the hierarchy
         [[nodiscard]] bool WouldCreateCycleWith(Entity potentialParent) const
         {
+            OLO_PROFILE_FUNCTION();
+
             return WouldCreateCycle(potentialParent);
         }
 

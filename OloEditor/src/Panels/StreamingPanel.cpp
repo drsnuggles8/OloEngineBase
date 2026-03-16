@@ -10,7 +10,6 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <imgui.h>
-#include <imgui_internal.h>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace OloEngine
@@ -100,7 +99,7 @@ namespace OloEngine
         if (m_CommandHistory)
         {
             bool changed = !StreamingSettingsEqual(ss, m_SettingsSnapshot);
-            bool activeWidget = GImGui->ActiveId != 0;
+            bool activeWidget = ImGui::IsAnyItemActive();
 
             if (changed)
             {

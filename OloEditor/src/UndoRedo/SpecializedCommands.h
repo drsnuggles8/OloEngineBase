@@ -225,6 +225,11 @@ namespace OloEngine
                 return;
             }
 
+            if (m_SplatmapIndex >= 2)
+            {
+                return;
+            }
+
             auto& splatmap = m_Material->GetSplatmapData(m_SplatmapIndex);
             u32 resolution = m_Material->GetSplatmapResolution();
             constexpr u32 channels = 4; // RGBA8

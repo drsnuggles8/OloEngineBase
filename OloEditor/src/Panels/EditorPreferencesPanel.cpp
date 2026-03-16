@@ -64,14 +64,21 @@ namespace OloEngine
         out << YAML::EndMap;
         out << YAML::EndMap;
 
-        std::ofstream fout(GetPrefsPath(projectDir));
-        if (fout.is_open())
+        auto const path = GetPrefsPath(projectDir);
+        std::ofstream fout(path);
+        if (!fout.is_open())
         {
-            fout << out.c_str();
-            if (fout.good())
-            {
-                m_Dirty = false;
-            }
+            OLO_CORE_ERROR("EditorPreferencesPanel::Save: failed to open '{}'", path.string());
+            return;
+        }
+        fout << out.c_str();
+        if (fout.good())
+        {
+            m_Dirty = false;
+        }
+        else
+        {
+            OLO_CORE_ERROR("EditorPreferencesPanel::Save: write failed for '{}'", path.string());
         }
     }
 

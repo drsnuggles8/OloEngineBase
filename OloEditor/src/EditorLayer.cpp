@@ -890,6 +890,12 @@ namespace OloEngine
             m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
             m_Is3DMode = m_Prefs.Is3DMode;
             m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
+
+            if (m_Is3DMode && !Renderer3D::IsInitialized())
+            {
+                Renderer3D::Init();
+                ApplyDefault3DCameraPose();
+            }
         }
     }
 
@@ -1110,6 +1116,12 @@ namespace OloEngine
     {
         // Shortcuts
         if (e.IsRepeat())
+        {
+            return false;
+        }
+
+        // Don't intercept shortcuts while ImGui text widgets have focus
+        if (ImGui::GetIO().WantTextInput)
         {
             return false;
         }
@@ -1526,6 +1538,12 @@ namespace OloEngine
             m_Is3DMode = m_Prefs.Is3DMode;
             m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
 
+            if (m_Is3DMode && !Renderer3D::IsInitialized())
+            {
+                Renderer3D::Init();
+                ApplyDefault3DCameraPose();
+            }
+
             return true;
         }
         return false;
@@ -1605,14 +1623,14 @@ namespace OloEngine
     {
         if (!m_EditorScenePath.empty())
         {
-            m_ActiveScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
-            m_ActiveScene->SetSnowSettings(Renderer3D::GetSnowSettings());
-            m_ActiveScene->SetWindSettings(Renderer3D::GetWindSettings());
-            m_ActiveScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
-            m_ActiveScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
-            m_ActiveScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
-            m_ActiveScene->SetFogSettings(Renderer3D::GetFogSettings());
-            SerializeScene(m_ActiveScene, m_EditorScenePath);
+            m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+            m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
+            m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
+            m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
+            m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
+            m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
+            m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
+            SerializeScene(m_EditorScene, m_EditorScenePath);
             m_CommandHistory.MarkSaved();
             SyncWindowTitle();
 
@@ -2013,38 +2031,72 @@ namespace OloEngine
             return;
         }
 
-        YAML::Node entities = YAML::Load(m_EntityClipboard);
+        YAML::Node entities;
+        try
+        {
+            entities = YAML::Load(m_EntityClipboard);
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("OnPasteEntity: failed to parse clipboard YAML: {}", e.what());
+            return;
+        }
         if (!entities || !entities.IsSequence())
         {
             return;
         }
 
-        // Remap UUIDs to generate new entities
-        YAML::Emitter remapped;
-        remapped << YAML::BeginSeq;
+        // Build old→new UUID map for all entities
+        std::unordered_map<u64, u64> uuidMap;
         for (auto entityNode : entities)
         {
-            remapped << YAML::BeginMap;
-            for (auto it = entityNode.begin(); it != entityNode.end(); ++it)
+            if (entityNode["Entity"])
             {
-                std::string key = it->first.as<std::string>();
-                if (key == "Entity")
+                u64 oldUUID = entityNode["Entity"].as<u64>();
+                uuidMap[oldUUID] = static_cast<u64>(UUID());
+            }
+        }
+
+        // Recursively remap UUIDs in all entity data (hierarchy refs, component refs, etc.)
+        std::function<void(YAML::Node)> remapUUIDs = [&](YAML::Node node)
+        {
+            if (node.IsScalar())
+            {
+                try
                 {
-                    // Replace UUID with a new one
-                    remapped << YAML::Key << key << YAML::Value << static_cast<u64>(UUID());
+                    u64 val = node.as<u64>();
+                    if (auto it = uuidMap.find(val); it != uuidMap.end())
+                    {
+                        node = it->second;
+                    }
                 }
-                else
+                catch (const YAML::BadConversion&)
                 {
-                    remapped << YAML::Key << key << YAML::Value << it->second;
                 }
             }
-            remapped << YAML::EndMap;
-        }
-        remapped << YAML::EndSeq;
+            else if (node.IsMap())
+            {
+                for (auto it = node.begin(); it != node.end(); ++it)
+                {
+                    remapUUIDs(it->second);
+                }
+            }
+            else if (node.IsSequence())
+            {
+                for (auto elem : node)
+                {
+                    remapUUIDs(elem);
+                }
+            }
+        };
 
-        YAML::Node remappedNode = YAML::Load(remapped.c_str());
+        for (auto entityNode : entities)
+        {
+            remapUUIDs(entityNode);
+        }
+
         SceneSerializer serializer(m_EditorScene);
-        auto createdUUIDs = serializer.DeserializeAdditive(remappedNode);
+        auto createdUUIDs = serializer.DeserializeAdditive(entities);
 
         if (!createdUUIDs.empty())
         {

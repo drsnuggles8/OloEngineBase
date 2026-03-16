@@ -50,16 +50,13 @@ namespace OloEngine
                 m_IsEditing = true;
             }
 
-            if (m_IsEditing && !changed && ::GImGui->ActiveId == 0)
+            if (m_IsEditing && ::GImGui->ActiveId == 0)
             {
-                // No change this frame + no active widget → editing ended, but nothing changed from snapshot
-                m_IsEditing = false;
-            }
-            else if (m_IsEditing && ::GImGui->ActiveId == 0)
-            {
-                // Editing ended with actual changes
-                m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<PostProcessChangeCommand>(m_Snapshot, settings));
+                if (changed)
+                {
+                    m_CommandHistory->PushAlreadyExecuted(
+                        std::make_unique<PostProcessChangeCommand>(m_Snapshot, settings));
+                }
                 m_IsEditing = false;
             }
         }

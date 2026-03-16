@@ -304,25 +304,25 @@ namespace OloEngine
     {
         auto oldMap = InputActionManager::GetActionMap();
 
-        // Conflict detection — remove this binding from any other action
         auto& map = InputActionManager::GetActionMap();
-        for (auto& [name, action] : map.Actions)
-        {
-            if (name == m_RebindActionName)
-            {
-                continue;
-            }
-            auto it = std::ranges::find(action.Bindings, newBinding);
-            if (it != action.Bindings.end())
-            {
-                action.Bindings.erase(it);
-            }
-        }
-
-        // Apply the binding
         auto* action = map.GetAction(m_RebindActionName);
         if (action)
         {
+            // Conflict detection — remove this binding from any other action
+            for (auto& [name, act] : map.Actions)
+            {
+                if (name == m_RebindActionName)
+                {
+                    continue;
+                }
+                auto it = std::ranges::find(act.Bindings, newBinding);
+                if (it != act.Bindings.end())
+                {
+                    act.Bindings.erase(it);
+                }
+            }
+
+            // Apply the binding
             if (m_RebindIsNewBinding)
             {
                 action->Bindings.push_back(newBinding);
@@ -332,13 +332,13 @@ namespace OloEngine
                 action->Bindings[m_RebindBindingIndex] = newBinding;
             }
             m_Dirty = true;
-        }
 
-        if (m_CommandHistory)
-        {
-            m_CommandHistory->PushAlreadyExecuted(
-                std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(),
-                                                              m_RebindIsNewBinding ? "Add Binding" : "Rebind"));
+            if (m_CommandHistory)
+            {
+                m_CommandHistory->PushAlreadyExecuted(
+                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(),
+                                                                  m_RebindIsNewBinding ? "Add Binding" : "Rebind"));
+            }
         }
 
         m_IsRebinding = false;
