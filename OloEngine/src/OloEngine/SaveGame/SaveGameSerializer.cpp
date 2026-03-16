@@ -377,7 +377,16 @@ namespace OloEngine
     // ========================================================================
 
     // Deserialize entities into a staging scene. Returns whether parsing succeeded.
-    static bool DeserializeEntitiesInto(Scene& staging, FMemoryReader& reader)
+    // Deferred ISaveable restore entry — collected during staging, applied post-commit.
+    struct DeferredSaveableEntry
+    {
+        UUID EntityID;
+        std::string ClassName;
+        std::vector<u8> Data;
+    };
+
+    static bool DeserializeEntitiesInto(Scene& staging, FMemoryReader& reader,
+                                        std::vector<DeferredSaveableEntry>& outDeferredSaveables)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -524,16 +533,12 @@ namespace OloEngine
 
 #undef TRY_LOAD_COMPONENT
 
-                // ISaveable blob: restore script custom state
+                // ISaveable blob: defer restore until after staging is committed
                 if (!matched && typeHash == kSaveableTypeHash)
                 {
                     if (entity.HasComponent<ScriptComponent>())
                     {
-                        if (!RestoreSaveableData(uuid, entity.GetComponent<ScriptComponent>().ClassName, compData))
-                        {
-                            OLO_CORE_ERROR("[SaveGameSerializer] ISaveable restore failed for entity {}, aborting load", static_cast<u64>(uuid));
-                            return false;
-                        }
+                        outDeferredSaveables.push_back({ uuid, entity.GetComponent<ScriptComponent>().ClassName, compData });
                     }
                     matched = true;
                 }
@@ -611,7 +616,8 @@ namespace OloEngine
         staging->m_ViewportWidth = scene.m_ViewportWidth;
         staging->m_ViewportHeight = scene.m_ViewportHeight;
 
-        if (!DeserializeEntitiesInto(*staging, reader))
+        std::vector<DeferredSaveableEntry> deferredSaveables;
+        if (!DeserializeEntitiesInto(*staging, reader, deferredSaveables))
         {
             OLO_CORE_ERROR("[SaveGameSerializer] Entity deserialization failed, scene is unchanged");
             return false;
@@ -619,8 +625,9 @@ namespace OloEngine
 
         if (!reader.AtEnd())
         {
-            OLO_CORE_WARN("[SaveGameSerializer] {} trailing bytes after entity data (possible version mismatch)",
-                          reader.TotalSize() - reader.Tell());
+            OLO_CORE_ERROR("[SaveGameSerializer] {} trailing bytes after entity data — rejecting payload",
+                           reader.TotalSize() - reader.Tell());
+            return false;
         }
 
         // --- All parsing succeeded — commit to real scene ---
@@ -680,6 +687,16 @@ namespace OloEngine
         // RestoreSceneState call — the swap invalidates them.
         std::swap(scene.m_Registry, staging->m_Registry);
         std::swap(scene.m_EntityMap, staging->m_EntityMap);
+
+        // Apply deferred ISaveable restores now that entities live in the committed scene
+        for (auto& entry : deferredSaveables)
+        {
+            if (!RestoreSaveableData(entry.EntityID, entry.ClassName, entry.Data))
+            {
+                OLO_CORE_ERROR("[SaveGameSerializer] ISaveable restore failed for entity {} post-commit", static_cast<u64>(entry.EntityID));
+                return false;
+            }
+        }
 
         return true;
     }

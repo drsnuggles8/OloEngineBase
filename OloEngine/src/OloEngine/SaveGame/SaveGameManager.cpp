@@ -106,7 +106,37 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        s_Initialized.store(false, std::memory_order_release);
+        if (!s_Initialized.exchange(false, std::memory_order_acq_rel))
+        {
+            return;
+        }
+
+        // Wait for all in-flight save workers to finish so no callbacks are
+        // enqueued to the game thread after Shutdown returns.
+        auto allDrained = []()
+        {
+            for (auto& flag : s_QuickSaveInFlight)
+            {
+                if (flag.load(std::memory_order_acquire))
+                {
+                    return false;
+                }
+            }
+            for (auto& flag : s_AutoSaveInFlight)
+            {
+                if (flag.load(std::memory_order_acquire))
+                {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        while (!allDrained())
+        {
+            std::this_thread::yield();
+        }
+
         OLO_CORE_INFO("[SaveGameManager] Shutdown");
     }
 

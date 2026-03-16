@@ -853,6 +853,17 @@ namespace OloEngine
             }
         }
         ar << c.m_SelectedIndex;
+        if (ar.IsLoading())
+        {
+            if (c.m_Options.empty())
+            {
+                c.m_SelectedIndex = -1;
+            }
+            else if (c.m_SelectedIndex >= static_cast<i32>(c.m_Options.size()))
+            {
+                c.m_SelectedIndex = static_cast<i32>(c.m_Options.size()) - 1;
+            }
+        }
         ar << c.m_BackgroundColor << c.m_HighlightColor << c.m_TextColor;
         ar << c.m_FontSize << c.m_ItemHeight;
         ar << c.m_Interactable;
