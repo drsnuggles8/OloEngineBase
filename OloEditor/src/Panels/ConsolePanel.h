@@ -14,7 +14,7 @@ namespace OloEngine
         ConsolePanel();
         ~ConsolePanel();
 
-        void OnImGuiRender();
+        void OnImGuiRender(bool* p_open = nullptr);
         void Clear();
 
       private:

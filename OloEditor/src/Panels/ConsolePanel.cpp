@@ -96,11 +96,11 @@ namespace OloEngine
         m_Entries.clear();
     }
 
-    void ConsolePanel::OnImGuiRender()
+    void ConsolePanel::OnImGuiRender(bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!ImGui::Begin("Console"))
+        if (!ImGui::Begin("Console", p_open))
         {
             ImGui::End();
             return;

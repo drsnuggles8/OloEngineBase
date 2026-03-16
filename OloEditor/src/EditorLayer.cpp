@@ -325,9 +325,7 @@ namespace OloEngine
 
         style.WindowMinSize.x = minWinSizeX;
         UI_MenuBar();
-        UI_Toolbar();
         UI_Viewport();
-        UI_RendererStats();
         UI_DebugTools();
         UI_ChildPanels();
 
@@ -628,6 +626,9 @@ namespace OloEngine
 
         UI_Gizmos();
 
+        // Toolbar overlay inside viewport
+        UI_Toolbar();
+
         ImGui::End();
         ImGui::PopStyleVar();
     }
@@ -715,18 +716,71 @@ namespace OloEngine
 
     void EditorLayer::UI_Toolbar()
     {
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 2));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(0, 0));
+        const auto toolbarEnabled = static_cast<bool>(m_ActiveScene);
+
+        // Determine which buttons to show
+        bool const hasPlayButton = m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play;
+        bool const hasSimulateButton = m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate;
+        bool const hasPauseButton = m_SceneState != SceneState::Edit;
+        bool const isPaused = hasPauseButton && m_ActiveScene && m_ActiveScene->IsPaused();
+
+        // Count visible buttons
+        int buttonCount = 0;
+        if (hasPlayButton)
+        {
+            buttonCount++;
+        }
+        if (hasSimulateButton)
+        {
+            buttonCount++;
+        }
+        if (hasPauseButton)
+        {
+            buttonCount++;
+        }
+        if (isPaused)
+        {
+            buttonCount++;
+        }
+        if (buttonCount == 0)
+        {
+            return;
+        }
+
+        constexpr f32 buttonSize = 24.0f;
+        constexpr f32 buttonSpacing = 4.0f;
+        constexpr f32 padding = 8.0f;
+        f32 const toolbarWidth = buttonCount * buttonSize + (buttonCount - 1) * buttonSpacing + padding * 2.0f;
+        constexpr f32 toolbarHeight = buttonSize + padding * 2.0f;
+
+        // Position at top-center of viewport content area
+        ImVec2 const viewportMin = ImGui::GetWindowContentRegionMin();
+        ImVec2 const viewportMax = ImGui::GetWindowContentRegionMax();
+        f32 const viewportWidth = viewportMax.x - viewportMin.x;
+        f32 const toolbarX = viewportMin.x + (viewportWidth - toolbarWidth) * 0.5f;
+        constexpr f32 topMargin = 6.0f;
+        f32 const toolbarY = viewportMin.y + topMargin;
+
+        // Draw semi-transparent background
+        ImVec2 const windowPos = ImGui::GetWindowPos();
+        ImVec2 const bgMin = { windowPos.x + toolbarX, windowPos.y + toolbarY };
+        ImVec2 const bgMax = { bgMin.x + toolbarWidth, bgMin.y + toolbarHeight };
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->AddRectFilled(bgMin, bgMax, IM_COL32(30, 30, 30, 180), 6.0f);
+        drawList->AddRect(bgMin, bgMax, IM_COL32(60, 60, 60, 200), 6.0f);
+
+        // Set cursor for buttons
+        ImGui::SetCursorPos({ toolbarX + padding, toolbarY + padding });
+
+        // Style: transparent button background
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(buttonSpacing, 0));
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
         auto const& colors = ImGui::GetStyle().Colors;
-        const auto& buttonHovered = colors[ImGuiCol_ButtonHovered];
+        auto const& buttonHovered = colors[ImGuiCol_ButtonHovered];
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(buttonHovered.x, buttonHovered.y, buttonHovered.z, 0.5f));
-        const auto& buttonActive = colors[ImGuiCol_ButtonActive];
+        auto const& buttonActive = colors[ImGuiCol_ButtonActive];
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(buttonActive.x, buttonActive.y, buttonActive.z, 0.5f));
-
-        ImGui::Begin("##toolbar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-
-        const auto toolbarEnabled = static_cast<bool>(m_ActiveScene);
 
         auto tintColor = ImVec4(1, 1, 1, 1);
         if (!toolbarEnabled)
@@ -734,19 +788,14 @@ namespace OloEngine
             tintColor.w = 0.5f;
         }
 
-        const f32 size = ImGui::GetWindowHeight() - 4.0f;
+        ImVec2 const btnSize(buttonSize, buttonSize);
 
-        ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
-
-        bool hasPlayButton = m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play;
-        bool hasSimulateButton = m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate;
-        bool hasPauseButton = m_SceneState != SceneState::Edit;
-
+        // Play / Stop button
         if (hasPlayButton)
         {
             using enum OloEngine::EditorLayer::SceneState;
             Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop;
-            if (ImGui::ImageButton("##play_stop_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+            if (ImGui::ImageButton("##play_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
             {
                 if ((m_SceneState == Edit) || (m_SceneState == Simulate))
                 {
@@ -757,18 +806,16 @@ namespace OloEngine
                     OnSceneStop();
                 }
             }
+            ImGui::SameLine();
         }
+
+        // Simulate / Stop button
         if (hasSimulateButton)
         {
-            if (hasPlayButton)
+            using enum OloEngine::EditorLayer::SceneState;
+            Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Play)) ? m_IconSimulate : m_IconStop;
+            if (ImGui::ImageButton("##simulate_stop_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
             {
-                ImGui::SameLine();
-            }
-
-            Ref<Texture2D> icon = ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Play)) ? m_IconSimulate : m_IconStop;
-            if (ImGui::ImageButton("##simulate_stop_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
-            {
-                using enum OloEngine::EditorLayer::SceneState;
                 if ((m_SceneState == Edit) || (m_SceneState == Play))
                 {
                     OnSceneSimulate();
@@ -778,36 +825,32 @@ namespace OloEngine
                     OnSceneStop();
                 }
             }
-            if (hasPauseButton)
-            {
-                bool isPaused = m_ActiveScene->IsPaused();
-                ImGui::SameLine();
-                {
-                    icon = m_IconPause;
-                    if (ImGui::ImageButton("##pause_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
-                    {
-                        m_ActiveScene->SetPaused(!isPaused);
-                    }
-                }
+            ImGui::SameLine();
+        }
 
-                // Step button
-                if (isPaused)
-                {
-                    ImGui::SameLine();
-                    {
-                        icon = m_IconStep;
-                        isPaused = m_ActiveScene->IsPaused();
-                        if (ImGui::ImageButton("##step_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
-                        {
-                            m_ActiveScene->Step();
-                        }
-                    }
-                }
+        // Pause button
+        if (hasPauseButton)
+        {
+            Ref<Texture2D> const icon = m_IconPause;
+            if (ImGui::ImageButton("##pause_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            {
+                m_ActiveScene->SetPaused(!isPaused);
+            }
+            ImGui::SameLine();
+        }
+
+        // Step button (only when paused)
+        if (isPaused)
+        {
+            Ref<Texture2D> const icon = m_IconStep;
+            if (ImGui::ImageButton("##step_icon", static_cast<u64>(icon->GetRendererID()), btnSize, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0), tintColor) && toolbarEnabled)
+            {
+                m_ActiveScene->Step();
             }
         }
+
         ImGui::PopStyleVar(2);
         ImGui::PopStyleColor(3);
-        ImGui::End();
     }
 
     void EditorLayer::UI_ChildPanels()
@@ -825,13 +868,13 @@ namespace OloEngine
         if (m_ShowAnimationPanel)
         {
             m_AnimationPanel.SetSelectedEntity(m_SceneHierarchyPanel.GetSelectedEntity());
-            m_AnimationPanel.OnImGuiRender();
+            m_AnimationPanel.OnImGuiRender(&m_ShowAnimationPanel);
         }
 
         // Post Process Settings Panel
         if (m_ShowPostProcessSettings)
         {
-            m_PostProcessSettingsPanel.OnImGuiRender();
+            m_PostProcessSettingsPanel.OnImGuiRender(&m_ShowPostProcessSettings);
         }
 
         // Terrain Editor Panel
@@ -839,48 +882,51 @@ namespace OloEngine
         {
             m_TerrainEditorPanel.SetContext(m_ActiveScene);
             m_TerrainEditorPanel.OnImGuiRender();
+            m_ShowTerrainEditor = m_TerrainEditorPanel.Visible;
         }
 
         // Streaming Panel
         if (m_ShowStreamingPanel)
         {
-            m_StreamingPanel.OnImGuiRender();
+            m_StreamingPanel.OnImGuiRender(&m_ShowStreamingPanel);
         }
 
         // Input Settings Panel
         if (m_ShowInputSettings)
         {
-            m_InputSettingsPanel.OnImGuiRender();
+            m_InputSettingsPanel.OnImGuiRender(&m_ShowInputSettings);
         }
 
         // Network Debug Panel
         if (m_ShowNetworkDebug)
         {
-            m_NetworkDebugPanel.OnImGuiRender();
+            m_NetworkDebugPanel.OnImGuiRender(&m_ShowNetworkDebug);
         }
 
         // Dialogue Editor Panel
         if (m_ShowDialogueEditor)
         {
             m_DialogueEditorPanel.OnImGuiRender();
+            m_ShowDialogueEditor = m_DialogueEditorPanel.IsOpen();
         }
 
         // Save Game Panel
         if (m_ShowSaveGamePanel)
         {
-            m_SaveGamePanel.OnImGuiRender();
+            m_SaveGamePanel.OnImGuiRender(&m_ShowSaveGamePanel);
         }
 
         // Console Panel
         if (m_ShowConsolePanel)
         {
-            m_ConsolePanel.OnImGuiRender();
+            m_ConsolePanel.OnImGuiRender(&m_ShowConsolePanel);
         }
 
         // Scene Statistics Panel
         if (m_ShowSceneStatistics)
         {
-            m_SceneStatisticsPanel.OnImGuiRender();
+            m_SceneStatisticsPanel.SetHoveredEntity(m_HoveredEntity);
+            m_SceneStatisticsPanel.OnImGuiRender(&m_ShowSceneStatistics);
         }
 
         // Editor Preferences Dialog
@@ -958,50 +1004,6 @@ namespace OloEngine
         m_Prefs.Is3DMode = m_Is3DMode;
         m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
         m_Prefs.CapturePhysicsOnPlay = Physics3DSystem::GetSettings().m_CaptureOnPlay;
-    }
-
-    void EditorLayer::UI_RendererStats()
-    {
-        ImGui::Begin("Stats");
-        std::string name = "None";
-        // Validate entity belongs to current active scene before accessing components
-        if (m_HoveredEntity && m_HoveredEntity.GetScene() == m_ActiveScene.get() && m_HoveredEntity.HasComponent<TagComponent>())
-        {
-            name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
-        }
-        ImGui::Text("Hovered Entity: %s", name.c_str());
-
-        const auto stats = Renderer2D::GetStats();
-        ImGui::Text("Renderer2D Stats:");
-        ImGui::Text("Draw Calls: %d", stats.DrawCalls);
-        ImGui::Text("Quads: %d", stats.QuadCount);
-        ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
-        ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
-
-        ImGui::Separator();
-
-        {
-            OLO_PROFILE_SCOPE("Renderer3D Stats");
-            const auto stats3D = Renderer3D::GetStats();
-            ImGui::Text("Renderer3D Stats:");
-            ImGui::Text("Total Meshes: %u", stats3D.TotalMeshes);
-            ImGui::Text("Culled Meshes: %u", stats3D.CulledMeshes);
-            ImGui::Text("Draw Calls: %u", stats3D.DrawCalls);
-            ImGui::Text("LOD Switches: %u", stats3D.LODSwitches);
-            for (u32 i = 0; i < static_cast<u32>(stats3D.ObjectsPerLODLevel.size()); ++i)
-            {
-                if (stats3D.ObjectsPerLODLevel[i] > 0)
-                {
-                    ImGui::Text("  LOD %u Objects: %u", i, stats3D.ObjectsPerLODLevel[i]);
-                }
-            }
-
-            RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, stats3D.DrawCalls);
-        }
-
-        ImGui::Text("Frame Rate: %.1f FPS", ImGui::GetIO().Framerate);
-        ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
-        ImGui::End();
     }
 
     void EditorLayer::UI_DebugTools()

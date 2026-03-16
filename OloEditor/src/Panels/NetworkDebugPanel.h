@@ -7,6 +7,6 @@ namespace OloEngine
       public:
         NetworkDebugPanel() = default;
 
-        void OnImGuiRender();
+        void OnImGuiRender(bool* p_open = nullptr);
     };
 } // namespace OloEngine

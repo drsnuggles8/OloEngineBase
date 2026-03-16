@@ -26,7 +26,7 @@ namespace OloEngine
             m_CommandHistory = history;
         }
 
-        void OnImGuiRender();
+        void OnImGuiRender(bool* p_open = nullptr);
 
       private:
         void DrawSettingsSection();

@@ -14,7 +14,7 @@
 
 namespace OloEngine
 {
-    void InputSettingsPanel::OnImGuiRender()
+    void InputSettingsPanel::OnImGuiRender(bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -24,7 +24,7 @@ namespace OloEngine
             title += " *";
         }
 
-        ImGui::Begin(title.c_str());
+        ImGui::Begin(title.c_str(), p_open);
 
         DrawActionMapHeader();
 

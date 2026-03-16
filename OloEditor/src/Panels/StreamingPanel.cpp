@@ -14,11 +14,11 @@
 
 namespace OloEngine
 {
-    void StreamingPanel::OnImGuiRender()
+    void StreamingPanel::OnImGuiRender(bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
 
-        ImGui::Begin("Scene Streaming");
+        ImGui::Begin("Scene Streaming", p_open);
 
         if (!m_Context)
         {

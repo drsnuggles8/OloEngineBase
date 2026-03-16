@@ -17,7 +17,7 @@ namespace OloEngine
         InputSettingsPanel() = default;
         ~InputSettingsPanel() = default;
 
-        void OnImGuiRender();
+        void OnImGuiRender(bool* p_open = nullptr);
 
         // Forward events for rebinding capture
         void OnEvent(Event& e);

@@ -11,11 +11,11 @@
 
 namespace OloEngine
 {
-    void PostProcessSettingsPanel::OnImGuiRender()
+    void PostProcessSettingsPanel::OnImGuiRender(bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
 
-        ImGui::Begin("Post Processing");
+        ImGui::Begin("Post Processing", p_open);
 
         // Snapshot all renderer settings before any UI for undo tracking
         if (m_CommandHistory && !m_IsEditing)

@@ -97,7 +97,6 @@ namespace OloEngine
         void UI_Toolbar();
         void UI_Viewport();
         void UI_Gizmos();
-        void UI_RendererStats();
         void UI_DebugTools();
         void UI_ChildPanels();
         void ApplyDefault3DCameraPose();

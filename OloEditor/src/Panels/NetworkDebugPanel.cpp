@@ -10,11 +10,11 @@
 
 namespace OloEngine
 {
-    void NetworkDebugPanel::OnImGuiRender()
+    void NetworkDebugPanel::OnImGuiRender(bool* p_open)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!ImGui::Begin("Network Debug"))
+        if (!ImGui::Begin("Network Debug", p_open))
         {
             ImGui::End();
             return;

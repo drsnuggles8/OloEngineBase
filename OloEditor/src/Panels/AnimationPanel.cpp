@@ -27,9 +27,9 @@ namespace OloEngine
         m_SelectedEntity = entity;
     }
 
-    void AnimationPanel::OnImGuiRender()
+    void AnimationPanel::OnImGuiRender(bool* p_open)
     {
-        ImGui::Begin("Animation");
+        ImGui::Begin("Animation", p_open);
 
         if (!m_Context)
         {

@@ -13,7 +13,7 @@ namespace OloEngine
         PostProcessSettingsPanel() = default;
         ~PostProcessSettingsPanel() = default;
 
-        void OnImGuiRender();
+        void OnImGuiRender(bool* p_open = nullptr);
 
         void SetCommandHistory(CommandHistory* history)
         {

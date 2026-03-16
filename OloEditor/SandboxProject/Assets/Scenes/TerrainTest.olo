@@ -163,23 +163,26 @@ StreamingSettings:
   MaxLoadedRegions: 16
   RegionDirectory: ""
 Entities:
-  - Entity: 100000000000001
+  - Entity: 9977033210160945002
     TagComponent:
-      Tag: Directional Light
+      Tag: camera
     TransformComponent:
-      Translation: [21.055992, 25.520258, 26.569588]
-      Rotation: [-0.78539824, 0.39269903, 0]
-      Scale: [0.9999998, 1, 0.9999999]
-    DirectionalLightComponent:
-      Direction: [-0.5, -0.70710677, -0.5]
-      Color: [1, 0.9607843, 0.8980392]
-      Intensity: 1.5
-      CastShadows: true
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.01
-      MaxShadowDistance: 500
-      CascadeSplitLambda: 0.5
-      CascadeDebugVisualization: false
+      Translation: [128, 60, 128]
+      Rotation: [-0.4, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: true
+      FlySpeed: 5
   - Entity: 100000000000002
     TagComponent:
       Tag: Terrain
@@ -211,21 +214,20 @@ Entities:
       StreamingMaxTiles: 25
       VoxelEnabled: false
       VoxelSize: 1
-  - Entity: 9977033210160945002
+  - Entity: 100000000000001
     TagComponent:
-      Tag: camera
+      Tag: Directional Light
     TransformComponent:
-      Translation: [128, 60, 128]
-      Rotation: [-0.4, 0, 0]
-      Scale: [1, 1, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 0.7853982
-        PerspectiveNear: 0.1
-        PerspectiveFar: 1000
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
+      Translation: [21.055992, 25.520258, 26.569588]
+      Rotation: [-0.78539824, 0.39269903, 0]
+      Scale: [0.9999998, 1, 0.9999999]
+    DirectionalLightComponent:
+      Direction: [-0.5, -0.70710677, -0.5]
+      Color: [1, 0.9607843, 0.8980392]
+      Intensity: 1.5
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false

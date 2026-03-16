@@ -9,9 +9,9 @@
 
 namespace OloEngine
 {
-    void SaveGamePanel::OnImGuiRender()
+    void SaveGamePanel::OnImGuiRender(bool* p_open)
     {
-        ImGui::Begin("Save Game");
+        ImGui::Begin("Save Game", p_open);
 
         // Status message
         if (m_StatusTimer > 0.0f)

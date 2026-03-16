@@ -21,7 +21,7 @@ namespace OloEngine
             m_CommandHistory = history;
         }
 
-        void OnImGuiRender();
+        void OnImGuiRender(bool* p_open = nullptr);
 
         // Get skeleton visualization settings (for use by Scene rendering)
         [[nodiscard]] bool IsSkeletonVisualizationEnabled() const

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Entity.h"
 
 namespace OloEngine
 {
@@ -13,9 +13,14 @@ namespace OloEngine
         {
             m_Context = context;
         }
-        void OnImGuiRender();
+        void SetHoveredEntity(Entity entity)
+        {
+            m_HoveredEntity = entity;
+        }
+        void OnImGuiRender(bool* p_open = nullptr);
 
       private:
         Ref<Scene> m_Context;
+        Entity m_HoveredEntity;
     };
 } // namespace OloEngine

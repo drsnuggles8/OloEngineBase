@@ -45,6 +45,7 @@ source_group(Shaders FILES ${GLSL_SOURCE_FILES})
 add_executable(OloEditor
 		${EDITOR_SOURCES}
 		${GLSL_SOURCE_FILES}
+		"${CMAKE_CURRENT_SOURCE_DIR}/../Resources/OloEditor.rc"
 )
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
