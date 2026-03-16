@@ -259,3 +259,47 @@ TEST_F(SaveGameFileTest, EmptyThumbnail)
     ASSERT_TRUE(SaveGameFile::ReadThumbnail(m_TempPath, readThumb));
     EXPECT_TRUE(readThumb.empty());
 }
+
+TEST_F(SaveGameFileTest, OverwriteInPlaceRetainsLatestData)
+{
+    // First write
+    SaveGameHeader headerA;
+    headerA.EntityCount = 5;
+    SaveGameMetadata metaA;
+    metaA.DisplayName = "SaveA";
+    metaA.SceneName = "SceneA";
+    metaA.TimestampUTC = 1000;
+    std::vector<u8> thumbA = { 0x89, 0x50, 0x4E, 0x47 };
+    std::vector<u8> payloadA = { 1, 2, 3 };
+
+    ASSERT_TRUE(SaveGameFile::Write(m_TempPath, headerA, metaA, thumbA, payloadA));
+
+    // Overwrite with different data
+    SaveGameHeader headerB;
+    headerB.EntityCount = 10;
+    SaveGameMetadata metaB;
+    metaB.DisplayName = "SaveB";
+    metaB.SceneName = "SceneB";
+    metaB.TimestampUTC = 2000;
+    std::vector<u8> thumbB = { 0xAA, 0xBB };
+    std::vector<u8> payloadB = { 10, 20, 30, 40, 50 };
+
+    ASSERT_TRUE(SaveGameFile::Write(m_TempPath, headerB, metaB, thumbB, payloadB));
+
+    // Read back and verify latest data
+    SaveGameHeader readHeader;
+    SaveGameMetadata readMeta;
+    ASSERT_TRUE(SaveGameFile::ReadMetadata(m_TempPath, readHeader, readMeta));
+    EXPECT_EQ(readMeta.DisplayName, "SaveB");
+    EXPECT_EQ(readMeta.SceneName, "SceneB");
+    EXPECT_EQ(readMeta.TimestampUTC, 2000);
+    EXPECT_EQ(readHeader.EntityCount, 10u);
+
+    std::vector<u8> readPayload;
+    ASSERT_TRUE(SaveGameFile::ReadPayload(m_TempPath, readPayload));
+    EXPECT_EQ(readPayload, payloadB);
+
+    std::vector<u8> readThumb;
+    ASSERT_TRUE(SaveGameFile::ReadThumbnail(m_TempPath, readThumb));
+    EXPECT_EQ(readThumb, thumbB);
+}

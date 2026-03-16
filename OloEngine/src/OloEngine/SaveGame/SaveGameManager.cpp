@@ -135,8 +135,14 @@ namespace OloEngine
             return SaveLoadResult::InvalidInput;
         }
 
-        // Reject manager-reserved slot prefixes
-        if (slotName.starts_with("quicksave_") || slotName.starts_with("autosave_"))
+        // Reject manager-reserved slot prefixes (case-insensitive)
+        std::string lowerSlot;
+        lowerSlot.reserve(slotName.size());
+        for (char ch : slotName)
+        {
+            lowerSlot += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        }
+        if (lowerSlot.starts_with("quicksave_") || lowerSlot.starts_with("autosave_"))
         {
             OLO_CORE_ERROR("[SaveGameManager] Slot name '{}' uses a reserved prefix", slotName);
             if (callback)
@@ -167,20 +173,27 @@ namespace OloEngine
             if (s_QuickSaveInFlight[slotIndex].compare_exchange_strong(expected, true, std::memory_order_acq_rel))
             {
                 std::string slotName = "quicksave_" + std::to_string(slotIndex);
-                return SaveAsync(scene, slotName, "Quick Save", SaveSlotType::QuickSave, thumbnailPNG,
-                                 [callback, slotIndex](SaveLoadResult result, const std::string& slot)
-                                 {
-                                     s_QuickSaveInFlight[slotIndex].store(false, std::memory_order_release);
-                                     if (callback)
-                                     {
-                                         callback(result, slot);
-                                     }
-                                 });
+                auto result = SaveAsync(scene, slotName, "Quick Save", SaveSlotType::QuickSave, thumbnailPNG, callback,
+                                        [slotIndex]()
+                                        { s_QuickSaveInFlight[slotIndex].store(false, std::memory_order_release); });
+                if (result != SaveLoadResult::Pending)
+                {
+                    // Early failure before worker launched — release slot
+                    s_QuickSaveInFlight[slotIndex].store(false, std::memory_order_release);
+                }
+                return result;
             }
         }
 
         OLO_CORE_WARN("[SaveGameManager] All quick-save slots are in-flight, skipping");
-        return SaveLoadResult::Pending;
+        if (callback)
+        {
+            Tasks::EnqueueGameThreadTask(
+                [callback]()
+                { callback(SaveLoadResult::IOError, "quicksave"); },
+                "QuickSaveAllSlotsInFlight");
+        }
+        return SaveLoadResult::IOError;
     }
 
     SaveLoadResult SaveGameManager::AutoSave(Scene& scene,
@@ -197,20 +210,26 @@ namespace OloEngine
             if (s_AutoSaveInFlight[slotIndex].compare_exchange_strong(expected, true, std::memory_order_acq_rel))
             {
                 std::string slotName = "autosave_" + std::to_string(slotIndex);
-                return SaveAsync(scene, slotName, "Auto Save", SaveSlotType::AutoSave, thumbnailPNG,
-                                 [callback, slotIndex](SaveLoadResult result, const std::string& slot)
-                                 {
-                                     s_AutoSaveInFlight[slotIndex].store(false, std::memory_order_release);
-                                     if (callback)
-                                     {
-                                         callback(result, slot);
-                                     }
-                                 });
+                auto result = SaveAsync(scene, slotName, "Auto Save", SaveSlotType::AutoSave, thumbnailPNG, callback,
+                                        [slotIndex]()
+                                        { s_AutoSaveInFlight[slotIndex].store(false, std::memory_order_release); });
+                if (result != SaveLoadResult::Pending)
+                {
+                    s_AutoSaveInFlight[slotIndex].store(false, std::memory_order_release);
+                }
+                return result;
             }
         }
 
         OLO_CORE_WARN("[SaveGameManager] All auto-save slots are in-flight, skipping");
-        return SaveLoadResult::Pending;
+        if (callback)
+        {
+            Tasks::EnqueueGameThreadTask(
+                [callback]()
+                { callback(SaveLoadResult::IOError, "autosave"); },
+                "AutoSaveAllSlotsInFlight");
+        }
+        return SaveLoadResult::IOError;
     }
 
     // ========================================================================
@@ -504,7 +523,8 @@ namespace OloEngine
                                               const std::string& displayName,
                                               SaveSlotType slotType,
                                               const std::vector<u8>& thumbnailPNG,
-                                              SaveLoadCompletionCallback callback)
+                                              SaveLoadCompletionCallback callback,
+                                              std::function<void()> onWorkerComplete)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -563,7 +583,8 @@ namespace OloEngine
              entityCount,
              path,
              slotName,
-             callback]() mutable
+             callback,
+             onWorkerComplete = std::move(onWorkerComplete)]() mutable
             {
                 OLO_PROFILE_SCOPE("SaveGameToDisk");
 
@@ -603,6 +624,12 @@ namespace OloEngine
                     OLO_CORE_INFO("[SaveGameManager] Saved '{}' ({} entities, {:.1f} KB)",
                                   slotName, entityCount,
                                   ec ? 0.0f : static_cast<f32>(fileSize) / 1024.0f);
+                }
+
+                // Worker-thread completion hook (e.g., release in-flight slot)
+                if (onWorkerComplete)
+                {
+                    onWorkerComplete();
                 }
 
                 // Dispatch callback back to game thread

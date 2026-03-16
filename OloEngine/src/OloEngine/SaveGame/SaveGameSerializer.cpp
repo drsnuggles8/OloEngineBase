@@ -335,7 +335,13 @@ namespace OloEngine
             {
                 const auto& sc = entity.GetComponent<ScriptComponent>();
                 std::vector<u8> saveableBlob;
-                if (CollectSaveableData(uuid, sc.ClassName, saveableBlob) && !saveableBlob.empty())
+                if (!CollectSaveableData(uuid, sc.ClassName, saveableBlob))
+                {
+                    OLO_CORE_ERROR("[SaveGameSerializer] CollectSaveableData failed for entity {}", static_cast<u64>(uuid));
+                    writer.SetError();
+                    break;
+                }
+                if (!saveableBlob.empty())
                 {
                     u32 saveableHash = kSaveableTypeHash;
                     u32 dataSize = static_cast<u32>(saveableBlob.size());
@@ -355,6 +361,12 @@ namespace OloEngine
             auto& rb3d = scene.m_Registry.get<Rigidbody3DComponent>(backup.Entity);
             rb3d.m_InitialLinearVelocity = backup.LinearVelocity;
             rb3d.m_InitialAngularVelocity = backup.AngularVelocity;
+        }
+
+        // If serialization failed, return empty buffer so callers detect the error
+        if (writer.IsError())
+        {
+            return {};
         }
 
         return buffer;

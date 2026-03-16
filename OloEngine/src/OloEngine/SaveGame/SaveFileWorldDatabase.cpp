@@ -48,7 +48,14 @@ namespace OloEngine
         }
 
         // Attempt to load existing data from disk
-        if (std::filesystem::exists(m_FilePath))
+        std::error_code existsEc;
+        bool fileExists = std::filesystem::exists(m_FilePath, existsEc);
+        if (existsEc)
+        {
+            OLO_CORE_ERROR("[SaveFileWorldDatabase] Failed to check existence of '{}': {}", m_FilePath.string(), existsEc.message());
+            return false;
+        }
+        if (fileExists)
         {
             std::vector<u8> payload;
             if (!SaveGameFile::ReadPayload(m_FilePath, payload) || payload.empty())
@@ -80,6 +87,12 @@ namespace OloEngine
     void SaveFileWorldDatabase::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
+
+        // Wait for any in-flight FlushToDisk() I/O to complete
+        while (m_FlushInProgress.load(std::memory_order_acquire))
+        {
+            std::this_thread::yield();
+        }
 
         TUniqueLock<FMutex> lock(m_Mutex);
         if (!m_Initialized)
@@ -287,6 +300,12 @@ namespace OloEngine
                 return false;
             }
 
+            // Guard against concurrent flush calls
+            if (m_FlushInProgress.load(std::memory_order_acquire))
+            {
+                return true;
+            }
+
             payload = SerializeToPayload();
             slotName = m_SlotName;
             filePath = m_FilePath;
@@ -301,6 +320,7 @@ namespace OloEngine
             // restore only ensures the flag is true if no concurrent writer
             // already did so.
             m_Dirty = false;
+            m_FlushInProgress.store(true, std::memory_order_release);
         }
         // Lock released — concurrent mutations will re-set m_Dirty
 
@@ -311,6 +331,7 @@ namespace OloEngine
             OLO_CORE_ERROR("[SaveFileWorldDatabase] Compression failed");
             TUniqueLock<FMutex> lock(m_Mutex);
             m_Dirty = true; // Restore dirty flag so next flush retries
+            m_FlushInProgress.store(false, std::memory_order_release);
             return false;
         }
 
@@ -338,6 +359,7 @@ namespace OloEngine
             OLO_CORE_ERROR("[SaveFileWorldDatabase] Failed to create directory '{}': {}", filePath.parent_path().string(), ec.message());
             TUniqueLock<FMutex> lock(m_Mutex);
             m_Dirty = true;
+            m_FlushInProgress.store(false, std::memory_order_release);
             return false;
         }
 
@@ -346,9 +368,11 @@ namespace OloEngine
             OLO_CORE_ERROR("[SaveFileWorldDatabase] Failed to write '{}'", filePath.string());
             TUniqueLock<FMutex> lock(m_Mutex);
             m_Dirty = true;
+            m_FlushInProgress.store(false, std::memory_order_release);
             return false;
         }
 
+        m_FlushInProgress.store(false, std::memory_order_release);
         OLO_CORE_TRACE("[SaveFileWorldDatabase] Flushed to disk: {} players, {} entities, {} world keys",
                        playerCount, entityCount, worldKeyCount);
         return true;

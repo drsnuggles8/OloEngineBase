@@ -135,6 +135,10 @@ namespace OloEngine
                     f32 discardTime{}, discardValue{};
                     ar << discardTime << discardValue;
                 }
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
         }
         else
@@ -296,6 +300,10 @@ namespace OloEngine
                     BurstEntry discard{};
                     SerializeBurstEntry(ar, discard);
                 }
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
         }
         else
@@ -391,12 +399,20 @@ namespace OloEngine
             for (u32 i = 0; i < clampedCount; ++i)
             {
                 SerializeSubEmitterEntry(ar, m.Entries[i]);
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
             // Drain excess entries to keep stream aligned
             for (u32 i = clampedCount; i < count; ++i)
             {
                 SubEmitterEntry discard{};
                 SerializeSubEmitterEntry(ar, discard);
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
         }
         else
@@ -813,12 +829,20 @@ namespace OloEngine
             for (u32 i = 0; i < clampedOpt; ++i)
             {
                 SerializeUIDropdownOption(ar, c.m_Options[i]);
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
             // Drain excess entries to keep stream aligned
             for (u32 i = clampedOpt; i < optCount; ++i)
             {
                 UIDropdownOption discard{};
                 SerializeUIDropdownOption(ar, discard);
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
         }
         else
@@ -887,12 +911,20 @@ namespace OloEngine
             for (u32 i = 0; i < clampedFF; ++i)
             {
                 SerializeModuleForceField(ar, ps.ForceFields[i]);
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
             // Drain excess entries to keep stream aligned
             for (u32 i = clampedFF; i < ffCount; ++i)
             {
                 ModuleForceField discard{};
                 SerializeModuleForceField(ar, discard);
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
         }
         else
@@ -938,12 +970,20 @@ namespace OloEngine
             for (u32 i = 0; i < clampedLayers; ++i)
             {
                 SerializeFoliageLayer(ar, c.m_Layers[i]);
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
             // Drain excess entries to keep stream aligned
             for (u32 i = clampedLayers; i < layerCount; ++i)
             {
                 FoliageLayer discard{};
                 SerializeFoliageLayer(ar, discard);
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
         }
         else
@@ -1000,12 +1040,20 @@ namespace OloEngine
             for (u32 i = 0; i < clampedLevels; ++i)
             {
                 SerializeLODLevel(ar, c.m_LODGroup.Levels[i]);
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
             // Drain excess entries to keep stream aligned
             for (u32 i = clampedLevels; i < levelCount; ++i)
             {
                 LODLevel discard{};
                 SerializeLODLevel(ar, discard);
+                if (ar.IsError())
+                {
+                    return;
+                }
             }
         }
         else

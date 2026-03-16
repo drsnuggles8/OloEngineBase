@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/SaveGame/SaveGameTypes.h"
 
+#include <array>
 #include <atomic>
 #include <filesystem>
 #include <functional>
@@ -38,7 +39,7 @@ namespace OloEngine
         Pending // Async save dispatched, result delivered via callback
     };
 
-    // Callback for async save/load completion
+    // Callback for async save completion
     using SaveLoadCompletionCallback = std::function<void(SaveLoadResult result, const std::string& slotName)>;
 
     // High-level save game manager — public API for saving and loading game state.
@@ -50,6 +51,8 @@ namespace OloEngine
     // - Compression and disk I/O are dispatched to a background worker thread
     // - The completion callback is invoked on the game thread on the next frame
     // - Returns SaveLoadResult::Pending on successful dispatch
+    //
+    // Load operations (Load, QuickLoad) are synchronous and return immediately.
     class SaveGameManager
     {
       public:
@@ -125,13 +128,15 @@ namespace OloEngine
         static bool ValidateSave(const std::string& slotName);
 
       private:
-        // Capture scene state on the calling thread, then dispatch compression + I/O to background
+        // Capture scene state on the calling thread, then dispatch compression + I/O to background.
+        // onWorkerComplete runs on the worker thread after I/O finishes (before game-thread callback).
         static SaveLoadResult SaveAsync(Scene& scene,
                                         const std::string& slotName,
                                         const std::string& displayName,
                                         SaveSlotType slotType,
                                         const std::vector<u8>& thumbnailPNG,
-                                        SaveLoadCompletionCallback callback);
+                                        SaveLoadCompletionCallback callback,
+                                        std::function<void()> onWorkerComplete = nullptr);
 
         // Ensure save directory exists
         static void EnsureSaveDirectory();
