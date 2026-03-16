@@ -1578,6 +1578,23 @@ namespace OloEngine
             auto& pc = deserializedEntity.AddComponent<PrefabComponent>();
             pc.m_PrefabID = prefabComponent["PrefabID"].as<u64>();
             pc.m_PrefabEntityID = prefabComponent["PrefabEntityID"].as<u64>();
+
+            // Deserialize override tracking
+            if (auto overridden = prefabComponent["OverriddenComponents"]; overridden && overridden.IsSequence())
+            {
+                for (const auto& name : overridden)
+                    pc.OverriddenComponents.insert(name.as<std::string>());
+            }
+            if (auto added = prefabComponent["AddedComponents"]; added && added.IsSequence())
+            {
+                for (const auto& name : added)
+                    pc.AddedComponents.insert(name.as<std::string>());
+            }
+            if (auto removed = prefabComponent["RemovedComponents"]; removed && removed.IsSequence())
+            {
+                for (const auto& name : removed)
+                    pc.RemovedComponents.insert(name.as<std::string>());
+            }
         }
 
         if (auto mc3dComponent = entity["MeshCollider3DComponent"]; mc3dComponent)
@@ -2547,6 +2564,31 @@ namespace OloEngine
             auto const& prefabComponent = entity.GetComponent<PrefabComponent>();
             out << YAML::Key << "PrefabID" << YAML::Value << prefabComponent.m_PrefabID;
             out << YAML::Key << "PrefabEntityID" << YAML::Value << prefabComponent.m_PrefabEntityID;
+
+            // Serialize override tracking
+            if (!prefabComponent.OverriddenComponents.empty())
+            {
+                out << YAML::Key << "OverriddenComponents" << YAML::Value << YAML::BeginSeq;
+                for (const auto& name : prefabComponent.OverriddenComponents)
+                    out << name;
+                out << YAML::EndSeq;
+            }
+
+            if (!prefabComponent.AddedComponents.empty())
+            {
+                out << YAML::Key << "AddedComponents" << YAML::Value << YAML::BeginSeq;
+                for (const auto& name : prefabComponent.AddedComponents)
+                    out << name;
+                out << YAML::EndSeq;
+            }
+
+            if (!prefabComponent.RemovedComponents.empty())
+            {
+                out << YAML::Key << "RemovedComponents" << YAML::Value << YAML::BeginSeq;
+                for (const auto& name : prefabComponent.RemovedComponents)
+                    out << name;
+                out << YAML::EndSeq;
+            }
 
             out << YAML::EndMap; // PrefabComponent
         }

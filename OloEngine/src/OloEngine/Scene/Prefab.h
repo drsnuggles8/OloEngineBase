@@ -4,6 +4,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 
+#include <string>
 #include <unordered_set>
 #include <utility>
 
@@ -17,7 +18,8 @@ namespace OloEngine
     //
     // Features:
     // - Complete entity hierarchy serialization
-    // - Nested prefab support
+    // - Nested prefab support with cycle detection
+    // - Per-instance component-level overrides
     // - Asset dependency tracking
     // - Runtime instantiation with transform overrides
     class Prefab : public Asset
@@ -26,7 +28,7 @@ namespace OloEngine
         Prefab();
         virtual ~Prefab();
 
-        // @brief Create prefab from an existing entity
+        // @brief Create prefab from an existing entity (including children)
         // @param entity Source entity to create prefab from
         // @param serialize Whether to immediately serialize the prefab to disk
         void Create(Entity entity, bool serialize = true);
@@ -65,22 +67,67 @@ namespace OloEngine
             return m_Entity;
         }
 
-        // @brief Instantiate prefab into a target scene
+        // @brief Instantiate prefab into a target scene (including nested children)
         // @param targetScene Scene to instantiate the prefab into
-        // @param uuid Optional UUID for the instantiated entity (auto-generated if not provided)
-        // @return Instantiated entity in the target scene
+        // @param uuid Optional UUID for the root entity (auto-generated if not provided)
+        // @return Instantiated root entity in the target scene
         Entity Instantiate(Scene& targetScene, UUID uuid = UUID()) const;
 
+        // --- Override detection ---
+
+        // @brief Detect which components differ between a prefab source entity and a scene instance.
+        // @param instanceEntity The in-scene instance whose components are compared against the prefab.
+        // @param outOverridden Components present in both but with different values.
+        // @param outAdded Components present on the instance but not in the prefab.
+        // @param outRemoved Components present in the prefab but not on the instance.
+        void DetectOverrides(Entity instanceEntity,
+                             std::unordered_set<std::string>& outOverridden,
+                             std::unordered_set<std::string>& outAdded,
+                             std::unordered_set<std::string>& outRemoved) const;
+
+        // @brief Revert a single component on an instance back to prefab defaults.
+        // @param instanceEntity The in-scene instance to revert.
+        // @param componentName Name of the component to revert (e.g. "TransformComponent").
+        // @return true if the component was successfully reverted.
+        bool RevertComponent(Entity instanceEntity, const std::string& componentName) const;
+
+        // @brief Apply a component override from an instance back to the source prefab.
+        // @param instanceEntity The in-scene instance to read the component value from.
+        // @param componentName Name of the component to apply.
+        // @return true if the component was successfully applied to the prefab.
+        bool ApplyComponentToPrefab(Entity instanceEntity, const std::string& componentName);
+
+        // @brief Update all non-overridden components on an instance from the prefab.
+        // @param instanceEntity The in-scene instance to update.
+        void UpdateInstanceFromPrefab(Entity instanceEntity) const;
+
+        // --- Nested prefab utilities ---
+
+        // @brief Check if this prefab contains nested prefab instances.
+        [[nodiscard]] bool HasNestedPrefabs() const;
+
+        // @brief Check for cycles: would adding prefabHandle as a nested instance create a cycle?
+        // @param prefabHandle The prefab asset handle to test.
+        // @param visited Accumulator for cycle detection (empty on first call).
+        [[nodiscard]] static bool WouldCreateCycle(AssetHandle rootHandle, AssetHandle prefabHandle,
+                                                   std::unordered_set<AssetHandle>& visited);
+
       private:
-        // @brief Create prefab entity by copying from source entity
+        // @brief Create prefab entity by copying from source entity (recursive for children)
         // @param entity Source entity to copy from
-        // @return New prefab entity
+        // @return New prefab entity (root)
         Entity CreatePrefabFromEntity(Entity entity);
+
+        // @brief Recursively copy child entities from source into the prefab scene.
+        void CreatePrefabChildrenRecursive(Entity sourceEntity, Entity prefabParent);
 
         // @brief Copy all components from source entity to target entity
         // @param sourceEntity Entity to copy components from
         // @param targetEntity Entity to copy components to
         void CopyEntityComponents(Entity sourceEntity, Entity targetEntity) const;
+
+        // @brief Recursively instantiate children of a prefab entity into the target scene.
+        void InstantiateChildrenRecursive(Entity prefabParent, Entity targetParent, Scene& targetScene) const;
 
       private:
         Ref<Scene> m_Scene;

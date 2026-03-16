@@ -31,9 +31,10 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
+#include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
-#include <string>
 
 namespace OloEngine
 {
@@ -70,14 +71,66 @@ namespace OloEngine
     {
         UUID m_PrefabID{};
         UUID m_PrefabEntityID{};
+
+        // Component-level override tracking for prefab instances.
+        // Components listed here have been intentionally modified on this instance
+        // and will not be updated when the source prefab changes.
+        std::unordered_set<std::string> OverriddenComponents;
+
+        // Components added to this instance that do not exist in the source prefab.
+        std::unordered_set<std::string> AddedComponents;
+
+        // Components removed from this instance that exist in the source prefab.
+        std::unordered_set<std::string> RemovedComponents;
+
         PrefabComponent() = default;
         PrefabComponent(const PrefabComponent&) = default;
+        PrefabComponent(PrefabComponent&&) = default;
+        PrefabComponent& operator=(const PrefabComponent&) = default;
+        PrefabComponent& operator=(PrefabComponent&&) = default;
         PrefabComponent(UUID prefabID, UUID prefabEntityID)
             : m_PrefabID(prefabID), m_PrefabEntityID(prefabEntityID) {}
 
         [[nodiscard]] inline bool IsValid() const noexcept
         {
             return static_cast<u64>(m_PrefabID) != 0 && static_cast<u64>(m_PrefabEntityID) != 0;
+        }
+
+        [[nodiscard]] inline bool IsComponentOverridden(const std::string& componentName) const
+        {
+            return OverriddenComponents.contains(componentName);
+        }
+
+        [[nodiscard]] inline bool IsComponentAdded(const std::string& componentName) const
+        {
+            return AddedComponents.contains(componentName);
+        }
+
+        [[nodiscard]] inline bool IsComponentRemoved(const std::string& componentName) const
+        {
+            return RemovedComponents.contains(componentName);
+        }
+
+        [[nodiscard]] inline bool HasAnyOverrides() const noexcept
+        {
+            return !OverriddenComponents.empty() || !AddedComponents.empty() || !RemovedComponents.empty();
+        }
+
+        inline void MarkComponentOverridden(const std::string& componentName)
+        {
+            OverriddenComponents.insert(componentName);
+        }
+
+        inline void ClearComponentOverride(const std::string& componentName)
+        {
+            OverriddenComponents.erase(componentName);
+        }
+
+        inline void ClearAllOverrides()
+        {
+            OverriddenComponents.clear();
+            AddedComponents.clear();
+            RemovedComponents.clear();
         }
     };
 

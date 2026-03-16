@@ -575,6 +575,58 @@ namespace OloEngine
                 OLO_CORE_INFO("Saved prefab: {}", prefabPath.string());
             }
 
+            // Prefab instance management
+            if (isPrefabInstance)
+            {
+                ImGui::Separator();
+
+                if (ImGui::MenuItem("Update from Prefab"))
+                {
+                    Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(
+                        entity.GetComponent<PrefabComponent>().m_PrefabID);
+                    if (prefab)
+                    {
+                        prefab->UpdateInstanceFromPrefab(entity);
+                        OLO_CORE_INFO("Updated instance '{}' from prefab", tag);
+                    }
+                }
+
+                if (ImGui::MenuItem("Revert All Overrides"))
+                {
+                    auto& pc = entity.GetComponent<PrefabComponent>();
+                    Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
+                    if (prefab)
+                    {
+                        auto overriddenCopy = pc.OverriddenComponents;
+                        for (const auto& compName : overriddenCopy)
+                        {
+                            prefab->RevertComponent(entity, compName);
+                        }
+                        pc.ClearAllOverrides();
+                        OLO_CORE_INFO("Reverted all overrides on '{}'", tag);
+                    }
+                }
+
+                if (entity.GetComponent<PrefabComponent>().HasAnyOverrides())
+                {
+                    if (ImGui::MenuItem("Apply All Overrides to Prefab"))
+                    {
+                        auto& pc = entity.GetComponent<PrefabComponent>();
+                        Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
+                        if (prefab)
+                        {
+                            auto overriddenCopy = pc.OverriddenComponents;
+                            for (const auto& compName : overriddenCopy)
+                            {
+                                prefab->ApplyComponentToPrefab(entity, compName);
+                            }
+                            pc.ClearAllOverrides();
+                            OLO_CORE_INFO("Applied all overrides from '{}' to prefab", tag);
+                        }
+                    }
+                }
+            }
+
             ImGui::EndPopup();
         }
 
@@ -989,11 +1041,50 @@ namespace OloEngine
             auto& component = entity.GetComponent<T>();
             const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
+            // Check if this component is overridden on a prefab instance
+            bool isPrefabOverride = false;
+            bool isPrefabAdded = false;
+            if (entity.HasComponent<PrefabComponent>())
+            {
+                const auto& pc = entity.GetComponent<PrefabComponent>();
+                if (pc.IsValid())
+                {
+                    isPrefabOverride = pc.IsComponentOverridden(name);
+                    isPrefabAdded = pc.IsComponentAdded(name);
+                }
+            }
+
+            // Override visual: bold orange bar on the left for overridden components
+            if (isPrefabOverride)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.6f, 0.4f, 0.1f, 0.7f));
+                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.7f, 0.5f, 0.15f, 0.8f));
+            }
+            else if (isPrefabAdded)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.1f, 0.5f, 0.1f, 0.7f));
+                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.15f, 0.6f, 0.15f, 0.8f));
+            }
+
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
             const f32 lineHeight = ImGui::GetFontSize() + (::GImGui->Style.FramePadding.y * 2.0f);
             ImGui::Separator();
-            const bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(typeid(T).hash_code()), treeNodeFlags, name.c_str());
+
+            // Build display name with override indicator
+            std::string displayName = name;
+            if (isPrefabOverride)
+                displayName = "* " + name + " (Override)";
+            else if (isPrefabAdded)
+                displayName = "+ " + name + " (Added)";
+
+            const bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(typeid(T).hash_code()), treeNodeFlags, displayName.c_str());
             ImGui::PopStyleVar();
+
+            if (isPrefabOverride || isPrefabAdded)
+            {
+                ImGui::PopStyleColor(2);
+            }
+
             ImGui::SameLine(contentRegionAvailable.x - (lineHeight * 0.5f));
             if (ImGui::Button("+", ImVec2{ lineHeight, lineHeight }))
             {
@@ -1006,6 +1097,44 @@ namespace OloEngine
                 if (ImGui::MenuItem("Remove component"))
                 {
                     removeComponent = true;
+                }
+
+                // Prefab override context menu items
+                if (entity.HasComponent<PrefabComponent>())
+                {
+                    const auto& pc = entity.GetComponent<PrefabComponent>();
+                    if (pc.IsValid())
+                    {
+                        ImGui::Separator();
+
+                        if (isPrefabOverride || isPrefabAdded)
+                        {
+                            if (ImGui::MenuItem("Revert to Prefab"))
+                            {
+                                if (s_DrawComponentScene)
+                                {
+                                    s_DrawComponentScene->RevertPrefabComponent(entity, name);
+                                }
+                            }
+                            if (ImGui::MenuItem("Apply to Prefab"))
+                            {
+                                if (s_DrawComponentScene)
+                                {
+                                    s_DrawComponentScene->ApplyPrefabComponent(entity, name);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            if (ImGui::MenuItem("Mark as Override"))
+                            {
+                                if (s_DrawComponentScene)
+                                {
+                                    s_DrawComponentScene->MarkPrefabComponentOverridden(entity, name);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 ImGui::EndPopup();
@@ -1065,6 +1194,16 @@ namespace OloEngine
                                     std::make_unique<ComponentChangeCommand<T>>(
                                         s_DrawComponentScene, entity.GetUUID(),
                                         editState.snapshot, component, "Property Change"));
+
+                                // Auto-mark as override on prefab instances
+                                if (entity.HasComponent<PrefabComponent>())
+                                {
+                                    auto& pc = entity.GetComponent<PrefabComponent>();
+                                    if (pc.IsValid())
+                                    {
+                                        pc.MarkComponentOverridden(name);
+                                    }
+                                }
                             }
                             editState.isEditing = false;
                         }

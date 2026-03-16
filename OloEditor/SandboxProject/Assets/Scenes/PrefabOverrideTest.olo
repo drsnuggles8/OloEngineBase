@@ -1,0 +1,102 @@
+Scene: PrefabOverrideTest.olo
+Entities:
+  - Entity: 1000000000001
+    TagComponent:
+      Tag: Scene Camera
+    TransformComponent:
+      Translation: [0, 5, 10]
+      Rotation: [-0.349066, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 1
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.00999999978
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 2000000000001
+    TagComponent:
+      Tag: Prefab Instance A (No Overrides)
+    TransformComponent:
+      Translation: [-3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [1, 0, 0, 1]
+    PrefabComponent:
+      PrefabID: 9999000000001
+      PrefabEntityID: 2000000000001
+  - Entity: 2000000000002
+    TagComponent:
+      Tag: Prefab Instance B (Transform Override)
+    TransformComponent:
+      Translation: [0, 2, 0]
+      Rotation: [0, 0, 0.785398]
+      Scale: [2, 2, 2]
+    SpriteRendererComponent:
+      Color: [1, 0, 0, 1]
+    PrefabComponent:
+      PrefabID: 9999000000001
+      PrefabEntityID: 2000000000002
+      OverriddenComponents:
+        - TransformComponent
+  - Entity: 2000000000003
+    TagComponent:
+      Tag: Prefab Instance C (Color + Added Script)
+    TransformComponent:
+      Translation: [3, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0, 0, 1, 1]
+    ScriptComponent:
+      ClassName: CustomBehavior
+    PrefabComponent:
+      PrefabID: 9999000000001
+      PrefabEntityID: 2000000000003
+      OverriddenComponents:
+        - SpriteRendererComponent
+      AddedComponents:
+        - ScriptComponent
+  - Entity: 3000000000001
+    TagComponent:
+      Tag: Nested Parent
+    TransformComponent:
+      Translation: [0, 0, -5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [1, 1, 0, 1]
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 3000000000002
+        - 3000000000003
+  - Entity: 3000000000002
+    TagComponent:
+      Tag: Nested Child Left
+    TransformComponent:
+      Translation: [-2, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 0.5, 0.5]
+    SpriteRendererComponent:
+      Color: [0, 1, 0, 1]
+    RelationshipComponent:
+      ParentHandle: 3000000000001
+      Children: []
+  - Entity: 3000000000003
+    TagComponent:
+      Tag: Nested Child Right
+    TransformComponent:
+      Translation: [2, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 0.5, 0.5]
+    SpriteRendererComponent:
+      Color: [0, 0, 1, 1]
+    RelationshipComponent:
+      ParentHandle: 3000000000001
+      Children: []

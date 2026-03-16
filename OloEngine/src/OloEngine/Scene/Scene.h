@@ -48,6 +48,12 @@ namespace OloEngine
         [[nodiscard("Store this!")]] Entity Instantiate(AssetHandle prefabHandle);
         [[nodiscard("Store this!")]] Entity InstantiateWithUUID(AssetHandle prefabHandle, UUID uuid);
 
+        // Prefab override management
+        void UpdateAllPrefabInstances();
+        void RevertPrefabComponent(Entity entity, const std::string& componentName);
+        void ApplyPrefabComponent(Entity entity, const std::string& componentName);
+        void MarkPrefabComponentOverridden(Entity entity, const std::string& componentName);
+
         void OnRuntimeStart();
         void OnRuntimeStop();
 
