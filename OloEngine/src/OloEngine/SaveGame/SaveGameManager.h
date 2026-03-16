@@ -147,6 +147,9 @@ namespace OloEngine
 
         static constexpr u32 kMaxQuickSaveSlots = 3;
         static constexpr u32 kMaxAutoSaveSlots = 3;
+
+        static std::array<std::atomic<bool>, kMaxQuickSaveSlots> s_QuickSaveInFlight;
+        static std::array<std::atomic<bool>, kMaxAutoSaveSlots> s_AutoSaveInFlight;
         static constexpr std::string_view kSaveFileExtension = ".olosave";
     };
 

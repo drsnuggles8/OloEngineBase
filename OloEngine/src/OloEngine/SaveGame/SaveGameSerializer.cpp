@@ -40,6 +40,11 @@ namespace OloEngine
             FMemoryWriter cw(compBuf);                                      \
             cw.ArIsSaveGame = true;                                         \
             SaveGameComponentSerializer::Serialize(cw, comp);               \
+            if (cw.IsError())                                               \
+            {                                                               \
+                (writer).SetError();                                        \
+                break;                                                      \
+            }                                                               \
         }                                                                   \
         u32 dataSize = static_cast<u32>(compBuf.size());                    \
         u32 hashToWrite = typeHash;                                         \
@@ -514,7 +519,8 @@ namespace OloEngine
                     {
                         if (!RestoreSaveableData(uuid, entity.GetComponent<ScriptComponent>().ClassName, compData))
                         {
-                            OLO_CORE_WARN("[SaveGameSerializer] ISaveable restore failed for entity {}", static_cast<u64>(uuid));
+                            OLO_CORE_ERROR("[SaveGameSerializer] ISaveable restore failed for entity {}, aborting load", static_cast<u64>(uuid));
+                            return false;
                         }
                     }
                     matched = true;

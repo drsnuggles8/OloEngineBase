@@ -9,6 +9,7 @@
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/Task/NamedThreads.h"
 
+#include <cctype>
 #include <chrono>
 
 namespace OloEngine
@@ -19,8 +20,10 @@ namespace OloEngine
     std::atomic<bool> SaveGameManager::s_Initialized{ false };
     std::atomic<u32> SaveGameManager::s_QuickSaveSlotIndex{ 0 };
     std::atomic<u32> SaveGameManager::s_AutoSaveSlotIndex{ 0 };
+    std::array<std::atomic<bool>, SaveGameManager::kMaxQuickSaveSlots> SaveGameManager::s_QuickSaveInFlight{};
+    std::array<std::atomic<bool>, SaveGameManager::kMaxAutoSaveSlots> SaveGameManager::s_AutoSaveInFlight{};
 
-    // Reject slot names containing path separators, "..", or other dangerous patterns
+    // Reject slot names containing path separators, "..", reserved Windows names, or other dangerous patterns
     static bool IsValidSlotName(const std::string& slotName)
     {
         OLO_PROFILE_FUNCTION();
@@ -41,6 +44,37 @@ namespace OloEngine
                 return false;
             }
         }
+
+        // Reject trailing dot or space (Windows silently strips them)
+        if (slotName.back() == '.' || slotName.back() == ' ')
+        {
+            return false;
+        }
+
+        // Extract stem (part before first dot) for reserved-name check
+        std::string stem = slotName.substr(0, slotName.find('.'));
+        // Case-insensitive comparison
+        std::string upperStem;
+        upperStem.reserve(stem.size());
+        for (char ch : stem)
+        {
+            upperStem += static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+        }
+
+        // Windows reserved device names
+        static constexpr std::array kReserved = {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        };
+        for (const char* reserved : kReserved)
+        {
+            if (upperStem == reserved)
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -125,9 +159,28 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        u32 slotIndex = s_QuickSaveSlotIndex.fetch_add(1, std::memory_order_relaxed) % kMaxQuickSaveSlots;
-        std::string slotName = "quicksave_" + std::to_string(slotIndex);
-        return SaveAsync(scene, slotName, "Quick Save", SaveSlotType::QuickSave, thumbnailPNG, callback);
+        u32 startIndex = s_QuickSaveSlotIndex.fetch_add(1, std::memory_order_relaxed);
+        for (u32 attempt = 0; attempt < kMaxQuickSaveSlots; ++attempt)
+        {
+            u32 slotIndex = (startIndex + attempt) % kMaxQuickSaveSlots;
+            bool expected = false;
+            if (s_QuickSaveInFlight[slotIndex].compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+            {
+                std::string slotName = "quicksave_" + std::to_string(slotIndex);
+                return SaveAsync(scene, slotName, "Quick Save", SaveSlotType::QuickSave, thumbnailPNG,
+                                 [callback, slotIndex](SaveLoadResult result, const std::string& slot)
+                                 {
+                                     s_QuickSaveInFlight[slotIndex].store(false, std::memory_order_release);
+                                     if (callback)
+                                     {
+                                         callback(result, slot);
+                                     }
+                                 });
+            }
+        }
+
+        OLO_CORE_WARN("[SaveGameManager] All quick-save slots are in-flight, skipping");
+        return SaveLoadResult::Pending;
     }
 
     SaveLoadResult SaveGameManager::AutoSave(Scene& scene,
@@ -136,9 +189,28 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        u32 slotIndex = s_AutoSaveSlotIndex.fetch_add(1, std::memory_order_relaxed) % kMaxAutoSaveSlots;
-        std::string slotName = "autosave_" + std::to_string(slotIndex);
-        return SaveAsync(scene, slotName, "Auto Save", SaveSlotType::AutoSave, thumbnailPNG, callback);
+        u32 startIndex = s_AutoSaveSlotIndex.fetch_add(1, std::memory_order_relaxed);
+        for (u32 attempt = 0; attempt < kMaxAutoSaveSlots; ++attempt)
+        {
+            u32 slotIndex = (startIndex + attempt) % kMaxAutoSaveSlots;
+            bool expected = false;
+            if (s_AutoSaveInFlight[slotIndex].compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+            {
+                std::string slotName = "autosave_" + std::to_string(slotIndex);
+                return SaveAsync(scene, slotName, "Auto Save", SaveSlotType::AutoSave, thumbnailPNG,
+                                 [callback, slotIndex](SaveLoadResult result, const std::string& slot)
+                                 {
+                                     s_AutoSaveInFlight[slotIndex].store(false, std::memory_order_release);
+                                     if (callback)
+                                     {
+                                         callback(result, slot);
+                                     }
+                                 });
+            }
+        }
+
+        OLO_CORE_WARN("[SaveGameManager] All auto-save slots are in-flight, skipping");
+        return SaveLoadResult::Pending;
     }
 
     // ========================================================================

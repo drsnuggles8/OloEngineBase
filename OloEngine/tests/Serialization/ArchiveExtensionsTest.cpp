@@ -452,3 +452,31 @@ TEST(ArchiveExtensionsTest, TruncatedMapFailsKeepsDestination)
     // Original destination preserved
     EXPECT_EQ(loaded, original);
 }
+
+TEST(ArchiveExtensionsTest, TruncatedVectorCountFailsKeepsDestination)
+{
+    // Buffer contains only 2 bytes — too few to parse a u32 count
+    std::vector<u8> buffer = { 0x05, 0x00 };
+
+    std::vector<u32> loaded{ 42, 99 };
+    std::vector<u32> original = loaded;
+    FMemoryReader reader(buffer);
+    reader << loaded;
+
+    EXPECT_TRUE(reader.IsError());
+    EXPECT_EQ(loaded, original);
+}
+
+TEST(ArchiveExtensionsTest, TruncatedMapCountFailsKeepsDestination)
+{
+    // Buffer contains only 1 byte — too few to parse a u32 count
+    std::vector<u8> buffer = { 0x03 };
+
+    std::unordered_map<std::string, f32> loaded{ { "existing", 1.0f } };
+    std::unordered_map<std::string, f32> original = loaded;
+    FMemoryReader reader(buffer);
+    reader << loaded;
+
+    EXPECT_TRUE(reader.IsError());
+    EXPECT_EQ(loaded, original);
+}

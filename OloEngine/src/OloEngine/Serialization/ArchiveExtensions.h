@@ -147,6 +147,10 @@ namespace OloEngine
 
         u32 count = static_cast<u32>(vec.size());
         static_cast<FArchive&>(ar) << count;
+        if (ar.IsError())
+        {
+            return ar;
+        }
 
         if (ar.IsLoading())
         {
@@ -191,6 +195,10 @@ namespace OloEngine
 
         u32 count = static_cast<u32>(map.size());
         static_cast<FArchive&>(ar) << count;
+        if (ar.IsError())
+        {
+            return ar;
+        }
 
         if (ar.IsLoading())
         {

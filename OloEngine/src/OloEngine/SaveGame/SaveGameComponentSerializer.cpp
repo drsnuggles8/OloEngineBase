@@ -808,12 +808,25 @@ namespace OloEngine
         ar << optCount;
         if (ar.IsLoading())
         {
-            optCount = std::min(optCount, 1024u);
-            c.m_Options.resize(optCount);
+            u32 clampedOpt = std::min(optCount, 1024u);
+            c.m_Options.resize(clampedOpt);
+            for (u32 i = 0; i < clampedOpt; ++i)
+            {
+                SerializeUIDropdownOption(ar, c.m_Options[i]);
+            }
+            // Drain excess entries to keep stream aligned
+            for (u32 i = clampedOpt; i < optCount; ++i)
+            {
+                UIDropdownOption discard{};
+                SerializeUIDropdownOption(ar, discard);
+            }
         }
-        for (u32 i = 0; i < optCount; ++i)
+        else
         {
-            SerializeUIDropdownOption(ar, c.m_Options[i]);
+            for (u32 i = 0; i < optCount; ++i)
+            {
+                SerializeUIDropdownOption(ar, c.m_Options[i]);
+            }
         }
         ar << c.m_SelectedIndex;
         ar << c.m_BackgroundColor << c.m_HighlightColor << c.m_TextColor;
@@ -869,12 +882,25 @@ namespace OloEngine
         ar << ffCount;
         if (ar.IsLoading())
         {
-            ffCount = std::min(ffCount, 1024u);
-            ps.ForceFields.resize(ffCount);
+            u32 clampedFF = std::min(ffCount, 1024u);
+            ps.ForceFields.resize(clampedFF);
+            for (u32 i = 0; i < clampedFF; ++i)
+            {
+                SerializeModuleForceField(ar, ps.ForceFields[i]);
+            }
+            // Drain excess entries to keep stream aligned
+            for (u32 i = clampedFF; i < ffCount; ++i)
+            {
+                ModuleForceField discard{};
+                SerializeModuleForceField(ar, discard);
+            }
         }
-        for (u32 i = 0; i < ffCount; ++i)
+        else
         {
-            SerializeModuleForceField(ar, ps.ForceFields[i]);
+            for (u32 i = 0; i < ffCount; ++i)
+            {
+                SerializeModuleForceField(ar, ps.ForceFields[i]);
+            }
         }
 
         SerializeModuleTrail(ar, ps.TrailModule);
@@ -907,12 +933,25 @@ namespace OloEngine
         ar << layerCount;
         if (ar.IsLoading())
         {
-            layerCount = std::min(layerCount, 1024u);
-            c.m_Layers.resize(layerCount);
+            u32 clampedLayers = std::min(layerCount, 1024u);
+            c.m_Layers.resize(clampedLayers);
+            for (u32 i = 0; i < clampedLayers; ++i)
+            {
+                SerializeFoliageLayer(ar, c.m_Layers[i]);
+            }
+            // Drain excess entries to keep stream aligned
+            for (u32 i = clampedLayers; i < layerCount; ++i)
+            {
+                FoliageLayer discard{};
+                SerializeFoliageLayer(ar, discard);
+            }
         }
-        for (u32 i = 0; i < layerCount; ++i)
+        else
         {
-            SerializeFoliageLayer(ar, c.m_Layers[i]);
+            for (u32 i = 0; i < layerCount; ++i)
+            {
+                SerializeFoliageLayer(ar, c.m_Layers[i]);
+            }
         }
         ar << c.m_Enabled;
     }
@@ -956,12 +995,25 @@ namespace OloEngine
         ar << levelCount;
         if (ar.IsLoading())
         {
-            levelCount = std::min(levelCount, 1024u);
-            c.m_LODGroup.Levels.resize(levelCount);
+            u32 clampedLevels = std::min(levelCount, 1024u);
+            c.m_LODGroup.Levels.resize(clampedLevels);
+            for (u32 i = 0; i < clampedLevels; ++i)
+            {
+                SerializeLODLevel(ar, c.m_LODGroup.Levels[i]);
+            }
+            // Drain excess entries to keep stream aligned
+            for (u32 i = clampedLevels; i < levelCount; ++i)
+            {
+                LODLevel discard{};
+                SerializeLODLevel(ar, discard);
+            }
         }
-        for (u32 i = 0; i < levelCount; ++i)
+        else
         {
-            SerializeLODLevel(ar, c.m_LODGroup.Levels[i]);
+            for (u32 i = 0; i < levelCount; ++i)
+            {
+                SerializeLODLevel(ar, c.m_LODGroup.Levels[i]);
+            }
         }
         ar << c.m_LODGroup.Bias;
         ar << c.m_Enabled;

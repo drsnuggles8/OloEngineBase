@@ -241,7 +241,7 @@ TEST_F(SaveGameFileTest, ChecksumValidation)
 
 TEST_F(SaveGameFileTest, ReadNonExistentFile)
 {
-    auto missingPath = m_TempPath.parent_path() / "olo_test_guaranteed_missing.olosave";
+    auto missingPath = m_TempPath.parent_path() / (m_TempPath.stem().string() + "_missing.olosave");
     std::error_code ec;
     std::filesystem::remove(missingPath, ec);
 

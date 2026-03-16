@@ -38,13 +38,6 @@ namespace OloEngine
 
         m_IsCorrupt = false;
 
-        // Reject dangerous slot names
-        if (connectionString.empty() || connectionString.find("..") != std::string::npos || connectionString.find('/') != std::string::npos || connectionString.find('\\') != std::string::npos || connectionString.find(':') != std::string::npos)
-        {
-            OLO_CORE_ERROR("[SaveFileWorldDatabase] Invalid connection string: '{}'", connectionString);
-            return false;
-        }
-
         m_SlotName = connectionString;
         m_FilePath = SaveGameManager::GetSaveFilePath(m_SlotName);
 
