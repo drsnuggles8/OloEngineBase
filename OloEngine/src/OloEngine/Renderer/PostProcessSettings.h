@@ -60,6 +60,8 @@ namespace OloEngine
         f32 SSAOIntensity = 1.0f;
         i32 SSAOSamples = 32;
         bool SSAODebugView = false;
+
+        bool operator==(const PostProcessSettings&) const = default;
     };
 
     // GPU-side UBO layout for post-process parameters (std140, binding 7)
@@ -164,6 +166,8 @@ namespace OloEngine
         bool SSSBlurEnabled = false;
         f32 SSSBlurRadius = 2.0f;
         f32 SSSBlurFalloff = 1.0f;
+
+        bool operator==(const SnowSettings&) const = default;
     };
 
     // GPU-side UBO layout for snow parameters (std140, binding 13)
@@ -221,6 +225,8 @@ namespace OloEngine
 
         // Physics
         f32 SnowDensity = 0.3f; // Density factor for compaction (0 = powder, 1 = packed ice)
+
+        bool operator==(const SnowAccumulationSettings&) const = default;
     };
 
     // GPU-side UBO layout for snow accumulation (std140, binding 16)
@@ -269,6 +275,8 @@ namespace OloEngine
         f32 GroundY = 0.0f;           // Ground plane Y for collision
         f32 CollisionBounce = 0.0f;   // Bounce factor on ground hit (0 = no bounce)
         f32 CollisionFriction = 1.0f; // Friction on ground contact (1 = full stop)
+
+        bool operator==(const SnowEjectaSettings&) const = default;
     };
 
     // Fog mode constants (match FogCommon.glsl defines)
@@ -320,6 +328,8 @@ namespace OloEngine
         // Volumetric light shafts (god rays through shadow map)
         bool EnableLightShafts = false;
         f32 LightShaftIntensity = 1.0f; // In-scattering boost for lit volume samples
+
+        bool operator==(const FogSettings&) const = default;
     };
 
     // GPU-side UBO layout for fog parameters (std140, binding 17)
@@ -541,6 +551,8 @@ namespace OloEngine
             }
             return s;
         }
+
+        bool operator==(const PrecipitationSettings&) const = default;
     };
 
     // GPU-side UBO layout for precipitation parameters (std140, binding 18)
@@ -601,6 +613,8 @@ namespace OloEngine
         // 3D wind field grid
         f32 GridWorldSize = 200.0f; // Side length of cube centered on camera (meters)
         u32 GridResolution = 128;   // Voxels per axis (128³)
+
+        bool operator==(const WindSettings&) const = default;
     };
 
     // GPU-side UBO layout for wind parameters (std140, binding 15)

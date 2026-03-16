@@ -40,6 +40,11 @@ namespace OloEngine
         bool ShowPhysicsColliders = false;
         bool Is3DMode = true;
 
+        // Performance — viewport render throttling
+        bool ThrottleEditMode = true;
+        bool ThrottlePlayMode = false;
+        f32 RenderBudgetMs = 33.3f;
+
         // Physics debug
         bool CapturePhysicsOnPlay = false;
     };
@@ -62,6 +67,7 @@ namespace OloEngine
         void DrawGeneralTab();
         void DrawCameraTab();
         void DrawPhysicsTab();
+        void DrawPerformanceTab();
 
         bool m_IsOpen = false;
         EditorPreferences m_Draft;

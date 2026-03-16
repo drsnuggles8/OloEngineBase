@@ -92,15 +92,7 @@ namespace OloEngine
             Renderer3D::GetFogSettings() = Fog;
         }
 
-        [[nodiscard]] bool operator==(const PostProcessFullSnapshot& other) const
-        {
-            return std::memcmp(this, &other, sizeof(PostProcessFullSnapshot)) == 0;
-        }
-
-        [[nodiscard]] bool operator!=(const PostProcessFullSnapshot& other) const
-        {
-            return !(*this == other);
-        }
+        bool operator==(const PostProcessFullSnapshot&) const = default;
     };
 
     // Undo command for the full snapshot

@@ -136,6 +136,12 @@ namespace OloEngine
             return m_Is3DModeEnabled;
         }
 
+        // Render throttling — skip scene rendering while keeping simulation running
+        void SetRenderingEnabled(bool enabled)
+        {
+            m_RenderingEnabled = enabled;
+        }
+
         // Viewport grid settings (editor only)
         void SetGridVisible(bool visible)
         {
@@ -344,6 +350,7 @@ namespace OloEngine
         u64 m_TerrainFrameCounter = 0;
         u64 m_StreamingFrameCounter = 0;
         bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
+        bool m_RenderingEnabled = true;                        // Skip rendering when throttled
         bool m_ShowGrid = true;                                // Viewport grid visibility
         f32 m_GridSpacing = 1.0f;                              // Viewport grid spacing
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input

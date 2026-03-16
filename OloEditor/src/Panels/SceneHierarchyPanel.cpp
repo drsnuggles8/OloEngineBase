@@ -1022,6 +1022,10 @@ namespace OloEngine
                     {
                         bool isEditing = false;
                         T snapshot{};
+                        // Byte-level copy of the snapshot, populated via memcpy so that
+                        // padding bytes match those of the live component.  Avoids false
+                        // positives when comparing snapshot vs current via memcmp.
+                        alignas(alignof(T)) unsigned char snapshotBytes[sizeof(T)]{};
                     };
                     static std::unordered_map<u64, EditState> s_editStates;
                     auto& editState = s_editStates[static_cast<u64>(entity.GetUUID()) ^ typeid(T).hash_code()];
@@ -1030,6 +1034,10 @@ namespace OloEngine
                     if (!editState.isEditing)
                     {
                         editState.snapshot = component;
+                        if constexpr (std::is_trivially_copyable_v<T>)
+                        {
+                            std::memcpy(editState.snapshotBytes, &component, sizeof(T));
+                        }
                     }
 
                     if constexpr (std::is_trivially_copyable_v<T>)
@@ -1051,7 +1059,7 @@ namespace OloEngine
                         if (editState.isEditing && !componentChanged && ::GImGui->ActiveId == 0)
                         {
                             // Only push if the component actually differs from the original snapshot
-                            if (std::memcmp(&editState.snapshot, &component, sizeof(T)) != 0)
+                            if (std::memcmp(editState.snapshotBytes, &component, sizeof(T)) != 0)
                             {
                                 s_DrawComponentCmdHistory->PushAlreadyExecuted(
                                     std::make_unique<ComponentChangeCommand<T>>(

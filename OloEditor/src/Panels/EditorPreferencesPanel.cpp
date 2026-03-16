@@ -48,6 +48,11 @@ namespace OloEngine
                     DrawPhysicsTab();
                     ImGui::EndTabItem();
                 }
+                if (ImGui::BeginTabItem("Performance"))
+                {
+                    DrawPerformanceTab();
+                    ImGui::EndTabItem();
+                }
                 ImGui::EndTabBar();
             }
 
@@ -172,6 +177,34 @@ namespace OloEngine
         }
     }
 
+    void EditorPreferencesPanel::DrawPerformanceTab()
+    {
+        ImGui::Spacing();
+
+        ImGui::Text("Viewport Render Throttling");
+        ImGui::Separator();
+        ImGui::TextWrapped("Skip scene rendering when the previous frame exceeds the time budget. "
+                           "The viewport shows the last rendered image until the GPU catches up.");
+        ImGui::Spacing();
+
+        ImGui::Checkbox("Throttle in Edit mode", &m_Draft.ThrottleEditMode);
+        ImGui::Checkbox("Throttle in Play / Simulate mode", &m_Draft.ThrottlePlayMode);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("When enabled, rendering is skipped but simulation\n(physics, scripts, audio) continues running.");
+        }
+
+        ImGui::DragFloat("Budget (ms)", &m_Draft.RenderBudgetMs, 0.5f, 8.0f, 100.0f, "%.1f ms");
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Rendering is skipped when the previous frame\nexceeded this duration. Lower values throttle more\naggressively. 33.3 ms = ~30 FPS threshold.");
+        }
+    }
+
     std::filesystem::path EditorPreferencesPanel::GetPrefsPath(const std::filesystem::path& projectDir)
     {
         return projectDir / "EditorPreferences.yaml";
@@ -192,6 +225,9 @@ namespace OloEngine
         out << YAML::Key << "ShowPhysicsColliders" << YAML::Value << prefs.ShowPhysicsColliders;
         out << YAML::Key << "Is3DMode" << YAML::Value << prefs.Is3DMode;
         out << YAML::Key << "CapturePhysicsOnPlay" << YAML::Value << prefs.CapturePhysicsOnPlay;
+        out << YAML::Key << "ThrottleEditMode" << YAML::Value << prefs.ThrottleEditMode;
+        out << YAML::Key << "ThrottlePlayMode" << YAML::Value << prefs.ThrottlePlayMode;
+        out << YAML::Key << "RenderBudgetMs" << YAML::Value << prefs.RenderBudgetMs;
 
         // Camera bookmarks
         out << YAML::Key << "Bookmarks" << YAML::Value << YAML::BeginSeq;
@@ -276,6 +312,12 @@ namespace OloEngine
                 prefs.Is3DMode = node["Is3DMode"].as<bool>();
             if (node["CapturePhysicsOnPlay"])
                 prefs.CapturePhysicsOnPlay = node["CapturePhysicsOnPlay"].as<bool>();
+            if (node["ThrottleEditMode"])
+                prefs.ThrottleEditMode = node["ThrottleEditMode"].as<bool>();
+            if (node["ThrottlePlayMode"])
+                prefs.ThrottlePlayMode = node["ThrottlePlayMode"].as<bool>();
+            if (node["RenderBudgetMs"])
+                prefs.RenderBudgetMs = std::clamp(node["RenderBudgetMs"].as<f32>(), 8.0f, 100.0f);
 
             // Camera bookmarks
             if (auto bookmarks = node["Bookmarks"])

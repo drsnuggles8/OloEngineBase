@@ -645,7 +645,8 @@ namespace OloEngine
         {
             for (const auto view = m_Registry.view<TransformComponent, CameraComponent>(); const auto entity : view)
             {
-                auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entity);
+                auto& transform = view.get<TransformComponent>(entity);
+                auto& camera = view.get<CameraComponent>(entity);
 
                 if (camera.Primary)
                 {
@@ -708,7 +709,7 @@ namespace OloEngine
             }
         }
 
-        if (mainCamera)
+        if (mainCamera && m_RenderingEnabled)
         {
             // Render 3D if 3D mode is enabled
             if (m_Is3DModeEnabled)
@@ -809,7 +810,10 @@ namespace OloEngine
             UIInputSystem::ProcessInput(*this, mousePos, mouseDown, mousePressed);
         }
 
-        RenderUIOverlay();
+        if (m_RenderingEnabled)
+        {
+            RenderUIOverlay();
+        }
     }
 
     void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera const& camera)
@@ -869,13 +873,16 @@ namespace OloEngine
         }
 
         // Render based on mode
-        if (m_Is3DModeEnabled)
+        if (m_RenderingEnabled)
         {
-            RenderScene3D(camera);
-        }
-        else
-        {
-            RenderScene(camera);
+            if (m_Is3DModeEnabled)
+            {
+                RenderScene3D(camera);
+            }
+            else
+            {
+                RenderScene(camera);
+            }
         }
     }
 
@@ -907,17 +914,20 @@ namespace OloEngine
         ProcessSnowDeformers(ts, m_EditorSnowPrevPositions);
 
         // Render based on mode
-        if (m_Is3DModeEnabled)
+        if (m_RenderingEnabled)
         {
-            RenderScene3D(camera);
-        }
-        else
-        {
-            RenderScene(camera);
-        }
+            if (m_Is3DModeEnabled)
+            {
+                RenderScene3D(camera);
+            }
+            else
+            {
+                RenderScene(camera);
+            }
 
-        // UI overlay renders on top of both 2D and 3D scenes
-        RenderUIOverlay();
+            // UI overlay renders on top of both 2D and 3D scenes
+            RenderUIOverlay();
+        }
     }
 
     void Scene::InitializeEditorStreamer()

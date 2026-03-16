@@ -208,6 +208,14 @@ namespace OloEngine
         // Terrain brush preview UBO (binding 11)
         Ref<UniformBuffer> m_BrushPreviewUBO;
 
+        // Viewport render throttling — skip expensive scene rendering when
+        // frame time exceeds the budget so the editor UI stays responsive.
+        bool m_ThrottleEditMode = true;
+        bool m_ThrottlePlayMode = false;
+        f32 m_RenderBudgetMs = 33.3f; // Skip if last frame > ~30 FPS
+        f32 m_LastFrameTimeMs = 0.0f;
+        bool m_ViewportRenderSkipped = false;
+
         // Editor resources
         Ref<Texture2D> m_IconPlay;
         Ref<Texture2D> m_IconPause;

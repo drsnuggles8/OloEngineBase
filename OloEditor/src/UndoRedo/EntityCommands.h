@@ -131,6 +131,14 @@ namespace OloEngine
                             std::function<void(Entity)> onRestored = nullptr)
             : m_Scene(std::move(scene)), m_EntityUUID(entity.GetUUID()), m_EntityName(entity.GetComponent<TagComponent>().Tag), m_OnDeleted(std::move(onDeleted)), m_OnRestored(std::move(onRestored))
         {
+            // Snapshot hierarchy separately so we can restore it via SetParent()
+            if (entity.HasComponent<RelationshipComponent>())
+            {
+                auto const& rel = entity.GetComponent<RelationshipComponent>();
+                m_ParentUUID = rel.m_ParentHandle;
+                m_ChildrenUUIDs = rel.m_Children;
+            }
+
             // Snapshot entity state before deletion
             SnapshotEntity(entity);
         }
@@ -140,6 +148,24 @@ namespace OloEngine
             auto entityOpt = m_Scene->TryGetEntityWithUUID(m_EntityUUID);
             if (entityOpt)
             {
+                // Detach from parent before destroying to keep hierarchy consistent
+                auto parentEntity = entityOpt->GetParent();
+                if (parentEntity)
+                {
+                    parentEntity.RemoveChild(*entityOpt);
+                }
+
+                // Clear children's parent handle so they don't reference a dead entity.
+                // Copy the children list because SetParent modifies it via RemoveChild.
+                auto childrenCopy = entityOpt->Children();
+                for (auto const& childUUID : childrenCopy)
+                {
+                    if (auto childOpt = m_Scene->TryGetEntityWithUUID(childUUID))
+                    {
+                        childOpt->SetParent(Entity{});
+                    }
+                }
+
                 m_Scene->DestroyEntity(*entityOpt);
             }
 
@@ -154,8 +180,28 @@ namespace OloEngine
             // Recreate entity with the same UUID
             Entity restored = m_Scene->CreateEntityWithUUID(m_EntityUUID, m_EntityName);
 
-            // Restore all component data from snapshot
+            // Restore all component data from snapshot (excluding RelationshipComponent)
             RestoreComponents(restored);
+
+            // Restore hierarchy using SetParent() to maintain invariants.
+            // Parent entity must still exist; if it was also deleted, its own
+            // undo will rebuild the relationship from its side.
+            if (m_ParentUUID != UUID(0))
+            {
+                if (auto parentOpt = m_Scene->TryGetEntityWithUUID(m_ParentUUID))
+                {
+                    restored.SetParent(*parentOpt);
+                }
+            }
+
+            // Re-link children that still exist in the scene
+            for (auto const& childUUID : m_ChildrenUUIDs)
+            {
+                if (auto childOpt = m_Scene->TryGetEntityWithUUID(childUUID))
+                {
+                    childOpt->SetParent(restored);
+                }
+            }
 
             if (m_OnRestored)
             {
@@ -202,7 +248,7 @@ namespace OloEngine
             SnapshotComponentIfExists<PointLightComponent>(entity);
             SnapshotComponentIfExists<SpotLightComponent>(entity);
             SnapshotComponentIfExists<EnvironmentMapComponent>(entity);
-            SnapshotComponentIfExists<RelationshipComponent>(entity);
+            // RelationshipComponent excluded — hierarchy restored via SetParent() in Undo()
             SnapshotComponentIfExists<ParticleSystemComponent>(entity);
             SnapshotComponentIfExists<TerrainComponent>(entity);
             SnapshotComponentIfExists<FoliageComponent>(entity);
@@ -257,6 +303,10 @@ namespace OloEngine
         std::vector<std::function<void(Entity)>> m_ComponentRestorers;
         std::function<void()> m_OnDeleted;
         std::function<void(Entity)> m_OnRestored;
+
+        // Hierarchy snapshot — restored via SetParent() to maintain invariants
+        UUID m_ParentUUID{};
+        std::vector<UUID> m_ChildrenUUIDs;
     };
 
     // Undo/Redo for entity renaming

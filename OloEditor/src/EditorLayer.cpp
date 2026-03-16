@@ -120,6 +120,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        m_LastFrameTimeMs = ts.GetMilliseconds();
+
         // Sync with async asset loading thread
         AssetManager::SyncWithAssetThread();
 
@@ -149,33 +151,65 @@ namespace OloEngine
             }
         }
 
-        // Render
-        Renderer2D::ResetStats();
-
-        // In 3D mode, Renderer3D manages its own framebuffer via RenderGraph
-        // In 2D mode, we use the editor's framebuffer
-        if (!m_Is3DMode)
+        // In edit mode, skip expensive scene rendering when the previous frame
+        // exceeded the time budget.  Camera input is still processed so the
+        // editor stays responsive; the viewport simply shows the last rendered
+        // framebuffer until the GPU catches up.  In Play/Simulate mode, simulation
+        // (physics, scripts) always runs; only rendering is skipped when throttled.
+        bool const overBudget = m_LastFrameTimeMs > m_RenderBudgetMs;
+        // Decide whether to skip rendering based on the active mode's throttle toggle.
+        bool skipRender = false;
+        if (overBudget)
         {
-            m_Framebuffer->Bind();
-            RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
-            RenderCommand::Clear();
-            // Clear our entity ID attachment to -1
-            m_Framebuffer->ClearAttachment(1, -1);
-        }
-
-        // Upload brush preview UBO for terrain shader
-        {
-            ShaderBindingLayout::BrushPreviewUBO brushData{};
-            if (m_ShowTerrainEditor && m_TerrainEditorPanel.IsActive() && m_TerrainEditorPanel.HasBrushHit())
+            switch (m_SceneState)
             {
-                brushData.BrushPosAndRadius = glm::vec4(m_TerrainEditorPanel.GetBrushWorldPos(), m_TerrainEditorPanel.GetBrushRadius());
-                brushData.BrushParams.x = 1.0f; // active
-                brushData.BrushParams.y = m_TerrainEditorPanel.GetBrushFalloff();
-                brushData.BrushParams.z = m_TerrainEditorPanel.GetEditMode() == TerrainEditMode::Paint ? 1.0f : 0.0f;
+                case SceneState::Edit:
+                    skipRender = m_ThrottleEditMode;
+                    break;
+                case SceneState::Play:
+                case SceneState::Simulate:
+                    skipRender = m_ThrottlePlayMode;
+                    break;
             }
-            m_BrushPreviewUBO->SetData(&brushData, sizeof(brushData));
+        }
+        m_ViewportRenderSkipped = skipRender;
+
+        // Tell the scene whether it should execute render calls.
+        // Simulation (physics, scripts, etc.) always runs regardless of this flag.
+        m_ActiveScene->SetRenderingEnabled(!skipRender);
+
+        if (!skipRender)
+        {
+            // Render
+            Renderer2D::ResetStats();
+
+            // In 3D mode, Renderer3D manages its own framebuffer via RenderGraph
+            // In 2D mode, we use the editor's framebuffer
+            if (!m_Is3DMode)
+            {
+                m_Framebuffer->Bind();
+                RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
+                RenderCommand::Clear();
+                // Clear our entity ID attachment to -1
+                m_Framebuffer->ClearAttachment(1, -1);
+            }
+
+            // Upload brush preview UBO for terrain shader
+            {
+                ShaderBindingLayout::BrushPreviewUBO brushData{};
+                if (m_ShowTerrainEditor && m_TerrainEditorPanel.IsActive() && m_TerrainEditorPanel.HasBrushHit())
+                {
+                    brushData.BrushPosAndRadius = glm::vec4(m_TerrainEditorPanel.GetBrushWorldPos(), m_TerrainEditorPanel.GetBrushRadius());
+                    brushData.BrushParams.x = 1.0f; // active
+                    brushData.BrushParams.y = m_TerrainEditorPanel.GetBrushFalloff();
+                    brushData.BrushParams.z = m_TerrainEditorPanel.GetEditMode() == TerrainEditMode::Paint ? 1.0f : 0.0f;
+                }
+                m_BrushPreviewUBO->SetData(&brushData, sizeof(brushData));
+            }
         }
 
+        // Camera updates always run so the editor stays responsive even when
+        // scene rendering is throttled.
         switch (m_SceneState)
         {
             case SceneState::Edit:
@@ -212,48 +246,51 @@ namespace OloEngine
             }
         }
 
-        auto [mx, my] = ImGui::GetMousePos();
-        mx -= m_ViewportBounds[0].x;
-        my -= m_ViewportBounds[0].y;
-        glm::vec2 const viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
-        my = viewportSize.y - my;
-
-        // Scale logical mouse coords to framebuffer pixel coords for entity picking
-        const f32 pickDpiScale = Window::s_HighDPIScaleFactor;
-        const auto mouseX = static_cast<int>(mx * pickDpiScale);
-
-        if (const auto mouseY = static_cast<int>(my * pickDpiScale); (mouseX >= 0) && (mouseY >= 0) && (mouseX < static_cast<int>(viewportSize.x * pickDpiScale)) && (mouseY < static_cast<int>(viewportSize.y * pickDpiScale)))
+        if (!skipRender)
         {
-            // Read entity ID from appropriate framebuffer based on mode
-            int pixelData = -1;
+            auto [mx, my] = ImGui::GetMousePos();
+            mx -= m_ViewportBounds[0].x;
+            my -= m_ViewportBounds[0].y;
+            glm::vec2 const viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
+            my = viewportSize.y - my;
+
+            // Scale logical mouse coords to framebuffer pixel coords for entity picking
+            const f32 pickDpiScale = Window::s_HighDPIScaleFactor;
+            const auto mouseX = static_cast<int>(mx * pickDpiScale);
+
+            if (const auto mouseY = static_cast<int>(my * pickDpiScale); (mouseX >= 0) && (mouseY >= 0) && (mouseX < static_cast<int>(viewportSize.x * pickDpiScale)) && (mouseY < static_cast<int>(viewportSize.y * pickDpiScale)))
+            {
+                // Read entity ID from appropriate framebuffer based on mode
+                int pixelData = -1;
+                if (m_Is3DMode)
+                {
+                    pixelData = Renderer3D::ReadEntityIDFromFramebuffer(mouseX, mouseY);
+                }
+                else
+                {
+                    pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
+                }
+                m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
+            }
+
+            // Terrain editor: raycast from mouse into heightmap and update brush
+            if (m_ShowTerrainEditor && m_TerrainEditorPanel.IsActive() && m_ViewportHovered && m_SceneState == SceneState::Edit)
+            {
+                glm::vec3 terrainHitPos{};
+                bool hasTerrainHit = TerrainRaycast({ mx, my }, viewportSize, terrainHitPos);
+                bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft) && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
+                m_TerrainEditorPanel.OnUpdate(ts, terrainHitPos, hasTerrainHit, mouseDown);
+            }
+
             if (m_Is3DMode)
             {
-                pixelData = Renderer3D::ReadEntityIDFromFramebuffer(mouseX, mouseY);
+                OnOverlayRender3D();
             }
             else
             {
-                pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
+                OnOverlayRender();
+                m_Framebuffer->Unbind();
             }
-            m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
-        }
-
-        // Terrain editor: raycast from mouse into heightmap and update brush
-        if (m_ShowTerrainEditor && m_TerrainEditorPanel.IsActive() && m_ViewportHovered && m_SceneState == SceneState::Edit)
-        {
-            glm::vec3 terrainHitPos{};
-            bool hasTerrainHit = TerrainRaycast({ mx, my }, viewportSize, terrainHitPos);
-            bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft) && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
-            m_TerrainEditorPanel.OnUpdate(ts, terrainHitPos, hasTerrainHit, mouseDown);
-        }
-
-        if (m_Is3DMode)
-        {
-            OnOverlayRender3D();
-        }
-        else
-        {
-            OnOverlayRender();
-            m_Framebuffer->Unbind();
         }
     }
 
@@ -558,6 +595,17 @@ namespace OloEngine
             ImVec2 pMin = ImGui::GetItemRectMin();
             ImVec2 pMax = ImGui::GetItemRectMax();
             ImGui::GetWindowDrawList()->AddRect(pMin, pMax, borderColor, 0.0f, 0, 3.0f);
+        }
+
+        // Render-throttle indicator: small badge when viewport frames are being
+        // skipped to keep the editor UI responsive.
+        if (m_ViewportRenderSkipped)
+        {
+            ImVec2 const vpMin = ImGui::GetItemRectMin();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            ImVec2 const textPos = { vpMin.x + 6.0f, vpMin.y + 4.0f };
+            dl->AddRectFilled({ textPos.x - 2.0f, textPos.y - 1.0f }, { textPos.x + 86.0f, textPos.y + 15.0f }, IM_COL32(30, 30, 30, 180), 3.0f);
+            dl->AddText(textPos, IM_COL32(255, 200, 60, 220), "Throttled");
         }
 
         if (ImGui::BeginDragDropTarget())
@@ -983,6 +1031,9 @@ namespace OloEngine
         m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
         m_Is3DMode = m_Prefs.Is3DMode;
         m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
+        m_ThrottleEditMode = m_Prefs.ThrottleEditMode;
+        m_ThrottlePlayMode = m_Prefs.ThrottlePlayMode;
+        m_RenderBudgetMs = m_Prefs.RenderBudgetMs;
 
         auto& physicsSettings = Physics3DSystem::GetSettings();
         physicsSettings.m_CaptureOnPlay = m_Prefs.CapturePhysicsOnPlay;
@@ -1004,6 +1055,9 @@ namespace OloEngine
         m_Prefs.Is3DMode = m_Is3DMode;
         m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
         m_Prefs.CapturePhysicsOnPlay = Physics3DSystem::GetSettings().m_CaptureOnPlay;
+        m_Prefs.ThrottleEditMode = m_ThrottleEditMode;
+        m_Prefs.ThrottlePlayMode = m_ThrottlePlayMode;
+        m_Prefs.RenderBudgetMs = m_RenderBudgetMs;
     }
 
     void EditorLayer::UI_DebugTools()
