@@ -88,19 +88,28 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Wait for any in-flight FlushToDisk() I/O to complete
+        // Prevent new FlushToDisk() calls from starting by clearing
+        // m_Initialized under the lock.  FlushToDisk() checks this flag
+        // under the same lock, so no new flush can begin after this point.
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            if (!m_Initialized)
+            {
+                return;
+            }
+            m_Initialized = false;
+        }
+
+        // Wait for any already in-flight FlushToDisk() I/O to complete.
+        // No new flush can start because m_Initialized is now false.
         while (m_FlushInProgress.load(std::memory_order_acquire))
         {
             std::this_thread::yield();
         }
 
         TUniqueLock<FMutex> lock(m_Mutex);
-        if (!m_Initialized)
-        {
-            return;
-        }
 
-        // Flush while still initialized so FlushToDiskLocked can serialize
+        // Flush remaining dirty data synchronously
         if (m_Dirty)
         {
             if (!FlushToDiskLocked())
@@ -110,7 +119,6 @@ namespace OloEngine
             }
         }
 
-        m_Initialized = false;
         m_PlayerStates.clear();
         m_EntityStates.clear();
         m_WorldState.clear();
@@ -445,6 +453,7 @@ namespace OloEngine
 
         std::vector<u8> buffer;
         FMemoryWriter ar(buffer);
+        ar.ArIsSaveGame = true;
 
         // Section marker
         u32 worldDbMagic = 0x57444200; // "WDB\0"
@@ -498,6 +507,7 @@ namespace OloEngine
 
         auto dataCopy = payload;
         FMemoryReader ar(dataCopy);
+        ar.ArIsSaveGame = true;
 
         // Verify marker
         u32 magic = 0;

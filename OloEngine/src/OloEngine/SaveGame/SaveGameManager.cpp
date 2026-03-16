@@ -473,7 +473,11 @@ namespace OloEngine
         if (timer >= interval)
         {
             timer = 0.0f;
-            AutoSave(scene);
+            auto result = AutoSave(scene);
+            if (result != SaveLoadResult::Pending && result != SaveLoadResult::Success)
+            {
+                OLO_CORE_TRACE("[SaveGameManager] AutoSave skipped (result: {})", static_cast<int>(result));
+            }
         }
         s_AutoSaveTimer.store(timer, std::memory_order_relaxed);
     }
@@ -522,7 +526,7 @@ namespace OloEngine
                                               const std::string& slotName,
                                               const std::string& displayName,
                                               SaveSlotType slotType,
-                                              const std::vector<u8>& thumbnailPNG,
+                                              std::vector<u8> thumbnailPNG,
                                               SaveLoadCompletionCallback callback,
                                               std::function<void()> onWorkerComplete)
     {
@@ -578,7 +582,7 @@ namespace OloEngine
         Tasks::Launch(
             "SaveGameToDisk",
             [payload = std::move(payload),
-             thumbnailPNG,
+             thumbnailPNG = std::move(thumbnailPNG),
              metadata,
              entityCount,
              path,
@@ -661,47 +665,6 @@ namespace OloEngine
                 OLO_CORE_ERROR("[SaveGameManager] Failed to create save directory '{}': {}", saveDir.string(), ec.message());
             }
         }
-    }
-
-    std::string SaveGameManager::GetRotatingSlotName(const std::string& prefix, u32 maxSlots)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        if (maxSlots == 0)
-        {
-            OLO_CORE_ASSERT(false, "GetRotatingSlotName called with maxSlots == 0");
-            OLO_CORE_ERROR("[SaveGameManager] GetRotatingSlotName called with maxSlots == 0");
-            return {};
-        }
-
-        // Find the oldest slot to overwrite
-        i64 oldestTimestamp = std::numeric_limits<i64>::max();
-        std::string oldestSlot;
-        std::string emptySlot;
-
-        for (u32 i = 0; i < maxSlots; ++i)
-        {
-            std::string slotName = prefix + "_" + std::to_string(i);
-            SaveFileInfo info;
-            if (!GetSaveInfo(slotName, info))
-            {
-                // Slot doesn't exist yet — use it
-                if (emptySlot.empty())
-                {
-                    emptySlot = slotName;
-                }
-                continue;
-            }
-
-            if (info.Metadata.TimestampUTC < oldestTimestamp)
-            {
-                oldestTimestamp = info.Metadata.TimestampUTC;
-                oldestSlot = slotName;
-            }
-        }
-
-        // Prefer empty slot, then oldest
-        return emptySlot.empty() ? oldestSlot : emptySlot;
     }
 
 } // namespace OloEngine

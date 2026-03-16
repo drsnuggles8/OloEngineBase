@@ -617,6 +617,12 @@ namespace OloEngine
             return false;
         }
 
+        if (!reader.AtEnd())
+        {
+            OLO_CORE_WARN("[SaveGameSerializer] {} trailing bytes after entity data (possible version mismatch)",
+                          reader.TotalSize() - reader.Tell());
+        }
+
         // --- All parsing succeeded — commit to real scene ---
 
         // Apply settings

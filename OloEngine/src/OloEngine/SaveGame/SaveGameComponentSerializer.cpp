@@ -253,8 +253,8 @@ namespace OloEngine
                 default:
                 {
                     OLO_CORE_ERROR("[SaveGameComponentSerializer] Unknown EmissionShapeType: {}", static_cast<u32>(type));
-                    shape = EmitPoint{};
-                    break;
+                    ar.SetError();
+                    return;
                 }
             }
         }

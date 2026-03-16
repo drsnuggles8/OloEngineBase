@@ -134,15 +134,12 @@ namespace OloEngine
                                         const std::string& slotName,
                                         const std::string& displayName,
                                         SaveSlotType slotType,
-                                        const std::vector<u8>& thumbnailPNG,
+                                        std::vector<u8> thumbnailPNG,
                                         SaveLoadCompletionCallback callback,
                                         std::function<void()> onWorkerComplete = nullptr);
 
         // Ensure save directory exists
         static void EnsureSaveDirectory();
-
-        // Generate rotating slot name (e.g. "quicksave_0", "quicksave_1")
-        static std::string GetRotatingSlotName(const std::string& prefix, u32 maxSlots);
 
         static std::atomic<f32> s_AutoSaveInterval;
         static std::atomic<f32> s_AutoSaveTimer;
