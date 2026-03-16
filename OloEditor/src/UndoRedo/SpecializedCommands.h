@@ -56,6 +56,85 @@ namespace OloEngine
     };
 
     // =========================================================================
+    // Combined snapshot of all renderer settings editable via PostProcessSettingsPanel
+    // =========================================================================
+    struct PostProcessFullSnapshot
+    {
+        PostProcessSettings PostProcess;
+        SnowSettings Snow;
+        WindSettings Wind;
+        SnowAccumulationSettings SnowAccumulation;
+        SnowEjectaSettings SnowEjecta;
+        PrecipitationSettings Precipitation;
+        FogSettings Fog;
+
+        static PostProcessFullSnapshot Capture()
+        {
+            return {
+                Renderer3D::GetPostProcessSettings(),
+                Renderer3D::GetSnowSettings(),
+                Renderer3D::GetWindSettings(),
+                Renderer3D::GetSnowAccumulationSettings(),
+                Renderer3D::GetSnowEjectaSettings(),
+                Renderer3D::GetPrecipitationSettings(),
+                Renderer3D::GetFogSettings()
+            };
+        }
+
+        void Apply() const
+        {
+            Renderer3D::GetPostProcessSettings() = PostProcess;
+            Renderer3D::GetSnowSettings() = Snow;
+            Renderer3D::GetWindSettings() = Wind;
+            Renderer3D::GetSnowAccumulationSettings() = SnowAccumulation;
+            Renderer3D::GetSnowEjectaSettings() = SnowEjecta;
+            Renderer3D::GetPrecipitationSettings() = Precipitation;
+            Renderer3D::GetFogSettings() = Fog;
+        }
+
+        [[nodiscard]] bool operator==(const PostProcessFullSnapshot& other) const
+        {
+            return std::memcmp(this, &other, sizeof(PostProcessFullSnapshot)) == 0;
+        }
+
+        [[nodiscard]] bool operator!=(const PostProcessFullSnapshot& other) const
+        {
+            return !(*this == other);
+        }
+    };
+
+    // Undo command for the full snapshot
+    class PostProcessFullChangeCommand : public EditorCommand
+    {
+      public:
+        PostProcessFullChangeCommand(PostProcessFullSnapshot oldSnapshot, PostProcessFullSnapshot newSnapshot,
+                                     std::string description = "Post-Process Change")
+            : m_OldSnapshot(std::move(oldSnapshot)), m_NewSnapshot(std::move(newSnapshot)), m_Description(std::move(description))
+        {
+        }
+
+        void Execute() override
+        {
+            m_NewSnapshot.Apply();
+        }
+
+        void Undo() override
+        {
+            m_OldSnapshot.Apply();
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return m_Description;
+        }
+
+      private:
+        PostProcessFullSnapshot m_OldSnapshot;
+        PostProcessFullSnapshot m_NewSnapshot;
+        std::string m_Description;
+    };
+
+    // =========================================================================
     // Script field undo — stores entity UUID, field name, old/new float value
     // Currently only Float fields are editable in the UI; extend for other types as needed
     // =========================================================================
@@ -354,20 +433,31 @@ namespace OloEngine
     class InputActionMapChangeCommand : public EditorCommand
     {
       public:
+        using NotifyFn = std::function<void()>;
+
         InputActionMapChangeCommand(InputActionMap oldMap, InputActionMap newMap,
-                                    std::string description = "Input Settings Change")
-            : m_OldMap(std::move(oldMap)), m_NewMap(std::move(newMap)), m_Description(std::move(description))
+                                    std::string description = "Input Settings Change",
+                                    NotifyFn onApply = nullptr)
+            : m_OldMap(std::move(oldMap)), m_NewMap(std::move(newMap)), m_Description(std::move(description)), m_OnApply(std::move(onApply))
         {
         }
 
         void Execute() override
         {
             InputActionManager::SetActionMap(m_NewMap);
+            if (m_OnApply)
+            {
+                m_OnApply();
+            }
         }
 
         void Undo() override
         {
             InputActionManager::SetActionMap(m_OldMap);
+            if (m_OnApply)
+            {
+                m_OnApply();
+            }
         }
 
         [[nodiscard]] std::string GetDescription() const override
@@ -379,6 +469,7 @@ namespace OloEngine
         InputActionMap m_OldMap;
         InputActionMap m_NewMap;
         std::string m_Description;
+        NotifyFn m_OnApply;
     };
 
 } // namespace OloEngine

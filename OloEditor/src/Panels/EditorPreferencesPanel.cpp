@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "EditorPreferencesPanel.h"
+#include "OloEngine/Renderer/Camera/EditorCamera.h"
 
 #include <imgui.h>
 #include <yaml-cpp/yaml.h>
@@ -8,37 +9,167 @@
 
 namespace OloEngine
 {
-    void EditorPreferencesPanel::OnImGuiRender(EditorPreferences& prefs)
+    void EditorPreferencesPanel::Open(const EditorPreferences& currentPrefs, EditorCamera* camera)
     {
-        ImGui::Begin("Editor Preferences");
+        m_Draft = currentPrefs;
+        m_Camera = camera;
+        m_BookmarkNameBuffer[0] = '\0';
+        m_IsOpen = true;
+    }
+
+    bool EditorPreferencesPanel::OnImGuiRender(EditorPreferences& outPrefs)
+    {
+        if (!m_IsOpen)
+        {
+            return false;
+        }
+
+        bool applied = false;
+
+        ImGui::OpenPopup("Editor Preferences");
+        ImGui::SetNextWindowSize(ImVec2(520, 420), ImGuiCond_FirstUseEver);
+
+        if (ImGui::BeginPopupModal("Editor Preferences", &m_IsOpen, ImGuiWindowFlags_NoCollapse))
+        {
+            if (ImGui::BeginTabBar("PreferencesTabs"))
+            {
+                if (ImGui::BeginTabItem("General"))
+                {
+                    DrawGeneralTab();
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Camera"))
+                {
+                    DrawCameraTab();
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Physics"))
+                {
+                    DrawPhysicsTab();
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
+            }
+
+            ImGui::Separator();
+
+            // Bottom buttons — right-aligned
+            constexpr f32 buttonWidth = 80.0f;
+            const f32 spacing = ImGui::GetStyle().ItemSpacing.x;
+            constexpr f32 totalWidth = buttonWidth * 3 + 2 * 8.0f; // approximate spacing
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - totalWidth - spacing);
+
+            if (ImGui::Button("OK", ImVec2(buttonWidth, 0)))
+            {
+                outPrefs = m_Draft;
+                applied = true;
+                m_IsOpen = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Apply", ImVec2(buttonWidth, 0)))
+            {
+                outPrefs = m_Draft;
+                applied = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0)))
+            {
+                m_IsOpen = false;
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+
+        return applied;
+    }
+
+    void EditorPreferencesPanel::DrawGeneralTab()
+    {
+        ImGui::Spacing();
 
         ImGui::Text("Grid");
         ImGui::Separator();
-        m_Dirty |= ImGui::Checkbox("Show Grid", &prefs.ShowGrid);
-        if (prefs.ShowGrid)
+        ImGui::Checkbox("Show Grid", &m_Draft.ShowGrid);
+        if (m_Draft.ShowGrid)
         {
-            m_Dirty |= ImGui::DragFloat("Grid Spacing", &prefs.GridSpacing, 0.1f, 0.1f, 100.0f, "%.1f");
+            ImGui::DragFloat("Grid Spacing", &m_Draft.GridSpacing, 0.1f, 0.1f, 100.0f, "%.1f");
         }
-
-        ImGui::Spacing();
-        ImGui::Text("Transform Snapping");
-        ImGui::Separator();
-        m_Dirty |= ImGui::DragFloat("Translate Snap", &prefs.TranslateSnap, 0.05f, 0.01f, 100.0f, "%.2f");
-        m_Dirty |= ImGui::DragFloat("Rotate Snap", &prefs.RotateSnap, 1.0f, 1.0f, 180.0f, "%.1f deg");
-        m_Dirty |= ImGui::DragFloat("Scale Snap", &prefs.ScaleSnap, 0.05f, 0.01f, 10.0f, "%.2f");
-
-        ImGui::Spacing();
-        ImGui::Text("Camera");
-        ImGui::Separator();
-        m_Dirty |= ImGui::DragFloat("Fly Speed", &prefs.CameraFlySpeed, 0.1f, 0.1f, 100.0f, "%.1f");
 
         ImGui::Spacing();
         ImGui::Text("Rendering");
         ImGui::Separator();
-        m_Dirty |= ImGui::Checkbox("Show Physics Colliders", &prefs.ShowPhysicsColliders);
-        m_Dirty |= ImGui::Checkbox("3D Mode", &prefs.Is3DMode);
+        ImGui::Checkbox("3D Mode", &m_Draft.Is3DMode);
+        ImGui::Checkbox("Show Physics Colliders", &m_Draft.ShowPhysicsColliders);
 
-        ImGui::End();
+        ImGui::Spacing();
+        ImGui::Text("Transform Snapping");
+        ImGui::Separator();
+        ImGui::DragFloat("Translate Snap", &m_Draft.TranslateSnap, 0.05f, 0.01f, 100.0f, "%.2f");
+        ImGui::DragFloat("Rotate Snap", &m_Draft.RotateSnap, 1.0f, 1.0f, 180.0f, "%.1f deg");
+        ImGui::DragFloat("Scale Snap", &m_Draft.ScaleSnap, 0.05f, 0.01f, 10.0f, "%.2f");
+    }
+
+    void EditorPreferencesPanel::DrawCameraTab()
+    {
+        ImGui::Spacing();
+
+        ImGui::Text("Camera Settings");
+        ImGui::Separator();
+        ImGui::DragFloat("Fly Speed", &m_Draft.CameraFlySpeed, 0.1f, 0.1f, 100.0f, "%.1f");
+
+        ImGui::Spacing();
+        ImGui::Text("Camera Bookmarks");
+        ImGui::Separator();
+
+        ImGui::InputTextWithHint("##BookmarkName", "Bookmark name...", m_BookmarkNameBuffer, sizeof(m_BookmarkNameBuffer));
+        ImGui::SameLine();
+        if (ImGui::Button("Save") && m_BookmarkNameBuffer[0] != '\0' && m_Camera)
+        {
+            m_Draft.Bookmarks.push_back({ std::string(m_BookmarkNameBuffer), m_Camera->GetPosition(), m_Camera->GetPitch(), m_Camera->GetYaw(),
+                                          m_Camera->GetDistance() });
+            m_BookmarkNameBuffer[0] = '\0';
+        }
+
+        i32 deleteIndex = -1;
+        for (i32 i = 0; i < static_cast<i32>(m_Draft.Bookmarks.size()); ++i)
+        {
+            ImGui::PushID(i);
+            auto& bm = m_Draft.Bookmarks[static_cast<sizet>(i)];
+            if (ImGui::Button(bm.Name.c_str()) && m_Camera)
+            {
+                m_Camera->SetPosition(bm.Position);
+                m_Camera->SetPitch(bm.Pitch);
+                m_Camera->SetYaw(bm.Yaw);
+                m_Camera->SetDistance(bm.Distance);
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("X"))
+            {
+                deleteIndex = i;
+            }
+            ImGui::PopID();
+        }
+        if (deleteIndex >= 0)
+        {
+            m_Draft.Bookmarks.erase(m_Draft.Bookmarks.begin() + deleteIndex);
+        }
+    }
+
+    void EditorPreferencesPanel::DrawPhysicsTab()
+    {
+        ImGui::Spacing();
+
+        ImGui::Text("Physics Debug");
+        ImGui::Separator();
+        ImGui::Checkbox("Capture physics on play", &m_Draft.CapturePhysicsOnPlay);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Enable expensive physics debug capture during play mode.\nOff by default for production performance.");
+        }
     }
 
     std::filesystem::path EditorPreferencesPanel::GetPrefsPath(const std::filesystem::path& projectDir)
@@ -60,6 +191,23 @@ namespace OloEngine
         out << YAML::Key << "CameraFlySpeed" << YAML::Value << prefs.CameraFlySpeed;
         out << YAML::Key << "ShowPhysicsColliders" << YAML::Value << prefs.ShowPhysicsColliders;
         out << YAML::Key << "Is3DMode" << YAML::Value << prefs.Is3DMode;
+        out << YAML::Key << "CapturePhysicsOnPlay" << YAML::Value << prefs.CapturePhysicsOnPlay;
+
+        // Camera bookmarks
+        out << YAML::Key << "Bookmarks" << YAML::Value << YAML::BeginSeq;
+        for (const auto& bm : prefs.Bookmarks)
+        {
+            out << YAML::BeginMap;
+            out << YAML::Key << "Name" << YAML::Value << bm.Name;
+            out << YAML::Key << "PositionX" << YAML::Value << bm.Position.x;
+            out << YAML::Key << "PositionY" << YAML::Value << bm.Position.y;
+            out << YAML::Key << "PositionZ" << YAML::Value << bm.Position.z;
+            out << YAML::Key << "Pitch" << YAML::Value << bm.Pitch;
+            out << YAML::Key << "Yaw" << YAML::Value << bm.Yaw;
+            out << YAML::Key << "Distance" << YAML::Value << bm.Distance;
+            out << YAML::EndMap;
+        }
+        out << YAML::EndSeq;
 
         out << YAML::EndMap;
         out << YAML::EndMap;
@@ -72,11 +220,7 @@ namespace OloEngine
             return;
         }
         fout << out.c_str();
-        if (fout.good())
-        {
-            m_Dirty = false;
-        }
-        else
+        if (!fout.good())
         {
             OLO_CORE_ERROR("EditorPreferencesPanel::Save: write failed for '{}'", path.string());
         }
@@ -130,13 +274,31 @@ namespace OloEngine
                 prefs.ShowPhysicsColliders = node["ShowPhysicsColliders"].as<bool>();
             if (node["Is3DMode"])
                 prefs.Is3DMode = node["Is3DMode"].as<bool>();
+            if (node["CapturePhysicsOnPlay"])
+                prefs.CapturePhysicsOnPlay = node["CapturePhysicsOnPlay"].as<bool>();
+
+            // Camera bookmarks
+            if (auto bookmarks = node["Bookmarks"])
+            {
+                prefs.Bookmarks.clear();
+                for (const auto& bmNode : bookmarks)
+                {
+                    CameraBookmark bm;
+                    bm.Name = bmNode["Name"].as<std::string>();
+                    bm.Position.x = bmNode["PositionX"].as<f32>();
+                    bm.Position.y = bmNode["PositionY"].as<f32>();
+                    bm.Position.z = bmNode["PositionZ"].as<f32>();
+                    bm.Pitch = bmNode["Pitch"].as<f32>();
+                    bm.Yaw = bmNode["Yaw"].as<f32>();
+                    bm.Distance = bmNode["Distance"].as<f32>();
+                    prefs.Bookmarks.push_back(std::move(bm));
+                }
+            }
         }
         catch (const YAML::Exception&)
         {
             OLO_CORE_WARN("EditorPreferences: failed to parse one or more values, using defaults");
             return;
         }
-
-        m_Dirty = false;
     }
 } // namespace OloEngine

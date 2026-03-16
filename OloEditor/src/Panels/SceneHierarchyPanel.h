@@ -45,6 +45,7 @@ namespace OloEngine
 
         void DrawEntityNode(Entity entity);
         void DrawComponents(Entity entity);
+        void CollectVisualOrder(Entity entity, std::vector<Entity>& out) const;
 
         Entity FindOrCreateCanvas();
         Entity CreateUIWidget(const std::string& name);

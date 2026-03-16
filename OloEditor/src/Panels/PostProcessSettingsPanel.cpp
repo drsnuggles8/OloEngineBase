@@ -17,11 +17,10 @@ namespace OloEngine
 
         ImGui::Begin("Post Processing");
 
-        // Snapshot before any UI for undo tracking
-        auto& settings = Renderer3D::GetPostProcessSettings();
+        // Snapshot all renderer settings before any UI for undo tracking
         if (m_CommandHistory && !m_IsEditing)
         {
-            m_Snapshot = settings;
+            m_Snapshot = PostProcessFullSnapshot::Capture();
         }
 
         DrawToneMappingSection();
@@ -41,9 +40,10 @@ namespace OloEngine
         DrawMotionBlurSection();
 
         // Undo tracking: detect changes and push command when editing ends
-        if (m_CommandHistory)
+        if (m_CommandHistory && m_Snapshot)
         {
-            const bool changed = (std::memcmp(&m_Snapshot, &settings, sizeof(PostProcessSettings)) != 0);
+            auto current = PostProcessFullSnapshot::Capture();
+            const bool changed = (*m_Snapshot != current);
 
             if (changed && !m_IsEditing)
             {
@@ -55,7 +55,7 @@ namespace OloEngine
                 if (changed)
                 {
                     m_CommandHistory->PushAlreadyExecuted(
-                        std::make_unique<PostProcessChangeCommand>(m_Snapshot, settings));
+                        std::make_unique<PostProcessFullChangeCommand>(*m_Snapshot, current));
                 }
                 m_IsEditing = false;
             }

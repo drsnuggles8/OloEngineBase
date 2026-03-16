@@ -2,11 +2,25 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <glm/vec3.hpp>
+
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace OloEngine
 {
+    class EditorCamera;
+
+    struct CameraBookmark
+    {
+        std::string Name;
+        glm::vec3 Position{};
+        f32 Pitch = 0.0f;
+        f32 Yaw = 0.0f;
+        f32 Distance = 10.0f;
+    };
+
     struct EditorPreferences
     {
         // Grid settings
@@ -20,10 +34,14 @@ namespace OloEngine
 
         // Camera
         f32 CameraFlySpeed = 5.0f;
+        std::vector<CameraBookmark> Bookmarks;
 
         // Visuals
         bool ShowPhysicsColliders = false;
         bool Is3DMode = true;
+
+        // Physics debug
+        bool CapturePhysicsOnPlay = false;
     };
 
     class EditorPreferencesPanel
@@ -31,7 +49,9 @@ namespace OloEngine
       public:
         EditorPreferencesPanel() = default;
 
-        void OnImGuiRender(EditorPreferences& prefs);
+        void Open(const EditorPreferences& currentPrefs, EditorCamera* camera);
+        // Returns true if preferences were applied (OK or Apply pressed)
+        bool OnImGuiRender(EditorPreferences& outPrefs);
 
         void Save(const EditorPreferences& prefs, const std::filesystem::path& projectDir);
         void Load(EditorPreferences& prefs, const std::filesystem::path& projectDir);
@@ -39,6 +59,13 @@ namespace OloEngine
       private:
         static std::filesystem::path GetPrefsPath(const std::filesystem::path& projectDir);
 
-        bool m_Dirty = false;
+        void DrawGeneralTab();
+        void DrawCameraTab();
+        void DrawPhysicsTab();
+
+        bool m_IsOpen = false;
+        EditorPreferences m_Draft;
+        EditorCamera* m_Camera = nullptr;
+        char m_BookmarkNameBuffer[64] = {};
     };
 } // namespace OloEngine

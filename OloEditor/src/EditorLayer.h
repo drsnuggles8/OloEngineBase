@@ -98,10 +98,12 @@ namespace OloEngine
         void UI_Viewport();
         void UI_Gizmos();
         void UI_RendererStats();
-        void UI_Settings();
         void UI_DebugTools();
         void UI_ChildPanels();
         void ApplyDefault3DCameraPose();
+        void TryInitialize3DMode();
+        void ApplyPreferences();
+        void SyncPrefsFromMembers();
 
         void SetEditorScene(const Ref<Scene>& scene);
         void SyncWindowTitle() const;
@@ -146,18 +148,6 @@ namespace OloEngine
 
         // Entity clipboard (YAML)
         std::string m_EntityClipboard;
-
-        // Camera bookmarks
-        struct CameraBookmark
-        {
-            std::string Name;
-            glm::vec3 Position{};
-            f32 Pitch = 0.0f;
-            f32 Yaw = 0.0f;
-            f32 Distance = 10.0f;
-        };
-        std::vector<CameraBookmark> m_CameraBookmarks;
-        char m_BookmarkNameBuffer[64] = {};
 
         // Debug windows
         bool m_ShowShaderDebugger = false;
@@ -207,7 +197,6 @@ namespace OloEngine
         bool m_ShowDialogueEditor = false;
         SaveGamePanel m_SaveGamePanel;
         bool m_ShowSaveGamePanel = false;
-        bool m_ShowEditorPreferences = false;
 
         // Undo/Redo
         CommandHistory m_CommandHistory;

@@ -822,6 +822,7 @@ namespace OloEngine
                         m_DragStartOffset = glm::vec2(
                             mousePos.x - nodePos.x,
                             mousePos.y - nodePos.y);
+                        m_DragStartSnapshot = CaptureSnapshot();
                     }
                     break;
                 }
@@ -847,6 +848,10 @@ namespace OloEngine
 
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
         {
+            if (m_IsDraggingNode)
+            {
+                PushDialogueUndoCommand(m_DragStartSnapshot, "Move Node");
+            }
             m_IsDraggingNode = false;
         }
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "../UndoRedo/SpecializedCommands.h"
 
 namespace OloEngine
 {
@@ -22,7 +23,7 @@ namespace OloEngine
       private:
         CommandHistory* m_CommandHistory = nullptr;
         bool m_IsEditing = false;
-        PostProcessSettings m_Snapshot{};
+        std::optional<PostProcessFullSnapshot> m_Snapshot;
         void DrawToneMappingSection();
         void DrawBloomSection();
         void DrawVignetteSection();

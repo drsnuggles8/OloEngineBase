@@ -4,7 +4,6 @@
 #include "UndoRedo/EntityCommands.h"
 #include "UndoRedo/ComponentCommands.h"
 #include "OloEngine/Math/Math.h"
-#include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -39,8 +38,6 @@
 
 namespace OloEngine
 {
-    static std::unique_ptr<Font> s_Font;
-
     EditorLayer::EditorLayer()
         : Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f)
     {
@@ -104,12 +101,7 @@ namespace OloEngine
 
         // Initialize Renderer3D early so 3D code paths in OnUpdate / UI_Viewport
         // never run against an uninitialized renderer when m_Is3DMode is true.
-        if (m_Is3DMode && !Renderer3D::IsInitialized())
-        {
-            OLO_CORE_INFO("Initializing Renderer3D for 3D mode (OnAttach)...");
-            Renderer3D::Init();
-            ApplyDefault3DCameraPose();
-        }
+        TryInitialize3DMode();
 
         // Create brush preview UBO (binding 11, 32 bytes = 2 vec4s)
         m_BrushPreviewUBO = UniformBuffer::Create(ShaderBindingLayout::BrushPreviewUBO::GetSize(), ShaderBindingLayout::UBO_BRUSH_PREVIEW);
@@ -122,7 +114,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         SaveGameManager::Shutdown();
-        s_Font.reset();
     }
 
     void EditorLayer::OnUpdate(Timestep const ts)
@@ -337,7 +328,6 @@ namespace OloEngine
         UI_Toolbar();
         UI_Viewport();
         UI_RendererStats();
-        UI_Settings();
         UI_DebugTools();
         UI_ChildPanels();
 
@@ -438,6 +428,13 @@ namespace OloEngine
                 SyncWindowTitle();
             }
 
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Preferences..."))
+            {
+                m_EditorPreferencesPanel.Open(m_Prefs, &m_EditorCamera);
+            }
+
             ImGui::EndMenu();
         }
 
@@ -502,7 +499,6 @@ namespace OloEngine
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
-            ImGui::MenuItem("Editor Preferences", nullptr, &m_ShowEditorPreferences);
 
             ImGui::EndMenu();
         }
@@ -611,6 +607,17 @@ namespace OloEngine
                             if (instance)
                             {
                                 m_SceneHierarchyPanel.SetSelectedEntity(instance);
+
+                                // Record undo: the entity already exists, so wrap a DeleteEntityCommand
+                                // with DuplicateUndoCommand (undo = delete, redo = restore).
+                                m_CommandHistory.PushAlreadyExecuted(
+                                    std::make_unique<DuplicateUndoCommand>(
+                                        std::make_unique<DeleteEntityCommand>(
+                                            m_EditorScene, instance,
+                                            [this]()
+                                            { m_SceneHierarchyPanel.ClearSelection(); },
+                                            [this](Entity restored)
+                                            { m_SceneHierarchyPanel.SetSelectedEntity(restored); })));
                             }
                         }
                     }
@@ -876,26 +883,10 @@ namespace OloEngine
             m_SceneStatisticsPanel.OnImGuiRender();
         }
 
-        // Editor Preferences Panel
-        if (m_ShowEditorPreferences)
+        // Editor Preferences Dialog
+        if (m_EditorPreferencesPanel.OnImGuiRender(m_Prefs))
         {
-            m_EditorPreferencesPanel.OnImGuiRender(m_Prefs);
-
-            // Sync preferences back to editor fields
-            m_ShowGrid = m_Prefs.ShowGrid;
-            m_GridSpacing = m_Prefs.GridSpacing;
-            m_TranslateSnap = m_Prefs.TranslateSnap;
-            m_RotateSnap = m_Prefs.RotateSnap;
-            m_ScaleSnap = m_Prefs.ScaleSnap;
-            m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
-            m_Is3DMode = m_Prefs.Is3DMode;
-            m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
-
-            if (m_Is3DMode && !Renderer3D::IsInitialized())
-            {
-                Renderer3D::Init();
-                ApplyDefault3DCameraPose();
-            }
+            ApplyPreferences();
         }
     }
 
@@ -911,106 +902,62 @@ namespace OloEngine
         m_EditorCamera.SetYaw(0.0f);
     }
 
-    void EditorLayer::UI_Settings()
+    void EditorLayer::TryInitialize3DMode()
     {
-        ImGui::Begin("Settings");
-        ImGui::Checkbox("Show physics colliders", &m_ShowPhysicsColliders);
-
-        // 3D Mode toggle with lazy initialization
-        ImGui::Checkbox("3D Mode", &m_Is3DMode);
-        ImGui::Checkbox("Show Grid", &m_ShowGrid);
-        if (m_ShowGrid)
+        if (!m_Is3DMode || Renderer3D::IsInitialized())
         {
-            ImGui::DragFloat("Grid Spacing", &m_GridSpacing, 0.1f, 0.1f, 100.0f, "%.1f");
+            return;
         }
+
+        OLO_PROFILE_SCOPE("EditorLayer::TryInitialize3DMode");
+        OLO_PROFILE_RENDERER_SCOPE("3DInit");
+        OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
+        Renderer3D::Init();
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+
+        // Resize to current viewport size
+        if (m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
+        {
+            const f32 dpi = Window::s_HighDPIScaleFactor;
+            Renderer3D::OnWindowResize(
+                std::max(1u, static_cast<u32>(m_ViewportSize.x * dpi)),
+                std::max(1u, static_cast<u32>(m_ViewportSize.y * dpi)));
+        }
+
+        ApplyDefault3DCameraPose();
+    }
+
+    void EditorLayer::ApplyPreferences()
+    {
+        m_ShowGrid = m_Prefs.ShowGrid;
+        m_GridSpacing = m_Prefs.GridSpacing;
+        m_TranslateSnap = m_Prefs.TranslateSnap;
+        m_RotateSnap = m_Prefs.RotateSnap;
+        m_ScaleSnap = m_Prefs.ScaleSnap;
+        m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
+        m_Is3DMode = m_Prefs.Is3DMode;
+        m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
+
+        auto& physicsSettings = Physics3DSystem::GetSettings();
+        physicsSettings.m_CaptureOnPlay = m_Prefs.CapturePhysicsOnPlay;
+
         if (m_Is3DMode && !Renderer3D::IsInitialized())
         {
-            OLO_PROFILE_SCOPE("EditorLayer::UI_Settings_3DInit");
-            OLO_PROFILE_RENDERER_SCOPE("3DInit");
-            OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
-            Renderer3D::Init();
-            RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
-            // Resize to current viewport size
-            if (m_ViewportSize.x > 0 && m_ViewportSize.y > 0)
-            {
-                const f32 dpi = Window::s_HighDPIScaleFactor;
-                Renderer3D::OnWindowResize(std::max(1u, static_cast<u32>(m_ViewportSize.x * dpi)), std::max(1u, static_cast<u32>(m_ViewportSize.y * dpi)));
-            }
-
-            // Set camera to a 3D-friendly default
-            ApplyDefault3DCameraPose();
+            TryInitialize3DMode();
         }
+    }
 
-        ImGui::Separator();
-
-        // Physics Debug Settings
-        ImGui::Text("Physics Debug");
-        auto& physicsSettings = Physics3DSystem::GetSettings();
-        if (ImGui::Checkbox("Capture physics on play", &physicsSettings.m_CaptureOnPlay))
-        {
-            // Setting changed - could save project here if needed
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-        {
-            ImGui::SetTooltip("Enable expensive physics debug capture during play mode.\nOff by default for production performance.");
-        }
-
-        ImGui::Separator();
-
-        // Transform Snapping
-        ImGui::Text("Transform Snapping");
-        ImGui::DragFloat("Translate Snap", &m_TranslateSnap, 0.05f, 0.01f, 100.0f, "%.2f");
-        ImGui::DragFloat("Rotate Snap", &m_RotateSnap, 1.0f, 1.0f, 180.0f, "%.1f deg");
-        ImGui::DragFloat("Scale Snap", &m_ScaleSnap, 0.05f, 0.01f, 10.0f, "%.2f");
-
-        ImGui::Separator();
-
-        // Camera Bookmarks
-        ImGui::Text("Camera Bookmarks");
-        ImGui::InputTextWithHint("##BookmarkName", "Bookmark name...", m_BookmarkNameBuffer, sizeof(m_BookmarkNameBuffer));
-        ImGui::SameLine();
-        if (ImGui::Button("Save"))
-        {
-            if (m_BookmarkNameBuffer[0] != '\0')
-            {
-                m_CameraBookmarks.push_back({ std::string(m_BookmarkNameBuffer), m_EditorCamera.GetPosition(), m_EditorCamera.GetPitch(), m_EditorCamera.GetYaw(), m_EditorCamera.GetDistance() });
-                m_BookmarkNameBuffer[0] = '\0';
-            }
-        }
-
-        i32 deleteIndex = -1;
-        for (i32 i = 0; i < static_cast<i32>(m_CameraBookmarks.size()); ++i)
-        {
-            ImGui::PushID(i);
-            auto& bm = m_CameraBookmarks[static_cast<size_t>(i)];
-            if (ImGui::Button(bm.Name.c_str()))
-            {
-                m_EditorCamera.SetPosition(bm.Position);
-                m_EditorCamera.SetPitch(bm.Pitch);
-                m_EditorCamera.SetYaw(bm.Yaw);
-                m_EditorCamera.SetDistance(bm.Distance);
-            }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("X"))
-            {
-                deleteIndex = i;
-            }
-            ImGui::PopID();
-        }
-        if (deleteIndex >= 0)
-        {
-            m_CameraBookmarks.erase(m_CameraBookmarks.begin() + deleteIndex);
-        }
-
-        if (!s_Font)
-        {
-            s_Font = std::make_unique<Font>("assets/fonts/opensans/OpenSans-Regular.ttf");
-        }
-        ImGui::Image((ImTextureID)s_Font->GetAtlasTexture()->GetRendererID(), { 512, 512 }, { 0, 1 }, { 1, 0 });
-
-        ImGui::End();
+    void EditorLayer::SyncPrefsFromMembers()
+    {
+        m_Prefs.ShowGrid = m_ShowGrid;
+        m_Prefs.GridSpacing = m_GridSpacing;
+        m_Prefs.TranslateSnap = m_TranslateSnap;
+        m_Prefs.RotateSnap = m_RotateSnap;
+        m_Prefs.ScaleSnap = m_ScaleSnap;
+        m_Prefs.ShowPhysicsColliders = m_ShowPhysicsColliders;
+        m_Prefs.Is3DMode = m_Is3DMode;
+        m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
+        m_Prefs.CapturePhysicsOnPlay = Physics3DSystem::GetSettings().m_CaptureOnPlay;
     }
 
     void EditorLayer::UI_RendererStats()
@@ -1529,20 +1476,7 @@ namespace OloEngine
 
             // Load editor preferences
             m_EditorPreferencesPanel.Load(m_Prefs, Project::GetProjectDirectory());
-            m_ShowGrid = m_Prefs.ShowGrid;
-            m_GridSpacing = m_Prefs.GridSpacing;
-            m_TranslateSnap = m_Prefs.TranslateSnap;
-            m_RotateSnap = m_Prefs.RotateSnap;
-            m_ScaleSnap = m_Prefs.ScaleSnap;
-            m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
-            m_Is3DMode = m_Prefs.Is3DMode;
-            m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
-
-            if (m_Is3DMode && !Renderer3D::IsInitialized())
-            {
-                Renderer3D::Init();
-                ApplyDefault3DCameraPose();
-            }
+            ApplyPreferences();
 
             return true;
         }
@@ -1635,14 +1569,7 @@ namespace OloEngine
             SyncWindowTitle();
 
             // Save editor preferences alongside scene
-            m_Prefs.ShowGrid = m_ShowGrid;
-            m_Prefs.GridSpacing = m_GridSpacing;
-            m_Prefs.TranslateSnap = m_TranslateSnap;
-            m_Prefs.RotateSnap = m_RotateSnap;
-            m_Prefs.ScaleSnap = m_ScaleSnap;
-            m_Prefs.ShowPhysicsColliders = m_ShowPhysicsColliders;
-            m_Prefs.Is3DMode = m_Is3DMode;
-            m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
+            SyncPrefsFromMembers();
             if (Project::GetActive())
             {
                 m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());
@@ -1681,14 +1608,7 @@ namespace OloEngine
         SyncWindowTitle();
 
         // Save editor preferences alongside scene
-        m_Prefs.ShowGrid = m_ShowGrid;
-        m_Prefs.GridSpacing = m_GridSpacing;
-        m_Prefs.TranslateSnap = m_TranslateSnap;
-        m_Prefs.RotateSnap = m_RotateSnap;
-        m_Prefs.ScaleSnap = m_ScaleSnap;
-        m_Prefs.ShowPhysicsColliders = m_ShowPhysicsColliders;
-        m_Prefs.Is3DMode = m_Is3DMode;
-        m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
+        SyncPrefsFromMembers();
         if (Project::GetActive())
         {
             m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());

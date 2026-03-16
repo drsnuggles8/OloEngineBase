@@ -140,7 +140,9 @@ namespace OloEngine
             if (m_CommandHistory)
             {
                 m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Reset Input Map"));
+                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Reset Input Map",
+                                                                  [this]()
+                                                                  { m_Dirty = true; }));
             }
         }
     }
@@ -161,7 +163,9 @@ namespace OloEngine
             if (m_CommandHistory)
             {
                 m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Remove Action"));
+                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Remove Action",
+                                                                  [this]()
+                                                                  { m_Dirty = true; }));
             }
             ImGui::PopID();
             return;
@@ -224,7 +228,9 @@ namespace OloEngine
             if (m_CommandHistory)
             {
                 m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Remove Binding"));
+                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Remove Binding",
+                                                                  [this]()
+                                                                  { m_Dirty = true; }));
             }
         }
 
@@ -285,7 +291,9 @@ namespace OloEngine
                 if (m_CommandHistory)
                 {
                     m_CommandHistory->PushAlreadyExecuted(
-                        std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Add Action"));
+                        std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Add Action",
+                                                                      [this]()
+                                                                      { m_Dirty = true; }));
                 }
                 ImGui::CloseCurrentPopup();
             }
@@ -337,7 +345,9 @@ namespace OloEngine
             {
                 m_CommandHistory->PushAlreadyExecuted(
                     std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(),
-                                                                  m_RebindIsNewBinding ? "Add Binding" : "Rebind"));
+                                                                  m_RebindIsNewBinding ? "Add Binding" : "Rebind",
+                                                                  [this]()
+                                                                  { m_Dirty = true; }));
             }
         }
 

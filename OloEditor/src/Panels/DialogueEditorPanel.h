@@ -143,6 +143,7 @@ namespace OloEngine
         std::vector<UUID> m_MultiSelectedNodes;
         bool m_IsDraggingNode = false;
         glm::vec2 m_DragStartOffset = { 0.0f, 0.0f };
+        DialogueEditorSnapshot m_DragStartSnapshot;
 
         // Connection creation
         bool m_IsCreatingConnection = false;

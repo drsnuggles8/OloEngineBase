@@ -387,6 +387,19 @@ namespace OloEngine
         return widget;
     }
 
+    void SceneHierarchyPanel::CollectVisualOrder(Entity entity, std::vector<Entity>& out) const
+    {
+        out.push_back(entity);
+        for (const UUID& childUUID : entity.Children())
+        {
+            auto childOpt = m_Context->TryGetEntityWithUUID(childUUID);
+            if (childOpt)
+            {
+                CollectVisualOrder(*childOpt, out);
+            }
+        }
+    }
+
     void SceneHierarchyPanel::DrawEntityNode(Entity entity)
     {
         auto& tagComponent = entity.GetComponent<TagComponent>();
@@ -437,10 +450,15 @@ namespace OloEngine
             else if (shift && m_SelectionContext)
             {
                 // Shift+click: select range between last clicked and this entity
-                // Collect visible entities in order
+                // Collect visible entities in visual (tree) order
                 std::vector<Entity> visible;
                 m_Context->m_Registry.view<entt::entity>().each([&](const auto e)
-                                                                { visible.emplace_back(e, *m_Context); });
+                                                                {
+                    Entity ent{ e, *m_Context };
+                    if (ent.GetParentUUID() == UUID(0))
+                    {
+                        CollectVisualOrder(ent, visible);
+                    } });
 
                 auto itA = std::ranges::find(visible, m_SelectionContext);
                 auto itB = std::ranges::find(visible, entity);
