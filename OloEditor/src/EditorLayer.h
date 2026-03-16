@@ -10,6 +10,7 @@
 #include "Panels/InputSettingsPanel.h"
 #include "Panels/NetworkDebugPanel.h"
 #include "Panels/DialogueEditorPanel.h"
+#include "Panels/SaveGamePanel.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
@@ -164,6 +165,8 @@ namespace OloEngine
         bool m_ShowInputSettings = false;
         bool m_ShowNetworkDebug = false;
         bool m_ShowDialogueEditor = false;
+        SaveGamePanel m_SaveGamePanel;
+        bool m_ShowSaveGamePanel = false;
 
         // Terrain brush preview UBO (binding 11)
         Ref<UniformBuffer> m_BrushPreviewUBO;

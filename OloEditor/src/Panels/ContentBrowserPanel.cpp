@@ -59,6 +59,8 @@ namespace OloEngine
         { ".oloregion", ContentFileType::StreamingRegion },
         // Dialogue
         { ".olodialogue", ContentFileType::Dialogue },
+        // Save Games
+        { ".olosave", ContentFileType::SaveGame },
     };
 
     ContentBrowserPanel::ContentBrowserPanel()
@@ -98,6 +100,10 @@ namespace OloEngine
         m_DialogueIcon = Texture2D::Create("Resources/Icons/ContentBrowser/DialogueIcon.png");
         if (!m_DialogueIcon || !m_DialogueIcon->IsLoaded())
             m_DialogueIcon = m_FileIcon;
+
+        m_SaveGameIcon = Texture2D::Create("Resources/Icons/ContentBrowser/SaveGameIcon.png");
+        if (!m_SaveGameIcon || !m_SaveGameIcon->IsLoaded())
+            m_SaveGameIcon = m_FileIcon;
     }
 
     ContentFileType ContentBrowserPanel::GetFileType(const std::filesystem::path& filepath) const
@@ -184,6 +190,9 @@ namespace OloEngine
                     case ContentFileType::StreamingRegion:
                         payloadType = "CONTENT_BROWSER_REGION";
                         break;
+                    case ContentFileType::SaveGame:
+                        payloadType = "CONTENT_BROWSER_SAVEGAME";
+                        break;
                     default:
                         break;
                 }
@@ -250,6 +259,9 @@ namespace OloEngine
                         break;
                     case ContentFileType::Dialogue:
                         ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Dialogue Tree");
+                        break;
+                    case ContentFileType::SaveGame:
+                        ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.4f, 1.0f), "Save Game");
                         break;
                     default:
                         break;
@@ -467,6 +479,13 @@ namespace OloEngine
                         m_AssetSelectedCallback(path, fileType);
                 }
                 break;
+            case ContentFileType::SaveGame:
+                if (ImGui::MenuItem("Load Save"))
+                {
+                    if (m_AssetSelectedCallback)
+                        m_AssetSelectedCallback(path, fileType);
+                }
+                break;
             default:
                 break;
         }
@@ -587,6 +606,8 @@ namespace OloEngine
                 return m_SceneIcon;
             case ContentFileType::Dialogue:
                 return m_DialogueIcon;
+            case ContentFileType::SaveGame:
+                return m_SaveGameIcon;
             default:
                 return m_FileIcon;
         }

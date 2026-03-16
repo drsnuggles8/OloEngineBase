@@ -21,7 +21,8 @@ namespace OloEngine
         Material,
         Shader,
         StreamingRegion,
-        Dialogue
+        Dialogue,
+        SaveGame
     };
 
     class ContentBrowserPanel
@@ -58,6 +59,7 @@ namespace OloEngine
         Ref<Texture2D> m_MaterialIcon;
         Ref<Texture2D> m_ShaderIcon;
         Ref<Texture2D> m_DialogueIcon;
+        Ref<Texture2D> m_SaveGameIcon;
         std::unordered_map<std::filesystem::path, Ref<Texture2D>> m_ImageIcons;
 
         AssetSelectedCallback m_AssetSelectedCallback;

@@ -1113,6 +1113,13 @@ namespace OloEngine
             b2Body_SetFixedRotation(body, rb2d.FixedRotation);
             rb2d.RuntimeBody = body;
 
+            // Apply persisted velocities (non-zero after a save/load cycle)
+            if (rb2d.Type != Rigidbody2DComponent::BodyType::Static)
+            {
+                b2Body_SetLinearVelocity(body, { rb2d.LinearVelocity.x, rb2d.LinearVelocity.y });
+                b2Body_SetAngularVelocity(body, rb2d.AngularVelocity);
+            }
+
             if (entity.HasComponent<BoxCollider2DComponent>())
             {
                 auto const& bc2d = entity.GetComponent<BoxCollider2DComponent>();

@@ -96,6 +96,11 @@ target_include_directories(OloEngine PUBLIC
 	vendor/GameNetworkingSockets-src/include
 )
 
+target_include_directories(OloEngine PRIVATE
+	vendor/zlib-src
+	vendor/zlib-build
+)
+
 target_link_libraries(OloEngine
 	assimp
 	box2d

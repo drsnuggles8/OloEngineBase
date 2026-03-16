@@ -89,6 +89,13 @@ add_executable(OloEngine-Tests
 		DialogueVariablesTest.cpp
 		DialogueTreeSerializationTest.cpp
 		DialogueSystemTest.cpp
+		# Serialization Tests
+		Serialization/ArchiveExtensionsTest.cpp
+		# SaveGame Tests
+		SaveGame/SaveGameFileTest.cpp
+		SaveGame/SaveGameManagerTest.cpp
+		SaveGame/SaveGameIntegrationTest.cpp
+		SaveGame/SaveFileWorldDatabaseTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

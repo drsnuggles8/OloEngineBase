@@ -14,6 +14,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/SaveGame/SaveGameManager.h"
 
 namespace OloEngine
 {
@@ -385,6 +386,77 @@ namespace OloEngine
             Scene* scene = ScriptEngine::GetSceneContext();
             if (scene)
                 scene->GetDialogueVariables().Clear();
+        };
+
+        // --- SaveGame ---
+        auto saveGameTable = lua.create_named_table("SaveGame");
+        saveGameTable["Save"] = [](const std::string& slotName, const std::string& displayName) -> i32
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::Save");
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(SaveGameManager::Save(*scene, slotName, displayName));
+        };
+        saveGameTable["Load"] = [](const std::string& slotName) -> i32
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::Load");
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(SaveGameManager::Load(*scene, slotName));
+        };
+        saveGameTable["QuickSave"] = []() -> i32
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::QuickSave");
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(SaveGameManager::QuickSave(*scene));
+        };
+        saveGameTable["QuickLoad"] = []() -> i32
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::QuickLoad");
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return static_cast<i32>(SaveLoadResult::NoActiveScene);
+            return static_cast<i32>(SaveGameManager::QuickLoad(*scene));
+        };
+        saveGameTable["EnumerateSaves"] = [&lua]() -> sol::table
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::EnumerateSaves");
+            auto saves = SaveGameManager::EnumerateSaves();
+            sol::table result = lua.create_table(static_cast<int>(saves.size()), 0);
+            int index = 1;
+            for (const auto& info : saves)
+            {
+                sol::table entry = lua.create_table(0, 3);
+                entry["SlotName"] = info.FilePath.stem().string();
+                entry["DisplayName"] = info.Metadata.DisplayName;
+                entry["TimestampUTC"] = info.Metadata.TimestampUTC;
+                result[index++] = entry;
+            }
+            return result;
+        };
+        saveGameTable["DeleteSave"] = [](const std::string& slotName)
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::DeleteSave");
+            return SaveGameManager::DeleteSave(slotName);
+        };
+        saveGameTable["ValidateSave"] = [](const std::string& slotName)
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::ValidateSave");
+            return SaveGameManager::ValidateSave(slotName);
+        };
+        saveGameTable["GetAutoSaveInterval"] = []()
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::GetAutoSaveInterval");
+            return SaveGameManager::GetAutoSaveInterval();
+        };
+        saveGameTable["SetAutoSaveInterval"] = [](f32 interval)
+        {
+            OLO_PROFILE_SCOPE("Lua::SaveGame::SetAutoSaveInterval");
+            SaveGameManager::SetAutoSaveInterval(interval);
         };
     }
 } // namespace OloEngine

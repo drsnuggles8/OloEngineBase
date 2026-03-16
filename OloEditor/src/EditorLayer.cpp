@@ -24,6 +24,7 @@
 #include "OloEngine/Physics3D/Physics3DSystem.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Task/Task.h"
+#include "OloEngine/SaveGame/SaveGameManager.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -105,11 +106,15 @@ namespace OloEngine
 
         // Create brush preview UBO (binding 11, 32 bytes = 2 vec4s)
         m_BrushPreviewUBO = UniformBuffer::Create(ShaderBindingLayout::BrushPreviewUBO::GetSize(), ShaderBindingLayout::UBO_BRUSH_PREVIEW);
+
+        // Initialize save game system
+        SaveGameManager::Initialize();
     }
 
     void EditorLayer::OnDetach()
     {
         OLO_PROFILE_FUNCTION();
+        SaveGameManager::Shutdown();
         s_Font.reset();
     }
 
@@ -200,6 +205,7 @@ namespace OloEngine
             {
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
                 m_ActiveScene->OnUpdateRuntime(ts);
+                SaveGameManager::Tick(ts, *m_ActiveScene);
                 break;
             }
         }
@@ -366,6 +372,19 @@ namespace OloEngine
 
             ImGui::Separator();
 
+            bool playMode = m_SceneState == SceneState::Play;
+            if (ImGui::MenuItem("Quick Save", "F5", false, playMode))
+            {
+                m_SaveGamePanel.TriggerQuickSave();
+            }
+
+            if (ImGui::MenuItem("Quick Load", "F9", false, playMode))
+            {
+                m_SaveGamePanel.TriggerQuickLoad();
+            }
+
+            ImGui::Separator();
+
             if (ImGui::MenuItem("Exit"))
             {
                 Application::Get().Close();
@@ -432,6 +451,7 @@ namespace OloEngine
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
+            ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
 
             ImGui::EndMenu();
         }
@@ -726,6 +746,12 @@ namespace OloEngine
         {
             m_DialogueEditorPanel.OnImGuiRender();
         }
+
+        // Save Game Panel
+        if (m_ShowSaveGamePanel)
+        {
+            m_SaveGamePanel.OnImGuiRender();
+        }
     }
 
     void EditorLayer::ApplyDefault3DCameraPose()
@@ -984,6 +1010,24 @@ namespace OloEngine
                     {
                         m_GizmoType = ImGuizmo::OPERATION::SCALE;
                     }
+                }
+                break;
+            }
+
+            // Save Game shortcuts (only in Play mode)
+            case Key::F5:
+            {
+                if (m_SceneState == SceneState::Play)
+                {
+                    m_SaveGamePanel.TriggerQuickSave();
+                }
+                break;
+            }
+            case Key::F9:
+            {
+                if (m_SceneState == SceneState::Play)
+                {
+                    m_SaveGamePanel.TriggerQuickLoad();
                 }
                 break;
             }
@@ -1321,6 +1365,7 @@ namespace OloEngine
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
         m_AnimationPanel.SetContext(m_ActiveScene);
         m_StreamingPanel.SetContext(m_ActiveScene);
+        m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
     }
 
     void EditorLayer::OnSceneSimulate()
@@ -1364,6 +1409,7 @@ namespace OloEngine
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
         m_AnimationPanel.SetContext(m_ActiveScene);
         m_StreamingPanel.SetContext(m_ActiveScene);
+        m_SaveGamePanel.SetContext(nullptr, nullptr);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
