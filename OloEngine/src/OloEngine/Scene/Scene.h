@@ -147,7 +147,10 @@ namespace OloEngine
         }
         void SetGridSpacing(f32 spacing)
         {
-            m_GridSpacing = spacing;
+            if (spacing > 0.0f)
+            {
+                m_GridSpacing = spacing;
+            }
         }
         [[nodiscard("Store this!")]] f32 GetGridSpacing() const
         {

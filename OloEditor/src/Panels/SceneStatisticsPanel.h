@@ -9,7 +9,10 @@ namespace OloEngine
       public:
         SceneStatisticsPanel() = default;
 
-        void SetContext(const Ref<Scene>& context) { m_Context = context; }
+        void SetContext(const Ref<Scene>& context)
+        {
+            m_Context = context;
+        }
         void OnImGuiRender();
 
       private:

@@ -148,6 +148,16 @@ namespace OloEngine
             auto& fullData = m_TerrainData->GetHeightData();
             u32 resolution = m_TerrainData->GetResolution();
 
+            // Validate region bounds
+            if (m_RegionX + m_RegionW > resolution || m_RegionY + m_RegionH > resolution)
+            {
+                return;
+            }
+            if (heights.size() < static_cast<sizet>(m_RegionW) * m_RegionH)
+            {
+                return;
+            }
+
             for (u32 row = 0; row < m_RegionH; ++row)
             {
                 u32 srcIdx = row * m_RegionW;
@@ -218,6 +228,16 @@ namespace OloEngine
             auto& splatmap = m_Material->GetSplatmapData(m_SplatmapIndex);
             u32 resolution = m_Material->GetSplatmapResolution();
             constexpr u32 channels = 4; // RGBA8
+
+            // Validate region bounds
+            if (m_RegionX + m_RegionW > resolution || m_RegionY + m_RegionH > resolution)
+            {
+                return;
+            }
+            if (data.size() < static_cast<sizet>(m_RegionW) * m_RegionH * channels)
+            {
+                return;
+            }
 
             for (u32 row = 0; row < m_RegionH; ++row)
             {

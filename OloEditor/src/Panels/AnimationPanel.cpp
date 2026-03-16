@@ -265,6 +265,20 @@ namespace OloEngine
                 m_IsEditingBlendDuration = false;
             }
         }
+        else if (m_IsEditingBlendDuration)
+        {
+            // Blend control disappeared while editing — flush pending edit
+            if (m_CommandHistory && m_Context && m_BlendDurationSnapshot != animState.m_BlendDuration)
+            {
+                AnimationStateComponent oldState = animState;
+                oldState.m_BlendDuration = m_BlendDurationSnapshot;
+                m_CommandHistory->PushAlreadyExecuted(
+                    std::make_unique<ComponentChangeCommand<AnimationStateComponent>>(
+                        m_Context, entity.GetUUID(),
+                        oldState, animState, "Change Blend Duration"));
+            }
+            m_IsEditingBlendDuration = false;
+        }
 
         // Update animation if playing (editor preview mode)
         if (animState.m_IsPlaying && animState.m_CurrentClip)

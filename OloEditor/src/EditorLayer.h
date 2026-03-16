@@ -59,8 +59,8 @@ namespace OloEngine
         void NewScene();
         void OpenScene();
         bool OpenScene(const std::filesystem::path& path);
-        void SaveScene();
-        void SaveSceneAs();
+        bool SaveScene();
+        bool SaveSceneAs();
 
         void SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
 

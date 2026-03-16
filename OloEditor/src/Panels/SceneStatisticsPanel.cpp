@@ -21,7 +21,14 @@ namespace OloEngine
 
         // FPS / Frame Time
         f32 const fps = ImGui::GetIO().Framerate;
-        ImGui::Text("FPS: %.0f  (%.2f ms)", fps, 1000.0f / fps);
+        if (fps > 0.0f)
+        {
+            ImGui::Text("FPS: %.0f  (%.2f ms)", fps, 1000.0f / fps);
+        }
+        else
+        {
+            ImGui::Text("FPS: -  (- ms)");
+        }
         ImGui::Separator();
 
         // Entity count

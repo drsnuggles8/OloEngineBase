@@ -557,7 +557,7 @@ namespace OloEngine
                         OpenScene(path);
                     }
                 }
-                else if (((path.extension() == ".png") || (path.extension() == ".jpeg")) && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
+                else if (m_SceneState == SceneState::Edit && ((path.extension() == ".png") || (path.extension() == ".jpeg")) && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
                 {
                     const Ref<Texture2D> texture = Texture2D::Create(path.string());
                     if (texture->IsLoaded())
@@ -574,7 +574,7 @@ namespace OloEngine
                         OLO_WARN("Could not load texture {0}", path.filename().string());
                     }
                 }
-                else if (path.extension() == ".oloprefab") // Instantiate prefab
+                else if (m_SceneState == SceneState::Edit && path.extension() == ".oloprefab") // Instantiate prefab
                 {
                     auto* editorManager = static_cast<EditorAssetManager*>(
                         Project::GetActive()->GetAssetManager().get());
@@ -1406,6 +1406,11 @@ namespace OloEngine
 
     void EditorLayer::NewProject()
     {
+        if (!ConfirmDiscardChanges())
+        {
+            return;
+        }
+
         Project::New();
         NewScene();
         m_DialogueEditorPanel.NewDialogue();
@@ -1544,7 +1549,7 @@ namespace OloEngine
         return true;
     }
 
-    void EditorLayer::SaveScene()
+    bool EditorLayer::SaveScene()
     {
         if (!m_EditorScenePath.empty())
         {
@@ -1572,14 +1577,13 @@ namespace OloEngine
             {
                 m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());
             }
+            return true;
         }
-        else
-        {
-            SaveSceneAs();
-        }
+
+        return SaveSceneAs();
     }
 
-    void EditorLayer::SaveSceneAs()
+    bool EditorLayer::SaveSceneAs()
     {
         std::error_code ec;
         auto const dir = Project::GetActive()
@@ -1587,22 +1591,25 @@ namespace OloEngine
                              : std::filesystem::current_path(ec).string();
         const char* initialDir = ec ? nullptr : dir.c_str();
         const std::filesystem::path filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0", initialDir);
-        if (!filepath.empty())
+        if (filepath.empty())
         {
-            m_EditorScene->SetName(filepath.stem().string());
-            m_EditorScenePath = filepath;
-
-            m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
-            m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
-            m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
-            m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
-            m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
-            m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
-            m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
-            SerializeScene(m_EditorScene, filepath);
-            m_CommandHistory.MarkSaved();
-            SyncWindowTitle();
+            return false;
         }
+
+        m_EditorScene->SetName(filepath.stem().string());
+        m_EditorScenePath = filepath;
+
+        m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+        m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
+        m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
+        m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
+        m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
+        m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
+        m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
+        SerializeScene(m_EditorScene, filepath);
+        m_CommandHistory.MarkSaved();
+        SyncWindowTitle();
+        return true;
     }
 
     void EditorLayer::SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const
@@ -1648,8 +1655,11 @@ namespace OloEngine
         m_ActiveScene->OnRuntimeStart();
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_SceneHierarchyPanel.SetCommandHistory(nullptr);
         m_AnimationPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetCommandHistory(nullptr);
         m_StreamingPanel.SetContext(m_ActiveScene);
+        m_StreamingPanel.SetCommandHistory(nullptr);
         m_SceneStatisticsPanel.SetContext(m_ActiveScene);
     }
 
@@ -1666,8 +1676,11 @@ namespace OloEngine
         m_ActiveScene->OnSimulationStart();
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_SceneHierarchyPanel.SetCommandHistory(nullptr);
         m_AnimationPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetCommandHistory(nullptr);
         m_StreamingPanel.SetContext(m_ActiveScene);
+        m_StreamingPanel.SetCommandHistory(nullptr);
         m_SceneStatisticsPanel.SetContext(m_ActiveScene);
     }
 
@@ -1693,8 +1706,11 @@ namespace OloEngine
         m_ActiveScene = m_EditorScene;
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_SceneHierarchyPanel.SetCommandHistory(&m_CommandHistory);
         m_AnimationPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetCommandHistory(&m_CommandHistory);
         m_StreamingPanel.SetContext(m_ActiveScene);
+        m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
         m_SceneStatisticsPanel.SetContext(m_ActiveScene);
     }
 
@@ -1752,8 +1768,7 @@ namespace OloEngine
         switch (result)
         {
             case MessagePromptResult::Yes:
-                SaveScene();
-                return true;
+                return SaveScene();
             case MessagePromptResult::No:
                 return true;
             case MessagePromptResult::Cancel:

@@ -183,13 +183,21 @@ namespace OloEngine
             if (entityOpt && !entityOpt->HasComponent<T>())
             {
                 auto& comp = entityOpt->AddComponent<T>();
-                if (m_InitFn)
+                if (m_HasSnapshot)
                 {
-                    m_InitFn(comp);
+                    // Redo: restore from snapshot instead of re-running init
+                    comp = m_Snapshot;
                 }
-                // Snapshot after init for redo consistency
-                m_Snapshot = entityOpt->GetComponent<T>();
-                m_HasSnapshot = true;
+                else
+                {
+                    if (m_InitFn)
+                    {
+                        m_InitFn(comp);
+                    }
+                    // Snapshot after init for redo consistency
+                    m_Snapshot = entityOpt->GetComponent<T>();
+                    m_HasSnapshot = true;
+                }
             }
         }
 

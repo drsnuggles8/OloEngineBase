@@ -185,14 +185,15 @@ namespace OloEngine
       private:
         void TrimSavePoint()
         {
-            // When oldest entry is discarded, save point may become unreachable
-            if (m_SavePointValid && m_SavePointVersion > 0)
+            // When oldest entry is discarded, check if save point is still reachable
+            if (m_SavePointValid)
             {
-                --m_SavePointVersion;
-            }
-            else if (m_SavePointVersion == 0)
-            {
-                m_SavePointValid = false;
+                // Minimum version reachable via undo = m_Version - m_UndoStack.size()
+                std::size_t const minReachable = m_Version - m_UndoStack.size();
+                if (m_SavePointVersion < minReachable)
+                {
+                    m_SavePointValid = false;
+                }
             }
         }
 

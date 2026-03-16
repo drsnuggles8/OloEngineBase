@@ -21,12 +21,14 @@ namespace OloEngine
         Cancel
     };
 
+#ifdef _WIN32
     class MessagePrompt
     {
       public:
         // Show a Yes / No / Cancel dialog. Returns which button was pressed.
         static MessagePromptResult YesNoCancel(const char* title, const char* message);
     };
+#endif
 
     class Time
     {

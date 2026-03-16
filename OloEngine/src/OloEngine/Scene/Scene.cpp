@@ -287,11 +287,8 @@ namespace OloEngine
             }
         }
 
-        // Dialogue system initialization (only if scene uses dialogues)
-        if (auto dialogueView = m_Registry.view<DialogueComponent>(); !dialogueView.empty())
-        {
-            m_DialogueSystem = std::make_unique<DialogueSystem>(this);
-        }
+        // Dialogue system initialization
+        m_DialogueSystem = std::make_unique<DialogueSystem>(this);
 
         // Scripting
         {
@@ -980,9 +977,24 @@ namespace OloEngine
 
     [[nodiscard]] Entity Scene::DuplicateEntity(Entity entity)
     {
-        const Entity newEntity = CreateEntity(entity.GetName());
+        Entity newEntity = CreateEntity(entity.GetName());
 
         CopyComponentIfExists(AllComponents{}, newEntity, entity);
+
+        // Fix up special-case components after bulk copy
+        // RelationshipComponent: clear parent/children to avoid sharing hierarchy links
+        if (newEntity.HasComponent<RelationshipComponent>())
+        {
+            auto& rel = newEntity.GetComponent<RelationshipComponent>();
+            rel.m_ParentHandle = UUID(0);
+            rel.m_Children.clear();
+        }
+
+        // CameraComponent: force Primary = false to avoid multiple primaries
+        if (newEntity.HasComponent<CameraComponent>())
+        {
+            newEntity.GetComponent<CameraComponent>().Primary = false;
+        }
 
         return newEntity;
     }

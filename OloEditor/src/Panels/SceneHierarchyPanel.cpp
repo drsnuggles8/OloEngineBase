@@ -29,6 +29,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <cstring>
+#include <cctype>
 #include <unordered_map>
 #include <algorithm>
 
@@ -94,7 +95,7 @@ namespace OloEngine
                 }
                 DrawEntityNode(entity); });
 
-            if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
+            if (ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered())
             {
                 ClearSelection();
             }

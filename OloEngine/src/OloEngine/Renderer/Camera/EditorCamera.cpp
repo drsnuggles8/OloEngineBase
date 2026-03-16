@@ -59,6 +59,8 @@ namespace OloEngine
 
     void EditorCamera::OnUpdate(Timestep const ts)
     {
+        OLO_PROFILE_FUNCTION();
+
         const glm::vec2 mouse{ Input::GetMouseX(), Input::GetMouseY() };
         const glm::vec2 delta = (mouse - m_InitialMousePosition) * 0.003f;
         m_InitialMousePosition = mouse;
@@ -86,6 +88,9 @@ namespace OloEngine
 
             // Mouse look
             MouseRotate(delta);
+
+            // Keep focal point in front of camera so rotation doesn't cause orbiting
+            m_FocalPoint = m_Position + GetForwardDirection() * m_Distance;
 
             // WASD + QE movement
             f32 speed = m_FlySpeed * ts;
@@ -142,6 +147,8 @@ namespace OloEngine
 
     bool EditorCamera::OnMouseScroll(const MouseScrolledEvent& e)
     {
+        OLO_PROFILE_FUNCTION();
+
         const f32 delta = e.GetYOffset() * 0.1f;
         if (m_Flying)
         {

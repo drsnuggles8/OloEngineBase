@@ -188,13 +188,13 @@ namespace UndoTest
       private:
         void TrimSavePoint()
         {
-            if (m_SavePointValid && m_SavePointVersion > 0)
+            if (m_SavePointValid)
             {
-                --m_SavePointVersion;
-            }
-            else if (m_SavePointVersion == 0)
-            {
-                m_SavePointValid = false;
+                std::size_t const minReachable = m_Version - m_UndoStack.size();
+                if (m_SavePointVersion < minReachable)
+                {
+                    m_SavePointValid = false;
+                }
             }
         }
 

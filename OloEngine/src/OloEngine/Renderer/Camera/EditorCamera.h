@@ -86,7 +86,7 @@ namespace OloEngine
         }
         void SetFlySpeed(const f32 speed)
         {
-            m_FlySpeed = speed;
+            m_FlySpeed = std::max(0.5f, speed);
         }
         [[nodiscard("Store this!")]] f32 GetFlySpeed() const
         {

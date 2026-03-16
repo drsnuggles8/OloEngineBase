@@ -1184,7 +1184,11 @@ namespace OloEngine
             }
             if (auto fs = cameraComponent["FlySpeed"]; fs)
             {
-                cc.FlySpeed = fs.as<f32>();
+                f32 const flySpeed = fs.as<f32>();
+                if (std::isfinite(flySpeed) && flySpeed > 0.0f)
+                {
+                    cc.FlySpeed = flySpeed;
+                }
             }
         }
 

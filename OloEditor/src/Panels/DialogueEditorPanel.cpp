@@ -43,6 +43,26 @@ namespace OloEngine
         }
 
         auto newState = CaptureSnapshot();
+
+        // Skip no-op commands (quick structural comparison)
+        if (oldState.RootNodeID == newState.RootNodeID && oldState.Nodes.size() == newState.Nodes.size() && oldState.Connections.size() == newState.Connections.size())
+        {
+            // Check if node IDs and connection endpoints match
+            bool same = true;
+            for (sizet i = 0; i < oldState.Nodes.size() && same; ++i)
+            {
+                same = (static_cast<u64>(oldState.Nodes[i].ID) == static_cast<u64>(newState.Nodes[i].ID) && oldState.Nodes[i].Name == newState.Nodes[i].Name && oldState.Nodes[i].Type == newState.Nodes[i].Type && oldState.Nodes[i].Properties == newState.Nodes[i].Properties);
+            }
+            for (sizet i = 0; i < oldState.Connections.size() && same; ++i)
+            {
+                same = (static_cast<u64>(oldState.Connections[i].SourceNodeID) == static_cast<u64>(newState.Connections[i].SourceNodeID) && static_cast<u64>(oldState.Connections[i].TargetNodeID) == static_cast<u64>(newState.Connections[i].TargetNodeID) && oldState.Connections[i].SourcePort == newState.Connections[i].SourcePort && oldState.Connections[i].TargetPort == newState.Connections[i].TargetPort);
+            }
+            if (same)
+            {
+                return;
+            }
+        }
+
         auto* panel = this;
         m_CommandHistory->PushAlreadyExecuted(
             std::make_unique<DialogueEditorChangeCommand>(

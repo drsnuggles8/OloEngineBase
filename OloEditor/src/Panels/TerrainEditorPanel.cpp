@@ -8,6 +8,8 @@
 
 #include <imgui.h>
 
+#include <cstring>
+
 namespace OloEngine
 {
     static const char* s_SculptToolNames[] = { "Raise", "Lower", "Smooth", "Flatten", "Level" };
@@ -242,15 +244,16 @@ namespace OloEngine
                         std::memcpy(&newSplatmap0[dstIdx], &splatmap0[srcIdx], m_StrokeDirtyW * channels);
                     }
 
-                    m_CommandHistory->PushAlreadyExecuted(
-                        std::make_unique<TerrainPaintCommand>(
+                    // If using second splatmap (>4 layers), create a compound command
+                    if (m_StrokeMaterial->GetLayerCount() > 4 && !m_StrokeOldSplatmap1.empty())
+                    {
+                        auto compound = std::make_unique<CompoundCommand>("Terrain Paint");
+
+                        compound->Add(std::make_unique<TerrainPaintCommand>(
                             m_StrokeMaterial, 0,
                             m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH,
                             std::move(oldRegion0), std::move(newSplatmap0)));
 
-                    // If using second splatmap (>4 layers), push a second command
-                    if (m_StrokeMaterial->GetLayerCount() > 4 && !m_StrokeOldSplatmap1.empty())
-                    {
                         std::vector<u8> oldRegion1(m_StrokeDirtyW * m_StrokeDirtyH * channels);
                         for (u32 row = 0; row < m_StrokeDirtyH; ++row)
                         {
@@ -268,11 +271,20 @@ namespace OloEngine
                             std::memcpy(&newSplatmap1[dstIdx], &splatmap1[srcIdx], m_StrokeDirtyW * channels);
                         }
 
+                        compound->Add(std::make_unique<TerrainPaintCommand>(
+                            m_StrokeMaterial, 1,
+                            m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH,
+                            std::move(oldRegion1), std::move(newSplatmap1)));
+
+                        m_CommandHistory->PushAlreadyExecuted(std::move(compound));
+                    }
+                    else
+                    {
                         m_CommandHistory->PushAlreadyExecuted(
                             std::make_unique<TerrainPaintCommand>(
-                                m_StrokeMaterial, 1,
+                                m_StrokeMaterial, 0,
                                 m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH,
-                                std::move(oldRegion1), std::move(newSplatmap1)));
+                                std::move(oldRegion0), std::move(newSplatmap0)));
                     }
                 }
             }
