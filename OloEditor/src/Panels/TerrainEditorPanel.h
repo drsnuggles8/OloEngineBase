@@ -8,12 +8,9 @@
 #include "OloEngine/Terrain/Editor/TerrainErosion.h"
 
 #include <glm/glm.hpp>
-#include <vector>
 
 namespace OloEngine
 {
-    class CommandHistory;
-
     enum class TerrainEditMode : u8
     {
         None = 0,
@@ -30,10 +27,6 @@ namespace OloEngine
         void SetContext(const Ref<Scene>& scene)
         {
             m_Context = scene;
-        }
-        void SetCommandHistory(CommandHistory* history)
-        {
-            m_CommandHistory = history;
         }
         void OnImGuiRender();
 
@@ -69,7 +62,6 @@ namespace OloEngine
         void DrawErosionUI();
 
         Ref<Scene> m_Context;
-        CommandHistory* m_CommandHistory = nullptr;
         TerrainEditMode m_EditMode = TerrainEditMode::None;
 
         // Sculpt settings
@@ -86,25 +78,5 @@ namespace OloEngine
         // Brush hit state (from viewport raycast)
         glm::vec3 m_BrushWorldPos{ 0.0f };
         bool m_HasBrushHit = false;
-
-        // Stroke tracking for undo
-        bool m_StrokeActive = false;
-        // Accumulated dirty region across entire stroke
-        u32 m_StrokeDirtyX = 0;
-        u32 m_StrokeDirtyY = 0;
-        u32 m_StrokeDirtyW = 0;
-        u32 m_StrokeDirtyH = 0;
-        // Snapshot of the height data before the stroke started
-        std::vector<f32> m_StrokeOldHeights;
-        // Snapshot of splatmap data before paint stroke
-        std::vector<u8> m_StrokeOldSplatmap0;
-        std::vector<u8> m_StrokeOldSplatmap1;
-        // Terrain references for stroke undo
-        Ref<TerrainData> m_StrokeTerrainData;
-        Ref<TerrainChunkManager> m_StrokeChunkManager;
-        Ref<TerrainMaterial> m_StrokeMaterial;
-        f32 m_StrokeWorldSizeX = 0.0f;
-        f32 m_StrokeWorldSizeZ = 0.0f;
-        f32 m_StrokeHeightScale = 0.0f;
     };
 } // namespace OloEngine

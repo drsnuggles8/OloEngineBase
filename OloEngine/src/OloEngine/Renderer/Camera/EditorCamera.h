@@ -80,19 +80,6 @@ namespace OloEngine
         [[nodiscard("Store this!")]] glm::vec3 GetForwardDirection() const;
         [[nodiscard("Store this!")]] glm::quat GetOrientation() const;
 
-        [[nodiscard("Store this!")]] bool IsFlying() const
-        {
-            return m_Flying;
-        }
-        void SetFlySpeed(const f32 speed)
-        {
-            m_FlySpeed = std::max(0.5f, speed);
-        }
-        [[nodiscard("Store this!")]] f32 GetFlySpeed() const
-        {
-            return m_FlySpeed;
-        }
-
       private:
         void UpdateProjection();
         void UpdateView();
@@ -124,9 +111,6 @@ namespace OloEngine
         f32 m_Distance = 10.0F;
         f32 m_Pitch = 0.0F;
         f32 m_Yaw = 0.0F;
-
-        f32 m_FlySpeed = 5.0F;
-        bool m_Flying = false;
 
         f32 m_ViewportWidth = 1280.0F;
         f32 m_ViewportHeight = 720.0F;

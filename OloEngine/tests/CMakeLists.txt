@@ -89,8 +89,8 @@ add_executable(OloEngine-Tests
 		DialogueVariablesTest.cpp
 		DialogueTreeSerializationTest.cpp
 		DialogueSystemTest.cpp
-	UndoRedoTest.cpp
-)
+		)
+		
 target_link_libraries(OloEngine-Tests
 	OloEngine
 	gtest)

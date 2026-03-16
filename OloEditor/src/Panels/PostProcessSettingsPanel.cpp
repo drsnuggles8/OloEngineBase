@@ -3,10 +3,8 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
-#include "../UndoRedo/SpecializedCommands.h"
 
 #include <imgui.h>
-#include <imgui_internal.h>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace OloEngine
@@ -16,13 +14,6 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         ImGui::Begin("Post Processing");
-
-        // Snapshot before any UI for undo tracking
-        auto& settings = Renderer3D::GetPostProcessSettings();
-        if (m_CommandHistory && !m_IsEditing)
-        {
-            m_Snapshot = settings;
-        }
 
         DrawToneMappingSection();
         DrawSSAOSection();
@@ -39,30 +30,6 @@ namespace OloEngine
         DrawFXAASection();
         DrawDOFSection();
         DrawMotionBlurSection();
-
-        // Undo tracking: detect changes and push command when editing ends
-        if (m_CommandHistory)
-        {
-            const bool changed = (std::memcmp(&m_Snapshot, &settings, sizeof(PostProcessSettings)) != 0);
-
-            if (changed && !m_IsEditing)
-            {
-                m_IsEditing = true;
-            }
-
-            if (m_IsEditing && !changed && ::GImGui->ActiveId == 0)
-            {
-                // No change this frame + no active widget → editing ended, but nothing changed from snapshot
-                m_IsEditing = false;
-            }
-            else if (m_IsEditing && ::GImGui->ActiveId == 0)
-            {
-                // Editing ended with actual changes
-                m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<PostProcessChangeCommand>(m_Snapshot, settings));
-                m_IsEditing = false;
-            }
-        }
 
         ImGui::End();
     }

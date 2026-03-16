@@ -128,8 +128,6 @@ namespace OloEngine
         SceneCamera Camera;
         bool Primary = true;
         bool FixedAspectRatio = false;
-        bool RuntimeControl = false;
-        f32 FlySpeed = 5.0f;
 
         CameraComponent() = default;
         CameraComponent(const CameraComponent&) = default;

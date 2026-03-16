@@ -158,11 +158,6 @@ namespace OloEngine
         m_Running = false;
     }
 
-    void Application::CancelClose()
-    {
-        m_Running = true;
-    }
-
     void Application::OnEvent(Event& e)
     {
         OLO_PROFILE_FUNCTION();
@@ -243,7 +238,7 @@ namespace OloEngine
     bool Application::OnWindowClose([[maybe_unused]] WindowCloseEvent const& e)
     {
         m_Running = false;
-        return false; // Allow layers to intercept and potentially cancel the close
+        return true;
     }
 
     bool Application::OnWindowResize(WindowResizeEvent const& e)

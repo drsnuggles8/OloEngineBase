@@ -6,8 +6,6 @@
 
 namespace OloEngine
 {
-    class CommandHistory;
-
     class AnimationPanel
     {
       public:
@@ -16,10 +14,6 @@ namespace OloEngine
 
         void SetContext(const Ref<Scene>& context);
         void SetSelectedEntity(Entity entity);
-        void SetCommandHistory(CommandHistory* history)
-        {
-            m_CommandHistory = history;
-        }
 
         void OnImGuiRender();
 
@@ -54,7 +48,6 @@ namespace OloEngine
       private:
         Ref<Scene> m_Context;
         Entity m_SelectedEntity;
-        CommandHistory* m_CommandHistory = nullptr;
 
         // Playback state
         bool m_IsPlaying = false;
@@ -64,10 +57,6 @@ namespace OloEngine
         // Timeline state
         f32 m_TimelineZoom = 1.0f;
         f32 m_TimelineOffset = 0.0f;
-
-        // Blend duration edit tracking
-        bool m_IsEditingBlendDuration = false;
-        f32 m_BlendDurationSnapshot = 0.0f;
 
         // Skeleton visualization state
         bool m_ShowSkeleton = false;
