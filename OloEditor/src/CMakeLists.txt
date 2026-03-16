@@ -36,6 +36,8 @@
 		"Panels/NetworkDebugPanel.h"
 		"Panels/SaveGamePanel.cpp"
 		"Panels/SaveGamePanel.h"
+		"Panels/ShaderGraphEditorPanel.cpp"
+		"Panels/ShaderGraphEditorPanel.h"
 )
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES "../assets/shaders/*.glsl")

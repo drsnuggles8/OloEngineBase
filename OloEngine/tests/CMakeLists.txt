@@ -89,6 +89,11 @@ add_executable(OloEngine-Tests
 		DialogueVariablesTest.cpp
 		DialogueTreeSerializationTest.cpp
 		DialogueSystemTest.cpp
+		# Shader Graph Tests
+		ShaderGraph/ShaderGraphTest.cpp
+		ShaderGraph/ShaderGraphCompilerTest.cpp
+		ShaderGraph/ShaderGraphSerializationTest.cpp
+		ShaderGraph/ShaderGraphCommandTest.cpp
 		# Serialization Tests
 		Serialization/ArchiveExtensionsTest.cpp
 		# SaveGame Tests

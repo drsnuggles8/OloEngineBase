@@ -14,6 +14,7 @@
 #include "OloEngine/Particle/ParticleCurveSerializer.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
+#include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 
 #include <fstream>
 #include <cmath>
@@ -1465,6 +1466,16 @@ namespace OloEngine
             {
                 matc.m_Material.SetRoughnessFactor(materialComponent["Roughness"].as<f32>());
             }
+            if (materialComponent["ShaderGraphHandle"])
+            {
+                matc.ShaderGraphHandle = UUID(materialComponent["ShaderGraphHandle"].as<u64>());
+                // Compile and apply the shader graph if the asset is available
+                if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(matc.ShaderGraphHandle))
+                {
+                    if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(matc.ShaderGraphHandle))))
+                        matc.m_Material.SetShader(shader);
+                }
+            }
         }
 
         if (auto dirLightComponent = entity["DirectionalLightComponent"]; dirLightComponent)
@@ -2398,6 +2409,9 @@ namespace OloEngine
             out << YAML::Key << "AlbedoColor" << YAML::Value << glm::vec3(baseColor.r, baseColor.g, baseColor.b);
             out << YAML::Key << "Metallic" << YAML::Value << matComponent.m_Material.GetMetallicFactor();
             out << YAML::Key << "Roughness" << YAML::Value << matComponent.m_Material.GetRoughnessFactor();
+
+            if (matComponent.ShaderGraphHandle != 0)
+                out << YAML::Key << "ShaderGraphHandle" << YAML::Value << static_cast<u64>(matComponent.ShaderGraphHandle);
 
             out << YAML::EndMap; // MaterialComponent
         }

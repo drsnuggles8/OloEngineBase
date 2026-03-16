@@ -377,6 +377,7 @@ namespace OloEngine
     struct MaterialComponent
     {
         Material m_Material;
+        AssetHandle ShaderGraphHandle = 0;
 
         MaterialComponent() = default;
         MaterialComponent(const Material& material) : m_Material(material) {}

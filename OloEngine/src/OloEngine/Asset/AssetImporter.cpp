@@ -73,7 +73,8 @@ namespace OloEngine
             serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();
             serializers[AssetType::ParticleSystem] = CreateScope<ParticleSystemAssetSerializer>();
             serializers[AssetType::LightProbeVolume] = CreateScope<LightProbeVolumeSerializer>();
-            serializers[AssetType::DialogueTree] = CreateScope<DialogueTreeSerializer>(); });
+            serializers[AssetType::DialogueTree] = CreateScope<DialogueTreeSerializer>();
+            serializers[AssetType::ShaderGraph] = CreateScope<ShaderGraphSerializer>(); });
     }
 
     void AssetImporter::Shutdown()

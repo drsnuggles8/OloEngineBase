@@ -18,6 +18,7 @@
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
+#include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Debug/Instrumentor.h"
 #include "../UndoRedo/EntityCommands.h"
 #include "../UndoRedo/ComponentCommands.h"
@@ -2148,7 +2149,62 @@ namespace OloEngine
 
             f32 roughness = component.m_Material.GetRoughnessFactor();
             if (ImGui::DragFloat("Roughness", &roughness, 0.01f, 0.0f, 1.0f))
-                component.m_Material.SetRoughnessFactor(roughness); });
+                component.m_Material.SetRoughnessFactor(roughness);
+
+            ImGui::Separator();
+
+            // Shader Graph assignment
+            {
+                bool hasGraph = component.ShaderGraphHandle != 0;
+                std::string currentLabel = hasGraph ? ("ShaderGraph: " + std::to_string(static_cast<u64>(component.ShaderGraphHandle))) : "None (Default PBR)";
+
+                ImGui::Text("Shader Graph");
+                ImGui::SameLine();
+
+                if (ImGui::Button(currentLabel.c_str()))
+                {
+                    // TODO: Open asset browser/picker for ShaderGraph assets
+                }
+
+                // Drop target for drag-and-drop from ContentBrowser
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    {
+                        auto handle = *static_cast<const AssetHandle*>(payload->Data);
+                        if (AssetManager::GetAssetType(handle) == AssetType::ShaderGraph)
+                        {
+                            component.ShaderGraphHandle = handle;
+                            if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(handle))
+                            {
+                                if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(handle))))
+                                    component.m_Material.SetShader(shader);
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+
+                if (hasGraph)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Clear##ShaderGraph"))
+                    {
+                        component.ShaderGraphHandle = 0;
+                        component.m_Material.SetShader(nullptr);
+                    }
+
+                    if (ImGui::Button("Recompile##ShaderGraph"))
+                    {
+                        if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(component.ShaderGraphHandle))
+                        {
+                            graphAsset->MarkDirty();
+                            if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(component.ShaderGraphHandle))))
+                                component.m_Material.SetShader(shader);
+                        }
+                    }
+                }
+            } });
 
         DrawComponent<DirectionalLightComponent>("Directional Light", entity, [](auto& component)
                                                  {

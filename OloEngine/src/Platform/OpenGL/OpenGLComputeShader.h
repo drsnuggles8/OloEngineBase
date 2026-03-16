@@ -11,6 +11,7 @@ namespace OloEngine
     {
       public:
         explicit OpenGLComputeShader(const std::string& filepath);
+        OpenGLComputeShader(const std::string& name, const std::string& source);
         ~OpenGLComputeShader() override;
 
         void Bind() const override;

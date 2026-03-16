@@ -279,6 +279,10 @@ namespace OloEngine
                                             "hasTriggered", &DialogueComponent::m_HasTriggered,
                                             "triggerOnce", &DialogueComponent::m_TriggerOnce);
 
+        // --- MaterialComponent ---
+        lua.new_usertype<MaterialComponent>("MaterialComponent",
+                                            "shaderGraphHandle", &MaterialComponent::ShaderGraphHandle);
+
         // --- Dialogue system functions ---
         auto dialogueTable = lua.create_named_table("dialogue");
         dialogueTable["start"] = [](Entity* entity)

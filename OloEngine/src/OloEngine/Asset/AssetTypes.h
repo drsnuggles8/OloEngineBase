@@ -37,6 +37,7 @@ namespace OloEngine
         Terrain = 26,
         LightProbeVolume = 27,
         DialogueTree = 28,
+        ShaderGraph = 29,
     };
 
     enum class AssetFlag : u16
@@ -157,6 +158,8 @@ namespace OloEngine
                     return "LightProbeVolume";
                 case AssetType::DialogueTree:
                     return "DialogueTree";
+                case AssetType::ShaderGraph:
+                    return "ShaderGraph";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -230,6 +233,8 @@ namespace OloEngine
                 return AssetType::LightProbeVolume;
             if (assetType == "DialogueTree")
                 return AssetType::DialogueTree;
+            if (assetType == "ShaderGraph")
+                return AssetType::ShaderGraph;
 
             return AssetType::None;
         }

@@ -1433,6 +1433,28 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
+    // MaterialComponent //////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static u64 MaterialComponent_GetShaderGraphHandle(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return static_cast<u64>(entity.GetComponent<MaterialComponent>().ShaderGraphHandle);
+    }
+
+    static void MaterialComponent_SetShaderGraphHandle(UUID entityID, u64 handle)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        entity.GetComponent<MaterialComponent>().ShaderGraphHandle = handle;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
     // Dialogue ///////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -2064,6 +2086,12 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(DialogueVariables_SetString);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_Has);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_Clear);
+
+        ///////////////////////////////////////////////////////////////
+        // MaterialComponent /////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(MaterialComponent_GetShaderGraphHandle);
+        OLO_ADD_INTERNAL_CALL(MaterialComponent_SetShaderGraphHandle);
 
         ///////////////////////////////////////////////////////////////
         // SaveGame //////////////////////////////////////////////////

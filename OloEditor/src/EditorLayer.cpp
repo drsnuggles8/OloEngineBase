@@ -27,6 +27,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
+#include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -533,6 +534,7 @@ namespace OloEngine
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
+            ImGui::MenuItem("Shader Graph Editor", nullptr, &m_ShowShaderGraphEditor);
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
 
             ImGui::EndMenu();
@@ -956,6 +958,14 @@ namespace OloEngine
         {
             m_DialogueEditorPanel.OnImGuiRender();
             m_ShowDialogueEditor = m_DialogueEditorPanel.IsOpen();
+        }
+
+        // Shader Graph Editor Panel
+        if (m_ShowShaderGraphEditor)
+        {
+            m_ShaderGraphEditorPanel.SetOpen(true);
+            m_ShaderGraphEditorPanel.OnImGuiRender();
+            m_ShowShaderGraphEditor = m_ShaderGraphEditorPanel.IsOpen();
         }
 
         // Save Game Panel
@@ -1456,6 +1466,11 @@ namespace OloEngine
             {
                 m_DialogueEditorPanel.OpenDialogue(path);
                 m_ShowDialogueEditor = true;
+            }
+            else if (type == ContentFileType::ShaderGraph)
+            {
+                m_ShaderGraphEditorPanel.OpenShaderGraph(path);
+                m_ShowShaderGraphEditor = true;
             }
             else if (type == ContentFileType::Scene)
             {
@@ -2152,6 +2167,33 @@ namespace OloEngine
             case AssetType::Script:
                 OLO_TRACE("   → Script asset reloaded - C# assemblies updated");
                 break;
+            case AssetType::ShaderGraph:
+            {
+                OLO_TRACE("   → Shader graph asset reloaded - recompiling affected materials");
+                auto recompileInScene = [&e](Ref<Scene>& scene)
+                {
+                    if (!scene)
+                        return;
+                    auto view = scene->GetAllEntitiesWith<MaterialComponent>();
+                    for (auto entityID : view)
+                    {
+                        auto& matComp = view.get<MaterialComponent>(entityID);
+                        if (matComp.ShaderGraphHandle == e.GetHandle())
+                        {
+                            if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(e.GetHandle()))
+                            {
+                                graphAsset->MarkDirty();
+                                if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(e.GetHandle()))))
+                                    matComp.m_Material.SetShader(shader);
+                            }
+                        }
+                    }
+                };
+                recompileInScene(m_ActiveScene);
+                if (m_EditorScene && m_EditorScene != m_ActiveScene)
+                    recompileInScene(m_EditorScene);
+                break;
+            }
             case AssetType::LightProbeVolume:
             {
                 OLO_TRACE("   → Light probe volume asset reloaded - marking volumes dirty");

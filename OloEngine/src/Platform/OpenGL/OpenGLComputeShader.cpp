@@ -48,6 +48,16 @@ namespace OloEngine
         OLO_SHADER_COMPILATION_END(m_RendererID, m_IsValid, "", 0.0);
     }
 
+    OpenGLComputeShader::OpenGLComputeShader(const std::string& name, const std::string& source)
+        : m_Name(name)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        OLO_SHADER_COMPILATION_START(m_Name, "<from_source>");
+        Compile(source);
+        OLO_SHADER_COMPILATION_END(m_RendererID, m_IsValid, "", 0.0);
+    }
+
     OpenGLComputeShader::~OpenGLComputeShader()
     {
         OLO_PROFILE_FUNCTION();

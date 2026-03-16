@@ -50,5 +50,6 @@ namespace OloEngine
         }
 
         static Ref<ComputeShader> Create(const std::string& filepath);
+        static Ref<ComputeShader> CreateFromSource(const std::string& name, const std::string& source);
     };
 } // namespace OloEngine

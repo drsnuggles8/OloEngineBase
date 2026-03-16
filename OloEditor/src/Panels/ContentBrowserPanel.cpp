@@ -7,6 +7,9 @@
 #include "OloEngine/Dialogue/DialogueTreeAsset.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Dialogue/DialogueTreeSerializer.h"
+#include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
+#include "OloEngine/Renderer/ShaderGraph/ShaderGraphSerializer.h"
+#include "OloEngine/Renderer/ShaderGraph/ShaderGraphNode.h"
 
 #include <imgui.h>
 #include <yaml-cpp/yaml.h>
@@ -59,6 +62,8 @@ namespace OloEngine
         { ".oloregion", ContentFileType::StreamingRegion },
         // Dialogue
         { ".olodialogue", ContentFileType::Dialogue },
+        // Shader Graphs
+        { ".olosg", ContentFileType::ShaderGraph },
         // Save Games
         { ".olosave", ContentFileType::SaveGame },
     };
@@ -260,6 +265,9 @@ namespace OloEngine
                     case ContentFileType::Dialogue:
                         ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.6f, 1.0f), "Dialogue Tree");
                         break;
+                    case ContentFileType::ShaderGraph:
+                        ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.9f, 1.0f), "Shader Graph");
+                        break;
                     case ContentFileType::SaveGame:
                         ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.4f, 1.0f), "Save Game");
                         break;
@@ -435,6 +443,40 @@ namespace OloEngine
                     serializer.Serialize(metadata, dialogueAsset);
 
                     OLO_CORE_INFO("Created dialogue tree: {}", dialoguePath.string());
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Shader Graph"))
+            {
+                static char shaderGraphName[256] = "NewShaderGraph";
+                ImGui::InputText("Name", shaderGraphName, sizeof(shaderGraphName));
+                if (ImGui::Button("Create##ShaderGraph"))
+                {
+                    std::string baseName = shaderGraphName;
+                    std::filesystem::path sgPath = m_CurrentDirectory / (baseName + ".olosg");
+                    int counter = 1;
+                    while (std::filesystem::exists(sgPath))
+                    {
+                        sgPath = m_CurrentDirectory / (baseName + "_" + std::to_string(counter++) + ".olosg");
+                    }
+
+                    auto sgAsset = Ref<ShaderGraphAsset>::Create();
+                    sgAsset->GetGraph().SetName(baseName);
+
+                    auto outputNode = CreateShaderGraphNode(ShaderGraphNodeTypes::PBROutput);
+                    outputNode->EditorPosition = glm::vec2(400.0f, 200.0f);
+                    sgAsset->GetGraph().AddNode(std::move(outputNode));
+
+                    AssetMetadata metadata;
+                    metadata.FilePath = std::filesystem::relative(sgPath, Project::GetAssetDirectory());
+                    metadata.Type = AssetType::ShaderGraph;
+
+                    ShaderGraphSerializer serializer;
+                    serializer.Serialize(metadata, sgAsset);
+
+                    OLO_CORE_INFO("Created shader graph: {}", sgPath.string());
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::EndMenu();
