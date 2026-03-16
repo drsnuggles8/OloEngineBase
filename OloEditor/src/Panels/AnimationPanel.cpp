@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "../UndoRedo/EditorCommand.h"
+#include "../UndoRedo/ComponentCommands.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -183,11 +185,22 @@ namespace OloEngine
 
                     if (ImGui::Selectable(itemLabel.c_str(), isSelected))
                     {
+                        // Snapshot for undo before changing
+                        AnimationStateComponent oldState = animState;
+
                         animState.m_CurrentClipIndex = i;
                         animState.m_CurrentClip = animState.m_AvailableClips[i];
                         animState.m_CurrentTime = 0.0f;
                         OLO_CORE_INFO("Switched to animation [{}]: '{}'", i,
                                       animState.m_CurrentClip ? animState.m_CurrentClip->Name : "(null)");
+
+                        if (m_CommandHistory && m_Context)
+                        {
+                            m_CommandHistory->PushAlreadyExecuted(
+                                std::make_unique<ComponentChangeCommand<AnimationStateComponent>>(
+                                    m_Context, entity.GetUUID(),
+                                    oldState, animState, "Change Animation Clip"));
+                        }
                     }
 
                     if (isSelected)
@@ -227,7 +240,44 @@ namespace OloEngine
         {
             ImGui::Text("Blending to next clip...");
             ImGui::ProgressBar(animState.m_BlendFactor, ImVec2(-1, 0), "Blend");
-            ImGui::DragFloat("Blend Duration##AnimControl", &animState.m_BlendDuration, 0.01f, 0.0f, 5.0f);
+
+            if (!m_IsEditingBlendDuration)
+            {
+                m_BlendDurationSnapshot = animState.m_BlendDuration;
+            }
+
+            if (ImGui::DragFloat("Blend Duration##AnimControl", &animState.m_BlendDuration, 0.01f, 0.0f, 5.0f))
+            {
+                m_IsEditingBlendDuration = true;
+            }
+
+            if (m_IsEditingBlendDuration && !ImGui::IsItemActive())
+            {
+                if (m_CommandHistory && m_Context && m_BlendDurationSnapshot != animState.m_BlendDuration)
+                {
+                    AnimationStateComponent oldState = animState;
+                    oldState.m_BlendDuration = m_BlendDurationSnapshot;
+                    m_CommandHistory->PushAlreadyExecuted(
+                        std::make_unique<ComponentChangeCommand<AnimationStateComponent>>(
+                            m_Context, entity.GetUUID(),
+                            oldState, animState, "Change Blend Duration"));
+                }
+                m_IsEditingBlendDuration = false;
+            }
+        }
+        else if (m_IsEditingBlendDuration)
+        {
+            // Blend control disappeared while editing — flush pending edit
+            if (m_CommandHistory && m_Context && m_BlendDurationSnapshot != animState.m_BlendDuration)
+            {
+                AnimationStateComponent oldState = animState;
+                oldState.m_BlendDuration = m_BlendDurationSnapshot;
+                m_CommandHistory->PushAlreadyExecuted(
+                    std::make_unique<ComponentChangeCommand<AnimationStateComponent>>(
+                        m_Context, entity.GetUUID(),
+                        oldState, animState, "Change Blend Duration"));
+            }
+            m_IsEditingBlendDuration = false;
         }
 
         // Update animation if playing (editor preview mode)

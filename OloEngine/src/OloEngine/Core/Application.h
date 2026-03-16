@@ -57,6 +57,7 @@ namespace OloEngine
         }
 
         void Close();
+        void CancelClose();
 
         [[nodiscard("Store this!")]] ImGuiLayer* GetImGuiLayer()
         {
@@ -83,6 +84,7 @@ namespace OloEngine
         Scope<Window> m_Window;
         ImGuiLayer* m_ImGuiLayer;
         bool m_Running = true;
+        bool m_CloseHandledByLayer = false;
         bool m_Minimized = false;
         LayerStack m_LayerStack;
         f32 m_LastFrameTime = 0.0f;

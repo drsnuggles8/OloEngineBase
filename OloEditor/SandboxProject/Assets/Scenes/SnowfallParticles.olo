@@ -47,7 +47,7 @@ Entities:
       Scale: [1, 1, 1]
     CameraComponent:
       Camera:
-        ProjectionType: 1
+        ProjectionType: 0
         PerspectiveFOV: 0.7853982
         PerspectiveNear: 0.1
         PerspectiveFar: 1000

@@ -4,6 +4,8 @@
 
 namespace OloEngine
 {
+    class CommandHistory;
+
     class PostProcessSettingsPanel
     {
       public:
@@ -12,7 +14,15 @@ namespace OloEngine
 
         void OnImGuiRender();
 
+        void SetCommandHistory(CommandHistory* history)
+        {
+            m_CommandHistory = history;
+        }
+
       private:
+        CommandHistory* m_CommandHistory = nullptr;
+        bool m_IsEditing = false;
+        PostProcessSettings m_Snapshot{};
         void DrawToneMappingSection();
         void DrawBloomSection();
         void DrawVignetteSection();

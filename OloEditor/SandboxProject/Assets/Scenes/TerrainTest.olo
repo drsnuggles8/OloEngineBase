@@ -1,19 +1,182 @@
-Scene: TerrainTest
+Scene: TerrainTest.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.3
+  VignetteSmoothness: 0.5
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.005
+  FXAAEnabled: false
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 8
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+SnowSettings:
+  Enabled: false
+  HeightStart: -5
+  HeightFull: 5
+  SlopeStart: 0.7
+  SlopeFull: 0.3
+  Albedo: [0.92, 0.93, 0.98]
+  Roughness: 0.65
+  SSSColor: [0.4, 0.6, 0.9]
+  SSSIntensity: 0.6
+  SparkleIntensity: 0.8
+  SparkleDensity: 80
+  SparkleScale: 1
+  NormalPerturbStrength: 0.25
+  WindDriftFactor: 0
+  SSSBlurEnabled: false
+  SSSBlurRadius: 2
+  SSSBlurFalloff: 1
+FogSettings:
+  Enabled: false
+  Mode: 2
+  Color: [0.5, 0.6, 0.7]
+  Density: 0.02
+  Start: 10
+  End: 300
+  HeightFalloff: 0.1
+  HeightOffset: 0
+  MaxOpacity: 1
+  EnableScattering: false
+  RayleighStrength: 1
+  MieStrength: 0.005
+  MieDirectionality: 0.76
+  RayleighColor: [0.27, 0.51, 0.83]
+  SunIntensity: 22
+  EnableVolumetric: false
+  VolumetricSamples: 32
+  AbsorptionCoefficient: 0.02
+  EnableNoise: false
+  NoiseScale: 0.01
+  NoiseSpeed: 0.1
+  NoiseIntensity: 0.3
+  EnableLightShafts: false
+  LightShaftIntensity: 1
+WindSettings:
+  Enabled: false
+  Direction: [1, 0, 0]
+  Speed: 5
+  GustStrength: 0.3
+  GustFrequency: 0.5
+  TurbulenceIntensity: 0.5
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+SnowAccumulationSettings:
+  Enabled: false
+  AccumulationRate: 0.02
+  MaxDepth: 0.5
+  MeltRate: 0.005
+  RestorationRate: 0.01
+  DisplacementScale: 1
+  ClipmapResolution: 2048
+  ClipmapExtent: 128
+  NumClipmapRings: 3
+  SnowDensity: 0.3
+SnowEjectaSettings:
+  Enabled: false
+  ParticlesPerDeform: 8
+  EjectaSpeed: 2.5
+  SpeedVariance: 0.8
+  UpwardBias: 0.6
+  LifetimeMin: 0.4
+  LifetimeMax: 1.2
+  InitialSize: 0.04
+  SizeVariance: 0.02
+  GravityScale: 0.3
+  DragCoefficient: 2
+  Color: [0.95, 0.97, 1, 0.7]
+  VelocityThreshold: 0.1
+  MaxParticles: 8192
+  WindInfluence: 0.5
+  NoiseStrength: 0.3
+  NoiseFrequency: 2
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+PrecipitationSettings:
+  Enabled: false
+  Type: 0
+  Intensity: 0.5
+  TransitionSpeed: 1
+  BaseEmissionRate: 4000
+  MaxParticlesNearField: 100000
+  MaxParticlesFarField: 200000
+  NearFieldExtent: [15, 20, 15]
+  NearFieldParticleSize: 0.04
+  NearFieldSizeVariance: 0.02
+  NearFieldSpeedMin: 0.8
+  NearFieldSpeedMax: 2
+  NearFieldLifetime: 10
+  FarFieldExtent: [60, 30, 60]
+  FarFieldParticleSize: 0.025
+  FarFieldSpeedMin: 0.5
+  FarFieldSpeedMax: 1.5
+  FarFieldLifetime: 15
+  FarFieldAlphaMultiplier: 0.5
+  GravityScale: 0.8
+  WindInfluence: 1
+  DragCoefficient: 0.3
+  TurbulenceStrength: 0.8
+  TurbulenceFrequency: 0.5
+  GroundCollisionEnabled: true
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+  FeedAccumulation: true
+  AccumulationFeedRate: 0.0001
+  ScreenStreaksEnabled: true
+  ScreenStreakIntensity: 0.3
+  ScreenStreakLength: 0.15
+  LensImpactsEnabled: true
+  LensImpactRate: 3
+  LensImpactLifetime: 1.5
+  LensImpactSize: 0.03
+  LODNearDistance: 30
+  LODFarDistance: 120
+  FrameBudgetMs: 1
+  ParticleColor: [0.95, 0.97, 1, 0.85]
+  ColorVariance: 0.05
+  RotationSpeed: 30
+StreamingSettings:
+  Enabled: false
+  DefaultLoadRadius: 200
+  DefaultUnloadRadius: 250
+  MaxLoadedRegions: 16
+  RegionDirectory: ""
 Entities:
   - Entity: 100000000000001
     TagComponent:
       Tag: Directional Light
     TransformComponent:
-      Translation: [0, 10, 0]
-      Rotation: [-0.785398185, 0.392699093, 0]
-      Scale: [1, 1, 1]
+      Translation: [21.055992, 25.520258, 26.569588]
+      Rotation: [-0.78539824, 0.39269903, 0]
+      Scale: [0.9999998, 1, 0.9999999]
     DirectionalLightComponent:
-      Direction: [-0.5, -0.707106769, -0.5]
-      Color: [1, 0.960784316, 0.898039222]
+      Direction: [-0.5, -0.70710677, -0.5]
+      Color: [1, 0.9607843, 0.8980392]
       Intensity: 1.5
       CastShadows: true
-      ShadowBias: 0.00499999989
-      ShadowNormalBias: 0.00999999978
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 500
       CascadeSplitLambda: 0.5
       CascadeDebugVisualization: false
@@ -35,16 +198,34 @@ Entities:
       ProceduralOctaves: 6
       ProceduralFrequency: 3
       ProceduralLacunarity: 2
-      ProceduralPersistence: 0.449999988
+      ProceduralPersistence: 0.45
       TessellationEnabled: false
       TargetTriangleSize: 8
-      MorphRegion: 0.300000012
+      MorphRegion: 0.3
       StreamingEnabled: false
       TileDirectory: ""
-      TileFilePattern: "tile_%d_%d.raw"
+      TileFilePattern: tile_%d_%d.raw
       TileWorldSize: 256
       TileResolution: 513
       StreamingLoadRadius: 3
       StreamingMaxTiles: 25
       VoxelEnabled: false
       VoxelSize: 1
+  - Entity: 9977033210160945002
+    TagComponent:
+      Tag: camera
+    TransformComponent:
+      Translation: [128, 60, 128]
+      Rotation: [-0.4, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

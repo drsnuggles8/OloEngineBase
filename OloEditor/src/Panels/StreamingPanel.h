@@ -2,12 +2,15 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Streaming/StreamingSettings.h"
 
 #include <glm/glm.hpp>
 #include <string>
 
 namespace OloEngine
 {
+    class CommandHistory;
+
     class StreamingPanel
     {
       public:
@@ -16,6 +19,11 @@ namespace OloEngine
         void SetContext(const Ref<Scene>& scene)
         {
             m_Context = scene;
+        }
+
+        void SetCommandHistory(CommandHistory* history)
+        {
+            m_CommandHistory = history;
         }
 
         void OnImGuiRender();
@@ -29,6 +37,11 @@ namespace OloEngine
         void ExportRegion();
 
         Ref<Scene> m_Context;
+        CommandHistory* m_CommandHistory = nullptr;
+
+        // Settings undo tracking
+        bool m_IsEditingSettings = false;
+        StreamingSettings m_SettingsSnapshot{};
 
         // Export region state
         char m_ExportRegionName[128] = "NewRegion";
