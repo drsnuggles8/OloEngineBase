@@ -1465,14 +1465,14 @@ namespace OloEngine
 
     void EditorLayer::NewProject()
     {
-        if (m_SceneState != SceneState::Edit)
-        {
-            OnSceneStop();
-        }
-
         if (!ConfirmDiscardChanges())
         {
             return;
+        }
+
+        if (m_SceneState != SceneState::Edit)
+        {
+            OnSceneStop();
         }
 
         Project::New();
@@ -1679,6 +1679,20 @@ namespace OloEngine
         SerializeScene(m_EditorScene, filepath);
         m_CommandHistory.MarkSaved();
         SyncWindowTitle();
+
+        // Save editor preferences alongside scene
+        m_Prefs.ShowGrid = m_ShowGrid;
+        m_Prefs.GridSpacing = m_GridSpacing;
+        m_Prefs.TranslateSnap = m_TranslateSnap;
+        m_Prefs.RotateSnap = m_RotateSnap;
+        m_Prefs.ScaleSnap = m_ScaleSnap;
+        m_Prefs.ShowPhysicsColliders = m_ShowPhysicsColliders;
+        m_Prefs.Is3DMode = m_Is3DMode;
+        m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
+        if (Project::GetActive())
+        {
+            m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());
+        }
         return true;
     }
 

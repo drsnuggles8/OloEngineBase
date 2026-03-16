@@ -327,8 +327,10 @@ namespace OloEngine
             {
                 compound->Add(std::make_unique<DeleteEntityCommand>(
                     m_Context, entity,
-                    []() {},
-                    [](Entity) {}));
+                    [this]()
+                    { ClearSelection(); },
+                    [this](Entity restored)
+                    { SetSelectedEntity(restored); }));
             }
             m_CommandHistory->Execute(std::move(compound));
             ClearSelection();
@@ -1004,7 +1006,7 @@ namespace OloEngine
                         T snapshot{};
                     };
                     static std::unordered_map<u64, EditState> s_editStates;
-                    auto& editState = s_editStates[static_cast<u64>(entity.GetUUID())];
+                    auto& editState = s_editStates[static_cast<u64>(entity.GetUUID()) ^ typeid(T).hash_code()];
 
                     // Maintain a stable snapshot of the component before any edit session
                     if (!editState.isEditing)
@@ -1012,27 +1014,40 @@ namespace OloEngine
                         editState.snapshot = component;
                     }
 
-                    // Byte-level change detection: compare component bytes before and after uiFunction
-                    alignas(alignof(T)) unsigned char bytesBefore[sizeof(T)];
-                    std::memcpy(bytesBefore, &component, sizeof(T));
-
-                    uiFunction(component);
-
-                    const bool componentChanged = (std::memcmp(bytesBefore, &component, sizeof(T)) != 0);
-
-                    if (componentChanged && !editState.isEditing)
+                    if constexpr (std::is_trivially_copyable_v<T>)
                     {
-                        editState.isEditing = true;
+                        // Byte-level change detection: compare component bytes before and after uiFunction
+                        alignas(alignof(T)) unsigned char bytesBefore[sizeof(T)];
+                        std::memcpy(bytesBefore, &component, sizeof(T));
+
+                        uiFunction(component);
+
+                        const bool componentChanged = (std::memcmp(bytesBefore, &component, sizeof(T)) != 0);
+
+                        if (componentChanged && !editState.isEditing)
+                        {
+                            editState.isEditing = true;
+                        }
+
+                        // When no change this frame and no active ImGui widget → editing has ended
+                        if (editState.isEditing && !componentChanged && ::GImGui->ActiveId == 0)
+                        {
+                            // Only push if the component actually differs from the original snapshot
+                            if (std::memcmp(&editState.snapshot, &component, sizeof(T)) != 0)
+                            {
+                                s_DrawComponentCmdHistory->PushAlreadyExecuted(
+                                    std::make_unique<ComponentChangeCommand<T>>(
+                                        s_DrawComponentScene, entity.GetUUID(),
+                                        editState.snapshot, component, "Property Change"));
+                            }
+                            editState.isEditing = false;
+                        }
                     }
-
-                    // When no change this frame and no active ImGui widget → editing has ended
-                    if (editState.isEditing && !componentChanged && ::GImGui->ActiveId == 0)
+                    else
                     {
-                        s_DrawComponentCmdHistory->PushAlreadyExecuted(
-                            std::make_unique<ComponentChangeCommand<T>>(
-                                s_DrawComponentScene, entity.GetUUID(),
-                                editState.snapshot, component, "Property Change"));
-                        editState.isEditing = false;
+                        // Non-trivially-copyable types: no byte-level tracking,
+                        // rely on widget-level deactivation for undo
+                        uiFunction(component);
                     }
                 }
                 else
@@ -1548,6 +1563,7 @@ namespace OloEngine
 				static std::unordered_map<std::string, f32> s_scriptFieldSnapshots;
 					for (const auto& [name, field] : fields)
 					{
+						auto const snapshotKey = std::to_string(static_cast<u64>(entity.GetUUID())) + "::" + name;
 						// Field has been set in editor
 						if (entityFields.contains(name))
 						{
@@ -1565,11 +1581,11 @@ namespace OloEngine
 								{
 									if (ImGui::IsItemActivated())
 									{
-										s_scriptFieldSnapshots[name] = scriptField.GetValue<f32>();
+										s_scriptFieldSnapshots[snapshotKey] = scriptField.GetValue<f32>();
 									}
 									if (ImGui::IsItemDeactivatedAfterEdit())
 									{
-										if (auto snapIt = s_scriptFieldSnapshots.find(name); snapIt != s_scriptFieldSnapshots.end())
+										if (auto snapIt = s_scriptFieldSnapshots.find(snapshotKey); snapIt != s_scriptFieldSnapshots.end())
 										{
 											s_DrawComponentCmdHistory->PushAlreadyExecuted(
 												std::make_unique<ScriptFieldChangeCommand>(

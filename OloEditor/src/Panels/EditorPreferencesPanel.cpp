@@ -117,15 +117,15 @@ namespace OloEngine
             if (node["ShowGrid"])
                 prefs.ShowGrid = node["ShowGrid"].as<bool>();
             if (node["GridSpacing"])
-                prefs.GridSpacing = node["GridSpacing"].as<f32>();
+                prefs.GridSpacing = std::clamp(node["GridSpacing"].as<f32>(), 0.1f, 100.0f);
             if (node["TranslateSnap"])
-                prefs.TranslateSnap = node["TranslateSnap"].as<f32>();
+                prefs.TranslateSnap = std::clamp(node["TranslateSnap"].as<f32>(), 0.01f, 100.0f);
             if (node["RotateSnap"])
-                prefs.RotateSnap = node["RotateSnap"].as<f32>();
+                prefs.RotateSnap = std::clamp(node["RotateSnap"].as<f32>(), 1.0f, 180.0f);
             if (node["ScaleSnap"])
-                prefs.ScaleSnap = node["ScaleSnap"].as<f32>();
+                prefs.ScaleSnap = std::clamp(node["ScaleSnap"].as<f32>(), 0.01f, 10.0f);
             if (node["CameraFlySpeed"])
-                prefs.CameraFlySpeed = node["CameraFlySpeed"].as<f32>();
+                prefs.CameraFlySpeed = std::clamp(node["CameraFlySpeed"].as<f32>(), 0.1f, 100.0f);
             if (node["ShowPhysicsColliders"])
                 prefs.ShowPhysicsColliders = node["ShowPhysicsColliders"].as<bool>();
             if (node["Is3DMode"])
