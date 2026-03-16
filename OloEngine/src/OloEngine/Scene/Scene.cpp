@@ -226,15 +226,87 @@ namespace OloEngine
         // Create a new entity from the prefab
         Entity entity = prefab->Instantiate(*this, uuid);
 
-        // Add PrefabComponent to track the prefab source
-        if (entity)
-        {
-            auto& prefabComponent = entity.AddComponent<PrefabComponent>();
-            prefabComponent.m_PrefabID = prefabHandle;
-            prefabComponent.m_PrefabEntityID = uuid;
-        }
-
         return entity;
+    }
+
+    void Scene::UpdateAllPrefabInstances()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto view = GetAllEntitiesWith<PrefabComponent>();
+        for (auto e : view)
+        {
+            Entity entity{ e, *this };
+            auto& pc = entity.GetComponent<PrefabComponent>();
+            if (!pc.IsValid())
+                continue;
+
+            Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
+            if (!prefab)
+                continue;
+
+            prefab->UpdateInstanceFromPrefab(entity);
+        }
+    }
+
+    void Scene::RevertPrefabComponent(Entity entity, const std::string& componentName)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!entity || !entity.HasComponent<PrefabComponent>())
+            return;
+
+        auto& pc = entity.GetComponent<PrefabComponent>();
+        if (!pc.IsValid())
+            return;
+
+        Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
+        if (!prefab)
+            return;
+
+        if (prefab->RevertComponent(entity, componentName))
+        {
+            pc.ClearComponentOverride(componentName);
+            pc.m_AddedComponents.erase(componentName);
+            pc.m_RemovedComponents.erase(componentName);
+        }
+    }
+
+    void Scene::ApplyPrefabComponent(Entity entity, const std::string& componentName)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!entity || !entity.HasComponent<PrefabComponent>())
+            return;
+
+        auto& pc = entity.GetComponent<PrefabComponent>();
+        if (!pc.IsValid())
+            return;
+
+        Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
+        if (!prefab)
+            return;
+
+        if (prefab->ApplyComponentToPrefab(entity, componentName))
+        {
+            pc.ClearComponentOverride(componentName);
+            pc.m_AddedComponents.erase(componentName);
+            pc.m_RemovedComponents.erase(componentName);
+        }
+    }
+
+    void Scene::MarkPrefabComponentOverridden(Entity entity, const std::string& componentName)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!entity || !entity.HasComponent<PrefabComponent>())
+            return;
+
+        auto& pc = entity.GetComponent<PrefabComponent>();
+        if (pc.IsValid())
+        {
+            pc.MarkComponentOverridden(componentName);
+        }
     }
 
     void Scene::DestroyEntity(Entity entity)

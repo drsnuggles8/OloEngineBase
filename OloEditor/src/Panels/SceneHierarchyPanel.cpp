@@ -400,6 +400,24 @@ namespace OloEngine
         }
     }
 
+    // Helper: revert a list of component overrides on a prefab instance
+    static void RevertComponentList(const Ref<Prefab>& prefab, Entity entity,
+                                    const std::unordered_set<std::string>& componentNames)
+    {
+        auto copy = componentNames;
+        for (const auto& compName : copy)
+            prefab->RevertComponent(entity, compName);
+    }
+
+    // Helper: apply a list of component overrides from instance to prefab
+    static void ApplyComponentList(Ref<Prefab>& prefab, Entity entity,
+                                   const std::unordered_set<std::string>& componentNames)
+    {
+        auto copy = componentNames;
+        for (const auto& compName : copy)
+            prefab->ApplyComponentToPrefab(entity, compName);
+    }
+
     void SceneHierarchyPanel::DrawEntityNode(Entity entity)
     {
         auto& tagComponent = entity.GetComponent<TagComponent>();
@@ -573,6 +591,54 @@ namespace OloEngine
                 }
 
                 OLO_CORE_INFO("Saved prefab: {}", prefabPath.string());
+            }
+
+            // Prefab instance management
+            if (isPrefabInstance)
+            {
+                ImGui::Separator();
+
+                if (ImGui::MenuItem("Update from Prefab"))
+                {
+                    Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(
+                        entity.GetComponent<PrefabComponent>().m_PrefabID);
+                    if (prefab)
+                    {
+                        prefab->UpdateInstanceFromPrefab(entity);
+                        OLO_CORE_INFO("Updated instance '{}' from prefab", tag);
+                    }
+                }
+
+                if (ImGui::MenuItem("Revert All Overrides"))
+                {
+                    auto& pc = entity.GetComponent<PrefabComponent>();
+                    Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
+                    if (prefab)
+                    {
+                        RevertComponentList(prefab, entity, pc.m_OverriddenComponents);
+                        RevertComponentList(prefab, entity, pc.m_AddedComponents);
+                        RevertComponentList(prefab, entity, pc.m_RemovedComponents);
+                        pc.ClearAllOverrides();
+                        OLO_CORE_INFO("Reverted all overrides on '{}'", tag);
+                    }
+                }
+
+                if (entity.GetComponent<PrefabComponent>().HasAnyOverrides())
+                {
+                    if (ImGui::MenuItem("Apply All Overrides to Prefab"))
+                    {
+                        auto& pc = entity.GetComponent<PrefabComponent>();
+                        Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
+                        if (prefab)
+                        {
+                            ApplyComponentList(prefab, entity, pc.m_OverriddenComponents);
+                            ApplyComponentList(prefab, entity, pc.m_AddedComponents);
+                            ApplyComponentList(prefab, entity, pc.m_RemovedComponents);
+                            pc.ClearAllOverrides();
+                            OLO_CORE_INFO("Applied all overrides from '{}' to prefab", tag);
+                        }
+                    }
+                }
             }
 
             ImGui::EndPopup();
@@ -976,9 +1042,49 @@ namespace OloEngine
     static CommandHistory* s_DrawComponentCmdHistory = nullptr;
     static Ref<Scene> s_DrawComponentScene = nullptr;
 
+    // Compile-time stable component name extraction (no RTTI dependency).
+    // Uses a probe type in the OloEngine namespace to calibrate __FUNCSIG__/__PRETTY_FUNCTION__.
+    struct ComponentNameProbe_;
+
+    namespace detail
+    {
+        template<typename T>
+        constexpr std::string_view RawComponentSig()
+        {
+#if defined(_MSC_VER)
+            return { __FUNCSIG__, sizeof(__FUNCSIG__) - 1 };
+#elif defined(__clang__) || defined(__GNUC__)
+            return { __PRETTY_FUNCTION__, sizeof(__PRETTY_FUNCTION__) - 1 };
+#endif
+        }
+
+        inline constexpr auto kProbeSig = RawComponentSig<ComponentNameProbe_>();
+        inline constexpr auto kProbeTarget = std::string_view{ "ComponentNameProbe_" };
+        inline constexpr auto kProbePos = kProbeSig.find(kProbeTarget);
+        static_assert(kProbePos != std::string_view::npos, "Cannot find probe type in __FUNCSIG__");
+        inline constexpr std::size_t kPrefixLen = kProbePos;
+        inline constexpr std::size_t kSuffixLen = kProbeSig.size() - kProbePos - kProbeTarget.size();
+    } // namespace detail
+
+    template<typename T>
+    static std::string GetCanonicalComponentName()
+    {
+        constexpr auto sig = detail::RawComponentSig<T>();
+        constexpr auto fullName = sig.substr(detail::kPrefixLen, sig.size() - detail::kPrefixLen - detail::kSuffixLen);
+        // fullName may be "OloEngine::TransformComponent" — extract unqualified name
+        constexpr auto lastColon = fullName.rfind(':');
+        if constexpr (lastColon != std::string_view::npos)
+            return std::string(fullName.substr(lastColon + 1));
+        else
+            return std::string(fullName);
+    }
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
+        // Canonical key for PrefabComponent lookups (e.g. "TransformComponent")
+        const std::string componentKey = GetCanonicalComponentName<T>();
+
         const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_FramePadding;
         if (entity.HasComponent<T>())
         {
@@ -989,11 +1095,50 @@ namespace OloEngine
             auto& component = entity.GetComponent<T>();
             const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
+            // Check if this component is overridden on a prefab instance
+            bool isPrefabOverride = false;
+            bool isPrefabAdded = false;
+            if (entity.HasComponent<PrefabComponent>())
+            {
+                const auto& pc = entity.GetComponent<PrefabComponent>();
+                if (pc.IsValid())
+                {
+                    isPrefabOverride = pc.IsComponentOverridden(componentKey);
+                    isPrefabAdded = pc.IsComponentAdded(componentKey);
+                }
+            }
+
+            // Override visual: bold orange bar on the left for overridden components
+            if (isPrefabOverride)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.6f, 0.4f, 0.1f, 0.7f));
+                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.7f, 0.5f, 0.15f, 0.8f));
+            }
+            else if (isPrefabAdded)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.1f, 0.5f, 0.1f, 0.7f));
+                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.15f, 0.6f, 0.15f, 0.8f));
+            }
+
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
             const f32 lineHeight = ImGui::GetFontSize() + (::GImGui->Style.FramePadding.y * 2.0f);
             ImGui::Separator();
-            const bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(typeid(T).hash_code()), treeNodeFlags, name.c_str());
+
+            // Build display name with override indicator
+            std::string displayName = name;
+            if (isPrefabOverride)
+                displayName = "* " + name + " (Override)";
+            else if (isPrefabAdded)
+                displayName = "+ " + name + " (Added)";
+
+            const bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(typeid(T).hash_code()), treeNodeFlags, displayName.c_str());
             ImGui::PopStyleVar();
+
+            if (isPrefabOverride || isPrefabAdded)
+            {
+                ImGui::PopStyleColor(2);
+            }
+
             ImGui::SameLine(contentRegionAvailable.x - (lineHeight * 0.5f));
             if (ImGui::Button("+", ImVec2{ lineHeight, lineHeight }))
             {
@@ -1006,6 +1151,44 @@ namespace OloEngine
                 if (ImGui::MenuItem("Remove component"))
                 {
                     removeComponent = true;
+                }
+
+                // Prefab override context menu items
+                if (entity.HasComponent<PrefabComponent>())
+                {
+                    const auto& pc = entity.GetComponent<PrefabComponent>();
+                    if (pc.IsValid())
+                    {
+                        ImGui::Separator();
+
+                        if (isPrefabOverride || isPrefabAdded)
+                        {
+                            if (ImGui::MenuItem("Revert to Prefab"))
+                            {
+                                if (s_DrawComponentScene)
+                                {
+                                    s_DrawComponentScene->RevertPrefabComponent(entity, componentKey);
+                                }
+                            }
+                            if (ImGui::MenuItem("Apply to Prefab"))
+                            {
+                                if (s_DrawComponentScene)
+                                {
+                                    s_DrawComponentScene->ApplyPrefabComponent(entity, componentKey);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            if (ImGui::MenuItem("Mark as Override"))
+                            {
+                                if (s_DrawComponentScene)
+                                {
+                                    s_DrawComponentScene->MarkPrefabComponentOverridden(entity, componentKey);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 ImGui::EndPopup();
@@ -1061,10 +1244,39 @@ namespace OloEngine
                             // Only push if the component actually differs from the original snapshot
                             if (std::memcmp(editState.snapshotBytes, &component, sizeof(T)) != 0)
                             {
-                                s_DrawComponentCmdHistory->PushAlreadyExecuted(
-                                    std::make_unique<ComponentChangeCommand<T>>(
-                                        s_DrawComponentScene, entity.GetUUID(),
-                                        editState.snapshot, component, "Property Change"));
+                                // Fold prefab override bookkeeping into the undoable command
+                                if (entity.HasComponent<PrefabComponent>())
+                                {
+                                    auto& pc = entity.GetComponent<PrefabComponent>();
+                                    if (pc.IsValid() && !pc.IsComponentOverridden(componentKey))
+                                    {
+                                        PrefabComponent pcBefore = pc;
+                                        pc.MarkComponentOverridden(componentKey);
+
+                                        auto compound = std::make_unique<CompoundCommand>("Property Change");
+                                        compound->Add(std::make_unique<ComponentChangeCommand<T>>(
+                                            s_DrawComponentScene, entity.GetUUID(),
+                                            editState.snapshot, component, "Property Change"));
+                                        compound->Add(std::make_unique<ComponentChangeCommand<PrefabComponent>>(
+                                            s_DrawComponentScene, entity.GetUUID(),
+                                            pcBefore, pc, "Mark Override"));
+                                        s_DrawComponentCmdHistory->PushAlreadyExecuted(std::move(compound));
+                                    }
+                                    else
+                                    {
+                                        s_DrawComponentCmdHistory->PushAlreadyExecuted(
+                                            std::make_unique<ComponentChangeCommand<T>>(
+                                                s_DrawComponentScene, entity.GetUUID(),
+                                                editState.snapshot, component, "Property Change"));
+                                    }
+                                }
+                                else
+                                {
+                                    s_DrawComponentCmdHistory->PushAlreadyExecuted(
+                                        std::make_unique<ComponentChangeCommand<T>>(
+                                            s_DrawComponentScene, entity.GetUUID(),
+                                            editState.snapshot, component, "Property Change"));
+                                }
                             }
                             editState.isEditing = false;
                         }

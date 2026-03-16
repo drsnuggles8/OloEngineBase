@@ -14,6 +14,7 @@ add_executable(OloEngine-Tests
 		MathTest.cpp
 		AssetCreationTest.cpp
 		AssetGenerationTest.cpp
+		PrefabOverrideTest.cpp
 		ShadowMapTest.cpp
 		PostProcessTest.cpp
 		ComputeShaderAndSSBOTest.cpp
