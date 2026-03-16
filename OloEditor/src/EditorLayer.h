@@ -9,21 +9,15 @@
 #include "Panels/StreamingPanel.h"
 #include "Panels/InputSettingsPanel.h"
 #include "Panels/NetworkDebugPanel.h"
-#include "Panels/ConsolePanel.h"
 #include "Panels/DialogueEditorPanel.h"
-#include "Panels/SceneStatisticsPanel.h"
-#include "Panels/EditorPreferencesPanel.h"
 
-#include "UndoRedo/EditorCommand.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <atomic>
 #include <mutex>
-#include <string>
 #include <thread> // For std::this_thread::yield()
-#include <vector>
 
 namespace OloEngine
 {
@@ -59,8 +53,8 @@ namespace OloEngine
         void NewScene();
         void OpenScene();
         bool OpenScene(const std::filesystem::path& path);
-        bool SaveScene();
-        bool SaveSceneAs();
+        void SaveScene();
+        void SaveSceneAs();
 
         void SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
 
@@ -70,8 +64,6 @@ namespace OloEngine
         void OnScenePause();
 
         void OnDuplicateEntity();
-        void OnCopyEntity();
-        void OnPasteEntity();
 
         // Asset Pack Building
         // Initiates an asynchronous build process for packaging project assets
@@ -95,7 +87,7 @@ namespace OloEngine
         void UI_MenuBar();
         void UI_Toolbar();
         void UI_Viewport();
-        void UI_Gizmos();
+        void UI_Gizmos() const;
         void UI_RendererStats();
         void UI_Settings();
         void UI_DebugTools();
@@ -105,10 +97,6 @@ namespace OloEngine
         void SetEditorScene(const Ref<Scene>& scene);
         void SyncWindowTitle() const;
         void BindContentBrowserSelectionCallback();
-
-        // Unsaved-changes prompt: returns true if ok to proceed, false if cancelled
-        bool ConfirmDiscardChanges();
-        bool OnWindowClose(WindowCloseEvent const& e);
 
         // Terrain editing: screen-to-world raycast against heightmap
         bool TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;
@@ -135,28 +123,6 @@ namespace OloEngine
         int m_GizmoType = 0; // Default to Translate (ImGuizmo::TRANSLATE) for immediate usability
         bool m_ShowPhysicsColliders = false;
         bool m_Is3DMode = true; // Toggle for 2D/3D rendering
-        bool m_ShowGrid = true;
-        f32 m_GridSpacing = 1.0f;
-
-        // Transform snapping
-        f32 m_TranslateSnap = 0.5f;
-        f32 m_RotateSnap = 45.0f;
-        f32 m_ScaleSnap = 0.5f;
-
-        // Entity clipboard (YAML)
-        std::string m_EntityClipboard;
-
-        // Camera bookmarks
-        struct CameraBookmark
-        {
-            std::string Name;
-            glm::vec3 Position{};
-            f32 Pitch = 0.0f;
-            f32 Yaw = 0.0f;
-            f32 Distance = 10.0f;
-        };
-        std::vector<CameraBookmark> m_CameraBookmarks;
-        char m_BookmarkNameBuffer[64] = {};
 
         // Debug windows
         bool m_ShowShaderDebugger = false;
@@ -190,13 +156,7 @@ namespace OloEngine
         StreamingPanel m_StreamingPanel;
         InputSettingsPanel m_InputSettingsPanel;
         NetworkDebugPanel m_NetworkDebugPanel;
-        ConsolePanel m_ConsolePanel;
-        SceneStatisticsPanel m_SceneStatisticsPanel;
         DialogueEditorPanel m_DialogueEditorPanel;
-        EditorPreferencesPanel m_EditorPreferencesPanel;
-        EditorPreferences m_Prefs;
-        bool m_ShowConsolePanel = true;
-        bool m_ShowSceneStatistics = true;
         bool m_ShowAnimationPanel = true;
         bool m_ShowPostProcessSettings = true;
         bool m_ShowTerrainEditor = false;
@@ -204,15 +164,6 @@ namespace OloEngine
         bool m_ShowInputSettings = false;
         bool m_ShowNetworkDebug = false;
         bool m_ShowDialogueEditor = false;
-        bool m_ShowEditorPreferences = false;
-
-        // Undo/Redo
-        CommandHistory m_CommandHistory;
-        bool m_LastKnownDirtyState = false;
-        bool m_GizmoWasUsing = false;
-        glm::vec3 m_GizmoStartTranslation{};
-        glm::vec3 m_GizmoStartRotation{};
-        glm::vec3 m_GizmoStartScale{};
 
         // Terrain brush preview UBO (binding 11)
         Ref<UniformBuffer> m_BrushPreviewUBO;

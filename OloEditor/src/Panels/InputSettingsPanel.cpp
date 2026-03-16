@@ -6,7 +6,6 @@
 #include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Project/Project.h"
-#include "../UndoRedo/SpecializedCommands.h"
 
 #include <imgui.h>
 
@@ -134,14 +133,8 @@ namespace OloEngine
         ImGui::SameLine();
         if (ImGui::Button("Reset to Empty"))
         {
-            auto oldMap = InputActionManager::GetActionMap();
             InputActionManager::SetActionMap({});
             m_Dirty = true;
-            if (m_CommandHistory)
-            {
-                m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Reset Input Map"));
-            }
         }
     }
 
@@ -155,14 +148,8 @@ namespace OloEngine
         ImGui::SameLine(ImGui::GetWindowWidth() - 80.0f);
         if (ImGui::SmallButton("Remove"))
         {
-            auto oldMap = InputActionManager::GetActionMap();
             InputActionManager::GetActionMap().RemoveAction(action.Name);
             m_Dirty = true;
-            if (m_CommandHistory)
-            {
-                m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Remove Action"));
-            }
             ImGui::PopID();
             return;
         }
@@ -218,14 +205,8 @@ namespace OloEngine
         ImGui::SameLine();
         if (ImGui::SmallButton("X"))
         {
-            auto oldMap = InputActionManager::GetActionMap();
             action.Bindings.erase(action.Bindings.begin() + static_cast<std::ptrdiff_t>(bindingIndex));
             m_Dirty = true;
-            if (m_CommandHistory)
-            {
-                m_CommandHistory->PushAlreadyExecuted(
-                    std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Remove Binding"));
-            }
         }
 
         ImGui::PopID();
@@ -277,16 +258,10 @@ namespace OloEngine
 
             if (ImGui::Button("Create") && !nameEmpty && !duplicate)
             {
-                auto oldMap = InputActionManager::GetActionMap();
                 InputAction newAction;
                 newAction.Name = m_NewActionNameBuffer;
                 InputActionManager::GetActionMap().AddAction(std::move(newAction));
                 m_Dirty = true;
-                if (m_CommandHistory)
-                {
-                    m_CommandHistory->PushAlreadyExecuted(
-                        std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Add Action"));
-                }
                 ImGui::CloseCurrentPopup();
             }
 
@@ -302,8 +277,6 @@ namespace OloEngine
 
     void InputSettingsPanel::ApplyNewBinding(InputBinding newBinding)
     {
-        auto oldMap = InputActionManager::GetActionMap();
-
         // Conflict detection — remove this binding from any other action
         auto& map = InputActionManager::GetActionMap();
         for (auto& [name, action] : map.Actions)
@@ -332,13 +305,6 @@ namespace OloEngine
                 action->Bindings[m_RebindBindingIndex] = newBinding;
             }
             m_Dirty = true;
-        }
-
-        if (m_CommandHistory)
-        {
-            m_CommandHistory->PushAlreadyExecuted(
-                std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(),
-                                                              m_RebindIsNewBinding ? "Add Binding" : "Rebind"));
         }
 
         m_IsRebinding = false;
