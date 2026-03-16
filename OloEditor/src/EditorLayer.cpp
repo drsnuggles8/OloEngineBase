@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "EditorLayer.h"
 #include "Panels/AssetPackBuilderPanel.h"
+#include "UndoRedo/EntityCommands.h"
+#include "UndoRedo/ComponentCommands.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -13,6 +15,7 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -31,6 +34,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <algorithm>
 #include <thread>
 
 namespace OloEngine
@@ -94,6 +98,9 @@ namespace OloEngine
             }
         }
         m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
+
+        // Reapply preferences loaded by OpenProject() since the camera was just reconstructed
+        m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
 
         // Initialize Renderer3D early so 3D code paths in OnUpdate / UI_Viewport
         // never run against an uninitialized renderer when m_Is3DMode is true.
@@ -190,6 +197,8 @@ namespace OloEngine
                 m_EditorCamera.OnUpdate(ts);
 
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
+                m_ActiveScene->SetGridVisible(m_ShowGrid);
+                m_ActiveScene->SetGridSpacing(m_GridSpacing);
                 m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
                 break;
             }
@@ -198,6 +207,8 @@ namespace OloEngine
                 m_EditorCamera.OnUpdate(ts);
 
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
+                m_ActiveScene->SetGridVisible(m_ShowGrid);
+                m_ActiveScene->SetGridSpacing(m_GridSpacing);
                 m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
                 break;
             }
@@ -258,6 +269,13 @@ namespace OloEngine
     void EditorLayer::OnImGuiRender()
     {
         OLO_PROFILE_FUNCTION();
+
+        // Update window title when dirty state changes (covers panel edits via CommandHistory)
+        if (bool const dirty = m_CommandHistory.IsDirty(); dirty != m_LastKnownDirtyState)
+        {
+            m_LastKnownDirtyState = dirty;
+            SyncWindowTitle();
+        }
 
         // Note: Switch this to true to enable dockspace
         static bool dockspaceOpen = true;
@@ -387,7 +405,37 @@ namespace OloEngine
 
             if (ImGui::MenuItem("Exit"))
             {
-                Application::Get().Close();
+                if (ConfirmDiscardChanges())
+                {
+                    Application::Get().Close();
+                }
+            }
+
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Edit"))
+        {
+            std::string undoLabel = "Undo";
+            if (m_CommandHistory.CanUndo())
+            {
+                undoLabel += " (" + m_CommandHistory.GetUndoDescription() + ")";
+            }
+            if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, m_CommandHistory.CanUndo()))
+            {
+                m_CommandHistory.Undo();
+                SyncWindowTitle();
+            }
+
+            std::string redoLabel = "Redo";
+            if (m_CommandHistory.CanRedo())
+            {
+                redoLabel += " (" + m_CommandHistory.GetRedoDescription() + ")";
+            }
+            if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, m_CommandHistory.CanRedo()))
+            {
+                m_CommandHistory.Redo();
+                SyncWindowTitle();
             }
 
             ImGui::EndMenu();
@@ -444,6 +492,8 @@ namespace OloEngine
 
         if (ImGui::BeginMenu("Window"))
         {
+            ImGui::MenuItem("Console", nullptr, &m_ShowConsolePanel);
+            ImGui::MenuItem("Scene Statistics", nullptr, &m_ShowSceneStatistics);
             ImGui::MenuItem("Animation Panel", nullptr, &m_ShowAnimationPanel);
             ImGui::MenuItem("Post Process Settings", nullptr, &m_ShowPostProcessSettings);
             ImGui::MenuItem("Terrain Editor", nullptr, &m_ShowTerrainEditor);
@@ -452,6 +502,7 @@ namespace OloEngine
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
+            ImGui::MenuItem("Editor Preferences", nullptr, &m_ShowEditorPreferences);
 
             ImGui::EndMenu();
         }
@@ -506,6 +557,15 @@ namespace OloEngine
         }
         ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 
+        // Play-mode visual indicator: draw colored border around viewport
+        if (m_SceneState != SceneState::Edit)
+        {
+            ImU32 borderColor = (m_SceneState == SceneState::Play) ? IM_COL32(220, 30, 30, 255) : IM_COL32(220, 200, 30, 255);
+            ImVec2 pMin = ImGui::GetItemRectMin();
+            ImVec2 pMax = ImGui::GetItemRectMax();
+            ImGui::GetWindowDrawList()->AddRect(pMin, pMax, borderColor, 0.0f, 0, 3.0f);
+        }
+
         if (ImGui::BeginDragDropTarget())
         {
             if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
@@ -514,19 +574,45 @@ namespace OloEngine
 
                 if (path.extension() == ".olo") // Load scene
                 {
-                    m_HoveredEntity = Entity();
-                    OpenScene(path);
+                    if (ConfirmDiscardChanges())
+                    {
+                        m_HoveredEntity = Entity();
+                        OpenScene(path);
+                    }
                 }
-                else if (((path.extension() == ".png") || (path.extension() == ".jpeg")) && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
+                else if (m_SceneState == SceneState::Edit && ((path.extension() == ".png") || (path.extension() == ".jpeg")) && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
                 {
                     const Ref<Texture2D> texture = Texture2D::Create(path.string());
                     if (texture->IsLoaded())
                     {
+                        auto oldComponent = m_HoveredEntity.GetComponent<SpriteRendererComponent>();
                         m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
+                        auto newComponent = m_HoveredEntity.GetComponent<SpriteRendererComponent>();
+                        m_CommandHistory.PushAlreadyExecuted(
+                            std::make_unique<ComponentChangeCommand<SpriteRendererComponent>>(
+                                m_EditorScene, m_HoveredEntity.GetUUID(), oldComponent, newComponent));
                     }
                     else
                     {
                         OLO_WARN("Could not load texture {0}", path.filename().string());
+                    }
+                }
+                else if (m_SceneState == SceneState::Edit && path.extension() == ".oloprefab") // Instantiate prefab
+                {
+                    auto* editorManager = static_cast<EditorAssetManager*>(
+                        Project::GetActive()->GetAssetManager().get());
+                    AssetHandle handle = editorManager->ImportAsset(path);
+                    if (handle)
+                    {
+                        Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle);
+                        if (prefab)
+                        {
+                            Entity instance = prefab->Instantiate(*m_EditorScene);
+                            if (instance)
+                            {
+                                m_SceneHierarchyPanel.SetSelectedEntity(instance);
+                            }
+                        }
                     }
                 }
             }
@@ -539,7 +625,7 @@ namespace OloEngine
         ImGui::PopStyleVar();
     }
 
-    void EditorLayer::UI_Gizmos() const
+    void EditorLayer::UI_Gizmos()
     {
         Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
         if (!selectedEntity || !selectedEntity.HasComponent<TransformComponent>())
@@ -564,10 +650,14 @@ namespace OloEngine
 
             // Snapping
             const bool snap = Input::IsKeyPressed(Key::LeftControl);
-            f32 snapValue = 0.5f;
+            f32 snapValue = m_TranslateSnap;
             if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
             {
-                snapValue = 45.0f;
+                snapValue = m_RotateSnap;
+            }
+            else if (m_GizmoType == ImGuizmo::OPERATION::SCALE)
+            {
+                snapValue = m_ScaleSnap;
             }
 
             const std::array<f32, 3> snapValues = { snapValue, snapValue, snapValue };
@@ -580,7 +670,17 @@ namespace OloEngine
                                  nullptr,
                                  snap ? snapValues.data() : nullptr);
 
-            if (ImGuizmo::IsUsing())
+            const bool isUsing = ImGuizmo::IsUsing();
+
+            // Capture transform at the start of gizmo interaction
+            if (isUsing && !m_GizmoWasUsing)
+            {
+                m_GizmoStartTranslation = tc.Translation;
+                m_GizmoStartRotation = tc.Rotation;
+                m_GizmoStartScale = tc.Scale;
+            }
+
+            if (isUsing)
             {
                 glm::vec3 translation;
                 glm::vec3 rotation;
@@ -592,6 +692,17 @@ namespace OloEngine
                 tc.Rotation += deltaRotation;
                 tc.Scale = scale;
             }
+
+            // Push undo command when gizmo interaction ends
+            if (!isUsing && m_GizmoWasUsing && m_SceneState == SceneState::Edit)
+            {
+                m_CommandHistory.PushAlreadyExecuted(std::make_unique<TransformChangeCommand>(
+                    m_EditorScene, selectedEntity.GetUUID(),
+                    m_GizmoStartTranslation, m_GizmoStartRotation, m_GizmoStartScale,
+                    tc.Translation, tc.Rotation, tc.Scale));
+            }
+
+            m_GizmoWasUsing = isUsing;
         }
     }
 
@@ -752,6 +863,34 @@ namespace OloEngine
         {
             m_SaveGamePanel.OnImGuiRender();
         }
+
+        // Console Panel
+        if (m_ShowConsolePanel)
+        {
+            m_ConsolePanel.OnImGuiRender();
+        }
+
+        // Scene Statistics Panel
+        if (m_ShowSceneStatistics)
+        {
+            m_SceneStatisticsPanel.OnImGuiRender();
+        }
+
+        // Editor Preferences Panel
+        if (m_ShowEditorPreferences)
+        {
+            m_EditorPreferencesPanel.OnImGuiRender(m_Prefs);
+
+            // Sync preferences back to editor fields
+            m_ShowGrid = m_Prefs.ShowGrid;
+            m_GridSpacing = m_Prefs.GridSpacing;
+            m_TranslateSnap = m_Prefs.TranslateSnap;
+            m_RotateSnap = m_Prefs.RotateSnap;
+            m_ScaleSnap = m_Prefs.ScaleSnap;
+            m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
+            m_Is3DMode = m_Prefs.Is3DMode;
+            m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
+        }
     }
 
     void EditorLayer::ApplyDefault3DCameraPose()
@@ -773,6 +912,11 @@ namespace OloEngine
 
         // 3D Mode toggle with lazy initialization
         ImGui::Checkbox("3D Mode", &m_Is3DMode);
+        ImGui::Checkbox("Show Grid", &m_ShowGrid);
+        if (m_ShowGrid)
+        {
+            ImGui::DragFloat("Grid Spacing", &m_GridSpacing, 0.1f, 0.1f, 100.0f, "%.1f");
+        }
         if (m_Is3DMode && !Renderer3D::IsInitialized())
         {
             OLO_PROFILE_SCOPE("EditorLayer::UI_Settings_3DInit");
@@ -805,6 +949,53 @@ namespace OloEngine
         if (ImGui::IsItemHovered())
         {
             ImGui::SetTooltip("Enable expensive physics debug capture during play mode.\nOff by default for production performance.");
+        }
+
+        ImGui::Separator();
+
+        // Transform Snapping
+        ImGui::Text("Transform Snapping");
+        ImGui::DragFloat("Translate Snap", &m_TranslateSnap, 0.05f, 0.01f, 100.0f, "%.2f");
+        ImGui::DragFloat("Rotate Snap", &m_RotateSnap, 1.0f, 1.0f, 180.0f, "%.1f deg");
+        ImGui::DragFloat("Scale Snap", &m_ScaleSnap, 0.05f, 0.01f, 10.0f, "%.2f");
+
+        ImGui::Separator();
+
+        // Camera Bookmarks
+        ImGui::Text("Camera Bookmarks");
+        ImGui::InputTextWithHint("##BookmarkName", "Bookmark name...", m_BookmarkNameBuffer, sizeof(m_BookmarkNameBuffer));
+        ImGui::SameLine();
+        if (ImGui::Button("Save"))
+        {
+            if (m_BookmarkNameBuffer[0] != '\0')
+            {
+                m_CameraBookmarks.push_back({ std::string(m_BookmarkNameBuffer), m_EditorCamera.GetPosition(), m_EditorCamera.GetPitch(), m_EditorCamera.GetYaw(), m_EditorCamera.GetDistance() });
+                m_BookmarkNameBuffer[0] = '\0';
+            }
+        }
+
+        i32 deleteIndex = -1;
+        for (i32 i = 0; i < static_cast<i32>(m_CameraBookmarks.size()); ++i)
+        {
+            ImGui::PushID(i);
+            auto& bm = m_CameraBookmarks[static_cast<size_t>(i)];
+            if (ImGui::Button(bm.Name.c_str()))
+            {
+                m_EditorCamera.SetPosition(bm.Position);
+                m_EditorCamera.SetPitch(bm.Pitch);
+                m_EditorCamera.SetYaw(bm.Yaw);
+                m_EditorCamera.SetDistance(bm.Distance);
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("X"))
+            {
+                deleteIndex = i;
+            }
+            ImGui::PopID();
+        }
+        if (deleteIndex >= 0)
+        {
+            m_CameraBookmarks.erase(m_CameraBookmarks.begin() + deleteIndex);
         }
 
         if (!s_Font)
@@ -912,6 +1103,7 @@ namespace OloEngine
         dispatcher.Dispatch<KeyPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
         dispatcher.Dispatch<MouseButtonPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
         dispatcher.Dispatch<AssetReloadedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetReloaded));
+        dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnWindowClose));
     }
 
     bool EditorLayer::OnKeyPressed(KeyPressedEvent const& e)
@@ -963,6 +1155,26 @@ namespace OloEngine
                 break;
             }
 
+            // Undo/Redo
+            case Key::Z:
+            {
+                if (control && m_SceneState == SceneState::Edit)
+                {
+                    m_CommandHistory.Undo();
+                    SyncWindowTitle();
+                }
+                break;
+            }
+            case Key::Y:
+            {
+                if (control && m_SceneState == SceneState::Edit)
+                {
+                    m_CommandHistory.Redo();
+                    SyncWindowTitle();
+                }
+                break;
+            }
+
             // Scene Commands
             case Key::D:
             {
@@ -972,11 +1184,27 @@ namespace OloEngine
                 }
                 break;
             }
+            case Key::C:
+            {
+                if (control && m_SceneState == SceneState::Edit)
+                {
+                    OnCopyEntity();
+                }
+                break;
+            }
+            case Key::V:
+            {
+                if (control && m_SceneState == SceneState::Edit)
+                {
+                    OnPasteEntity();
+                }
+                break;
+            }
 
             // Gizmos
             case Key::Q:
             {
-                if ((!ImGuizmo::IsUsing()) && editing)
+                if ((!ImGuizmo::IsUsing()) && editing && !m_EditorCamera.IsFlying())
                 {
                     m_GizmoType = -1;
                 }
@@ -984,7 +1212,7 @@ namespace OloEngine
             }
             case Key::W:
             {
-                if ((!ImGuizmo::IsUsing()) && editing)
+                if ((!ImGuizmo::IsUsing()) && editing && !m_EditorCamera.IsFlying())
                 {
                     m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
                 }
@@ -992,7 +1220,7 @@ namespace OloEngine
             }
             case Key::E:
             {
-                if ((!ImGuizmo::IsUsing()) && editing)
+                if ((!ImGuizmo::IsUsing()) && editing && !m_EditorCamera.IsFlying())
                 {
                     m_GizmoType = ImGuizmo::OPERATION::ROTATE;
                 }
@@ -1028,6 +1256,39 @@ namespace OloEngine
                 if (m_SceneState == SceneState::Play)
                 {
                     m_SaveGamePanel.TriggerQuickLoad();
+                }
+                break;
+            }
+
+            // Entity deletion
+            case Key::Delete:
+            {
+                if (m_SceneState == SceneState::Edit)
+                {
+                    const auto& selected = m_SceneHierarchyPanel.GetSelectedEntities();
+                    if (selected.size() > 1)
+                    {
+                        auto compound = std::make_unique<CompoundCommand>("Delete " + std::to_string(selected.size()) + " Entities");
+                        for (auto& entity : selected)
+                        {
+                            compound->Add(std::make_unique<DeleteEntityCommand>(
+                                m_EditorScene, entity,
+                                []() {},
+                                [](Entity) {}));
+                        }
+                        m_CommandHistory.Execute(std::move(compound));
+                        m_SceneHierarchyPanel.ClearSelection();
+                    }
+                    else if (!selected.empty())
+                    {
+                        Entity selectedEntity = selected[0];
+                        m_CommandHistory.Execute(std::make_unique<DeleteEntityCommand>(
+                            m_EditorScene, selectedEntity,
+                            [this]()
+                            { m_SceneHierarchyPanel.ClearSelection(); },
+                            [this](Entity restored)
+                            { m_SceneHierarchyPanel.SetSelectedEntity(restored); }));
+                    }
                 }
                 break;
             }
@@ -1067,12 +1328,18 @@ namespace OloEngine
         }
 
         // Entity outline
-        if (Entity selection = m_SceneHierarchyPanel.GetSelectedEntity(); selection)
+        const auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
+        if (!selectedEntities.empty())
         {
             Renderer2D::SetLineWidth(4.0f);
 
-            if (selection.HasComponent<TransformComponent>())
+            for (const auto& selection : selectedEntities)
             {
+                if (!selection || !selection.HasComponent<TransformComponent>())
+                {
+                    continue;
+                }
+
                 auto const& tc = selection.GetComponent<TransformComponent>();
 
                 if (selection.HasComponent<SpriteRendererComponent>())
@@ -1092,15 +1359,12 @@ namespace OloEngine
 
                     if (cc.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
                     {
-                        // For orthographic cameras, we can still use a rectangle as an indicator
                         glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(glm::quat(tc.Rotation)) * glm::scale(glm::mat4(1.0f), glm::vec3(cc.Camera.GetOrthographicSize(), cc.Camera.GetOrthographicSize(), 1.0f) + glm::vec3(0.03f));
                         Renderer2D::DrawRect(transform, glm::vec4(1, 1, 1, 1));
                     }
                     else if (cc.Camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
                     {
-                        // auto position = glm::vec3(tc.Translation.x, tc.Translation.y, 0.0f);
-                        // auto size = glm::vec2(0.5f); // adjust as needed
-                        //  TODO(olbu): Draw the selected camera properly once the Renderer2D can draw triangles/points
+                        // TODO(olbu): Draw the selected camera properly once the Renderer2D can draw triangles/points
                     }
                 }
             }
@@ -1180,12 +1444,25 @@ namespace OloEngine
             }
             else if (type == ContentFileType::Scene)
             {
-                OpenScene(path);
+                if (ConfirmDiscardChanges())
+                {
+                    OpenScene(path);
+                }
             } });
     }
 
     void EditorLayer::NewProject()
     {
+        if (m_SceneState != SceneState::Edit)
+        {
+            OnSceneStop();
+        }
+
+        if (!ConfirmDiscardChanges())
+        {
+            return;
+        }
+
         Project::New();
         NewScene();
         m_DialogueEditorPanel.NewDialogue();
@@ -1196,6 +1473,10 @@ namespace OloEngine
 
     bool EditorLayer::OpenProject()
     {
+        if (!ConfirmDiscardChanges())
+        {
+            return false;
+        }
         std::error_code ec;
         auto const cwd = std::filesystem::current_path(ec).string();
         const char* initialDir = ec ? nullptr : cwd.c_str();
@@ -1234,6 +1515,17 @@ namespace OloEngine
                 }
             }
 
+            // Load editor preferences
+            m_EditorPreferencesPanel.Load(m_Prefs, Project::GetProjectDirectory());
+            m_ShowGrid = m_Prefs.ShowGrid;
+            m_GridSpacing = m_Prefs.GridSpacing;
+            m_TranslateSnap = m_Prefs.TranslateSnap;
+            m_RotateSnap = m_Prefs.RotateSnap;
+            m_ScaleSnap = m_Prefs.ScaleSnap;
+            m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
+            m_Is3DMode = m_Prefs.Is3DMode;
+            m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
+
             return true;
         }
         return false;
@@ -1251,6 +1543,11 @@ namespace OloEngine
             return;
         }
 
+        if (!ConfirmDiscardChanges())
+        {
+            return;
+        }
+
         Ref<Scene> newScene = Ref<Scene>::Create();
         SetEditorScene(newScene);
         m_EditorScenePath = std::filesystem::path();
@@ -1258,6 +1555,10 @@ namespace OloEngine
 
     void EditorLayer::OpenScene()
     {
+        if (!ConfirmDiscardChanges())
+        {
+            return;
+        }
         std::error_code ec;
         auto const dir = Project::GetActive()
                              ? Project::GetAssetDirectory().string()
@@ -1300,7 +1601,7 @@ namespace OloEngine
         return true;
     }
 
-    void EditorLayer::SaveScene()
+    bool EditorLayer::SaveScene()
     {
         if (!m_EditorScenePath.empty())
         {
@@ -1312,14 +1613,29 @@ namespace OloEngine
             m_ActiveScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
             m_ActiveScene->SetFogSettings(Renderer3D::GetFogSettings());
             SerializeScene(m_ActiveScene, m_EditorScenePath);
+            m_CommandHistory.MarkSaved();
+            SyncWindowTitle();
+
+            // Save editor preferences alongside scene
+            m_Prefs.ShowGrid = m_ShowGrid;
+            m_Prefs.GridSpacing = m_GridSpacing;
+            m_Prefs.TranslateSnap = m_TranslateSnap;
+            m_Prefs.RotateSnap = m_RotateSnap;
+            m_Prefs.ScaleSnap = m_ScaleSnap;
+            m_Prefs.ShowPhysicsColliders = m_ShowPhysicsColliders;
+            m_Prefs.Is3DMode = m_Is3DMode;
+            m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
+            if (Project::GetActive())
+            {
+                m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());
+            }
+            return true;
         }
-        else
-        {
-            SaveSceneAs();
-        }
+
+        return SaveSceneAs();
     }
 
-    void EditorLayer::SaveSceneAs()
+    bool EditorLayer::SaveSceneAs()
     {
         std::error_code ec;
         auto const dir = Project::GetActive()
@@ -1327,21 +1643,25 @@ namespace OloEngine
                              : std::filesystem::current_path(ec).string();
         const char* initialDir = ec ? nullptr : dir.c_str();
         const std::filesystem::path filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0", initialDir);
-        if (!filepath.empty())
+        if (filepath.empty())
         {
-            m_EditorScene->SetName(filepath.stem().string());
-            m_EditorScenePath = filepath;
-
-            m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
-            m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
-            m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
-            m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
-            m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
-            m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
-            m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
-            SerializeScene(m_EditorScene, filepath);
-            SyncWindowTitle();
+            return false;
         }
+
+        m_EditorScene->SetName(filepath.stem().string());
+        m_EditorScenePath = filepath;
+
+        m_EditorScene->SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+        m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
+        m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
+        m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
+        m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
+        m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
+        m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
+        SerializeScene(m_EditorScene, filepath);
+        m_CommandHistory.MarkSaved();
+        SyncWindowTitle();
+        return true;
     }
 
     void EditorLayer::SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const
@@ -1360,12 +1680,40 @@ namespace OloEngine
         m_SceneState = SceneState::Play;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
+
+        // Validate that the scene has a primary camera before starting runtime
+        Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
+        if (!cameraEntity)
+        {
+            OLO_CORE_ERROR("Cannot enter Play mode: no entity with a primary CameraComponent found in the scene. "
+                           "Add an entity with a CameraComponent and set Primary = true.");
+            m_ActiveScene = m_EditorScene;
+            m_SceneState = SceneState::Edit;
+            return;
+        }
+
+        // Warn about orthographic cameras in 3D mode (common misconfiguration)
+        if (m_Is3DMode)
+        {
+            auto& cam = cameraEntity.GetComponent<CameraComponent>();
+            if (cam.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
+            {
+                OLO_CORE_WARN("Primary camera '{}' uses Orthographic projection in 3D mode. "
+                              "This may cause the viewport to appear empty. Consider switching to Perspective.",
+                              cameraEntity.GetName());
+            }
+        }
+
         m_ActiveScene->OnRuntimeStart();
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_SceneHierarchyPanel.SetCommandHistory(nullptr);
         m_AnimationPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetCommandHistory(nullptr);
         m_StreamingPanel.SetContext(m_ActiveScene);
         m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
+        m_StreamingPanel.SetCommandHistory(nullptr);
+        m_SceneStatisticsPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneSimulate()
@@ -1381,8 +1729,12 @@ namespace OloEngine
         m_ActiveScene->OnSimulationStart();
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_SceneHierarchyPanel.SetCommandHistory(nullptr);
         m_AnimationPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetCommandHistory(nullptr);
         m_StreamingPanel.SetContext(m_ActiveScene);
+        m_StreamingPanel.SetCommandHistory(nullptr);
+        m_SceneStatisticsPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneStop()
@@ -1407,9 +1759,13 @@ namespace OloEngine
         m_ActiveScene = m_EditorScene;
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+        m_SceneHierarchyPanel.SetCommandHistory(&m_CommandHistory);
         m_AnimationPanel.SetContext(m_ActiveScene);
+        m_AnimationPanel.SetCommandHistory(&m_CommandHistory);
         m_StreamingPanel.SetContext(m_ActiveScene);
         m_SaveGamePanel.SetContext(nullptr, nullptr);
+        m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
+        m_SceneStatisticsPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
@@ -1421,11 +1777,22 @@ namespace OloEngine
 
         m_EditorScene = scene;
         m_SceneHierarchyPanel.SetContext(m_EditorScene);
+        m_SceneHierarchyPanel.SetCommandHistory(&m_CommandHistory);
         m_AnimationPanel.SetContext(m_EditorScene);
+        m_AnimationPanel.SetCommandHistory(&m_CommandHistory);
+        m_PostProcessSettingsPanel.SetCommandHistory(&m_CommandHistory);
         m_TerrainEditorPanel.SetContext(m_EditorScene);
+        m_TerrainEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_StreamingPanel.SetContext(m_EditorScene);
+        m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
+        m_SceneStatisticsPanel.SetContext(m_EditorScene);
+        m_DialogueEditorPanel.SetCommandHistory(&m_CommandHistory);
+        m_InputSettingsPanel.SetCommandHistory(&m_CommandHistory);
 
         m_ActiveScene = m_EditorScene;
+
+        // Clear undo history when switching scenes
+        m_CommandHistory.Clear();
 
         SyncWindowTitle();
     }
@@ -1434,7 +1801,44 @@ namespace OloEngine
     {
         std::string const& projectName = Project::GetActive()->GetConfig().Name;
         std::string title = projectName + " - " + m_ActiveScene->GetName() + " - OloEditor";
+        if (m_CommandHistory.IsDirty())
+        {
+            title += " *";
+        }
         Application::Get().GetWindow().SetTitle(title);
+    }
+
+    bool EditorLayer::ConfirmDiscardChanges()
+    {
+        if (!m_CommandHistory.IsDirty())
+        {
+            return true;
+        }
+
+        auto const result = MessagePrompt::YesNoCancel(
+            "Unsaved Changes",
+            "The current scene has unsaved changes. Do you want to save before continuing?");
+
+        switch (result)
+        {
+            case MessagePromptResult::Yes:
+                return SaveScene();
+            case MessagePromptResult::No:
+                return true;
+            case MessagePromptResult::Cancel:
+            default:
+                return false;
+        }
+    }
+
+    bool EditorLayer::OnWindowClose([[maybe_unused]] WindowCloseEvent const& e)
+    {
+        if (!ConfirmDiscardChanges())
+        {
+            Application::Get().CancelClose();
+            return true;
+        }
+        return false;
     }
 
     bool EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
@@ -1567,7 +1971,119 @@ namespace OloEngine
         const Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
         if (selectedEntity)
         {
-            m_EditorScene->DuplicateEntity(selectedEntity);
+            Entity newEntity = m_EditorScene->DuplicateEntity(selectedEntity);
+
+            // Snapshot the new entity so undo can delete it and redo can restore it
+            auto deleteCmd = std::make_unique<DeleteEntityCommand>(
+                m_EditorScene, newEntity,
+                [this]()
+                { m_SceneHierarchyPanel.SetSelectedEntity({}); },
+                [this](Entity restored)
+                { m_SceneHierarchyPanel.SetSelectedEntity(restored); });
+
+            m_CommandHistory.PushAlreadyExecuted(
+                std::make_unique<DuplicateUndoCommand>(std::move(deleteCmd)));
+
+            m_SceneHierarchyPanel.SetSelectedEntity(newEntity);
+        }
+    }
+
+    void EditorLayer::OnCopyEntity()
+    {
+        const auto& selected = m_SceneHierarchyPanel.GetSelectedEntities();
+        if (selected.empty())
+        {
+            return;
+        }
+
+        YAML::Emitter out;
+        out << YAML::BeginSeq;
+        for (const auto& entity : selected)
+        {
+            SceneSerializer::SerializeEntity(out, entity);
+        }
+        out << YAML::EndSeq;
+        m_EntityClipboard = out.c_str();
+    }
+
+    void EditorLayer::OnPasteEntity()
+    {
+        if (m_EntityClipboard.empty())
+        {
+            return;
+        }
+
+        YAML::Node entities = YAML::Load(m_EntityClipboard);
+        if (!entities || !entities.IsSequence())
+        {
+            return;
+        }
+
+        // Remap UUIDs to generate new entities
+        YAML::Emitter remapped;
+        remapped << YAML::BeginSeq;
+        for (auto entityNode : entities)
+        {
+            remapped << YAML::BeginMap;
+            for (auto it = entityNode.begin(); it != entityNode.end(); ++it)
+            {
+                std::string key = it->first.as<std::string>();
+                if (key == "Entity")
+                {
+                    // Replace UUID with a new one
+                    remapped << YAML::Key << key << YAML::Value << static_cast<u64>(UUID());
+                }
+                else
+                {
+                    remapped << YAML::Key << key << YAML::Value << it->second;
+                }
+            }
+            remapped << YAML::EndMap;
+        }
+        remapped << YAML::EndSeq;
+
+        YAML::Node remappedNode = YAML::Load(remapped.c_str());
+        SceneSerializer serializer(m_EditorScene);
+        auto createdUUIDs = serializer.DeserializeAdditive(remappedNode);
+
+        if (!createdUUIDs.empty())
+        {
+            // Create undo: wrap compound delete in DuplicateUndoCommand
+            // Undo (user presses Ctrl+Z) → inner.Execute → delete pasted entities
+            // Redo (user presses Ctrl+Y) → inner.Undo → restore pasted entities
+            if (createdUUIDs.size() == 1)
+            {
+                auto entityOpt = m_EditorScene->TryGetEntityWithUUID(createdUUIDs[0]);
+                if (entityOpt)
+                {
+                    m_CommandHistory.PushAlreadyExecuted(
+                        std::make_unique<DuplicateUndoCommand>(
+                            std::make_unique<DeleteEntityCommand>(
+                                m_EditorScene, *entityOpt,
+                                [this]()
+                                { m_SceneHierarchyPanel.ClearSelection(); },
+                                [this](Entity restored)
+                                { m_SceneHierarchyPanel.SetSelectedEntity(restored); })));
+                    m_SceneHierarchyPanel.SetSelectedEntity(*entityOpt);
+                }
+            }
+            else
+            {
+                auto compound = std::make_unique<CompoundCommand>("Delete Pasted Entities");
+                for (auto& uuid : createdUUIDs)
+                {
+                    auto entityOpt = m_EditorScene->TryGetEntityWithUUID(uuid);
+                    if (entityOpt)
+                    {
+                        compound->Add(std::make_unique<DeleteEntityCommand>(
+                            m_EditorScene, *entityOpt,
+                            []() {},
+                            [](Entity) {}));
+                    }
+                }
+                m_CommandHistory.PushAlreadyExecuted(
+                    std::make_unique<InvertedCommand>(std::move(compound)));
+            }
         }
     }
 

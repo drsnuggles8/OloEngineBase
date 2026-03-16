@@ -1,5 +1,6 @@
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/UI/UI.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -8,6 +9,7 @@
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Particle/ParticlePresets.h"
@@ -17,6 +19,9 @@
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
 #include "OloEngine/Debug/Instrumentor.h"
+#include "../UndoRedo/EntityCommands.h"
+#include "../UndoRedo/ComponentCommands.h"
+#include "../UndoRedo/SpecializedCommands.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -24,6 +29,9 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <cstring>
+#include <cctype>
+#include <unordered_map>
+#include <algorithm>
 
 namespace OloEngine
 {
@@ -36,6 +44,7 @@ namespace OloEngine
     {
         m_Context = context;
         m_SelectionContext = {};
+        m_SelectedEntities.clear();
     }
 
     void SceneHierarchyPanel::OnImGuiRender()
@@ -44,116 +53,226 @@ namespace OloEngine
 
         if (m_Context)
         {
-            m_Context->m_Registry.view<entt::entity>().each([&](const auto e)
-                                                            { DrawEntityNode({ e, *m_Context }); });
+            // Search / filter bar
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputTextWithHint("##EntityFilter", "Search entities...", m_FilterText, sizeof(m_FilterText));
+            ImGui::Separator();
 
-            if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
+            const bool hasFilter = m_FilterText[0] != '\0';
+
+            auto caseInsensitiveFind = [](const std::string& haystack, const char* needle) -> bool
             {
-                m_SelectionContext = {};
+                if (!needle[0])
+                {
+                    return true;
+                }
+                auto it = std::search(
+                    haystack.begin(), haystack.end(),
+                    needle, needle + std::strlen(needle),
+                    [](char a, char b)
+                    { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
+                return it != haystack.end();
+            };
+
+            m_Context->m_Registry.view<entt::entity>().each([&](const auto e)
+                                                            {
+                Entity entity{ e, *m_Context };
+
+                // When filtering, show all matching entities flat.
+                // Otherwise, only render root entities (children drawn recursively).
+                if (!hasFilter && entity.GetParentUUID() != UUID(0))
+                {
+                    return;
+                }
+
+                if (hasFilter)
+                {
+                    auto& tag = entity.GetComponent<TagComponent>().Tag;
+                    if (!caseInsensitiveFind(tag, m_FilterText))
+                    {
+                        return;
+                    }
+                }
+                DrawEntityNode(entity); });
+
+            if (ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered())
+            {
+                ClearSelection();
             }
 
-            // Right-click on blank space
-            if (ImGui::BeginPopupContextWindow(nullptr, 1))
+            // Drag-and-Drop: drop on empty space to unparent
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+                {
+                    UUID droppedUUID = *static_cast<const UUID*>(payload->Data);
+                    auto droppedOpt = m_Context->TryGetEntityWithUUID(droppedUUID);
+                    if (droppedOpt && droppedOpt->GetParentUUID() != UUID(0))
+                    {
+                        UUID oldParent = droppedOpt->GetParentUUID();
+                        Entity parent = droppedOpt->GetParent();
+                        if (parent)
+                        {
+                            parent.RemoveChild(*droppedOpt);
+                        }
+                        if (m_CommandHistory)
+                        {
+                            m_CommandHistory->PushAlreadyExecuted(std::make_unique<ReparentEntityCommand>(
+                                m_Context, droppedUUID, oldParent, UUID(0)));
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            // Right-click on blank space (not on an entity item)
+            if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
             {
                 if (ImGui::MenuItem("Create Empty Entity"))
                 {
-                    m_SelectionContext = m_Context->CreateEntity("Empty Entity");
+                    if (m_CommandHistory)
+                    {
+                        m_CommandHistory->Execute(std::make_unique<CreateEntityCommand>(
+                            m_Context, "Empty Entity",
+                            [this](Entity e)
+                            { m_SelectionContext = e; },
+                            [this]()
+                            { m_SelectionContext = {}; }));
+                    }
+                    else
+                    {
+                        m_SelectionContext = m_Context->CreateEntity("Empty Entity");
+                    }
                 }
 
                 if (ImGui::BeginMenu("Create UI"))
                 {
+                    auto createUICanvasWithUndo = [this]()
+                    {
+                        if (m_CommandHistory)
+                        {
+                            m_CommandHistory->Execute(std::make_unique<CreateEntityCommand>(
+                                m_Context, "UI Canvas",
+                                [this](Entity e)
+                                {
+                                    e.AddComponent<UICanvasComponent>();
+                                    e.AddComponent<UIRectTransformComponent>();
+                                    m_SelectionContext = e;
+                                },
+                                [this]()
+                                { m_SelectionContext = {}; }));
+                        }
+                        else
+                        {
+                            auto canvas = m_Context->CreateEntity("UI Canvas");
+                            canvas.AddComponent<UICanvasComponent>();
+                            canvas.AddComponent<UIRectTransformComponent>();
+                            m_SelectionContext = canvas;
+                        }
+                    };
+
+                    auto createUIWidgetWithUndo = [this](const char* name, auto addComponentFn)
+                    {
+                        if (m_CommandHistory)
+                        {
+                            m_CommandHistory->Execute(std::make_unique<CreateEntityCommand>(
+                                m_Context, name,
+                                [this, addComponentFn](Entity e)
+                                {
+                                    e.AddComponent<UIRectTransformComponent>();
+                                    addComponentFn(e);
+                                    Entity canvas = FindOrCreateCanvas();
+                                    e.SetParent(canvas);
+                                    m_SelectionContext = e;
+                                },
+                                [this]()
+                                { m_SelectionContext = {}; }));
+                        }
+                        else
+                        {
+                            auto widget = CreateUIWidget(name);
+                            addComponentFn(widget);
+                            m_SelectionContext = widget;
+                        }
+                    };
+
                     if (ImGui::MenuItem("UI Canvas"))
                     {
-                        auto canvas = m_Context->CreateEntity("UI Canvas");
-                        canvas.AddComponent<UICanvasComponent>();
-                        canvas.AddComponent<UIRectTransformComponent>();
-                        m_SelectionContext = canvas;
+                        createUICanvasWithUndo();
                     }
 
                     ImGui::Separator();
 
                     if (ImGui::MenuItem("Panel"))
                     {
-                        auto widget = CreateUIWidget("UI Panel");
-                        widget.AddComponent<UIPanelComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Panel", [](Entity e)
+                                               { e.AddComponent<UIPanelComponent>(); });
                     }
 
                     if (ImGui::MenuItem("Text"))
                     {
-                        auto widget = CreateUIWidget("UI Text");
-                        widget.AddComponent<UITextComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Text", [](Entity e)
+                                               { e.AddComponent<UITextComponent>(); });
                     }
 
                     if (ImGui::MenuItem("Image"))
                     {
-                        auto widget = CreateUIWidget("UI Image");
-                        widget.AddComponent<UIImageComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Image", [](Entity e)
+                                               { e.AddComponent<UIImageComponent>(); });
                     }
 
                     if (ImGui::MenuItem("Button"))
                     {
-                        auto widget = CreateUIWidget("UI Button");
-                        widget.AddComponent<UIButtonComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Button", [](Entity e)
+                                               { e.AddComponent<UIButtonComponent>(); });
                     }
 
                     if (ImGui::MenuItem("Slider"))
                     {
-                        auto widget = CreateUIWidget("UI Slider");
-                        widget.AddComponent<UISliderComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Slider", [](Entity e)
+                                               { e.AddComponent<UISliderComponent>(); });
                     }
 
                     if (ImGui::MenuItem("Checkbox"))
                     {
-                        auto widget = CreateUIWidget("UI Checkbox");
-                        widget.AddComponent<UICheckboxComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Checkbox", [](Entity e)
+                                               { e.AddComponent<UICheckboxComponent>(); });
                     }
 
                     if (ImGui::MenuItem("Toggle"))
                     {
-                        auto widget = CreateUIWidget("UI Toggle");
-                        widget.AddComponent<UIToggleComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Toggle", [](Entity e)
+                                               { e.AddComponent<UIToggleComponent>(); });
                     }
 
                     if (ImGui::MenuItem("Progress Bar"))
                     {
-                        auto widget = CreateUIWidget("UI Progress Bar");
-                        widget.AddComponent<UIProgressBarComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Progress Bar", [](Entity e)
+                                               { e.AddComponent<UIProgressBarComponent>(); });
                     }
 
                     if (ImGui::MenuItem("Input Field"))
                     {
-                        auto widget = CreateUIWidget("UI Input Field");
-                        widget.AddComponent<UIInputFieldComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Input Field", [](Entity e)
+                                               { e.AddComponent<UIInputFieldComponent>(); });
                     }
 
                     if (ImGui::MenuItem("Dropdown"))
                     {
-                        auto widget = CreateUIWidget("UI Dropdown");
-                        widget.AddComponent<UIDropdownComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Dropdown", [](Entity e)
+                                               { e.AddComponent<UIDropdownComponent>(); });
                     }
 
                     if (ImGui::MenuItem("Scroll View"))
                     {
-                        auto widget = CreateUIWidget("UI Scroll View");
-                        widget.AddComponent<UIScrollViewComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Scroll View", [](Entity e)
+                                               { e.AddComponent<UIScrollViewComponent>(); });
                     }
 
                     if (ImGui::MenuItem("Grid Layout"))
                     {
-                        auto widget = CreateUIWidget("UI Grid Layout");
-                        widget.AddComponent<UIGridLayoutComponent>();
-                        m_SelectionContext = widget;
+                        createUIWidgetWithUndo("UI Grid Layout", [](Entity e)
+                                               { e.AddComponent<UIGridLayoutComponent>(); });
                     }
 
                     ImGui::EndMenu();
@@ -166,9 +285,13 @@ namespace OloEngine
         ImGui::End();
 
         ImGui::Begin("Properties");
-        if (m_SelectionContext)
+        if (m_SelectionContext && m_SelectedEntities.size() <= 1)
         {
             DrawComponents(m_SelectionContext);
+        }
+        else if (m_SelectedEntities.size() > 1)
+        {
+            ImGui::TextDisabled("%zu entities selected", m_SelectedEntities.size());
         }
 
         ImGui::End();
@@ -177,6 +300,62 @@ namespace OloEngine
     void SceneHierarchyPanel::SetSelectedEntity(const Entity entity)
     {
         m_SelectionContext = entity;
+        m_SelectedEntities.clear();
+        if (entity)
+        {
+            m_SelectedEntities.push_back(entity);
+        }
+    }
+
+    void SceneHierarchyPanel::ClearSelection()
+    {
+        m_SelectionContext = {};
+        m_SelectedEntities.clear();
+    }
+
+    void SceneHierarchyPanel::DeleteSelectedEntities()
+    {
+        if (m_SelectedEntities.empty())
+        {
+            return;
+        }
+
+        if (m_CommandHistory && m_SelectedEntities.size() > 1)
+        {
+            auto compound = std::make_unique<CompoundCommand>("Delete " + std::to_string(m_SelectedEntities.size()) + " Entities");
+            for (auto& entity : m_SelectedEntities)
+            {
+                compound->Add(std::make_unique<DeleteEntityCommand>(
+                    m_Context, entity,
+                    []() {},
+                    [](Entity) {}));
+            }
+            m_CommandHistory->Execute(std::move(compound));
+            ClearSelection();
+        }
+        else if (m_SelectedEntities.size() == 1)
+        {
+            Entity entity = m_SelectedEntities[0];
+            if (m_CommandHistory)
+            {
+                m_CommandHistory->Execute(std::make_unique<DeleteEntityCommand>(
+                    m_Context, entity,
+                    [this]()
+                    { ClearSelection(); },
+                    [this](Entity restored)
+                    { SetSelectedEntity(restored); }));
+            }
+            else
+            {
+                m_Context->DestroyEntity(entity);
+                ClearSelection();
+            }
+        }
+    }
+
+    bool SceneHierarchyPanel::IsEntitySelected(Entity entity) const
+    {
+        return std::ranges::find(m_SelectedEntities, entity) != m_SelectedEntities.end();
     }
 
     Entity SceneHierarchyPanel::FindOrCreateCanvas()
@@ -211,20 +390,87 @@ namespace OloEngine
         auto& tagComponent = entity.GetComponent<TagComponent>();
         auto& tag = tagComponent.Tag;
 
-        ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
+        ImGuiTreeNodeFlags flags = (IsEntitySelected(entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
         flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
+
+        // Mark as leaf if entity has no children
+        const auto& children = entity.Children();
+        if (children.empty())
+        {
+            flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+        }
+
+        // Visual indicator for prefab instances
+        bool isPrefabInstance = entity.HasComponent<PrefabComponent>() && entity.GetComponent<PrefabComponent>().IsValid();
+        if (isPrefabInstance)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.7f, 1.0f, 1.0f));
+        }
+
         bool opened = ImGui::TreeNodeEx((void*)static_cast<u64>(static_cast<u32>(entity)), flags, tag.c_str());
+
+        if (isPrefabInstance)
+        {
+            ImGui::PopStyleColor();
+        }
         if (ImGui::IsItemClicked())
         {
-            m_SelectionContext = entity;
+            const bool ctrl = ImGui::GetIO().KeyCtrl;
+            const bool shift = ImGui::GetIO().KeyShift;
+
+            if (ctrl)
+            {
+                // Ctrl+click: toggle entity in multi-selection
+                if (auto it = std::ranges::find(m_SelectedEntities, entity); it != m_SelectedEntities.end())
+                {
+                    m_SelectedEntities.erase(it);
+                    m_SelectionContext = m_SelectedEntities.empty() ? Entity{} : m_SelectedEntities.back();
+                }
+                else
+                {
+                    m_SelectedEntities.push_back(entity);
+                    m_SelectionContext = entity;
+                }
+            }
+            else if (shift && m_SelectionContext)
+            {
+                // Shift+click: select range between last clicked and this entity
+                // Collect visible entities in order
+                std::vector<Entity> visible;
+                m_Context->m_Registry.view<entt::entity>().each([&](const auto e)
+                                                                { visible.emplace_back(e, *m_Context); });
+
+                auto itA = std::ranges::find(visible, m_SelectionContext);
+                auto itB = std::ranges::find(visible, entity);
+                if (itA != visible.end() && itB != visible.end())
+                {
+                    if (itA > itB)
+                    {
+                        std::swap(itA, itB);
+                    }
+                    m_SelectedEntities.clear();
+                    for (auto it = itA; it <= itB; ++it)
+                    {
+                        m_SelectedEntities.push_back(*it);
+                    }
+                    m_SelectionContext = entity;
+                }
+            }
+            else
+            {
+                // Regular click: single select
+                SetSelectedEntity(entity);
+            }
         }
 
         bool entityDeleted = false;
+        bool deleteAll = false;
         if (ImGui::BeginPopupContextItem())
         {
             if (ImGui::MenuItem("Rename"))
             {
                 tagComponent.renaming = true;
+                m_RenameOldName = tag;
             }
 
             if (ImGui::MenuItem("Delete Entity"))
@@ -232,7 +478,114 @@ namespace OloEngine
                 entityDeleted = true;
             }
 
+            if (m_SelectedEntities.size() > 1 && IsEntitySelected(entity))
+            {
+                if (ImGui::MenuItem("Delete All Selected"))
+                {
+                    deleteAll = true;
+                }
+            }
+
+            if (entity.GetParentUUID() != UUID(0))
+            {
+                if (ImGui::MenuItem("Unparent"))
+                {
+                    UUID oldParentUUID = entity.GetParentUUID();
+                    Entity parent = entity.GetParent();
+                    if (parent)
+                    {
+                        parent.RemoveChild(entity);
+                    }
+                    if (m_CommandHistory)
+                    {
+                        m_CommandHistory->PushAlreadyExecuted(std::make_unique<ReparentEntityCommand>(
+                            m_Context, entity.GetUUID(), oldParentUUID, UUID(0)));
+                    }
+                }
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Save as Prefab"))
+            {
+                auto& entityTag = entity.GetComponent<TagComponent>().Tag;
+                std::filesystem::path prefabDir = Project::GetAssetDirectory() / "prefabs";
+                std::filesystem::create_directories(prefabDir);
+                std::filesystem::path prefabPath = prefabDir / (entityTag + ".oloprefab");
+
+                // Create and populate the prefab
+                Ref<Prefab> prefab = Ref<Prefab>::Create();
+                AssetHandle handle = AssetManager::AddMemoryOnlyAsset(prefab);
+                prefab->Create(entity, false);
+
+                // Register with asset system and serialize to disk
+                auto* editorManager = static_cast<EditorAssetManager*>(
+                    Project::GetActive()->GetAssetManager().get());
+                auto relativePath = Project::GetAssetRelativeFileSystemPath(prefabPath);
+
+                AssetMetadata metadata;
+                metadata.Handle = handle;
+                metadata.FilePath = relativePath;
+                metadata.Type = AssetType::Prefab;
+                metadata.IsDataLoaded = true;
+                editorManager->SetMetadata(handle, metadata);
+                editorManager->SerializeAssetRegistry();
+
+                AssetImporter::Serialize(metadata, prefab);
+
+                // Mark the source entity as a prefab instance
+                if (!entity.HasComponent<PrefabComponent>())
+                {
+                    if (m_CommandHistory)
+                    {
+                        auto compound = std::make_unique<CompoundCommand>("Save as Prefab");
+                        compound->Add(std::make_unique<AddComponentCommand<PrefabComponent>>(m_Context, entity.GetUUID()));
+                        PrefabComponent defaultComp;
+                        PrefabComponent initComp(handle, entity.GetUUID());
+                        compound->Add(std::make_unique<ComponentChangeCommand<PrefabComponent>>(
+                            m_Context, entity.GetUUID(), defaultComp, initComp, "Init Prefab"));
+                        m_CommandHistory->Execute(std::move(compound));
+                    }
+                    else
+                    {
+                        entity.AddComponent<PrefabComponent>(handle, entity.GetUUID());
+                    }
+                }
+
+                OLO_CORE_INFO("Saved prefab: {}", prefabPath.string());
+            }
+
             ImGui::EndPopup();
+        }
+
+        // Drag-and-Drop: source
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
+        {
+            UUID entityUUID = entity.GetUUID();
+            ImGui::SetDragDropPayload("ENTITY_REPARENT", &entityUUID, sizeof(UUID));
+            ImGui::Text("%s", tag.c_str());
+            ImGui::EndDragDropSource();
+        }
+
+        // Drag-and-Drop: target
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+            {
+                UUID droppedUUID = *static_cast<const UUID*>(payload->Data);
+                auto droppedOpt = m_Context->TryGetEntityWithUUID(droppedUUID);
+                if (droppedOpt && *droppedOpt != entity && !droppedOpt->WouldCreateCycleWith(entity))
+                {
+                    UUID oldParent = droppedOpt->GetParentUUID();
+                    droppedOpt->SetParent(entity);
+                    if (m_CommandHistory)
+                    {
+                        m_CommandHistory->PushAlreadyExecuted(std::make_unique<ReparentEntityCommand>(
+                            m_Context, droppedUUID, oldParent, entity.GetUUID()));
+                    }
+                }
+            }
+            ImGui::EndDragDropTarget();
         }
 
         if (tagComponent.renaming)
@@ -248,26 +601,50 @@ namespace OloEngine
             if (ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered())
             {
                 tagComponent.renaming = false;
+                if (m_CommandHistory && tag != m_RenameOldName)
+                {
+                    m_CommandHistory->PushAlreadyExecuted(std::make_unique<RenameEntityCommand>(
+                        m_Context, entity.GetUUID(), m_RenameOldName, tag));
+                }
             }
         }
 
-        if (opened)
+        if (opened && !children.empty())
         {
-            flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-            opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str());
-            if (opened)
+            for (const UUID& childUUID : children)
             {
-                ImGui::TreePop();
+                auto childOpt = m_Context->TryGetEntityWithUUID(childUUID);
+                if (childOpt)
+                {
+                    DrawEntityNode(*childOpt);
+                }
             }
             ImGui::TreePop();
         }
 
-        if (entityDeleted)
+        if (deleteAll)
         {
-            m_Context->DestroyEntity(entity);
+            DeleteSelectedEntities();
+        }
+        else if (entityDeleted)
+        {
+            if (m_CommandHistory)
+            {
+                m_CommandHistory->Execute(std::make_unique<DeleteEntityCommand>(
+                    m_Context, entity,
+                    [this]()
+                    { ClearSelection(); },
+                    [this](Entity restored)
+                    { SetSelectedEntity(restored); }));
+            }
+            else
+            {
+                m_Context->DestroyEntity(entity);
+            }
+
             if (m_SelectionContext == entity)
             {
-                m_SelectionContext = {};
+                ClearSelection();
             }
         }
     }
@@ -575,6 +952,10 @@ namespace OloEngine
         return modified;
     }
 
+    // File-scope state for undo integration in DrawComponent (set by DrawComponents)
+    static CommandHistory* s_DrawComponentCmdHistory = nullptr;
+    static Ref<Scene> s_DrawComponentScene = nullptr;
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
@@ -614,13 +995,65 @@ namespace OloEngine
 
             if (open)
             {
-                uiFunction(component);
+                // ── Component-level undo tracking ──
+                if (s_DrawComponentCmdHistory && s_DrawComponentScene)
+                {
+                    struct EditState
+                    {
+                        bool isEditing = false;
+                        T snapshot{};
+                    };
+                    static std::unordered_map<u64, EditState> s_editStates;
+                    auto& editState = s_editStates[static_cast<u64>(entity.GetUUID())];
+
+                    // Maintain a stable snapshot of the component before any edit session
+                    if (!editState.isEditing)
+                    {
+                        editState.snapshot = component;
+                    }
+
+                    // Byte-level change detection: compare component bytes before and after uiFunction
+                    alignas(alignof(T)) unsigned char bytesBefore[sizeof(T)];
+                    std::memcpy(bytesBefore, &component, sizeof(T));
+
+                    uiFunction(component);
+
+                    const bool componentChanged = (std::memcmp(bytesBefore, &component, sizeof(T)) != 0);
+
+                    if (componentChanged && !editState.isEditing)
+                    {
+                        editState.isEditing = true;
+                    }
+
+                    // When no change this frame and no active ImGui widget → editing has ended
+                    if (editState.isEditing && !componentChanged && ::GImGui->ActiveId == 0)
+                    {
+                        s_DrawComponentCmdHistory->PushAlreadyExecuted(
+                            std::make_unique<ComponentChangeCommand<T>>(
+                                s_DrawComponentScene, entity.GetUUID(),
+                                editState.snapshot, component, "Property Change"));
+                        editState.isEditing = false;
+                    }
+                }
+                else
+                {
+                    uiFunction(component);
+                }
+
                 ImGui::TreePop();
             }
 
             if (removeComponent)
             {
-                entity.RemoveComponent<T>();
+                if (s_DrawComponentCmdHistory && s_DrawComponentScene)
+                {
+                    s_DrawComponentCmdHistory->Execute(std::make_unique<RemoveComponentCommand<T>>(
+                        s_DrawComponentScene, entity.GetUUID(), entity.GetComponent<T>()));
+                }
+                else
+                {
+                    entity.RemoveComponent<T>();
+                }
             }
         }
     }
@@ -816,6 +1249,10 @@ namespace OloEngine
 
     void SceneHierarchyPanel::DrawComponents(Entity entity)
     {
+        // Set file-scope state for DrawComponent undo integration
+        s_DrawComponentCmdHistory = m_CommandHistory;
+        s_DrawComponentScene = m_Context;
+
         if (entity.HasComponent<TagComponent>())
         {
             auto& tag = entity.GetComponent<TagComponent>().Tag;
@@ -823,9 +1260,25 @@ namespace OloEngine
             char buffer[256];
             ::memset(buffer, 0, sizeof(buffer));
             ::strncpy_s(buffer, sizeof(buffer), tag.c_str(), sizeof(buffer));
+
+            // Save tag before InputText modifies it (for undo tracking)
+            static std::string s_tagEditStart;
+            const std::string tagBeforeInput = tag;
+
             if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
             {
                 tag = std::string(buffer);
+            }
+
+            if (ImGui::IsItemActivated())
+            {
+                s_tagEditStart = tagBeforeInput;
+            }
+
+            if (ImGui::IsItemDeactivatedAfterEdit() && m_CommandHistory)
+            {
+                m_CommandHistory->PushAlreadyExecuted(
+                    std::make_unique<RenameEntityCommand>(m_Context, entity.GetUUID(), s_tagEditStart, tag));
             }
         }
 
@@ -889,8 +1342,20 @@ namespace OloEngine
                 {
                     if (ImGui::MenuItem(label))
                     {
-                        auto& comp = m_SelectionContext.AddComponent<ParticleSystemComponent>();
-                        applyFn(comp.System);
+                        if (m_CommandHistory)
+                        {
+                            m_CommandHistory->Execute(
+                                std::make_unique<AddComponentWithInitCommand<ParticleSystemComponent>>(
+                                    m_Context, m_SelectionContext.GetUUID(),
+                                    [applyFn](ParticleSystemComponent& comp)
+                                    { applyFn(comp.System); },
+                                    std::string("Add ") + label));
+                        }
+                        else
+                        {
+                            auto& comp = m_SelectionContext.AddComponent<ParticleSystemComponent>();
+                            applyFn(comp.System);
+                        }
                         ImGui::CloseCurrentPopup();
                     }
                 };
@@ -959,8 +1424,12 @@ namespace OloEngine
                                           {
 			DrawVec3Control("Translation", component.Translation);
 			glm::vec3 rotation = glm::degrees(component.Rotation);
+			glm::vec3 savedRotation = rotation;
 			DrawVec3Control("Rotation", rotation);
-			component.Rotation = glm::radians(rotation);
+			if (rotation != savedRotation)
+			{
+				component.Rotation = glm::radians(rotation);
+			}
 			DrawVec3Control("Scale", component.Scale, 1.0f); });
 
         DrawComponent<CameraComponent>("Camera", entity, [](auto& component)
@@ -1027,6 +1496,13 @@ namespace OloEngine
 				}
 
 				ImGui::Checkbox("Fixed Aspect Ratio", &component.FixedAspectRatio);
+			}
+
+			ImGui::Separator();
+			ImGui::Checkbox("Runtime Control (FPS Fly)", &component.RuntimeControl);
+			if (component.RuntimeControl)
+			{
+				ImGui::DragFloat("Fly Speed", &component.FlySpeed, 0.1f, 0.1f, 100.0f);
 			} });
 
         DrawComponent<ScriptComponent>("Script", entity, [entity, scene = m_Context](auto& component) mutable
@@ -1069,6 +1545,7 @@ namespace OloEngine
 				Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(component.ClassName);
 				const auto& fields = entityClass->GetFields();
 				auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
+				static std::unordered_map<std::string, f32> s_scriptFieldSnapshots;
 					for (const auto& [name, field] : fields)
 					{
 						// Field has been set in editor
@@ -1080,7 +1557,27 @@ namespace OloEngine
 							{
 								f32 data = scriptField.GetValue<f32>();
 								if (ImGui::DragFloat(name.c_str(), &data))
+								{
 									scriptField.SetValue(data);
+								}
+								// Track undo for script field edits
+								if (s_DrawComponentCmdHistory && s_DrawComponentScene)
+								{
+									if (ImGui::IsItemActivated())
+									{
+										s_scriptFieldSnapshots[name] = scriptField.GetValue<f32>();
+									}
+									if (ImGui::IsItemDeactivatedAfterEdit())
+									{
+										if (auto snapIt = s_scriptFieldSnapshots.find(name); snapIt != s_scriptFieldSnapshots.end())
+										{
+											s_DrawComponentCmdHistory->PushAlreadyExecuted(
+												std::make_unique<ScriptFieldChangeCommand>(
+													s_DrawComponentScene, entity.GetUUID(),
+													name, snapIt->second, data));
+										}
+									}
+								}
 							}
 						}
 						else
@@ -1093,6 +1590,14 @@ namespace OloEngine
 									ScriptFieldInstance& fieldInstance = entityFields[name];
 									fieldInstance.Field = field;
 									fieldInstance.SetValue(data);
+								}
+								// Track undo for newly created script field
+								if (s_DrawComponentCmdHistory && s_DrawComponentScene && ImGui::IsItemDeactivatedAfterEdit())
+								{
+									s_DrawComponentCmdHistory->PushAlreadyExecuted(
+										std::make_unique<ScriptFieldChangeCommand>(
+											s_DrawComponentScene, entity.GetUUID(),
+											name, 0.0f, data));
 								}
 							}
 						}
@@ -1240,6 +1745,12 @@ namespace OloEngine
 					auto animatedModel = Ref<AnimatedModel>::Create(filepath);
 					if (animatedModel && !animatedModel->GetMeshes().empty())
 					{
+						// Track auto-added components for undo
+						auto* cmdHistory = s_DrawComponentCmdHistory;
+						auto cmdScene = s_DrawComponentScene;
+						UUID entityUUID = entity.GetUUID();
+						auto compound = std::make_unique<CompoundCommand>("Import Animated Model");
+
 						// Set the mesh source from the animated model
 						component.m_MeshSource = animatedModel->GetMeshes()[0];
 						OLO_CORE_INFO("Imported animated model: {} ({} meshes)", filepath, animatedModel->GetMeshes().size());
@@ -1252,6 +1763,10 @@ namespace OloEngine
 								auto& materialComp = entity.AddComponent<MaterialComponent>();
 								materialComp.m_Material = animatedModel->GetMaterials()[0];
 								OLO_CORE_INFO("Added MaterialComponent from animated model");
+								if (cmdHistory && cmdScene)
+								{
+									compound->Add(std::make_unique<AddComponentCommand<MaterialComponent>>(cmdScene, entityUUID));
+								}
 							}
 							else
 							{
@@ -1268,6 +1783,10 @@ namespace OloEngine
 								auto& skeletonComp = entity.AddComponent<SkeletonComponent>();
 								skeletonComp.m_Skeleton = animatedModel->GetSkeleton();
 								OLO_CORE_INFO("Added SkeletonComponent: {} bones", skeletonComp.m_Skeleton->m_BoneNames.size());
+								if (cmdHistory && cmdScene)
+								{
+									compound->Add(std::make_unique<AddComponentCommand<SkeletonComponent>>(cmdScene, entityUUID));
+								}
 							}
 							else
 							{
@@ -1298,6 +1817,10 @@ namespace OloEngine
 									auto& anim = animStateComp.m_AvailableClips[i];
 									OLO_CORE_INFO("  Animation [{}]: '{}' - Duration: {:.2f}s", i, anim->Name, anim->Duration);
 								}
+								if (cmdHistory && cmdScene)
+								{
+									compound->Add(std::make_unique<AddComponentCommand<AnimationStateComponent>>(cmdScene, entityUUID));
+								}
 							}
 							else
 							{
@@ -1311,6 +1834,12 @@ namespace OloEngine
 						else
 						{
 							OLO_CORE_WARN("Animated model has no animations: {}", filepath);
+						}
+
+						// Push compound command for auto-added components (MeshComponent change handled by DrawComponent tracking)
+						if (cmdHistory && !compound->IsEmpty())
+						{
+							cmdHistory->PushAlreadyExecuted(std::move(compound));
 						}
 					}
 					else
@@ -3194,7 +3723,15 @@ namespace OloEngine
     {
         if ((!m_SelectionContext.HasComponent<T>()) && ImGui::MenuItem(entryName.c_str()))
         {
-            m_SelectionContext.AddComponent<T>();
+            if (m_CommandHistory)
+            {
+                m_CommandHistory->Execute(std::make_unique<AddComponentCommand<T>>(
+                    m_Context, m_SelectionContext.GetUUID()));
+            }
+            else
+            {
+                m_SelectionContext.AddComponent<T>();
+            }
             ImGui::CloseCurrentPopup();
         }
     }

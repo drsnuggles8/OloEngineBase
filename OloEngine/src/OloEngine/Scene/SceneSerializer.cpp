@@ -1177,6 +1177,19 @@ namespace OloEngine
 
             cc.Primary = cameraComponent["Primary"].as<bool>();
             cc.FixedAspectRatio = cameraComponent["FixedAspectRatio"].as<bool>();
+
+            if (auto rc = cameraComponent["RuntimeControl"]; rc)
+            {
+                cc.RuntimeControl = rc.as<bool>();
+            }
+            if (auto fs = cameraComponent["FlySpeed"]; fs)
+            {
+                f32 const flySpeed = fs.as<f32>();
+                if (std::isfinite(flySpeed) && flySpeed > 0.0f)
+                {
+                    cc.FlySpeed = flySpeed;
+                }
+            }
         }
 
         if (auto scriptComponent = entity["ScriptComponent"])
@@ -2126,6 +2139,8 @@ namespace OloEngine
 
             out << YAML::Key << "Primary" << YAML::Value << cameraComponent.Primary;
             out << YAML::Key << "FixedAspectRatio" << YAML::Value << cameraComponent.FixedAspectRatio;
+            out << YAML::Key << "RuntimeControl" << YAML::Value << cameraComponent.RuntimeControl;
+            out << YAML::Key << "FlySpeed" << YAML::Value << cameraComponent.FlySpeed;
 
             out << YAML::EndMap; // CameraComponent
         }
