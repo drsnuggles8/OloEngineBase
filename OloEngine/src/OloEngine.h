@@ -14,6 +14,7 @@
 #include "OloEngine/Core/FastRandom.h"
 
 #include "OloEngine/Core/Timestep.h"
+#ifndef OLO_HEADLESS
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
@@ -23,6 +24,7 @@
 #include "OloEngine/Renderer/Camera/OrthographicCameraController.h"
 
 #include "OloEngine/ImGui/ImGuiLayer.h"
+#endif
 
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
@@ -30,6 +32,7 @@
 
 #include "OloEngine/Project/Project.h"
 
+#ifndef OLO_HEADLESS
 // --Renderer-------------------
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer2D.h"
@@ -56,6 +59,7 @@
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Audio/AudioLoader.h"
+#endif // !OLO_HEADLESS
 
 // ------------------------------
 

@@ -3,11 +3,23 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/LayerStack.h"
 #include "OloEngine/Core/Timestep.h"
-#include "OloEngine/Core/Window.h"
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Events/ApplicationEvent.h"
+#include "OloEngine/Renderer/RendererTypes.h"
+
+#ifndef OLO_HEADLESS
+#include "OloEngine/Core/Window.h"
 #include "OloEngine/ImGui/ImGuiLayer.h"
 #include "OloEngine/Renderer/Renderer.h"
+#else
+// Minimal forward declarations for headless translation units.
+// The class layout is unchanged — only heavy #includes are skipped.
+namespace OloEngine
+{
+    class Window;
+    class ImGuiLayer;
+} // namespace OloEngine
+#endif
 
 int main(int argc, char** argv);
 
@@ -31,6 +43,8 @@ namespace OloEngine
         std::string WorkingDirectory;
         ApplicationCommandLineArgs CommandLineArgs;
         RendererType PreferredRenderer = RendererType::Renderer2D;
+        bool IsHeadless = false;
+        u32 HeadlessTickRate = 60; // Hz — only used when IsHeadless == true
     };
 
     class Application
@@ -69,6 +83,11 @@ namespace OloEngine
             return m_Specification;
         }
 
+        [[nodiscard("Store this!")]] bool IsHeadless() const
+        {
+            return m_Specification.IsHeadless;
+        }
+
         [[nodiscard("Store this!")]] static const std::filesystem::path& GetStartupWorkingDirectory()
         {
             return s_StartupWorkingDirectory;
@@ -76,6 +95,7 @@ namespace OloEngine
 
       private:
         void Run();
+        void RunHeadless();
         bool OnWindowClose(WindowCloseEvent const& e);
         bool OnWindowResize(WindowResizeEvent const& e);
 

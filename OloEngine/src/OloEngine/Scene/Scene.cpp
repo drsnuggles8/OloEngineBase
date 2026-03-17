@@ -5,6 +5,7 @@
 #include "Components.h"
 #include "Prefab.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Light.h"
@@ -326,35 +327,44 @@ namespace OloEngine
     {
         m_IsRunning = true;
 
+        // In headless mode, disable rendering
+        if (Application::Get().IsHeadless())
+        {
+            m_RenderingEnabled = false;
+        }
+
         OnPhysics2DStart();
         OnPhysics3DStart();
 
-        for (auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : listenerView.each())
+        if (!Application::Get().IsHeadless())
         {
-            ac.Listener = Ref<AudioListener>::Create();
-            if (ac.Active)
+            for (auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : listenerView.each())
             {
-                const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
-                const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
-                ac.Listener->SetConfig(ac.Config);
-                ac.Listener->SetPosition(tc.Translation);
-                ac.Listener->SetDirection(-forward);
-                break;
-            }
-        }
-
-        for (auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : sourceView.each())
-        {
-            if (ac.Source)
-            {
-                const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
-                const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
-                ac.Source->SetConfig(ac.Config);
-                ac.Source->SetPosition(tc.Translation);
-                ac.Source->SetDirection(forward);
-                if (ac.Config.PlayOnAwake)
+                ac.Listener = Ref<AudioListener>::Create();
+                if (ac.Active)
                 {
-                    ac.Source->Play();
+                    const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
+                    const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+                    ac.Listener->SetConfig(ac.Config);
+                    ac.Listener->SetPosition(tc.Translation);
+                    ac.Listener->SetDirection(-forward);
+                    break;
+                }
+            }
+
+            for (auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : sourceView.each())
+            {
+                if (ac.Source)
+                {
+                    const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
+                    const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+                    ac.Source->SetConfig(ac.Config);
+                    ac.Source->SetPosition(tc.Translation);
+                    ac.Source->SetDirection(forward);
+                    if (ac.Config.PlayOnAwake)
+                    {
+                        ac.Source->Play();
+                    }
                 }
             }
         }

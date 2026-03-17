@@ -1,18 +1,13 @@
 #pragma once
 
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RendererTypes.h"
 
 #include "OloEngine/Renderer/Camera/OrthographicCamera.h"
 #include "OloEngine/Renderer/Shader.h"
 
 namespace OloEngine
 {
-    enum class RendererType
-    {
-        Renderer2D,
-        Renderer3D,
-    };
-
     class Renderer
     {
       public:

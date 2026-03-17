@@ -338,6 +338,7 @@
 		"OloEngine/Renderer/RenderCommand.h"
 		"OloEngine/Renderer/Renderer.cpp"
 		"OloEngine/Renderer/Renderer.h"
+		"OloEngine/Renderer/RendererTypes.h"
 		"OloEngine/Renderer/Renderer2D.cpp"
 		"OloEngine/Renderer/Renderer2D.h"
 		"OloEngine/Renderer/Renderer3D.cpp"
@@ -616,6 +617,14 @@
 		"OloEngine/Scene/Streaming/StreamingRegionSerializer.cpp"
 		"OloEngine/Scene/Streaming/SceneStreamer.h"
 		"OloEngine/Scene/Streaming/SceneStreamer.cpp"
+
+		"OloEngine/Server/ServerConfig.h"
+		"OloEngine/Server/ServerConsole.h"
+		"OloEngine/Server/ServerConsole.cpp"
+		"OloEngine/Server/ServerConfigSerializer.h"
+		"OloEngine/Server/ServerConfigSerializer.cpp"
+		"OloEngine/Server/ServerMonitor.h"
+		"OloEngine/Server/ServerMonitor.cpp"
 
 		"OloEngine/Task/CancellationToken.h"
 		"OloEngine/Task/ExtendedTaskPriority.h"
