@@ -17,7 +17,14 @@ int main(int argc, char** argv)
     OLO_PROFILE_END_SESSION();
 
     OLO_PROFILE_BEGIN_SESSION("Runtime", "OloProfile-Runtime.json");
-    app->Run();
+    if (app->IsHeadless())
+    {
+        app->RunHeadless();
+    }
+    else
+    {
+        app->Run();
+    }
     OLO_PROFILE_END_SESSION();
 
     OLO_PROFILE_BEGIN_SESSION("Shutdown", "OloProfile-Shutdown.json");

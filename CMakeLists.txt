@@ -54,6 +54,7 @@ add_subdirectory(OloEngine-ScriptCore)
 add_subdirectory(OloEngine-LuaScriptCore)
 add_subdirectory(OloEditor/SandboxProject/Assets/Scripts)
 add_subdirectory(OloEditor)
+add_subdirectory(OloServer)
 
 set_target_properties(OloEngine-ScriptCore PROPERTIES FOLDER "Scripting")
 set_target_properties(OloEngine-LuaScriptCore PROPERTIES FOLDER "Scripting")

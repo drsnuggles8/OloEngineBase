@@ -31,6 +31,7 @@ namespace OloEngine
         std::string WorkingDirectory;
         ApplicationCommandLineArgs CommandLineArgs;
         RendererType PreferredRenderer = RendererType::Renderer2D;
+        bool IsHeadless = false;
     };
 
     class Application
@@ -69,6 +70,11 @@ namespace OloEngine
             return m_Specification;
         }
 
+        [[nodiscard("Store this!")]] bool IsHeadless() const
+        {
+            return m_Specification.IsHeadless;
+        }
+
         [[nodiscard("Store this!")]] static const std::filesystem::path& GetStartupWorkingDirectory()
         {
             return s_StartupWorkingDirectory;
@@ -76,6 +82,7 @@ namespace OloEngine
 
       private:
         void Run();
+        void RunHeadless();
         bool OnWindowClose(WindowCloseEvent const& e);
         bool OnWindowResize(WindowResizeEvent const& e);
 

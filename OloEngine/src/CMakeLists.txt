@@ -611,6 +611,12 @@
 		"OloEngine/Scene/Streaming/SceneStreamer.h"
 		"OloEngine/Scene/Streaming/SceneStreamer.cpp"
 
+		"OloEngine/Server/ServerConfig.h"
+		"OloEngine/Server/ServerConsole.h"
+		"OloEngine/Server/ServerConsole.cpp"
+		"OloEngine/Server/ServerConfigSerializer.h"
+		"OloEngine/Server/ServerConfigSerializer.cpp"
+
 		"OloEngine/Task/CancellationToken.h"
 		"OloEngine/Task/ExtendedTaskPriority.h"
 		"OloEngine/Task/InheritedContext.h"

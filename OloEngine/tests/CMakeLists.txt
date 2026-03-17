@@ -103,6 +103,7 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameIntegrationTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
 		UndoRedoTest.cpp
+		HeadlessTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

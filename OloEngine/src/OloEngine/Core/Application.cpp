@@ -3,6 +3,7 @@
 #include "OloEngine/Audio/AudioEngine.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/Timer.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -15,6 +16,7 @@
 
 #include <stdexcept>
 #include <ranges>
+#include <thread>
 #include <utility>
 
 namespace OloEngine
@@ -44,21 +46,33 @@ namespace OloEngine
 
         try
         {
-            m_Window = Window::Create(WindowProps(m_Specification.Name));
-            m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
+            if (!m_Specification.IsHeadless)
+            {
+                m_Window = Window::Create(WindowProps(m_Specification.Name));
+                m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
 // Initialize debug tools before Renderer to catch all resource creation
 #ifdef OLO_DEBUG
-            GPUResourceInspector::GetInstance().Initialize();
-            ShaderDebugger::GetInstance().Initialize();
-            OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
+                GPUResourceInspector::GetInstance().Initialize();
+                ShaderDebugger::GetInstance().Initialize();
+                OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
 #endif
 
-            Renderer::Init(m_Specification.PreferredRenderer);
+                Renderer::Init(m_Specification.PreferredRenderer);
 
-            if (!AudioEngine::Init())
+                if (!AudioEngine::Init())
+                {
+                    OLO_CORE_CRITICAL("Failed to initialize AudioEngine! Application cannot continue.");
+                    throw std::runtime_error("AudioEngine initialization failed");
+                }
+
+                InputActionManager::Init();
+
+                m_ImGuiLayer = new ImGuiLayer();
+                PushOverlay(m_ImGuiLayer);
+            }
+            else
             {
-                OLO_CORE_CRITICAL("Failed to initialize AudioEngine! Application cannot continue.");
-                throw std::runtime_error("AudioEngine initialization failed");
+                OLO_CORE_INFO("Running in headless mode — no window, renderer, or audio");
             }
 
             if (!NetworkManager::Init())
@@ -70,28 +84,30 @@ namespace OloEngine
 
             ScriptEngine::Init();
             LuaScriptEngine::Init();
-            InputActionManager::Init();
-
-            m_ImGuiLayer = new ImGuiLayer();
-            PushOverlay(m_ImGuiLayer);
         }
         catch (...)
         {
             // Unwind subsystems in reverse initialization order.
             // Each Shutdown() is safe to call even if its Init() wasn't reached.
-            InputActionManager::Shutdown();
+            if (!m_Specification.IsHeadless)
+            {
+                InputActionManager::Shutdown();
+            }
             LuaScriptEngine::Shutdown();
             ScriptEngine::Shutdown();
             NetworkManager::Shutdown();
-            AudioEngine::Shutdown();
-            Renderer::Shutdown();
+            if (!m_Specification.IsHeadless)
+            {
+                AudioEngine::Shutdown();
+                Renderer::Shutdown();
 
 #ifdef OLO_DEBUG
-            ShaderDebugger::GetInstance().Shutdown();
-            GPUResourceInspector::GetInstance().Shutdown();
+                ShaderDebugger::GetInstance().Shutdown();
+                GPUResourceInspector::GetInstance().Shutdown();
 #endif
 
-            m_Window.reset();
+                m_Window.reset();
+            }
             s_Instance = nullptr;
             throw;
         }
@@ -106,19 +122,25 @@ namespace OloEngine
             delete layer;
         }
 
-        InputActionManager::Shutdown();
+        if (!m_Specification.IsHeadless)
+        {
+            InputActionManager::Shutdown();
+        }
         LuaScriptEngine::Shutdown();
         ScriptEngine::Shutdown();
         NetworkManager::Shutdown();
-        AudioEngine::Shutdown();
-        // Shutdown debug tools before Renderer
+        if (!m_Specification.IsHeadless)
+        {
+            AudioEngine::Shutdown();
+            // Shutdown debug tools before Renderer
 #ifdef OLO_DEBUG
-        ShaderDebugger::GetInstance().Shutdown();
-        GPUResourceInspector::GetInstance().Shutdown();
-        OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown");
+            ShaderDebugger::GetInstance().Shutdown();
+            GPUResourceInspector::GetInstance().Shutdown();
+            OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown");
 #endif
 
-        Renderer::Shutdown();
+            Renderer::Shutdown();
+        }
 
         // Shutdown task scheduler
         LowLevelTasks::FScheduler::Get().StopWorkers();
@@ -240,6 +262,50 @@ namespace OloEngine
             m_Window->SwapBuffers();
             OLO_PROFILE_FRAMEMARK_END("Window SwapBuffers");
         }
+    }
+
+    void Application::RunHeadless()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        constexpr f32 TickRate = 1.0f / 60.0f; // 60 Hz server tick
+        Timer timer;
+        f32 accumulator = 0.0f;
+
+        OLO_CORE_INFO("Headless loop started (tick rate: {:.1f} Hz)", 1.0f / TickRate);
+
+        while (m_Running)
+        {
+            const f32 elapsed = timer.Elapsed();
+            timer.Reset();
+            accumulator += elapsed;
+
+            while (accumulator >= TickRate)
+            {
+                const Timestep timestep(TickRate);
+
+                // Process tasks targeted at the Game Thread
+                Tasks::FNamedThreadManager::Get().ProcessTasks(true);
+
+                OLO_PROFILE_FRAMEMARK_START("LayerStack OnUpdate");
+                for (Layer* const layer : m_LayerStack)
+                {
+                    layer->OnUpdate(timestep);
+                }
+                OLO_PROFILE_FRAMEMARK_END("LayerStack OnUpdate");
+
+                accumulator -= TickRate;
+            }
+
+            // Sleep remaining time to avoid spinning the CPU
+            const f32 sleepTime = TickRate - accumulator;
+            if (sleepTime > 0.001f)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<i32>(sleepTime * 1000)));
+            }
+        }
+
+        OLO_CORE_INFO("Headless loop stopped");
     }
 
     bool Application::OnWindowClose([[maybe_unused]] WindowCloseEvent const& e)
