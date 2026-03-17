@@ -140,10 +140,10 @@ namespace OloEngine
         InputActionMap map;
         map.Name = "DefaultGameActions";
 
-        map.AddAction({ "MoveUp", { InputBinding::Key(Key::W), InputBinding::Key(Key::Up) } });
-        map.AddAction({ "MoveDown", { InputBinding::Key(Key::S), InputBinding::Key(Key::Down) } });
-        map.AddAction({ "MoveLeft", { InputBinding::Key(Key::A), InputBinding::Key(Key::Left) } });
-        map.AddAction({ "MoveRight", { InputBinding::Key(Key::D), InputBinding::Key(Key::Right) } });
+        map.AddAction({ "MoveUp", { InputBinding::Key(Key::W), InputBinding::Key(Key::Up), InputBinding::GamepadBtn(GamepadButton::DPadUp) } });
+        map.AddAction({ "MoveDown", { InputBinding::Key(Key::S), InputBinding::Key(Key::Down), InputBinding::GamepadBtn(GamepadButton::DPadDown) } });
+        map.AddAction({ "MoveLeft", { InputBinding::Key(Key::A), InputBinding::Key(Key::Left), InputBinding::GamepadBtn(GamepadButton::DPadLeft) } });
+        map.AddAction({ "MoveRight", { InputBinding::Key(Key::D), InputBinding::Key(Key::Right), InputBinding::GamepadBtn(GamepadButton::DPadRight) } });
         map.AddAction({ "Jump", { InputBinding::Key(Key::Space), InputBinding::GamepadBtn(GamepadButton::South) } });
         map.AddAction({ "Interact", { InputBinding::Key(Key::E), InputBinding::GamepadBtn(GamepadButton::West) } });
 
@@ -159,6 +159,7 @@ namespace OloEngine
         s_ActiveMap = {};
         s_CurrentState.clear();
         s_PreviousState.clear();
+        s_AxisValues.clear();
     }
 
     void InputActionManager::Shutdown()
@@ -168,6 +169,7 @@ namespace OloEngine
         s_ActiveMap = {};
         s_CurrentState.clear();
         s_PreviousState.clear();
+        s_AxisValues.clear();
     }
 
     void InputActionManager::Update()
@@ -245,6 +247,21 @@ namespace OloEngine
                 }
             }
             s_CurrentState[actionName] = pressed;
+
+            // Track the best analog value for axis queries
+            f32 bestAxisValue = pressed ? 1.0f : 0.0f;
+            for (const auto& binding : action.Bindings)
+            {
+                if (binding.Type == InputBindingType::GamepadAxis)
+                {
+                    f32 axisVal = s_InputProvider->GetGamepadAxis(binding.GPAxis);
+                    if (std::abs(axisVal) > std::abs(bestAxisValue))
+                    {
+                        bestAxisValue = axisVal;
+                    }
+                }
+            }
+            s_AxisValues[actionName] = bestAxisValue;
         }
     }
 
@@ -286,11 +303,22 @@ namespace OloEngine
         s_ActiveMap = map;
         s_CurrentState.clear();
         s_PreviousState.clear();
+        s_AxisValues.clear();
     }
 
     void InputActionManager::SetInputProvider(IInputProvider* provider)
     {
         s_InputProvider = provider ? provider : &s_DefaultProvider;
+    }
+
+    f32 InputActionManager::GetActionAxisValue(std::string_view actionName)
+    {
+        auto it = s_AxisValues.find(actionName);
+        if (it == s_AxisValues.end())
+        {
+            return 0.0f;
+        }
+        return it->second;
     }
 
 } // namespace OloEngine

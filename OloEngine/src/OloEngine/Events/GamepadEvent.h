@@ -7,12 +7,18 @@ namespace OloEngine
 {
     class GamepadButtonPressedEvent : public Event
     {
-    public:
+      public:
         GamepadButtonPressedEvent(i32 gamepadIndex, GamepadButton button)
             : m_GamepadIndex(gamepadIndex), m_Button(button) {}
 
-        [[nodiscard]] i32 GetGamepadIndex() const { return m_GamepadIndex; }
-        [[nodiscard]] GamepadButton GetButton() const { return m_Button; }
+        [[nodiscard]] i32 GetGamepadIndex() const
+        {
+            return m_GamepadIndex;
+        }
+        [[nodiscard]] GamepadButton GetButton() const
+        {
+            return m_Button;
+        }
 
         [[nodiscard]] std::string ToString() const override
         {
@@ -25,19 +31,25 @@ namespace OloEngine
         EVENT_CLASS_TYPE(GamepadButtonPressed)
         EVENT_CLASS_CATEGORY(EventCategory::GamepadCategory | EventCategory::Input)
 
-    private:
+      private:
         i32 m_GamepadIndex;
         GamepadButton m_Button;
     };
 
     class GamepadButtonReleasedEvent : public Event
     {
-    public:
+      public:
         GamepadButtonReleasedEvent(i32 gamepadIndex, GamepadButton button)
             : m_GamepadIndex(gamepadIndex), m_Button(button) {}
 
-        [[nodiscard]] i32 GetGamepadIndex() const { return m_GamepadIndex; }
-        [[nodiscard]] GamepadButton GetButton() const { return m_Button; }
+        [[nodiscard]] i32 GetGamepadIndex() const
+        {
+            return m_GamepadIndex;
+        }
+        [[nodiscard]] GamepadButton GetButton() const
+        {
+            return m_Button;
+        }
 
         [[nodiscard]] std::string ToString() const override
         {
@@ -50,18 +62,21 @@ namespace OloEngine
         EVENT_CLASS_TYPE(GamepadButtonReleased)
         EVENT_CLASS_CATEGORY(EventCategory::GamepadCategory | EventCategory::Input)
 
-    private:
+      private:
         i32 m_GamepadIndex;
         GamepadButton m_Button;
     };
 
     class GamepadConnectedEvent : public Event
     {
-    public:
+      public:
         explicit GamepadConnectedEvent(i32 gamepadIndex)
             : m_GamepadIndex(gamepadIndex) {}
 
-        [[nodiscard]] i32 GetGamepadIndex() const { return m_GamepadIndex; }
+        [[nodiscard]] i32 GetGamepadIndex() const
+        {
+            return m_GamepadIndex;
+        }
 
         [[nodiscard]] std::string ToString() const override
         {
@@ -73,17 +88,20 @@ namespace OloEngine
         EVENT_CLASS_TYPE(GamepadConnected)
         EVENT_CLASS_CATEGORY(EventCategory::GamepadCategory | EventCategory::Input)
 
-    private:
+      private:
         i32 m_GamepadIndex;
     };
 
     class GamepadDisconnectedEvent : public Event
     {
-    public:
+      public:
         explicit GamepadDisconnectedEvent(i32 gamepadIndex)
             : m_GamepadIndex(gamepadIndex) {}
 
-        [[nodiscard]] i32 GetGamepadIndex() const { return m_GamepadIndex; }
+        [[nodiscard]] i32 GetGamepadIndex() const
+        {
+            return m_GamepadIndex;
+        }
 
         [[nodiscard]] std::string ToString() const override
         {
@@ -95,7 +113,7 @@ namespace OloEngine
         EVENT_CLASS_TYPE(GamepadDisconnected)
         EVENT_CLASS_CATEGORY(EventCategory::GamepadCategory | EventCategory::Input)
 
-    private:
+      private:
         i32 m_GamepadIndex;
     };
 

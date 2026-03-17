@@ -16,7 +16,7 @@ namespace OloEngine
 
     class GamepadManager
     {
-    public:
+      public:
         static constexpr i32 MaxGamepads = 4;
 
         static void Initialize();
@@ -35,14 +35,17 @@ namespace OloEngine
         [[nodiscard]] static std::vector<OloEngine::Gamepad*> GetAllConnected();
 
         // Active input device detection
-        [[nodiscard]] static InputDevice GetActiveDevice() { return s_ActiveDevice; }
+        [[nodiscard]] static InputDevice GetActiveDevice()
+        {
+            return s_ActiveDevice;
+        }
 
         // Callbacks
         static inline std::function<void(i32 index)> OnGamepadConnected;
         static inline std::function<void(i32 index)> OnGamepadDisconnected;
         static inline std::function<void(InputDevice)> OnDeviceChanged;
 
-    private:
+      private:
         static inline std::array<OloEngine::Gamepad, MaxGamepads> s_Gamepads = {
             OloEngine::Gamepad(0), OloEngine::Gamepad(1), OloEngine::Gamepad(2), OloEngine::Gamepad(3)
         };

@@ -137,9 +137,15 @@ TEST(InputBindingTest, GamepadAxisDisplayName)
 
 class MockGamepadInputProvider : public IInputProvider
 {
-public:
-    [[nodiscard]] bool IsKeyPressed([[maybe_unused]] KeyCode key) const override { return false; }
-    [[nodiscard]] bool IsMouseButtonPressed([[maybe_unused]] MouseCode button) const override { return false; }
+  public:
+    [[nodiscard]] bool IsKeyPressed([[maybe_unused]] KeyCode key) const override
+    {
+        return false;
+    }
+    [[nodiscard]] bool IsMouseButtonPressed([[maybe_unused]] MouseCode button) const override
+    {
+        return false;
+    }
 
     [[nodiscard]] bool IsGamepadButtonPressed(GamepadButton button, [[maybe_unused]] i32 gamepadIndex) const override
     {
@@ -159,7 +165,7 @@ public:
 
 class GamepadActionTest : public ::testing::Test
 {
-protected:
+  protected:
     void SetUp() override
     {
         InputActionManager::Init();
@@ -248,10 +254,7 @@ TEST_F(GamepadActionTest, MixedKeyboardAndGamepadBindings)
 {
     InputActionMap map;
     map.Name = "TestMap";
-    map.AddAction({ "Jump", {
-        InputBinding::Key(Key::Space),
-        InputBinding::GamepadBtn(GamepadButton::South)
-    } });
+    map.AddAction({ "Jump", { InputBinding::Key(Key::Space), InputBinding::GamepadBtn(GamepadButton::South) } });
     InputActionManager::SetActionMap(map);
 
     // Only gamepad pressed
@@ -268,13 +271,8 @@ TEST(GamepadSerializationTest, RoundTrip)
 {
     InputActionMap map;
     map.Name = "GamepadTestMap";
-    map.AddAction({ "Jump", {
-        InputBinding::Key(Key::Space),
-        InputBinding::GamepadBtn(GamepadButton::South)
-    } });
-    map.AddAction({ "MoveX", {
-        InputBinding::GamepadAx(GamepadAxis::LeftX, 0.4f, true)
-    } });
+    map.AddAction({ "Jump", { InputBinding::Key(Key::Space), InputBinding::GamepadBtn(GamepadButton::South) } });
+    map.AddAction({ "MoveX", { InputBinding::GamepadAx(GamepadAxis::LeftX, 0.4f, true) } });
 
     std::filesystem::path tempPath = std::filesystem::temp_directory_path() / "gamepad_test_actions.yaml";
     ASSERT_TRUE(InputActionSerializer::Serialize(map, tempPath));

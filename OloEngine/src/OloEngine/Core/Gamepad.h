@@ -26,9 +26,9 @@ namespace OloEngine
 
     class Gamepad
     {
-    public:
+      public:
         static constexpr u32 ButtonCount = static_cast<u32>(GamepadButton::Count);
-        static constexpr u32 AxisCount   = static_cast<u32>(GamepadAxis::Count);
+        static constexpr u32 AxisCount = static_cast<u32>(GamepadAxis::Count);
 
         explicit Gamepad(i32 joystickId = -1);
 
@@ -50,14 +50,26 @@ namespace OloEngine
         [[nodiscard]] glm::vec2 GetRightStickDeadzone(f32 deadzone = 0.15f) const;
 
         // Metadata
-        [[nodiscard]] bool IsConnected() const { return m_Connected; }
-        [[nodiscard]] const std::string& GetName() const { return m_Name; }
-        [[nodiscard]] i32 GetJoystickId() const { return m_JoystickId; }
+        [[nodiscard]] bool IsConnected() const
+        {
+            return m_Connected;
+        }
+        [[nodiscard]] const std::string& GetName() const
+        {
+            return m_Name;
+        }
+        [[nodiscard]] i32 GetJoystickId() const
+        {
+            return m_JoystickId;
+        }
 
         // Returns true if any button or axis changed this frame (useful for device detection)
-        [[nodiscard]] bool HadInputThisFrame() const { return m_HadInput; }
+        [[nodiscard]] bool HadInputThisFrame() const
+        {
+            return m_HadInput;
+        }
 
-    private:
+      private:
         i32 m_JoystickId = -1;
         std::string m_Name;
         std::array<bool, ButtonCount> m_CurrentButtons{};

@@ -93,8 +93,7 @@ namespace OloEngine
                     // Stick position
                     ImVec2 dotPos = ImVec2(
                         center.x + stick.x * radius,
-                        center.y + stick.y * radius
-                    );
+                        center.y + stick.y * radius);
                     drawList->AddCircleFilled(dotPos, 6.0f, IM_COL32(255, 80, 80, 255));
 
                     ImGui::Dummy(ImVec2(radius * 2.0f, radius * 2.0f));

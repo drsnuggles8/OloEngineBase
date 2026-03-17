@@ -4,7 +4,7 @@ namespace OloEngine
 {
     class GamepadDebugPanel
     {
-    public:
+      public:
         GamepadDebugPanel() = default;
         ~GamepadDebugPanel() = default;
 

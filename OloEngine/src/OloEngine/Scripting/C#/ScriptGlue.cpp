@@ -6,6 +6,8 @@
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputActionManager.h"
+#include "OloEngine/Core/Gamepad.h"
+#include "OloEngine/Core/GamepadManager.h"
 
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
@@ -1766,6 +1768,67 @@ namespace OloEngine
         return Input::IsKeyPressed(keycode);
     }
 
+    static bool Input_IsGamepadButtonPressed(u8 button, i32 gamepadIndex)
+    {
+        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        return gp && gp->IsButtonPressed(static_cast<GamepadButton>(button));
+    }
+
+    static bool Input_IsGamepadButtonJustPressed(u8 button, i32 gamepadIndex)
+    {
+        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        return gp && gp->IsButtonJustPressed(static_cast<GamepadButton>(button));
+    }
+
+    static bool Input_IsGamepadButtonJustReleased(u8 button, i32 gamepadIndex)
+    {
+        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        return gp && gp->IsButtonJustReleased(static_cast<GamepadButton>(button));
+    }
+
+    static f32 Input_GetGamepadAxis(u8 axis, i32 gamepadIndex)
+    {
+        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        return gp ? gp->GetAxis(static_cast<GamepadAxis>(axis)) : 0.0f;
+    }
+
+    static void Input_GetGamepadLeftStick(i32 gamepadIndex, glm::vec2* outStick)
+    {
+        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        *outStick = gp ? gp->GetLeftStickDeadzone() : glm::vec2(0.0f);
+    }
+
+    static void Input_GetGamepadRightStick(i32 gamepadIndex, glm::vec2* outStick)
+    {
+        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        *outStick = gp ? gp->GetRightStickDeadzone() : glm::vec2(0.0f);
+    }
+
+    static bool Input_IsGamepadConnected(i32 gamepadIndex)
+    {
+        auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+        return gp && gp->IsConnected();
+    }
+
+    static i32 Input_GetGamepadConnectedCount()
+    {
+        return GamepadManager::GetConnectedCount();
+    }
+
+    static f32 Input_GetActionAxisValue(MonoString* actionName)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!actionName)
+        {
+            return 0.0f;
+        }
+        char* name = mono_string_to_utf8(actionName);
+        f32 result = InputActionManager::GetActionAxisValue(name);
+        mono_free(name);
+        return result;
+    }
+
     static bool Input_IsActionPressed(MonoString* actionName)
     {
         OLO_PROFILE_FUNCTION();
@@ -1859,11 +1922,24 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Input_IsKeyDown);
 
         ///////////////////////////////////////////////////////////////
+        // Gamepad ////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(Input_IsGamepadButtonPressed);
+        OLO_ADD_INTERNAL_CALL(Input_IsGamepadButtonJustPressed);
+        OLO_ADD_INTERNAL_CALL(Input_IsGamepadButtonJustReleased);
+        OLO_ADD_INTERNAL_CALL(Input_GetGamepadAxis);
+        OLO_ADD_INTERNAL_CALL(Input_GetGamepadLeftStick);
+        OLO_ADD_INTERNAL_CALL(Input_GetGamepadRightStick);
+        OLO_ADD_INTERNAL_CALL(Input_IsGamepadConnected);
+        OLO_ADD_INTERNAL_CALL(Input_GetGamepadConnectedCount);
+
+        ///////////////////////////////////////////////////////////////
         // Input Action Mapping ///////////////////////////////////////
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(Input_IsActionPressed);
         OLO_ADD_INTERNAL_CALL(Input_IsActionJustPressed);
         OLO_ADD_INTERNAL_CALL(Input_IsActionJustReleased);
+        OLO_ADD_INTERNAL_CALL(Input_GetActionAxisValue);
 
         ///////////////////////////////////////////////////////////////
         // TextComponent //////////////////////////////////////////////
