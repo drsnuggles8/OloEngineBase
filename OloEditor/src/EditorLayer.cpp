@@ -536,6 +536,7 @@ namespace OloEngine
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
             ImGui::MenuItem("Shader Graph Editor", nullptr, &m_ShowShaderGraphEditor);
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
+            ImGui::MenuItem("Gamepad Debug", nullptr, &m_ShowGamepadDebug);
 
             ImGui::EndMenu();
         }
@@ -972,6 +973,12 @@ namespace OloEngine
         if (m_ShowSaveGamePanel)
         {
             m_SaveGamePanel.OnImGuiRender(&m_ShowSaveGamePanel);
+        }
+
+        // Gamepad Debug Panel
+        if (m_ShowGamepadDebug)
+        {
+            m_GamepadDebugPanel.OnImGuiRender(&m_ShowGamepadDebug);
         }
 
         // Console Panel

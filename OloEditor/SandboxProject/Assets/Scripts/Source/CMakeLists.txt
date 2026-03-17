@@ -1,5 +1,6 @@
 ﻿set(SOURCES
 		"Camera.cs"
+		"GamepadPlayer.cs"
 		"Player.cs"
 )
 

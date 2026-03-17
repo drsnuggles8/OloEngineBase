@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
@@ -70,6 +71,7 @@ namespace OloEngine
 
             ScriptEngine::Init();
             LuaScriptEngine::Init();
+            GamepadManager::Initialize();
             InputActionManager::Init();
 
             m_ImGuiLayer = new ImGuiLayer();
@@ -80,6 +82,7 @@ namespace OloEngine
             // Unwind subsystems in reverse initialization order.
             // Each Shutdown() is safe to call even if its Init() wasn't reached.
             InputActionManager::Shutdown();
+            GamepadManager::Shutdown();
             LuaScriptEngine::Shutdown();
             ScriptEngine::Shutdown();
             NetworkManager::Shutdown();
@@ -107,6 +110,7 @@ namespace OloEngine
         }
 
         InputActionManager::Shutdown();
+        GamepadManager::Shutdown();
         LuaScriptEngine::Shutdown();
         ScriptEngine::Shutdown();
         NetworkManager::Shutdown();
@@ -169,6 +173,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Notify GamepadManager of keyboard/mouse activity for device switching
+        if (e.GetEventType() == EventType::KeyPressed || e.GetEventType() == EventType::MouseButtonPressed || e.GetEventType() == EventType::MouseMoved)
+        {
+            GamepadManager::NotifyKeyboardMouseActivity();
+        }
+
         EventDispatcher dispatcher(e);
         dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(Application::OnWindowClose));
         dispatcher.Dispatch<WindowResizeEvent>(OLO_BIND_EVENT_FN(Application::OnWindowResize));
@@ -204,6 +214,11 @@ namespace OloEngine
             {
                 break;
             }
+
+            // Update gamepad state (polls GLFW for gamepad button/axis states)
+            OLO_PROFILE_FRAMEMARK_START("GamepadManager Update");
+            GamepadManager::Update();
+            OLO_PROFILE_FRAMEMARK_END("GamepadManager Update");
 
             // Update action mapping state (reads fresh GLFW state)
             OLO_PROFILE_FRAMEMARK_START("InputActionManager Update");

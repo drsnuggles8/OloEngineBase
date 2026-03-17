@@ -55,6 +55,25 @@ namespace OloEngine
         internal extern static bool Input_IsKeyDown(KeyCode keycode);
         #endregion
 
+        #region Gamepad
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsGamepadButtonPressed(byte button, int gamepadIndex);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsGamepadButtonJustPressed(byte button, int gamepadIndex);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsGamepadButtonJustReleased(byte button, int gamepadIndex);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static float Input_GetGamepadAxis(byte axis, int gamepadIndex);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static void Input_GetGamepadLeftStick(int gamepadIndex, out Vector2 stick);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static void Input_GetGamepadRightStick(int gamepadIndex, out Vector2 stick);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static bool Input_IsGamepadConnected(int gamepadIndex);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static int Input_GetGamepadConnectedCount();
+        #endregion
+
         #region InputActionMapping
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal extern static bool Input_IsActionPressed(string actionName);
@@ -62,6 +81,8 @@ namespace OloEngine
         internal extern static bool Input_IsActionJustPressed(string actionName);
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal extern static bool Input_IsActionJustReleased(string actionName);
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal extern static float Input_GetActionAxisValue(string actionName);
         #endregion
 
         #region AudioSourceComponent

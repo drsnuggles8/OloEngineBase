@@ -38,6 +38,8 @@
 		"Panels/SaveGamePanel.h"
 		"Panels/ShaderGraphEditorPanel.cpp"
 		"Panels/ShaderGraphEditorPanel.h"
+		"Panels/GamepadDebugPanel.cpp"
+		"Panels/GamepadDebugPanel.h"
 )
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES "../assets/shaders/*.glsl")

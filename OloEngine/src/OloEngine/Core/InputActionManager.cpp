@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/InputActionManager.h"
+#include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
@@ -19,6 +20,18 @@ namespace OloEngine
         {
             return Input::IsMouseButtonPressed(button);
         }
+
+        [[nodiscard]] bool IsGamepadButtonPressed(GamepadButton button, i32 gamepadIndex) const override
+        {
+            auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+            return gp && gp->IsButtonPressed(button);
+        }
+
+        [[nodiscard]] f32 GetGamepadAxis(GamepadAxis axis, i32 gamepadIndex) const override
+        {
+            auto* gp = GamepadManager::GetGamepad(gamepadIndex);
+            return gp ? gp->GetAxis(axis) : 0.0f;
+        }
     };
 
     static GlfwInputProvider s_DefaultProvider;
@@ -29,6 +42,15 @@ namespace OloEngine
     std::string InputBinding::GetDisplayName() const
     {
         // clang-format off
+        if (Type == InputBindingType::GamepadButton)
+        {
+            return std::string("Gamepad: ") + GamepadButtonToString(GPButton);
+        }
+        if (Type == InputBindingType::GamepadAxis)
+        {
+            return std::string("Gamepad Axis: ") + GamepadAxisToString(GPAxis)
+                + (AxisPositive ? " +" : " -");
+        }
         if (Type == InputBindingType::Mouse)
         {
             switch (Code)
@@ -118,12 +140,12 @@ namespace OloEngine
         InputActionMap map;
         map.Name = "DefaultGameActions";
 
-        map.AddAction({ "MoveUp", { InputBinding::Key(Key::W), InputBinding::Key(Key::Up) } });
-        map.AddAction({ "MoveDown", { InputBinding::Key(Key::S), InputBinding::Key(Key::Down) } });
-        map.AddAction({ "MoveLeft", { InputBinding::Key(Key::A), InputBinding::Key(Key::Left) } });
-        map.AddAction({ "MoveRight", { InputBinding::Key(Key::D), InputBinding::Key(Key::Right) } });
-        map.AddAction({ "Jump", { InputBinding::Key(Key::Space) } });
-        map.AddAction({ "Interact", { InputBinding::Key(Key::E) } });
+        map.AddAction({ "MoveUp", { InputBinding::Key(Key::W), InputBinding::Key(Key::Up), InputBinding::GamepadBtn(GamepadButton::DPadUp) } });
+        map.AddAction({ "MoveDown", { InputBinding::Key(Key::S), InputBinding::Key(Key::Down), InputBinding::GamepadBtn(GamepadButton::DPadDown) } });
+        map.AddAction({ "MoveLeft", { InputBinding::Key(Key::A), InputBinding::Key(Key::Left), InputBinding::GamepadBtn(GamepadButton::DPadLeft) } });
+        map.AddAction({ "MoveRight", { InputBinding::Key(Key::D), InputBinding::Key(Key::Right), InputBinding::GamepadBtn(GamepadButton::DPadRight) } });
+        map.AddAction({ "Jump", { InputBinding::Key(Key::Space), InputBinding::GamepadBtn(GamepadButton::South) } });
+        map.AddAction({ "Interact", { InputBinding::Key(Key::E), InputBinding::GamepadBtn(GamepadButton::West) } });
 
         return map;
     }
@@ -137,6 +159,7 @@ namespace OloEngine
         s_ActiveMap = {};
         s_CurrentState.clear();
         s_PreviousState.clear();
+        s_AxisValues.clear();
     }
 
     void InputActionManager::Shutdown()
@@ -146,6 +169,7 @@ namespace OloEngine
         s_ActiveMap = {};
         s_CurrentState.clear();
         s_PreviousState.clear();
+        s_AxisValues.clear();
     }
 
     void InputActionManager::Update()
@@ -199,8 +223,59 @@ namespace OloEngine
                         break;
                     }
                 }
+                else if (binding.Type == InputBindingType::GamepadButton)
+                {
+                    if (s_InputProvider->IsGamepadButtonPressed(binding.GPButton))
+                    {
+                        pressed = true;
+                        break;
+                    }
+                }
+                else if (binding.Type == InputBindingType::GamepadAxis)
+                {
+                    f32 axisVal = s_InputProvider->GetGamepadAxis(binding.GPAxis);
+                    if (binding.AxisPositive && axisVal >= binding.AxisThreshold)
+                    {
+                        pressed = true;
+                        break;
+                    }
+                    if (!binding.AxisPositive && axisVal <= -binding.AxisThreshold)
+                    {
+                        pressed = true;
+                        break;
+                    }
+                }
             }
             s_CurrentState[actionName] = pressed;
+
+            // Track the best analog value for axis queries.
+            // Prefer actual axis deflection over digital 0/1.
+            f32 bestAxisValue = 0.0f;
+            for (const auto& binding : action.Bindings)
+            {
+                if (binding.Type == InputBindingType::GamepadAxis)
+                {
+                    f32 axisVal = s_InputProvider->GetGamepadAxis(binding.GPAxis);
+                    if (binding.AxisPositive)
+                    {
+                        axisVal = std::max(0.0f, axisVal);
+                    }
+                    else
+                    {
+                        axisVal = std::min(0.0f, axisVal);
+                    }
+                    if (std::abs(axisVal) > std::abs(bestAxisValue))
+                    {
+                        bestAxisValue = axisVal;
+                    }
+                }
+            }
+            // Fall back to digital state only when no axis produced a stronger value
+            if (pressed && std::abs(bestAxisValue) < 1.0f)
+            {
+                bestAxisValue = (bestAxisValue != 0.0f) ? std::copysign(1.0f, bestAxisValue) : 1.0f;
+            }
+            s_AxisValues[actionName] = bestAxisValue;
         }
     }
 
@@ -242,11 +317,24 @@ namespace OloEngine
         s_ActiveMap = map;
         s_CurrentState.clear();
         s_PreviousState.clear();
+        s_AxisValues.clear();
     }
 
     void InputActionManager::SetInputProvider(IInputProvider* provider)
     {
         s_InputProvider = provider ? provider : &s_DefaultProvider;
+    }
+
+    f32 InputActionManager::GetActionAxisValue(std::string_view actionName)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto it = s_AxisValues.find(actionName);
+        if (it == s_AxisValues.end())
+        {
+            return 0.0f;
+        }
+        return it->second;
     }
 
 } // namespace OloEngine

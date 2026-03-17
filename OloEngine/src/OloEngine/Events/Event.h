@@ -32,6 +32,11 @@ namespace OloEngine
         MouseButtonReleased,
         MouseMoved,
         MouseScrolled,
+        // Gamepad events
+        GamepadButtonPressed,
+        GamepadButtonReleased,
+        GamepadConnected,
+        GamepadDisconnected,
         // Editor/Engine custom events
         AssetReloaded,
     };
@@ -43,7 +48,8 @@ namespace OloEngine
         Input = OloBit32(1),
         Keyboard = OloBit32(2),
         Mouse = OloBit32(3),
-        MouseButton = OloBit32(4)
+        MouseButton = OloBit32(4),
+        GamepadCategory = OloBit32(5)
     };
 
     EventCategory operator|(EventCategory lhs, EventCategory rhs);

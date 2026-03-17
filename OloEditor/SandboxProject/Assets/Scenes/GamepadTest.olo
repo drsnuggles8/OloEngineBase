@@ -1,0 +1,160 @@
+Scene: GamepadTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # ── Camera ──
+  - Entity: 990000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 12, 18]
+      Rotation: [-0.55, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox ──
+  - Entity: 990000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  # ── Directional Light ──
+  - Entity: 990000000000003
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.2]
+      Color: [1, 1, 1]
+      Intensity: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  # ── Ground Plane ──
+  - Entity: 990000000000004
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [30, 0.2, 30]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.55, 0.35]
+      Metallic: 0.0
+      Roughness: 0.9
+  # ── Player (Gamepad-controlled) ──
+  - Entity: 990000000000010
+    TagComponent:
+      Tag: Player
+    TransformComponent:
+      Translation: [0, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.2, 0.4, 0.9]
+      Metallic: 0.3
+      Roughness: 0.4
+    ScriptComponent:
+      ClassName: Sandbox.GamepadPlayer
+      ScriptFields:
+        - Name: MoveSpeed
+          Type: Float
+          Data: 8.0
+  # ── Obstacle 1 ──
+  - Entity: 990000000000020
+    TagComponent:
+      Tag: Obstacle 1
+    TransformComponent:
+      Translation: [5, 1, -3]
+      Rotation: [0, 0.7854, 0]
+      Scale: [2, 2, 2]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.3, 0.2]
+      Metallic: 0.1
+      Roughness: 0.6
+  # ── Obstacle 2 ──
+  - Entity: 990000000000021
+    TagComponent:
+      Tag: Obstacle 2
+    TransformComponent:
+      Translation: [-4, 0.75, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 1.5, 1.5]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.7, 0.1]
+      Metallic: 0.5
+      Roughness: 0.3
+  # ── Obstacle 3 ──
+  - Entity: 990000000000022
+    TagComponent:
+      Tag: Obstacle 3
+    TransformComponent:
+      Translation: [3, 0.5, 6]
+      Rotation: [0, 1.047, 0]
+      Scale: [1, 1, 3]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.2, 0.8]
+      Metallic: 0.2
+      Roughness: 0.5
