@@ -28,10 +28,13 @@ namespace OloEngine
         {
             return m_IsDirty;
         }
-        void SaveIfNeeded()
+        /// Returns true if saved or no changes needed, false if the user cancelled or save failed
+        [[nodiscard]] bool SaveIfNeeded()
         {
-            if (m_IsDirty)
-                SaveShaderGraph();
+            if (!m_IsDirty)
+                return true;
+            SaveShaderGraph();
+            return !m_IsDirty;
         }
         [[nodiscard]] bool IsOpen() const
         {
@@ -162,6 +165,12 @@ namespace OloEngine
 
         // Undo/Redo
         ShaderGraphCommandHistory m_CommandHistory;
+
+        // Pending edit tracking for deferred undo commands (ImGui interactive widgets)
+        std::string m_PendingStringOldValue;
+        glm::ivec3 m_PendingWorkgroupOldValue{};
+        int m_PendingBufferBindingOldValue = 0;
+        ShaderGraphPinValue m_PendingPinOldValue;
 
         // Copy/Paste
         std::string m_CopiedNodeTypeName;

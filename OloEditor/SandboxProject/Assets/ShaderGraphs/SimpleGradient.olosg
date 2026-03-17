@@ -9,6 +9,7 @@ ShaderGraph:
         - ID: 101
           Name: Albedo
           Type: Vec3
+          DefaultValue: 1.000000, 1.000000, 1.000000
         - ID: 102
           Name: Metallic
           Type: Float
@@ -20,6 +21,7 @@ ShaderGraph:
         - ID: 104
           Name: Normal
           Type: Vec3
+          DefaultValue: 0.000000, 0.000000, 1.000000
         - ID: 105
           Name: AO
           Type: Float
@@ -27,6 +29,10 @@ ShaderGraph:
         - ID: 106
           Name: Emissive
           Type: Vec3
+        - ID: 107
+          Name: Alpha
+          Type: Float
+          DefaultValue: 1.000000
       Outputs: []
     - ID: 200
       TypeName: Lerp

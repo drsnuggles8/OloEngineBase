@@ -1484,7 +1484,8 @@ namespace OloEngine
                     switch (result)
                     {
                         case MessagePromptResult::Yes:
-                            m_ShaderGraphEditorPanel.SaveIfNeeded();
+                            if (!m_ShaderGraphEditorPanel.SaveIfNeeded())
+                                return;
                             break;
                         case MessagePromptResult::Cancel:
                             return;
@@ -1880,6 +1881,31 @@ namespace OloEngine
 
     bool EditorLayer::OnWindowClose([[maybe_unused]] WindowCloseEvent const& e)
     {
+        // Check shader graph unsaved changes first
+        if (m_ShaderGraphEditorPanel.HasUnsavedChanges())
+        {
+            auto const result = MessagePrompt::YesNoCancel(
+                "Unsaved Shader Graph",
+                "The current shader graph has unsaved changes. Do you want to save before closing?");
+
+            switch (result)
+            {
+                case MessagePromptResult::Yes:
+                    if (!m_ShaderGraphEditorPanel.SaveIfNeeded())
+                    {
+                        Application::Get().CancelClose();
+                        return true;
+                    }
+                    break;
+                case MessagePromptResult::Cancel:
+                    Application::Get().CancelClose();
+                    return true;
+                case MessagePromptResult::No:
+                default:
+                    break;
+            }
+        }
+
         if (!ConfirmDiscardChanges())
         {
             Application::Get().CancelClose();

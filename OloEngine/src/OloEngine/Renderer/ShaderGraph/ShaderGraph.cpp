@@ -144,6 +144,15 @@ namespace OloEngine
         return &m_Links.back();
     }
 
+    void ShaderGraph::RestoreLink(UUID linkID, UUID outputPinID, UUID inputPinID)
+    {
+        // Remove any existing link to this input pin
+        std::erase_if(m_Links, [inputPinID](const ShaderGraphLink& link)
+                      { return link.InputPinID == inputPinID; });
+
+        m_Links.emplace_back(linkID, outputPinID, inputPinID);
+    }
+
     bool ShaderGraph::RemoveLink(UUID linkID)
     {
         OLO_PROFILE_FUNCTION();

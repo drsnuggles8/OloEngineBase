@@ -17,8 +17,8 @@ namespace OloEngine
       public:
         virtual ~ShaderGraphCommand() = default;
 
-        /// Execute or re-execute the command
-        virtual void Execute(ShaderGraph& graph) = 0;
+        /// Execute or re-execute the command. Returns true if the command mutated the graph.
+        virtual bool Execute(ShaderGraph& graph) = 0;
 
         /// Undo the command
         virtual void Undo(ShaderGraph& graph) = 0;
@@ -53,11 +53,11 @@ namespace OloEngine
             m_Properties.HasProperties = true;
         }
 
-        void Execute(ShaderGraph& graph) override
+        bool Execute(ShaderGraph& graph) override
         {
             auto node = CreateShaderGraphNode(m_TypeName);
             if (!node)
-                return;
+                return false;
             node->EditorPosition = m_Position;
             if (m_NodeID != 0)
                 node->ID = m_NodeID;
@@ -75,6 +75,7 @@ namespace OloEngine
             }
 
             graph.AddNode(std::move(node));
+            return true;
         }
 
         void Undo(ShaderGraph& graph) override
@@ -109,12 +110,12 @@ namespace OloEngine
         {
         }
 
-        void Execute(ShaderGraph& graph) override
+        bool Execute(ShaderGraph& graph) override
         {
             // Snapshot the node for undo
             const auto* node = graph.FindNode(m_NodeID);
             if (!node)
-                return;
+                return false;
 
             // Save a copy of the node state
             m_SavedTypeName = node->TypeName;
@@ -140,6 +141,7 @@ namespace OloEngine
             }
 
             graph.RemoveNode(m_NodeID);
+            return true;
         }
 
         void Undo(ShaderGraph& graph) override
@@ -192,7 +194,7 @@ namespace OloEngine
         {
         }
 
-        void Execute(ShaderGraph& graph) override
+        bool Execute(ShaderGraph& graph) override
         {
             // Save any existing link to this input (AddLink replaces it)
             if (const auto* existing = graph.GetLinkForInputPin(m_InputPinID))
@@ -203,16 +205,20 @@ namespace OloEngine
 
             auto* link = graph.AddLink(m_OutputPinID, m_InputPinID);
             if (link)
+            {
                 m_LinkID = link->ID;
+                return true;
+            }
+            return false;
         }
 
         void Undo(ShaderGraph& graph) override
         {
             graph.RemoveLink(m_LinkID);
 
-            // Restore previously replaced link
+            // Restore previously replaced link with its original ID
             if (m_HadPreviousLink)
-                graph.AddLink(m_ReplacedLink.OutputPinID, m_ReplacedLink.InputPinID);
+                graph.RestoreLink(m_ReplacedLink.ID, m_ReplacedLink.OutputPinID, m_ReplacedLink.InputPinID);
         }
 
         [[nodiscard]] std::string GetDescription() const override
@@ -237,18 +243,18 @@ namespace OloEngine
         {
         }
 
-        void Execute(ShaderGraph& graph) override
+        bool Execute(ShaderGraph& graph) override
         {
             // Save the link for undo
             const auto* link = graph.FindLink(m_LinkID);
             if (link)
                 m_SavedLink = *link;
-            graph.RemoveLink(m_LinkID);
+            return graph.RemoveLink(m_LinkID);
         }
 
         void Undo(ShaderGraph& graph) override
         {
-            graph.AddLink(m_SavedLink.OutputPinID, m_SavedLink.InputPinID);
+            graph.RestoreLink(m_SavedLink.ID, m_SavedLink.OutputPinID, m_SavedLink.InputPinID);
         }
 
         [[nodiscard]] std::string GetDescription() const override
@@ -270,10 +276,13 @@ namespace OloEngine
         {
         }
 
-        void Execute(ShaderGraph& graph) override
+        bool Execute(ShaderGraph& graph) override
         {
-            if (auto* node = graph.FindNode(m_NodeID))
-                node->EditorPosition = m_NewPosition;
+            auto* node = graph.FindNode(m_NodeID);
+            if (!node)
+                return false;
+            node->EditorPosition = m_NewPosition;
+            return true;
         }
 
         void Undo(ShaderGraph& graph) override
@@ -307,10 +316,11 @@ namespace OloEngine
             m_Commands.push_back(std::move(command));
         }
 
-        void Execute(ShaderGraph& graph) override
+        bool Execute(ShaderGraph& graph) override
         {
             for (auto& cmd : m_Commands)
                 cmd->Execute(graph);
+            return true;
         }
 
         void Undo(ShaderGraph& graph) override
@@ -338,10 +348,13 @@ namespace OloEngine
         {
         }
 
-        void Execute(ShaderGraph& graph) override
+        bool Execute(ShaderGraph& graph) override
         {
-            if (auto* pin = graph.FindPin(m_PinID))
-                pin->DefaultValue = m_NewValue;
+            auto* pin = graph.FindPin(m_PinID);
+            if (!pin)
+                return false;
+            pin->DefaultValue = m_NewValue;
+            return true;
         }
 
         void Undo(ShaderGraph& graph) override
@@ -370,10 +383,13 @@ namespace OloEngine
         {
         }
 
-        void Execute(ShaderGraph& graph) override
+        bool Execute(ShaderGraph& graph) override
         {
-            if (auto* node = graph.FindNode(m_NodeID))
-                node->ParameterName = m_NewName;
+            auto* node = graph.FindNode(m_NodeID);
+            if (!node)
+                return false;
+            node->ParameterName = m_NewName;
+            return true;
         }
 
         void Undo(ShaderGraph& graph) override
@@ -393,6 +409,111 @@ namespace OloEngine
         std::string m_NewName;
     };
 
+    /// Command to change a custom function node's GLSL body
+    class SetCustomFunctionBodyCommand final : public ShaderGraphCommand
+    {
+      public:
+        SetCustomFunctionBodyCommand(UUID nodeID, std::string oldBody, std::string newBody)
+            : m_NodeID(nodeID), m_OldBody(std::move(oldBody)), m_NewBody(std::move(newBody))
+        {
+        }
+
+        bool Execute(ShaderGraph& graph) override
+        {
+            auto* node = graph.FindNode(m_NodeID);
+            if (!node)
+                return false;
+            node->CustomFunctionBody = m_NewBody;
+            return true;
+        }
+
+        void Undo(ShaderGraph& graph) override
+        {
+            if (auto* node = graph.FindNode(m_NodeID))
+                node->CustomFunctionBody = m_OldBody;
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Set Custom Function";
+        }
+
+      private:
+        UUID m_NodeID;
+        std::string m_OldBody;
+        std::string m_NewBody;
+    };
+
+    /// Command to change a compute output node's workgroup size
+    class SetWorkgroupSizeCommand final : public ShaderGraphCommand
+    {
+      public:
+        SetWorkgroupSizeCommand(UUID nodeID, glm::ivec3 oldSize, glm::ivec3 newSize)
+            : m_NodeID(nodeID), m_OldSize(oldSize), m_NewSize(newSize)
+        {
+        }
+
+        bool Execute(ShaderGraph& graph) override
+        {
+            auto* node = graph.FindNode(m_NodeID);
+            if (!node)
+                return false;
+            node->WorkgroupSize = m_NewSize;
+            return true;
+        }
+
+        void Undo(ShaderGraph& graph) override
+        {
+            if (auto* node = graph.FindNode(m_NodeID))
+                node->WorkgroupSize = m_OldSize;
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Set Workgroup Size";
+        }
+
+      private:
+        UUID m_NodeID;
+        glm::ivec3 m_OldSize;
+        glm::ivec3 m_NewSize;
+    };
+
+    /// Command to change a buffer node's binding index
+    class SetBufferBindingCommand final : public ShaderGraphCommand
+    {
+      public:
+        SetBufferBindingCommand(UUID nodeID, int oldBinding, int newBinding)
+            : m_NodeID(nodeID), m_OldBinding(oldBinding), m_NewBinding(newBinding)
+        {
+        }
+
+        bool Execute(ShaderGraph& graph) override
+        {
+            auto* node = graph.FindNode(m_NodeID);
+            if (!node)
+                return false;
+            node->BufferBinding = m_NewBinding;
+            return true;
+        }
+
+        void Undo(ShaderGraph& graph) override
+        {
+            if (auto* node = graph.FindNode(m_NodeID))
+                node->BufferBinding = m_OldBinding;
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Set Buffer Binding";
+        }
+
+      private:
+        UUID m_NodeID;
+        int m_OldBinding;
+        int m_NewBinding;
+    };
+
     /// Manages the undo/redo stack for a shader graph editor session
     class ShaderGraphCommandHistory
     {
@@ -401,7 +522,16 @@ namespace OloEngine
         /// Clears the redo stack.
         void Execute(Scope<ShaderGraphCommand> command, ShaderGraph& graph)
         {
-            command->Execute(graph);
+            if (!command->Execute(graph))
+                return;
+            m_UndoStack.push_back(std::move(command));
+            m_RedoStack.clear();
+        }
+
+        /// Push a command that has already been applied to the graph.
+        /// Used for ImGui interactive edits where the widget directly mutated the graph.
+        void PushExecuted(Scope<ShaderGraphCommand> command)
+        {
             m_UndoStack.push_back(std::move(command));
             m_RedoStack.clear();
         }

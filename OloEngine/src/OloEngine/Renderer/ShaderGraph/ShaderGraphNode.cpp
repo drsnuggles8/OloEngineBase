@@ -12,6 +12,8 @@ namespace OloEngine
 
     ShaderGraphPin* ShaderGraphNode::FindPin(UUID pinID)
     {
+        OLO_PROFILE_FUNCTION();
+
         for (auto& pin : Inputs)
         {
             if (pin.ID == pinID)
@@ -27,6 +29,8 @@ namespace OloEngine
 
     const ShaderGraphPin* ShaderGraphNode::FindPin(UUID pinID) const
     {
+        OLO_PROFILE_FUNCTION();
+
         for (const auto& pin : Inputs)
         {
             if (pin.ID == pinID)
@@ -42,6 +46,8 @@ namespace OloEngine
 
     ShaderGraphPin* ShaderGraphNode::FindPinByName(const std::string& name, ShaderGraphPinDirection direction)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& pins = (direction == ShaderGraphPinDirection::Input) ? Inputs : Outputs;
         for (auto& pin : pins)
         {
@@ -53,6 +59,8 @@ namespace OloEngine
 
     const ShaderGraphPin* ShaderGraphNode::FindPinByName(const std::string& name, ShaderGraphPinDirection direction) const
     {
+        OLO_PROFILE_FUNCTION();
+
         const auto& pins = (direction == ShaderGraphPinDirection::Input) ? Inputs : Outputs;
         for (const auto& pin : pins)
         {

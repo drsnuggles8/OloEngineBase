@@ -469,6 +469,11 @@ namespace OloEngine
                     sgAsset->GetMutableGraph().SetName(baseName);
 
                     auto outputNode = CreateShaderGraphNode(ShaderGraphNodeTypes::PBROutput);
+                    if (!outputNode)
+                    {
+                        OLO_CORE_ERROR("ContentBrowser: Failed to create PBROutput node");
+                        return;
+                    }
                     outputNode->EditorPosition = glm::vec2(400.0f, 200.0f);
                     sgAsset->GetMutableGraph().AddNode(std::move(outputNode));
 

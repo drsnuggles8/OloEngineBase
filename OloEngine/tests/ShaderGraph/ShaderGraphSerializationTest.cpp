@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <set>
 #include "OloEngine/Scene/Scene.h" // Required: AssetSerializer.h uses Ref<Scene> inline
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphSerializer.h"

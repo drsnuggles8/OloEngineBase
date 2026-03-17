@@ -568,7 +568,7 @@ namespace OloEngine
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_PRECIPITATION_NOISE, i.e. 10–31)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)
                     return (binding >= TEX_USER_0 && binding <= TEX_PRECIPITATION_NOISE) ||
-                           binding >= TEX_SHADER_GRAPH_0;
+                           (binding >= TEX_SHADER_GRAPH_0 && binding < 80);
             }
         }
 

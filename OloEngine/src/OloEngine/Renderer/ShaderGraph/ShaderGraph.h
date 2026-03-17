@@ -56,6 +56,10 @@ namespace OloEngine
         /// Returns nullptr if the connection is invalid (type mismatch, cycle, etc.)
         ShaderGraphLink* AddLink(UUID outputPinID, UUID inputPinID);
 
+        /// Restore a link with a specific ID (for undo/redo — bypasses validation).
+        /// Removes any existing link to the same input pin before restoring.
+        void RestoreLink(UUID linkID, UUID outputPinID, UUID inputPinID);
+
         /// Remove a link by ID
         bool RemoveLink(UUID linkID);
 

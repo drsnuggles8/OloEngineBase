@@ -738,11 +738,19 @@ namespace OloEngine
             char buf[128];
             std::strncpy(buf, node.ParameterName.c_str(), sizeof(buf) - 1);
             buf[sizeof(buf) - 1] = '\0';
-            if (ImGui::InputText("Parameter Name", buf, sizeof(buf)))
+            bool textChanged = ImGui::InputText("Parameter Name", buf, sizeof(buf));
+            if (ImGui::IsItemActivated())
+                m_PendingStringOldValue = node.ParameterName;
+            if (textChanged)
             {
                 node.ParameterName = buf;
                 m_IsDirty = true;
                 m_GraphAsset->MarkDirty();
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit())
+            {
+                m_CommandHistory.PushExecuted(
+                    CreateScope<RenameParameterCommand>(node.ID, m_PendingStringOldValue, node.ParameterName));
             }
         }
 
@@ -754,12 +762,20 @@ namespace OloEngine
             bodyBuf[sizeof(bodyBuf) - 1] = '\0';
             ImGui::Text("GLSL Expression:");
             ImGui::TextWrapped("Use input pin names (A, B) in the expression");
-            if (ImGui::InputTextMultiline("##CustomBody", bodyBuf, sizeof(bodyBuf),
-                                          ImVec2(-1.0f, ImGui::GetTextLineHeight() * 4)))
+            bool bodyChanged = ImGui::InputTextMultiline("##CustomBody", bodyBuf, sizeof(bodyBuf),
+                                                         ImVec2(-1.0f, ImGui::GetTextLineHeight() * 4));
+            if (ImGui::IsItemActivated())
+                m_PendingStringOldValue = node.CustomFunctionBody;
+            if (bodyChanged)
             {
                 node.CustomFunctionBody = bodyBuf;
                 m_IsDirty = true;
                 m_GraphAsset->MarkDirty();
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit())
+            {
+                m_CommandHistory.PushExecuted(
+                    CreateScope<SetCustomFunctionBodyCommand>(node.ID, m_PendingStringOldValue, node.CustomFunctionBody));
             }
         }
 
@@ -767,10 +783,27 @@ namespace OloEngine
         if (node.TypeName == ShaderGraphNodeTypes::ComputeOutput)
         {
             ImGui::Text("Workgroup Size:");
+            glm::ivec3 preWorkgroup = node.WorkgroupSize;
             bool changed = false;
+
             changed |= ImGui::DragInt("X", &node.WorkgroupSize.x, 1.0f, 1, 1024);
+            if (ImGui::IsItemActivated())
+                m_PendingWorkgroupOldValue = preWorkgroup;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                m_CommandHistory.PushExecuted(CreateScope<SetWorkgroupSizeCommand>(node.ID, m_PendingWorkgroupOldValue, node.WorkgroupSize));
+
             changed |= ImGui::DragInt("Y", &node.WorkgroupSize.y, 1.0f, 1, 1024);
+            if (ImGui::IsItemActivated())
+                m_PendingWorkgroupOldValue = preWorkgroup;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                m_CommandHistory.PushExecuted(CreateScope<SetWorkgroupSizeCommand>(node.ID, m_PendingWorkgroupOldValue, node.WorkgroupSize));
+
             changed |= ImGui::DragInt("Z", &node.WorkgroupSize.z, 1.0f, 1, 64);
+            if (ImGui::IsItemActivated())
+                m_PendingWorkgroupOldValue = preWorkgroup;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                m_CommandHistory.PushExecuted(CreateScope<SetWorkgroupSizeCommand>(node.ID, m_PendingWorkgroupOldValue, node.WorkgroupSize));
+
             if (changed)
             {
                 m_IsDirty = true;
@@ -781,11 +814,16 @@ namespace OloEngine
         // Buffer binding index
         if (node.TypeName == ShaderGraphNodeTypes::ComputeBufferInput || node.TypeName == ShaderGraphNodeTypes::ComputeBufferStore)
         {
+            int preBinding = node.BufferBinding;
             if (ImGui::DragInt("Buffer Binding", &node.BufferBinding, 1.0f, 0, 15))
             {
                 m_IsDirty = true;
                 m_GraphAsset->MarkDirty();
             }
+            if (ImGui::IsItemActivated())
+                m_PendingBufferBindingOldValue = preBinding;
+            if (ImGui::IsItemDeactivatedAfterEdit())
+                m_CommandHistory.PushExecuted(CreateScope<SetBufferBindingCommand>(node.ID, m_PendingBufferBindingOldValue, node.BufferBinding));
         }
 
         // Default values for inputs
@@ -805,38 +843,58 @@ namespace OloEngine
             if (pin.Type == ShaderGraphPinType::Float)
             {
                 f32 val = std::holds_alternative<f32>(pin.DefaultValue) ? std::get<f32>(pin.DefaultValue) : 0.0f;
+                f32 preVal = val;
                 if (ImGui::DragFloat(pin.Name.c_str(), &val, 0.01f))
                 {
                     pin.DefaultValue = val;
                     changed = true;
                 }
+                if (ImGui::IsItemActivated())
+                    m_PendingPinOldValue = preVal;
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    m_CommandHistory.PushExecuted(CreateScope<ChangePinValueCommand>(pin.ID, m_PendingPinOldValue, pin.DefaultValue));
             }
             else if (pin.Type == ShaderGraphPinType::Vec2)
             {
                 glm::vec2 val = std::holds_alternative<glm::vec2>(pin.DefaultValue) ? std::get<glm::vec2>(pin.DefaultValue) : glm::vec2(0.0f);
+                glm::vec2 preVal = val;
                 if (ImGui::DragFloat2(pin.Name.c_str(), &val.x, 0.01f))
                 {
                     pin.DefaultValue = val;
                     changed = true;
                 }
+                if (ImGui::IsItemActivated())
+                    m_PendingPinOldValue = preVal;
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    m_CommandHistory.PushExecuted(CreateScope<ChangePinValueCommand>(pin.ID, m_PendingPinOldValue, pin.DefaultValue));
             }
             else if (pin.Type == ShaderGraphPinType::Vec3)
             {
                 glm::vec3 val = std::holds_alternative<glm::vec3>(pin.DefaultValue) ? std::get<glm::vec3>(pin.DefaultValue) : glm::vec3(0.0f);
+                glm::vec3 preVal = val;
                 if (ImGui::ColorEdit3(pin.Name.c_str(), &val.x))
                 {
                     pin.DefaultValue = val;
                     changed = true;
                 }
+                if (ImGui::IsItemActivated())
+                    m_PendingPinOldValue = preVal;
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    m_CommandHistory.PushExecuted(CreateScope<ChangePinValueCommand>(pin.ID, m_PendingPinOldValue, pin.DefaultValue));
             }
             else if (pin.Type == ShaderGraphPinType::Vec4)
             {
                 glm::vec4 val = std::holds_alternative<glm::vec4>(pin.DefaultValue) ? std::get<glm::vec4>(pin.DefaultValue) : glm::vec4(0.0f);
+                glm::vec4 preVal = val;
                 if (ImGui::ColorEdit4(pin.Name.c_str(), &val.x))
                 {
                     pin.DefaultValue = val;
                     changed = true;
                 }
+                if (ImGui::IsItemActivated())
+                    m_PendingPinOldValue = preVal;
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                    m_CommandHistory.PushExecuted(CreateScope<ChangePinValueCommand>(pin.ID, m_PendingPinOldValue, pin.DefaultValue));
             }
             else
             {

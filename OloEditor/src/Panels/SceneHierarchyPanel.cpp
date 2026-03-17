@@ -2161,10 +2161,9 @@ namespace OloEngine
                 ImGui::Text("Shader Graph");
                 ImGui::SameLine();
 
-                if (ImGui::Button(currentLabel.c_str()))
-                {
-                    // TODO: Open asset browser/picker for ShaderGraph assets
-                }
+                ImGui::BeginDisabled();
+                ImGui::Button(currentLabel.c_str());
+                ImGui::EndDisabled();
 
                 // Drop target for drag-and-drop from ContentBrowser
                 if (ImGui::BeginDragDropTarget())

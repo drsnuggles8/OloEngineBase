@@ -570,6 +570,7 @@ void main()
         if (static_cast<int>(textureParams.size()) > maxShaderGraphTextures)
         {
             OLO_CORE_ERROR("ShaderGraphCompiler: Too many texture parameters ({}, max {})", textureParams.size(), maxShaderGraphTextures);
+            return {};
         }
         for (const auto& param : textureParams)
         {
@@ -620,8 +621,6 @@ void main()
             };
 
             std::string albedo = resolve("Albedo");
-            std::string metallic = resolve("Metallic");
-            std::string roughness = resolve("Roughness");
             std::string ao = resolve("AO");
             std::string emissive = resolve("Emissive");
             std::string alpha = resolve("Alpha");
@@ -631,8 +630,6 @@ void main()
             // Full PBR is handled by the engine's PBR lighting pass
             frag << "\n    // PBR Output\n";
             frag << "    vec3 sg_albedo = " << albedo << ";\n";
-            frag << "    float sg_metallic = " << metallic << ";\n";
-            frag << "    float sg_roughness = " << roughness << ";\n";
             frag << "    float sg_ao = " << ao << ";\n";
             frag << "    vec3 sg_emissive = " << emissive << ";\n";
             frag << "    float sg_alpha = " << alpha << ";\n";
@@ -765,12 +762,17 @@ void main()
         }
 
         // Emit uniform declarations for exposed parameters (Float/Vec params)
+        bool computeUsesTime = false;
         for (const auto* node : sortedNodes)
         {
-            if (node->TypeName == ShaderGraphNodeTypes::FloatParameter ||
-                node->TypeName == ShaderGraphNodeTypes::Vec3Parameter ||
-                node->TypeName == ShaderGraphNodeTypes::Vec4Parameter ||
-                node->TypeName == ShaderGraphNodeTypes::ColorParameter)
+            if (node->TypeName == ShaderGraphNodeTypes::Time)
+            {
+                computeUsesTime = true;
+            }
+            else if (node->TypeName == ShaderGraphNodeTypes::FloatParameter ||
+                     node->TypeName == ShaderGraphNodeTypes::Vec3Parameter ||
+                     node->TypeName == ShaderGraphNodeTypes::Vec4Parameter ||
+                     node->TypeName == ShaderGraphNodeTypes::ColorParameter)
             {
                 std::string uniformName = node->ParameterName;
                 std::string type;
@@ -794,6 +796,8 @@ void main()
                 outParams.push_back(param);
             }
         }
+        if (computeUsesTime)
+            cs << "uniform float u_Time;\n";
         cs << "\n";
 
         // Generate main()

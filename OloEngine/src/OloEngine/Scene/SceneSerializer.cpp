@@ -1471,12 +1471,13 @@ namespace OloEngine
                 auto handleVal = materialComponent["ShaderGraphHandle"].as<u64>();
                 if (handleVal != 0)
                 {
-                    matc.m_ShaderGraphHandle = UUID(handleVal);
+                    OLO_PROFILE_SCOPE("ShaderGraphLoad");
                     // Compile and apply the shader graph if the asset is available
-                    if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(matc.m_ShaderGraphHandle))
+                    if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(UUID(handleVal)))
                     {
                         if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(handleVal)))
                         {
+                            matc.m_ShaderGraphHandle = UUID(handleVal);
                             matc.m_Material.SetShader(shader);
                         }
                         else
@@ -1977,8 +1978,12 @@ namespace OloEngine
                                 deserializedEntity.AddComponent<MaterialComponent>();
                             }
                             auto& matComp = deserializedEntity.GetComponent<MaterialComponent>();
-                            matComp.m_Material = animatedModel->GetMaterials()[0];
-                            OLO_CORE_INFO("Deserialized MaterialComponent: loaded material from animated model");
+                            // Only replace the material if no shader graph is assigned
+                            if (matComp.m_ShaderGraphHandle == 0)
+                            {
+                                matComp.m_Material = animatedModel->GetMaterials()[0];
+                                OLO_CORE_INFO("Deserialized MaterialComponent: loaded material from animated model");
+                            }
                         }
                     }
                     else

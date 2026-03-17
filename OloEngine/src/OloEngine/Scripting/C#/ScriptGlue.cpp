@@ -1467,6 +1467,14 @@ namespace OloEngine
                     matComp.m_ShaderGraphHandle = handle;
                     matComp.m_Material.SetShader(shader);
                 }
+                else
+                {
+                    OLO_CORE_WARN("ScriptGlue: ShaderGraph {} failed to compile", handle);
+                }
+            }
+            else
+            {
+                OLO_CORE_WARN("ScriptGlue: ShaderGraph asset {} not found", handle);
             }
         }
         else
