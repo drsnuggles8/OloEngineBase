@@ -6,12 +6,12 @@
 
 namespace OloEngine::Animation
 {
-	class AnimationGraphSystem
-	{
-	public:
-		static void Update(
-			AnimationGraphComponent& graphComp,
-			Skeleton& skeleton,
-			f32 deltaTime);
-	};
+    class AnimationGraphSystem
+    {
+      public:
+        static void Update(
+            AnimationGraphComponent& graphComp,
+            Skeleton& skeleton,
+            f32 deltaTime);
+    };
 } // namespace OloEngine::Animation

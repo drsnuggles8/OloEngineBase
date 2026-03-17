@@ -1635,6 +1635,7 @@ namespace OloEngine
 
             // Animation Components
             DisplayAddComponentEntry<AnimationStateComponent>("Animation State");
+            DisplayAddComponentEntry<AnimationGraphComponent>("Animation Graph");
             DisplayAddComponentEntry<SkeletonComponent>("Skeleton");
             DisplayAddComponentEntry<SubmeshComponent>("Submesh");
 

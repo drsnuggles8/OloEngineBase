@@ -8,22 +8,40 @@
 
 namespace OloEngine
 {
-	class AnimationGraphAsset : public Asset
-	{
-	public:
-		AnimationGraphAsset() = default;
+    class AnimationGraphAsset : public Asset
+    {
+      public:
+        AnimationGraphAsset() = default;
 
-		static AssetType GetStaticType() { return AssetType::AnimationGraph; }
-		AssetType GetAssetType() const override { return GetStaticType(); }
+        static AssetType GetStaticType()
+        {
+            return AssetType::AnimationGraph;
+        }
+        AssetType GetAssetType() const override
+        {
+            return GetStaticType();
+        }
 
-		void SetFilePath(const std::string& path) { m_FilePath = path; }
-		[[nodiscard]] const std::string& GetFilePath() const { return m_FilePath; }
+        void SetFilePath(const std::string& path)
+        {
+            m_FilePath = path;
+        }
+        [[nodiscard]] const std::string& GetFilePath() const
+        {
+            return m_FilePath;
+        }
 
-		void SetGraph(const Ref<AnimationGraph>& graph) { m_Graph = graph; }
-		[[nodiscard]] Ref<AnimationGraph> GetGraph() const { return m_Graph; }
+        void SetGraph(const Ref<AnimationGraph>& graph)
+        {
+            m_Graph = graph;
+        }
+        [[nodiscard]] Ref<AnimationGraph> GetGraph() const
+        {
+            return m_Graph;
+        }
 
-	private:
-		std::string m_FilePath;
-		Ref<AnimationGraph> m_Graph;
-	};
+      private:
+        std::string m_FilePath;
+        Ref<AnimationGraph> m_Graph;
+    };
 } // namespace OloEngine

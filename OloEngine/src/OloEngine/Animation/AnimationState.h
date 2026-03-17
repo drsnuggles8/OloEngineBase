@@ -12,32 +12,32 @@
 
 namespace OloEngine
 {
-	class AnimationState
-	{
-	public:
-		std::string Name;
-		f32 Speed = 1.0f;
-		bool Looping = true;
+    class AnimationState
+    {
+      public:
+        std::string Name;
+        f32 Speed = 1.0f;
+        bool Looping = true;
 
-		enum class MotionType : u8
-		{
-			SingleClip,
-			BlendTree
-		};
+        enum class MotionType : u8
+        {
+            SingleClip,
+            BlendTree
+        };
 
-		MotionType Type = MotionType::SingleClip;
+        MotionType Type = MotionType::SingleClip;
 
-		// For SingleClip
-		Ref<AnimationClip> Clip;
+        // For SingleClip
+        Ref<AnimationClip> Clip;
 
-		// For BlendTree
-		Ref<BlendTree> Tree;
+        // For BlendTree
+        Ref<BlendTree> Tree;
 
-		void Evaluate(f32 normalizedTime, const AnimationParameterSet& params,
-		              sizet boneCount,
-		              std::vector<BoneTransform>& outBoneTransforms) const;
+        void Evaluate(f32 normalizedTime, const AnimationParameterSet& params,
+                      sizet boneCount,
+                      std::vector<BoneTransform>& outBoneTransforms) const;
 
-		[[nodiscard]] f32 GetClipDuration() const;
-		[[nodiscard]] f32 GetEffectiveDuration(const AnimationParameterSet& params) const;
-	};
+        [[nodiscard]] f32 GetClipDuration() const;
+        [[nodiscard]] f32 GetEffectiveDuration(const AnimationParameterSet& params) const;
+    };
 } // namespace OloEngine

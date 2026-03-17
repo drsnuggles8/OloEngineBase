@@ -3,64 +3,64 @@
 
 namespace OloEngine
 {
-	bool TransitionCondition::Evaluate(const AnimationParameterSet& params) const
-	{
-		const AnimationParameter* param = params.GetParameter(ParameterName);
-		if (!param)
-		{
-			return false;
-		}
+    bool TransitionCondition::Evaluate(const AnimationParameterSet& params) const
+    {
+        const AnimationParameter* param = params.GetParameter(ParameterName);
+        if (!param)
+        {
+            return false;
+        }
 
-		switch (Op)
-		{
-		case Comparison::TriggerSet:
-			return params.IsTriggerSet(ParameterName);
+        switch (Op)
+        {
+            case Comparison::TriggerSet:
+                return params.IsTriggerSet(ParameterName);
 
-		case Comparison::Greater:
-			if (param->ParamType == AnimationParameterType::Float)
-				return param->FloatValue > FloatThreshold;
-			if (param->ParamType == AnimationParameterType::Int)
-				return param->IntValue > IntThreshold;
-			return false;
+            case Comparison::Greater:
+                if (param->ParamType == AnimationParameterType::Float)
+                    return param->FloatValue > FloatThreshold;
+                if (param->ParamType == AnimationParameterType::Int)
+                    return param->IntValue > IntThreshold;
+                return false;
 
-		case Comparison::Less:
-			if (param->ParamType == AnimationParameterType::Float)
-				return param->FloatValue < FloatThreshold;
-			if (param->ParamType == AnimationParameterType::Int)
-				return param->IntValue < IntThreshold;
-			return false;
+            case Comparison::Less:
+                if (param->ParamType == AnimationParameterType::Float)
+                    return param->FloatValue < FloatThreshold;
+                if (param->ParamType == AnimationParameterType::Int)
+                    return param->IntValue < IntThreshold;
+                return false;
 
-		case Comparison::Equal:
-			if (param->ParamType == AnimationParameterType::Float)
-				return param->FloatValue == FloatThreshold;
-			if (param->ParamType == AnimationParameterType::Int)
-				return param->IntValue == IntThreshold;
-			if (param->ParamType == AnimationParameterType::Bool)
-				return param->BoolValue == BoolValue;
-			return false;
+            case Comparison::Equal:
+                if (param->ParamType == AnimationParameterType::Float)
+                    return param->FloatValue == FloatThreshold;
+                if (param->ParamType == AnimationParameterType::Int)
+                    return param->IntValue == IntThreshold;
+                if (param->ParamType == AnimationParameterType::Bool)
+                    return param->BoolValue == BoolValue;
+                return false;
 
-		case Comparison::NotEqual:
-			if (param->ParamType == AnimationParameterType::Float)
-				return param->FloatValue != FloatThreshold;
-			if (param->ParamType == AnimationParameterType::Int)
-				return param->IntValue != IntThreshold;
-			if (param->ParamType == AnimationParameterType::Bool)
-				return param->BoolValue != BoolValue;
-			return false;
-		}
+            case Comparison::NotEqual:
+                if (param->ParamType == AnimationParameterType::Float)
+                    return param->FloatValue != FloatThreshold;
+                if (param->ParamType == AnimationParameterType::Int)
+                    return param->IntValue != IntThreshold;
+                if (param->ParamType == AnimationParameterType::Bool)
+                    return param->BoolValue != BoolValue;
+                return false;
+        }
 
-		return false;
-	}
+        return false;
+    }
 
-	bool AnimationTransition::Evaluate(const AnimationParameterSet& params) const
-	{
-		for (const auto& condition : Conditions)
-		{
-			if (!condition.Evaluate(params))
-			{
-				return false;
-			}
-		}
-		return true;
-	}
+    bool AnimationTransition::Evaluate(const AnimationParameterSet& params) const
+    {
+        for (const auto& condition : Conditions)
+        {
+            if (!condition.Evaluate(params))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 } // namespace OloEngine

@@ -536,6 +536,7 @@ namespace OloEngine
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
             ImGui::MenuItem("NavMesh Panel", nullptr, &m_ShowNavMeshPanel);
             ImGui::MenuItem("Shader Graph Editor", nullptr, &m_ShowShaderGraphEditor);
+            ImGui::MenuItem("Animation Graph Editor", nullptr, &m_ShowAnimationGraphEditor);
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
             ImGui::MenuItem("Gamepad Debug", nullptr, &m_ShowGamepadDebug);
 
@@ -968,6 +969,13 @@ namespace OloEngine
             m_ShaderGraphEditorPanel.SetOpen(true);
             m_ShaderGraphEditorPanel.OnImGuiRender();
             m_ShowShaderGraphEditor = m_ShaderGraphEditorPanel.IsOpen();
+        }
+
+        // Animation Graph Editor Panel
+        if (m_ShowAnimationGraphEditor)
+        {
+            m_AnimationGraphEditorPanel.SetSelectedEntity(m_SceneHierarchyPanel.GetSelectedEntity());
+            m_AnimationGraphEditorPanel.OnImGuiRender(&m_ShowAnimationGraphEditor);
         }
 
         // Save Game Panel
@@ -1853,6 +1861,8 @@ namespace OloEngine
         m_SceneStatisticsPanel.SetContext(m_EditorScene);
         m_NavMeshPanel.SetContext(m_EditorScene);
         m_DialogueEditorPanel.SetCommandHistory(&m_CommandHistory);
+        m_AnimationGraphEditorPanel.SetContext(m_EditorScene);
+        m_AnimationGraphEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_InputSettingsPanel.SetCommandHistory(&m_CommandHistory);
 
         m_ActiveScene = m_EditorScene;
@@ -2287,6 +2297,29 @@ namespace OloEngine
                 {
                     markDirtyInScene(m_EditorScene);
                 }
+                break;
+            }
+            case AssetType::AnimationGraph:
+            {
+                OLO_TRACE("   → Animation graph asset reloaded - refreshing runtime graphs");
+                auto reloadInScene = [&e](Ref<Scene>& scene)
+                {
+                    if (!scene)
+                        return;
+                    auto view = scene->GetAllEntitiesWith<AnimationGraphComponent>();
+                    for (auto entityID : view)
+                    {
+                        auto& graphComp = view.get<AnimationGraphComponent>(entityID);
+                        if (graphComp.AnimationGraphAssetHandle == e.GetHandle())
+                        {
+                            // Clear runtime graph so it gets re-loaded next frame
+                            graphComp.RuntimeGraph = nullptr;
+                        }
+                    }
+                };
+                reloadInScene(m_ActiveScene);
+                if (m_EditorScene && m_EditorScene != m_ActiveScene)
+                    reloadInScene(m_EditorScene);
                 break;
             }
             default:

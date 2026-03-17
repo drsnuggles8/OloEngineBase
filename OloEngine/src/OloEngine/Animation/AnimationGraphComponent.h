@@ -8,16 +8,16 @@
 
 namespace OloEngine
 {
-	struct AnimationGraphComponent
-	{
-		AssetHandle AnimationGraphAssetHandle = 0;
+    struct AnimationGraphComponent
+    {
+        AssetHandle AnimationGraphAssetHandle = 0;
 
-		// Runtime
-		Ref<AnimationGraph> RuntimeGraph;
+        // Runtime
+        Ref<AnimationGraph> RuntimeGraph;
 
-		// Per-entity parameter instance (copied from graph at start)
-		AnimationParameterSet Parameters;
+        // Per-entity parameter instance (copied from graph at start)
+        AnimationParameterSet Parameters;
 
-		AnimationGraphComponent() = default;
-	};
+        AnimationGraphComponent() = default;
+    };
 } // namespace OloEngine
