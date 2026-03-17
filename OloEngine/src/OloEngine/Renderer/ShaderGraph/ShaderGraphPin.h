@@ -56,7 +56,7 @@ namespace OloEngine
                         case ShaderGraphPinType::Bool:
                             return "false";
                         case ShaderGraphPinType::Texture2D:
-                            return "sampler2D(0)";
+                            return "vec4(0.0)"; // No valid GLSL default for opaque sampler types
                         case ShaderGraphPinType::Mat3:
                             return "mat3(0.0)";
                         case ShaderGraphPinType::Mat4:

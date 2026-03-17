@@ -1440,6 +1440,7 @@ namespace OloEngine
 
     static u64 MaterialComponent_GetShaderGraphHandle(UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1449,12 +1450,12 @@ namespace OloEngine
 
     static void MaterialComponent_SetShaderGraphHandle(UUID entityID, u64 handle)
     {
+        OLO_PROFILE_FUNCTION();
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
         auto& matComp = entity.GetComponent<MaterialComponent>();
-        matComp.m_ShaderGraphHandle = handle;
 
         // Compile and apply the shader graph
         if (handle != 0)
@@ -1462,8 +1463,16 @@ namespace OloEngine
             if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(handle))
             {
                 if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(handle)))
+                {
+                    matComp.m_ShaderGraphHandle = handle;
                     matComp.m_Material.SetShader(shader);
+                }
             }
+        }
+        else
+        {
+            matComp.m_ShaderGraphHandle = 0;
+            matComp.m_Material.SetShader(nullptr);
         }
     }
 

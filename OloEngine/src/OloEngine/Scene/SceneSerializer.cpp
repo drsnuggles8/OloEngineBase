@@ -1468,22 +1468,26 @@ namespace OloEngine
             }
             if (materialComponent["ShaderGraphHandle"])
             {
-                matc.m_ShaderGraphHandle = UUID(materialComponent["ShaderGraphHandle"].as<u64>());
-                // Compile and apply the shader graph if the asset is available
-                if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(matc.m_ShaderGraphHandle))
+                auto handleVal = materialComponent["ShaderGraphHandle"].as<u64>();
+                if (handleVal != 0)
                 {
-                    if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(matc.m_ShaderGraphHandle))))
+                    matc.m_ShaderGraphHandle = UUID(handleVal);
+                    // Compile and apply the shader graph if the asset is available
+                    if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(matc.m_ShaderGraphHandle))
                     {
-                        matc.m_Material.SetShader(shader);
+                        if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(handleVal)))
+                        {
+                            matc.m_Material.SetShader(shader);
+                        }
+                        else
+                        {
+                            OLO_CORE_WARN("SceneSerializer: ShaderGraph {} failed to compile", handleVal);
+                        }
                     }
                     else
                     {
-                        OLO_CORE_WARN("SceneSerializer: ShaderGraph {} failed to compile", static_cast<u64>(matc.m_ShaderGraphHandle));
+                        OLO_CORE_WARN("SceneSerializer: ShaderGraph asset {} not found", handleVal);
                     }
-                }
-                else
-                {
-                    OLO_CORE_WARN("SceneSerializer: ShaderGraph asset {} not found", static_cast<u64>(matc.m_ShaderGraphHandle));
                 }
             }
         }

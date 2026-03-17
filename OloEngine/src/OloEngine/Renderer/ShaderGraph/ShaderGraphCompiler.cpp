@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphCompiler.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphTypes.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <sstream>
 #include <unordered_map>
@@ -270,7 +271,14 @@ namespace OloEngine
             std::string tex = resolveInput("Texture");
             std::string uv = resolveInput("UV");
             std::string sampleVar = MakeVarName(node, *node.FindPinByName("RGBA", ShaderGraphPinDirection::Output));
-            code << "    vec4 " << sampleVar << " = texture(" << tex << ", " << uv << ");\n";
+
+            // If the Texture input is unconnected, tex resolves to a non-sampler fallback — emit zero
+            const auto* texPin = node.FindPinByName("Texture", ShaderGraphPinDirection::Input);
+            bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID);
+            if (texConnected)
+                code << "    vec4 " << sampleVar << " = texture(" << tex << ", " << uv << ");\n";
+            else
+                code << "    vec4 " << sampleVar << " = vec4(0.0);\n";
             pinVarNames[static_cast<u64>(node.FindPinByName("RGBA", ShaderGraphPinDirection::Output)->ID)] = sampleVar;
 
             // Derive sub-outputs
@@ -292,9 +300,19 @@ namespace OloEngine
             std::string uv = resolveInput("UV");
             std::string strength = resolveInput("Strength");
             std::string var = MakeVarName(node, *node.FindPinByName("Normal", ShaderGraphPinDirection::Output));
-            code << "    vec3 " << var << " = normalize(texture(" << tex << ", " << uv << ").rgb * 2.0 - 1.0);\n";
-            code << "    " << var << ".xy *= " << strength << ";\n";
-            code << "    " << var << " = normalize(" << var << ");\n";
+
+            const auto* texPin = node.FindPinByName("Texture", ShaderGraphPinDirection::Input);
+            bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID);
+            if (texConnected)
+            {
+                code << "    vec3 " << var << " = normalize(texture(" << tex << ", " << uv << ").rgb * 2.0 - 1.0);\n";
+                code << "    " << var << ".xy *= " << strength << ";\n";
+                code << "    " << var << " = normalize(" << var << ");\n";
+            }
+            else
+            {
+                code << "    vec3 " << var << " = vec3(0.0, 0.0, 1.0);\n"; // Default normal
+            }
             pinVarNames[static_cast<u64>(node.FindPinByName("Normal", ShaderGraphPinDirection::Output)->ID)] = var;
         }
 
@@ -330,10 +348,12 @@ namespace OloEngine
                 std::string::size_type pos = 0;
                 while ((pos = body.find(search, pos)) != std::string::npos)
                 {
-                    // Check for word boundaries
-                    bool leftOk = (pos == 0) || !std::isalnum(static_cast<unsigned char>(body[pos - 1]));
+                    // Check for word boundaries (identifier characters include underscore)
+                    auto isIdentChar = [](char c)
+                    { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+                    bool leftOk = (pos == 0) || !isIdentChar(body[pos - 1]);
                     bool rightOk = (pos + search.size() >= body.size()) ||
-                                   !std::isalnum(static_cast<unsigned char>(body[pos + search.size()]));
+                                   !isIdentChar(body[pos + search.size()]);
                     if (leftOk && rightOk)
                     {
                         body.replace(pos, search.size(), resolved);
@@ -484,7 +504,7 @@ void main()
 
         // Collect and emit user parameter uniforms
         // Use a UBO for non-opaque uniforms, standalone binding for samplers
-        int nextTextureBinding = 10; // Start at user texture slots
+        int nextTextureBinding = ShaderBindingLayout::TEX_SHADER_GRAPH_0; // Start past engine-reserved texture slots
 
         // First pass: collect parameter info
         struct ParamInfo
@@ -524,10 +544,10 @@ void main()
             }
         }
 
-        // Emit scalar parameter UBO (binding 2 = MaterialProperties)
+        // Emit scalar parameter UBO (non-conflicting with engine bindings)
         if (!scalarParams.empty() || usesTime)
         {
-            frag << "layout(std140, binding = 2) uniform ShaderGraphParams\n";
+            frag << "layout(std140, binding = " << ShaderBindingLayout::UBO_SHADER_GRAPH << ") uniform ShaderGraphParams\n";
             frag << "{\n";
             for (const auto& param : scalarParams)
             {
@@ -545,7 +565,12 @@ void main()
             frag << "};\n\n";
         }
 
-        // Emit texture samplers
+        // Emit texture samplers (GL 4.6 guarantees 80 combined units; engine uses 0-31)
+        constexpr int maxShaderGraphTextures = 48; // slots 32-79
+        if (static_cast<int>(textureParams.size()) > maxShaderGraphTextures)
+        {
+            OLO_CORE_ERROR("ShaderGraphCompiler: Too many texture parameters ({}, max {})", textureParams.size(), maxShaderGraphTextures);
+        }
         for (const auto& param : textureParams)
         {
             frag << "layout(binding = " << nextTextureBinding << ") uniform sampler2D " << param.Name << ";\n";
@@ -600,6 +625,7 @@ void main()
             std::string ao = resolve("AO");
             std::string emissive = resolve("Emissive");
             std::string alpha = resolve("Alpha");
+            std::string normal = resolve("Normal");
 
             // Simple direct lighting approximation (ambient + diffuse)
             // Full PBR is handled by the engine's PBR lighting pass
@@ -610,11 +636,12 @@ void main()
             frag << "    float sg_ao = " << ao << ";\n";
             frag << "    vec3 sg_emissive = " << emissive << ";\n";
             frag << "    float sg_alpha = " << alpha << ";\n";
+            frag << "    vec3 sg_normal = " << normal << ";\n";
             frag << "\n";
             frag << "    // Output color (engine lighting pass will apply full PBR)\n";
             frag << "    o_Color = vec4(sg_albedo * sg_ao + sg_emissive, sg_alpha);\n";
             frag << "    o_EntityID = u_EntityID;\n";
-            frag << "    vec3 viewNormal = normalize(mat3(u_View) * v_Normal);\n";
+            frag << "    vec3 viewNormal = normalize(mat3(u_View) * sg_normal);\n";
             frag << "    o_ViewNormal = octEncode(viewNormal);\n";
         }
 

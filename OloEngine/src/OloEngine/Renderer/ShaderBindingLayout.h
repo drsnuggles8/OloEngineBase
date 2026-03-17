@@ -372,6 +372,7 @@ namespace OloEngine
         static constexpr u32 UBO_DECAL = 21;                // Decal projection parameters
         static constexpr u32 UBO_LIGHT_PROBES = 22;         // Light probe volume parameters
         static constexpr u32 UBO_WATER = 23;                // Water surface rendering parameters
+        static constexpr u32 UBO_SHADER_GRAPH = 24;         // Shader graph user parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -409,9 +410,10 @@ namespace OloEngine
         static constexpr u32 TEX_WIND_FIELD = 29;           // 3D wind velocity field (sampler3D, RGBA16F)
         static constexpr u32 TEX_SNOW_DEPTH = 30;           // Snow accumulation depth map (sampler2D, R32F)
         static constexpr u32 TEX_PRECIPITATION_NOISE = 31;  // Precipitation streak/lens noise (sampler2D)
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 32;       // First shader graph user texture slot
 
         // Ensure all texture slots fit within the GL 4.6 minimum guarantee (80 combined units).
-        static_assert(TEX_PRECIPITATION_NOISE < 80, "Texture slot exceeds GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
+        static_assert(TEX_SHADER_GRAPH_0 < 80, "Texture slot exceeds GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
 
         // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
@@ -509,6 +511,8 @@ namespace OloEngine
                     return name.contains("LightProbe") || name.contains("lightProbe");
                 case UBO_WATER:
                     return name.contains("Water") || name.contains("water");
+                case UBO_SHADER_GRAPH:
+                    return name.contains("ShaderGraph") || name.contains("shaderGraph");
                 default:
                     return false;
             }
@@ -562,7 +566,9 @@ namespace OloEngine
                            name.contains("StreakNoise") || name.contains("streakNoise");
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_PRECIPITATION_NOISE, i.e. 10–31)
-                    return binding >= TEX_USER_0 && binding <= TEX_PRECIPITATION_NOISE;
+                    // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)
+                    return (binding >= TEX_USER_0 && binding <= TEX_PRECIPITATION_NOISE) ||
+                           binding >= TEX_SHADER_GRAPH_0;
             }
         }
 

@@ -25,8 +25,9 @@ namespace OloEngine
 
         // ── Graph access ─────────────────────────────────────
 
-        ShaderGraph& GetGraph()
+        ShaderGraph& GetMutableGraph()
         {
+            m_Dirty = true;
             return m_Graph;
         }
         const ShaderGraph& GetGraph() const

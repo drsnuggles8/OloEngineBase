@@ -308,29 +308,12 @@ namespace OloEngine
         }
 
         auto& graph = graphAsset->m_Graph;
-        graph.SetName(sgNode["Name"].as<std::string>("Untitled"));
 
-        // Parse PinType from string
-        auto parsePinType = [](const std::string& str) -> ShaderGraphPinType
-        {
-            if (str == "Float")
-                return ShaderGraphPinType::Float;
-            if (str == "Vec2")
-                return ShaderGraphPinType::Vec2;
-            if (str == "Vec3")
-                return ShaderGraphPinType::Vec3;
-            if (str == "Vec4")
-                return ShaderGraphPinType::Vec4;
-            if (str == "Bool")
-                return ShaderGraphPinType::Bool;
-            if (str == "Texture2D")
-                return ShaderGraphPinType::Texture2D;
-            if (str == "Mat3")
-                return ShaderGraphPinType::Mat3;
-            if (str == "Mat4")
-                return ShaderGraphPinType::Mat4;
-            return ShaderGraphPinType::Float;
-        };
+        // Clear any existing state so re-deserialization doesn't duplicate
+        graph.m_Nodes.clear();
+        graph.m_Links.clear();
+
+        graph.SetName(sgNode["Name"].as<std::string>("Untitled"));
 
         // Nodes
         std::unordered_set<u64> nodeIDs;
@@ -465,6 +448,14 @@ namespace OloEngine
                     link.ID = UUID(linkYAML["ID"].as<u64>());
                     link.OutputPinID = UUID(linkYAML["OutputPinID"].as<u64>());
                     link.InputPinID = UUID(linkYAML["InputPinID"].as<u64>());
+
+                    // Validate that both endpoints exist in deserialized nodes
+                    if (!graph.FindNodeByPinID(link.OutputPinID) || !graph.FindNodeByPinID(link.InputPinID))
+                    {
+                        OLO_CORE_WARN("ShaderGraphSerializer - Skipping link {} with dangling endpoint", static_cast<u64>(link.ID));
+                        continue;
+                    }
+
                     graph.m_Links.push_back(link);
                 }
                 catch (const YAML::Exception& e)

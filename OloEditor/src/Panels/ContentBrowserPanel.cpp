@@ -466,11 +466,11 @@ namespace OloEngine
                     }
 
                     auto sgAsset = Ref<ShaderGraphAsset>::Create();
-                    sgAsset->GetGraph().SetName(baseName);
+                    sgAsset->GetMutableGraph().SetName(baseName);
 
                     auto outputNode = CreateShaderGraphNode(ShaderGraphNodeTypes::PBROutput);
                     outputNode->EditorPosition = glm::vec2(400.0f, 200.0f);
-                    sgAsset->GetGraph().AddNode(std::move(outputNode));
+                    sgAsset->GetMutableGraph().AddNode(std::move(outputNode));
 
                     AssetMetadata metadata;
                     metadata.FilePath = std::filesystem::relative(sgPath, Project::GetAssetDirectory());

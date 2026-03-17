@@ -110,6 +110,7 @@ namespace OloEngine
 
         friend class ShaderGraphSerializer;
         friend class ShaderGraphCompiler;
+        friend class RemoveNodeCommand;
     };
 
 } // namespace OloEngine

@@ -11,7 +11,7 @@ class ShaderGraphSerializationTest : public ::testing::Test
     Ref<ShaderGraphAsset> CreateSampleGraph()
     {
         auto asset = Ref<ShaderGraphAsset>::Create();
-        auto& graph = asset->GetGraph();
+        auto& graph = asset->GetMutableGraph();
         graph.SetName("TestMaterial");
 
         // Add a float parameter → Add → PBR Output
@@ -158,7 +158,7 @@ TEST_F(ShaderGraphSerializationTest, DeserializedGraphCanCompile)
 TEST_F(ShaderGraphSerializationTest, RoundTripPreservesComputeWorkgroupSize)
 {
     auto asset = Ref<ShaderGraphAsset>::Create();
-    auto& graph = asset->GetGraph();
+    auto& graph = asset->GetMutableGraph();
     graph.SetName("ComputeGraph");
 
     auto outputNode = CreateShaderGraphNode(ShaderGraphNodeTypes::ComputeOutput);
@@ -179,7 +179,7 @@ TEST_F(ShaderGraphSerializationTest, RoundTripPreservesComputeWorkgroupSize)
 TEST_F(ShaderGraphSerializationTest, RoundTripPreservesBufferBinding)
 {
     auto asset = Ref<ShaderGraphAsset>::Create();
-    auto& graph = asset->GetGraph();
+    auto& graph = asset->GetMutableGraph();
     graph.SetName("ComputeGraph");
 
     auto bufNode = CreateShaderGraphNode(ShaderGraphNodeTypes::ComputeBufferInput);

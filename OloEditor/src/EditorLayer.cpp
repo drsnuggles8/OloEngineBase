@@ -1185,7 +1185,7 @@ namespace OloEngine
             {
                 if (control && m_SceneState == SceneState::Edit)
                 {
-                    if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen())
+                    if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen() && m_ShaderGraphEditorPanel.IsFocused())
                         m_ShaderGraphEditorPanel.Undo();
                     else
                         m_CommandHistory.Undo();
@@ -1197,7 +1197,7 @@ namespace OloEngine
             {
                 if (control && m_SceneState == SceneState::Edit)
                 {
-                    if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen())
+                    if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen() && m_ShaderGraphEditorPanel.IsFocused())
                         m_ShaderGraphEditorPanel.Redo();
                     else
                         m_CommandHistory.Redo();
@@ -1477,8 +1477,21 @@ namespace OloEngine
             {
                 if (m_ShaderGraphEditorPanel.HasUnsavedChanges())
                 {
-                    if (!ConfirmDiscardChanges())
-                        return;
+                    auto const result = MessagePrompt::YesNoCancel(
+                        "Unsaved Shader Graph",
+                        "The current shader graph has unsaved changes. Do you want to save before opening a new one?");
+
+                    switch (result)
+                    {
+                        case MessagePromptResult::Yes:
+                            m_ShaderGraphEditorPanel.SaveIfNeeded();
+                            break;
+                        case MessagePromptResult::Cancel:
+                            return;
+                        case MessagePromptResult::No:
+                        default:
+                            break;
+                    }
                 }
                 m_ShaderGraphEditorPanel.OpenShaderGraph(path);
                 m_ShowShaderGraphEditor = true;

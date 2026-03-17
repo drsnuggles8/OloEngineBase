@@ -222,6 +222,13 @@ namespace OloEngine
         node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Float));
     }
 
+    static void InitNormalize(ShaderGraphNode& node)
+    {
+        node.Category = ShaderGraphNodeCategory::Math;
+        node.Inputs.push_back(MakeInput(node.ID, "Value", ShaderGraphPinType::Vec3, glm::vec3(0.0f)));
+        node.Outputs.push_back(MakeOutput(node.ID, "Result", ShaderGraphPinType::Vec3));
+    }
+
     static void InitPower(ShaderGraphNode& node)
     {
         node.Category = ShaderGraphNodeCategory::Math;
@@ -404,7 +411,7 @@ namespace OloEngine
             { ShaderGraphNodeTypes::Clamp, { InitClamp, ShaderGraphNodeCategory::Math } },
             { ShaderGraphNodeTypes::Dot, { InitDot, ShaderGraphNodeCategory::Math } },
             { ShaderGraphNodeTypes::Cross, { InitCross, ShaderGraphNodeCategory::Math } },
-            { ShaderGraphNodeTypes::Normalize, { InitUnaryMathNode, ShaderGraphNodeCategory::Math } },
+            { ShaderGraphNodeTypes::Normalize, { InitNormalize, ShaderGraphNodeCategory::Math } },
             { ShaderGraphNodeTypes::Power, { InitPower, ShaderGraphNodeCategory::Math } },
             { ShaderGraphNodeTypes::Abs, { InitUnaryMathNode, ShaderGraphNodeCategory::Math } },
             { ShaderGraphNodeTypes::Floor, { InitUnaryMathNode, ShaderGraphNodeCategory::Math } },

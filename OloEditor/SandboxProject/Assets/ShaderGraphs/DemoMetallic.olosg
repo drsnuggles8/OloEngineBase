@@ -72,40 +72,9 @@ ShaderGraph:
           Name: Value
           Type: Float
           DefaultValue: 0.300000
-    - ID: 500
-      TypeName: Multiply
-      Category: Math
-      EditorPosition: [400, 250]
-      Inputs:
-        - ID: 501
-          Name: A
-          Type: Float
-          DefaultValue: 0.000000
-        - ID: 502
-          Name: B
-          Type: Float
-          DefaultValue: 0.000000
-      Outputs:
-        - ID: 503
-          Name: Result
-          Type: Float
-    - ID: 600
-      TypeName: FloatConstant
-      Category: Input
-      EditorPosition: [100, 100]
-      Inputs:
-        []
-      Outputs:
-        - ID: 601
-          Name: Value
-          Type: Float
-          DefaultValue: 1.500000
   Links:
     - ID: 1001
       OutputPinID: 201
-      InputPinID: 501
-    - ID: 1002
-      OutputPinID: 503
       InputPinID: 101
     - ID: 1003
       OutputPinID: 301

@@ -2169,7 +2169,7 @@ namespace OloEngine
                 // Drop target for drag-and-drop from ContentBrowser
                 if (ImGui::BeginDragDropTarget())
                 {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_SHADERGRAPH"))
                     {
                         auto const* const path = static_cast<wchar_t const*>(payload->Data);
                         std::filesystem::path assetPath(path);
@@ -2179,11 +2179,17 @@ namespace OloEngine
                             AssetHandle handle = assetManager->ImportAsset(assetPath);
                             if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::ShaderGraph)
                             {
-                                component.m_ShaderGraphHandle = handle;
                                 if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(handle))
                                 {
                                     if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(handle))))
+                                    {
+                                        component.m_ShaderGraphHandle = handle;
                                         component.m_Material.SetShader(shader);
+                                    }
+                                    else
+                                    {
+                                        OLO_WARN("ShaderGraph {} failed to compile, not assigning to material", static_cast<u64>(handle));
+                                    }
                                 }
                             }
                         }

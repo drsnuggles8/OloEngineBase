@@ -27,6 +27,17 @@ namespace OloEngine
         [[nodiscard]] virtual std::string GetDescription() const = 0;
     };
 
+    /// Optional properties to apply when a node is created (e.g., during paste)
+    struct AddNodeProperties
+    {
+        std::string ParameterName;
+        std::string CustomFunctionBody;
+        glm::ivec3 WorkgroupSize{ 16, 16, 1 };
+        int BufferBinding = 0;
+        std::vector<ShaderGraphPinValue> InputDefaultValues;
+        bool HasProperties = false;
+    };
+
     /// Command to add a new node to the graph
     class AddNodeCommand final : public ShaderGraphCommand
     {
@@ -34,6 +45,12 @@ namespace OloEngine
         AddNodeCommand(const std::string& typeName, const glm::vec2& position)
             : m_TypeName(typeName), m_Position(position)
         {
+        }
+
+        AddNodeCommand(const std::string& typeName, const glm::vec2& position, AddNodeProperties properties)
+            : m_TypeName(typeName), m_Position(position), m_Properties(std::move(properties))
+        {
+            m_Properties.HasProperties = true;
         }
 
         void Execute(ShaderGraph& graph) override
@@ -46,6 +63,17 @@ namespace OloEngine
                 node->ID = m_NodeID;
             else
                 m_NodeID = node->ID;
+
+            if (m_Properties.HasProperties)
+            {
+                node->ParameterName = m_Properties.ParameterName;
+                node->CustomFunctionBody = m_Properties.CustomFunctionBody;
+                node->WorkgroupSize = m_Properties.WorkgroupSize;
+                node->BufferBinding = m_Properties.BufferBinding;
+                for (size_t i = 0; i < node->Inputs.size() && i < m_Properties.InputDefaultValues.size(); ++i)
+                    node->Inputs[i].DefaultValue = m_Properties.InputDefaultValues[i];
+            }
+
             graph.AddNode(std::move(node));
         }
 
@@ -68,6 +96,7 @@ namespace OloEngine
         std::string m_TypeName;
         glm::vec2 m_Position;
         UUID m_NodeID = 0;
+        AddNodeProperties m_Properties;
     };
 
     /// Command to remove a node and its connected links.
@@ -91,6 +120,9 @@ namespace OloEngine
             m_SavedTypeName = node->TypeName;
             m_SavedPosition = node->EditorPosition;
             m_SavedParameterName = node->ParameterName;
+            m_SavedCustomFunctionBody = node->CustomFunctionBody;
+            m_SavedWorkgroupSize = node->WorkgroupSize;
+            m_SavedBufferBinding = node->BufferBinding;
             m_SavedInputs = node->Inputs;
             m_SavedOutputs = node->Outputs;
 
@@ -120,14 +152,17 @@ namespace OloEngine
             node->ID = m_NodeID;
             node->EditorPosition = m_SavedPosition;
             node->ParameterName = m_SavedParameterName;
+            node->CustomFunctionBody = m_SavedCustomFunctionBody;
+            node->WorkgroupSize = m_SavedWorkgroupSize;
+            node->BufferBinding = m_SavedBufferBinding;
             node->Inputs = m_SavedInputs;
             node->Outputs = m_SavedOutputs;
 
             graph.AddNode(std::move(node));
 
-            // Recreate the saved links (bypass validation — we know they were valid)
+            // Restore links with their original IDs (bypass validation — they were valid before removal)
             for (const auto& link : m_SavedLinks)
-                graph.AddLink(link.OutputPinID, link.InputPinID);
+                graph.m_Links.push_back(link);
         }
 
         [[nodiscard]] std::string GetDescription() const override
@@ -140,6 +175,9 @@ namespace OloEngine
         std::string m_SavedTypeName;
         glm::vec2 m_SavedPosition{};
         std::string m_SavedParameterName;
+        std::string m_SavedCustomFunctionBody;
+        glm::ivec3 m_SavedWorkgroupSize{ 16, 16, 1 };
+        int m_SavedBufferBinding = 0;
         std::vector<ShaderGraphPin> m_SavedInputs;
         std::vector<ShaderGraphPin> m_SavedOutputs;
         std::vector<ShaderGraphLink> m_SavedLinks;
@@ -253,6 +291,42 @@ namespace OloEngine
         UUID m_NodeID;
         glm::vec2 m_OldPosition;
         glm::vec2 m_NewPosition;
+    };
+
+    /// Compound command that groups multiple sub-commands as a single undoable operation
+    class CompoundShaderGraphCommand final : public ShaderGraphCommand
+    {
+      public:
+        explicit CompoundShaderGraphCommand(std::string description)
+            : m_Description(std::move(description))
+        {
+        }
+
+        void Add(Scope<ShaderGraphCommand> command)
+        {
+            m_Commands.push_back(std::move(command));
+        }
+
+        void Execute(ShaderGraph& graph) override
+        {
+            for (auto& cmd : m_Commands)
+                cmd->Execute(graph);
+        }
+
+        void Undo(ShaderGraph& graph) override
+        {
+            for (auto it = m_Commands.rbegin(); it != m_Commands.rend(); ++it)
+                (*it)->Undo(graph);
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return m_Description;
+        }
+
+      private:
+        std::string m_Description;
+        std::vector<Scope<ShaderGraphCommand>> m_Commands;
     };
 
     /// Command to change a pin's default value

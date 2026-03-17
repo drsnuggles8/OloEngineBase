@@ -28,9 +28,18 @@ namespace OloEngine
         {
             return m_IsDirty;
         }
+        void SaveIfNeeded()
+        {
+            if (m_IsDirty)
+                SaveShaderGraph();
+        }
         [[nodiscard]] bool IsOpen() const
         {
             return m_IsOpen;
+        }
+        [[nodiscard]] bool IsFocused() const
+        {
+            return m_IsFocused;
         }
         void SetOpen(bool open)
         {
@@ -109,6 +118,7 @@ namespace OloEngine
 
       private:
         bool m_IsOpen = true;
+        bool m_IsFocused = false;
 
         // Asset state
         std::filesystem::path m_CurrentFilePath;

@@ -44,9 +44,12 @@ namespace OloEngine
 
         if (!ImGui::Begin(windowTitle.c_str(), &m_IsOpen, ImGuiWindowFlags_MenuBar))
         {
+            m_IsFocused = false;
             ImGui::End();
             return;
         }
+
+        m_IsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows | ImGuiFocusedFlags_RootWindow);
 
         // Handle deferred loading — show "Loading..." for one frame before blocking I/O
         if (!m_PendingLoadPath.empty())
@@ -86,7 +89,7 @@ namespace OloEngine
 
             if (m_SelectedNodeID != 0 && m_GraphAsset)
             {
-                auto* node = m_GraphAsset->GetGraph().FindNode(m_SelectedNodeID);
+                auto* node = m_GraphAsset->GetMutableGraph().FindNode(m_SelectedNodeID);
                 if (node)
                     DrawNodeProperties(*node);
             }
@@ -391,8 +394,10 @@ namespace OloEngine
             if (!outNode || !inNode)
                 continue;
 
-            ImVec2 srcPos, dstPos;
+            ImVec2 srcPos{}, dstPos{};
             ShaderGraphPinType srcType = ShaderGraphPinType::Float;
+            bool foundSrc = false;
+            bool foundDst = false;
 
             auto srcPins = GetNodePins(*outNode, WorldToScreen(outNode->EditorPosition, canvasOrigin));
             for (const auto& pin : srcPins)
@@ -401,6 +406,7 @@ namespace OloEngine
                 {
                     srcPos = pin.Position;
                     srcType = pin.Type;
+                    foundSrc = true;
                     break;
                 }
             }
@@ -411,9 +417,13 @@ namespace OloEngine
                 if (pin.PinID == link.InputPinID)
                 {
                     dstPos = pin.Position;
+                    foundDst = true;
                     break;
                 }
             }
+
+            if (!foundSrc || !foundDst)
+                continue;
 
             // Bezier curve
             f32 const curvature = 50.0f * m_Zoom;
@@ -556,7 +566,7 @@ namespace OloEngine
         // Node dragging
         if (m_IsDraggingNode && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
         {
-            auto* node = m_GraphAsset->GetGraph().FindNode(m_DragNodeID);
+            auto* node = m_GraphAsset->GetMutableGraph().FindNode(m_DragNodeID);
             if (node)
             {
                 ImVec2 const delta = ImVec2(mousePos.x - m_DragMouseStartPos.x, mousePos.y - m_DragMouseStartPos.y);
@@ -571,7 +581,7 @@ namespace OloEngine
             // Record position change as undoable command
             if (m_GraphAsset)
             {
-                auto* node = m_GraphAsset->GetGraph().FindNode(m_DragNodeID);
+                auto* node = m_GraphAsset->GetMutableGraph().FindNode(m_DragNodeID);
                 if (node && node->EditorPosition != m_DragNodeStartPos)
                 {
                     // Node was already moved during drag — record the move for undo
@@ -579,8 +589,7 @@ namespace OloEngine
                     glm::vec2 finalPos = node->EditorPosition;
                     node->EditorPosition = m_DragNodeStartPos;
                     auto cmd = CreateScope<MoveNodeCommand>(m_DragNodeID, m_DragNodeStartPos, finalPos);
-                    m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetGraph());
-                    m_GraphAsset->MarkDirty();
+                    m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
                 }
             }
             m_IsDraggingNode = false;
@@ -598,6 +607,7 @@ namespace OloEngine
             ImVec2 const mousePos = ImGui::GetMousePos();
 
             // Find target pin
+            bool connected = false;
             for (auto& node : m_GraphAsset->GetGraph().GetNodes())
             {
                 ImVec2 const nodeScreenPos = WorldToScreen(node->EditorPosition, canvasOrigin);
@@ -615,12 +625,14 @@ namespace OloEngine
                         UUID inPin = m_DragStartIsOutput ? pin.PinID : m_DragStartPinID;
 
                         auto cmd = CreateScope<AddLinkCommand>(outPin, inPin);
-                        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetGraph());
+                        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
                         m_IsDirty = true;
-                        m_GraphAsset->MarkDirty();
+                        connected = true;
                         break;
                     }
                 }
+                if (connected)
+                    break;
             }
 
             m_IsDraggingConnection = false;
@@ -1009,11 +1021,10 @@ namespace OloEngine
 
         auto cmd = CreateScope<AddNodeCommand>(typeName, position);
         auto* addCmd = cmd.get();
-        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetGraph());
+        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
 
         UUID id = addCmd->GetNodeID();
         m_IsDirty = true;
-        m_GraphAsset->MarkDirty();
         return id;
     }
 
@@ -1023,9 +1034,8 @@ namespace OloEngine
             return;
 
         auto cmd = CreateScope<RemoveNodeCommand>(nodeID);
-        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetGraph());
+        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
         m_IsDirty = true;
-        m_GraphAsset->MarkDirty();
     }
 
     void ShaderGraphEditorPanel::DeleteLink(UUID linkID)
@@ -1034,9 +1044,8 @@ namespace OloEngine
             return;
 
         auto cmd = CreateScope<RemoveLinkCommand>(linkID);
-        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetGraph());
+        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
         m_IsDirty = true;
-        m_GraphAsset->MarkDirty();
     }
 
     // =========================================================================
@@ -1048,9 +1057,8 @@ namespace OloEngine
         if (!m_GraphAsset || !m_CommandHistory.CanUndo())
             return;
 
-        m_CommandHistory.Undo(m_GraphAsset->GetGraph());
+        m_CommandHistory.Undo(m_GraphAsset->GetMutableGraph());
         m_IsDirty = true;
-        m_GraphAsset->MarkDirty();
     }
 
     void ShaderGraphEditorPanel::Redo()
@@ -1058,9 +1066,8 @@ namespace OloEngine
         if (!m_GraphAsset || !m_CommandHistory.CanRedo())
             return;
 
-        m_CommandHistory.Redo(m_GraphAsset->GetGraph());
+        m_CommandHistory.Redo(m_GraphAsset->GetMutableGraph());
         m_IsDirty = true;
-        m_GraphAsset->MarkDirty();
     }
 
     // =========================================================================
@@ -1072,14 +1079,22 @@ namespace OloEngine
         if (!m_GraphAsset)
             return;
 
-        auto& graph = m_GraphAsset->GetGraph();
+        auto& graph = m_GraphAsset->GetMutableGraph();
         const auto& nodes = graph.GetNodes();
         if (nodes.empty())
             return;
 
+        // Save old positions for undo
+        std::unordered_map<u64, glm::vec2> oldPositions;
+        for (const auto& node : nodes)
+            oldPositions[static_cast<u64>(node->ID)] = node->EditorPosition;
+
         // Compute depth of each node from output (output = depth 0, its inputs = depth 1, etc.)
         std::unordered_map<u64, int> nodeDepth;
         int maxDepth = 0;
+
+        // Compute new positions into a map first
+        std::unordered_map<u64, glm::vec2> newPositions;
 
         // BFS from output node backwards
         const auto* outputNode = graph.FindOutputNode();
@@ -1089,97 +1104,106 @@ namespace OloEngine
             f32 x = 0.0f;
             for (const auto& node : nodes)
             {
-                node->EditorPosition = glm::vec2(x, 0.0f);
+                newPositions[static_cast<u64>(node->ID)] = glm::vec2(x, 0.0f);
                 x += s_NodeWidth + 60.0f;
             }
-            m_IsDirty = true;
-            m_GraphAsset->MarkDirty();
-            return;
         }
-
-        // Mark all nodes with depth -1 (unvisited)
-        for (const auto& node : nodes)
-            nodeDepth[static_cast<u64>(node->ID)] = -1;
-
-        // BFS backwards from output
-        std::queue<UUID> bfsQueue;
-        bfsQueue.push(outputNode->ID);
-        nodeDepth[static_cast<u64>(outputNode->ID)] = 0;
-
-        while (!bfsQueue.empty())
+        else
         {
-            UUID currentID = bfsQueue.front();
-            bfsQueue.pop();
+            // Mark all nodes with depth -1 (unvisited)
+            for (const auto& node : nodes)
+                nodeDepth[static_cast<u64>(node->ID)] = -1;
 
-            const auto* currentNode = graph.FindNode(currentID);
-            if (!currentNode)
-                continue;
+            // BFS backwards from output
+            std::queue<UUID> bfsQueue;
+            bfsQueue.push(outputNode->ID);
+            nodeDepth[static_cast<u64>(outputNode->ID)] = 0;
 
-            int currentDepthVal = nodeDepth[static_cast<u64>(currentID)];
-
-            // For each input pin, find connected output pin's node
-            for (const auto& inputPin : currentNode->Inputs)
+            while (!bfsQueue.empty())
             {
-                const auto* link = graph.GetLinkForInputPin(inputPin.ID);
-                if (!link)
+                UUID currentID = bfsQueue.front();
+                bfsQueue.pop();
+
+                const auto* currentNode = graph.FindNode(currentID);
+                if (!currentNode)
                     continue;
 
-                const auto* sourceNode = graph.FindNodeByPinID(link->OutputPinID);
-                if (!sourceNode)
-                    continue;
+                int currentDepthVal = nodeDepth[static_cast<u64>(currentID)];
 
-                int newDepth = currentDepthVal + 1;
-                u64 sourceID = static_cast<u64>(sourceNode->ID);
-
-                if (nodeDepth[sourceID] < newDepth)
+                // For each input pin, find connected output pin's node
+                for (const auto& inputPin : currentNode->Inputs)
                 {
-                    nodeDepth[sourceID] = newDepth;
-                    maxDepth = std::max(maxDepth, newDepth);
-                    bfsQueue.push(sourceNode->ID);
+                    const auto* link = graph.GetLinkForInputPin(inputPin.ID);
+                    if (!link)
+                        continue;
+
+                    const auto* sourceNode = graph.FindNodeByPinID(link->OutputPinID);
+                    if (!sourceNode)
+                        continue;
+
+                    int newDepth = currentDepthVal + 1;
+                    u64 sourceID = static_cast<u64>(sourceNode->ID);
+
+                    if (nodeDepth[sourceID] < newDepth)
+                    {
+                        nodeDepth[sourceID] = newDepth;
+                        maxDepth = std::max(maxDepth, newDepth);
+                        bfsQueue.push(sourceNode->ID);
+                    }
                 }
+            }
+
+            // Group nodes by depth column
+            std::vector<std::vector<ShaderGraphNode*>> columns(maxDepth + 1);
+            std::vector<ShaderGraphNode*> disconnected;
+
+            for (const auto& node : nodes)
+            {
+                u64 id = static_cast<u64>(node->ID);
+                if (nodeDepth[id] >= 0)
+                    columns[static_cast<size_t>(nodeDepth[id])].push_back(node.get());
+                else
+                    disconnected.push_back(node.get());
+            }
+
+            // Position nodes: rightmost column = output, leftward = inputs
+            constexpr f32 columnSpacing = 280.0f;
+            constexpr f32 rowSpacing = 120.0f;
+
+            for (int col = 0; col <= maxDepth; ++col)
+            {
+                f32 x = static_cast<f32>(maxDepth - col) * columnSpacing;
+                f32 totalHeight = static_cast<f32>(columns[static_cast<size_t>(col)].size()) * rowSpacing;
+                f32 startY = -totalHeight / 2.0f;
+
+                for (size_t row = 0; row < columns[static_cast<size_t>(col)].size(); ++row)
+                {
+                    newPositions[static_cast<u64>(columns[static_cast<size_t>(col)][row]->ID)] =
+                        glm::vec2(x, startY + static_cast<f32>(row) * rowSpacing);
+                }
+            }
+
+            // Place disconnected nodes below
+            f32 disconnectedY = static_cast<f32>(maxDepth + 1) * rowSpacing;
+            for (size_t i = 0; i < disconnected.size(); ++i)
+            {
+                newPositions[static_cast<u64>(disconnected[i]->ID)] =
+                    glm::vec2(static_cast<f32>(i) * columnSpacing, disconnectedY);
             }
         }
 
-        // Group nodes by depth column
-        std::vector<std::vector<ShaderGraphNode*>> columns(maxDepth + 1);
-        std::vector<ShaderGraphNode*> disconnected;
-
+        // Build compound command with all moves
+        auto compound = CreateScope<CompoundShaderGraphCommand>("Auto Layout");
         for (const auto& node : nodes)
         {
             u64 id = static_cast<u64>(node->ID);
-            if (nodeDepth[id] >= 0)
-                columns[static_cast<size_t>(nodeDepth[id])].push_back(node.get());
-            else
-                disconnected.push_back(node.get());
-        }
-
-        // Position nodes: rightmost column = output, leftward = inputs
-        constexpr f32 columnSpacing = 280.0f;
-        constexpr f32 rowSpacing = 120.0f;
-
-        for (int col = 0; col <= maxDepth; ++col)
-        {
-            f32 x = static_cast<f32>(maxDepth - col) * columnSpacing;
-            f32 totalHeight = static_cast<f32>(columns[static_cast<size_t>(col)].size()) * rowSpacing;
-            f32 startY = -totalHeight / 2.0f;
-
-            for (size_t row = 0; row < columns[static_cast<size_t>(col)].size(); ++row)
+            if (newPositions.contains(id) && newPositions[id] != oldPositions[id])
             {
-                columns[static_cast<size_t>(col)][row]->EditorPosition =
-                    glm::vec2(x, startY + static_cast<f32>(row) * rowSpacing);
+                compound->Add(CreateScope<MoveNodeCommand>(node->ID, oldPositions[id], newPositions[id]));
             }
         }
-
-        // Place disconnected nodes below
-        f32 disconnectedY = static_cast<f32>(maxDepth + 1) * rowSpacing;
-        for (size_t i = 0; i < disconnected.size(); ++i)
-        {
-            disconnected[i]->EditorPosition =
-                glm::vec2(static_cast<f32>(i) * columnSpacing, disconnectedY);
-        }
-
+        m_CommandHistory.Execute(std::move(compound), graph);
         m_IsDirty = true;
-        m_GraphAsset->MarkDirty();
     }
 
     // =========================================================================
@@ -1210,29 +1234,21 @@ namespace OloEngine
         if (!m_GraphAsset || !m_HasCopiedNode)
             return;
 
-        // Use AddNodeCommand so paste is undoable
-        auto cmd = CreateScope<AddNodeCommand>(m_CopiedNodeTypeName, position);
+        // Build properties so redo restores them
+        AddNodeProperties props;
+        props.ParameterName = m_CopiedParameterName;
+        props.CustomFunctionBody = m_CopiedCustomFunctionBody;
+        props.WorkgroupSize = m_CopiedWorkgroupSize;
+        props.BufferBinding = m_CopiedBufferBinding;
+        for (const auto& input : m_CopiedInputs)
+            props.InputDefaultValues.push_back(input.DefaultValue);
+
+        auto cmd = CreateScope<AddNodeCommand>(m_CopiedNodeTypeName, position, std::move(props));
         auto* cmdPtr = cmd.get();
-        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetGraph());
+        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
 
-        // Apply copied properties to the newly created node
-        UUID id = cmdPtr->GetNodeID();
-        auto* newNode = m_GraphAsset->GetGraph().FindNode(id);
-        if (newNode)
-        {
-            newNode->ParameterName = m_CopiedParameterName;
-            newNode->CustomFunctionBody = m_CopiedCustomFunctionBody;
-            newNode->WorkgroupSize = m_CopiedWorkgroupSize;
-            newNode->BufferBinding = m_CopiedBufferBinding;
-
-            // Copy default values from saved pins
-            for (size_t i = 0; i < newNode->Inputs.size() && i < m_CopiedInputs.size(); ++i)
-                newNode->Inputs[i].DefaultValue = m_CopiedInputs[i].DefaultValue;
-        }
-
-        m_SelectedNodeID = id;
+        m_SelectedNodeID = cmdPtr->GetNodeID();
         m_IsDirty = true;
-        m_GraphAsset->MarkDirty();
     }
 
     // =========================================================================
@@ -1280,12 +1296,12 @@ namespace OloEngine
     void ShaderGraphEditorPanel::NewShaderGraph()
     {
         m_GraphAsset = Ref<ShaderGraphAsset>::Create();
-        m_GraphAsset->GetGraph().SetName("NewShaderGraph");
+        m_GraphAsset->GetMutableGraph().SetName("NewShaderGraph");
 
         // Start with a PBR output node
         auto outputNode = CreateShaderGraphNode(ShaderGraphNodeTypes::PBROutput);
         outputNode->EditorPosition = glm::vec2(400.0f, 200.0f);
-        m_GraphAsset->GetGraph().AddNode(std::move(outputNode));
+        m_GraphAsset->GetMutableGraph().AddNode(std::move(outputNode));
 
         m_CurrentFilePath.clear();
         m_CurrentAssetHandle = 0;
@@ -1370,9 +1386,20 @@ namespace OloEngine
         }
 
         file.seekg(0, std::ios::end);
-        std::string content(static_cast<size_t>(file.tellg()), '\0');
+        auto const fileSize = file.tellg();
+        if (fileSize == std::streampos(-1) || !file)
+        {
+            OLO_CORE_ERROR("ShaderGraphEditorPanel - Failed to determine file size: {}", path.string());
+            return;
+        }
+        std::string content(static_cast<size_t>(fileSize), '\0');
         file.seekg(0, std::ios::beg);
         file.read(content.data(), static_cast<std::streamsize>(content.size()));
+        if (!file)
+        {
+            OLO_CORE_ERROR("ShaderGraphEditorPanel - Failed to read file contents: {}", path.string());
+            return;
+        }
 
         ShaderGraphSerializer serializer;
         m_GraphAsset = Ref<ShaderGraphAsset>::Create();

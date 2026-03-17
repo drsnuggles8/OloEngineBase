@@ -295,6 +295,41 @@ namespace OloEngine
             result.Errors.push_back("Graph must have exactly one output node, found " + std::to_string(outputCount));
         }
 
+        // Check for compute/raster node mixing
+        bool isCompute = (computeCount > 0);
+        for (const auto& node : m_Nodes)
+        {
+            if (isCompute)
+            {
+                // Compute graph should not contain raster-only nodes
+                if (node->TypeName == ShaderGraphNodeTypes::UV ||
+                    node->TypeName == ShaderGraphNodeTypes::SampleTexture2D ||
+                    node->TypeName == ShaderGraphNodeTypes::NormalMap ||
+                    node->TypeName == ShaderGraphNodeTypes::Fresnel ||
+                    node->TypeName == ShaderGraphNodeTypes::TilingOffset ||
+                    node->TypeName == ShaderGraphNodeTypes::WorldPosition ||
+                    node->TypeName == ShaderGraphNodeTypes::WorldNormal ||
+                    node->TypeName == ShaderGraphNodeTypes::Texture2DParameter)
+                {
+                    result.IsValid = false;
+                    result.Errors.push_back("Raster-only node '" + node->TypeName + "' not allowed in compute graph");
+                }
+            }
+            else
+            {
+                // PBR graph should not contain compute-only nodes
+                if (node->TypeName == ShaderGraphNodeTypes::ComputeBufferInput ||
+                    node->TypeName == ShaderGraphNodeTypes::ComputeBufferStore ||
+                    node->TypeName == ShaderGraphNodeTypes::WorkgroupID ||
+                    node->TypeName == ShaderGraphNodeTypes::LocalInvocationID ||
+                    node->TypeName == ShaderGraphNodeTypes::GlobalInvocationID)
+                {
+                    result.IsValid = false;
+                    result.Errors.push_back("Compute-only node '" + node->TypeName + "' not allowed in PBR graph");
+                }
+            }
+        }
+
         // Check for cycles via topological sort
         auto order = GetTopologicalOrder();
         if (order.empty() && !m_Nodes.empty())
