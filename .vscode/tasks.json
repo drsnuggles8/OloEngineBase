@@ -1,145 +1,152 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-      {
-        "label": "build-oloeditor-debug",
-        "type": "shell",
-        "command": "cmake",
-        "args": [
-          "--build",
-          "${workspaceFolder}/build",
-          "--target",
-          "OloEditor",
-          "--config",
-          "Debug",
-          "--parallel"
-        ],
-        "group": {
-          "kind": "build",
-          "isDefault": true
-        },
-        "problemMatcher": [
-          "$msCompile"
-        ]
-      },
-  {
-    "label": "build-oloeditor-release",
-    "type": "shell",
-    "command": "cmake",
-    "args": [
-      "--build",
-      "${workspaceFolder}/build",
-      "--target",
-      "OloEditor",
-      "--config",
-      "Release",
-      "--parallel"
-    ],
-    "group": "build",
-    "problemMatcher": [
-      "$msCompile"
-    ]
-  },
-  {
-    "label": "build-oloeditor-dist",
-    "type": "shell",
-    "command": "cmake",
-    "args": [
-      "--build",
-      "${workspaceFolder}/build",
-      "--target",
-      "OloEditor",
-      "--config",
-      "Dist",
-      "--parallel"
-    ],
-    "group": "build",
-    "problemMatcher": [
-      "$msCompile"
-    ]
-  },
-  {
-    "label": "run-oloeditor-debug",
-    "type": "shell",
-    "command": "${workspaceFolder}/bin/Debug/OloEditor/OloEditor.exe",
-    "options": {
-      "cwd": "${workspaceFolder}/OloEditor"
-    },
-    "group": "test",
-    "presentation": {
-      "echo": true,
-      "reveal": "always",
-      "focus": false,
-      "panel": "shared"
-    },
-    "problemMatcher": []
-  },
-  {
-    "label": "run-oloeditor-release",
-    "type": "shell",
-    "command": "${workspaceFolder}/bin/Release/OloEditor/OloEditor.exe",
-    "options": {
-      "cwd": "${workspaceFolder}/OloEditor"
-    },
-    "group": "test",
-    "presentation": {
-      "echo": true,
-      "reveal": "always",
-      "focus": false,
-      "panel": "shared"
-    },
-    "problemMatcher": []
-  },
-  {
-    "label": "run-oloeditor-dist",
-    "type": "shell",
-    "command": "${workspaceFolder}/bin/Dist/OloEditor/OloEditor.exe",
-    "options": {
-      "cwd": "${workspaceFolder}/OloEditor"
-    },
-    "group": "test",
-    "presentation": {
-      "echo": true,
-      "reveal": "always",
-      "focus": false,
-      "panel": "shared"
-    },
-    "problemMatcher": []
-  },
-  {
-    "label": "build-tests-debug",
-    "type": "shell",
-    "command": "cmake",
-    "args": [
-      "--build",
-      "${workspaceFolder}/build",
-      "--target",
-      "OloEngine-Tests",
-      "--config",
-      "Debug",
-      "--parallel"
-    ],
-    "group": "build",
-    "problemMatcher": [
-      "$msCompile"
-    ]
-  },
-  {
-    "label": "run-tests-debug",
-    "type": "shell",
-    "command": "${workspaceFolder}/build/OloEngine/tests/Debug/OloEngine-Tests.exe",
-    "options": {
-      "cwd": "${workspaceFolder}"
-    },
-    "group": "test",
-    "presentation": {
-      "echo": true,
-      "reveal": "always",
-      "focus": false,
-      "panel": "shared"
-    },
-    "problemMatcher": [],
-    "dependsOn": ["build-tests-debug"]
-  }
-    ]
-  }
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-oloeditor-debug",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--build",
+				"${workspaceFolder}/build",
+				"--target",
+				"OloEditor",
+				"--config",
+				"Debug",
+				"--parallel"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": [
+				"$msCompile"
+			]
+		},
+		{
+			"label": "build-oloeditor-release",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--build",
+				"${workspaceFolder}/build",
+				"--target",
+				"OloEditor",
+				"--config",
+				"Release",
+				"--parallel"
+			],
+			"group": "build",
+			"problemMatcher": [
+				"$msCompile"
+			]
+		},
+		{
+			"label": "build-oloeditor-dist",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--build",
+				"${workspaceFolder}/build",
+				"--target",
+				"OloEditor",
+				"--config",
+				"Dist",
+				"--parallel"
+			],
+			"group": "build",
+			"problemMatcher": [
+				"$msCompile"
+			]
+		},
+		{
+			"label": "run-oloeditor-debug",
+			"type": "shell",
+			"command": "${workspaceFolder}/bin/Debug/OloEditor/OloEditor.exe",
+			"options": {
+				"cwd": "${workspaceFolder}/OloEditor"
+			},
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "run-oloeditor-release",
+			"type": "shell",
+			"command": "${workspaceFolder}/bin/Release/OloEditor/OloEditor.exe",
+			"options": {
+				"cwd": "${workspaceFolder}/OloEditor"
+			},
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "run-oloeditor-dist",
+			"type": "shell",
+			"command": "${workspaceFolder}/bin/Dist/OloEditor/OloEditor.exe",
+			"options": {
+				"cwd": "${workspaceFolder}/OloEditor"
+			},
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "build-tests-debug",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--build",
+				"${workspaceFolder}/build",
+				"--target",
+				"OloEngine-Tests",
+				"--config",
+				"Debug",
+				"--parallel"
+			],
+			"group": "build",
+			"problemMatcher": [
+				"$msCompile"
+			]
+		},
+		{
+			"label": "run-tests-debug",
+			"type": "shell",
+			"command": "${workspaceFolder}/build/OloEngine/tests/Debug/OloEngine-Tests.exe",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": [],
+			"dependsOn": [
+				"build-tests-debug"
+			]
+		},
+		{
+			"label": "cmake-configure",
+			"type": "shell",
+			"command": "cmake -Bbuild -G \"Visual Studio 18 2026\" -DCMAKE_GENERATOR_PLATFORM=x64"
+		}
+	]
+}

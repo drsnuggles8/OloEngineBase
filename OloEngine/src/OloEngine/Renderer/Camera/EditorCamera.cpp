@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "EditorCamera.h"
 
+#include "OloEngine/Core/Gamepad.h"
+#include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
@@ -133,6 +135,64 @@ namespace OloEngine
         else
         {
             m_Flying = false;
+        }
+
+        // Gamepad fly mode: left stick moves, right stick looks, bumpers for up/down
+        if (m_GamepadEnabled)
+        {
+            if (auto* gp = GamepadManager::GetGamepad(); gp && gp->IsConnected())
+            {
+                glm::vec2 leftStick = gp->GetLeftStickDeadzone(0.15f);
+                glm::vec2 rightStick = gp->GetRightStickDeadzone(0.15f);
+
+                bool hasStickInput = glm::length(leftStick) > 0.0f || glm::length(rightStick) > 0.0f;
+                bool hasBumperInput = gp->IsButtonPressed(GamepadButton::LeftBumper) || gp->IsButtonPressed(GamepadButton::RightBumper);
+
+                if (hasStickInput || hasBumperInput)
+                {
+                    m_Flying = true;
+
+                    // Right stick look
+                    if (glm::length(rightStick) > 0.0f)
+                    {
+                        const f32 yawSign = GetUpDirection().y < 0 ? -1.0f : 1.0f;
+                        m_Yaw += yawSign * rightStick.x * m_GamepadLookSensitivity * ts;
+                        m_Pitch += rightStick.y * m_GamepadLookSensitivity * ts;
+
+                        m_FocalPoint = m_Position + GetForwardDirection() * m_Distance;
+                    }
+
+                    // Left stick movement
+                    f32 speed = m_FlySpeed * ts;
+                    if (gp->GetAxis(GamepadAxis::RightTrigger) > 0.5f)
+                    {
+                        speed *= 3.0f; // Sprint with right trigger
+                    }
+
+                    glm::vec3 movement(0.0f);
+                    if (std::abs(leftStick.y) > 0.0f)
+                    {
+                        movement -= GetForwardDirection() * leftStick.y; // Forward/backward (Y is inverted)
+                    }
+                    if (std::abs(leftStick.x) > 0.0f)
+                    {
+                        movement += GetRightDirection() * leftStick.x; // Strafe
+                    }
+                    if (gp->IsButtonPressed(GamepadButton::RightBumper))
+                    {
+                        movement += glm::vec3(0.0f, 1.0f, 0.0f); // Up
+                    }
+                    if (gp->IsButtonPressed(GamepadButton::LeftBumper))
+                    {
+                        movement -= glm::vec3(0.0f, 1.0f, 0.0f); // Down
+                    }
+
+                    if (glm::length(movement) > 0.0f)
+                    {
+                        m_FocalPoint += glm::normalize(movement) * speed;
+                    }
+                }
+            }
         }
 
         UpdateView();

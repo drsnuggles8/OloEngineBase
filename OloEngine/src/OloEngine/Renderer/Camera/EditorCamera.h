@@ -9,6 +9,8 @@
 
 namespace OloEngine
 {
+    class Gamepad;
+
     class EditorCamera : public Camera
     {
       public:
@@ -93,6 +95,23 @@ namespace OloEngine
             return m_FlySpeed;
         }
 
+        void SetGamepadEnabled(bool enabled)
+        {
+            m_GamepadEnabled = enabled;
+        }
+        [[nodiscard]] bool IsGamepadEnabled() const
+        {
+            return m_GamepadEnabled;
+        }
+        void SetGamepadSensitivity(f32 sensitivity)
+        {
+            m_GamepadLookSensitivity = sensitivity;
+        }
+        [[nodiscard]] f32 GetGamepadSensitivity() const
+        {
+            return m_GamepadLookSensitivity;
+        }
+
       private:
         void UpdateProjection();
         void UpdateView();
@@ -127,6 +146,10 @@ namespace OloEngine
 
         f32 m_FlySpeed = 5.0F;
         bool m_Flying = false;
+
+        // Gamepad control
+        bool m_GamepadEnabled = true;
+        f32 m_GamepadLookSensitivity = 2.0F;
 
         f32 m_ViewportWidth = 1280.0F;
         f32 m_ViewportHeight = 720.0F;

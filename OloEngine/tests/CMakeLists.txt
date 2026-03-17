@@ -59,6 +59,7 @@ add_executable(OloEngine-Tests
 		Rendering/RenderingRegressionTest.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
+		GamepadTest.cpp
 		Networking/NetworkManagerTest.cpp
 		Networking/NetworkMessageTest.cpp
 		Networking/NetworkMessageDispatcherTest.cpp
