@@ -1185,7 +1185,10 @@ namespace OloEngine
             {
                 if (control && m_SceneState == SceneState::Edit)
                 {
-                    m_CommandHistory.Undo();
+                    if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen())
+                        m_ShaderGraphEditorPanel.Undo();
+                    else
+                        m_CommandHistory.Undo();
                     SyncWindowTitle();
                 }
                 break;
@@ -1194,7 +1197,10 @@ namespace OloEngine
             {
                 if (control && m_SceneState == SceneState::Edit)
                 {
-                    m_CommandHistory.Redo();
+                    if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen())
+                        m_ShaderGraphEditorPanel.Redo();
+                    else
+                        m_CommandHistory.Redo();
                     SyncWindowTitle();
                 }
                 break;
@@ -1469,6 +1475,11 @@ namespace OloEngine
             }
             else if (type == ContentFileType::ShaderGraph)
             {
+                if (m_ShaderGraphEditorPanel.HasUnsavedChanges())
+                {
+                    if (!ConfirmDiscardChanges())
+                        return;
+                }
                 m_ShaderGraphEditorPanel.OpenShaderGraph(path);
                 m_ShowShaderGraphEditor = true;
             }
@@ -2170,23 +2181,24 @@ namespace OloEngine
             case AssetType::ShaderGraph:
             {
                 OLO_TRACE("   → Shader graph asset reloaded - recompiling affected materials");
-                auto recompileInScene = [&e](Ref<Scene>& scene)
+                auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(e.GetHandle());
+                Ref<Shader> compiledShader;
+                if (graphAsset)
                 {
-                    if (!scene)
+                    graphAsset->MarkDirty();
+                    compiledShader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(e.GetHandle())));
+                }
+
+                auto recompileInScene = [&e, &compiledShader](Ref<Scene>& scene)
+                {
+                    if (!scene || !compiledShader)
                         return;
                     auto view = scene->GetAllEntitiesWith<MaterialComponent>();
                     for (auto entityID : view)
                     {
                         auto& matComp = view.get<MaterialComponent>(entityID);
-                        if (matComp.ShaderGraphHandle == e.GetHandle())
-                        {
-                            if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(e.GetHandle()))
-                            {
-                                graphAsset->MarkDirty();
-                                if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(e.GetHandle()))))
-                                    matComp.m_Material.SetShader(shader);
-                            }
-                        }
+                        if (matComp.m_ShaderGraphHandle == e.GetHandle())
+                            matComp.m_Material.SetShader(compiledShader);
                     }
                 };
                 recompileInScene(m_ActiveScene);

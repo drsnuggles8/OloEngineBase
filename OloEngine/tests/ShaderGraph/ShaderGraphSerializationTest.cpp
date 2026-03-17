@@ -91,6 +91,11 @@ TEST_F(ShaderGraphSerializationTest, RoundTripPreservesParameterName)
         if (node->TypeName == ShaderGraphNodeTypes::FloatParameter)
         {
             EXPECT_EQ(node->ParameterName, "u_Metallic");
+            // Verify pin default value survives round-trip
+            ASSERT_FALSE(node->Outputs.empty());
+            auto* val = std::get_if<f32>(&node->Outputs[0].DefaultValue);
+            ASSERT_NE(val, nullptr);
+            EXPECT_FLOAT_EQ(*val, 0.5f);
             foundParam = true;
         }
     }

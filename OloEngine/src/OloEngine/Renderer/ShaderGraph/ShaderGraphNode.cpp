@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphNode.h"
 
+#include <algorithm>
 #include <unordered_map>
 
 namespace OloEngine
@@ -437,6 +438,8 @@ namespace OloEngine
 
     Scope<ShaderGraphNode> CreateShaderGraphNode(const std::string& typeName)
     {
+        OLO_PROFILE_FUNCTION();
+
         const auto& registry = GetNodeRegistry();
         auto it = registry.find(typeName);
         if (it == registry.end())
@@ -451,16 +454,21 @@ namespace OloEngine
 
     std::vector<std::string> GetAllNodeTypeNames()
     {
+        OLO_PROFILE_FUNCTION();
+
         const auto& registry = GetNodeRegistry();
         std::vector<std::string> names;
         names.reserve(registry.size());
         for (const auto& [name, info] : registry)
             names.push_back(name);
+        std::sort(names.begin(), names.end());
         return names;
     }
 
     std::vector<std::string> GetNodeTypeNamesByCategory(ShaderGraphNodeCategory category)
     {
+        OLO_PROFILE_FUNCTION();
+
         const auto& registry = GetNodeRegistry();
         std::vector<std::string> names;
         for (const auto& [name, info] : registry)
@@ -468,6 +476,7 @@ namespace OloEngine
             if (info.Category == category)
                 names.push_back(name);
         }
+        std::sort(names.begin(), names.end());
         return names;
     }
 

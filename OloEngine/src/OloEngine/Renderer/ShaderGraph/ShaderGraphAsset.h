@@ -39,6 +39,8 @@ namespace OloEngine
         /// Compile the graph to GLSL. Caches the result until the graph changes.
         const ShaderGraphCompileResult& Compile()
         {
+            OLO_PROFILE_FUNCTION();
+
             if (m_Dirty || !m_CachedResult.Success)
             {
                 ShaderGraphCompiler compiler;

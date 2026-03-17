@@ -176,7 +176,27 @@ namespace OloEngine
         else if (typeName == ShaderGraphNodeTypes::Normalize)
         {
             std::string v = resolveInput("Value");
-            emitOutputVar("Result", ShaderGraphPinType::Float, "normalize(" + v + ")");
+            // Determine output type from the input pin's connected type
+            const auto* inputPin = node.FindPinByName("Value", ShaderGraphPinDirection::Input);
+            ShaderGraphPinType outType = ShaderGraphPinType::Vec3; // Default: normalize() returns a vector
+            if (inputPin)
+            {
+                const auto* link = graph.GetLinkForInputPin(inputPin->ID);
+                if (link)
+                {
+                    if (const auto* srcPin = graph.FindPin(link->OutputPinID))
+                        outType = srcPin->Type;
+                }
+                else
+                {
+                    outType = inputPin->Type;
+                }
+            }
+            // normalize() is undefined for scalars; emit as-is for Float
+            if (outType == ShaderGraphPinType::Float)
+                emitOutputVar("Result", ShaderGraphPinType::Float, v);
+            else
+                emitOutputVar("Result", outType, "normalize(" + v + ")");
         }
         else if (typeName == ShaderGraphNodeTypes::Power)
         {
@@ -375,6 +395,8 @@ namespace OloEngine
 
     std::string ShaderGraphCompiler::GenerateVertexShader() const
     {
+        OLO_PROFILE_FUNCTION();
+
         return R"(#type vertex
 #version 460 core
 
@@ -424,6 +446,8 @@ void main()
         const std::vector<const ShaderGraphNode*>& sortedNodes,
         std::vector<ShaderGraphParameterInfo>& outParameters) const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::ostringstream frag;
         frag << "#type fragment\n";
         frag << "#version 460 core\n\n";
@@ -460,7 +484,6 @@ void main()
 
         // Collect and emit user parameter uniforms
         // Use a UBO for non-opaque uniforms, standalone binding for samplers
-        bool hasScalarParams = false;
         int nextTextureBinding = 10; // Start at user texture slots
 
         // First pass: collect parameter info
@@ -567,7 +590,7 @@ void main()
             {
                 const auto* pin = outputNode->FindPinByName(name, ShaderGraphPinDirection::Input);
                 if (!pin)
-                    return pin->GetDefaultValueGLSL();
+                    return "0.0";
                 return ResolveInputExpression(graph, *pin, pinVarNames);
             };
 
@@ -606,6 +629,8 @@ void main()
 
     ShaderGraphCompileResult ShaderGraphCompiler::Compile(const ShaderGraph& graph) const
     {
+        OLO_PROFILE_FUNCTION();
+
         ShaderGraphCompileResult result;
 
         // Validate the graph
@@ -674,6 +699,8 @@ void main()
         const std::vector<const ShaderGraphNode*>& sortedNodes,
         std::vector<ShaderGraphParameterInfo>& outParams) const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::ostringstream cs;
 
         // Find the ComputeOutput node for workgroup size
@@ -718,7 +745,7 @@ void main()
                 node->TypeName == ShaderGraphNodeTypes::Vec4Parameter ||
                 node->TypeName == ShaderGraphNodeTypes::ColorParameter)
             {
-                std::string uniformName = "u_SG_" + node->ParameterName;
+                std::string uniformName = node->ParameterName;
                 std::string type;
                 if (node->TypeName == ShaderGraphNodeTypes::FloatParameter)
                     type = "float";

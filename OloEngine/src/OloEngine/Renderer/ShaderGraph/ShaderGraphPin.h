@@ -55,6 +55,12 @@ namespace OloEngine
                             return "vec4(0.0)";
                         case ShaderGraphPinType::Bool:
                             return "false";
+                        case ShaderGraphPinType::Texture2D:
+                            return "sampler2D(0)";
+                        case ShaderGraphPinType::Mat3:
+                            return "mat3(0.0)";
+                        case ShaderGraphPinType::Mat4:
+                            return "mat4(0.0)";
                         default:
                             return "0.0";
                     }

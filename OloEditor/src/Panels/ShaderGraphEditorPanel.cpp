@@ -14,6 +14,15 @@
 
 namespace OloEngine
 {
+    // ─────────────────────────────────────────────────────────────
+    //  Helpers
+    // ─────────────────────────────────────────────────────────────
+
+    static bool IsParameterNode(const std::string& typeName)
+    {
+        return typeName == ShaderGraphNodeTypes::FloatParameter || typeName == ShaderGraphNodeTypes::Vec3Parameter || typeName == ShaderGraphNodeTypes::Vec4Parameter || typeName == ShaderGraphNodeTypes::ColorParameter || typeName == ShaderGraphNodeTypes::Texture2DParameter || typeName == ShaderGraphNodeTypes::ComputeBufferInput || typeName == ShaderGraphNodeTypes::ComputeBufferStore;
+    }
+
     // =========================================================================
     // Main render entry
     // =========================================================================
@@ -712,7 +721,7 @@ namespace OloEngine
         ImGui::Separator();
 
         // Parameter name
-        if (node.TypeName == ShaderGraphNodeTypes::FloatParameter || node.TypeName == ShaderGraphNodeTypes::Vec3Parameter || node.TypeName == ShaderGraphNodeTypes::Vec4Parameter || node.TypeName == ShaderGraphNodeTypes::ColorParameter || node.TypeName == ShaderGraphNodeTypes::Texture2DParameter || node.TypeName == ShaderGraphNodeTypes::ComputeBufferInput || node.TypeName == ShaderGraphNodeTypes::ComputeBufferStore)
+        if (IsParameterNode(node.TypeName))
         {
             char buf[128];
             std::strncpy(buf, node.ParameterName.c_str(), sizeof(buf) - 1);
@@ -847,7 +856,6 @@ namespace OloEngine
         // Auto-compile when graph changes
         if (m_AutoCompile && m_GraphAsset && m_GraphAsset->IsDirty())
         {
-            m_GraphAsset->MarkDirty();
             m_LastCompileResult = m_GraphAsset->Compile();
         }
 
@@ -1202,22 +1210,26 @@ namespace OloEngine
         if (!m_GraphAsset || !m_HasCopiedNode)
             return;
 
-        auto newNode = CreateShaderGraphNode(m_CopiedNodeTypeName);
-        if (!newNode)
-            return;
+        // Use AddNodeCommand so paste is undoable
+        auto cmd = CreateScope<AddNodeCommand>(m_CopiedNodeTypeName, position);
+        auto* cmdPtr = cmd.get();
+        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetGraph());
 
-        newNode->EditorPosition = position;
-        newNode->ParameterName = m_CopiedParameterName;
-        newNode->CustomFunctionBody = m_CopiedCustomFunctionBody;
-        newNode->WorkgroupSize = m_CopiedWorkgroupSize;
-        newNode->BufferBinding = m_CopiedBufferBinding;
+        // Apply copied properties to the newly created node
+        UUID id = cmdPtr->GetNodeID();
+        auto* newNode = m_GraphAsset->GetGraph().FindNode(id);
+        if (newNode)
+        {
+            newNode->ParameterName = m_CopiedParameterName;
+            newNode->CustomFunctionBody = m_CopiedCustomFunctionBody;
+            newNode->WorkgroupSize = m_CopiedWorkgroupSize;
+            newNode->BufferBinding = m_CopiedBufferBinding;
 
-        // Copy default values from saved pins
-        for (size_t i = 0; i < newNode->Inputs.size() && i < m_CopiedInputs.size(); ++i)
-            newNode->Inputs[i].DefaultValue = m_CopiedInputs[i].DefaultValue;
+            // Copy default values from saved pins
+            for (size_t i = 0; i < newNode->Inputs.size() && i < m_CopiedInputs.size(); ++i)
+                newNode->Inputs[i].DefaultValue = m_CopiedInputs[i].DefaultValue;
+        }
 
-        UUID id = newNode->ID;
-        m_GraphAsset->GetGraph().AddNode(std::move(newNode));
         m_SelectedNodeID = id;
         m_IsDirty = true;
         m_GraphAsset->MarkDirty();

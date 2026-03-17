@@ -2155,8 +2155,8 @@ namespace OloEngine
 
             // Shader Graph assignment
             {
-                bool hasGraph = component.ShaderGraphHandle != 0;
-                std::string currentLabel = hasGraph ? ("ShaderGraph: " + std::to_string(static_cast<u64>(component.ShaderGraphHandle))) : "None (Default PBR)";
+                bool hasGraph = component.m_ShaderGraphHandle != 0;
+                std::string currentLabel = hasGraph ? ("ShaderGraph: " + std::to_string(static_cast<u64>(component.m_ShaderGraphHandle))) : "None (Default PBR)";
 
                 ImGui::Text("Shader Graph");
                 ImGui::SameLine();
@@ -2171,14 +2171,20 @@ namespace OloEngine
                 {
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                     {
-                        auto handle = *static_cast<const AssetHandle*>(payload->Data);
-                        if (AssetManager::GetAssetType(handle) == AssetType::ShaderGraph)
+                        auto const* const path = static_cast<wchar_t const*>(payload->Data);
+                        std::filesystem::path assetPath(path);
+                        auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
+                        if (assetManager)
                         {
-                            component.ShaderGraphHandle = handle;
-                            if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(handle))
+                            AssetHandle handle = assetManager->ImportAsset(assetPath);
+                            if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::ShaderGraph)
                             {
-                                if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(handle))))
-                                    component.m_Material.SetShader(shader);
+                                component.m_ShaderGraphHandle = handle;
+                                if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(handle))
+                                {
+                                    if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(handle))))
+                                        component.m_Material.SetShader(shader);
+                                }
                             }
                         }
                     }
@@ -2190,17 +2196,23 @@ namespace OloEngine
                     ImGui::SameLine();
                     if (ImGui::Button("Clear##ShaderGraph"))
                     {
-                        component.ShaderGraphHandle = 0;
+                        component.m_ShaderGraphHandle = 0;
                         component.m_Material.SetShader(nullptr);
                     }
 
                     if (ImGui::Button("Recompile##ShaderGraph"))
                     {
-                        if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(component.ShaderGraphHandle))
+                        if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(component.m_ShaderGraphHandle))
                         {
                             graphAsset->MarkDirty();
-                            if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(component.ShaderGraphHandle))))
+                            if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(component.m_ShaderGraphHandle))))
+                            {
                                 component.m_Material.SetShader(shader);
+                            }
+                            else
+                            {
+                                OLO_WARN("ShaderGraph recompilation failed for handle {}", static_cast<u64>(component.m_ShaderGraphHandle));
+                            }
                         }
                     }
                 }

@@ -10,20 +10,20 @@ ShaderGraph:
           Name: Albedo
           Type: Vec3
         - ID: 102
-          Name: Normal
-          Type: Vec3
-        - ID: 103
           Name: Metallic
           Type: Float
-          DefaultValue: "0.0"
-        - ID: 104
+          DefaultValue: 0.000000
+        - ID: 103
           Name: Roughness
           Type: Float
-          DefaultValue: "0.5"
+          DefaultValue: 0.500000
+        - ID: 104
+          Name: Normal
+          Type: Vec3
         - ID: 105
           Name: AO
           Type: Float
-          DefaultValue: "1.0"
+          DefaultValue: 1.000000
         - ID: 106
           Name: Emissive
           Type: Vec3
@@ -35,19 +35,19 @@ ShaderGraph:
       Inputs:
         - ID: 201
           Name: A
-          Type: Vec3
-          DefaultValue: "0.1 0.3 0.8"
+          Type: Float
+          DefaultValue: 0.100000
         - ID: 202
           Name: B
-          Type: Vec3
-          DefaultValue: "0.9 0.2 0.1"
+          Type: Float
+          DefaultValue: 0.900000
         - ID: 203
           Name: T
           Type: Float
       Outputs:
         - ID: 204
           Name: Result
-          Type: Vec3
+          Type: Float
     - ID: 300
       TypeName: UV
       Category: Input
@@ -63,14 +63,14 @@ ShaderGraph:
       EditorPosition: [200, 250]
       Inputs:
         - ID: 401
-          Name: Input
-          Type: Vec2
+          Name: Value
+          Type: Vec4
       Outputs:
         - ID: 402
-          Name: X
+          Name: R
           Type: Float
         - ID: 403
-          Name: Y
+          Name: G
           Type: Float
     - ID: 500
       TypeName: FloatParameter
@@ -82,7 +82,7 @@ ShaderGraph:
         - ID: 501
           Name: Value
           Type: Float
-          DefaultValue: "0.4"
+          DefaultValue: 0.400000
   Links:
     - ID: 1001
       OutputPinID: 301
@@ -95,4 +95,4 @@ ShaderGraph:
       InputPinID: 101
     - ID: 1004
       OutputPinID: 501
-      InputPinID: 104
+      InputPinID: 103

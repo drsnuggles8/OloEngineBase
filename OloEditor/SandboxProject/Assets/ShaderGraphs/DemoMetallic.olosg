@@ -84,7 +84,7 @@ ShaderGraph:
         - ID: 502
           Name: B
           Type: Float
-          DefaultValue: 0.000000,0.000000,0.000000
+          DefaultValue: 0.000000
       Outputs:
         - ID: 503
           Name: Result
@@ -109,7 +109,7 @@ ShaderGraph:
       InputPinID: 101
     - ID: 1003
       OutputPinID: 301
-      InputPinID: 103
+      InputPinID: 102
     - ID: 1004
       OutputPinID: 401
-      InputPinID: 104
+      InputPinID: 103

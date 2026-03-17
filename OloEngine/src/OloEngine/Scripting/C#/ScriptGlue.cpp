@@ -10,6 +10,8 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
+#include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
@@ -1442,7 +1444,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
-        return static_cast<u64>(entity.GetComponent<MaterialComponent>().ShaderGraphHandle);
+        return static_cast<u64>(entity.GetComponent<MaterialComponent>().m_ShaderGraphHandle);
     }
 
     static void MaterialComponent_SetShaderGraphHandle(UUID entityID, u64 handle)
@@ -1451,7 +1453,18 @@ namespace OloEngine
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
-        entity.GetComponent<MaterialComponent>().ShaderGraphHandle = handle;
+        auto& matComp = entity.GetComponent<MaterialComponent>();
+        matComp.m_ShaderGraphHandle = handle;
+
+        // Compile and apply the shader graph
+        if (handle != 0)
+        {
+            if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(handle))
+            {
+                if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(handle)))
+                    matComp.m_Material.SetShader(shader);
+            }
+        }
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////

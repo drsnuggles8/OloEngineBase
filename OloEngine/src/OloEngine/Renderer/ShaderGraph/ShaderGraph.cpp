@@ -14,6 +14,8 @@ namespace OloEngine
 
     ShaderGraphNode* ShaderGraph::AddNode(Scope<ShaderGraphNode> node)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!node)
             return nullptr;
         auto* ptr = node.get();
@@ -23,6 +25,8 @@ namespace OloEngine
 
     bool ShaderGraph::RemoveNode(UUID nodeID)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Remove all links connected to this node's pins
         auto* node = FindNode(nodeID);
         if (!node)
@@ -111,6 +115,8 @@ namespace OloEngine
 
     ShaderGraphLink* ShaderGraph::AddLink(UUID outputPinID, UUID inputPinID)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Validate pins exist
         const auto* outputPin = FindPin(outputPinID);
         const auto* inputPin = FindPin(inputPinID);
@@ -140,6 +146,8 @@ namespace OloEngine
 
     bool ShaderGraph::RemoveLink(UUID linkID)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto it = std::find_if(m_Links.begin(), m_Links.end(),
                                [linkID](const ShaderGraphLink& link)
                                { return link.ID == linkID; });
@@ -253,6 +261,8 @@ namespace OloEngine
 
     ShaderGraphValidationResult ShaderGraph::Validate() const
     {
+        OLO_PROFILE_FUNCTION();
+
         ShaderGraphValidationResult result;
 
         // Check for exactly one output node (PBROutput or ComputeOutput)
@@ -324,6 +334,8 @@ namespace OloEngine
 
     std::vector<const ShaderGraphNode*> ShaderGraph::GetTopologicalOrder() const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Nodes.empty())
             return {};
 

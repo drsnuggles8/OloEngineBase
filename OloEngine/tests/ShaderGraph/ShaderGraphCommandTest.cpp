@@ -61,7 +61,6 @@ TEST_F(ShaderGraphCommandTest, RemoveNodeUndoRestoresNodeAndLinks)
     auto floatNode = CreateShaderGraphNode(ShaderGraphNodeTypes::FloatParameter);
     auto pbrNode = CreateShaderGraphNode(ShaderGraphNodeTypes::PBROutput);
     UUID floatID = floatNode->ID;
-    UUID pbrID = pbrNode->ID;
     UUID outPinID = floatNode->Outputs[0].ID;
     UUID metallicPinID = pbrNode->FindPinByName("Metallic", ShaderGraphPinDirection::Input)->ID;
 

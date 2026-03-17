@@ -64,12 +64,16 @@ namespace OloEngine
                     case ShaderGraphPinType::Vec4:
                     {
                         auto c1 = str.find(',');
+                        if (c1 == std::string::npos)
+                            return glm::vec4(0.0f);
                         auto c2 = str.find(',', c1 + 1);
+                        if (c2 == std::string::npos)
+                            return glm::vec4(0.0f);
                         auto c3 = str.find(',', c2 + 1);
-                        if (c1 != std::string::npos && c2 != std::string::npos && c3 != std::string::npos)
-                            return glm::vec4(std::stof(str.substr(0, c1)), std::stof(str.substr(c1 + 1, c2 - c1 - 1)),
-                                             std::stof(str.substr(c2 + 1, c3 - c2 - 1)), std::stof(str.substr(c3 + 1)));
-                        return glm::vec4(0.0f);
+                        if (c3 == std::string::npos)
+                            return glm::vec4(0.0f);
+                        return glm::vec4(std::stof(str.substr(0, c1)), std::stof(str.substr(c1 + 1, c2 - c1 - 1)),
+                                         std::stof(str.substr(c2 + 1, c3 - c2 - 1)), std::stof(str.substr(c3 + 1)));
                     }
                     default:
                         return std::monostate{};
@@ -385,17 +389,53 @@ namespace OloEngine
                     {
                         if (auto pinsYAML = nodeYAML[key]; pinsYAML && pinsYAML.IsSequence())
                         {
-                            for (size_t i = 0; i < pinsYAML.size() && i < pins.size(); ++i)
+                            if (pinsYAML.size() != pins.size())
+                                OLO_CORE_WARN("ShaderGraphSerializer - Node '{}' (ID {}): YAML {} count ({}) differs from factory ({})",
+                                              typeName, nodeID, key, pinsYAML.size(), pins.size());
+
+                            for (size_t yi = 0; yi < pinsYAML.size(); ++yi)
                             {
-                                auto pinYAML = pinsYAML[i];
+                                auto pinYAML = pinsYAML[yi];
+                                // Try to find the matching pin: by ID first, then by Name, then by index
+                                ShaderGraphPin* targetPin = nullptr;
+
                                 if (pinYAML["ID"])
-                                    pins[i].ID = UUID(pinYAML["ID"].as<u64>());
-                                pins[i].NodeID = node->ID;
+                                {
+                                    u64 yamlPinID = pinYAML["ID"].as<u64>();
+                                    for (auto& p : pins)
+                                    {
+                                        if (static_cast<u64>(p.ID) == yamlPinID)
+                                        {
+                                            targetPin = &p;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!targetPin && pinYAML["Name"])
+                                {
+                                    std::string yamlPinName = pinYAML["Name"].as<std::string>();
+                                    for (auto& p : pins)
+                                    {
+                                        if (p.Name == yamlPinName)
+                                        {
+                                            targetPin = &p;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!targetPin && yi < pins.size())
+                                    targetPin = &pins[yi];
+
+                                if (!targetPin)
+                                    continue;
+
+                                if (pinYAML["ID"])
+                                    targetPin->ID = UUID(pinYAML["ID"].as<u64>());
+                                targetPin->NodeID = node->ID;
 
                                 if (pinYAML["DefaultValue"])
                                 {
-                                    auto typeStr = pinYAML["Type"].as<std::string>("Float");
-                                    pins[i].DefaultValue = ParsePinValue(parsePinType(typeStr), pinYAML["DefaultValue"].as<std::string>());
+                                    targetPin->DefaultValue = ParsePinValue(targetPin->Type, pinYAML["DefaultValue"].as<std::string>());
                                 }
                             }
                         }

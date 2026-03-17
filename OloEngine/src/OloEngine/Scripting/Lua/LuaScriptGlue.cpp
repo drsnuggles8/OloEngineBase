@@ -281,7 +281,7 @@ namespace OloEngine
 
         // --- MaterialComponent ---
         lua.new_usertype<MaterialComponent>("MaterialComponent",
-                                            "shaderGraphHandle", &MaterialComponent::ShaderGraphHandle);
+                                            "shaderGraphHandle", &MaterialComponent::m_ShaderGraphHandle);
 
         // --- Dialogue system functions ---
         auto dialogueTable = lua.create_named_table("dialogue");

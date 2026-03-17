@@ -149,7 +149,7 @@ namespace OloEngine
                 case ShaderGraphPinType::Vec3:
                     return "vec3(" + expression + ")";
                 case ShaderGraphPinType::Vec4:
-                    return "vec4(vec3(" + expression + "), 1.0)";
+                    return "vec4(" + expression + ")";
                 default:
                     break;
             }

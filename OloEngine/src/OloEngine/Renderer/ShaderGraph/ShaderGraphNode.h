@@ -33,7 +33,7 @@ namespace OloEngine
         glm::ivec3 WorkgroupSize = glm::ivec3(16, 16, 1);
 
         /// Buffer binding index (only used by ComputeBufferInput/Store nodes)
-        int BufferBinding = 0;
+        i32 BufferBinding = 0;
 
         virtual ~ShaderGraphNode() = default;
 

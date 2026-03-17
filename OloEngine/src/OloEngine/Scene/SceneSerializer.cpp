@@ -1468,12 +1468,22 @@ namespace OloEngine
             }
             if (materialComponent["ShaderGraphHandle"])
             {
-                matc.ShaderGraphHandle = UUID(materialComponent["ShaderGraphHandle"].as<u64>());
+                matc.m_ShaderGraphHandle = UUID(materialComponent["ShaderGraphHandle"].as<u64>());
                 // Compile and apply the shader graph if the asset is available
-                if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(matc.ShaderGraphHandle))
+                if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(matc.m_ShaderGraphHandle))
                 {
-                    if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(matc.ShaderGraphHandle))))
+                    if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(matc.m_ShaderGraphHandle))))
+                    {
                         matc.m_Material.SetShader(shader);
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("SceneSerializer: ShaderGraph {} failed to compile", static_cast<u64>(matc.m_ShaderGraphHandle));
+                    }
+                }
+                else
+                {
+                    OLO_CORE_WARN("SceneSerializer: ShaderGraph asset {} not found", static_cast<u64>(matc.m_ShaderGraphHandle));
                 }
             }
         }
@@ -2410,8 +2420,8 @@ namespace OloEngine
             out << YAML::Key << "Metallic" << YAML::Value << matComponent.m_Material.GetMetallicFactor();
             out << YAML::Key << "Roughness" << YAML::Value << matComponent.m_Material.GetRoughnessFactor();
 
-            if (matComponent.ShaderGraphHandle != 0)
-                out << YAML::Key << "ShaderGraphHandle" << YAML::Value << static_cast<u64>(matComponent.ShaderGraphHandle);
+            if (matComponent.m_ShaderGraphHandle != 0)
+                out << YAML::Key << "ShaderGraphHandle" << YAML::Value << static_cast<u64>(matComponent.m_ShaderGraphHandle);
 
             out << YAML::EndMap; // MaterialComponent
         }

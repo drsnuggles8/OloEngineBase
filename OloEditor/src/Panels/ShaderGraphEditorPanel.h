@@ -37,6 +37,10 @@ namespace OloEngine
             m_IsOpen = open;
         }
 
+        // Undo/Redo (public for EditorLayer keyboard shortcuts)
+        void Undo();
+        void Redo();
+
       private:
         // Canvas
         void DrawCanvas();
@@ -88,10 +92,6 @@ namespace OloEngine
         UUID CreateNode(const std::string& typeName, const glm::vec2& position);
         void DeleteNode(UUID nodeID);
         void DeleteLink(UUID linkID);
-
-        // Undo/Redo
-        void Undo();
-        void Redo();
 
         // Copy/Paste
         void CopySelectedNode();

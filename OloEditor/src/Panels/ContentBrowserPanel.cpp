@@ -198,6 +198,9 @@ namespace OloEngine
                     case ContentFileType::SaveGame:
                         payloadType = "CONTENT_BROWSER_SAVEGAME";
                         break;
+                    case ContentFileType::ShaderGraph:
+                        payloadType = "CONTENT_BROWSER_SHADERGRAPH";
+                        break;
                     default:
                         break;
                 }
@@ -650,6 +653,8 @@ namespace OloEngine
                 return m_DialogueIcon;
             case ContentFileType::SaveGame:
                 return m_SaveGameIcon;
+            case ContentFileType::ShaderGraph:
+                return m_ShaderIcon;
             default:
                 return m_FileIcon;
         }
