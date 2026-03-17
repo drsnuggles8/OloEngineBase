@@ -102,6 +102,16 @@ logLevel: Info
 autoSaveInterval: 300
 ```
 
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `port` | integer | 7777 | Network port to listen on (1–65535) |
+| `maxPlayers` | integer | 64 | Maximum simultaneous connections (must be > 0) |
+| `tickRate` | integer | 60 | Server simulation tick rate in Hz (must be > 0) |
+| `scene` | string | *(empty)* | Path to the `.oloscene` file to load on startup |
+| `password` | string | *(empty)* | Password required for client connections |
+| `logLevel` | string | `Info` | *(reserved — not yet implemented)* Logging verbosity |
+| `autoSaveInterval` | integer | 300 | Interval in seconds between automatic scene saves. Set to `0` to disable auto-saving. When enabled, the server writes the current scene to disk at this interval (same operation as the `save` console command). |
+
 CLI arguments override values from the config file. The `--config` flag is parsed first so the file serves as a base that CLI flags can selectively override.
 
 ---
@@ -157,12 +167,12 @@ All output goes to both **stdout** and the **OloEngine.log** file in the working
 For production deployments, redirect stdout to a log management system or use OS-level log rotation:
 
 ```bash
-# Linux — log rotation with logrotate
-./OloServer --config server.yaml >> /var/log/oloserver/server.log 2>&1
-
 # Windows — redirect to file
 OloServer.exe --config server.yaml > server.log 2>&1
 ```
+
+> **Note:** For Linux log rotation examples, see the
+> [Future Platform Support (Linux)](#future-platform-support-linux) section.
 
 ---
 
@@ -226,24 +236,6 @@ services:
           memory: 2G
 ```
 
----
-
----
-
-## Windows Service
-
-Use [NSSM](https://nssm.cc/) (Non-Sucking Service Manager) to run OloServer as a Windows service:
-
-```powershell
-nssm install OloServer "C:\server\OloServer.exe" "--config server.yaml"
-nssm set OloServer AppDirectory "C:\server"
-nssm set OloServer AppStdout "C:\server\logs\stdout.log"
-nssm set OloServer AppStderr "C:\server\logs\stderr.log"
-nssm start OloServer
-```
-
----
-
 ### Linux Systemd Service
 
 Create `/etc/systemd/system/oloserver.service`:
@@ -276,6 +268,27 @@ sudo systemctl start oloserver
 
 # Check logs
 journalctl -u oloserver -f
+```
+
+### Linux Log Rotation
+
+```bash
+# Log rotation with logrotate
+./OloServer --config server.yaml >> /var/log/oloserver/server.log 2>&1
+```
+
+---
+
+## Windows Service
+
+Use [NSSM](https://nssm.cc/) (Non-Sucking Service Manager) to run OloServer as a Windows service:
+
+```powershell
+nssm install OloServer "C:\server\OloServer.exe" "--config server.yaml"
+nssm set OloServer AppDirectory "C:\server"
+nssm set OloServer AppStdout "C:\server\logs\stdout.log"
+nssm set OloServer AppStderr "C:\server\logs\stderr.log"
+nssm start OloServer
 ```
 
 ---

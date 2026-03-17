@@ -18,10 +18,14 @@
 
 namespace OloEngine
 {
-    ServerConsole::ServerConsole() = default;
+    ServerConsole::ServerConsole()
+    {
+        OLO_PROFILE_FUNCTION();
+    }
 
     ServerConsole::~ServerConsole()
     {
+        OLO_PROFILE_FUNCTION();
         Shutdown();
     }
 
@@ -44,7 +48,10 @@ namespace OloEngine
         // Create a self-pipe so Shutdown() can wake the input thread
         if (::pipe(m_WakeupPipe) != 0)
         {
-            OLO_CORE_ERROR("[ServerConsole] Failed to create wakeup pipe");
+            OLO_CORE_ERROR("[ServerConsole] Failed to create wakeup pipe — aborting initialization");
+            m_Commands.clear();
+            m_Initialized = false;
+            return;
         }
 #endif
 
@@ -104,6 +111,12 @@ namespace OloEngine
         std::cin.clear();
 
         m_Commands.clear();
+        {
+            std::lock_guard lock(m_InputQueueMutex);
+            std::queue<std::string> empty;
+            std::swap(m_InputQueue, empty);
+        }
+        m_MessageSendCallback = nullptr;
         m_Initialized = false;
     }
 

@@ -51,21 +51,25 @@ namespace OloEngine
             }
 
             // Start listening for network connections
-            if (NetworkManager::IsInitialized())
+            if (!NetworkManager::IsInitialized())
             {
-                if (NetworkManager::StartServer(m_Config.Port))
-                {
-                    if (auto* server = NetworkManager::GetServer())
-                    {
-                        server->SetMaxConnections(m_Config.MaxPlayers);
-                    }
-                    OLO_CORE_INFO("[Server] Listening on port {}", m_Config.Port);
-                }
-                else
-                {
-                    OLO_CORE_ERROR("[Server] Failed to start network server on port {}!", m_Config.Port);
-                }
+                OLO_CORE_ERROR("[Server] NetworkManager not initialized — aborting startup");
+                Application::Get().Close();
+                return;
             }
+
+            if (!NetworkManager::StartServer(m_Config.Port))
+            {
+                OLO_CORE_ERROR("[Server] Failed to start network server on port {} — aborting startup", m_Config.Port);
+                Application::Get().Close();
+                return;
+            }
+
+            if (auto* server = NetworkManager::GetServer())
+            {
+                server->SetMaxConnections(m_Config.MaxPlayers);
+            }
+            OLO_CORE_INFO("[Server] Listening on port {}", m_Config.Port);
         }
 
         void OnDetach() override
@@ -87,15 +91,18 @@ namespace OloEngine
 
         void OnUpdate(Timestep ts) override
         {
+            // Measure full tick duration (console + scene + monitoring)
+            Timer tickTimer;
+
             // Process console commands
             m_Console.ProcessInput();
 
             // Update active scene simulation
-            Timer tickTimer;
             if (m_ActiveScene)
             {
                 m_ActiveScene->OnUpdateRuntime(ts);
             }
+
             const f32 tickDuration = tickTimer.Elapsed();
 
             // Record measured tick execution time for monitoring

@@ -15,7 +15,14 @@ namespace OloEngine
 
         ServerConfig config;
 
-        if (!std::filesystem::exists(filepath))
+        std::error_code fsEc;
+        bool fileExists = std::filesystem::exists(filepath, fsEc);
+        if (fsEc)
+        {
+            OLO_CORE_ERROR("[ServerConfig] Failed to check '{}': {}", filepath, fsEc.message());
+            return config;
+        }
+        if (!fileExists)
         {
             OLO_CORE_WARN("[ServerConfig] Config file '{}' not found, using defaults.", filepath);
             return config;
@@ -24,6 +31,7 @@ namespace OloEngine
         try
         {
             YAML::Node root = YAML::LoadFile(filepath);
+            ServerConfig tempConfig;
 
             if (root["port"])
             {
@@ -34,7 +42,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    config.Port = static_cast<u16>(port);
+                    tempConfig.Port = static_cast<u16>(port);
                 }
             }
             if (root["maxPlayers"])
@@ -46,7 +54,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    config.MaxPlayers = val;
+                    tempConfig.MaxPlayers = val;
                 }
             }
             if (root["tickRate"])
@@ -58,26 +66,27 @@ namespace OloEngine
                 }
                 else
                 {
-                    config.TickRate = val;
+                    tempConfig.TickRate = val;
                 }
             }
             if (root["scene"])
             {
-                config.ScenePath = root["scene"].as<std::string>();
+                tempConfig.ScenePath = root["scene"].as<std::string>();
             }
             if (root["password"])
             {
-                config.Password = root["password"].as<std::string>();
+                tempConfig.Password = root["password"].as<std::string>();
             }
             if (root["logLevel"])
             {
-                config.LogLevel = root["logLevel"].as<std::string>();
+                tempConfig.LogLevel = root["logLevel"].as<std::string>();
             }
             if (root["autoSaveInterval"])
             {
-                config.AutoSaveInterval = root["autoSaveInterval"].as<u32>();
+                tempConfig.AutoSaveInterval = root["autoSaveInterval"].as<u32>();
             }
 
+            config = std::move(tempConfig);
             OLO_CORE_INFO("[ServerConfig] Loaded config from '{}'", filepath);
         }
         catch (const YAML::Exception& e)
@@ -103,17 +112,33 @@ namespace OloEngine
         out << YAML::Key << "autoSaveInterval" << YAML::Value << config.AutoSaveInterval;
         out << YAML::EndMap;
 
-        std::ofstream fout(filepath);
-        if (!fout.is_open())
+        // Atomic save: write to a temp file, flush, then rename over the original
+        const std::string tempPath = filepath + ".tmp";
         {
-            OLO_CORE_ERROR("[ServerConfig] Failed to open '{}' for writing", filepath);
-            return;
+            std::ofstream fout(tempPath);
+            if (!fout.is_open())
+            {
+                OLO_CORE_ERROR("[ServerConfig] Failed to open '{}' for writing", tempPath);
+                return;
+            }
+            fout << out.c_str();
+            fout.flush();
+            if (!fout.good())
+            {
+                OLO_CORE_ERROR("[ServerConfig] Failed to write config to '{}'", tempPath);
+                fout.close();
+                std::error_code ec;
+                std::filesystem::remove(tempPath, ec);
+                return;
+            }
         }
-        fout << out.c_str();
-        fout.flush();
-        if (!fout.good())
+
+        std::error_code ec;
+        std::filesystem::rename(tempPath, filepath, ec);
+        if (ec)
         {
-            OLO_CORE_ERROR("[ServerConfig] Failed to write config to '{}'", filepath);
+            OLO_CORE_ERROR("[ServerConfig] Failed to rename '{}' -> '{}': {}", tempPath, filepath, ec.message());
+            std::filesystem::remove(tempPath, ec);
         }
     }
 
@@ -139,12 +164,21 @@ namespace OloEngine
             config = LoadFromFile(configFile);
         }
 
+        // Helper: returns true if a string looks like an option flag (starts with '-')
+        auto isOptionToken = [](const char* s)
+        { return s != nullptr && s[0] == '-'; };
+
         // Second pass: command-line flags override file values
         for (int i = 1; i < argc; ++i)
         {
             std::string arg = argv[i];
             if (arg == "--port" && i + 1 < argc)
             {
+                if (isOptionToken(argv[i + 1]))
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Missing value for --port");
+                    continue;
+                }
                 const char* val = argv[++i];
                 const char* end = val + std::strlen(val);
                 int parsed = 0;
@@ -160,6 +194,11 @@ namespace OloEngine
             }
             else if (arg == "--max-players" && i + 1 < argc)
             {
+                if (isOptionToken(argv[i + 1]))
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Missing value for --max-players");
+                    continue;
+                }
                 const char* val = argv[++i];
                 const char* end = val + std::strlen(val);
                 u32 parsed = 0;
@@ -175,6 +214,11 @@ namespace OloEngine
             }
             else if (arg == "--tick-rate" && i + 1 < argc)
             {
+                if (isOptionToken(argv[i + 1]))
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Missing value for --tick-rate");
+                    continue;
+                }
                 const char* val = argv[++i];
                 const char* end = val + std::strlen(val);
                 u32 parsed = 0;
@@ -190,6 +234,11 @@ namespace OloEngine
             }
             else if (arg == "--scene" && i + 1 < argc)
             {
+                if (isOptionToken(argv[i + 1]))
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Missing value for --scene");
+                    continue;
+                }
                 config.ScenePath = argv[++i];
             }
             else if (arg == "--config" && i + 1 < argc)
