@@ -18,6 +18,9 @@
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
+#include "OloEngine/Core/GamepadCodes.h"
+#include "OloEngine/Core/Gamepad.h"
+#include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Renderer/Camera/OrthographicCameraController.h"
 
 #include "OloEngine/ImGui/ImGuiLayer.h"

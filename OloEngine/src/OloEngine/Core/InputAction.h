@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Core/GamepadCodes.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
 
@@ -13,13 +14,21 @@ namespace OloEngine
     enum class InputBindingType : u8
     {
         Keyboard,
-        Mouse
+        Mouse,
+        GamepadButton,
+        GamepadAxis
     };
 
     struct InputBinding
     {
         InputBindingType Type = InputBindingType::Keyboard;
         u16 Code = 0;
+
+        // Gamepad-specific fields
+        OloEngine::GamepadButton GPButton = OloEngine::GamepadButton::South;
+        OloEngine::GamepadAxis GPAxis = OloEngine::GamepadAxis::LeftX;
+        f32 AxisThreshold = 0.5f; // Axis value that triggers "pressed"
+        bool AxisPositive = true; // Which direction triggers
 
         [[nodiscard]] static InputBinding Key(KeyCode key)
         {
@@ -29,6 +38,24 @@ namespace OloEngine
         [[nodiscard]] static InputBinding MouseButton(MouseCode button)
         {
             return { InputBindingType::Mouse, button };
+        }
+
+        [[nodiscard]] static InputBinding GamepadBtn(OloEngine::GamepadButton button)
+        {
+            InputBinding b;
+            b.Type = InputBindingType::GamepadButton;
+            b.GPButton = button;
+            return b;
+        }
+
+        [[nodiscard]] static InputBinding GamepadAx(OloEngine::GamepadAxis axis, f32 threshold = 0.5f, bool positive = true)
+        {
+            InputBinding b;
+            b.Type = InputBindingType::GamepadAxis;
+            b.GPAxis = axis;
+            b.AxisThreshold = threshold;
+            b.AxisPositive = positive;
+            return b;
         }
 
         [[nodiscard]] std::string GetDisplayName() const;

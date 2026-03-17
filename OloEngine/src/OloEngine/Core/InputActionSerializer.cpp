@@ -18,6 +18,10 @@ namespace OloEngine
                 return "Keyboard";
             case InputBindingType::Mouse:
                 return "Mouse";
+            case InputBindingType::GamepadButton:
+                return "GamepadButton";
+            case InputBindingType::GamepadAxis:
+                return "GamepadAxis";
         }
         return "Unknown";
     }
@@ -28,6 +32,10 @@ namespace OloEngine
             return InputBindingType::Keyboard;
         if (str == "Mouse")
             return InputBindingType::Mouse;
+        if (str == "GamepadButton")
+            return InputBindingType::GamepadButton;
+        if (str == "GamepadAxis")
+            return InputBindingType::GamepadAxis;
         return std::nullopt;
     }
 
@@ -71,7 +79,22 @@ namespace OloEngine
                         {
                             out << YAML::BeginMap;
                             out << YAML::Key << "Type" << YAML::Value << BindingTypeToString(binding.Type);
-                            out << YAML::Key << "Code" << YAML::Value << binding.Code;
+
+                            if (binding.Type == InputBindingType::Keyboard || binding.Type == InputBindingType::Mouse)
+                            {
+                                out << YAML::Key << "Code" << YAML::Value << binding.Code;
+                            }
+                            else if (binding.Type == InputBindingType::GamepadButton)
+                            {
+                                out << YAML::Key << "Button" << YAML::Value << GamepadButtonToString(binding.GPButton);
+                            }
+                            else if (binding.Type == InputBindingType::GamepadAxis)
+                            {
+                                out << YAML::Key << "Axis" << YAML::Value << GamepadAxisToString(binding.GPAxis);
+                                out << YAML::Key << "Threshold" << YAML::Value << binding.AxisThreshold;
+                                out << YAML::Key << "Positive" << YAML::Value << binding.AxisPositive;
+                            }
+
                             out << YAML::EndMap;
                         }
                         out << YAML::EndSeq;
@@ -167,11 +190,9 @@ namespace OloEngine
                     try
                     {
                         auto typeNode = bindingNode["Type"];
-                        auto codeNode = bindingNode["Code"];
-
-                        if (!typeNode || !codeNode)
+                        if (!typeNode)
                         {
-                            OLO_CORE_WARN("InputActionSerializer: Skipping binding with missing Type or Code in action '{}'", action.Name);
+                            OLO_CORE_WARN("InputActionSerializer: Skipping binding with missing Type in action '{}'", action.Name);
                             continue;
                         }
 
@@ -184,7 +205,58 @@ namespace OloEngine
 
                         InputBinding binding;
                         binding.Type = *bindingType;
-                        binding.Code = codeNode.as<u16>();
+
+                        if (*bindingType == InputBindingType::Keyboard || *bindingType == InputBindingType::Mouse)
+                        {
+                            auto codeNode = bindingNode["Code"];
+                            if (!codeNode)
+                            {
+                                OLO_CORE_WARN("InputActionSerializer: Skipping binding with missing Code in action '{}'", action.Name);
+                                continue;
+                            }
+                            binding.Code = codeNode.as<u16>();
+                        }
+                        else if (*bindingType == InputBindingType::GamepadButton)
+                        {
+                            auto buttonNode = bindingNode["Button"];
+                            if (!buttonNode)
+                            {
+                                OLO_CORE_WARN("InputActionSerializer: Skipping gamepad button binding with missing Button in action '{}'", action.Name);
+                                continue;
+                            }
+                            auto btn = StringToGamepadButton(buttonNode.as<std::string>());
+                            if (!btn)
+                            {
+                                OLO_CORE_WARN("InputActionSerializer: Unknown gamepad button '{}' in action '{}'", buttonNode.as<std::string>(), action.Name);
+                                continue;
+                            }
+                            binding.GPButton = *btn;
+                        }
+                        else if (*bindingType == InputBindingType::GamepadAxis)
+                        {
+                            auto axisNode = bindingNode["Axis"];
+                            if (!axisNode)
+                            {
+                                OLO_CORE_WARN("InputActionSerializer: Skipping gamepad axis binding with missing Axis in action '{}'", action.Name);
+                                continue;
+                            }
+                            auto ax = StringToGamepadAxis(axisNode.as<std::string>());
+                            if (!ax)
+                            {
+                                OLO_CORE_WARN("InputActionSerializer: Unknown gamepad axis '{}' in action '{}'", axisNode.as<std::string>(), action.Name);
+                                continue;
+                            }
+                            binding.GPAxis = *ax;
+                            if (auto threshNode = bindingNode["Threshold"])
+                            {
+                                binding.AxisThreshold = threshNode.as<f32>();
+                            }
+                            if (auto posNode = bindingNode["Positive"])
+                            {
+                                binding.AxisPositive = posNode.as<bool>();
+                            }
+                        }
+
                         action.Bindings.push_back(binding);
                     }
                     catch (const YAML::Exception& e)

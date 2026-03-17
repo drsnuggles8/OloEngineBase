@@ -196,14 +196,15 @@ TEST(DefaultGameActionsTest, HasExpectedActions)
     EXPECT_TRUE(map.HasAction("Interact"));
 }
 
-TEST(DefaultGameActionsTest, MoveUpHasWAndArrow)
+TEST(DefaultGameActionsTest, MoveUpHasWAndArrowAndDPad)
 {
     auto map = CreateDefaultGameActions();
     auto* action = map.GetAction("MoveUp");
     ASSERT_NE(action, nullptr);
-    ASSERT_EQ(action->Bindings.size(), 2u);
+    ASSERT_EQ(action->Bindings.size(), 3u);
     EXPECT_EQ(action->Bindings[0], InputBinding::Key(Key::W));
     EXPECT_EQ(action->Bindings[1], InputBinding::Key(Key::Up));
+    EXPECT_EQ(action->Bindings[2], InputBinding::GamepadBtn(GamepadButton::DPadUp));
 }
 
 // ============================================================================

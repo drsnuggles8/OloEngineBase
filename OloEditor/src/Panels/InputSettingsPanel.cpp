@@ -4,6 +4,9 @@
 #include "OloEngine/Core/InputActionSerializer.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
+#include "OloEngine/Core/GamepadCodes.h"
+#include "OloEngine/Core/GamepadManager.h"
+#include "OloEngine/Core/Gamepad.h"
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Project/Project.h"
 #include "../UndoRedo/SpecializedCommands.h"
@@ -11,6 +14,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 
 namespace OloEngine
 {
@@ -67,7 +71,14 @@ namespace OloEngine
         }
 
         DrawAddActionPopup();
+        DrawAddGamepadBindingPopup();
         DrawRebindOverlay();
+
+        // Poll gamepad for rebinding while the panel is open
+        if (m_IsRebindingGamepad)
+        {
+            PollGamepadForRebind();
+        }
 
         ImGui::End();
     }
@@ -190,9 +201,27 @@ namespace OloEngine
             if (ImGui::SmallButton("Add Binding"))
             {
                 m_IsRebinding = true;
+                m_IsRebindingGamepad = false;
                 m_RebindActionName = action.Name;
                 m_RebindBindingIndex = action.Bindings.size();
                 m_RebindIsNewBinding = true;
+            }
+
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Add Gamepad Button"))
+            {
+                m_IsRebindingGamepad = true;
+                m_IsRebinding = false;
+                m_RebindActionName = action.Name;
+                m_RebindBindingIndex = action.Bindings.size();
+                m_RebindIsNewBinding = true;
+            }
+
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Add Gamepad Axis"))
+            {
+                m_GamepadAxisActionName = action.Name;
+                ImGui::OpenPopup("AddGamepadAxisPopup");
             }
 
             ImGui::Unindent();
@@ -239,7 +268,7 @@ namespace OloEngine
 
     void InputSettingsPanel::DrawRebindOverlay()
     {
-        if (!m_IsRebinding)
+        if (!m_IsRebinding && !m_IsRebindingGamepad)
         {
             // Close the modal if it was left open (e.g. Escape-cancel in OnKeyPressed)
             if (ImGui::BeginPopupModal("RebindPopup", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
@@ -253,12 +282,21 @@ namespace OloEngine
         ImGui::OpenPopup("RebindPopup");
         if (ImGui::BeginPopupModal("RebindPopup", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
-            ImGui::Text("Press any key or mouse button to bind to '%s'", m_RebindActionName.c_str());
-            ImGui::Text("Press Escape to cancel.");
+            if (m_IsRebindingGamepad)
+            {
+                ImGui::Text("Press any gamepad button to bind to '%s'", m_RebindActionName.c_str());
+                ImGui::Text("Press Escape or click Cancel to abort.");
+            }
+            else
+            {
+                ImGui::Text("Press any key or mouse button to bind to '%s'", m_RebindActionName.c_str());
+                ImGui::Text("Press Escape to cancel.");
+            }
 
             if (ImGui::Button("Cancel"))
             {
                 m_IsRebinding = false;
+                m_IsRebindingGamepad = false;
                 ImGui::CloseCurrentPopup();
             }
 
@@ -356,19 +394,24 @@ namespace OloEngine
 
     bool InputSettingsPanel::OnKeyPressed(KeyPressedEvent const& e)
     {
-        if (!m_IsRebinding)
+        if (!m_IsRebinding && !m_IsRebindingGamepad)
         {
             return false;
         }
 
-        // Escape cancels rebinding
+        // Escape cancels any rebinding mode
         if (e.GetKeyCode() == Key::Escape)
         {
             m_IsRebinding = false;
+            m_IsRebindingGamepad = false;
             return true;
         }
 
-        ApplyNewBinding(InputBinding::Key(e.GetKeyCode()));
+        // Only apply keyboard binding in keyboard rebind mode
+        if (m_IsRebinding)
+        {
+            ApplyNewBinding(InputBinding::Key(e.GetKeyCode()));
+        }
         return true;
     }
 
@@ -381,6 +424,76 @@ namespace OloEngine
 
         ApplyNewBinding(InputBinding::MouseButton(e.GetMouseButton()));
         return true;
+    }
+
+    void InputSettingsPanel::PollGamepadForRebind()
+    {
+        if (!m_IsRebindingGamepad)
+        {
+            return;
+        }
+
+        for (i32 gpIdx = 0; gpIdx < GamepadManager::MaxGamepads; ++gpIdx)
+        {
+            auto* gp = GamepadManager::GetGamepad(gpIdx);
+            if (!gp || !gp->IsConnected())
+            {
+                continue;
+            }
+
+            for (u32 b = 0; b < static_cast<u32>(GamepadButton::Count); ++b)
+            {
+                auto btn = static_cast<GamepadButton>(b);
+                if (gp->IsButtonJustPressed(btn))
+                {
+                    m_IsRebindingGamepad = false;
+                    ApplyNewBinding(InputBinding::GamepadBtn(btn));
+                    return;
+                }
+            }
+        }
+    }
+
+    void InputSettingsPanel::DrawAddGamepadBindingPopup()
+    {
+        if (ImGui::BeginPopup("AddGamepadAxisPopup"))
+        {
+            ImGui::Text("Select Gamepad Axis:");
+
+            constexpr std::array<const char*, 6> axisNames = { "Left Stick X", "Left Stick Y", "Right Stick X", "Right Stick Y", "Left Trigger", "Right Trigger" };
+            constexpr std::array<GamepadAxis, 6> axes = { GamepadAxis::LeftX, GamepadAxis::LeftY, GamepadAxis::RightX, GamepadAxis::RightY, GamepadAxis::LeftTrigger,
+                                                          GamepadAxis::RightTrigger };
+
+            for (i32 i = 0; i < static_cast<i32>(axisNames.size()); ++i)
+            {
+                if (ImGui::Selectable(axisNames[i]))
+                {
+                    auto& map = InputActionManager::GetActionMap();
+                    auto* action = map.GetAction(m_GamepadAxisActionName);
+                    if (action)
+                    {
+                        auto oldMap = InputActionManager::GetActionMap();
+                        action->Bindings.push_back(InputBinding::GamepadAx(axes[i], 0.5f, true));
+                        m_Dirty = true;
+                        if (m_CommandHistory)
+                        {
+                            m_CommandHistory->PushAlreadyExecuted(
+                                std::make_unique<InputActionMapChangeCommand>(std::move(oldMap), InputActionManager::GetActionMap(), "Add Gamepad Axis",
+                                                                              [this]()
+                                                                              { m_Dirty = true; }));
+                        }
+                    }
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+
+            if (ImGui::Button("Cancel"))
+            {
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
     }
 
 } // namespace OloEngine

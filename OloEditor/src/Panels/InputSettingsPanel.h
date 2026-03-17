@@ -33,16 +33,22 @@ namespace OloEngine
         void DrawBinding(InputAction& action, sizet bindingIndex);
         void DrawRebindOverlay();
         void DrawAddActionPopup();
+        void DrawAddGamepadBindingPopup();
         void ApplyNewBinding(InputBinding newBinding);
+        void PollGamepadForRebind();
 
         bool OnKeyPressed(KeyPressedEvent const& e);
         bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);
 
         // Rebinding state
         bool m_IsRebinding = false;
+        bool m_IsRebindingGamepad = false; // Scanning for gamepad button press
         std::string m_RebindActionName;
         sizet m_RebindBindingIndex = 0;
         bool m_RebindIsNewBinding = false; // true when adding a new binding slot
+
+        // Add gamepad axis binding state
+        std::string m_GamepadAxisActionName;
 
         // Add action state
         bool m_ShowAddActionPopup = false;

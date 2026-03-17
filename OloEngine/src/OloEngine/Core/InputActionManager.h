@@ -42,6 +42,10 @@ namespace OloEngine
         [[nodiscard]] static bool IsActionJustPressed(std::string_view actionName);
         [[nodiscard]] static bool IsActionJustReleased(std::string_view actionName);
 
+        // Returns the analog value for the first GamepadAxis binding in the action.
+        // Keyboard/mouse bindings return 0/1; gamepad axis bindings return the raw axis value.
+        [[nodiscard]] static f32 GetActionAxisValue(std::string_view actionName);
+
         // Replace the active action map and reset all cached state.
         static void SetActionMap(const InputActionMap& map);
 
@@ -62,6 +66,7 @@ namespace OloEngine
         inline static InputActionMap s_ActiveMap;
         inline static std::unordered_map<std::string, bool, StringHash, StringEqual> s_CurrentState;
         inline static std::unordered_map<std::string, bool, StringHash, StringEqual> s_PreviousState;
+        inline static std::unordered_map<std::string, f32, StringHash, StringEqual> s_AxisValues;
         static IInputProvider* s_InputProvider;
     };
 

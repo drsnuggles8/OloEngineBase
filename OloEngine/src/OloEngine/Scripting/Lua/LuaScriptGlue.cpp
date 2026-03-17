@@ -9,6 +9,8 @@
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputActionManager.h"
+#include "OloEngine/Core/Gamepad.h"
+#include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/Scene/Scene.h"
@@ -272,6 +274,97 @@ namespace OloEngine
         {
             return InputActionManager::IsActionJustReleased(name);
         };
+        inputTable["GetActionAxisValue"] = [](const std::string& name)
+        {
+            return InputActionManager::GetActionAxisValue(name);
+        };
+
+        // --- Gamepad functions (raw access) ---
+        {
+            OLO_PROFILE_SCOPE("LuaScriptGlue::RegisterGamepad");
+            auto gamepadTable = lua.create_named_table("Gamepad");
+            gamepadTable["IsButtonPressed"] = [](u8 button, i32 index) -> bool
+            {
+                if (button >= Gamepad::ButtonCount)
+                {
+                    return false;
+                }
+                auto* gp = GamepadManager::GetGamepad(index);
+                return gp && gp->IsButtonPressed(static_cast<GamepadButton>(button));
+            };
+            gamepadTable["IsButtonJustPressed"] = [](u8 button, i32 index) -> bool
+            {
+                if (button >= Gamepad::ButtonCount)
+                {
+                    return false;
+                }
+                auto* gp = GamepadManager::GetGamepad(index);
+                return gp && gp->IsButtonJustPressed(static_cast<GamepadButton>(button));
+            };
+            gamepadTable["IsButtonJustReleased"] = [](u8 button, i32 index) -> bool
+            {
+                if (button >= Gamepad::ButtonCount)
+                {
+                    return false;
+                }
+                auto* gp = GamepadManager::GetGamepad(index);
+                return gp && gp->IsButtonJustReleased(static_cast<GamepadButton>(button));
+            };
+            gamepadTable["GetAxis"] = [](u8 axis, i32 index) -> f32
+            {
+                if (axis >= Gamepad::AxisCount)
+                {
+                    return 0.0f;
+                }
+                auto* gp = GamepadManager::GetGamepad(index);
+                return gp ? gp->GetAxis(static_cast<GamepadAxis>(axis)) : 0.0f;
+            };
+            gamepadTable["GetLeftStick"] = [](i32 index) -> glm::vec2
+            {
+                auto* gp = GamepadManager::GetGamepad(index);
+                return gp ? gp->GetLeftStickDeadzone() : glm::vec2(0.0f);
+            };
+            gamepadTable["GetRightStick"] = [](i32 index) -> glm::vec2
+            {
+                auto* gp = GamepadManager::GetGamepad(index);
+                return gp ? gp->GetRightStickDeadzone() : glm::vec2(0.0f);
+            };
+            gamepadTable["IsConnected"] = [](i32 index) -> bool
+            {
+                auto* gp = GamepadManager::GetGamepad(index);
+                return gp && gp->IsConnected();
+            };
+            gamepadTable["GetConnectedCount"] = []() -> i32
+            {
+                return GamepadManager::GetConnectedCount();
+            };
+
+            // --- Gamepad button/axis enum constants ---
+            auto gpButtonTable = lua.create_named_table("GamepadButton");
+            gpButtonTable["South"] = static_cast<u8>(GamepadButton::South);
+            gpButtonTable["East"] = static_cast<u8>(GamepadButton::East);
+            gpButtonTable["West"] = static_cast<u8>(GamepadButton::West);
+            gpButtonTable["North"] = static_cast<u8>(GamepadButton::North);
+            gpButtonTable["LeftBumper"] = static_cast<u8>(GamepadButton::LeftBumper);
+            gpButtonTable["RightBumper"] = static_cast<u8>(GamepadButton::RightBumper);
+            gpButtonTable["Back"] = static_cast<u8>(GamepadButton::Back);
+            gpButtonTable["Start"] = static_cast<u8>(GamepadButton::Start);
+            gpButtonTable["Guide"] = static_cast<u8>(GamepadButton::Guide);
+            gpButtonTable["LeftThumb"] = static_cast<u8>(GamepadButton::LeftThumb);
+            gpButtonTable["RightThumb"] = static_cast<u8>(GamepadButton::RightThumb);
+            gpButtonTable["DPadUp"] = static_cast<u8>(GamepadButton::DPadUp);
+            gpButtonTable["DPadRight"] = static_cast<u8>(GamepadButton::DPadRight);
+            gpButtonTable["DPadDown"] = static_cast<u8>(GamepadButton::DPadDown);
+            gpButtonTable["DPadLeft"] = static_cast<u8>(GamepadButton::DPadLeft);
+
+            auto gpAxisTable = lua.create_named_table("GamepadAxis");
+            gpAxisTable["LeftX"] = static_cast<u8>(GamepadAxis::LeftX);
+            gpAxisTable["LeftY"] = static_cast<u8>(GamepadAxis::LeftY);
+            gpAxisTable["RightX"] = static_cast<u8>(GamepadAxis::RightX);
+            gpAxisTable["RightY"] = static_cast<u8>(GamepadAxis::RightY);
+            gpAxisTable["LeftTrigger"] = static_cast<u8>(GamepadAxis::LeftTrigger);
+            gpAxisTable["RightTrigger"] = static_cast<u8>(GamepadAxis::RightTrigger);
+        }
 
         // --- DialogueComponent ---
         lua.new_usertype<DialogueComponent>("DialogueComponent",

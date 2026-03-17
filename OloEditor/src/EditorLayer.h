@@ -15,6 +15,7 @@
 #include "Panels/SaveGamePanel.h"
 #include "Panels/SceneStatisticsPanel.h"
 #include "Panels/EditorPreferencesPanel.h"
+#include "Panels/GamepadDebugPanel.h"
 
 #include "UndoRedo/EditorCommand.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -199,6 +200,8 @@ namespace OloEngine
         bool m_ShowShaderGraphEditor = false;
         SaveGamePanel m_SaveGamePanel;
         bool m_ShowSaveGamePanel = false;
+        GamepadDebugPanel m_GamepadDebugPanel;
+        bool m_ShowGamepadDebug = false;
 
         // Undo/Redo
         CommandHistory m_CommandHistory;
