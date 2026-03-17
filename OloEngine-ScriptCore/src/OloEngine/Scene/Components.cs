@@ -1165,4 +1165,25 @@ namespace OloEngine
 
 		public void ClearTarget() => InternalCalls.NavAgentComponent_ClearTarget(Entity.ID);
 	}
+
+	public class AnimationGraphComponent : Component
+	{
+		public void SetFloat(string paramName, float value)
+			=> InternalCalls.AnimationGraphComponent_SetFloat(Entity.ID, paramName, value);
+
+		public void SetBool(string paramName, bool value)
+			=> InternalCalls.AnimationGraphComponent_SetBool(Entity.ID, paramName, value);
+
+		public void SetInt(string paramName, int value)
+			=> InternalCalls.AnimationGraphComponent_SetInt(Entity.ID, paramName, value);
+
+		public void SetTrigger(string paramName)
+			=> InternalCalls.AnimationGraphComponent_SetTrigger(Entity.ID, paramName);
+
+		public float GetFloat(string paramName)
+			=> InternalCalls.AnimationGraphComponent_GetFloat(Entity.ID, paramName);
+
+		public string GetCurrentState(int layerIndex = 0)
+			=> InternalCalls.AnimationGraphComponent_GetCurrentState(Entity.ID, layerIndex);
+	}
 }

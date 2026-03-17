@@ -591,6 +591,21 @@ namespace OloEngine
 		internal static extern void NavAgentComponent_ClearTarget(ulong entityID);
 		#endregion
 
+		#region AnimationGraphComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AnimationGraphComponent_SetFloat(ulong entityID, string paramName, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AnimationGraphComponent_SetBool(ulong entityID, string paramName, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AnimationGraphComponent_SetInt(ulong entityID, string paramName, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AnimationGraphComponent_SetTrigger(ulong entityID, string paramName);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AnimationGraphComponent_GetFloat(ulong entityID, string paramName);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string AnimationGraphComponent_GetCurrentState(ulong entityID, int layerIndex);
+		#endregion
+
 		#region SaveGame
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern int SaveGame_Save(string slotName, string displayName);

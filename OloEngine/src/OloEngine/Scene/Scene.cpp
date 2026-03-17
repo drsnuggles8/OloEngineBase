@@ -14,6 +14,8 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Animation/AnimationGraphSystem.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
@@ -638,6 +640,21 @@ namespace OloEngine
                 }
             }
 
+            // Update animation graphs
+            {
+                auto graphView = m_Registry.view<AnimationGraphComponent, SkeletonComponent>();
+                for (auto e : graphView)
+                {
+                    auto& graphComp = graphView.get<AnimationGraphComponent>(e);
+                    auto& skelComp = graphView.get<SkeletonComponent>(e);
+
+                    if (graphComp.RuntimeGraph && skelComp.m_Skeleton)
+                    {
+                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds());
+                    }
+                }
+            }
+
             // Physics
             {
                 const i32 velocityIterations = 6;
@@ -1194,6 +1211,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<NavMeshBoundsComponent>(Entity, NavMeshBoundsComponent&) {}
     template<>
     void Scene::OnComponentAdded<NavAgentComponent>(Entity, NavAgentComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<AnimationGraphComponent>(Entity, AnimationGraphComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {

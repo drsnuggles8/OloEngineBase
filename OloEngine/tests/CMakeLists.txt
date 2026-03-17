@@ -107,6 +107,9 @@ add_executable(OloEngine-Tests
 		NavMeshTest.cpp
 		UndoRedoTest.cpp
 		HeadlessTest.cpp
+		# Animation State Machine & Blend Tree Tests
+		AnimationStateMachineTest.cpp
+		BlendTreeTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine
