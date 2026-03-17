@@ -3,15 +3,6 @@
 
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
-#include "OloEngine/Core/Timer.h"
-
-#ifdef _WIN32
-#include <conio.h>
-#include <windows.h>
-#else
-#include <unistd.h>
-#include <sys/select.h>
-#endif
 
 #include <iostream>
 #include <sstream>
@@ -19,24 +10,63 @@
 namespace OloEngine
 {
     ServerConsole::ServerConsole() = default;
-    ServerConsole::~ServerConsole() = default;
+
+    ServerConsole::~ServerConsole()
+    {
+        Shutdown();
+    }
 
     void ServerConsole::Initialize()
     {
         RegisterBuiltInCommands();
         m_Initialized = true;
+
+        // Launch background thread that blocks on std::getline
+        m_InputThreadRunning = true;
+        m_InputThread = std::thread(&ServerConsole::InputThreadFunc, this);
+
         OLO_CORE_INFO("[ServerConsole] Initialized. Type 'help' for available commands.");
     }
 
     void ServerConsole::Shutdown()
     {
+        if (!m_Initialized)
+        {
+            return;
+        }
+
+        m_InputThreadRunning = false;
+
+        // The input thread may be blocked on std::getline.
+        // Closing stdin unblocks it on most platforms.
+        std::cin.setstate(std::ios::eofbit);
+
+        if (m_InputThread.joinable())
+        {
+            m_InputThread.join();
+        }
+
         m_Commands.clear();
         m_Initialized = false;
     }
 
-    void ServerConsole::RegisterCommand(const std::string& name, CommandHandler handler)
+    void ServerConsole::InputThreadFunc()
     {
-        m_Commands[name] = std::move(handler);
+        std::string line;
+        while (m_InputThreadRunning)
+        {
+            if (!std::getline(std::cin, line))
+            {
+                break; // EOF or stream error
+            }
+
+            if (!line.empty())
+            {
+                std::lock_guard lock(m_InputQueueMutex);
+                m_InputQueue.push(std::move(line));
+                line = {}; // reset after move
+            }
+        }
     }
 
     void ServerConsole::ProcessInput()
@@ -46,35 +76,48 @@ namespace OloEngine
             return;
         }
 
-        // Non-blocking check for stdin input
-#ifdef _WIN32
-        if (!_kbhit())
+        // Drain the queue — execute commands on the main thread
+        std::queue<std::string> pending;
         {
-            return;
+            std::lock_guard lock(m_InputQueueMutex);
+            std::swap(pending, m_InputQueue);
         }
-#else
-        fd_set readSet;
-        FD_ZERO(&readSet);
-        FD_SET(STDIN_FILENO, &readSet);
-        struct timeval timeout = { 0, 0 };
-        if (select(STDIN_FILENO + 1, &readSet, nullptr, nullptr, &timeout) <= 0)
-        {
-            return;
-        }
-#endif
 
-        std::string line;
-        if (std::getline(std::cin, line))
+        while (!pending.empty())
         {
-            if (!line.empty())
-            {
-                ExecuteCommand(line);
-            }
+            ExecuteCommand(pending.front());
+            pending.pop();
         }
+    }
+
+    void ServerConsole::AddMessage(const std::string& message)
+    {
+        OLO_CORE_INFO("[Console] {}", message);
+    }
+
+    void ServerConsole::AddTaggedMessage(const std::string& tag, const std::string& message)
+    {
+        OLO_CORE_INFO("[{}] {}", tag, message);
+    }
+
+    void ServerConsole::SetMessageSendCallback(MessageSendCallback callback)
+    {
+        m_MessageSendCallback = std::move(callback);
+    }
+
+    void ServerConsole::RegisterCommand(const std::string& name, CommandHandler handler)
+    {
+        m_Commands[name] = std::move(handler);
     }
 
     void ServerConsole::ExecuteCommand(const std::string& line)
     {
+        // If a message callback is set, forward raw input
+        if (m_MessageSendCallback)
+        {
+            m_MessageSendCallback(line);
+        }
+
         std::istringstream iss(line);
         std::string command;
         iss >> command;
@@ -102,10 +145,14 @@ namespace OloEngine
 
     void ServerConsole::RegisterBuiltInCommands()
     {
-        RegisterCommand("status", [this](const auto& args) { CmdStatus(args); });
-        RegisterCommand("stop", [this](const auto& args) { CmdStop(args); });
-        RegisterCommand("quit", [this](const auto& args) { CmdStop(args); });
-        RegisterCommand("help", [this](const auto& args) { CmdHelp(args); });
+        RegisterCommand("status", [this](const auto& args)
+                        { CmdStatus(args); });
+        RegisterCommand("stop", [this](const auto& args)
+                        { CmdStop(args); });
+        RegisterCommand("quit", [this](const auto& args)
+                        { CmdStop(args); });
+        RegisterCommand("help", [this](const auto& args)
+                        { CmdHelp(args); });
     }
 
     void ServerConsole::CmdStatus([[maybe_unused]] const std::vector<std::string>& args)

@@ -65,10 +65,14 @@ TEST(ServerConfigSerializer, ParseMultipleFlags)
 {
     char* argv[] = {
         const_cast<char*>("server"),
-        const_cast<char*>("--port"), const_cast<char*>("8888"),
-        const_cast<char*>("--max-players"), const_cast<char*>("32"),
-        const_cast<char*>("--tick-rate"), const_cast<char*>("30"),
-        const_cast<char*>("--scene"), const_cast<char*>("Scenes/Test.oloscene"),
+        const_cast<char*>("--port"),
+        const_cast<char*>("8888"),
+        const_cast<char*>("--max-players"),
+        const_cast<char*>("32"),
+        const_cast<char*>("--tick-rate"),
+        const_cast<char*>("30"),
+        const_cast<char*>("--scene"),
+        const_cast<char*>("Scenes/Test.oloscene"),
     };
     ServerConfig config = ServerConfigSerializer::ParseCommandLine(9, argv);
     EXPECT_EQ(config.Port, 8888);
@@ -134,13 +138,15 @@ TEST(ServerConfigSerializer, CommandLineOverridesConfigFile)
     // Command line overrides port to 9999
     char* argv[] = {
         const_cast<char*>("server"),
-        const_cast<char*>("--config"), const_cast<char*>("test_override_config.yaml"),
-        const_cast<char*>("--port"), const_cast<char*>("9999"),
+        const_cast<char*>("--config"),
+        const_cast<char*>("test_override_config.yaml"),
+        const_cast<char*>("--port"),
+        const_cast<char*>("9999"),
     };
     ServerConfig config = ServerConfigSerializer::ParseCommandLine(5, argv);
 
-    EXPECT_EQ(config.Port, 9999);      // overridden
-    EXPECT_EQ(config.MaxPlayers, 8u);   // from file
+    EXPECT_EQ(config.Port, 9999);     // overridden
+    EXPECT_EQ(config.MaxPlayers, 8u); // from file
 
     std::filesystem::remove(testFile);
 }
@@ -148,6 +154,15 @@ TEST(ServerConfigSerializer, CommandLineOverridesConfigFile)
 // ============================================================================
 // ServerConsole - basic functionality
 // ============================================================================
+
+TEST(ServerConsole, ImplementsIConsoleInterface)
+{
+    ServerConsole console;
+    IConsole* iface = &console;
+
+    // Verify the IConsole interface is satisfied
+    EXPECT_NE(iface, nullptr);
+}
 
 TEST(ServerConsole, RegisterAndHasCommands)
 {
@@ -165,8 +180,22 @@ TEST(ServerConsole, RegisterCustomCommand)
     console.Initialize();
 
     bool called = false;
-    console.RegisterCommand("test", [&called](const std::vector<std::string>&) { called = true; });
+    console.RegisterCommand("test", [&called](const std::vector<std::string>&)
+                            { called = true; });
 
     // The command is registered; actual dispatch requires stdin input
+    console.Shutdown();
+}
+
+TEST(ServerConsole, MessageSendCallback)
+{
+    ServerConsole console;
+    console.Initialize();
+
+    std::string lastMessage;
+    console.SetMessageSendCallback([&lastMessage](const std::string& msg)
+                                   { lastMessage = msg; });
+
+    // Callback is registered — actual invocation requires queued input
     console.Shutdown();
 }

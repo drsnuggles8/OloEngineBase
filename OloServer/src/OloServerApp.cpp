@@ -8,6 +8,8 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Networking/Transport/NetworkServer.h"
 
+static_assert(OLO_HEADLESS, "OloServer must be compiled with OLO_HEADLESS=1");
+
 namespace OloEngine
 {
     class ServerLayer : public Layer

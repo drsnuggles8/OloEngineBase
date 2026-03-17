@@ -3,11 +3,29 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/LayerStack.h"
 #include "OloEngine/Core/Timestep.h"
-#include "OloEngine/Core/Window.h"
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Events/ApplicationEvent.h"
+
+#ifndef OLO_HEADLESS
+#include "OloEngine/Core/Window.h"
 #include "OloEngine/ImGui/ImGuiLayer.h"
 #include "OloEngine/Renderer/Renderer.h"
+#else
+// Minimal forward declarations for headless translation units.
+// The class layout is unchanged — only heavy #includes are skipped.
+namespace OloEngine
+{
+    class Window;
+    class ImGuiLayer;
+
+    // Mirror the enum so ApplicationSpecification compiles without Renderer.h
+    enum class RendererType
+    {
+        Renderer2D,
+        Renderer3D,
+    };
+} // namespace OloEngine
+#endif
 
 int main(int argc, char** argv);
 
