@@ -42,7 +42,12 @@ namespace OloEngine
             // Load scene if specified
             if (!m_Config.ScenePath.empty())
             {
-                LoadScene(m_Config.ScenePath);
+                if (!LoadScene(m_Config.ScenePath))
+                {
+                    OLO_CORE_ERROR("[Server] Aborting startup — scene load failed");
+                    Application::Get().Close();
+                    return;
+                }
             }
 
             // Start listening for network connections

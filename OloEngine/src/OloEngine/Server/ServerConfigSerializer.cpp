@@ -110,6 +110,7 @@ namespace OloEngine
             return;
         }
         fout << out.c_str();
+        fout.flush();
         if (!fout.good())
         {
             OLO_CORE_ERROR("[ServerConfig] Failed to write config to '{}'", filepath);

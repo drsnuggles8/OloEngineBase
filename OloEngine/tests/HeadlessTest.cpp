@@ -6,18 +6,20 @@
 #include "OloEngine/Server/ServerConsole.h"
 #include "OloEngine/Server/ServerMonitor.h"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <process.h>
 #include <sstream>
+#include <thread>
 
 using namespace OloEngine;
 
-// Helper to generate a unique temp filename using PID to avoid parallel test collisions
+// Helper to generate a unique temp filename using timestamp + thread ID for portability
 static std::filesystem::path UniqueTempPath(const char* baseName)
 {
+    auto now = std::chrono::steady_clock::now().time_since_epoch().count();
     std::ostringstream oss;
-    oss << baseName << "_" << _getpid() << ".yaml";
+    oss << baseName << "_" << now << "_" << std::this_thread::get_id() << ".yaml";
     return std::filesystem::temp_directory_path() / oss.str();
 }
 
@@ -147,7 +149,8 @@ TEST(ServerConfigSerializer, YAMLRoundTrip)
 
 TEST(ServerConfigSerializer, LoadMissingFileReturnsDefaults)
 {
-    ServerConfig config = ServerConfigSerializer::LoadFromFile("nonexistent_config.yaml");
+    auto missingPath = UniqueTempPath("olotest_nonexistent");
+    ServerConfig config = ServerConfigSerializer::LoadFromFile(missingPath.string());
     EXPECT_EQ(config.Port, 7777);
     EXPECT_EQ(config.MaxPlayers, 64u);
 }

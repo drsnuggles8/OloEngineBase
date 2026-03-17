@@ -80,6 +80,9 @@ namespace OloEngine
         std::mutex m_InputQueueMutex;
         std::queue<std::string> m_InputQueue;
 
+        // Pipe used on POSIX to wake the input thread from blocking reads
+        int m_WakeupPipe[2]{ -1, -1 };
+
         MessageSendCallback m_MessageSendCallback;
     };
 } // namespace OloEngine

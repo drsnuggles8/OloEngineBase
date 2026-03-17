@@ -11,6 +11,9 @@
 #ifdef OLO_PLATFORM_WINDOWS
 #include <io.h>
 #include <windows.h>
+#else
+#include <poll.h>
+#include <unistd.h>
 #endif
 
 namespace OloEngine
@@ -26,11 +29,24 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (m_Initialized)
+        {
+            return;
+        }
+
         RegisterBuiltInCommands();
         m_Initialized = true;
 
         // Clear any prior EOF state so std::getline succeeds
         std::cin.clear();
+
+#ifndef OLO_PLATFORM_WINDOWS
+        // Create a self-pipe so Shutdown() can wake the input thread
+        if (::pipe(m_WakeupPipe) != 0)
+        {
+            OLO_CORE_ERROR("[ServerConsole] Failed to create wakeup pipe");
+        }
+#endif
 
         // Launch background thread that blocks on std::getline
         m_InputThreadRunning = true;
@@ -59,13 +75,30 @@ namespace OloEngine
             CancelIoEx(hStdin, nullptr);
         }
 #else
-        std::cin.setstate(std::ios::eofbit);
+        // Write a byte to the wakeup pipe to unblock poll() in the input thread
+        if (m_WakeupPipe[1] != -1)
+        {
+            char dummy = 0;
+            (void)::write(m_WakeupPipe[1], &dummy, 1);
+        }
 #endif
 
         if (m_InputThread.joinable())
         {
             m_InputThread.join();
         }
+
+#ifndef OLO_PLATFORM_WINDOWS
+        // Close the wakeup pipe
+        for (auto& fd : m_WakeupPipe)
+        {
+            if (fd != -1)
+            {
+                ::close(fd);
+                fd = -1;
+            }
+        }
+#endif
 
         // Restore stdin so future console instances can read
         std::cin.clear();
@@ -82,6 +115,32 @@ namespace OloEngine
         while (m_InputThreadRunning)
         {
             OLO_PROFILE_SCOPE("ServerConsole::InputThreadLoop");
+
+#ifndef OLO_PLATFORM_WINDOWS
+            // On POSIX, poll stdin and the wakeup pipe so Shutdown() can unblock us
+            struct pollfd fds[2]{};
+            fds[0].fd = STDIN_FILENO;
+            fds[0].events = POLLIN;
+            fds[1].fd = m_WakeupPipe[0];
+            fds[1].events = POLLIN;
+
+            int ret = ::poll(fds, 2, -1); // block until ready
+            if (ret <= 0 || !m_InputThreadRunning)
+            {
+                break;
+            }
+            // Wakeup pipe signalled — time to exit
+            if (fds[1].revents & POLLIN)
+            {
+                break;
+            }
+            // stdin not ready (shouldn't happen, but guard)
+            if (!(fds[0].revents & POLLIN))
+            {
+                continue;
+            }
+#endif
+
             if (!std::getline(std::cin, line))
             {
                 break; // EOF or stream error

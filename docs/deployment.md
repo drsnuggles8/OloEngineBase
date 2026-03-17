@@ -28,7 +28,7 @@ cmake --build build --target OloServer --config Release --parallel
 cmake --build build --target OloServer --config Dist --parallel
 ```
 
-The resulting binary is placed at `bin/<Config>/OloServer/OloServer.exe` (Windows) or `bin/<Config>/OloServer/OloServer` (Linux).
+The resulting binary is placed at `bin/<Config>/OloServer/OloServer.exe`.
 
 ---
 
@@ -166,14 +166,14 @@ OloServer.exe --config server.yaml > server.log 2>&1
 
 ---
 
----
-
 ## Future Platform Support (Linux)
 
 > **Warning:** The engine **does not currently support Linux**.
-> `OloEngine/Core/PlatformDetection.h` will produce a compile error on non-Windows
-> platforms. The Docker, systemd and related sections below are provided as a
-> reference for when Linux support is added.
+> [`OloEngine/src/OloEngine/Core/PlatformDetection.h`](../OloEngine/src/OloEngine/Core/PlatformDetection.h)
+> will produce a compile error on non-Windows platforms. The Docker, systemd and
+> related sections below are provided as a reference for when Linux support is added.
+>
+> On Linux, the build output would be `bin/<Config>/OloServer/OloServer` (no extension).
 
 ### Container Deployment (Docker)
 

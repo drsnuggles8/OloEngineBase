@@ -10,6 +10,7 @@ namespace OloEngine
     ServerMonitor::ServerMonitor(f32 reportIntervalSeconds, f32 tickBudgetSeconds)
         : m_ReportInterval(reportIntervalSeconds), m_TickBudget(tickBudgetSeconds)
     {
+        OLO_PROFILE_FUNCTION();
     }
 
     void ServerMonitor::RecordTick(f32 tickDurationSeconds)
