@@ -15,6 +15,8 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
+#include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 
 namespace OloEngine
 {
@@ -278,6 +280,34 @@ namespace OloEngine
                                             "triggerRadius", &DialogueComponent::m_TriggerRadius,
                                             "hasTriggered", &DialogueComponent::m_HasTriggered,
                                             "triggerOnce", &DialogueComponent::m_TriggerOnce);
+
+        // --- MaterialComponent ---
+        lua.new_usertype<MaterialComponent>("MaterialComponent",
+                                            "shaderGraphHandle",
+                                            sol::property(
+                                                [](const MaterialComponent& mc) -> u64
+                                                { return static_cast<u64>(mc.m_ShaderGraphHandle); },
+                                                [](MaterialComponent& mc, u64 handle)
+                                                {
+                                                    if (handle != 0)
+                                                    {
+                                                        if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(handle))
+                                                        {
+                                                            if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(handle)))
+                                                            {
+                                                                mc.m_ShaderGraphHandle = handle;
+                                                                mc.m_Material.SetShader(shader);
+                                                                return;
+                                                            }
+                                                        }
+                                                        OLO_CORE_WARN("[Lua] Failed to compile ShaderGraph handle {}", handle);
+                                                    }
+                                                    else
+                                                    {
+                                                        mc.m_ShaderGraphHandle = 0;
+                                                        mc.m_Material.SetShader(nullptr);
+                                                    }
+                                                }));
 
         // --- Dialogue system functions ---
         auto dialogueTable = lua.create_named_table("dialogue");

@@ -1,0 +1,84 @@
+ShaderGraph:
+  Name: DemoMetallic
+  Nodes:
+    - ID: 100
+      TypeName: PBROutput
+      Category: Output
+      EditorPosition: [700, 300]
+      Inputs:
+        - ID: 101
+          Name: Albedo
+          Type: Vec3
+          DefaultValue: 1.000000,1.000000,1.000000
+        - ID: 102
+          Name: Metallic
+          Type: Float
+          DefaultValue: 0.000000
+        - ID: 103
+          Name: Roughness
+          Type: Float
+          DefaultValue: 0.500000
+        - ID: 104
+          Name: Normal
+          Type: Vec3
+          DefaultValue: 0.000000,0.000000,1.000000
+        - ID: 105
+          Name: AO
+          Type: Float
+          DefaultValue: 1.000000
+        - ID: 106
+          Name: Emissive
+          Type: Vec3
+          DefaultValue: 0.000000,0.000000,0.000000
+        - ID: 6673658567772628532
+          Name: Alpha
+          Type: Float
+          DefaultValue: 1.000000
+      Outputs:
+        []
+    - ID: 200
+      TypeName: ColorParameter
+      Category: Input
+      EditorPosition: [100, 200]
+      ParameterName: u_BaseColor
+      Inputs:
+        []
+      Outputs:
+        - ID: 201
+          Name: Value
+          Type: Vec3
+          DefaultValue: 0.000000,0.000000,0.000000
+    - ID: 300
+      TypeName: FloatParameter
+      Category: Input
+      EditorPosition: [100, 400]
+      ParameterName: u_Metallic
+      Inputs:
+        []
+      Outputs:
+        - ID: 301
+          Name: Value
+          Type: Float
+          DefaultValue: 0.900000
+    - ID: 400
+      TypeName: FloatParameter
+      Category: Input
+      EditorPosition: [100, 500]
+      ParameterName: u_Roughness
+      Inputs:
+        []
+      Outputs:
+        - ID: 401
+          Name: Value
+          Type: Float
+          DefaultValue: 0.300000
+  Links:
+    - ID: 1001
+      OutputPinID: 201
+      InputPinID: 101
+    - ID: 1003
+      OutputPinID: 301
+      InputPinID: 102
+    - ID: 1004
+      OutputPinID: 401
+      InputPinID: 103

@@ -1,0 +1,109 @@
+ShaderGraph:
+  Name: SimpleGradient
+  Nodes:
+    - ID: 100
+      TypeName: PBROutput
+      Category: Output
+      EditorPosition: [600, 250]
+      Inputs:
+        - ID: 101
+          Name: Albedo
+          Type: Vec3
+          DefaultValue: 1.000000, 1.000000, 1.000000
+        - ID: 102
+          Name: Metallic
+          Type: Float
+          DefaultValue: 0.000000
+        - ID: 103
+          Name: Roughness
+          Type: Float
+          DefaultValue: 0.500000
+        - ID: 104
+          Name: Normal
+          Type: Vec3
+          DefaultValue: 0.000000, 0.000000, 1.000000
+        - ID: 105
+          Name: AO
+          Type: Float
+          DefaultValue: 1.000000
+        - ID: 106
+          Name: Emissive
+          Type: Vec3
+        - ID: 107
+          Name: Alpha
+          Type: Float
+          DefaultValue: 1.000000
+      Outputs: []
+    - ID: 200
+      TypeName: Lerp
+      Category: Math
+      EditorPosition: [200, 200]
+      Inputs:
+        - ID: 201
+          Name: A
+          Type: Float
+          DefaultValue: 0.100000
+        - ID: 202
+          Name: B
+          Type: Float
+          DefaultValue: 0.900000
+        - ID: 203
+          Name: T
+          Type: Float
+          DefaultValue: 0.500000
+      Outputs:
+        - ID: 204
+          Name: Result
+          Type: Float
+    - ID: 500
+      TypeName: FloatParameter
+      Category: Input
+      EditorPosition: [50, 100]
+      ParameterName: u_Roughness
+      Inputs: []
+      Outputs:
+        - ID: 501
+          Name: Value
+          Type: Float
+          DefaultValue: 0.400000
+    - ID: 600
+      TypeName: Combine
+      Category: Math
+      EditorPosition: [380, 200]
+      Inputs:
+        - ID: 601
+          Name: R
+          Type: Float
+        - ID: 602
+          Name: G
+          Type: Float
+        - ID: 603
+          Name: B
+          Type: Float
+        - ID: 604
+          Name: A
+          Type: Float
+          DefaultValue: 1.000000
+      Outputs:
+        - ID: 605
+          Name: Vec3
+          Type: Vec3
+        - ID: 606
+          Name: Vec4
+          Type: Vec4
+  Links:
+    - ID: 1003
+      OutputPinID: 204
+      InputPinID: 601
+    - ID: 1004
+      OutputPinID: 204
+      InputPinID: 602
+    - ID: 1005
+      OutputPinID: 204
+      InputPinID: 603
+    - ID: 1006
+      OutputPinID: 605
+      InputPinID: 101
+    - ID: 1007
+      OutputPinID: 501
+      InputPinID: 103

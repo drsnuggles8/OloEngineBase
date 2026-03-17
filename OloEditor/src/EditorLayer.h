@@ -11,6 +11,7 @@
 #include "Panels/NetworkDebugPanel.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/DialogueEditorPanel.h"
+#include "Panels/ShaderGraphEditorPanel.h"
 #include "Panels/SaveGamePanel.h"
 #include "Panels/SceneStatisticsPanel.h"
 #include "Panels/EditorPreferencesPanel.h"
@@ -185,6 +186,7 @@ namespace OloEngine
         DialogueEditorPanel m_DialogueEditorPanel;
         EditorPreferencesPanel m_EditorPreferencesPanel;
         EditorPreferences m_Prefs;
+        ShaderGraphEditorPanel m_ShaderGraphEditorPanel;
         bool m_ShowConsolePanel = true;
         bool m_ShowSceneStatistics = true;
         bool m_ShowAnimationPanel = true;
@@ -194,6 +196,7 @@ namespace OloEngine
         bool m_ShowInputSettings = false;
         bool m_ShowNetworkDebug = false;
         bool m_ShowDialogueEditor = false;
+        bool m_ShowShaderGraphEditor = false;
         SaveGamePanel m_SaveGamePanel;
         bool m_ShowSaveGamePanel = false;
 

@@ -1109,4 +1109,13 @@ namespace OloEngine
 		public static void Clear()
 			=> InternalCalls.DialogueVariables_Clear();
 	}
+
+	public class MaterialComponent : Component
+	{
+		public ulong ShaderGraphHandle
+		{
+			get => InternalCalls.MaterialComponent_GetShaderGraphHandle(Entity.ID);
+			set => InternalCalls.MaterialComponent_SetShaderGraphHandle(Entity.ID, value);
+		}
+	}
 }

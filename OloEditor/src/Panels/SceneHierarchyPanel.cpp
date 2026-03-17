@@ -18,6 +18,7 @@
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
+#include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Debug/Instrumentor.h"
 #include "../UndoRedo/EntityCommands.h"
 #include "../UndoRedo/ComponentCommands.h"
@@ -2360,7 +2361,79 @@ namespace OloEngine
 
             f32 roughness = component.m_Material.GetRoughnessFactor();
             if (ImGui::DragFloat("Roughness", &roughness, 0.01f, 0.0f, 1.0f))
-                component.m_Material.SetRoughnessFactor(roughness); });
+                component.m_Material.SetRoughnessFactor(roughness);
+
+            ImGui::Separator();
+
+            // Shader Graph assignment
+            {
+                bool hasGraph = component.m_ShaderGraphHandle != 0;
+                std::string currentLabel = hasGraph ? ("ShaderGraph: " + std::to_string(static_cast<u64>(component.m_ShaderGraphHandle))) : "None (Default PBR)";
+
+                ImGui::Text("Shader Graph");
+                ImGui::SameLine();
+
+                ImGui::BeginDisabled();
+                ImGui::Button(currentLabel.c_str());
+                ImGui::EndDisabled();
+
+                // Drop target for drag-and-drop from ContentBrowser
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_SHADERGRAPH"))
+                    {
+                        auto const* const path = static_cast<wchar_t const*>(payload->Data);
+                        std::filesystem::path assetPath(path);
+                        auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
+                        if (assetManager)
+                        {
+                            AssetHandle handle = assetManager->ImportAsset(assetPath);
+                            if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::ShaderGraph)
+                            {
+                                if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(handle))
+                                {
+                                    if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(handle))))
+                                    {
+                                        component.m_ShaderGraphHandle = handle;
+                                        component.m_Material.SetShader(shader);
+                                    }
+                                    else
+                                    {
+                                        OLO_WARN("ShaderGraph {} failed to compile, not assigning to material", static_cast<u64>(handle));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+
+                if (hasGraph)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Clear##ShaderGraph"))
+                    {
+                        component.m_ShaderGraphHandle = 0;
+                        component.m_Material.SetShader(nullptr);
+                    }
+
+                    if (ImGui::Button("Recompile##ShaderGraph"))
+                    {
+                        if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(component.m_ShaderGraphHandle))
+                        {
+                            graphAsset->MarkDirty();
+                            if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(component.m_ShaderGraphHandle))))
+                            {
+                                component.m_Material.SetShader(shader);
+                            }
+                            else
+                            {
+                                OLO_WARN("ShaderGraph recompilation failed for handle {}", static_cast<u64>(component.m_ShaderGraphHandle));
+                            }
+                        }
+                    }
+                }
+            } });
 
         DrawComponent<DirectionalLightComponent>("Directional Light", entity, [](auto& component)
                                                  {

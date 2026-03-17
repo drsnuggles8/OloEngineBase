@@ -23,4 +23,23 @@ namespace OloEngine
         OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
         return nullptr;
     }
+
+    Ref<ComputeShader> ComputeShader::CreateFromSource(const std::string& name, const std::string& source)
+    {
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::None:
+            {
+                OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+                return nullptr;
+            }
+            case RendererAPI::API::OpenGL:
+            {
+                return Ref<ComputeShader>(new OpenGLComputeShader(name, source));
+            }
+        }
+
+        OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return nullptr;
+    }
 } // namespace OloEngine

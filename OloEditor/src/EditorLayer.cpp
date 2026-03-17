@@ -27,6 +27,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
+#include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -533,6 +534,7 @@ namespace OloEngine
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
+            ImGui::MenuItem("Shader Graph Editor", nullptr, &m_ShowShaderGraphEditor);
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
 
             ImGui::EndMenu();
@@ -958,6 +960,14 @@ namespace OloEngine
             m_ShowDialogueEditor = m_DialogueEditorPanel.IsOpen();
         }
 
+        // Shader Graph Editor Panel
+        if (m_ShowShaderGraphEditor)
+        {
+            m_ShaderGraphEditorPanel.SetOpen(true);
+            m_ShaderGraphEditorPanel.OnImGuiRender();
+            m_ShowShaderGraphEditor = m_ShaderGraphEditorPanel.IsOpen();
+        }
+
         // Save Game Panel
         if (m_ShowSaveGamePanel)
         {
@@ -1175,7 +1185,10 @@ namespace OloEngine
             {
                 if (control && m_SceneState == SceneState::Edit)
                 {
-                    m_CommandHistory.Undo();
+                    if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen() && m_ShaderGraphEditorPanel.IsFocused())
+                        m_ShaderGraphEditorPanel.Undo();
+                    else
+                        m_CommandHistory.Undo();
                     SyncWindowTitle();
                 }
                 break;
@@ -1184,7 +1197,10 @@ namespace OloEngine
             {
                 if (control && m_SceneState == SceneState::Edit)
                 {
-                    m_CommandHistory.Redo();
+                    if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen() && m_ShaderGraphEditorPanel.IsFocused())
+                        m_ShaderGraphEditorPanel.Redo();
+                    else
+                        m_CommandHistory.Redo();
                     SyncWindowTitle();
                 }
                 break;
@@ -1456,6 +1472,30 @@ namespace OloEngine
             {
                 m_DialogueEditorPanel.OpenDialogue(path);
                 m_ShowDialogueEditor = true;
+            }
+            else if (type == ContentFileType::ShaderGraph)
+            {
+                if (m_ShaderGraphEditorPanel.HasUnsavedChanges())
+                {
+                    auto const result = MessagePrompt::YesNoCancel(
+                        "Unsaved Shader Graph",
+                        "The current shader graph has unsaved changes. Do you want to save before opening a new one?");
+
+                    switch (result)
+                    {
+                        case MessagePromptResult::Yes:
+                            if (!m_ShaderGraphEditorPanel.SaveIfNeeded())
+                                return;
+                            break;
+                        case MessagePromptResult::Cancel:
+                            return;
+                        case MessagePromptResult::No:
+                        default:
+                            break;
+                    }
+                }
+                m_ShaderGraphEditorPanel.OpenShaderGraph(path);
+                m_ShowShaderGraphEditor = true;
             }
             else if (type == ContentFileType::Scene)
             {
@@ -1841,6 +1881,31 @@ namespace OloEngine
 
     bool EditorLayer::OnWindowClose([[maybe_unused]] WindowCloseEvent const& e)
     {
+        // Check shader graph unsaved changes first
+        if (m_ShaderGraphEditorPanel.HasUnsavedChanges())
+        {
+            auto const result = MessagePrompt::YesNoCancel(
+                "Unsaved Shader Graph",
+                "The current shader graph has unsaved changes. Do you want to save before closing?");
+
+            switch (result)
+            {
+                case MessagePromptResult::Yes:
+                    if (!m_ShaderGraphEditorPanel.SaveIfNeeded())
+                    {
+                        Application::Get().CancelClose();
+                        return true;
+                    }
+                    break;
+                case MessagePromptResult::Cancel:
+                    Application::Get().CancelClose();
+                    return true;
+                case MessagePromptResult::No:
+                default:
+                    break;
+            }
+        }
+
         if (!ConfirmDiscardChanges())
         {
             Application::Get().CancelClose();
@@ -2152,6 +2217,34 @@ namespace OloEngine
             case AssetType::Script:
                 OLO_TRACE("   → Script asset reloaded - C# assemblies updated");
                 break;
+            case AssetType::ShaderGraph:
+            {
+                OLO_TRACE("   → Shader graph asset reloaded - recompiling affected materials");
+                auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(e.GetHandle());
+                Ref<Shader> compiledShader;
+                if (graphAsset)
+                {
+                    graphAsset->MarkDirty();
+                    compiledShader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(static_cast<u64>(e.GetHandle())));
+                }
+
+                auto recompileInScene = [&e, &compiledShader](Ref<Scene>& scene)
+                {
+                    if (!scene || !compiledShader)
+                        return;
+                    auto view = scene->GetAllEntitiesWith<MaterialComponent>();
+                    for (auto entityID : view)
+                    {
+                        auto& matComp = view.get<MaterialComponent>(entityID);
+                        if (matComp.m_ShaderGraphHandle == e.GetHandle())
+                            matComp.m_Material.SetShader(compiledShader);
+                    }
+                };
+                recompileInScene(m_ActiveScene);
+                if (m_EditorScene && m_EditorScene != m_ActiveScene)
+                    recompileInScene(m_EditorScene);
+                break;
+            }
             case AssetType::LightProbeVolume:
             {
                 OLO_TRACE("   → Light probe volume asset reloaded - marking volumes dirty");

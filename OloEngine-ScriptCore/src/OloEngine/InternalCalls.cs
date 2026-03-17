@@ -540,6 +540,13 @@ namespace OloEngine
 		internal static extern void DialogueVariables_Clear();
 		#endregion
 
+		#region MaterialComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong MaterialComponent_GetShaderGraphHandle(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void MaterialComponent_SetShaderGraphHandle(ulong entityID, ulong handle);
+		#endregion
+
 		#region SaveGame
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern int SaveGame_Save(string slotName, string displayName);

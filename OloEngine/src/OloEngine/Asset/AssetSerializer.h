@@ -381,4 +381,30 @@ namespace OloEngine
         [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<DialogueTreeAsset>& dialogueAsset) const;
     };
 
+    class ShaderGraphAsset; // Forward declaration
+
+    class ShaderGraphSerializer : public AssetSerializer
+    {
+      public:
+        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
+        // Public for testing
+        std::string TestSerializeToYAML(const Ref<ShaderGraphAsset>& graphAsset) const
+        {
+            return SerializeToYAML(graphAsset);
+        }
+        [[nodiscard]] bool TestDeserializeFromYAML(const std::string& yamlString, Ref<ShaderGraphAsset>& graphAsset) const
+        {
+            return DeserializeFromYAML(yamlString, graphAsset);
+        }
+
+      private:
+        std::string SerializeToYAML(const Ref<ShaderGraphAsset>& graphAsset) const;
+        [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<ShaderGraphAsset>& graphAsset) const;
+    };
+
 } // namespace OloEngine

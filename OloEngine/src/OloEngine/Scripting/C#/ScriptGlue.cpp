@@ -10,6 +10,8 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
+#include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
@@ -1433,6 +1435,56 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
+    // MaterialComponent //////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static u64 MaterialComponent_GetShaderGraphHandle(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        return static_cast<u64>(entity.GetComponent<MaterialComponent>().m_ShaderGraphHandle);
+    }
+
+    static void MaterialComponent_SetShaderGraphHandle(UUID entityID, u64 handle)
+    {
+        OLO_PROFILE_FUNCTION();
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        auto& matComp = entity.GetComponent<MaterialComponent>();
+
+        // Compile and apply the shader graph
+        if (handle != 0)
+        {
+            if (auto graphAsset = AssetManager::GetAsset<ShaderGraphAsset>(handle))
+            {
+                if (auto shader = graphAsset->CompileToShader("ShaderGraph_" + std::to_string(handle)))
+                {
+                    matComp.m_ShaderGraphHandle = handle;
+                    matComp.m_Material.SetShader(shader);
+                }
+                else
+                {
+                    OLO_CORE_WARN("ScriptGlue: ShaderGraph {} failed to compile", handle);
+                }
+            }
+            else
+            {
+                OLO_CORE_WARN("ScriptGlue: ShaderGraph asset {} not found", handle);
+            }
+        }
+        else
+        {
+            matComp.m_ShaderGraphHandle = 0;
+            matComp.m_Material.SetShader(nullptr);
+        }
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
     // Dialogue ///////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -2064,6 +2116,12 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(DialogueVariables_SetString);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_Has);
         OLO_ADD_INTERNAL_CALL(DialogueVariables_Clear);
+
+        ///////////////////////////////////////////////////////////////
+        // MaterialComponent /////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(MaterialComponent_GetShaderGraphHandle);
+        OLO_ADD_INTERNAL_CALL(MaterialComponent_SetShaderGraphHandle);
 
         ///////////////////////////////////////////////////////////////
         // SaveGame //////////////////////////////////////////////////
