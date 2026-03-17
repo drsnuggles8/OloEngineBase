@@ -4,6 +4,7 @@
 #include "OloEngine/Server/ServerConfig.h"
 #include "OloEngine/Server/ServerConfigSerializer.h"
 #include "OloEngine/Server/ServerConsole.h"
+#include "OloEngine/Server/ServerMonitor.h"
 
 #include <filesystem>
 #include <fstream>
@@ -198,4 +199,66 @@ TEST(ServerConsole, MessageSendCallback)
 
     // Callback is registered — actual invocation requires queued input
     console.Shutdown();
+}
+
+// ============================================================================
+// ApplicationSpecification - configurable tick rate
+// ============================================================================
+
+TEST(HeadlessMode, DefaultTickRate)
+{
+    ApplicationSpecification spec;
+    EXPECT_EQ(spec.HeadlessTickRate, 60u);
+}
+
+TEST(HeadlessMode, CustomTickRate)
+{
+    ApplicationSpecification spec;
+    spec.HeadlessTickRate = 30;
+    EXPECT_EQ(spec.HeadlessTickRate, 30u);
+}
+
+TEST(HeadlessMode, TickRateFromServerConfig)
+{
+    char* argv[] = {
+        const_cast<char*>("server"),
+        const_cast<char*>("--tick-rate"),
+        const_cast<char*>("128"),
+    };
+    ServerConfig config = ServerConfigSerializer::ParseCommandLine(3, argv);
+    EXPECT_EQ(config.TickRate, 128u);
+
+    // Verify it would map to ApplicationSpecification
+    ApplicationSpecification spec;
+    spec.HeadlessTickRate = config.TickRate;
+    EXPECT_EQ(spec.HeadlessTickRate, 128u);
+}
+
+// ============================================================================
+// ServerMonitor - basic functionality
+// ============================================================================
+
+TEST(ServerMonitor, DefaultConstruction)
+{
+    ServerMonitor monitor;
+    // Should not crash on construction or immediate report
+    monitor.ForceReport();
+}
+
+TEST(ServerMonitor, RecordTicksWithoutCrash)
+{
+    ServerMonitor monitor(1000.0f); // Large interval so no auto-report
+    for (int i = 0; i < 100; ++i)
+    {
+        monitor.RecordTick(0.016f); // ~60 Hz
+    }
+    monitor.ForceReport();
+}
+
+TEST(ServerMonitor, CustomReportInterval)
+{
+    ServerMonitor monitor(10.0f);
+    monitor.SetReportInterval(5.0f);
+    // No crash; interval change is accepted
+    monitor.RecordTick(0.016f);
 }

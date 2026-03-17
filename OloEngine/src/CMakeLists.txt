@@ -616,6 +616,8 @@
 		"OloEngine/Server/ServerConsole.cpp"
 		"OloEngine/Server/ServerConfigSerializer.h"
 		"OloEngine/Server/ServerConfigSerializer.cpp"
+		"OloEngine/Server/ServerMonitor.h"
+		"OloEngine/Server/ServerMonitor.cpp"
 
 		"OloEngine/Task/CancellationToken.h"
 		"OloEngine/Task/ExtendedTaskPriority.h"

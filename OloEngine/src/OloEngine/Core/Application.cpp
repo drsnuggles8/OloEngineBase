@@ -268,11 +268,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        constexpr f32 TickRate = 1.0f / 60.0f; // 60 Hz server tick
+        const u32 tickRateHz = m_Specification.HeadlessTickRate > 0 ? m_Specification.HeadlessTickRate : 60;
+        const f32 tickInterval = 1.0f / static_cast<f32>(tickRateHz);
         Timer timer;
         f32 accumulator = 0.0f;
 
-        OLO_CORE_INFO("Headless loop started (tick rate: {:.1f} Hz)", 1.0f / TickRate);
+        OLO_CORE_INFO("Headless loop started (tick rate: {} Hz)", tickRateHz);
 
         while (m_Running)
         {
@@ -280,13 +281,14 @@ namespace OloEngine
             timer.Reset();
             accumulator += elapsed;
 
-            while (accumulator >= TickRate)
+            while (accumulator >= tickInterval)
             {
-                const Timestep timestep(TickRate);
+                const Timestep timestep(tickInterval);
 
                 // Process tasks targeted at the Game Thread
                 Tasks::FNamedThreadManager::Get().ProcessTasks(true);
 
+                Timer tickTimer;
                 OLO_PROFILE_FRAMEMARK_START("LayerStack OnUpdate");
                 for (Layer* const layer : m_LayerStack)
                 {
@@ -294,11 +296,19 @@ namespace OloEngine
                 }
                 OLO_PROFILE_FRAMEMARK_END("LayerStack OnUpdate");
 
-                accumulator -= TickRate;
+                // Tick budget warning
+                const f32 tickDuration = tickTimer.Elapsed();
+                if (tickDuration > tickInterval)
+                {
+                    OLO_CORE_WARN("Server tick exceeded budget: {:.2f} ms (budget: {:.2f} ms)",
+                                  tickDuration * 1000.0f, tickInterval * 1000.0f);
+                }
+
+                accumulator -= tickInterval;
             }
 
             // Sleep remaining time to avoid spinning the CPU
-            const f32 sleepTime = TickRate - accumulator;
+            const f32 sleepTime = tickInterval - accumulator;
             if (sleepTime > 0.001f)
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<i32>(sleepTime * 1000)));
