@@ -9,6 +9,9 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Networking/Transport/NetworkServer.h"
+#include "OloEngine/Core/Timer.h"
+
+#include <charconv>
 
 static_assert(OLO_HEADLESS, "OloServer must be compiled with OLO_HEADLESS=1");
 
@@ -28,6 +31,10 @@ namespace OloEngine
             OLO_CORE_INFO("[Server] Max players: {}", m_Config.MaxPlayers);
             OLO_CORE_INFO("[Server] Tick rate: {} Hz", m_Config.TickRate);
 
+            // Compute tick budget for monitor
+            const f32 tickBudget = m_Config.TickRate > 0 ? 1.0f / static_cast<f32>(m_Config.TickRate) : 0.0f;
+            m_Monitor.SetTickBudget(tickBudget);
+
             // Initialize server console
             m_Console.Initialize();
             RegisterConsoleCommands();
@@ -35,18 +42,7 @@ namespace OloEngine
             // Load scene if specified
             if (!m_Config.ScenePath.empty())
             {
-                OLO_CORE_INFO("[Server] Loading scene: {}", m_Config.ScenePath);
-                m_ActiveScene = Scene::Create();
-                SceneSerializer serializer(m_ActiveScene);
-                if (serializer.Deserialize(m_Config.ScenePath))
-                {
-                    m_ActiveScene->OnRuntimeStart();
-                    OLO_CORE_INFO("[Server] Scene loaded and started");
-                }
-                else
-                {
-                    OLO_CORE_ERROR("[Server] Failed to load scene: {}", m_Config.ScenePath);
-                }
+                LoadScene(m_Config.ScenePath);
             }
 
             // Start listening for network connections
@@ -90,16 +86,41 @@ namespace OloEngine
             m_Console.ProcessInput();
 
             // Update active scene simulation
+            Timer tickTimer;
             if (m_ActiveScene)
             {
                 m_ActiveScene->OnUpdateRuntime(ts);
             }
+            const f32 tickDuration = tickTimer.Elapsed();
 
-            // Record tick for monitoring
-            m_Monitor.RecordTick(ts.GetSeconds());
+            // Record measured tick execution time for monitoring
+            m_Monitor.RecordTick(tickDuration);
         }
 
       private:
+        bool LoadScene(const std::string& scenePath)
+        {
+            OLO_CORE_INFO("[Server] Loading scene: {}", scenePath);
+            auto tempScene = Scene::Create();
+            SceneSerializer serializer(tempScene);
+            if (serializer.Deserialize(scenePath))
+            {
+                tempScene->OnRuntimeStart();
+
+                // Success — swap in the new scene
+                if (m_ActiveScene)
+                {
+                    m_ActiveScene->OnRuntimeStop();
+                }
+                m_ActiveScene = tempScene;
+                OLO_CORE_INFO("[Server] Scene loaded and started");
+                return true;
+            }
+
+            OLO_CORE_ERROR("[Server] Failed to load scene: {}", scenePath);
+            return false;
+        }
+
         void RegisterConsoleCommands()
         {
             m_Console.RegisterCommand("players", [this](const std::vector<std::string>&)
@@ -148,18 +169,29 @@ namespace OloEngine
                 return;
             }
 
-            const u32 targetId = static_cast<u32>(std::stoul(args[0]));
-            bool found = false;
+            u32 targetId = 0;
+            const char* val = args[0].c_str();
+            auto [ptr, ec] = std::from_chars(val, val + args[0].size(), targetId);
+            if (ec != std::errc{})
+            {
+                OLO_CORE_WARN("[Server] Invalid client ID '{}'. Usage: kick <client_id>", args[0]);
+                return;
+            }
+
+            HSteamNetConnection targetHandle = k_HSteamNetConnection_Invalid;
             server->ForEachConnection([&](HSteamNetConnection handle, const NetworkConnection& conn)
                                       {
                 if (conn.GetClientID() == targetId)
                 {
-                    // Close via low-level handle — conn is const in the iteration
-                    OLO_CORE_INFO("[Server] Kicking client {} (conn {})", targetId, static_cast<u32>(handle));
-                    found = true;
+                    targetHandle = handle;
                 } });
 
-            if (!found)
+            if (targetHandle != k_HSteamNetConnection_Invalid)
+            {
+                OLO_CORE_INFO("[Server] Kicking client {} (conn {})", targetId, static_cast<u32>(targetHandle));
+                server->CloseConnection(targetHandle, 0, "Kicked by server");
+            }
+            else
             {
                 OLO_CORE_WARN("[Server] Client {} not found.", targetId);
             }
@@ -219,27 +251,10 @@ namespace OloEngine
             }
 
             OLO_CORE_INFO("[Server] Reloading scene from '{}'...", m_Config.ScenePath);
-
-            if (m_ActiveScene)
-            {
-                m_ActiveScene->OnRuntimeStop();
-                m_ActiveScene = nullptr;
-            }
-
-            m_ActiveScene = Scene::Create();
-            SceneSerializer serializer(m_ActiveScene);
-            if (serializer.Deserialize(m_Config.ScenePath))
-            {
-                m_ActiveScene->OnRuntimeStart();
-                OLO_CORE_INFO("[Server] Scene reloaded successfully");
-            }
-            else
-            {
-                OLO_CORE_ERROR("[Server] Failed to reload scene");
-            }
+            LoadScene(m_Config.ScenePath);
         }
 
-        void CmdStats() const
+        void CmdStats()
         {
             m_Monitor.ForceReport();
         }
@@ -272,7 +287,6 @@ namespace OloEngine
         spec.Name = "OloEngine Server";
         spec.IsHeadless = true;
         spec.HeadlessTickRate = config.TickRate;
-        spec.WorkingDirectory = "OloEditor/"; // Asset paths resolve relative to this
         spec.CommandLineArgs = args;
 
         return new OloServerApplication(spec, config);

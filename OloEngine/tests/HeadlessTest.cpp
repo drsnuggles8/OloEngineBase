@@ -11,6 +11,23 @@
 
 using namespace OloEngine;
 
+// RAII guard that removes a file on destruction
+struct TempFileGuard
+{
+    std::filesystem::path Path;
+
+    explicit TempFileGuard(std::filesystem::path p) : Path(std::move(p)) {}
+
+    ~TempFileGuard()
+    {
+        std::error_code ec;
+        std::filesystem::remove(Path, ec);
+    }
+
+    TempFileGuard(const TempFileGuard&) = delete;
+    TempFileGuard& operator=(const TempFileGuard&) = delete;
+};
+
 // ============================================================================
 // ApplicationSpecification headless flag
 // ============================================================================
@@ -88,7 +105,9 @@ TEST(ServerConfigSerializer, ParseMultipleFlags)
 
 TEST(ServerConfigSerializer, YAMLRoundTrip)
 {
-    const std::string testFile = "test_server_config.yaml";
+    auto testPath = std::filesystem::temp_directory_path() / "olotest_roundtrip.yaml";
+    TempFileGuard guard(testPath);
+    const std::string testFile = testPath.string();
 
     // Create config
     ServerConfig original;
@@ -114,9 +133,6 @@ TEST(ServerConfigSerializer, YAMLRoundTrip)
     EXPECT_EQ(loaded.Password, original.Password);
     EXPECT_EQ(loaded.LogLevel, original.LogLevel);
     EXPECT_EQ(loaded.AutoSaveInterval, original.AutoSaveInterval);
-
-    // Cleanup
-    std::filesystem::remove(testFile);
 }
 
 TEST(ServerConfigSerializer, LoadMissingFileReturnsDefaults)
@@ -128,7 +144,9 @@ TEST(ServerConfigSerializer, LoadMissingFileReturnsDefaults)
 
 TEST(ServerConfigSerializer, CommandLineOverridesConfigFile)
 {
-    const std::string testFile = "test_override_config.yaml";
+    auto testPath = std::filesystem::temp_directory_path() / "olotest_override.yaml";
+    TempFileGuard guard(testPath);
+    const std::string testFile = testPath.string();
 
     // Save a config file with port 1234
     ServerConfig fileConfig;
@@ -137,10 +155,11 @@ TEST(ServerConfigSerializer, CommandLineOverridesConfigFile)
     ServerConfigSerializer::SaveToFile(fileConfig, testFile);
 
     // Command line overrides port to 9999
+    std::string configArg = testFile;
     char* argv[] = {
         const_cast<char*>("server"),
         const_cast<char*>("--config"),
-        const_cast<char*>("test_override_config.yaml"),
+        const_cast<char*>(configArg.c_str()),
         const_cast<char*>("--port"),
         const_cast<char*>("9999"),
     };
@@ -148,8 +167,6 @@ TEST(ServerConfigSerializer, CommandLineOverridesConfigFile)
 
     EXPECT_EQ(config.Port, 9999);     // overridden
     EXPECT_EQ(config.MaxPlayers, 8u); // from file
-
-    std::filesystem::remove(testFile);
 }
 
 // ============================================================================
@@ -178,27 +195,29 @@ TEST(ServerConsole, RegisterAndHasCommands)
 TEST(ServerConsole, RegisterCustomCommand)
 {
     ServerConsole console;
-    console.Initialize();
 
     bool called = false;
     console.RegisterCommand("test", [&called](const std::vector<std::string>&)
                             { called = true; });
 
-    // The command is registered; actual dispatch requires stdin input
-    console.Shutdown();
+    // Inject input and process to trigger the handler (no stdin thread needed)
+    console.InjectInput("test");
+    console.ProcessInput();
+    EXPECT_TRUE(called);
 }
 
 TEST(ServerConsole, MessageSendCallback)
 {
     ServerConsole console;
-    console.Initialize();
 
     std::string lastMessage;
     console.SetMessageSendCallback([&lastMessage](const std::string& msg)
                                    { lastMessage = msg; });
 
-    // Callback is registered — actual invocation requires queued input
-    console.Shutdown();
+    // Inject input — the callback receives the raw line before command dispatch
+    console.InjectInput("hello world");
+    console.ProcessInput();
+    EXPECT_EQ(lastMessage, "hello world");
 }
 
 // ============================================================================
@@ -247,10 +266,10 @@ TEST(ServerMonitor, DefaultConstruction)
 
 TEST(ServerMonitor, RecordTicksWithoutCrash)
 {
-    ServerMonitor monitor(1000.0f); // Large interval so no auto-report
+    ServerMonitor monitor(1000.0f, 0.020f); // 20ms budget
     for (int i = 0; i < 100; ++i)
     {
-        monitor.RecordTick(0.016f); // ~60 Hz
+        monitor.RecordTick(0.016f); // ~60 Hz, under budget
     }
     monitor.ForceReport();
 }
@@ -259,6 +278,7 @@ TEST(ServerMonitor, CustomReportInterval)
 {
     ServerMonitor monitor(10.0f);
     monitor.SetReportInterval(5.0f);
-    // No crash; interval change is accepted
+    monitor.SetTickBudget(0.033f);
+    // No crash; interval/budget change is accepted
     monitor.RecordTick(0.016f);
 }

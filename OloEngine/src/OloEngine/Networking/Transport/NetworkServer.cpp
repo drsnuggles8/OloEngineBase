@@ -405,4 +405,16 @@ namespace OloEngine
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_IdleTimeout;
     }
+
+    void NetworkServer::CloseConnection(HSteamNetConnection connection, i32 reason, const char* debug)
+    {
+        OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(m_Mutex);
+
+        if (auto it = m_Connections.find(connection); it != m_Connections.end())
+        {
+            it->second.Close(reason, debug);
+            m_Connections.erase(it);
+        }
+    }
 } // namespace OloEngine

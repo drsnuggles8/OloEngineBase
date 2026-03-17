@@ -6,28 +6,33 @@
 namespace OloEngine
 {
     // Periodic server-side monitoring — logs tick timing, connection count,
-    // network bandwidth, and memory usage at a configurable interval.
+    // and network bandwidth at a configurable interval.
     class ServerMonitor
     {
       public:
         // reportIntervalSeconds: how often to log a summary (default 30 s)
-        explicit ServerMonitor(f32 reportIntervalSeconds = 30.0f);
+        // tickBudgetSeconds: tick duration threshold for budget overrun detection
+        explicit ServerMonitor(f32 reportIntervalSeconds = 30.0f, f32 tickBudgetSeconds = 0.0f);
         ~ServerMonitor() = default;
 
-        // Call once per tick with the delta time and the measured tick duration.
+        // Call once per tick with the measured tick execution duration.
         void RecordTick(f32 tickDurationSeconds);
 
         // Periodic report is printed automatically from RecordTick when the
-        // interval elapses.  Call ForceReport() to print immediately.
-        void ForceReport() const;
+        // interval elapses.  Call ForceReport() to print immediately and
+        // optionally reset accumulators.
+        void ForceReport(bool resetAccumulators = true);
 
         void SetReportInterval(f32 seconds);
+        void SetTickBudget(f32 budgetSeconds);
 
       private:
         void PrintReport() const;
+        void ResetAccumulators();
 
         // Configuration
         f32 m_ReportInterval;
+        f32 m_TickBudget;
 
         // Accumulation between reports
         Timer m_ReportTimer;

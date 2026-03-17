@@ -60,6 +60,7 @@ set_target_properties(OloEngine-ScriptCore PROPERTIES FOLDER "Scripting")
 set_target_properties(OloEngine-LuaScriptCore PROPERTIES FOLDER "Scripting")
 set_target_properties(Sandbox-Scripting PROPERTIES FOLDER "Scripting")
 set_target_properties(OloEditor PROPERTIES FOLDER "Applications")
+set_target_properties(OloServer PROPERTIES FOLDER "Applications")
 
 if(${CMAKE_GENERATOR} MATCHES "Visual Studio")
     set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "OloEditor")

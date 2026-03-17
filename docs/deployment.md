@@ -53,7 +53,7 @@ The server executable **does not** need renderer assets (textures, shaders, HDRI
 
 A simple deployment structure:
 
-```
+```text
 server/
 ├── OloServer.exe
 ├── server.yaml
@@ -88,7 +88,7 @@ server/
 | `--tick-rate <n>` | 60 | Server simulation tick rate (Hz) |
 | `--scene <path>` | *(none)* | Path to the scene file to load |
 | `--config <file>` | *(none)* | Path to a YAML configuration file |
-| `--log-level <level>` | Info | Logging verbosity (Trace, Debug, Info, Warn, Error, Critical) |
+| `--log-level <level>` | Info | *(reserved — not yet implemented)* Logging verbosity |
 
 ### Configuration File (server.yaml)
 
@@ -126,14 +126,14 @@ Once running, the server accepts text commands from stdin:
 
 ## Monitoring
 
-The server automatically logs a monitoring report every 30 seconds (configurable) containing:
+The server automatically logs a monitoring report every 30 seconds containing:
 
 - **Tick stats**: count, average duration, max duration
 - **Network**: connection count, send/receive bandwidth (KB/s), message rates
 
 Example output:
 
-```
+```text
 === Server Monitor Report ===
   Ticks: 1800  |  Avg: 0.42 ms  |  Max: 1.87 ms
   Connections: 12
@@ -165,6 +165,10 @@ OloServer.exe --config server.yaml > server.log 2>&1
 ```
 
 ---
+
+> **Note:** Linux builds and deployment (Docker, systemd) are documented below for
+> future reference, but the engine **does not currently support Linux**.
+> `OloEngine/Core/PlatformDetection.h` will error on non-Windows platforms.
 
 ## Container Deployment (Docker)
 

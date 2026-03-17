@@ -3,6 +3,7 @@
 
 #include "OloEngine/Core/Log.h"
 
+#include <charconv>
 #include <filesystem>
 #include <yaml-cpp/yaml.h>
 
@@ -75,6 +76,11 @@ namespace OloEngine
         out << YAML::EndMap;
 
         std::ofstream fout(filepath);
+        if (!fout.is_open())
+        {
+            OLO_CORE_ERROR("[ServerConfig] Failed to open '{}' for writing", filepath);
+            return;
+        }
         fout << out.c_str();
     }
 
@@ -104,15 +110,45 @@ namespace OloEngine
             std::string arg = argv[i];
             if (arg == "--port" && i + 1 < argc)
             {
-                config.Port = static_cast<u16>(std::stoi(argv[++i]));
+                const char* val = argv[++i];
+                int parsed = 0;
+                auto [ptr, ec] = std::from_chars(val, val + std::strlen(val), parsed);
+                if (ec != std::errc{} || parsed < 1 || parsed > 65535)
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Invalid --port value '{}': must be 1-65535", val);
+                }
+                else
+                {
+                    config.Port = static_cast<u16>(parsed);
+                }
             }
             else if (arg == "--max-players" && i + 1 < argc)
             {
-                config.MaxPlayers = static_cast<u32>(std::stoi(argv[++i]));
+                const char* val = argv[++i];
+                u32 parsed = 0;
+                auto [ptr, ec] = std::from_chars(val, val + std::strlen(val), parsed);
+                if (ec != std::errc{} || parsed == 0)
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Invalid --max-players value '{}': must be a positive integer", val);
+                }
+                else
+                {
+                    config.MaxPlayers = parsed;
+                }
             }
             else if (arg == "--tick-rate" && i + 1 < argc)
             {
-                config.TickRate = static_cast<u32>(std::stoi(argv[++i]));
+                const char* val = argv[++i];
+                u32 parsed = 0;
+                auto [ptr, ec] = std::from_chars(val, val + std::strlen(val), parsed);
+                if (ec != std::errc{} || parsed == 0)
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Invalid --tick-rate value '{}': must be a positive integer", val);
+                }
+                else
+                {
+                    config.TickRate = parsed;
+                }
             }
             else if (arg == "--scene" && i + 1 < argc)
             {

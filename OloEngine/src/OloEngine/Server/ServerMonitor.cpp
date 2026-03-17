@@ -7,42 +7,67 @@
 
 namespace OloEngine
 {
-    ServerMonitor::ServerMonitor(f32 reportIntervalSeconds)
-        : m_ReportInterval(reportIntervalSeconds)
+    ServerMonitor::ServerMonitor(f32 reportIntervalSeconds, f32 tickBudgetSeconds)
+        : m_ReportInterval(reportIntervalSeconds), m_TickBudget(tickBudgetSeconds)
     {
     }
 
     void ServerMonitor::RecordTick(f32 tickDurationSeconds)
     {
+        OLO_PROFILE_FUNCTION();
+
         ++m_TickCount;
         m_TotalTickDuration += tickDurationSeconds;
         m_MaxTickDuration = std::max(m_MaxTickDuration, tickDurationSeconds);
 
+        if (m_TickBudget > 0.0f && tickDurationSeconds > m_TickBudget)
+        {
+            ++m_BudgetOverruns;
+        }
+
         if (m_ReportTimer.Elapsed() >= m_ReportInterval)
         {
             PrintReport();
-
-            // Reset accumulators
-            m_TickCount = 0;
-            m_TotalTickDuration = 0.0f;
-            m_MaxTickDuration = 0.0f;
-            m_BudgetOverruns = 0;
+            ResetAccumulators();
             m_ReportTimer.Reset();
         }
     }
 
     void ServerMonitor::SetReportInterval(f32 seconds)
     {
+        OLO_PROFILE_FUNCTION();
         m_ReportInterval = seconds;
     }
 
-    void ServerMonitor::ForceReport() const
+    void ServerMonitor::SetTickBudget(f32 budgetSeconds)
     {
+        OLO_PROFILE_FUNCTION();
+        m_TickBudget = budgetSeconds;
+    }
+
+    void ServerMonitor::ForceReport(bool resetAccumulators)
+    {
+        OLO_PROFILE_FUNCTION();
+
         PrintReport();
+        if (resetAccumulators)
+        {
+            ResetAccumulators();
+        }
+    }
+
+    void ServerMonitor::ResetAccumulators()
+    {
+        m_TickCount = 0;
+        m_TotalTickDuration = 0.0f;
+        m_MaxTickDuration = 0.0f;
+        m_BudgetOverruns = 0;
     }
 
     void ServerMonitor::PrintReport() const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_TickCount == 0)
         {
             return;
@@ -53,6 +78,11 @@ namespace OloEngine
 
         OLO_CORE_INFO("=== Server Monitor Report ===");
         OLO_CORE_INFO("  Ticks: {}  |  Avg: {:.2f} ms  |  Max: {:.2f} ms", m_TickCount, avgTickMs, maxTickMs);
+
+        if (m_BudgetOverruns > 0)
+        {
+            OLO_CORE_INFO("  Budget overruns: {}", m_BudgetOverruns);
+        }
 
         // Network stats (if the server is running)
         if (auto* server = NetworkManager::GetServer(); server)

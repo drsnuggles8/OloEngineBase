@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Events/ApplicationEvent.h"
+#include "OloEngine/Renderer/RendererTypes.h"
 
 #ifndef OLO_HEADLESS
 #include "OloEngine/Core/Window.h"
@@ -17,13 +18,6 @@ namespace OloEngine
 {
     class Window;
     class ImGuiLayer;
-
-    // Mirror the enum so ApplicationSpecification compiles without Renderer.h
-    enum class RendererType
-    {
-        Renderer2D,
-        Renderer3D,
-    };
 } // namespace OloEngine
 #endif
 

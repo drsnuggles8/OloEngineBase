@@ -54,6 +54,9 @@ namespace OloEngine
         void SetIdleTimeout(f32 timeoutSeconds);
         [[nodiscard]] f32 GetIdleTimeout() const;
 
+        // Close a specific client connection by handle (e.g., for kick).
+        void CloseConnection(HSteamNetConnection connection, i32 reason = 0, const char* debug = "Kicked");
+
         void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
 
       private:

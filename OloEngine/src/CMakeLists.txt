@@ -332,6 +332,7 @@
 		"OloEngine/Renderer/RenderCommand.h"
 		"OloEngine/Renderer/Renderer.cpp"
 		"OloEngine/Renderer/Renderer.h"
+		"OloEngine/Renderer/RendererTypes.h"
 		"OloEngine/Renderer/Renderer2D.cpp"
 		"OloEngine/Renderer/Renderer2D.h"
 		"OloEngine/Renderer/Renderer3D.cpp"

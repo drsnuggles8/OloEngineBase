@@ -57,6 +57,9 @@ namespace OloEngine
         // Register a custom command handler
         void RegisterCommand(const std::string& name, CommandHandler handler);
 
+        // Inject a command string for testing — queues it as if typed on stdin
+        void InjectInput(const std::string& line);
+
       private:
         void RegisterBuiltInCommands();
         void ExecuteCommand(const std::string& line);
