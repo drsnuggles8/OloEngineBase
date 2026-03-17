@@ -8,8 +8,18 @@
 
 #include <filesystem>
 #include <fstream>
+#include <process.h>
+#include <sstream>
 
 using namespace OloEngine;
+
+// Helper to generate a unique temp filename using PID to avoid parallel test collisions
+static std::filesystem::path UniqueTempPath(const char* baseName)
+{
+    std::ostringstream oss;
+    oss << baseName << "_" << _getpid() << ".yaml";
+    return std::filesystem::temp_directory_path() / oss.str();
+}
 
 // RAII guard that removes a file on destruction
 struct TempFileGuard
@@ -105,7 +115,7 @@ TEST(ServerConfigSerializer, ParseMultipleFlags)
 
 TEST(ServerConfigSerializer, YAMLRoundTrip)
 {
-    auto testPath = std::filesystem::temp_directory_path() / "olotest_roundtrip.yaml";
+    auto testPath = UniqueTempPath("olotest_roundtrip");
     TempFileGuard guard(testPath);
     const std::string testFile = testPath.string();
 
@@ -144,7 +154,7 @@ TEST(ServerConfigSerializer, LoadMissingFileReturnsDefaults)
 
 TEST(ServerConfigSerializer, CommandLineOverridesConfigFile)
 {
-    auto testPath = std::filesystem::temp_directory_path() / "olotest_override.yaml";
+    auto testPath = UniqueTempPath("olotest_override");
     TempFileGuard guard(testPath);
     const std::string testFile = testPath.string();
 

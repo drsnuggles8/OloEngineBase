@@ -5,7 +5,7 @@
 ### Prerequisites
 
 - CMake 3.27+
-- A C++23 compatible compiler (MSVC 19.38+ or GCC 13+ or Clang 17+)
+- A C++23-compatible compiler (MSVC 19.38+ or GCC 13+ or Clang 17+)
 - All engine dependencies (fetched automatically via CPM/FetchContent)
 
 ### Build Commands
@@ -144,7 +144,7 @@ Example output:
 
 Tick budget warnings are logged immediately when a single tick exceeds its time budget:
 
-```
+```text
 Server tick exceeded budget: 18.50 ms (budget: 16.67 ms)
 ```
 
@@ -166,11 +166,16 @@ OloServer.exe --config server.yaml > server.log 2>&1
 
 ---
 
-> **Note:** Linux builds and deployment (Docker, systemd) are documented below for
-> future reference, but the engine **does not currently support Linux**.
-> `OloEngine/Core/PlatformDetection.h` will error on non-Windows platforms.
+---
 
-## Container Deployment (Docker)
+## Future Platform Support (Linux)
+
+> **Warning:** The engine **does not currently support Linux**.
+> `OloEngine/Core/PlatformDetection.h` will produce a compile error on non-Windows
+> platforms. The Docker, systemd and related sections below are provided as a
+> reference for when Linux support is added.
+
+### Container Deployment (Docker)
 
 Example `Dockerfile`:
 
@@ -223,6 +228,8 @@ services:
 
 ---
 
+---
+
 ## Windows Service
 
 Use [NSSM](https://nssm.cc/) (Non-Sucking Service Manager) to run OloServer as a Windows service:
@@ -237,7 +244,7 @@ nssm start OloServer
 
 ---
 
-## Linux Systemd Service
+### Linux Systemd Service
 
 Create `/etc/systemd/system/oloserver.service`:
 
@@ -279,7 +286,7 @@ journalctl -u oloserver -f
 |---|---|
 | Tick rate | 30 Hz for RPGs/MMOs, 60 Hz for action games, 128 Hz for competitive FPS |
 | Max players | Set based on available CPU/memory; profile under load |
-| Idle timeout | Set `SetIdleTimeout()` to disconnect AFK clients (e.g. 300 seconds) |
+| Idle timeout | Call `server->SetIdleTimeout(300.0f)` on the `NetworkServer` instance to disconnect AFK clients after 300 seconds |
 | CPU affinity | Pin the server process to specific cores on multicore machines |
 
 ### Recommended Hardware (per instance)

@@ -11,6 +11,8 @@ namespace OloEngine
 {
     ServerConfig ServerConfigSerializer::LoadFromFile(const std::string& filepath)
     {
+        OLO_PROFILE_FUNCTION();
+
         ServerConfig config;
 
         if (!std::filesystem::exists(filepath))
@@ -25,15 +27,39 @@ namespace OloEngine
 
             if (root["port"])
             {
-                config.Port = root["port"].as<u16>();
+                auto port = root["port"].as<int>();
+                if (port < 1 || port > 65535)
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Invalid port {} in '{}': must be 1-65535", port, filepath);
+                }
+                else
+                {
+                    config.Port = static_cast<u16>(port);
+                }
             }
             if (root["maxPlayers"])
             {
-                config.MaxPlayers = root["maxPlayers"].as<u32>();
+                auto val = root["maxPlayers"].as<u32>();
+                if (val == 0)
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Invalid maxPlayers 0 in '{}': must be > 0", filepath);
+                }
+                else
+                {
+                    config.MaxPlayers = val;
+                }
             }
             if (root["tickRate"])
             {
-                config.TickRate = root["tickRate"].as<u32>();
+                auto val = root["tickRate"].as<u32>();
+                if (val == 0)
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Invalid tickRate 0 in '{}': must be > 0", filepath);
+                }
+                else
+                {
+                    config.TickRate = val;
+                }
             }
             if (root["scene"])
             {
@@ -64,6 +90,8 @@ namespace OloEngine
 
     void ServerConfigSerializer::SaveToFile(const ServerConfig& config, const std::string& filepath)
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "port" << YAML::Value << config.Port;
@@ -82,10 +110,16 @@ namespace OloEngine
             return;
         }
         fout << out.c_str();
+        if (!fout.good())
+        {
+            OLO_CORE_ERROR("[ServerConfig] Failed to write config to '{}'", filepath);
+        }
     }
 
     ServerConfig ServerConfigSerializer::ParseCommandLine(int argc, char** argv)
     {
+        OLO_PROFILE_FUNCTION();
+
         ServerConfig config;
         std::string configFile;
 
@@ -111,9 +145,10 @@ namespace OloEngine
             if (arg == "--port" && i + 1 < argc)
             {
                 const char* val = argv[++i];
+                const char* end = val + std::strlen(val);
                 int parsed = 0;
-                auto [ptr, ec] = std::from_chars(val, val + std::strlen(val), parsed);
-                if (ec != std::errc{} || parsed < 1 || parsed > 65535)
+                auto [ptr, ec] = std::from_chars(val, end, parsed);
+                if (ec != std::errc{} || ptr != end || parsed < 1 || parsed > 65535)
                 {
                     OLO_CORE_ERROR("[ServerConfig] Invalid --port value '{}': must be 1-65535", val);
                 }
@@ -125,9 +160,10 @@ namespace OloEngine
             else if (arg == "--max-players" && i + 1 < argc)
             {
                 const char* val = argv[++i];
+                const char* end = val + std::strlen(val);
                 u32 parsed = 0;
-                auto [ptr, ec] = std::from_chars(val, val + std::strlen(val), parsed);
-                if (ec != std::errc{} || parsed == 0)
+                auto [ptr, ec] = std::from_chars(val, end, parsed);
+                if (ec != std::errc{} || ptr != end || parsed == 0)
                 {
                     OLO_CORE_ERROR("[ServerConfig] Invalid --max-players value '{}': must be a positive integer", val);
                 }
@@ -139,9 +175,10 @@ namespace OloEngine
             else if (arg == "--tick-rate" && i + 1 < argc)
             {
                 const char* val = argv[++i];
+                const char* end = val + std::strlen(val);
                 u32 parsed = 0;
-                auto [ptr, ec] = std::from_chars(val, val + std::strlen(val), parsed);
-                if (ec != std::errc{} || parsed == 0)
+                auto [ptr, ec] = std::from_chars(val, end, parsed);
+                if (ec != std::errc{} || ptr != end || parsed == 0)
                 {
                     OLO_CORE_ERROR("[ServerConfig] Invalid --tick-rate value '{}': must be a positive integer", val);
                 }

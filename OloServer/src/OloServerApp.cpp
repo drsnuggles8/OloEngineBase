@@ -171,8 +171,9 @@ namespace OloEngine
 
             u32 targetId = 0;
             const char* val = args[0].c_str();
-            auto [ptr, ec] = std::from_chars(val, val + args[0].size(), targetId);
-            if (ec != std::errc{})
+            const char* end = val + args[0].size();
+            auto [ptr, ec] = std::from_chars(val, end, targetId);
+            if (ec != std::errc{} || ptr != end)
             {
                 OLO_CORE_WARN("[Server] Invalid client ID '{}'. Usage: kick <client_id>", args[0]);
                 return;

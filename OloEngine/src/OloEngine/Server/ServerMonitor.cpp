@@ -53,11 +53,14 @@ namespace OloEngine
         if (resetAccumulators)
         {
             ResetAccumulators();
+            m_ReportTimer.Reset();
         }
     }
 
     void ServerMonitor::ResetAccumulators()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_TickCount = 0;
         m_TotalTickDuration = 0.0f;
         m_MaxTickDuration = 0.0f;

@@ -8,6 +8,11 @@
 #include <iostream>
 #include <sstream>
 
+#ifdef OLO_PLATFORM_WINDOWS
+#include <io.h>
+#include <windows.h>
+#endif
+
 namespace OloEngine
 {
     ServerConsole::ServerConsole() = default;
@@ -46,8 +51,16 @@ namespace OloEngine
         m_InputThreadRunning = false;
 
         // The input thread may be blocked on std::getline.
-        // Closing stdin unblocks it on most platforms.
+        // Cancel the pending stdin read so the thread can observe the flag and exit.
+#ifdef OLO_PLATFORM_WINDOWS
+        HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+        if (hStdin != INVALID_HANDLE_VALUE)
+        {
+            CancelIoEx(hStdin, nullptr);
+        }
+#else
         std::cin.setstate(std::ios::eofbit);
+#endif
 
         if (m_InputThread.joinable())
         {
@@ -128,6 +141,8 @@ namespace OloEngine
 
     void ServerConsole::InjectInput(const std::string& line)
     {
+        OLO_PROFILE_FUNCTION();
+
         std::lock_guard lock(m_InputQueueMutex);
         m_InputQueue.push(line);
     }
