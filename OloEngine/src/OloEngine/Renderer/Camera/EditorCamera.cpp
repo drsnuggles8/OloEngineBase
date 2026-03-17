@@ -156,8 +156,8 @@ namespace OloEngine
                     if (glm::length(rightStick) > 0.0f)
                     {
                         const f32 yawSign = GetUpDirection().y < 0 ? -1.0f : 1.0f;
-                        m_Yaw += yawSign * rightStick.x * m_GamepadLookSensitivity * ts;
-                        m_Pitch += rightStick.y * m_GamepadLookSensitivity * ts;
+                        m_Yaw += yawSign * rightStick.x * m_GamepadSensitivity * ts;
+                        m_Pitch += rightStick.y * m_GamepadSensitivity * ts;
 
                         m_FocalPoint = m_Position + GetForwardDirection() * m_Distance;
                     }
@@ -189,7 +189,9 @@ namespace OloEngine
 
                     if (glm::length(movement) > 0.0f)
                     {
-                        m_FocalPoint += glm::normalize(movement) * speed;
+                        // Clamp length to 1 (prevents diagonal speed boost) but preserve analog magnitude
+                        glm::vec3 dir = glm::length(movement) > 1.0f ? glm::normalize(movement) : movement;
+                        m_FocalPoint += dir * speed;
                     }
                 }
             }

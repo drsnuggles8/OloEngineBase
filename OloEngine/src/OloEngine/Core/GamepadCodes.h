@@ -1,5 +1,10 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h"
+
+#include <optional>
+#include <string>
+
 namespace OloEngine
 {
     enum class GamepadButton : u8
@@ -28,8 +33,8 @@ namespace OloEngine
         LeftY,        // Left stick vertical (-1 to +1)
         RightX,       // Right stick horizontal
         RightY,       // Right stick vertical
-        LeftTrigger,  // LT (0 to +1)
-        RightTrigger, // RT (0 to +1)
+        LeftTrigger,  // LT (-1 to +1, -1 = released)
+        RightTrigger, // RT (-1 to +1, -1 = released)
         Count
     };
 

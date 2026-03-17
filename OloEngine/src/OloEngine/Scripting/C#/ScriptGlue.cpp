@@ -1770,24 +1770,40 @@ namespace OloEngine
 
     static bool Input_IsGamepadButtonPressed(u8 button, i32 gamepadIndex)
     {
+        if (button >= Gamepad::ButtonCount)
+        {
+            return false;
+        }
         auto* gp = GamepadManager::GetGamepad(gamepadIndex);
         return gp && gp->IsButtonPressed(static_cast<GamepadButton>(button));
     }
 
     static bool Input_IsGamepadButtonJustPressed(u8 button, i32 gamepadIndex)
     {
+        if (button >= Gamepad::ButtonCount)
+        {
+            return false;
+        }
         auto* gp = GamepadManager::GetGamepad(gamepadIndex);
         return gp && gp->IsButtonJustPressed(static_cast<GamepadButton>(button));
     }
 
     static bool Input_IsGamepadButtonJustReleased(u8 button, i32 gamepadIndex)
     {
+        if (button >= Gamepad::ButtonCount)
+        {
+            return false;
+        }
         auto* gp = GamepadManager::GetGamepad(gamepadIndex);
         return gp && gp->IsButtonJustReleased(static_cast<GamepadButton>(button));
     }
 
     static f32 Input_GetGamepadAxis(u8 axis, i32 gamepadIndex)
     {
+        if (axis >= Gamepad::AxisCount)
+        {
+            return 0.0f;
+        }
         auto* gp = GamepadManager::GetGamepad(gamepadIndex);
         return gp ? gp->GetAxis(static_cast<GamepadAxis>(axis)) : 0.0f;
     }

@@ -19,7 +19,13 @@ namespace Sandbox
 		void OnUpdate(float ts)
 		{
 			Vector3 translation = m_Transform.Translation;
+			// --- Sprint (right trigger scales speed) ---
 			float speed = MoveSpeed;
+			float triggerValue = Input.GetGamepadAxis(GamepadAxis.RightTrigger);
+			if (triggerValue > 0.1f)
+			{
+				speed *= 1.0f + triggerValue * 1.5f;
+			}
 
 			// --- Movement via InputActions (works with KB + gamepad) ---
 			if (Input.IsActionPressed("MoveUp"))
@@ -51,14 +57,6 @@ namespace Sandbox
 				translation.Y -= 9.8f * ts;
 			if (translation.Y < 0.5f)
 				translation.Y = 0.5f;
-
-			// --- Sprint (right trigger) ---
-			float triggerValue = Input.GetGamepadAxis(GamepadAxis.RightTrigger);
-			if (triggerValue > 0.1f)
-			{
-				// Already moved above, so scale the previous frame's movement
-				// Next frame will use the boosted speed
-			}
 
 			m_Transform.Translation = translation;
 		}

@@ -75,15 +75,15 @@ namespace OloEngine
         }
 
         // Input device switching
-        if (anyGamepadInput && s_ActiveDevice != InputDevice::Gamepad)
+        if (anyGamepadInput && s_ActiveDevice != InputDevice::GamepadDevice)
         {
-            s_ActiveDevice = InputDevice::Gamepad;
+            s_ActiveDevice = InputDevice::GamepadDevice;
             if (OnDeviceChanged)
             {
                 OnDeviceChanged(s_ActiveDevice);
             }
         }
-        else if (!anyGamepadInput && s_ActiveDevice == InputDevice::Gamepad)
+        else if (!anyGamepadInput && s_ActiveDevice == InputDevice::GamepadDevice)
         {
             // Check for any keyboard/mouse activity to switch back
             // We detect KB/M via mouse movement (cheap check)
@@ -126,6 +126,7 @@ namespace OloEngine
     std::vector<OloEngine::Gamepad*> GamepadManager::GetAllConnected()
     {
         std::vector<OloEngine::Gamepad*> result;
+        result.reserve(MaxGamepads);
         for (i32 i = 0; i < MaxGamepads; ++i)
         {
             if (s_Gamepads[i].IsConnected())

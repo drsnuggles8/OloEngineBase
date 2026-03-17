@@ -105,11 +105,11 @@ namespace OloEngine
         }
         void SetGamepadSensitivity(f32 sensitivity)
         {
-            m_GamepadLookSensitivity = sensitivity;
+            m_GamepadSensitivity = sensitivity;
         }
         [[nodiscard]] f32 GetGamepadSensitivity() const
         {
-            return m_GamepadLookSensitivity;
+            return m_GamepadSensitivity;
         }
 
       private:
@@ -149,7 +149,7 @@ namespace OloEngine
 
         // Gamepad control
         bool m_GamepadEnabled = true;
-        f32 m_GamepadLookSensitivity = 2.0F;
+        f32 m_GamepadSensitivity = 2.0F;
 
         f32 m_ViewportWidth = 1280.0F;
         f32 m_ViewportHeight = 720.0F;

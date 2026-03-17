@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Gamepad.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <GLFW/glfw3.h>
 
@@ -13,6 +14,8 @@ namespace OloEngine
 
     void Gamepad::Update()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_PreviousButtons = m_CurrentButtons;
         m_HadInput = false;
 
@@ -35,11 +38,13 @@ namespace OloEngine
             return;
         }
 
+        bool firstConnect = false;
         if (!m_Connected)
         {
             const char* name = glfwGetGamepadName(m_JoystickId);
             m_Name = name ? name : "Unknown Gamepad";
             m_Connected = true;
+            firstConnect = true;
             OLO_CORE_INFO("Gamepad {} connected: {}", m_JoystickId, m_Name);
         }
 
@@ -58,7 +63,7 @@ namespace OloEngine
             for (u32 i = 0; i < AxisCount; ++i)
             {
                 f32 newAxis = state.axes[i];
-                if (std::abs(newAxis - m_Axes[i]) > 0.01f)
+                if (!firstConnect && std::abs(newAxis - m_Axes[i]) > 0.01f)
                 {
                     m_HadInput = true;
                 }

@@ -142,11 +142,6 @@
 			"dependsOn": [
 				"build-tests-debug"
 			]
-		},
-		{
-			"label": "cmake-configure",
-			"type": "shell",
-			"command": "cmake -Bbuild -G \"Visual Studio 18 2026\" -DCMAKE_GENERATOR_PLATFORM=x64"
 		}
 	]
 }

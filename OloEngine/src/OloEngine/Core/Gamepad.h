@@ -13,8 +13,9 @@ namespace OloEngine
     // the edge of the dead zone maps to 0 and full deflection maps to 1.
     inline glm::vec2 ApplyRadialDeadzone(glm::vec2 input, f32 deadzone)
     {
+        deadzone = glm::clamp(deadzone, 0.0f, 0.9999f);
         f32 magnitude = glm::length(input);
-        if (magnitude < deadzone)
+        if (magnitude <= deadzone)
         {
             return { 0.0f, 0.0f };
         }

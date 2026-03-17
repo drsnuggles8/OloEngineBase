@@ -8,7 +8,6 @@
 #include "OloEngine/Core/InputActionSerializer.h"
 
 #include <filesystem>
-#include <fstream>
 
 using namespace OloEngine;
 
@@ -159,8 +158,8 @@ class MockGamepadInputProvider : public IInputProvider
         return (idx < m_Axes.size()) ? m_Axes[idx] : 0.0f;
     }
 
-    std::array<bool, 15> m_Buttons{};
-    std::array<f32, 6> m_Axes{};
+    std::array<bool, Gamepad::ButtonCount> m_Buttons{};
+    std::array<f32, Gamepad::AxisCount> m_Axes{};
 };
 
 class GamepadActionTest : public ::testing::Test

@@ -248,18 +248,28 @@ namespace OloEngine
             }
             s_CurrentState[actionName] = pressed;
 
-            // Track the best analog value for axis queries
-            f32 bestAxisValue = pressed ? 1.0f : 0.0f;
+            // Track the best analog value for axis queries.
+            // Prefer actual axis deflection over digital 0/1.
+            f32 bestAxisValue = 0.0f;
             for (const auto& binding : action.Bindings)
             {
                 if (binding.Type == InputBindingType::GamepadAxis)
                 {
                     f32 axisVal = s_InputProvider->GetGamepadAxis(binding.GPAxis);
+                    if (binding.AxisPositive)
+                    {
+                        axisVal = std::max(0.0f, axisVal);
+                    }
                     if (std::abs(axisVal) > std::abs(bestAxisValue))
                     {
                         bestAxisValue = axisVal;
                     }
                 }
+            }
+            // Fall back to digital state only when no axis produced a stronger value
+            if (pressed && std::abs(bestAxisValue) < 1.0f)
+            {
+                bestAxisValue = 1.0f;
             }
             s_AxisValues[actionName] = bestAxisValue;
         }
@@ -313,6 +323,8 @@ namespace OloEngine
 
     f32 InputActionManager::GetActionAxisValue(std::string_view actionName)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto it = s_AxisValues.find(actionName);
         if (it == s_AxisValues.end())
         {

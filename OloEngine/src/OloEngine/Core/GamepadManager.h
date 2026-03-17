@@ -11,7 +11,7 @@ namespace OloEngine
     enum class InputDevice : u8
     {
         KeyboardMouse,
-        Gamepad
+        GamepadDevice
     };
 
     class GamepadManager

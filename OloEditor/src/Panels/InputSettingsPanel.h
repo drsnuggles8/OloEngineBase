@@ -48,7 +48,6 @@ namespace OloEngine
         bool m_RebindIsNewBinding = false; // true when adding a new binding slot
 
         // Add gamepad axis binding state
-        bool m_ShowAddGamepadAxis = false;
         std::string m_GamepadAxisActionName;
 
         // Add action state

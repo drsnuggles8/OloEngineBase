@@ -14,6 +14,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 
 namespace OloEngine
 {
@@ -219,7 +220,6 @@ namespace OloEngine
             ImGui::SameLine();
             if (ImGui::SmallButton("Add Gamepad Axis"))
             {
-                m_ShowAddGamepadAxis = true;
                 m_GamepadAxisActionName = action.Name;
                 ImGui::OpenPopup("AddGamepadAxisPopup");
             }
@@ -460,11 +460,11 @@ namespace OloEngine
         {
             ImGui::Text("Select Gamepad Axis:");
 
-            static const char* axisNames[] = { "Left Stick X", "Left Stick Y", "Right Stick X", "Right Stick Y", "Left Trigger", "Right Trigger" };
-            static const GamepadAxis axes[] = { GamepadAxis::LeftX, GamepadAxis::LeftY, GamepadAxis::RightX, GamepadAxis::RightY, GamepadAxis::LeftTrigger,
-                                                GamepadAxis::RightTrigger };
+            constexpr std::array<const char*, 6> axisNames = { "Left Stick X", "Left Stick Y", "Right Stick X", "Right Stick Y", "Left Trigger", "Right Trigger" };
+            constexpr std::array<GamepadAxis, 6> axes = { GamepadAxis::LeftX, GamepadAxis::LeftY, GamepadAxis::RightX, GamepadAxis::RightY, GamepadAxis::LeftTrigger,
+                                                          GamepadAxis::RightTrigger };
 
-            for (i32 i = 0; i < 6; ++i)
+            for (i32 i = 0; i < static_cast<i32>(axisNames.size()); ++i)
             {
                 if (ImGui::Selectable(axisNames[i]))
                 {

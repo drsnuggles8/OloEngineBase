@@ -19,7 +19,7 @@ namespace OloEngine
 
         // Active input device
         InputDevice activeDevice = GamepadManager::GetActiveDevice();
-        ImGui::Text("Active Device: %s", activeDevice == InputDevice::Gamepad ? "Gamepad" : "Keyboard/Mouse");
+        ImGui::Text("Active Device: %s", activeDevice == InputDevice::GamepadDevice ? "Gamepad" : "Keyboard/Mouse");
         ImGui::Text("Connected Gamepads: %d", GamepadManager::GetConnectedCount());
         ImGui::Separator();
 
@@ -31,7 +31,8 @@ namespace OloEngine
                 continue;
             }
 
-            if (ImGui::TreeNodeEx(gp->GetName().c_str(), ImGuiTreeNodeFlags_DefaultOpen, "Gamepad %d: %s", i, gp->GetName().c_str()))
+            ImGui::PushID(i);
+            if (ImGui::TreeNodeEx("##Gamepad", ImGuiTreeNodeFlags_DefaultOpen, "Gamepad %d: %s", i, gp->GetName().c_str()))
             {
                 // Buttons
                 ImGui::Text("Buttons:");
@@ -115,6 +116,7 @@ namespace OloEngine
 
                 ImGui::TreePop();
             }
+            ImGui::PopID();
         }
 
         if (GamepadManager::GetConnectedCount() == 0)
