@@ -40,6 +40,12 @@ namespace OloEngine
             return s_ActiveDevice;
         }
 
+        // Call when any keyboard or mouse event is received (used for device switching)
+        static void NotifyKeyboardMouseActivity()
+        {
+            s_HadKeyboardMouseInput = true;
+        }
+
         // Callbacks
         static inline std::function<void(i32 index)> OnGamepadConnected;
         static inline std::function<void(i32 index)> OnGamepadDisconnected;
@@ -54,6 +60,7 @@ namespace OloEngine
 
         // Track previous connection states for hotplug detection
         static inline std::array<bool, MaxGamepads> s_WasConnected{};
+        static inline bool s_HadKeyboardMouseInput = false;
     };
 
 } // namespace OloEngine

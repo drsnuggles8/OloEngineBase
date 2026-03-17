@@ -173,6 +173,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Notify GamepadManager of keyboard/mouse activity for device switching
+        if (e.GetEventType() == EventType::KeyPressed || e.GetEventType() == EventType::MouseButtonPressed || e.GetEventType() == EventType::MouseMoved)
+        {
+            GamepadManager::NotifyKeyboardMouseActivity();
+        }
+
         EventDispatcher dispatcher(e);
         dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(Application::OnWindowClose));
         dispatcher.Dispatch<WindowResizeEvent>(OLO_BIND_EVENT_FN(Application::OnWindowResize));

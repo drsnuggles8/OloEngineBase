@@ -260,6 +260,10 @@ namespace OloEngine
                     {
                         axisVal = std::max(0.0f, axisVal);
                     }
+                    else
+                    {
+                        axisVal = std::min(0.0f, axisVal);
+                    }
                     if (std::abs(axisVal) > std::abs(bestAxisValue))
                     {
                         bestAxisValue = axisVal;
@@ -269,7 +273,7 @@ namespace OloEngine
             // Fall back to digital state only when no axis produced a stronger value
             if (pressed && std::abs(bestAxisValue) < 1.0f)
             {
-                bestAxisValue = 1.0f;
+                bestAxisValue = (bestAxisValue != 0.0f) ? std::copysign(1.0f, bestAxisValue) : 1.0f;
             }
             s_AxisValues[actionName] = bestAxisValue;
         }

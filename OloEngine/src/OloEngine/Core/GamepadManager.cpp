@@ -1,6 +1,5 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/GamepadManager.h"
-#include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
@@ -86,10 +85,7 @@ namespace OloEngine
         else if (!anyGamepadInput && s_ActiveDevice == InputDevice::GamepadDevice)
         {
             // Check for any keyboard/mouse activity to switch back
-            // We detect KB/M via mouse movement (cheap check)
-            static glm::vec2 lastMouse = Input::GetMousePosition();
-            glm::vec2 currentMouse = Input::GetMousePosition();
-            if (glm::length(currentMouse - lastMouse) > 1.0f)
+            if (s_HadKeyboardMouseInput)
             {
                 s_ActiveDevice = InputDevice::KeyboardMouse;
                 if (OnDeviceChanged)
@@ -97,8 +93,8 @@ namespace OloEngine
                     OnDeviceChanged(s_ActiveDevice);
                 }
             }
-            lastMouse = currentMouse;
         }
+        s_HadKeyboardMouseInput = false;
     }
 
     OloEngine::Gamepad* GamepadManager::GetGamepad(i32 index)
@@ -125,6 +121,8 @@ namespace OloEngine
 
     std::vector<OloEngine::Gamepad*> GamepadManager::GetAllConnected()
     {
+        OLO_PROFILE_FUNCTION();
+
         std::vector<OloEngine::Gamepad*> result;
         result.reserve(MaxGamepads);
         for (i32 i = 0; i < MaxGamepads; ++i)
