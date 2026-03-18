@@ -266,7 +266,9 @@ namespace OloEngine
         // Verify no leftover data
         if (offset != data.size())
         {
-            OLO_CORE_WARN("NavMesh::Deserialize: {} bytes of trailing data", data.size() - offset);
+            OLO_CORE_ERROR("NavMesh::Deserialize: {} bytes of trailing data — treating as corrupt", data.size() - offset);
+            dtFreeNavMesh(navMesh);
+            return false;
         }
 
         SetDetourNavMesh(navMesh);

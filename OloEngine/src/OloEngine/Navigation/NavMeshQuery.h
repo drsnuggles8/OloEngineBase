@@ -36,6 +36,8 @@ namespace OloEngine
         }
 
       private:
+        void ComputeQueryExtents(f32 outExtent[3]) const;
+
         dtNavMeshQuery* m_Query = nullptr;
         Ref<NavMesh> m_NavMesh;
         i32 m_MaxPolys = 2048;

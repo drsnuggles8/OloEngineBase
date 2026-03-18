@@ -7,7 +7,6 @@
 
 namespace OloEngine
 {
-    static constexpr f32 DEFAULT_EXTENT[3] = { 2.0f, 4.0f, 2.0f };
 
     NavMeshQuery::NavMeshQuery(const Ref<NavMesh>& navMesh, i32 queryBudget)
     {
@@ -72,6 +71,23 @@ namespace OloEngine
         }
     }
 
+    void NavMeshQuery::ComputeQueryExtents(f32 outExtent[3]) const
+    {
+        if (m_NavMesh)
+        {
+            const auto& s = m_NavMesh->GetSettings();
+            outExtent[0] = std::max(s.AgentRadius * 2.0f, s.CellSize);
+            outExtent[1] = std::max(s.AgentHeight, s.CellHeight);
+            outExtent[2] = outExtent[0];
+        }
+        else
+        {
+            outExtent[0] = 2.0f;
+            outExtent[1] = 4.0f;
+            outExtent[2] = 2.0f;
+        }
+    }
+
     bool NavMeshQuery::FindPath(const glm::vec3& start, const glm::vec3& end, std::vector<glm::vec3>& outPath) const
     {
         OLO_PROFILE_FUNCTION();
@@ -84,6 +100,9 @@ namespace OloEngine
         const f32 startPos[3] = { start.x, start.y, start.z };
         const f32 endPos[3] = { end.x, end.y, end.z };
 
+        f32 extent[3];
+        ComputeQueryExtents(extent);
+
         dtQueryFilter filter;
         filter.setIncludeFlags(0xFFFF);
         filter.setExcludeFlags(0);
@@ -93,11 +112,11 @@ namespace OloEngine
         f32 nearestStart[3]{};
         f32 nearestEnd[3]{};
 
-        dtStatus status = m_Query->findNearestPoly(startPos, DEFAULT_EXTENT, &filter, &startRef, nearestStart);
+        dtStatus status = m_Query->findNearestPoly(startPos, extent, &filter, &startRef, nearestStart);
         if (dtStatusFailed(status) || !startRef)
             return false;
 
-        status = m_Query->findNearestPoly(endPos, DEFAULT_EXTENT, &filter, &endRef, nearestEnd);
+        status = m_Query->findNearestPoly(endPos, extent, &filter, &endRef, nearestEnd);
         if (dtStatusFailed(status) || !endRef)
             return false;
 
@@ -161,13 +180,16 @@ namespace OloEngine
         const f32 startPos[3] = { start.x, start.y, start.z };
         const f32 endPos[3] = { end.x, end.y, end.z };
 
+        f32 extent[3];
+        ComputeQueryExtents(extent);
+
         dtQueryFilter filter;
         filter.setIncludeFlags(0xFFFF);
         filter.setExcludeFlags(0);
 
         dtPolyRef startRef = 0;
         f32 nearest[3]{};
-        dtStatus status = m_Query->findNearestPoly(startPos, DEFAULT_EXTENT, &filter, &startRef, nearest);
+        dtStatus status = m_Query->findNearestPoly(startPos, extent, &filter, &startRef, nearest);
 
         if (dtStatusFailed(status) || !startRef)
             return false;

@@ -79,6 +79,8 @@ namespace OloEngine
 
     void CrowdManager::RemoveAgent(i32 agentId)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (IsValidAgentId(agentId))
             m_Crowd->removeAgent(agentId);
     }
@@ -120,6 +122,8 @@ namespace OloEngine
 
     bool CrowdManager::IsAgentActive(i32 agentId) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!IsValidAgentId(agentId))
             return false;
 
@@ -129,6 +133,8 @@ namespace OloEngine
 
     bool CrowdManager::GetAgentPosition(i32 agentId, glm::vec3& outPosition) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!IsValidAgentId(agentId))
             return false;
 
@@ -142,6 +148,8 @@ namespace OloEngine
 
     bool CrowdManager::GetAgentVelocity(i32 agentId, glm::vec3& outVelocity) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!IsValidAgentId(agentId))
             return false;
 
@@ -155,6 +163,8 @@ namespace OloEngine
 
     i32 CrowdManager::GetActiveAgentCount() const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Crowd)
             return 0;
 

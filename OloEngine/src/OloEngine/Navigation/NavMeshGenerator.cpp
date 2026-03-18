@@ -284,8 +284,8 @@ namespace OloEngine
                     }
                 }
 
-                // Bottom hemisphere (rings from equator at -hh down to pole)
-                for (i32 ring = 1; ring < kRings; ++ring)
+                // Bottom hemisphere (equator at -hh, then rings down to pole)
+                for (i32 ring = 0; ring < kRings; ++ring)
                 {
                     f32 phi = (glm::pi<f32>() * 0.5f) * static_cast<f32>(ring) / static_cast<f32>(kRings);
                     f32 y = -hh - r * std::sin(phi);
@@ -298,7 +298,7 @@ namespace OloEngine
                 }
                 localVerts.push_back(off + glm::vec3(0.0f, -hh - r, 0.0f)); // bottom pole
 
-                i32 totalRings = kRings + (kRings - 1); // hemisphere rings (top) + hemisphere rings (bottom, excl shared equator)
+                i32 totalRings = 2 * kRings; // top hemisphere + bottom hemisphere (incl. equator at -hh)
                 i32 bottomPole = static_cast<i32>(localVerts.size()) - 1;
 
                 // Top cap

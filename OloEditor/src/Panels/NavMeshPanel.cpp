@@ -17,6 +17,7 @@ namespace OloEngine
     {
         if (!m_Context)
         {
+            m_Settings = {};
             m_LastPolyCount = 0;
             m_LastBakeTimeMs = 0.0f;
             return;
@@ -27,9 +28,11 @@ namespace OloEngine
         {
             m_Settings = navMesh->GetSettings();
             m_LastPolyCount = navMesh->GetPolyCount();
+            m_LastBakeTimeMs = 0.0f;
         }
         else
         {
+            m_Settings = {};
             m_LastPolyCount = 0;
             m_LastBakeTimeMs = 0.0f;
         }
