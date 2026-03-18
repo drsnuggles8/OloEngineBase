@@ -10,6 +10,8 @@ namespace OloEngine
 {
     NavMesh::~NavMesh()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_NavMesh)
         {
             dtFreeNavMesh(m_NavMesh);
@@ -20,11 +22,15 @@ namespace OloEngine
     NavMesh::NavMesh(NavMesh&& other) noexcept
         : m_NavMesh(other.m_NavMesh), m_Settings(other.m_Settings)
     {
+        OLO_PROFILE_FUNCTION();
+
         other.m_NavMesh = nullptr;
     }
 
     NavMesh& NavMesh::operator=(NavMesh&& other) noexcept
     {
+        OLO_PROFILE_FUNCTION();
+
         if (this != &other)
         {
             if (m_NavMesh)
@@ -38,6 +44,11 @@ namespace OloEngine
 
     void NavMesh::SetDetourNavMesh(dtNavMesh* navMesh)
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (navMesh == m_NavMesh)
+            return;
+
         if (m_NavMesh)
             dtFreeNavMesh(m_NavMesh);
         m_NavMesh = navMesh;

@@ -10,11 +10,15 @@ namespace OloEngine
 
     NavMeshQuery::NavMeshQuery(const Ref<NavMesh>& navMesh, i32 queryBudget)
     {
+        OLO_PROFILE_FUNCTION();
+
         Initialize(navMesh, queryBudget);
     }
 
     NavMeshQuery::~NavMeshQuery()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Query)
         {
             dtFreeNavMeshQuery(m_Query);
@@ -25,11 +29,15 @@ namespace OloEngine
     NavMeshQuery::NavMeshQuery(NavMeshQuery&& other) noexcept
         : m_Query(other.m_Query), m_NavMesh(std::move(other.m_NavMesh)), m_MaxPolys(other.m_MaxPolys)
     {
+        OLO_PROFILE_FUNCTION();
+
         other.m_Query = nullptr;
     }
 
     NavMeshQuery& NavMeshQuery::operator=(NavMeshQuery&& other) noexcept
     {
+        OLO_PROFILE_FUNCTION();
+
         if (this != &other)
         {
             if (m_Query)
@@ -44,6 +52,8 @@ namespace OloEngine
 
     void NavMeshQuery::Initialize(const Ref<NavMesh>& navMesh, i32 queryBudget)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Query)
         {
             dtFreeNavMeshQuery(m_Query);
@@ -53,7 +63,12 @@ namespace OloEngine
         m_MaxPolys = std::max(queryBudget, 64);
         m_NavMesh = navMesh;
         if (!m_NavMesh || !m_NavMesh->GetDetourNavMesh())
+        {
+            OLO_CORE_WARN("NavMeshQuery::Initialize: NavMesh is {} and DetourNavMesh is {}",
+                          m_NavMesh ? "valid" : "null",
+                          (m_NavMesh && m_NavMesh->GetDetourNavMesh()) ? "valid" : "null");
             return;
+        }
 
         m_Query = dtAllocNavMeshQuery();
         if (!m_Query)
@@ -73,6 +88,8 @@ namespace OloEngine
 
     void NavMeshQuery::ComputeQueryExtents(f32 outExtent[3]) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_NavMesh)
         {
             const auto& s = m_NavMesh->GetSettings();
@@ -132,9 +149,14 @@ namespace OloEngine
         std::vector<dtPolyRef> straightPathPolys(static_cast<size_t>(m_MaxPolys));
         i32 nstraightPath = 0;
 
-        m_Query->findStraightPath(nearestStart, nearestEnd, polys.data(), npolys,
-                                  straightPath.data(), straightPathFlags.data(), straightPathPolys.data(),
-                                  &nstraightPath, m_MaxPolys);
+        status = m_Query->findStraightPath(nearestStart, nearestEnd, polys.data(), npolys,
+                                           straightPath.data(), straightPathFlags.data(), straightPathPolys.data(),
+                                           &nstraightPath, m_MaxPolys);
+        if (dtStatusFailed(status))
+            return false;
+
+        if (dtStatusDetail(status, DT_BUFFER_TOO_SMALL))
+            OLO_CORE_WARN("NavMeshQuery::FindPath: Straight path truncated to {} points", nstraightPath);
 
         outPath.reserve(static_cast<size_t>(nstraightPath));
         for (i32 i = 0; i < nstraightPath; ++i)
@@ -170,12 +192,12 @@ namespace OloEngine
         return true;
     }
 
-    bool NavMeshQuery::Raycast(const glm::vec3& start, const glm::vec3& end, glm::vec3& outHitPoint) const
+    RaycastResult NavMeshQuery::Raycast(const glm::vec3& start, const glm::vec3& end, glm::vec3& outHitPoint) const
     {
         OLO_PROFILE_FUNCTION();
 
         if (!m_Query)
-            return false;
+            return RaycastResult::Error;
 
         const f32 startPos[3] = { start.x, start.y, start.z };
         const f32 endPos[3] = { end.x, end.y, end.z };
@@ -192,7 +214,7 @@ namespace OloEngine
         dtStatus status = m_Query->findNearestPoly(startPos, extent, &filter, &startRef, nearest);
 
         if (dtStatusFailed(status) || !startRef)
-            return false;
+            return RaycastResult::Error;
 
         f32 t = 0.0f;
         f32 hitNormal[3]{};
@@ -201,7 +223,7 @@ namespace OloEngine
 
         status = m_Query->raycast(startRef, nearest, endPos, &filter, &t, hitNormal, path.data(), &pathCount, m_MaxPolys);
         if (dtStatusFailed(status))
-            return false;
+            return RaycastResult::Error;
 
         if (t < 1.0f)
         {
@@ -209,12 +231,12 @@ namespace OloEngine
             outHitPoint.x = nearest[0] + (endPos[0] - nearest[0]) * t;
             outHitPoint.y = nearest[1] + (endPos[1] - nearest[1]) * t;
             outHitPoint.z = nearest[2] + (endPos[2] - nearest[2]) * t;
-            return true;
+            return RaycastResult::Hit;
         }
 
         // No hit — reached end point
         outHitPoint = end;
-        return false;
+        return RaycastResult::NoHit;
     }
 
     bool NavMeshQuery::IsPointOnNavMesh(const glm::vec3& point, f32 tolerance) const

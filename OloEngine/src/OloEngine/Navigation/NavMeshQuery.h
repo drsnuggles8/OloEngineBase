@@ -12,6 +12,13 @@ class dtNavMeshQuery;
 
 namespace OloEngine
 {
+    enum class RaycastResult : u8
+    {
+        Hit,
+        NoHit,
+        Error
+    };
+
     class NavMeshQuery
     {
       public:
@@ -28,7 +35,7 @@ namespace OloEngine
 
         [[nodiscard]] bool FindPath(const glm::vec3& start, const glm::vec3& end, std::vector<glm::vec3>& outPath) const;
         [[nodiscard]] bool FindNearestPoint(const glm::vec3& point, f32 searchRadius, glm::vec3& outNearest) const;
-        [[nodiscard]] bool Raycast(const glm::vec3& start, const glm::vec3& end, glm::vec3& outHitPoint) const;
+        [[nodiscard]] RaycastResult Raycast(const glm::vec3& start, const glm::vec3& end, glm::vec3& outHitPoint) const;
         [[nodiscard]] bool IsPointOnNavMesh(const glm::vec3& point, f32 tolerance = 0.5f) const;
         [[nodiscard]] bool IsValid() const
         {

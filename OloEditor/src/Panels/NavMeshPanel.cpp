@@ -144,6 +144,7 @@ namespace OloEngine
             {
                 m_Context->SetNavMesh(nullptr);
                 m_LastPolyCount = 0;
+                m_LastBakeTimeMs = 0.0f;
             }
         }
 

@@ -117,11 +117,11 @@ TEST(NavMeshQueryTest, FindNearestPointWithoutNavMeshReturnsFalse)
     EXPECT_FALSE(query.FindNearestPoint({ 0, 0, 0 }, 5.0f, nearest));
 }
 
-TEST(NavMeshQueryTest, RaycastWithoutNavMeshReturnsFalse)
+TEST(NavMeshQueryTest, RaycastWithoutNavMeshReturnsError)
 {
     NavMeshQuery query;
     glm::vec3 hit;
-    EXPECT_FALSE(query.Raycast({ 0, 0, 0 }, { 10, 0, 10 }, hit));
+    EXPECT_EQ(query.Raycast({ 0, 0, 0 }, { 10, 0, 10 }, hit), RaycastResult::Error);
 }
 
 TEST(NavMeshQueryTest, IsPointOnNavMeshWithoutNavMeshReturnsFalse)
@@ -419,8 +419,8 @@ TEST(NavMeshQueryPositiveTest, RaycastUnobstructed)
     ASSERT_TRUE(query.IsValid());
 
     glm::vec3 hitPoint{};
-    // Raycast across the flat plane — no obstacle, so Raycast returns false (no hit)
-    EXPECT_FALSE(query.Raycast({ -5.0f, 0.0f, 0.0f }, { 5.0f, 0.0f, 0.0f }, hitPoint));
+    // Raycast across the flat plane — no obstacle, so Raycast returns NoHit
+    EXPECT_EQ(query.Raycast({ -5.0f, 0.0f, 0.0f }, { 5.0f, 0.0f, 0.0f }, hitPoint), RaycastResult::NoHit);
     // hitPoint should be set to end position when unobstructed
     EXPECT_NEAR(hitPoint.x, 5.0f, 0.5f);
 }

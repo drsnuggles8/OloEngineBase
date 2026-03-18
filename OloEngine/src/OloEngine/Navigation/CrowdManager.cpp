@@ -11,6 +11,8 @@ namespace OloEngine
 {
     CrowdManager::~CrowdManager()
     {
+        OLO_PROFILE_FUNCTION();
+
         Shutdown();
     }
 

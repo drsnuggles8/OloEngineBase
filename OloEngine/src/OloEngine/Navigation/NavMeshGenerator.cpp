@@ -22,6 +22,8 @@ namespace OloEngine
 {
     static glm::mat4 GetWorldTransform(Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& tc = entity.GetComponent<TransformComponent>();
         return glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(glm::quat(tc.Rotation)) * glm::scale(glm::mat4(1.0f), tc.Scale);
     }
@@ -31,6 +33,8 @@ namespace OloEngine
                                       const glm::vec3* localVerts, i32 count,
                                       std::vector<f32>& outVerts)
     {
+        OLO_PROFILE_FUNCTION();
+
         const auto baseVertex = static_cast<i32>(outVerts.size() / 3);
         for (i32 i = 0; i < count; ++i)
         {
@@ -48,6 +52,8 @@ namespace OloEngine
                                        std::vector<glm::vec3>& outLocalVerts,
                                        std::vector<i32>& outLocalTris)
     {
+        OLO_PROFILE_FUNCTION();
+
         outLocalVerts.clear();
         outLocalTris.clear();
 
@@ -133,7 +139,7 @@ namespace OloEngine
                 outVerts.push_back(worldPos.z);
             }
 
-            for (i32 i = 0; i < static_cast<i32>(indices.Num()); i += 3)
+            for (i32 i = 0; i + 2 < static_cast<i32>(indices.Num()); i += 3)
             {
                 outTris.push_back(baseVertex + static_cast<i32>(indices[i]));
                 outTris.push_back(baseVertex + static_cast<i32>(indices[i + 1]));
@@ -174,7 +180,7 @@ namespace OloEngine
                     outVerts.push_back(worldPos.z);
                 }
 
-                for (i32 i = 0; i < static_cast<i32>(indices.Num()); i += 3)
+                for (i32 i = 0; i + 2 < static_cast<i32>(indices.Num()); i += 3)
                 {
                     outTris.push_back(baseVertex + static_cast<i32>(indices[i]));
                     outTris.push_back(baseVertex + static_cast<i32>(indices[i + 1]));
@@ -378,7 +384,7 @@ namespace OloEngine
                 outVerts.push_back(worldPos.z);
             }
 
-            for (i32 i = 0; i < static_cast<i32>(indices.Num()); i += 3)
+            for (i32 i = 0; i + 2 < static_cast<i32>(indices.Num()); i += 3)
             {
                 outTris.push_back(baseVertex + static_cast<i32>(indices[i]));
                 outTris.push_back(baseVertex + static_cast<i32>(indices[i + 1]));
@@ -413,10 +419,12 @@ namespace OloEngine
 
             for (u32 z = 0; z < gridRes; ++z)
             {
-                f32 nz = static_cast<f32>(z * step) / static_cast<f32>(resolution - 1);
+                u32 srcZ = std::min(z * step, resolution - 1);
+                f32 nz = static_cast<f32>(srcZ) / static_cast<f32>(resolution - 1);
                 for (u32 x = 0; x < gridRes; ++x)
                 {
-                    f32 nx = static_cast<f32>(x * step) / static_cast<f32>(resolution - 1);
+                    u32 srcX = std::min(x * step, resolution - 1);
+                    f32 nx = static_cast<f32>(srcX) / static_cast<f32>(resolution - 1);
                     f32 height = terrain.m_TerrainData->GetHeightAt(nx, nz);
 
                     // Local-space: X in [0, WorldSizeX], Y = height * HeightScale, Z in [0, WorldSizeZ]
@@ -454,6 +462,12 @@ namespace OloEngine
                                             const glm::vec3& boundsMin, const glm::vec3& boundsMax)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (!scene)
+        {
+            OLO_CORE_ERROR("NavMeshGenerator::Generate: scene is null");
+            return nullptr;
+        }
 
         std::vector<f32> verts;
         std::vector<i32> tris;
