@@ -14,6 +14,7 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/AnimationGraphAsset.h"
 #include "OloEngine/Animation/AnimationGraphSystem.h"
@@ -637,6 +638,103 @@ namespace OloEngine
                     if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                     {
                         Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds());
+
+                        // Sample morph target keyframes from the current animation clip
+                        if (!animState.m_CurrentClip->MorphKeyframes.empty())
+                        {
+                            Entity entity = { e, this };
+                            if (entity.HasComponent<MorphTargetComponent>())
+                            {
+                                auto& morphComp = entity.GetComponent<MorphTargetComponent>();
+                                MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
+                            }
+                        }
+                    }
+                }
+
+                // Handle morph-only animation (entities with AnimationState but no Skeleton)
+                auto morphAnimView = m_Registry.view<AnimationStateComponent, MorphTargetComponent>(entt::exclude<SkeletonComponent>);
+                for (auto e : morphAnimView)
+                {
+                    auto& animState = morphAnimView.get<AnimationStateComponent>(e);
+                    if (!animState.m_IsPlaying || !animState.m_CurrentClip)
+                        continue;
+
+                    // Advance time for morph-only entities
+                    animState.m_CurrentTime += ts.GetSeconds();
+                    const float duration = animState.m_CurrentClip->Duration;
+                    if (duration > 0.0f && animState.m_CurrentTime > duration)
+                    {
+                        animState.m_CurrentTime -= static_cast<int>(animState.m_CurrentTime / duration) * duration;
+                    }
+
+                    if (!animState.m_CurrentClip->MorphKeyframes.empty())
+                    {
+                        auto& morphComp = morphAnimView.get<MorphTargetComponent>(e);
+                        MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
+                    }
+                }
+            }
+
+            // Evaluate morph targets for all entities with active weights
+            // This runs after animation update so keyframe-driven weights are applied first.
+            // Morph deformation happens before skeletal skinning (morph first, then skin).
+            {
+                OLO_PROFILE_SCOPE("Morph Target Evaluation");
+                auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
+                for (auto e : morphView)
+                {
+                    auto& morphComp = morphView.get<MorphTargetComponent>(e);
+
+                    auto& meshComp = morphView.get<MeshComponent>(e);
+                    if (!meshComp.m_MeshSource)
+                        continue;
+
+                    // Auto-populate MorphTargets from MeshSource if not already set
+                    if (!morphComp.MorphTargets && meshComp.m_MeshSource->HasMorphTargets())
+                    {
+                        morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
+                    }
+
+                    if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
+                        continue;
+
+                    auto& meshSource = meshComp.m_MeshSource;
+                    auto& vertices = meshSource->GetVertices();
+
+                    // Cache base vertex data on first evaluation
+                    if (morphComp.BasePositions.empty() && vertices.Num() > 0)
+                    {
+                        morphComp.BasePositions.resize(vertices.Num());
+                        morphComp.BaseNormals.resize(vertices.Num());
+                        for (u32 i = 0; i < static_cast<u32>(vertices.Num()); ++i)
+                        {
+                            morphComp.BasePositions[i] = vertices[i].Position;
+                            morphComp.BaseNormals[i] = vertices[i].Normal;
+                        }
+                    }
+
+                    if (morphComp.BasePositions.empty())
+                        continue;
+
+                    // Evaluate morph deformation
+                    std::vector<glm::vec3> outPositions;
+                    std::vector<glm::vec3> outNormals;
+                    if (MorphTargetSystem::EvaluateMorphTargets(morphComp,
+                                                                morphComp.BasePositions, morphComp.BaseNormals,
+                                                                outPositions, outNormals))
+                    {
+                        // Write deformed data back into MeshSource vertices
+                        auto& mutableVerts = meshSource->GetVertices();
+                        for (u32 i = 0; i < static_cast<u32>(outPositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+                        {
+                            mutableVerts[i].Position = outPositions[i];
+                            mutableVerts[i].Normal = outNormals[i];
+                        }
+
+                        // Re-upload vertex data to the GPU
+                        auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+                        vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
                     }
                 }
             }
@@ -1255,6 +1353,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<SubmeshComponent>(Entity, SubmeshComponent&) {}
     template<>
     void Scene::OnComponentAdded<AnimationStateComponent>(Entity, AnimationStateComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<MorphTargetComponent>(Entity, MorphTargetComponent&) {}
     template<>
     void Scene::OnComponentAdded<Skeleton>(Entity, Skeleton&) {}
     // If you use SkeletonComponent as a struct, add this too:

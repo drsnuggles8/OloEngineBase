@@ -38,6 +38,14 @@ namespace OloEngine
         std::vector<BoneScaleKey> ScaleKeys;
     };
 
+    // Morph target animation keyframe
+    struct MorphTargetKeyframe
+    {
+        f64 Time;
+        std::string TargetName;
+        f32 Weight;
+    };
+
     // AnimationClip: a set of bone animations and duration
     class AnimationClip : public RefCounted
     {
@@ -51,6 +59,9 @@ namespace OloEngine
          * you must call InvalidateBoneCache() to maintain cache validity.
          */
         std::vector<BoneAnimation> BoneAnimations;
+
+        // Morph target keyframes for facial animation / blend shape animation
+        std::vector<MorphTargetKeyframe> MorphKeyframes;
 
         // Finds the animation for a given bone name
         const BoneAnimation* FindBoneAnimation(const std::string& boneName) const;
@@ -68,9 +79,18 @@ namespace OloEngine
          */
         void InvalidateBoneCache();
 
+        // Precomputed per-target morph tracks: target name -> sorted (time, weight) pairs
+        // Built lazily on first access; invalidated when MorphKeyframes changes.
+        const std::unordered_map<std::string, std::vector<std::pair<f64, f32>>>& GetMorphTracks() const;
+        void InvalidateMorphTrackCache();
+
       private:
         // Cache for O(1) bone animation lookups
         mutable std::unordered_map<std::string, const BoneAnimation*> m_BoneCache;
         mutable bool m_CacheInitialized = false;
+
+        // Precomputed morph tracks for efficient sampling
+        mutable std::unordered_map<std::string, std::vector<std::pair<f64, f32>>> m_MorphTrackCache;
+        mutable bool m_MorphTrackCacheInitialized = false;
     };
 } // namespace OloEngine

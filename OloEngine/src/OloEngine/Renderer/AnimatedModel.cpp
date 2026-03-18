@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "AnimatedModel.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Animation/MorphTargets/MorphTarget.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include <filesystem>
 #include <set>
 #include <unordered_map>
@@ -230,6 +232,55 @@ namespace OloEngine
         submesh.m_IsRigged = mesh->mNumBones > 0;       // Set rigged flag based on bone presence
         submesh.m_NodeName = mesh->mName.C_Str();
         meshSource->AddSubmesh(submesh);
+
+        // Extract morph targets (blend shapes) from Assimp anim meshes
+        if (mesh->mNumAnimMeshes > 0)
+        {
+            auto morphTargets = Ref<MorphTargetSet>::Create();
+            for (u32 i = 0; i < mesh->mNumAnimMeshes; ++i)
+            {
+                const aiAnimMesh* animMesh = mesh->mAnimMeshes[i];
+                MorphTarget target;
+                // Use index-based naming to match morph mesh channel keyframes
+                // from ProcessAnimations which uses "MorphTarget_<index>"
+                target.Name = "MorphTarget_" + std::to_string(i);
+
+                target.Vertices.resize(animMesh->mNumVertices);
+                for (u32 v = 0; v < animMesh->mNumVertices; ++v)
+                {
+                    MorphTargetVertex delta;
+                    if (animMesh->mVertices && mesh->mVertices)
+                    {
+                        delta.DeltaPosition = glm::vec3(
+                            animMesh->mVertices[v].x - mesh->mVertices[v].x,
+                            animMesh->mVertices[v].y - mesh->mVertices[v].y,
+                            animMesh->mVertices[v].z - mesh->mVertices[v].z);
+                    }
+
+                    if (animMesh->mNormals && mesh->mNormals)
+                    {
+                        delta.DeltaNormal = glm::vec3(
+                            animMesh->mNormals[v].x - mesh->mNormals[v].x,
+                            animMesh->mNormals[v].y - mesh->mNormals[v].y,
+                            animMesh->mNormals[v].z - mesh->mNormals[v].z);
+                    }
+
+                    if (animMesh->mTangents && mesh->mTangents)
+                    {
+                        delta.DeltaTangent = glm::vec3(
+                            animMesh->mTangents[v].x - mesh->mTangents[v].x,
+                            animMesh->mTangents[v].y - mesh->mTangents[v].y,
+                            animMesh->mTangents[v].z - mesh->mTangents[v].z);
+                    }
+
+                    target.Vertices[v] = delta;
+                }
+                morphTargets->AddTarget(std::move(target));
+            }
+            meshSource->SetMorphTargets(morphTargets);
+            OLO_CORE_INFO("AnimatedModel::ProcessMesh: Loaded {} morph targets for mesh '{}'",
+                          morphTargets->GetTargetCount(), mesh->mName.C_Str());
+        }
 
         meshSource->Build();
 
@@ -642,6 +693,25 @@ namespace OloEngine
                 }
 
                 animClip->BoneAnimations.push_back(boneAnim);
+            }
+
+            // Import morph mesh channels as morph target keyframes
+            for (u32 j = 0; j < anim->mNumMorphMeshChannels; ++j)
+            {
+                const aiMeshMorphAnim* morphChannel = anim->mMorphMeshChannels[j];
+                for (u32 k = 0; k < morphChannel->mNumKeys; ++k)
+                {
+                    const aiMeshMorphKey& key = morphChannel->mKeys[k];
+                    f64 timeInSeconds = key.mTime / anim->mTicksPerSecond;
+                    for (u32 w = 0; w < key.mNumValuesAndWeights; ++w)
+                    {
+                        MorphTargetKeyframe kf;
+                        kf.Time = timeInSeconds;
+                        kf.TargetName = "MorphTarget_" + std::to_string(key.mValues[w]);
+                        kf.Weight = static_cast<f32>(key.mWeights[w]);
+                        animClip->MorphKeyframes.push_back(kf);
+                    }
+                }
             }
 
             m_Animations.push_back(animClip);

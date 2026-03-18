@@ -33,6 +33,16 @@
 		"OloEngine/Animation/AnimationGraphComponent.h"
 		"OloEngine/Animation/AnimationGraphSystem.h"
 		"OloEngine/Animation/AnimationGraphSystem.cpp"
+
+		"OloEngine/Animation/MorphTargets/MorphTarget.h"
+		"OloEngine/Animation/MorphTargets/MorphTargetSet.h"
+		"OloEngine/Animation/MorphTargets/MorphTargetEvaluator.h"
+		"OloEngine/Animation/MorphTargets/MorphTargetEvaluator.cpp"
+		"OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
+		"OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
+		"OloEngine/Animation/MorphTargets/FacialExpressionLibrary.cpp"
+		"OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
+		"OloEngine/Animation/MorphTargets/MorphTargetSystem.cpp"
 		
 		"OloEngine/Asset/Asset.h"
 		"OloEngine/Asset/AssetExtensions.h"

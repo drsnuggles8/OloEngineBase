@@ -4,6 +4,7 @@
 #include <sol/sol.hpp>
 
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
@@ -387,6 +388,13 @@ namespace OloEngine
                                                        if (!comp.RuntimeGraph)
                                                            return "";
                                                        return std::string(comp.RuntimeGraph->GetCurrentStateName(layerIndex.value_or(0))); });
+
+        // --- MorphTargetComponent ---
+        lua.new_usertype<MorphTargetComponent>("MorphTargetComponent", "SetWeight", [](MorphTargetComponent& comp, const std::string& name, f32 weight)
+                                               { comp.SetWeight(name, weight); }, "GetWeight", [](const MorphTargetComponent& comp, const std::string& name) -> f32
+                                               { return comp.GetWeight(name); }, "ResetAll", &MorphTargetComponent::ResetAllWeights, "HasActiveWeights", &MorphTargetComponent::HasActiveWeights, "GetTargetCount", [](const MorphTargetComponent& comp) -> u32
+                                               { return comp.MorphTargets ? comp.MorphTargets->GetTargetCount() : 0; }, "ApplyExpression", [](MorphTargetComponent& comp, const std::string& name, sol::optional<f32> blend)
+                                               { FacialExpressionLibrary::ApplyExpression(comp, name, blend.value_or(1.0f)); });
 
         // --- MaterialComponent ---
         lua.new_usertype<MaterialComponent>("MaterialComponent",
