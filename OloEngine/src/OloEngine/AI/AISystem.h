@@ -4,11 +4,11 @@
 
 namespace OloEngine
 {
-	class Scene;
+    class Scene;
 
-	class AISystem
-	{
-	public:
-		static void OnUpdate(Scene* scene, f32 dt);
-	};
+    class AISystem
+    {
+      public:
+        static void OnUpdate(Scene* scene, f32 dt);
+    };
 } // namespace OloEngine

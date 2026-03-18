@@ -8,19 +8,19 @@
 
 namespace OloEngine
 {
-	class Entity;
+    class Entity;
 
-	using StateID = std::string;
+    using StateID = std::string;
 
-	class FSMState : public RefCounted
-	{
-	public:
-		~FSMState() override = default;
+    class FSMState : public RefCounted
+    {
+      public:
+        ~FSMState() override = default;
 
-		virtual void OnEnter(Entity entity, BTBlackboard& blackboard);
-		virtual void OnUpdate(Entity entity, BTBlackboard& blackboard, f32 dt);
-		virtual void OnExit(Entity entity, BTBlackboard& blackboard);
+        virtual void OnEnter(Entity entity, BTBlackboard& blackboard);
+        virtual void OnUpdate(Entity entity, BTBlackboard& blackboard, f32 dt);
+        virtual void OnExit(Entity entity, BTBlackboard& blackboard);
 
-		StateID ID;
-	};
+        StateID ID;
+    };
 } // namespace OloEngine

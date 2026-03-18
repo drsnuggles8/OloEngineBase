@@ -6,35 +6,35 @@
 
 namespace OloEngine
 {
-	class Entity;
+    class Entity;
 
-	class BehaviorTree : public RefCounted
-	{
-	public:
-		BehaviorTree() = default;
-		~BehaviorTree() override = default;
+    class BehaviorTree : public RefCounted
+    {
+      public:
+        BehaviorTree() = default;
+        ~BehaviorTree() override = default;
 
-		void SetRoot(Ref<BTNode> root)
-		{
-			m_Root = std::move(root);
-		}
+        void SetRoot(Ref<BTNode> root)
+        {
+            m_Root = std::move(root);
+        }
 
-		[[nodiscard]] Ref<BTNode> GetRoot() const
-		{
-			return m_Root;
-		}
+        [[nodiscard]] Ref<BTNode> GetRoot() const
+        {
+            return m_Root;
+        }
 
-		BTStatus Tick(f32 dt, BTBlackboard& blackboard, Entity entity);
+        BTStatus Tick(f32 dt, BTBlackboard& blackboard, Entity entity);
 
-		void Reset()
-		{
-			if (m_Root)
-			{
-				m_Root->Reset();
-			}
-		}
+        void Reset()
+        {
+            if (m_Root)
+            {
+                m_Root->Reset();
+            }
+        }
 
-	private:
-		Ref<BTNode> m_Root;
-	};
+      private:
+        Ref<BTNode> m_Root;
+    };
 } // namespace OloEngine

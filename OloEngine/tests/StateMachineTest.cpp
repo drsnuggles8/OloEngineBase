@@ -20,9 +20,18 @@ class MockState : public FSMState
     int UpdateCount = 0;
     int ExitCount = 0;
 
-    void OnEnter(Entity /*entity*/, BTBlackboard& /*bb*/) override { ++EnterCount; }
-    void OnUpdate(Entity /*entity*/, BTBlackboard& /*bb*/, f32 /*dt*/) override { ++UpdateCount; }
-    void OnExit(Entity /*entity*/, BTBlackboard& /*bb*/) override { ++ExitCount; }
+    void OnEnter(Entity /*entity*/, BTBlackboard& /*bb*/) override
+    {
+        ++EnterCount;
+    }
+    void OnUpdate(Entity /*entity*/, BTBlackboard& /*bb*/, f32 /*dt*/) override
+    {
+        ++UpdateCount;
+    }
+    void OnExit(Entity /*entity*/, BTBlackboard& /*bb*/) override
+    {
+        ++ExitCount;
+    }
 };
 
 // ============================================================================
@@ -208,9 +217,7 @@ TEST(StateMachineAssetTest, StoresStatesAndTransitions)
 TEST(FSMStateRegistryTest, RegisterAndCreate)
 {
     FSMStateRegistry::Register("MockState", []() -> Ref<FSMState>
-    {
-        return Ref<MockState>::Create();
-    });
+                               { return Ref<MockState>::Create(); });
 
     auto state = FSMStateRegistry::Create("MockState");
     EXPECT_NE(state, nullptr);

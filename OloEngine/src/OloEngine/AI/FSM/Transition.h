@@ -8,12 +8,12 @@
 
 namespace OloEngine
 {
-	class Entity;
+    class Entity;
 
-	struct FSMTransition
-	{
-		StateID FromState;
-		StateID ToState;
-		std::function<bool(Entity, const BTBlackboard&)> Condition;
-	};
+    struct FSMTransition
+    {
+        StateID FromState;
+        StateID ToState;
+        std::function<bool(Entity, const BTBlackboard&)> Condition;
+    };
 } // namespace OloEngine
