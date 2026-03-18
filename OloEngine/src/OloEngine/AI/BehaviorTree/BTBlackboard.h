@@ -5,6 +5,7 @@
 
 #include <glm/glm.hpp>
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <variant>
@@ -56,13 +57,38 @@ namespace OloEngine
             return m_Data;
         }
 
-        [[nodiscard]] Value GetRaw(const std::string& key) const
+        [[nodiscard]] std::optional<Value> GetRaw(const std::string& key) const
         {
             auto it = m_Data.find(key);
-            return (it != m_Data.end()) ? it->second : Value{};
+            if (it != m_Data.end())
+            {
+                return it->second;
+            }
+            return std::nullopt;
         }
 
       private:
         std::unordered_map<std::string, Value> m_Data;
     };
+
+    [[nodiscard]] inline std::string BlackboardValueToString(const BTBlackboard::Value& value)
+    {
+        return std::visit([](auto const& v) -> std::string
+                          {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, bool>)
+                return v ? "true" : "false";
+            else if constexpr (std::is_same_v<T, i32>)
+                return std::to_string(v);
+            else if constexpr (std::is_same_v<T, f32>)
+                return std::to_string(v);
+            else if constexpr (std::is_same_v<T, std::string>)
+                return v;
+            else if constexpr (std::is_same_v<T, glm::vec3>)
+                return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ")";
+            else if constexpr (std::is_same_v<T, UUID>)
+                return std::to_string(static_cast<u64>(v));
+            else
+                return "<unknown>"; }, value);
+    }
 } // namespace OloEngine

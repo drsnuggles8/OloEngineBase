@@ -18,7 +18,12 @@ namespace OloEngine
 
         static void Register(const std::string& typeName, Factory factory)
         {
-            GetFactories()[typeName] = std::move(factory);
+            auto& factories = GetFactories();
+            if (factories.contains(typeName))
+            {
+                OLO_CORE_WARN("[BTNodeRegistry] Overwriting existing type: {}", typeName);
+            }
+            factories[typeName] = std::move(factory);
         }
 
         static Ref<BTNode> Create(const std::string& typeName)
@@ -58,7 +63,12 @@ namespace OloEngine
 
         static void Register(const std::string& typeName, Factory factory)
         {
-            GetFactories()[typeName] = std::move(factory);
+            auto& factories = GetFactories();
+            if (factories.contains(typeName))
+            {
+                OLO_CORE_WARN("[FSMStateRegistry] Overwriting existing type: {}", typeName);
+            }
+            factories[typeName] = std::move(factory);
         }
 
         static Ref<FSMState> Create(const std::string& typeName)

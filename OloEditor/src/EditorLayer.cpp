@@ -1829,8 +1829,6 @@ namespace OloEngine
         m_NavMeshPanel.SetContext(m_ActiveScene);
         m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
         m_FSMEditorPanel.SetContext(m_ActiveScene);
-        m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
-        m_FSMEditorPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneStop()
@@ -1865,6 +1863,8 @@ namespace OloEngine
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
         m_SceneStatisticsPanel.SetContext(m_ActiveScene);
         m_NavMeshPanel.SetContext(m_ActiveScene);
+        m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
+        m_FSMEditorPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)

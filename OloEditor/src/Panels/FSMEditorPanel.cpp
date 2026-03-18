@@ -80,24 +80,7 @@ namespace OloEngine
                     }
                     for (auto const& [key, value] : data)
                     {
-                        std::string valueStr = std::visit([](auto const& v) -> std::string
-                                                          {
-							using T = std::decay_t<decltype(v)>;
-							if constexpr (std::is_same_v<T, bool>)
-								return v ? "true" : "false";
-							else if constexpr (std::is_same_v<T, i32>)
-								return std::to_string(v);
-							else if constexpr (std::is_same_v<T, f32>)
-								return std::to_string(v);
-							else if constexpr (std::is_same_v<T, std::string>)
-								return v;
-							else if constexpr (std::is_same_v<T, glm::vec3>)
-								return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ")";
-							else if constexpr (std::is_same_v<T, UUID>)
-								return std::to_string(static_cast<u64>(v));
-							else
-								return "<unknown>"; }, value);
-
+                        std::string valueStr = BlackboardValueToString(value);
                         ImGui::Text("%s: %s", key.c_str(), valueStr.c_str());
                     }
                     ImGui::TreePop();

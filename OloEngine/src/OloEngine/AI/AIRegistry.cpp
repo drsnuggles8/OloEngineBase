@@ -8,6 +8,7 @@ namespace OloEngine
 {
     void RegisterBuiltInAITypes()
     {
+        OLO_PROFILE_FUNCTION();
         // Composite nodes
         BTNodeRegistry::Register("Sequence", []()
                                  { return Ref<BTSequence>(new BTSequence()); });

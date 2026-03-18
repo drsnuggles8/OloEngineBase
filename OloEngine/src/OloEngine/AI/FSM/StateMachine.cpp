@@ -7,11 +7,21 @@ namespace OloEngine
 {
     void StateMachine::AddState(Ref<FSMState> state)
     {
+        if (!state)
+        {
+            OLO_CORE_WARN("[FSM] Attempted to add null state");
+            return;
+        }
         m_States[state->ID] = std::move(state);
     }
 
     void StateMachine::AddState(const StateID& id, Ref<FSMState> state)
     {
+        if (!state)
+        {
+            OLO_CORE_WARN("[FSM] Attempted to add null state for ID '{}'", id);
+            return;
+        }
         state->ID = id;
         m_States[id] = std::move(state);
     }
@@ -28,6 +38,8 @@ namespace OloEngine
 
     void StateMachine::Start(Entity entity, BTBlackboard& blackboard)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_InitialState.empty())
         {
             OLO_CORE_WARN("[FSM] No initial state set");
@@ -48,6 +60,8 @@ namespace OloEngine
 
     void StateMachine::Update(Entity entity, BTBlackboard& blackboard, f32 dt)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_IsStarted || m_CurrentState.empty())
         {
             return;
@@ -77,6 +91,8 @@ namespace OloEngine
 
     void StateMachine::ForceTransition(const StateID& stateId, Entity entity, BTBlackboard& blackboard)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (stateId == m_CurrentState)
         {
             return;
@@ -100,6 +116,7 @@ namespace OloEngine
         }
 
         m_CurrentState = stateId;
+        m_IsStarted = true;
         newIt->second->OnEnter(entity, blackboard);
     }
 } // namespace OloEngine

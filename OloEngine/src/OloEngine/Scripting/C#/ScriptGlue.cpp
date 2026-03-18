@@ -2388,6 +2388,34 @@ namespace OloEngine
         return ScriptEngine::CreateString(val.c_str());
     }
 
+    static void StateMachineComponent_SetBlackboardVec3(UUID entityID, MonoString* key, glm::vec3 const* value)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        entity.GetComponent<StateMachineComponent>().Blackboard.Set(Utils::MonoStringToString(key), *value);
+    }
+
+    static void StateMachineComponent_GetBlackboardVec3(UUID entityID, MonoString* key, glm::vec3* outResult)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        *outResult = entity.GetComponent<StateMachineComponent>().Blackboard.Get<glm::vec3>(Utils::MonoStringToString(key));
+    }
+
+    static void StateMachineComponent_RemoveBlackboardKey(UUID entityID, MonoString* key)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        entity.GetComponent<StateMachineComponent>().Blackboard.Remove(Utils::MonoStringToString(key));
+    }
+
+    static bool StateMachineComponent_HasBlackboardKey(UUID entityID, MonoString* key)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        return entity.GetComponent<StateMachineComponent>().Blackboard.Has(Utils::MonoStringToString(key));
+    }
+
     static MonoString* StateMachineComponent_GetCurrentState(UUID entityID)
     {
         auto entity = GetEntity(entityID);
@@ -2782,6 +2810,10 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(StateMachineComponent_GetBlackboardFloat);
         OLO_ADD_INTERNAL_CALL(StateMachineComponent_SetBlackboardString);
         OLO_ADD_INTERNAL_CALL(StateMachineComponent_GetBlackboardString);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_SetBlackboardVec3);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_GetBlackboardVec3);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_RemoveBlackboardKey);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_HasBlackboardKey);
         OLO_ADD_INTERNAL_CALL(StateMachineComponent_GetCurrentState);
         OLO_ADD_INTERNAL_CALL(StateMachineComponent_ForceTransition);
     }

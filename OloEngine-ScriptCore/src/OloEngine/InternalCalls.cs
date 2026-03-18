@@ -685,6 +685,14 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern string StateMachineComponent_GetBlackboardString(ulong entityID, string key);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StateMachineComponent_SetBlackboardVec3(ulong entityID, string key, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StateMachineComponent_GetBlackboardVec3(ulong entityID, string key, out Vector3 result);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StateMachineComponent_RemoveBlackboardKey(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool StateMachineComponent_HasBlackboardKey(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern string StateMachineComponent_GetCurrentState(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void StateMachineComponent_ForceTransition(ulong entityID, string stateId);

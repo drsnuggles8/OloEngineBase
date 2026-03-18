@@ -659,7 +659,11 @@ namespace OloEngine
                                                 { comp.Blackboard.Set(key, value); }, "GetBlackboardFloat", [](const StateMachineComponent& comp, const std::string& key) -> f32
                                                 { return comp.Blackboard.Get<f32>(key); }, "SetBlackboardString", [](StateMachineComponent& comp, const std::string& key, const std::string& value)
                                                 { comp.Blackboard.Set(key, value); }, "GetBlackboardString", [](const StateMachineComponent& comp, const std::string& key) -> std::string
-                                                { return comp.Blackboard.Get<std::string>(key); }, "GetCurrentState", [](const StateMachineComponent& comp) -> std::string
+                                                { return comp.Blackboard.Get<std::string>(key); }, "SetBlackboardVec3", [](StateMachineComponent& comp, const std::string& key, const glm::vec3& value)
+                                                { comp.Blackboard.Set(key, value); }, "GetBlackboardVec3", [](const StateMachineComponent& comp, const std::string& key) -> glm::vec3
+                                                { return comp.Blackboard.Get<glm::vec3>(key); }, "RemoveBlackboardKey", [](StateMachineComponent& comp, const std::string& key)
+                                                { comp.Blackboard.Remove(key); }, "HasBlackboardKey", [](const StateMachineComponent& comp, const std::string& key) -> bool
+                                                { return comp.Blackboard.Has(key); }, "GetCurrentState", [](const StateMachineComponent& comp) -> std::string
                                                 {
                 if (comp.RuntimeFSM && comp.RuntimeFSM->IsStarted())
                     return comp.RuntimeFSM->GetCurrentStateID();

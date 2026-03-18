@@ -6,6 +6,8 @@ namespace OloEngine
 {
     BTStatus BehaviorTree::Tick(f32 dt, BTBlackboard& blackboard, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Root)
         {
             return BTStatus::Failure;

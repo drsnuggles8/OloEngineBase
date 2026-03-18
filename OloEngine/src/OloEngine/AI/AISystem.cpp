@@ -8,8 +8,11 @@ namespace OloEngine
 {
     void AISystem::OnUpdate(Scene* scene, f32 dt)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Tick all BehaviorTreeComponents
         {
+            OLO_PROFILE_SCOPE("AISystem::BehaviorTrees");
             auto btView = scene->GetAllEntitiesWith<BehaviorTreeComponent>();
             for (auto entityId : btView)
             {
@@ -24,6 +27,7 @@ namespace OloEngine
 
         // Tick all StateMachineComponents
         {
+            OLO_PROFILE_SCOPE("AISystem::StateMachines");
             auto fsmView = scene->GetAllEntitiesWith<StateMachineComponent>();
             for (auto entityId : fsmView)
             {

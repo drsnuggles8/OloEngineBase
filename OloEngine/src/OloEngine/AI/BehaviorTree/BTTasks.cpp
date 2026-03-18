@@ -11,6 +11,8 @@ namespace OloEngine
 
     BTStatus BTWait::Tick(f32 dt, [[maybe_unused]] BTBlackboard& blackboard, [[maybe_unused]] Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_Elapsed += dt;
         if (m_Elapsed >= Duration)
         {
@@ -29,6 +31,8 @@ namespace OloEngine
 
     BTStatus BTSetBlackboardValue::Tick([[maybe_unused]] f32 dt, BTBlackboard& blackboard, [[maybe_unused]] Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         blackboard.Set(Key, ValueToSet);
         return BTStatus::Success;
     }
@@ -37,6 +41,8 @@ namespace OloEngine
 
     BTStatus BTLog::Tick([[maybe_unused]] f32 dt, [[maybe_unused]] BTBlackboard& blackboard, [[maybe_unused]] Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         OLO_CORE_INFO("[BehaviorTree] {}", Message);
         return BTStatus::Success;
     }
@@ -45,13 +51,19 @@ namespace OloEngine
 
     BTStatus BTCheckBlackboardKey::Tick([[maybe_unused]] f32 dt, BTBlackboard& blackboard, [[maybe_unused]] Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!blackboard.Has(Key))
             return BTStatus::Failure;
 
         if (ExpectedValue.has_value())
         {
             auto actual = blackboard.GetRaw(Key);
-            return (actual == ExpectedValue.value()) ? BTStatus::Success : BTStatus::Failure;
+            if (!actual.has_value())
+            {
+                return BTStatus::Failure;
+            }
+            return (actual.value() == ExpectedValue.value()) ? BTStatus::Success : BTStatus::Failure;
         }
 
         return BTStatus::Success;
@@ -60,6 +72,8 @@ namespace OloEngine
 
     BTStatus BTMoveTo::Tick([[maybe_unused]] f32 dt, BTBlackboard& blackboard, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!entity.HasComponent<NavAgentComponent>())
         {
             OLO_CORE_WARN("[BehaviorTree] BTMoveTo: Entity has no NavAgentComponent");
@@ -97,6 +111,8 @@ namespace OloEngine
 
     BTStatus BTPlayAnimation::Tick([[maybe_unused]] f32 dt, [[maybe_unused]] BTBlackboard& blackboard, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!entity.HasComponent<AnimationGraphComponent>())
         {
             OLO_CORE_WARN("[BehaviorTree] BTPlayAnimation: Entity has no AnimationGraphComponent");

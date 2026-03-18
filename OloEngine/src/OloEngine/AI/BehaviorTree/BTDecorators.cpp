@@ -8,6 +8,8 @@ namespace OloEngine
 
     BTStatus BTInverter::Tick(f32 dt, BTBlackboard& blackboard, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (Children.empty())
         {
             return BTStatus::Failure;
@@ -16,19 +18,31 @@ namespace OloEngine
         BTStatus status = Children[0]->Tick(dt, blackboard, entity);
         if (status == BTStatus::Success)
         {
+            Children[0]->Reset();
             return BTStatus::Failure;
         }
         if (status == BTStatus::Failure)
         {
+            Children[0]->Reset();
             return BTStatus::Success;
         }
         return BTStatus::Running;
+    }
+
+    void BTInverter::Reset()
+    {
+        for (auto& child : Children)
+        {
+            child->Reset();
+        }
     }
 
     // --- BTRepeater ---
 
     BTStatus BTRepeater::Tick(f32 dt, BTBlackboard& blackboard, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (Children.empty())
         {
             return BTStatus::Failure;
@@ -39,6 +53,7 @@ namespace OloEngine
         if (status == BTStatus::Failure && AbortOnFailure)
         {
             m_CurrentIteration = 0;
+            Children[0]->Reset();
             return BTStatus::Failure;
         }
 
@@ -73,6 +88,8 @@ namespace OloEngine
 
     BTStatus BTCooldown::Tick(f32 dt, BTBlackboard& blackboard, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_IsOnCooldown)
         {
             m_TimeRemaining -= dt;
@@ -93,6 +110,7 @@ namespace OloEngine
         {
             m_IsOnCooldown = true;
             m_TimeRemaining = CooldownTime;
+            Children[0]->Reset();
         }
         return status;
     }
@@ -111,6 +129,8 @@ namespace OloEngine
 
     BTStatus BTConditionalGuard::Tick(f32 dt, BTBlackboard& blackboard, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!blackboard.Has(BlackboardKey))
         {
             return BTStatus::Failure;
@@ -130,5 +150,13 @@ namespace OloEngine
         }
 
         return Children[0]->Tick(dt, blackboard, entity);
+    }
+
+    void BTConditionalGuard::Reset()
+    {
+        for (auto& child : Children)
+        {
+            child->Reset();
+        }
     }
 } // namespace OloEngine

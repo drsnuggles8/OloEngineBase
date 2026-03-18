@@ -1280,6 +1280,21 @@ namespace OloEngine
 		public string GetBlackboardString(string key)
 			=> InternalCalls.StateMachineComponent_GetBlackboardString(Entity.ID, key);
 
+		public void SetBlackboardVec3(string key, Vector3 value)
+			=> InternalCalls.StateMachineComponent_SetBlackboardVec3(Entity.ID, key, ref value);
+
+		public Vector3 GetBlackboardVec3(string key)
+		{
+			InternalCalls.StateMachineComponent_GetBlackboardVec3(Entity.ID, key, out Vector3 result);
+			return result;
+		}
+
+		public void RemoveBlackboardKey(string key)
+			=> InternalCalls.StateMachineComponent_RemoveBlackboardKey(Entity.ID, key);
+
+		public bool HasBlackboardKey(string key)
+			=> InternalCalls.StateMachineComponent_HasBlackboardKey(Entity.ID, key);
+
 		public string CurrentState => InternalCalls.StateMachineComponent_GetCurrentState(Entity.ID);
 
 		public void ForceTransition(string stateId)

@@ -12,6 +12,7 @@ namespace OloEngine
     {
       public:
         BTStatus Tick(f32 dt, BTBlackboard& blackboard, Entity entity) override;
+        void Reset() override;
     };
 
     // Repeats child N times or forever (RepeatCount == 0 means infinite)
@@ -50,5 +51,6 @@ namespace OloEngine
         BTBlackboard::Value ExpectedValue;
 
         BTStatus Tick(f32 dt, BTBlackboard& blackboard, Entity entity) override;
+        void Reset() override;
     };
 } // namespace OloEngine

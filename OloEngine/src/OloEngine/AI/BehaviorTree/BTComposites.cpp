@@ -8,6 +8,8 @@ namespace OloEngine
 
     BTStatus BTSequence::Tick(f32 dt, BTBlackboard& blackboard, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         for (; m_CurrentChild < static_cast<u32>(Children.size()); ++m_CurrentChild)
         {
             BTStatus status = Children[m_CurrentChild]->Tick(dt, blackboard, entity);
@@ -17,11 +19,11 @@ namespace OloEngine
             }
             if (status == BTStatus::Failure)
             {
-                m_CurrentChild = 0;
+                Reset();
                 return BTStatus::Failure;
             }
         }
-        m_CurrentChild = 0;
+        Reset();
         return BTStatus::Success;
     }
 
@@ -38,6 +40,8 @@ namespace OloEngine
 
     BTStatus BTSelector::Tick(f32 dt, BTBlackboard& blackboard, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         for (; m_CurrentChild < static_cast<u32>(Children.size()); ++m_CurrentChild)
         {
             BTStatus status = Children[m_CurrentChild]->Tick(dt, blackboard, entity);
@@ -47,11 +51,11 @@ namespace OloEngine
             }
             if (status == BTStatus::Success)
             {
-                m_CurrentChild = 0;
+                Reset();
                 return BTStatus::Success;
             }
         }
-        m_CurrentChild = 0;
+        Reset();
         return BTStatus::Failure;
     }
 
@@ -68,6 +72,8 @@ namespace OloEngine
 
     BTStatus BTParallel::Tick(f32 dt, BTBlackboard& blackboard, Entity entity)
     {
+        OLO_PROFILE_FUNCTION();
+
         u32 successCount = 0;
         u32 failureCount = 0;
 
