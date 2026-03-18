@@ -1209,4 +1209,80 @@ namespace OloEngine
 		public void ApplyExpression(string expressionName, float blend = 1.0f)
 			=> InternalCalls.MorphTargetComponent_ApplyExpression(Entity.ID, expressionName, blend);
 	}
+
+	public class BehaviorTreeComponent : Component
+	{
+		public void SetBlackboardBool(string key, bool value)
+			=> InternalCalls.BehaviorTreeComponent_SetBlackboardBool(Entity.ID, key, value);
+
+		public bool GetBlackboardBool(string key)
+			=> InternalCalls.BehaviorTreeComponent_GetBlackboardBool(Entity.ID, key);
+
+		public void SetBlackboardInt(string key, int value)
+			=> InternalCalls.BehaviorTreeComponent_SetBlackboardInt(Entity.ID, key, value);
+
+		public int GetBlackboardInt(string key)
+			=> InternalCalls.BehaviorTreeComponent_GetBlackboardInt(Entity.ID, key);
+
+		public void SetBlackboardFloat(string key, float value)
+			=> InternalCalls.BehaviorTreeComponent_SetBlackboardFloat(Entity.ID, key, value);
+
+		public float GetBlackboardFloat(string key)
+			=> InternalCalls.BehaviorTreeComponent_GetBlackboardFloat(Entity.ID, key);
+
+		public void SetBlackboardString(string key, string value)
+			=> InternalCalls.BehaviorTreeComponent_SetBlackboardString(Entity.ID, key, value);
+
+		public string GetBlackboardString(string key)
+			=> InternalCalls.BehaviorTreeComponent_GetBlackboardString(Entity.ID, key);
+
+		public void SetBlackboardVec3(string key, Vector3 value)
+			=> InternalCalls.BehaviorTreeComponent_SetBlackboardVec3(Entity.ID, key, ref value);
+
+		public Vector3 GetBlackboardVec3(string key)
+		{
+			InternalCalls.BehaviorTreeComponent_GetBlackboardVec3(Entity.ID, key, out Vector3 result);
+			return result;
+		}
+
+		public void RemoveBlackboardKey(string key)
+			=> InternalCalls.BehaviorTreeComponent_RemoveBlackboardKey(Entity.ID, key);
+
+		public bool HasBlackboardKey(string key)
+			=> InternalCalls.BehaviorTreeComponent_HasBlackboardKey(Entity.ID, key);
+
+		public bool IsRunning => InternalCalls.BehaviorTreeComponent_IsRunning(Entity.ID);
+	}
+
+	public class StateMachineComponent : Component
+	{
+		public void SetBlackboardBool(string key, bool value)
+			=> InternalCalls.StateMachineComponent_SetBlackboardBool(Entity.ID, key, value);
+
+		public bool GetBlackboardBool(string key)
+			=> InternalCalls.StateMachineComponent_GetBlackboardBool(Entity.ID, key);
+
+		public void SetBlackboardInt(string key, int value)
+			=> InternalCalls.StateMachineComponent_SetBlackboardInt(Entity.ID, key, value);
+
+		public int GetBlackboardInt(string key)
+			=> InternalCalls.StateMachineComponent_GetBlackboardInt(Entity.ID, key);
+
+		public void SetBlackboardFloat(string key, float value)
+			=> InternalCalls.StateMachineComponent_SetBlackboardFloat(Entity.ID, key, value);
+
+		public float GetBlackboardFloat(string key)
+			=> InternalCalls.StateMachineComponent_GetBlackboardFloat(Entity.ID, key);
+
+		public void SetBlackboardString(string key, string value)
+			=> InternalCalls.StateMachineComponent_SetBlackboardString(Entity.ID, key, value);
+
+		public string GetBlackboardString(string key)
+			=> InternalCalls.StateMachineComponent_GetBlackboardString(Entity.ID, key);
+
+		public string CurrentState => InternalCalls.StateMachineComponent_GetCurrentState(Entity.ID);
+
+		public void ForceTransition(string stateId)
+			=> InternalCalls.StateMachineComponent_ForceTransition(Entity.ID, stateId);
+	}
 }

@@ -1678,6 +1678,12 @@ namespace OloEngine
             DisplayAddComponentEntry<NavMeshBoundsComponent>("NavMesh Bounds");
             DisplayAddComponentEntry<NavAgentComponent>("Nav Agent");
 
+            ImGui::Separator();
+
+            // AI
+            DisplayAddComponentEntry<BehaviorTreeComponent>("Behavior Tree");
+            DisplayAddComponentEntry<StateMachineComponent>("State Machine");
+
             ImGui::EndPopup();
         }
 
@@ -4158,6 +4164,106 @@ namespace OloEngine
             else
             {
                 ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No active path");
+            } });
+
+        DrawComponent<BehaviorTreeComponent>("Behavior Tree", entity, [](auto& component)
+                                             {
+            if (component.BehaviorTreeAssetHandle != 0)
+            {
+                auto metadata = AssetManager::GetAssetMetadata(component.BehaviorTreeAssetHandle);
+                if (metadata.IsValid())
+                    ImGui::Text("Asset: %s", metadata.FilePath.filename().string().c_str());
+                else
+                    ImGui::Text("Asset: <invalid handle>");
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No behavior tree assigned");
+            }
+
+            if (ImGui::Button("Browse...##BTAsset"))
+            {
+                std::string filepath = FileDialogs::OpenFile(
+                    "Behavior Tree (*.olobt)\0*.olobt\0"
+                    "All Files (*.*)\0*.*\0");
+                if (!filepath.empty())
+                {
+                    auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
+                    if (assetManager)
+                    {
+                        AssetHandle importedHandle = assetManager->ImportAsset(filepath);
+                        if (importedHandle != 0)
+                        {
+                            auto metadata = AssetManager::GetAssetMetadata(importedHandle);
+                            if (metadata.Type == AssetType::BehaviorTree)
+                                component.BehaviorTreeAssetHandle = importedHandle;
+                        }
+                    }
+                }
+            }
+
+            if (component.BehaviorTreeAssetHandle != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##BT"))
+                    component.BehaviorTreeAssetHandle = 0;
+            }
+
+            if (component.IsRunning)
+                ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Running");
+            else
+                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Not running"); });
+
+        DrawComponent<StateMachineComponent>("State Machine", entity, [](auto& component)
+                                             {
+            if (component.StateMachineAssetHandle != 0)
+            {
+                auto metadata = AssetManager::GetAssetMetadata(component.StateMachineAssetHandle);
+                if (metadata.IsValid())
+                    ImGui::Text("Asset: %s", metadata.FilePath.filename().string().c_str());
+                else
+                    ImGui::Text("Asset: <invalid handle>");
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No state machine assigned");
+            }
+
+            if (ImGui::Button("Browse...##FSMAsset"))
+            {
+                std::string filepath = FileDialogs::OpenFile(
+                    "State Machine (*.olofsm)\0*.olofsm\0"
+                    "All Files (*.*)\0*.*\0");
+                if (!filepath.empty())
+                {
+                    auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
+                    if (assetManager)
+                    {
+                        AssetHandle importedHandle = assetManager->ImportAsset(filepath);
+                        if (importedHandle != 0)
+                        {
+                            auto metadata = AssetManager::GetAssetMetadata(importedHandle);
+                            if (metadata.Type == AssetType::StateMachine)
+                                component.StateMachineAssetHandle = importedHandle;
+                        }
+                    }
+                }
+            }
+
+            if (component.StateMachineAssetHandle != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##FSM"))
+                    component.StateMachineAssetHandle = 0;
+            }
+
+            if (component.RuntimeFSM && component.RuntimeFSM->IsStarted())
+            {
+                ImGui::Text("Current State: %s", component.RuntimeFSM->GetCurrentStateID().c_str());
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Not started");
             } });
     }
 

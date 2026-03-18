@@ -112,6 +112,9 @@ add_executable(OloEngine-Tests
 		BlendTreeTest.cpp
 		# Morph Target Tests
 		MorphTargetTest.cpp
+		# AI Behavior Tree & FSM Tests
+		BehaviorTreeTest.cpp
+		StateMachineTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

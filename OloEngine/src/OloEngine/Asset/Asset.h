@@ -140,6 +140,8 @@ namespace OloEngine
         friend class LightProbeVolumeSerializer;
         friend class DialogueTreeSerializer;
         friend class ShaderGraphSerializer;
+        friend class BehaviorTreeSerializer;
+        friend class StateMachineSerializer;
 
         bool IsValid() const
         {

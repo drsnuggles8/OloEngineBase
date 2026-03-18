@@ -44,6 +44,10 @@
 		"Panels/NavMeshPanel.h"
 		"Panels/AnimationGraphEditorPanel.cpp"
 		"Panels/AnimationGraphEditorPanel.h"
+		"Panels/BehaviorTreeEditorPanel.cpp"
+		"Panels/BehaviorTreeEditorPanel.h"
+		"Panels/FSMEditorPanel.cpp"
+		"Panels/FSMEditorPanel.h"
 )
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES "../assets/shaders/*.glsl")
