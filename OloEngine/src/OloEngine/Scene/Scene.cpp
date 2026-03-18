@@ -50,6 +50,7 @@
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
+#include "OloEngine/Navigation/NavigationSystem.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -160,6 +161,10 @@ namespace OloEngine
 
         // Copy components (except IDComponent and TagComponent)
         CopyComponent(AllComponents{}, dstSceneRegistry, srcSceneRegistry, enttMap);
+
+        // Propagate navmesh so NavigationSystem works in the copied scene
+        if (other->m_NavMesh)
+            newScene->SetNavMesh(other->m_NavMesh);
 
         return newScene;
     }
@@ -459,6 +464,34 @@ namespace OloEngine
         OnPhysics3DStop();
     }
 
+    void Scene::SetNavMesh(const Ref<NavMesh>& navMesh)
+    {
+        m_NavMesh = navMesh;
+        if (navMesh && navMesh->IsValid())
+        {
+            m_NavMeshQuery = std::make_unique<NavMeshQuery>(navMesh);
+            m_CrowdManager = std::make_unique<CrowdManager>();
+            m_CrowdManager->Initialize(navMesh);
+        }
+        else
+        {
+            m_NavMeshQuery.reset();
+            m_CrowdManager.reset();
+        }
+
+        // Reset per-agent runtime state so no entity keeps stale IDs or paths
+        auto agentView = GetAllEntitiesWith<NavAgentComponent>();
+        for (auto e : agentView)
+        {
+            auto& agent = m_Registry.get<NavAgentComponent>(e);
+            agent.m_CrowdAgentId = -1;
+            agent.m_HasTarget = false;
+            agent.m_HasPath = false;
+            agent.m_PathCorners.clear();
+            agent.m_CurrentCornerIndex = 0;
+        }
+    }
+
     // Process sub-emitter triggers that reference child systems.
     // For triggers with a valid ChildSystemIndex, emit into the corresponding child system's pool.
     static void ProcessChildSubEmitters(ParticleSystemComponent& psc, f32 dt, const glm::vec3& emitterPos)
@@ -654,6 +687,9 @@ namespace OloEngine
                     }
                 }
             }
+
+            // Update navigation / pathfinding
+            NavigationSystem::OnUpdate(this, ts.GetSeconds());
 
             auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
             for (auto&& [e, ac, tc] : listenerView.each())
@@ -1154,6 +1190,10 @@ namespace OloEngine
     void Scene::OnComponentAdded<DialogueComponent>(Entity, DialogueComponent&) {}
     template<>
     void Scene::OnComponentAdded<DialogueStateComponent>(Entity, DialogueStateComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<NavMeshBoundsComponent>(Entity, NavMeshBoundsComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<NavAgentComponent>(Entity, NavAgentComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {

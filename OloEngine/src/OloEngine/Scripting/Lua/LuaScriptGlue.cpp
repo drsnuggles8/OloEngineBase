@@ -402,6 +402,36 @@ namespace OloEngine
                                                     }
                                                 }));
 
+        // --- NavAgentComponent ---
+        lua.new_usertype<NavAgentComponent>("NavAgentComponent",
+                                            "radius", &NavAgentComponent::m_Radius,
+                                            "height", &NavAgentComponent::m_Height,
+                                            "maxSpeed", &NavAgentComponent::m_MaxSpeed,
+                                            "acceleration", &NavAgentComponent::m_Acceleration,
+                                            "stoppingDistance", &NavAgentComponent::m_StoppingDistance,
+                                            "avoidancePriority", &NavAgentComponent::m_AvoidancePriority,
+                                            "targetPosition", sol::property([](const NavAgentComponent& a)
+                                                                            { return a.m_TargetPosition; }, [](NavAgentComponent& a, const glm::vec3& pos)
+                                                                            {
+                                                    a.m_TargetPosition = pos;
+                                                    a.m_HasTarget = true;
+                                                    a.m_HasPath = false;
+                                                    a.m_PathCorners.clear();
+                                                    a.m_CurrentCornerIndex = 0; }),
+                                            "hasTarget", sol::readonly(&NavAgentComponent::m_HasTarget),
+                                            "hasPath", sol::readonly(&NavAgentComponent::m_HasPath),
+                                            "clearTarget", [](NavAgentComponent& agent)
+                                            {
+                                                agent.m_HasTarget = false;
+                                                agent.m_HasPath = false;
+                                                agent.m_PathCorners.clear();
+                                                agent.m_CurrentCornerIndex = 0; });
+
+        // --- NavMeshBoundsComponent ---
+        lua.new_usertype<NavMeshBoundsComponent>("NavMeshBoundsComponent",
+                                                 "min", &NavMeshBoundsComponent::m_Min,
+                                                 "max", &NavMeshBoundsComponent::m_Max);
+
         // --- Dialogue system functions ---
         auto dialogueTable = lua.create_named_table("dialogue");
         dialogueTable["start"] = [](Entity* entity)

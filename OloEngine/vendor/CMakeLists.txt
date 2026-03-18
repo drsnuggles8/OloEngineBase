@@ -100,6 +100,12 @@ FetchContent_Declare(
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
+	recastnavigation
+	GIT_REPOSITORY	https://github.com/recastnavigation/recastnavigation.git
+	GIT_TAG			v1.6.0
+	GIT_SHALLOW		TRUE
+)
+FetchContent_Declare(
 	spdlog
 	GIT_REPOSITORY	https://github.com/gabime/spdlog.git
 	GIT_TAG			v1.15.1
@@ -253,13 +259,19 @@ set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
+# Recast/Detour configuration - build as static library, disable demos/tests
+set(RECASTNAVIGATION_DEMO OFF CACHE BOOL "" FORCE)
+set(RECASTNAVIGATION_TESTS OFF CACHE BOOL "" FORCE)
+set(RECASTNAVIGATION_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+
 # Jolt Physics configuration - enable static linking and cross-platform determinism
 set(JPH_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
 set(JPH_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
 set(JPH_CROSS_PLATFORM_DETERMINISTIC ON CACHE BOOL "" FORCE)
 
 
-FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw glm googletest joltphysics miniaudio msdfgen msdf-atlas-gen spdlog tracy yaml-cpp)
+FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw glm googletest joltphysics miniaudio msdfgen msdf-atlas-gen recastnavigation spdlog tracy yaml-cpp)
 
 # Fix Jolt's INTERFACE_INCLUDE_DIRECTORIES to remove absolute Vulkan SDK paths
 # This is a workaround for CMake's strict policy against source-dir absolute paths in interface directories

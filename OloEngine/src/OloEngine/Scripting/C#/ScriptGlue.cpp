@@ -1487,6 +1487,96 @@ namespace OloEngine
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
+    // NavAgentComponent //////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static void NavAgentComponent_GetTargetPosition(UUID entityID, glm::vec3* outTarget)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        *outTarget = entity.GetComponent<NavAgentComponent>().m_TargetPosition;
+    }
+
+    static void NavAgentComponent_SetTargetPosition(UUID entityID, glm::vec3 const* target)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        auto& agent = entity.GetComponent<NavAgentComponent>();
+        agent.m_TargetPosition = *target;
+        agent.m_HasTarget = true;
+    }
+
+    static void NavAgentComponent_GetMaxSpeed(UUID entityID, f32* outSpeed)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        *outSpeed = entity.GetComponent<NavAgentComponent>().m_MaxSpeed;
+    }
+
+    static void NavAgentComponent_SetMaxSpeed(UUID entityID, f32 const* speed)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        entity.GetComponent<NavAgentComponent>().m_MaxSpeed = *speed;
+    }
+
+    static void NavAgentComponent_GetAcceleration(UUID entityID, f32* outAccel)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        *outAccel = entity.GetComponent<NavAgentComponent>().m_Acceleration;
+    }
+
+    static void NavAgentComponent_SetAcceleration(UUID entityID, f32 const* accel)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        entity.GetComponent<NavAgentComponent>().m_Acceleration = *accel;
+    }
+
+    static void NavAgentComponent_GetStoppingDistance(UUID entityID, f32* outDist)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        *outDist = entity.GetComponent<NavAgentComponent>().m_StoppingDistance;
+    }
+
+    static void NavAgentComponent_SetStoppingDistance(UUID entityID, f32 const* dist)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        entity.GetComponent<NavAgentComponent>().m_StoppingDistance = *dist;
+    }
+
+    static bool NavAgentComponent_HasPath(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        return entity.GetComponent<NavAgentComponent>().m_HasPath;
+    }
+
+    static void NavAgentComponent_ClearTarget(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        auto& agent = entity.GetComponent<NavAgentComponent>();
+        agent.m_HasTarget = false;
+        agent.m_HasPath = false;
+        agent.m_PathCorners.clear();
+        agent.m_CurrentCornerIndex = 0;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
     // Dialogue ///////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -2214,6 +2304,20 @@ namespace OloEngine
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(MaterialComponent_GetShaderGraphHandle);
         OLO_ADD_INTERNAL_CALL(MaterialComponent_SetShaderGraphHandle);
+
+        ///////////////////////////////////////////////////////////////
+        // NavAgentComponent /////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetTargetPosition);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetTargetPosition);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetMaxSpeed);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetMaxSpeed);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetAcceleration);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetAcceleration);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetStoppingDistance);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetStoppingDistance);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_HasPath);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_ClearTarget);
 
         ///////////////////////////////////////////////////////////////
         // SaveGame //////////////////////////////////////////////////

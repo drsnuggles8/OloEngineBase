@@ -534,6 +534,7 @@ namespace OloEngine
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
+            ImGui::MenuItem("NavMesh Panel", nullptr, &m_ShowNavMeshPanel);
             ImGui::MenuItem("Shader Graph Editor", nullptr, &m_ShowShaderGraphEditor);
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
             ImGui::MenuItem("Gamepad Debug", nullptr, &m_ShowGamepadDebug);
@@ -973,6 +974,12 @@ namespace OloEngine
         if (m_ShowSaveGamePanel)
         {
             m_SaveGamePanel.OnImGuiRender(&m_ShowSaveGamePanel);
+        }
+
+        // NavMesh Panel
+        if (m_ShowNavMeshPanel)
+        {
+            m_NavMeshPanel.OnImGuiRender();
         }
 
         // Gamepad Debug Panel
@@ -1769,6 +1776,7 @@ namespace OloEngine
         m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
         m_StreamingPanel.SetCommandHistory(nullptr);
         m_SceneStatisticsPanel.SetContext(m_ActiveScene);
+        m_NavMeshPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneSimulate()
@@ -1790,6 +1798,7 @@ namespace OloEngine
         m_StreamingPanel.SetContext(m_ActiveScene);
         m_StreamingPanel.SetCommandHistory(nullptr);
         m_SceneStatisticsPanel.SetContext(m_ActiveScene);
+        m_NavMeshPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneStop()
@@ -1821,6 +1830,7 @@ namespace OloEngine
         m_SaveGamePanel.SetContext(nullptr, nullptr);
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
         m_SceneStatisticsPanel.SetContext(m_ActiveScene);
+        m_NavMeshPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
@@ -1841,6 +1851,7 @@ namespace OloEngine
         m_StreamingPanel.SetContext(m_EditorScene);
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
         m_SceneStatisticsPanel.SetContext(m_EditorScene);
+        m_NavMeshPanel.SetContext(m_EditorScene);
         m_DialogueEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_InputSettingsPanel.SetCommandHistory(&m_CommandHistory);
 

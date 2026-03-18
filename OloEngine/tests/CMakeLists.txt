@@ -103,6 +103,8 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameManagerTest.cpp
 		SaveGame/SaveGameIntegrationTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
+		# Navigation Tests
+		NavMeshTest.cpp
 		UndoRedoTest.cpp
 		HeadlessTest.cpp
 )

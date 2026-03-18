@@ -785,6 +785,19 @@
 		"OloEngine/Dialogue/DialogueUIController.h"
 		"OloEngine/Dialogue/DialogueUIController.cpp"
 
+		"OloEngine/Navigation/NavMeshSettings.h"
+		"OloEngine/Navigation/NavMesh.h"
+		"OloEngine/Navigation/NavMesh.cpp"
+		"OloEngine/Navigation/NavMeshGenerator.h"
+		"OloEngine/Navigation/NavMeshGenerator.cpp"
+		"OloEngine/Navigation/NavMeshQuery.h"
+		"OloEngine/Navigation/NavMeshQuery.cpp"
+		"OloEngine/Navigation/CrowdManager.h"
+		"OloEngine/Navigation/CrowdManager.cpp"
+		"OloEngine/Navigation/NavigationSystem.h"
+		"OloEngine/Navigation/NavigationSystem.cpp"
+		"OloEngine/Navigation/NavMeshDebugDraw.h"
+
 		"OloEngine/Utils/PlatformUtils.h"
 
 		"Platform/OpenGL/OpenGLContext.cpp"
