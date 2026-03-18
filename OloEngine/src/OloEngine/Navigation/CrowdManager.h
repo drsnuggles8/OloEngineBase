@@ -39,6 +39,11 @@ namespace OloEngine
         [[nodiscard]] i32 GetActiveAgentCount() const;
 
       private:
+        [[nodiscard]] bool IsValidAgentId(i32 agentId) const
+        {
+            return m_Crowd && agentId >= 0 && agentId < m_Crowd->getAgentCount();
+        }
+
         dtCrowd* m_Crowd = nullptr;
         Ref<NavMesh> m_NavMesh;
     };

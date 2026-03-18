@@ -7,6 +7,9 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/MeshColliderAsset.h"
+#include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Core/Log.h"
 
 #include <Recast.h>
@@ -21,6 +24,87 @@ namespace OloEngine
     {
         auto& tc = entity.GetComponent<TransformComponent>();
         return glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(glm::quat(tc.Rotation)) * glm::scale(glm::mat4(1.0f), tc.Scale);
+    }
+
+    // Append local-space vertices transformed to world-space and return the baseVertex index
+    static i32 AppendTransformedVerts(const glm::mat4& worldTransform,
+                                      const glm::vec3* localVerts, i32 count,
+                                      std::vector<f32>& outVerts)
+    {
+        const auto baseVertex = static_cast<i32>(outVerts.size() / 3);
+        for (i32 i = 0; i < count; ++i)
+        {
+            glm::vec4 wp = worldTransform * glm::vec4(localVerts[i], 1.0f);
+            outVerts.push_back(wp.x);
+            outVerts.push_back(wp.y);
+            outVerts.push_back(wp.z);
+        }
+        return baseVertex;
+    }
+
+    // Generate a UV-sphere approximation with given rings/segments
+    static void GenerateSphereGeometry(f32 radius, const glm::vec3& offset,
+                                       i32 rings, i32 segments,
+                                       std::vector<glm::vec3>& outLocalVerts,
+                                       std::vector<i32>& outLocalTris)
+    {
+        outLocalVerts.clear();
+        outLocalTris.clear();
+
+        // Top pole
+        outLocalVerts.push_back(offset + glm::vec3(0.0f, radius, 0.0f));
+
+        for (i32 r = 1; r < rings; ++r)
+        {
+            f32 phi = glm::pi<f32>() * static_cast<f32>(r) / static_cast<f32>(rings);
+            f32 y = radius * std::cos(phi);
+            f32 ringRadius = radius * std::sin(phi);
+            for (i32 s = 0; s < segments; ++s)
+            {
+                f32 theta = 2.0f * glm::pi<f32>() * static_cast<f32>(s) / static_cast<f32>(segments);
+                outLocalVerts.push_back(offset + glm::vec3(ringRadius * std::cos(theta), y, ringRadius * std::sin(theta)));
+            }
+        }
+
+        // Bottom pole
+        outLocalVerts.push_back(offset + glm::vec3(0.0f, -radius, 0.0f));
+
+        i32 bottomPole = static_cast<i32>(outLocalVerts.size()) - 1;
+
+        // Top cap triangles
+        for (i32 s = 0; s < segments; ++s)
+        {
+            outLocalTris.push_back(0);
+            outLocalTris.push_back(1 + (s + 1) % segments);
+            outLocalTris.push_back(1 + s);
+        }
+
+        // Middle quads (2 tris each)
+        for (i32 r = 0; r < rings - 2; ++r)
+        {
+            i32 rowStart = 1 + r * segments;
+            i32 nextRowStart = 1 + (r + 1) * segments;
+            for (i32 s = 0; s < segments; ++s)
+            {
+                i32 s1 = (s + 1) % segments;
+                outLocalTris.push_back(rowStart + s);
+                outLocalTris.push_back(rowStart + s1);
+                outLocalTris.push_back(nextRowStart + s);
+
+                outLocalTris.push_back(nextRowStart + s);
+                outLocalTris.push_back(rowStart + s1);
+                outLocalTris.push_back(nextRowStart + s1);
+            }
+        }
+
+        // Bottom cap triangles
+        i32 lastRowStart = 1 + (rings - 2) * segments;
+        for (i32 s = 0; s < segments; ++s)
+        {
+            outLocalTris.push_back(bottomPole);
+            outLocalTris.push_back(lastRowStart + s);
+            outLocalTris.push_back(lastRowStart + (s + 1) % segments);
+        }
     }
 
     void NavMeshGenerator::CollectSceneGeometry(Scene* scene, std::vector<f32>& outVerts, std::vector<i32>& outTris)
@@ -112,13 +196,13 @@ namespace OloEngine
             // 8 local corners of the box (around offset)
             glm::vec3 localCorners[8] = {
                 box.m_Offset + glm::vec3(-halfSize.x, -halfSize.y, -halfSize.z),
-                box.m_Offset + glm::vec3( halfSize.x, -halfSize.y, -halfSize.z),
-                box.m_Offset + glm::vec3( halfSize.x,  halfSize.y, -halfSize.z),
-                box.m_Offset + glm::vec3(-halfSize.x,  halfSize.y, -halfSize.z),
-                box.m_Offset + glm::vec3(-halfSize.x, -halfSize.y,  halfSize.z),
-                box.m_Offset + glm::vec3( halfSize.x, -halfSize.y,  halfSize.z),
-                box.m_Offset + glm::vec3( halfSize.x,  halfSize.y,  halfSize.z),
-                box.m_Offset + glm::vec3(-halfSize.x,  halfSize.y,  halfSize.z),
+                box.m_Offset + glm::vec3(halfSize.x, -halfSize.y, -halfSize.z),
+                box.m_Offset + glm::vec3(halfSize.x, halfSize.y, -halfSize.z),
+                box.m_Offset + glm::vec3(-halfSize.x, halfSize.y, -halfSize.z),
+                box.m_Offset + glm::vec3(-halfSize.x, -halfSize.y, halfSize.z),
+                box.m_Offset + glm::vec3(halfSize.x, -halfSize.y, halfSize.z),
+                box.m_Offset + glm::vec3(halfSize.x, halfSize.y, halfSize.z),
+                box.m_Offset + glm::vec3(-halfSize.x, halfSize.y, halfSize.z),
             };
 
             const auto baseVertex = static_cast<i32>(outVerts.size() / 3);
@@ -141,6 +225,228 @@ namespace OloEngine
             };
             for (i32 idx : boxIndices)
                 outTris.push_back(baseVertex + idx);
+        }
+
+        // Collect from SphereCollider3DComponent (UV-sphere approximation)
+        {
+            constexpr i32 kRings = 8;
+            constexpr i32 kSegments = 12;
+            std::vector<glm::vec3> localVerts;
+            std::vector<i32> localTris;
+
+            auto sphereView = scene->GetAllEntitiesWith<SphereCollider3DComponent, TransformComponent>();
+            for (auto e : sphereView)
+            {
+                Entity entity = { e, scene };
+                auto& sphere = entity.GetComponent<SphereCollider3DComponent>();
+
+                GenerateSphereGeometry(sphere.m_Radius, sphere.m_Offset, kRings, kSegments, localVerts, localTris);
+
+                glm::mat4 worldTransform = GetWorldTransform(entity);
+                const auto base = AppendTransformedVerts(worldTransform, localVerts.data(), static_cast<i32>(localVerts.size()), outVerts);
+
+                for (i32 idx : localTris)
+                    outTris.push_back(base + idx);
+            }
+        }
+
+        // Collect from CapsuleCollider3DComponent (cylinder + hemisphere caps)
+        {
+            constexpr i32 kRings = 5;
+            constexpr i32 kSegments = 12;
+            std::vector<glm::vec3> localVerts;
+            std::vector<i32> localTris;
+
+            auto capsuleView = scene->GetAllEntitiesWith<CapsuleCollider3DComponent, TransformComponent>();
+            for (auto e : capsuleView)
+            {
+                Entity entity = { e, scene };
+                auto& capsule = entity.GetComponent<CapsuleCollider3DComponent>();
+
+                localVerts.clear();
+                localTris.clear();
+
+                f32 r = capsule.m_Radius;
+                f32 hh = capsule.m_HalfHeight;
+                glm::vec3 off = capsule.m_Offset;
+
+                // Top hemisphere (rings from pole down to equator at +hh)
+                localVerts.push_back(off + glm::vec3(0.0f, hh + r, 0.0f)); // top pole
+                for (i32 ring = 1; ring <= kRings; ++ring)
+                {
+                    f32 phi = (glm::pi<f32>() * 0.5f) * static_cast<f32>(ring) / static_cast<f32>(kRings);
+                    f32 y = hh + r * std::cos(phi);
+                    f32 ringR = r * std::sin(phi);
+                    for (i32 s = 0; s < kSegments; ++s)
+                    {
+                        f32 theta = 2.0f * glm::pi<f32>() * static_cast<f32>(s) / static_cast<f32>(kSegments);
+                        localVerts.push_back(off + glm::vec3(ringR * std::cos(theta), y, ringR * std::sin(theta)));
+                    }
+                }
+
+                // Bottom hemisphere (rings from equator at -hh down to pole)
+                for (i32 ring = 1; ring < kRings; ++ring)
+                {
+                    f32 phi = (glm::pi<f32>() * 0.5f) * static_cast<f32>(ring) / static_cast<f32>(kRings);
+                    f32 y = -hh - r * std::sin(phi);
+                    f32 ringR = r * std::cos(phi);
+                    for (i32 s = 0; s < kSegments; ++s)
+                    {
+                        f32 theta = 2.0f * glm::pi<f32>() * static_cast<f32>(s) / static_cast<f32>(kSegments);
+                        localVerts.push_back(off + glm::vec3(ringR * std::cos(theta), y, ringR * std::sin(theta)));
+                    }
+                }
+                localVerts.push_back(off + glm::vec3(0.0f, -hh - r, 0.0f)); // bottom pole
+
+                i32 totalRings = kRings + (kRings - 1); // hemisphere rings (top) + hemisphere rings (bottom, excl shared equator)
+                i32 bottomPole = static_cast<i32>(localVerts.size()) - 1;
+
+                // Top cap
+                for (i32 s = 0; s < kSegments; ++s)
+                {
+                    localTris.push_back(0);
+                    localTris.push_back(1 + (s + 1) % kSegments);
+                    localTris.push_back(1 + s);
+                }
+
+                // Middle rings
+                for (i32 ring = 0; ring < totalRings - 1; ++ring)
+                {
+                    i32 rowStart = 1 + ring * kSegments;
+                    i32 nextRow = 1 + (ring + 1) * kSegments;
+                    for (i32 s = 0; s < kSegments; ++s)
+                    {
+                        i32 s1 = (s + 1) % kSegments;
+                        localTris.push_back(rowStart + s);
+                        localTris.push_back(rowStart + s1);
+                        localTris.push_back(nextRow + s);
+
+                        localTris.push_back(nextRow + s);
+                        localTris.push_back(rowStart + s1);
+                        localTris.push_back(nextRow + s1);
+                    }
+                }
+
+                // Bottom cap
+                i32 lastRow = 1 + (totalRings - 1) * kSegments;
+                for (i32 s = 0; s < kSegments; ++s)
+                {
+                    localTris.push_back(bottomPole);
+                    localTris.push_back(lastRow + s);
+                    localTris.push_back(lastRow + (s + 1) % kSegments);
+                }
+
+                glm::mat4 worldTransform = GetWorldTransform(entity);
+                const auto base = AppendTransformedVerts(worldTransform, localVerts.data(), static_cast<i32>(localVerts.size()), outVerts);
+
+                for (i32 idx : localTris)
+                    outTris.push_back(base + idx);
+            }
+        }
+
+        // Collect from MeshCollider3DComponent (triangle mesh from MeshColliderAsset)
+        auto meshColView = scene->GetAllEntitiesWith<MeshCollider3DComponent, TransformComponent>();
+        for (auto e : meshColView)
+        {
+            Entity entity = { e, scene };
+            auto& mc = entity.GetComponent<MeshCollider3DComponent>();
+
+            if (mc.m_ColliderAsset == 0)
+                continue;
+
+            auto meshColliderAsset = AssetManager::GetAsset<MeshColliderAsset>(mc.m_ColliderAsset);
+            if (!meshColliderAsset || meshColliderAsset->m_ColliderMesh == 0)
+                continue;
+
+            auto meshSource = AssetManager::GetAsset<MeshSource>(meshColliderAsset->m_ColliderMesh);
+            if (!meshSource)
+                continue;
+
+            const auto& vertices = meshSource->GetVertices();
+            const auto& indices = meshSource->GetIndices();
+
+            glm::mat4 worldTransform = GetWorldTransform(entity);
+            glm::mat4 colliderTransform = glm::translate(glm::mat4(1.0f), mc.m_Offset) * glm::scale(glm::mat4(1.0f), mc.m_Scale);
+            glm::mat4 combined = worldTransform * colliderTransform;
+
+            const auto baseVertex = static_cast<i32>(outVerts.size() / 3);
+            for (i32 i = 0; i < static_cast<i32>(vertices.Num()); ++i)
+            {
+                glm::vec4 worldPos = combined * glm::vec4(vertices[i].Position, 1.0f);
+                outVerts.push_back(worldPos.x);
+                outVerts.push_back(worldPos.y);
+                outVerts.push_back(worldPos.z);
+            }
+
+            for (i32 i = 0; i < static_cast<i32>(indices.Num()); i += 3)
+            {
+                outTris.push_back(baseVertex + static_cast<i32>(indices[i]));
+                outTris.push_back(baseVertex + static_cast<i32>(indices[i + 1]));
+                outTris.push_back(baseVertex + static_cast<i32>(indices[i + 2]));
+            }
+        }
+
+        // Collect from TerrainComponent (grid tessellation from heightmap)
+        auto terrainView = scene->GetAllEntitiesWith<TerrainComponent, TransformComponent>();
+        for (auto e : terrainView)
+        {
+            Entity entity = { e, scene };
+            auto& terrain = entity.GetComponent<TerrainComponent>();
+
+            if (!terrain.m_TerrainData)
+                continue;
+
+            u32 resolution = terrain.m_TerrainData->GetResolution();
+            if (resolution < 2)
+                continue;
+
+            // Downsample large heightmaps to keep vertex count manageable
+            constexpr u32 kMaxNavRes = 128;
+            u32 step = 1;
+            while (resolution / step > kMaxNavRes)
+                step *= 2;
+
+            u32 gridRes = (resolution - 1) / step + 1;
+            glm::mat4 worldTransform = GetWorldTransform(entity);
+
+            const auto baseVertex = static_cast<i32>(outVerts.size() / 3);
+
+            for (u32 z = 0; z < gridRes; ++z)
+            {
+                f32 nz = static_cast<f32>(z * step) / static_cast<f32>(resolution - 1);
+                for (u32 x = 0; x < gridRes; ++x)
+                {
+                    f32 nx = static_cast<f32>(x * step) / static_cast<f32>(resolution - 1);
+                    f32 height = terrain.m_TerrainData->GetHeightAt(nx, nz);
+
+                    // Local-space: X in [0, WorldSizeX], Y = height * HeightScale, Z in [0, WorldSizeZ]
+                    glm::vec3 localPos(nx * terrain.m_WorldSizeX, height * terrain.m_HeightScale, nz * terrain.m_WorldSizeZ);
+                    glm::vec4 wp = worldTransform * glm::vec4(localPos, 1.0f);
+                    outVerts.push_back(wp.x);
+                    outVerts.push_back(wp.y);
+                    outVerts.push_back(wp.z);
+                }
+            }
+
+            // Generate triangle indices for the grid
+            for (u32 z = 0; z < gridRes - 1; ++z)
+            {
+                for (u32 x = 0; x < gridRes - 1; ++x)
+                {
+                    i32 topLeft = baseVertex + static_cast<i32>(z * gridRes + x);
+                    i32 topRight = topLeft + 1;
+                    i32 bottomLeft = topLeft + static_cast<i32>(gridRes);
+                    i32 bottomRight = bottomLeft + 1;
+
+                    outTris.push_back(topLeft);
+                    outTris.push_back(bottomLeft);
+                    outTris.push_back(topRight);
+
+                    outTris.push_back(topRight);
+                    outTris.push_back(bottomLeft);
+                    outTris.push_back(bottomRight);
+                }
+            }
         }
     }
 

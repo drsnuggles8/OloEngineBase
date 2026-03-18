@@ -478,6 +478,18 @@ namespace OloEngine
             m_NavMeshQuery.reset();
             m_CrowdManager.reset();
         }
+
+        // Reset per-agent runtime state so no entity keeps stale IDs or paths
+        auto agentView = GetAllEntitiesWith<NavAgentComponent>();
+        for (auto e : agentView)
+        {
+            auto& agent = m_Registry.get<NavAgentComponent>(e);
+            agent.m_CrowdAgentId = -1;
+            agent.m_HasTarget = false;
+            agent.m_HasPath = false;
+            agent.m_PathCorners.clear();
+            agent.m_CurrentCornerIndex = 0;
+        }
     }
 
     // Process sub-emitter triggers that reference child systems.

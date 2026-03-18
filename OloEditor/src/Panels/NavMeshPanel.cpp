@@ -13,14 +13,38 @@
 
 namespace OloEngine
 {
+    void NavMeshPanel::RefreshFromScene()
+    {
+        if (!m_Context)
+        {
+            m_LastPolyCount = 0;
+            m_LastBakeTimeMs = 0.0f;
+            return;
+        }
+
+        auto navMesh = m_Context->GetNavMesh();
+        if (navMesh && navMesh->IsValid())
+        {
+            m_Settings = navMesh->GetSettings();
+            m_LastPolyCount = navMesh->GetPolyCount();
+        }
+        else
+        {
+            m_LastPolyCount = 0;
+            m_LastBakeTimeMs = 0.0f;
+        }
+    }
+
     NavMeshPanel::NavMeshPanel(const Ref<Scene>& context)
         : m_Context(context)
     {
+        RefreshFromScene();
     }
 
     void NavMeshPanel::SetContext(const Ref<Scene>& context)
     {
         m_Context = context;
+        RefreshFromScene();
     }
 
     void NavMeshPanel::OnImGuiRender()

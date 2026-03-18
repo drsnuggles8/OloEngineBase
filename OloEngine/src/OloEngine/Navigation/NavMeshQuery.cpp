@@ -76,10 +76,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        outPath.clear();
+
         if (!m_Query)
             return false;
-
-        outPath.clear();
 
         const f32 startPos[3] = { start.x, start.y, start.z };
         const f32 endPos[3] = { end.x, end.y, end.z };

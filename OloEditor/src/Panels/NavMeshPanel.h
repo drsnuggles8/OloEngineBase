@@ -17,6 +17,8 @@ namespace OloEngine
         void OnImGuiRender();
 
       private:
+        void RefreshFromScene();
+
         Ref<Scene> m_Context;
         NavMeshSettings m_Settings;
         bool m_ShowDebugDraw = false;

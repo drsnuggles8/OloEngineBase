@@ -205,10 +205,10 @@ static Ref<NavMesh> BuildFlatPlaneNavMesh()
     // clang-format on
 
     constexpr i32 nverts = 4;
-    constexpr i32 ntris  = 2;
+    constexpr i32 ntris = 2;
 
     NavMeshSettings settings;
-    settings.CellSize  = 0.3f;
+    settings.CellSize = 0.3f;
     settings.CellHeight = 0.2f;
 
     rcConfig cfg{};
@@ -216,25 +216,32 @@ static Ref<NavMesh> BuildFlatPlaneNavMesh()
     cfg.ch = settings.CellHeight;
     cfg.walkableSlopeAngle = settings.AgentMaxSlope;
     cfg.walkableHeight = static_cast<i32>(std::ceilf(settings.AgentHeight / cfg.ch));
-    cfg.walkableClimb  = static_cast<i32>(std::floorf(settings.AgentMaxClimb / cfg.ch));
+    cfg.walkableClimb = static_cast<i32>(std::floorf(settings.AgentMaxClimb / cfg.ch));
     cfg.walkableRadius = static_cast<i32>(std::ceilf(settings.AgentRadius / cfg.cs));
-    cfg.maxEdgeLen     = static_cast<i32>(settings.EdgeMaxLen / cfg.cs);
+    cfg.maxEdgeLen = static_cast<i32>(settings.EdgeMaxLen / cfg.cs);
     cfg.maxSimplificationError = settings.EdgeMaxError;
-    cfg.minRegionArea   = settings.RegionMinSize * settings.RegionMinSize;
+    cfg.minRegionArea = settings.RegionMinSize * settings.RegionMinSize;
     cfg.mergeRegionArea = settings.RegionMergeSize * settings.RegionMergeSize;
     cfg.maxVertsPerPoly = settings.VertsPerPoly;
-    cfg.detailSampleDist     = settings.CellSize * settings.DetailSampleDist;
+    cfg.detailSampleDist = settings.CellSize * settings.DetailSampleDist;
     cfg.detailSampleMaxError = settings.CellHeight * settings.DetailSampleMaxError;
 
-    cfg.bmin[0] = -20.0f; cfg.bmin[1] = -1.0f; cfg.bmin[2] = -20.0f;
-    cfg.bmax[0] =  20.0f; cfg.bmax[1] =  1.0f; cfg.bmax[2] =  20.0f;
+    cfg.bmin[0] = -20.0f;
+    cfg.bmin[1] = -1.0f;
+    cfg.bmin[2] = -20.0f;
+    cfg.bmax[0] = 20.0f;
+    cfg.bmax[1] = 1.0f;
+    cfg.bmax[2] = 20.0f;
     rcCalcGridSize(cfg.bmin, cfg.bmax, cfg.cs, &cfg.width, &cfg.height);
 
     rcContext ctx;
 
     auto* solid = rcAllocHeightfield();
     if (!solid || !rcCreateHeightfield(&ctx, *solid, cfg.width, cfg.height, cfg.bmin, cfg.bmax, cfg.cs, cfg.ch))
-    { rcFreeHeightField(solid); return nullptr; }
+    {
+        rcFreeHeightField(solid);
+        return nullptr;
+    }
 
     std::vector<u8> triAreas(ntris, 0);
     rcMarkWalkableTriangles(&ctx, cfg.walkableSlopeAngle, verts, nverts, tris, ntris, triAreas.data());
@@ -246,7 +253,11 @@ static Ref<NavMesh> BuildFlatPlaneNavMesh()
 
     auto* chf = rcAllocCompactHeightfield();
     if (!chf || !rcBuildCompactHeightfield(&ctx, cfg.walkableHeight, cfg.walkableClimb, *solid, *chf))
-    { rcFreeHeightField(solid); rcFreeCompactHeightfield(chf); return nullptr; }
+    {
+        rcFreeHeightField(solid);
+        rcFreeCompactHeightfield(chf);
+        return nullptr;
+    }
     rcFreeHeightField(solid);
 
     rcErodeWalkableArea(&ctx, cfg.walkableRadius, *chf);
@@ -255,15 +266,30 @@ static Ref<NavMesh> BuildFlatPlaneNavMesh()
 
     auto* cset = rcAllocContourSet();
     if (!cset || !rcBuildContours(&ctx, *chf, cfg.maxSimplificationError, cfg.maxEdgeLen, *cset))
-    { rcFreeCompactHeightfield(chf); rcFreeContourSet(cset); return nullptr; }
+    {
+        rcFreeCompactHeightfield(chf);
+        rcFreeContourSet(cset);
+        return nullptr;
+    }
 
     auto* pmesh = rcAllocPolyMesh();
     if (!pmesh || !rcBuildPolyMesh(&ctx, *cset, cfg.maxVertsPerPoly, *pmesh))
-    { rcFreeCompactHeightfield(chf); rcFreeContourSet(cset); rcFreePolyMesh(pmesh); return nullptr; }
+    {
+        rcFreeCompactHeightfield(chf);
+        rcFreeContourSet(cset);
+        rcFreePolyMesh(pmesh);
+        return nullptr;
+    }
 
     auto* dmesh = rcAllocPolyMeshDetail();
     if (!dmesh || !rcBuildPolyMeshDetail(&ctx, *pmesh, *chf, cfg.detailSampleDist, cfg.detailSampleMaxError, *dmesh))
-    { rcFreeCompactHeightfield(chf); rcFreeContourSet(cset); rcFreePolyMesh(pmesh); rcFreePolyMeshDetail(dmesh); return nullptr; }
+    {
+        rcFreeCompactHeightfield(chf);
+        rcFreeContourSet(cset);
+        rcFreePolyMesh(pmesh);
+        rcFreePolyMeshDetail(dmesh);
+        return nullptr;
+    }
 
     rcFreeCompactHeightfield(chf);
     rcFreeContourSet(cset);
@@ -271,7 +297,10 @@ static Ref<NavMesh> BuildFlatPlaneNavMesh()
     for (i32 i = 0; i < pmesh->npolys; ++i)
     {
         if (pmesh->areas[i] != RC_NULL_AREA)
-        { pmesh->areas[i] = RC_WALKABLE_AREA; pmesh->flags[i] = 1; }
+        {
+            pmesh->areas[i] = RC_WALKABLE_AREA;
+            pmesh->flags[i] = 1;
+        }
     }
 
     dtNavMeshCreateParams params{};
@@ -289,7 +318,7 @@ static Ref<NavMesh> BuildFlatPlaneNavMesh()
     params.detailTriCount = dmesh->ntris;
     params.walkableHeight = settings.AgentHeight;
     params.walkableRadius = settings.AgentRadius;
-    params.walkableClimb  = settings.AgentMaxClimb;
+    params.walkableClimb = settings.AgentMaxClimb;
     rcVcopy(params.bmin, pmesh->bmin);
     rcVcopy(params.bmax, pmesh->bmax);
     params.cs = cfg.cs;
@@ -299,16 +328,28 @@ static Ref<NavMesh> BuildFlatPlaneNavMesh()
     u8* navData = nullptr;
     i32 navDataSize = 0;
     if (!dtCreateNavMeshData(&params, &navData, &navDataSize))
-    { rcFreePolyMesh(pmesh); rcFreePolyMeshDetail(dmesh); return nullptr; }
+    {
+        rcFreePolyMesh(pmesh);
+        rcFreePolyMeshDetail(dmesh);
+        return nullptr;
+    }
 
     rcFreePolyMesh(pmesh);
     rcFreePolyMeshDetail(dmesh);
 
     auto* navMesh = dtAllocNavMesh();
-    if (!navMesh) { dtFree(navData); return nullptr; }
+    if (!navMesh)
+    {
+        dtFree(navData);
+        return nullptr;
+    }
 
     if (dtStatusFailed(navMesh->init(navData, navDataSize, DT_TILE_FREE_DATA)))
-    { dtFree(navData); dtFreeNavMesh(navMesh); return nullptr; }
+    {
+        dtFree(navData);
+        dtFreeNavMesh(navMesh);
+        return nullptr;
+    }
 
     auto result = Ref<NavMesh>::Create();
     result->SetDetourNavMesh(navMesh);

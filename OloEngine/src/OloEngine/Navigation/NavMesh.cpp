@@ -45,6 +45,8 @@ namespace OloEngine
 
     i32 NavMesh::GetPolyCount() const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_NavMesh)
             return 0;
 
@@ -62,7 +64,7 @@ namespace OloEngine
     // --- Serialization helpers ---------------------------------------------------
     static constexpr u32 NAVMESH_FORMAT_VERSION = 1;
 
-    template <typename T>
+    template<typename T>
     static void WriteValue(std::vector<u8>& buf, const T& val)
     {
         const auto off = buf.size();
@@ -70,7 +72,7 @@ namespace OloEngine
         std::memcpy(buf.data() + off, &val, sizeof(T));
     }
 
-    template <typename T>
+    template<typename T>
     static bool ReadValue(const std::vector<u8>& buf, size_t& offset, T& val)
     {
         if (offset + sizeof(T) > buf.size())
@@ -117,8 +119,18 @@ namespace OloEngine
         WriteValue(outData, navParams->maxTiles);
         WriteValue(outData, navParams->maxPolys);
 
-        // Serialize each tile
+        // Count valid tiles first
         const dtNavMesh* navMesh = m_NavMesh;
+        i32 tileCount = 0;
+        for (i32 i = 0; i < navMesh->getMaxTiles(); ++i)
+        {
+            const dtMeshTile* tile = navMesh->getTile(i);
+            if (tile && tile->header && tile->dataSize > 0)
+                ++tileCount;
+        }
+        WriteValue(outData, tileCount);
+
+        // Serialize each tile
         for (i32 i = 0; i < navMesh->getMaxTiles(); ++i)
         {
             const dtMeshTile* tile = navMesh->getTile(i);
@@ -149,32 +161,56 @@ namespace OloEngine
         if (!ReadValue(data, offset, version) || version != NAVMESH_FORMAT_VERSION)
             return false;
 
-        // Settings — per-field
+        // Settings — per-field (read into local, commit only on full success)
         NavMeshSettings settings;
-        if (!ReadValue(data, offset, settings.CellSize)) return false;
-        if (!ReadValue(data, offset, settings.CellHeight)) return false;
-        if (!ReadValue(data, offset, settings.AgentRadius)) return false;
-        if (!ReadValue(data, offset, settings.AgentHeight)) return false;
-        if (!ReadValue(data, offset, settings.AgentMaxClimb)) return false;
-        if (!ReadValue(data, offset, settings.AgentMaxSlope)) return false;
-        if (!ReadValue(data, offset, settings.RegionMinSize)) return false;
-        if (!ReadValue(data, offset, settings.RegionMergeSize)) return false;
-        if (!ReadValue(data, offset, settings.EdgeMaxLen)) return false;
-        if (!ReadValue(data, offset, settings.EdgeMaxError)) return false;
-        if (!ReadValue(data, offset, settings.VertsPerPoly)) return false;
-        if (!ReadValue(data, offset, settings.DetailSampleDist)) return false;
-        if (!ReadValue(data, offset, settings.DetailSampleMaxError)) return false;
-        m_Settings = settings;
+        if (!ReadValue(data, offset, settings.CellSize))
+            return false;
+        if (!ReadValue(data, offset, settings.CellHeight))
+            return false;
+        if (!ReadValue(data, offset, settings.AgentRadius))
+            return false;
+        if (!ReadValue(data, offset, settings.AgentHeight))
+            return false;
+        if (!ReadValue(data, offset, settings.AgentMaxClimb))
+            return false;
+        if (!ReadValue(data, offset, settings.AgentMaxSlope))
+            return false;
+        if (!ReadValue(data, offset, settings.RegionMinSize))
+            return false;
+        if (!ReadValue(data, offset, settings.RegionMergeSize))
+            return false;
+        if (!ReadValue(data, offset, settings.EdgeMaxLen))
+            return false;
+        if (!ReadValue(data, offset, settings.EdgeMaxError))
+            return false;
+        if (!ReadValue(data, offset, settings.VertsPerPoly))
+            return false;
+        if (!ReadValue(data, offset, settings.DetailSampleDist))
+            return false;
+        if (!ReadValue(data, offset, settings.DetailSampleMaxError))
+            return false;
 
         // Restore dtNavMeshParams
         dtNavMeshParams params{};
-        if (!ReadValue(data, offset, params.orig[0])) return false;
-        if (!ReadValue(data, offset, params.orig[1])) return false;
-        if (!ReadValue(data, offset, params.orig[2])) return false;
-        if (!ReadValue(data, offset, params.tileWidth)) return false;
-        if (!ReadValue(data, offset, params.tileHeight)) return false;
-        if (!ReadValue(data, offset, params.maxTiles)) return false;
-        if (!ReadValue(data, offset, params.maxPolys)) return false;
+        if (!ReadValue(data, offset, params.orig[0]))
+            return false;
+        if (!ReadValue(data, offset, params.orig[1]))
+            return false;
+        if (!ReadValue(data, offset, params.orig[2]))
+            return false;
+        if (!ReadValue(data, offset, params.tileWidth))
+            return false;
+        if (!ReadValue(data, offset, params.tileHeight))
+            return false;
+        if (!ReadValue(data, offset, params.maxTiles))
+            return false;
+        if (!ReadValue(data, offset, params.maxPolys))
+            return false;
+
+        // Read tile count
+        i32 tileCount = 0;
+        if (!ReadValue(data, offset, tileCount) || tileCount < 0)
+            return false;
 
         auto* navMesh = dtAllocNavMesh();
         if (!navMesh)
@@ -186,13 +222,21 @@ namespace OloEngine
             return false;
         }
 
-        while (offset + sizeof(dtTileRef) + sizeof(i32) <= data.size())
+        for (i32 t = 0; t < tileCount; ++t)
         {
             dtTileRef tileRef{};
-            if (!ReadValue(data, offset, tileRef)) break;
+            if (!ReadValue(data, offset, tileRef))
+            {
+                dtFreeNavMesh(navMesh);
+                return false;
+            }
 
             i32 dataSize = 0;
-            if (!ReadValue(data, offset, dataSize)) break;
+            if (!ReadValue(data, offset, dataSize))
+            {
+                dtFreeNavMesh(navMesh);
+                return false;
+            }
 
             if (dataSize <= 0 || offset + static_cast<size_t>(dataSize) > data.size())
             {
@@ -219,7 +263,14 @@ namespace OloEngine
             }
         }
 
+        // Verify no leftover data
+        if (offset != data.size())
+        {
+            OLO_CORE_WARN("NavMesh::Deserialize: {} bytes of trailing data", data.size() - offset);
+        }
+
         SetDetourNavMesh(navMesh);
+        m_Settings = settings;
         return true;
     }
 } // namespace OloEngine

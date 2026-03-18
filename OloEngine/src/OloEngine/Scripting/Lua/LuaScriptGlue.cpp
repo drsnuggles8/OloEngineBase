@@ -410,16 +410,15 @@ namespace OloEngine
                                             "acceleration", &NavAgentComponent::m_Acceleration,
                                             "stoppingDistance", &NavAgentComponent::m_StoppingDistance,
                                             "avoidancePriority", &NavAgentComponent::m_AvoidancePriority,
-                                            "targetPosition", sol::property(
-                                                [](const NavAgentComponent& a) { return a.m_TargetPosition; },
-                                                [](NavAgentComponent& a, const glm::vec3& pos) {
+                                            "targetPosition", sol::property([](const NavAgentComponent& a)
+                                                                            { return a.m_TargetPosition; }, [](NavAgentComponent& a, const glm::vec3& pos)
+                                                                            {
                                                     a.m_TargetPosition = pos;
                                                     a.m_HasTarget = true;
                                                     a.m_HasPath = false;
                                                     a.m_PathCorners.clear();
-                                                    a.m_CurrentCornerIndex = 0;
-                                                }),
-                                            "hasTarget", &NavAgentComponent::m_HasTarget,
+                                                    a.m_CurrentCornerIndex = 0; }),
+                                            "hasTarget", sol::readonly(&NavAgentComponent::m_HasTarget),
                                             "hasPath", sol::readonly(&NavAgentComponent::m_HasPath),
                                             "clearTarget", [](NavAgentComponent& agent)
                                             {

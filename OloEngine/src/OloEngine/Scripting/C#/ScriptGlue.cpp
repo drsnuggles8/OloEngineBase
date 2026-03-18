@@ -1492,6 +1492,7 @@ namespace OloEngine
 
     static void NavAgentComponent_GetTargetPosition(UUID entityID, glm::vec3* outTarget)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
         *outTarget = entity.GetComponent<NavAgentComponent>().m_TargetPosition;
@@ -1499,6 +1500,7 @@ namespace OloEngine
 
     static void NavAgentComponent_SetTargetPosition(UUID entityID, glm::vec3 const* target)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
         auto& agent = entity.GetComponent<NavAgentComponent>();
@@ -1508,6 +1510,7 @@ namespace OloEngine
 
     static void NavAgentComponent_GetMaxSpeed(UUID entityID, f32* outSpeed)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
         *outSpeed = entity.GetComponent<NavAgentComponent>().m_MaxSpeed;
@@ -1515,6 +1518,7 @@ namespace OloEngine
 
     static void NavAgentComponent_SetMaxSpeed(UUID entityID, f32 const* speed)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
         entity.GetComponent<NavAgentComponent>().m_MaxSpeed = *speed;
@@ -1522,6 +1526,7 @@ namespace OloEngine
 
     static void NavAgentComponent_GetAcceleration(UUID entityID, f32* outAccel)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
         *outAccel = entity.GetComponent<NavAgentComponent>().m_Acceleration;
@@ -1529,6 +1534,7 @@ namespace OloEngine
 
     static void NavAgentComponent_SetAcceleration(UUID entityID, f32 const* accel)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
         entity.GetComponent<NavAgentComponent>().m_Acceleration = *accel;
@@ -1536,6 +1542,7 @@ namespace OloEngine
 
     static void NavAgentComponent_GetStoppingDistance(UUID entityID, f32* outDist)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
         *outDist = entity.GetComponent<NavAgentComponent>().m_StoppingDistance;
@@ -1543,6 +1550,7 @@ namespace OloEngine
 
     static void NavAgentComponent_SetStoppingDistance(UUID entityID, f32 const* dist)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
         entity.GetComponent<NavAgentComponent>().m_StoppingDistance = *dist;
@@ -1550,6 +1558,7 @@ namespace OloEngine
 
     static bool NavAgentComponent_HasPath(UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
         return entity.GetComponent<NavAgentComponent>().m_HasPath;
@@ -1557,6 +1566,7 @@ namespace OloEngine
 
     static void NavAgentComponent_ClearTarget(UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
         auto& agent = entity.GetComponent<NavAgentComponent>();
