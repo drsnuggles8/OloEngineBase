@@ -9,5 +9,7 @@ namespace OloEngine
     //   anim:SetInt("State", value)
     //   anim:SetTrigger("Jump")
     //   anim:GetFloat("Speed")
+    //   anim:GetBool("IsGrounded")
+    //   anim:GetInt("State")
     //   anim:GetCurrentState(layerIndex)
 }

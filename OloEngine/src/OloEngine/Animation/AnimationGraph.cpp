@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/AnimationGraph.h"
 #include "OloEngine/Core/Log.h"
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -61,6 +62,7 @@ namespace OloEngine
 
     Ref<AnimationGraph> AnimationGraph::Clone() const
     {
+        OLO_PROFILE_FUNCTION();
         auto clone = Ref<AnimationGraph>::Create();
         clone->Parameters = Parameters;
         clone->Layers.reserve(Layers.size());
@@ -90,6 +92,73 @@ namespace OloEngine
             clone->Layers.push_back(std::move(clonedLayer));
         }
         return clone;
+    }
+
+    void AnimationGraph::ResolveClips(const std::vector<Ref<AnimationClip>>& availableClips)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (availableClips.empty())
+        {
+            return;
+        }
+
+        // Build a name-to-clip lookup map
+        std::unordered_map<std::string, Ref<AnimationClip>> clipMap;
+        clipMap.reserve(availableClips.size());
+        for (auto const& clip : availableClips)
+        {
+            if (clip && !clip->Name.empty())
+            {
+                clipMap[clip->Name] = clip;
+            }
+        }
+
+        // Resolve clips in all layers' states and blend trees
+        for (auto& layer : Layers)
+        {
+            if (!layer.StateMachine)
+            {
+                continue;
+            }
+
+            for (auto& [stateName, state] : layer.StateMachine->GetMutableStates())
+            {
+                // Resolve single-clip states
+                if (state.Type == AnimationState::MotionType::SingleClip && !state.Clip && !state.ClipName.empty())
+                {
+                    if (auto it = clipMap.find(state.ClipName); it != clipMap.end())
+                    {
+                        state.Clip = it->second;
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("AnimationGraph::ResolveClips - Clip '{}' not found for state '{}'",
+                                      state.ClipName, stateName);
+                    }
+                }
+
+                // Resolve blend tree children
+                if (state.Type == AnimationState::MotionType::BlendTree && state.Tree)
+                {
+                    for (auto& child : state.Tree->Children)
+                    {
+                        if (!child.Clip && !child.ClipName.empty())
+                        {
+                            if (auto it = clipMap.find(child.ClipName); it != clipMap.end())
+                            {
+                                child.Clip = it->second;
+                            }
+                            else
+                            {
+                                OLO_CORE_WARN("AnimationGraph::ResolveClips - Clip '{}' not found for blend tree child",
+                                              child.ClipName);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     const std::string& AnimationGraph::GetCurrentStateName(i32 layerIndex) const
@@ -124,13 +193,21 @@ namespace OloEngine
                                               std::vector<BoneTransform>& accumulatedTransforms) const
     {
         OLO_PROFILE_SCOPE("ApplyLayerTransforms");
+
+        // Build fast bone mask lookup once per layer
+        std::unordered_set<std::string> affectedBoneSet(layer.AffectedBones.begin(), layer.AffectedBones.end());
+        bool hasMask = !affectedBoneSet.empty();
+
         for (sizet i = 0; i < accumulatedTransforms.size() && i < layerTransforms.size(); ++i)
         {
-            // Check bone mask
-            std::string boneName = (i < boneNames.size()) ? boneNames[i] : "";
-            if (!IsBoneAffected(layer, boneName))
+            // Check bone mask using cached set
+            if (hasMask)
             {
-                continue;
+                std::string boneName = (i < boneNames.size()) ? boneNames[i] : "";
+                if (boneName.empty() || affectedBoneSet.find(boneName) == affectedBoneSet.end())
+                {
+                    continue;
+                }
             }
 
             f32 weight = glm::clamp(layer.Weight, 0.0f, 1.0f);

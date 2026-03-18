@@ -31,6 +31,11 @@ namespace OloEngine::Animation
         // Copy parameters back (triggers may have been consumed)
         graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
 
+        // Ensure output vectors are sized before forward kinematics
+        OLO_CORE_ASSERT(skeleton.m_ParentIndices.size() >= boneCount, "ParentIndices too small for boneCount");
+        skeleton.m_GlobalTransforms.resize(boneCount, glm::mat4(1.0f));
+        skeleton.m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
+
         // Compute global transforms (forward kinematics)
         for (sizet i = 0; i < skeleton.m_LocalTransforms.size(); ++i)
         {

@@ -39,7 +39,12 @@ namespace OloEngine
         }
         [[nodiscard]] f32 GetCurrentStateNormalizedTime() const;
         [[nodiscard]] const AnimationState* GetState(const std::string& name) const;
+        [[nodiscard]] AnimationState* GetMutableState(const std::string& name);
         [[nodiscard]] const std::unordered_map<std::string, AnimationState>& GetStates() const
+        {
+            return m_States;
+        }
+        [[nodiscard]] std::unordered_map<std::string, AnimationState>& GetMutableStates()
         {
             return m_States;
         }

@@ -695,6 +695,17 @@ namespace OloEngine
                                     }
                                 }
                                 graphComp.RuntimeGraph->Start();
+
+                                // Resolve clip name references to actual clip pointers from the entity's model
+                                Entity entity = { e, this };
+                                if (entity.HasComponent<AnimationStateComponent>())
+                                {
+                                    auto const& animState = entity.GetComponent<AnimationStateComponent>();
+                                    if (!animState.m_AvailableClips.empty())
+                                    {
+                                        graphComp.RuntimeGraph->ResolveClips(animState.m_AvailableClips);
+                                    }
+                                }
                             }
                         }
                     }

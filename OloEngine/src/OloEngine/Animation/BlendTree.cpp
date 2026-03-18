@@ -124,7 +124,12 @@ namespace OloEngine
 
         if (Children.size() == 1)
         {
-            f32 time = normalizedTime * (Children[0].Clip ? Children[0].Clip->Duration : 0.0f);
+            if (!Children[0].Clip)
+            {
+                out.resize(boneCount);
+                return;
+            }
+            f32 time = normalizedTime * Children[0].Clip->Duration;
             SampleClipBoneTransforms(Children[0].Clip, time, boneCount, out);
             return;
         }
@@ -178,11 +183,15 @@ namespace OloEngine
 
         for (sizet i = 0; i < Children.size(); ++i)
         {
+            if (!Children[i].Clip || Children[i].Speed <= 0.0f)
+            {
+                continue;
+            }
             f32 dist = glm::length(paramPos - Children[i].Position);
             if (dist < 1e-6f)
             {
                 // Exact match - use this child exclusively
-                f32 time = normalizedTime * (Children[i].Clip ? Children[i].Clip->Duration : 0.0f);
+                f32 time = normalizedTime * Children[i].Clip->Duration;
                 SampleClipBoneTransforms(Children[i].Clip, time, boneCount, out);
                 return;
             }

@@ -24,6 +24,7 @@ namespace OloEngine
                     const std::vector<std::string>& boneNames = {});
 
         [[nodiscard]] Ref<AnimationGraph> Clone() const;
+        void ResolveClips(const std::vector<Ref<AnimationClip>>& availableClips);
         [[nodiscard]] const std::string& GetCurrentStateName(i32 layerIndex = 0) const;
         [[nodiscard]] bool IsInTransition(i32 layerIndex = 0) const;
 

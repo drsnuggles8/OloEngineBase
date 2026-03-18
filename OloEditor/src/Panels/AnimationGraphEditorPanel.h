@@ -34,6 +34,7 @@ namespace OloEngine
 
         Ref<Scene> m_Context;
         Entity m_SelectedEntity;
+        // TODO: integrate m_CommandHistory->Push() at mutation sites (parameter/state/transition/layer CRUD)
         CommandHistory* m_CommandHistory = nullptr;
 
         // Editor state

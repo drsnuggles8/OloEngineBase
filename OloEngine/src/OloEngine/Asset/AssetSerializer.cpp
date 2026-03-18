@@ -2625,7 +2625,10 @@ namespace OloEngine
         }
 
         std::filesystem::path filepath = Project::GetAssetDirectory() / metadata.FilePath;
-        AnimationGraphSerializer::Serialize(graphAsset->GetGraph(), filepath.string());
+        if (!AnimationGraphSerializer::Serialize(graphAsset->GetGraph(), filepath.string()))
+        {
+            OLO_CORE_ERROR("AnimationGraphAssetSerializer::Serialize - Failed to write: {}", filepath.string());
+        }
     }
 
     bool AnimationGraphAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

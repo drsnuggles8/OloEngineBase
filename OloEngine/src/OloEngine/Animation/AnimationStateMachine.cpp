@@ -208,6 +208,15 @@ namespace OloEngine
         return nullptr;
     }
 
+    AnimationState* AnimationStateMachine::GetMutableState(const std::string& name)
+    {
+        if (auto it = m_States.find(name); it != m_States.end())
+        {
+            return &it->second;
+        }
+        return nullptr;
+    }
+
     void AnimationStateMachine::CheckTransitions(AnimationParameterSet& params, sizet /*boneCount*/)
     {
         if (m_InTransition)

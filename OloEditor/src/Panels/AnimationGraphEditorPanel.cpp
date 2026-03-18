@@ -11,11 +11,12 @@
 
 #include <imgui.h>
 #include <string>
+#include <limits>
 
 namespace OloEngine
 {
     AnimationGraphEditorPanel::AnimationGraphEditorPanel(const Ref<Scene>& context)
-        : m_Context(context)
+        : m_Context(context), m_SelectedEntity{}, m_SelectedStateName{}
     {
     }
 
@@ -273,12 +274,19 @@ namespace OloEngine
         // Layer selector
         if (graph->Layers.size() > 1)
         {
-            std::vector<const char*> layerNames;
+            std::vector<std::string> layerNameStrings;
+            layerNameStrings.reserve(graph->Layers.size());
             for (auto const& layer : graph->Layers)
             {
-                layerNames.push_back(layer.Name.c_str());
+                layerNameStrings.push_back(layer.Name);
             }
-            ImGui::Combo("Layer", &m_SelectedLayerIndex, layerNames.data(), static_cast<int>(layerNames.size()));
+            std::vector<const char*> namePtrs;
+            namePtrs.reserve(layerNameStrings.size());
+            for (auto const& s : layerNameStrings)
+            {
+                namePtrs.push_back(s.c_str());
+            }
+            ImGui::Combo("Layer", &m_SelectedLayerIndex, namePtrs.data(), static_cast<int>(namePtrs.size()));
         }
 
         if (m_SelectedLayerIndex < 0 || m_SelectedLayerIndex >= static_cast<i32>(graph->Layers.size()))
@@ -388,7 +396,7 @@ namespace OloEngine
             return;
         }
 
-        const auto* state = sm->GetState(m_SelectedStateName);
+        auto* state = sm->GetMutableState(m_SelectedStateName);
         if (!state)
         {
             return;
@@ -397,12 +405,10 @@ namespace OloEngine
         ImGui::Separator();
         ImGui::Text("Edit State: %s", m_SelectedStateName.c_str());
 
-        // We need a mutable copy to edit - in production you'd modify via the state machine
-        // For now, we display the state's properties
         ImGui::Text("Motion Type: %s",
                     state->Type == AnimationState::MotionType::SingleClip ? "Single Clip" : "Blend Tree");
-        ImGui::Text("Speed: %.2f", state->Speed);
-        ImGui::Text("Looping: %s", state->Looping ? "Yes" : "No");
+        ImGui::DragFloat("Speed", &state->Speed, 0.01f, 0.0f, 10.0f);
+        ImGui::Checkbox("Looping", &state->Looping);
 
         if (state->Type == AnimationState::MotionType::SingleClip)
         {
@@ -641,8 +647,13 @@ namespace OloEngine
         {
             ImGui::Separator();
             ImGui::Text("1D Blend Space:");
-            f32 minT = tree->Children.front().Threshold;
-            f32 maxT = tree->Children.back().Threshold;
+            f32 minT = std::numeric_limits<f32>::max();
+            f32 maxT = std::numeric_limits<f32>::lowest();
+            for (auto const& child : tree->Children)
+            {
+                minT = std::min(minT, child.Threshold);
+                maxT = std::max(maxT, child.Threshold);
+            }
             f32 range = maxT - minT;
             if (range > 0.0f)
             {
@@ -777,7 +788,7 @@ namespace OloEngine
                 case AnimationParameterType::Float:
                 {
                     f32 val = param.FloatValue;
-                    if (ImGui::SliderFloat(name.c_str(), &val, -1.0f, 2.0f))
+                    if (ImGui::DragFloat(name.c_str(), &val, 0.01f))
                     {
                         graphComp.Parameters.SetFloat(name, val);
                     }
@@ -786,7 +797,7 @@ namespace OloEngine
                 case AnimationParameterType::Int:
                 {
                     i32 val = param.IntValue;
-                    if (ImGui::SliderInt(name.c_str(), &val, -10, 10))
+                    if (ImGui::DragInt(name.c_str(), &val))
                     {
                         graphComp.Parameters.SetInt(name, val);
                     }
