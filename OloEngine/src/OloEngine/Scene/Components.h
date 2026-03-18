@@ -7,6 +7,7 @@
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -1460,5 +1461,6 @@ namespace OloEngine
         NetworkLODComponent,
         DialogueComponent,
         NavMeshBoundsComponent,
-        NavAgentComponent>;
+        NavAgentComponent,
+        AnimationGraphComponent>;
 } // namespace OloEngine

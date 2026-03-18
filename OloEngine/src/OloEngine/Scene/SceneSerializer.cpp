@@ -2030,6 +2030,12 @@ namespace OloEngine
             // Note: Skeleton data is loaded from AnimationStateComponent's source file
         }
 
+        if (auto graphComponent = entity["AnimationGraphComponent"]; graphComponent)
+        {
+            auto& graphComp = deserializedEntity.AddComponent<AnimationGraphComponent>();
+            graphComp.AnimationGraphAssetHandle = graphComponent["AssetHandle"].as<u64>(0);
+        }
+
         if (auto lpComponent = entity["LightProbeComponent"]; lpComponent)
         {
             auto& lp = deserializedEntity.AddComponent<LightProbeComponent>();
@@ -3409,6 +3415,17 @@ namespace OloEngine
             // The cache is runtime data, not serialized
 
             out << YAML::EndMap; // SkeletonComponent
+        }
+
+        if (entity.HasComponent<AnimationGraphComponent>())
+        {
+            out << YAML::Key << "AnimationGraphComponent";
+            out << YAML::BeginMap;
+
+            auto const& graphComp = entity.GetComponent<AnimationGraphComponent>();
+            out << YAML::Key << "AssetHandle" << YAML::Value << graphComp.AnimationGraphAssetHandle;
+
+            out << YAML::EndMap; // AnimationGraphComponent
         }
 
         if (entity.HasComponent<LightProbeComponent>())

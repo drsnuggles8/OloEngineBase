@@ -14,6 +14,9 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Animation/AnimationGraphAsset.h"
+#include "OloEngine/Animation/AnimationGraphSystem.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
@@ -638,6 +641,105 @@ namespace OloEngine
                 }
             }
 
+            // Update animation graphs
+            {
+                OLO_PROFILE_SCOPE("Animation Graph Update");
+                auto graphView = m_Registry.view<AnimationGraphComponent, SkeletonComponent>();
+                for (auto e : graphView)
+                {
+                    auto& graphComp = graphView.get<AnimationGraphComponent>(e);
+                    auto& skelComp = graphView.get<SkeletonComponent>(e);
+
+                    if (!skelComp.m_Skeleton)
+                    {
+                        continue;
+                    }
+
+                    // Lazy-load RuntimeGraph from asset if not yet initialized
+                    if (!graphComp.RuntimeGraph && graphComp.AnimationGraphAssetHandle != 0)
+                    {
+                        if (auto graphAsset = AssetManager::GetAsset<AnimationGraphAsset>(graphComp.AnimationGraphAssetHandle))
+                        {
+                            auto templateGraph = graphAsset->GetGraph();
+                            if (templateGraph)
+                            {
+                                graphComp.RuntimeGraph = templateGraph->Clone();
+
+                                // Backfill missing parameters from graph defaults without clobbering existing values
+                                if (graphComp.Parameters.GetAll().empty())
+                                {
+                                    graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
+                                }
+                                else
+                                {
+                                    for (auto const& [name, param] : graphComp.RuntimeGraph->Parameters.GetAll())
+                                    {
+                                        if (!graphComp.Parameters.HasParameter(name))
+                                        {
+                                            switch (param.ParamType)
+                                            {
+                                                case AnimationParameterType::Float:
+                                                    graphComp.Parameters.DefineFloat(name, param.FloatValue);
+                                                    break;
+                                                case AnimationParameterType::Int:
+                                                    graphComp.Parameters.DefineInt(name, param.IntValue);
+                                                    break;
+                                                case AnimationParameterType::Bool:
+                                                    graphComp.Parameters.DefineBool(name, param.BoolValue);
+                                                    break;
+                                                case AnimationParameterType::Trigger:
+                                                    graphComp.Parameters.DefineTrigger(name);
+                                                    break;
+                                            }
+                                        }
+                                    }
+                                }
+                                graphComp.RuntimeGraph->Start();
+
+                                // Resolve clip name references to actual clip pointers from the entity's model
+                                Entity entity = { e, this };
+                                if (entity.HasComponent<AnimationStateComponent>())
+                                {
+                                    auto const& animState = entity.GetComponent<AnimationStateComponent>();
+                                    if (!animState.m_AvailableClips.empty())
+                                    {
+                                        graphComp.RuntimeGraph->ResolveClips(animState.m_AvailableClips);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (graphComp.RuntimeGraph)
+                    {
+                        // Retry clip resolution if clips became available after graph init
+                        if (graphComp.RuntimeGraph->HasUnresolvedClips())
+                        {
+                            Entity entity = { e, this };
+                            if (entity.HasComponent<AnimationStateComponent>())
+                            {
+                                auto const& animState = entity.GetComponent<AnimationStateComponent>();
+                                if (!animState.m_AvailableClips.empty())
+                                {
+                                    graphComp.RuntimeGraph->ResolveClips(animState.m_AvailableClips);
+                                }
+                            }
+                        }
+
+                        // Ensure the graph has been started
+                        for (auto& layer : graphComp.RuntimeGraph->Layers)
+                        {
+                            if (layer.StateMachine && !layer.StateMachine->HasStarted())
+                            {
+                                graphComp.RuntimeGraph->Start();
+                                break;
+                            }
+                        }
+                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds());
+                    }
+                }
+            }
+
             // Physics
             {
                 const i32 velocityIterations = 6;
@@ -1194,6 +1296,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<NavMeshBoundsComponent>(Entity, NavMeshBoundsComponent&) {}
     template<>
     void Scene::OnComponentAdded<NavAgentComponent>(Entity, NavAgentComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<AnimationGraphComponent>(Entity, AnimationGraphComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {

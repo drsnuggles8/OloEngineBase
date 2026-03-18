@@ -42,6 +42,8 @@
 		"Panels/GamepadDebugPanel.h"
 		"Panels/NavMeshPanel.cpp"
 		"Panels/NavMeshPanel.h"
+		"Panels/AnimationGraphEditorPanel.cpp"
+		"Panels/AnimationGraphEditorPanel.h"
 )
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES "../assets/shaders/*.glsl")

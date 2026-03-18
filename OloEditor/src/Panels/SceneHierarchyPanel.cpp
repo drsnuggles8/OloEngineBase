@@ -1635,6 +1635,7 @@ namespace OloEngine
 
             // Animation Components
             DisplayAddComponentEntry<AnimationStateComponent>("Animation State");
+            DisplayAddComponentEntry<AnimationGraphComponent>("Animation Graph");
             DisplayAddComponentEntry<SkeletonComponent>("Skeleton");
             DisplayAddComponentEntry<SubmeshComponent>("Submesh");
 
@@ -2777,6 +2778,23 @@ namespace OloEngine
             }
 
             ImGui::Text("Bone Entities: %zu", component.m_BoneEntityIds.size()); });
+
+        DrawComponent<AnimationGraphComponent>("Animation Graph", entity, [](auto& component)
+                                               {
+            ImGui::Text("Asset Handle: %llu", static_cast<unsigned long long>(component.AnimationGraphAssetHandle));
+            ImGui::Text("Runtime Graph: %s", component.RuntimeGraph ? "Loaded" : "None");
+            if (component.RuntimeGraph)
+            {
+                ImGui::Text("Layers: %zu", component.RuntimeGraph->Layers.size());
+                ImGui::Text("Current State: %s", component.RuntimeGraph->GetCurrentStateName().c_str());
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Parameters: %zu", component.Parameters.GetAll().size());
+            for (auto const& [name, param] : component.Parameters.GetAll())
+            {
+                ImGui::BulletText("%s", name.c_str());
+            } });
 
         DrawComponent<SkeletonComponent>("Skeleton", entity, [](auto& component)
                                          {

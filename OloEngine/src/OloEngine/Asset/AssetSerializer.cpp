@@ -27,6 +27,8 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Animation/AnimationAsset.h"
+#include "OloEngine/Animation/AnimationGraphAsset.h"
+#include "OloEngine/Animation/AnimationGraphSerializer.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
 #include "OloEngine/Core/YAMLConverters.h"
 #include "OloEngine/Particle/ParticleSystemAsset.h"
@@ -2611,37 +2613,87 @@ namespace OloEngine
     // AnimationGraphAssetSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void AnimationGraphAssetSerializer::Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
+    void AnimationGraphAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
-        // TODO: Implement animation graph serialization
-        OLO_CORE_WARN("AnimationGraphAssetSerializer::Serialize not yet implemented");
+        OLO_PROFILE_FUNCTION();
+
+        auto graphAsset = asset.As<AnimationGraphAsset>();
+        if (!graphAsset || !graphAsset->GetGraph())
+        {
+            OLO_CORE_ERROR("AnimationGraphAssetSerializer::Serialize - Invalid animation graph asset");
+            return;
+        }
+
+        std::filesystem::path filepath = Project::GetAssetDirectory() / metadata.FilePath;
+        if (!AnimationGraphSerializer::Serialize(graphAsset->GetGraph(), filepath.string()))
+        {
+            OLO_CORE_ERROR("AnimationGraphAssetSerializer::Serialize - Failed to write: {}", filepath.string());
+        }
     }
 
-    bool AnimationGraphAssetSerializer::TryLoadData([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] Ref<Asset>& asset) const
+    bool AnimationGraphAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        // TODO: Implement animation graph loading
-        OLO_CORE_WARN("AnimationGraphAssetSerializer::TryLoadData not yet implemented");
-        return false;
+        OLO_PROFILE_FUNCTION();
+
+        std::filesystem::path filepath = Project::GetAssetDirectory() / metadata.FilePath;
+        auto graphAsset = AnimationGraphSerializer::DeserializeAsset(filepath.string());
+        if (!graphAsset)
+        {
+            OLO_CORE_ERROR("AnimationGraphAssetSerializer::TryLoadData - Failed to load: {}", metadata.FilePath.string());
+            return false;
+        }
+        graphAsset->m_Handle = metadata.Handle;
+        asset = graphAsset;
+        return true;
     }
 
     void AnimationGraphAssetSerializer::RegisterDependencies([[maybe_unused]] const AssetMetadata& metadata) const
     {
-        // TODO: Implement dependency registration
-        OLO_CORE_WARN("AnimationGraphAssetSerializer::RegisterDependencies not yet implemented");
     }
 
-    bool AnimationGraphAssetSerializer::SerializeToAssetPack([[maybe_unused]] AssetHandle handle, [[maybe_unused]] FileStreamWriter& stream, [[maybe_unused]] AssetSerializationInfo& outInfo) const
+    bool AnimationGraphAssetSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        // TODO: Implement animation graph pack serialization
-        OLO_CORE_WARN("AnimationGraphAssetSerializer::SerializeToAssetPack not yet implemented");
-        return false;
+        OLO_PROFILE_FUNCTION();
+
+        auto graphAsset = AssetManager::GetAsset<AnimationGraphAsset>(handle);
+        if (!graphAsset || !graphAsset->GetGraph())
+        {
+            OLO_CORE_ERROR("AnimationGraphAssetSerializer::SerializeToAssetPack - Invalid animation graph asset");
+            return false;
+        }
+
+        std::string yamlString = AnimationGraphSerializer::SerializeToString(graphAsset->GetGraph());
+        if (yamlString.empty())
+        {
+            OLO_CORE_ERROR("AnimationGraphAssetSerializer::SerializeToAssetPack - Failed to serialize graph to string");
+            return false;
+        }
+
+        outInfo.Offset = stream.GetStreamPosition();
+        stream.WriteString(yamlString);
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        return true;
     }
 
-    Ref<Asset> AnimationGraphAssetSerializer::DeserializeFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::AssetInfo& assetInfo) const
+    Ref<Asset> AnimationGraphAssetSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        // TODO: Implement animation graph pack deserialization
-        OLO_CORE_WARN("AnimationGraphAssetSerializer::DeserializeFromAssetPack not yet implemented");
-        return nullptr;
+        OLO_PROFILE_FUNCTION();
+
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+        std::string yamlString;
+        stream.ReadString(yamlString);
+
+        auto graph = AnimationGraphSerializer::DeserializeFromString(yamlString);
+        if (!graph)
+        {
+            OLO_CORE_ERROR("AnimationGraphAssetSerializer::DeserializeFromAssetPack - Failed to deserialize graph from string");
+            return nullptr;
+        }
+
+        auto graphAsset = Ref<AnimationGraphAsset>::Create();
+        graphAsset->SetGraph(graph);
+        graphAsset->m_Handle = assetInfo.Handle;
+        return graphAsset;
     }
 
     //////////////////////////////////////////////////////////////////////////////////
