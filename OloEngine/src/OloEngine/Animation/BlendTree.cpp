@@ -11,6 +11,8 @@ namespace OloEngine
                              sizet boneCount,
                              std::vector<BoneTransform>& outBoneTransforms) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (Children.empty())
         {
             outBoneTransforms.resize(boneCount);
@@ -91,7 +93,7 @@ namespace OloEngine
         if (Children.size() == 1)
         {
             f32 time = normalizedTime * (Children[0].Clip ? Children[0].Clip->Duration : 0.0f);
-            SampleClipBoneTransforms(Children[0].Clip, time / Children[0].Speed, boneCount, out);
+            SampleClipBoneTransforms(Children[0].Clip, time, boneCount, out);
             return;
         }
 
@@ -111,8 +113,11 @@ namespace OloEngine
                 std::vector<BoneTransform> transformsA;
                 std::vector<BoneTransform> transformsB;
 
-                f32 timeA = normalizedTime * (Children[i].Clip ? Children[i].Clip->Duration : 0.0f);
-                f32 timeB = normalizedTime * (Children[i + 1].Clip ? Children[i + 1].Clip->Duration : 0.0f);
+                // Speed is already factored into GetDuration (and thus normalizedTime)
+                f32 durA = Children[i].Clip ? Children[i].Clip->Duration : 0.0f;
+                f32 durB = Children[i + 1].Clip ? Children[i + 1].Clip->Duration : 0.0f;
+                f32 timeA = normalizedTime * durA;
+                f32 timeB = normalizedTime * durB;
 
                 SampleClipBoneTransforms(Children[i].Clip, timeA, boneCount, transformsA);
                 SampleClipBoneTransforms(Children[i + 1].Clip, timeB, boneCount, transformsB);
@@ -123,7 +128,8 @@ namespace OloEngine
         }
 
         // Past the last child
-        f32 time = normalizedTime * (Children.back().Clip ? Children.back().Clip->Duration : 0.0f);
+        f32 lastDur = Children.back().Clip ? Children.back().Clip->Duration : 0.0f;
+        f32 time = normalizedTime * lastDur;
         SampleClipBoneTransforms(Children.back().Clip, time, boneCount, out);
     }
 
@@ -159,8 +165,9 @@ namespace OloEngine
             }
         }
 
-        // Blend all children by weight
+        // Blend all children by weight using cumulative-weight slerp for rotations
         out.resize(boneCount);
+        f32 accumulatedWeight = 0.0f;
         bool first = true;
         for (sizet i = 0; i < Children.size(); ++i)
         {
@@ -170,12 +177,15 @@ namespace OloEngine
             }
 
             std::vector<BoneTransform> childTransforms;
-            f32 time = normalizedTime * (Children[i].Clip ? Children[i].Clip->Duration : 0.0f);
+            f32 clipDur = Children[i].Clip ? Children[i].Clip->Duration : 0.0f;
+            // Speed is already factored into GetDuration (and thus normalizedTime)
+            f32 time = normalizedTime * clipDur;
             SampleClipBoneTransforms(Children[i].Clip, time, boneCount, childTransforms);
+
+            accumulatedWeight += weights[i];
 
             if (first)
             {
-                // Scale the first contribution by its weight
                 for (sizet b = 0; b < boneCount; ++b)
                 {
                     out[b].Translation = childTransforms[b].Translation * weights[i];
@@ -186,11 +196,12 @@ namespace OloEngine
             }
             else
             {
-                // Accumulate weighted contributions using slerp for rotation
+                // Cumulative-weight slerp: t = w_i / (w_0 + ... + w_i)
+                f32 slerpT = weights[i] / accumulatedWeight;
                 for (sizet b = 0; b < boneCount; ++b)
                 {
                     out[b].Translation += childTransforms[b].Translation * weights[i];
-                    out[b].Rotation = glm::slerp(out[b].Rotation, childTransforms[b].Rotation, weights[i]);
+                    out[b].Rotation = glm::slerp(out[b].Rotation, childTransforms[b].Rotation, slerpT);
                     out[b].Scale += childTransforms[b].Scale * weights[i];
                 }
             }

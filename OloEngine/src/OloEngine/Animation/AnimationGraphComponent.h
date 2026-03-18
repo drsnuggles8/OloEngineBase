@@ -19,5 +19,24 @@ namespace OloEngine
         AnimationParameterSet Parameters;
 
         AnimationGraphComponent() = default;
+
+        // Copying shares the RuntimeGraph Ref which causes aliasing.
+        // Reset RuntimeGraph on copy so each entity gets its own runtime instance via lazy-load.
+        AnimationGraphComponent(const AnimationGraphComponent& other)
+            : AnimationGraphAssetHandle(other.AnimationGraphAssetHandle), Parameters(other.Parameters)
+        {
+        }
+        AnimationGraphComponent& operator=(const AnimationGraphComponent& other)
+        {
+            if (this != &other)
+            {
+                AnimationGraphAssetHandle = other.AnimationGraphAssetHandle;
+                RuntimeGraph = nullptr;
+                Parameters = other.Parameters;
+            }
+            return *this;
+        }
+        AnimationGraphComponent(AnimationGraphComponent&&) = default;
+        AnimationGraphComponent& operator=(AnimationGraphComponent&&) = default;
     };
 } // namespace OloEngine

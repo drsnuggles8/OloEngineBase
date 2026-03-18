@@ -13,6 +13,24 @@ namespace OloEngine
     void AnimationStateMachine::RemoveState(const std::string& stateName)
     {
         m_States.erase(stateName);
+
+        if (m_DefaultState == stateName)
+        {
+            m_DefaultState.clear();
+        }
+        if (m_CurrentState == stateName)
+        {
+            m_CurrentState.clear();
+            m_InTransition = false;
+        }
+        if (m_TransitionTargetState == stateName)
+        {
+            m_InTransition = false;
+            m_TransitionTargetState.clear();
+        }
+
+        std::erase_if(m_Transitions, [&stateName](const AnimationTransition& t)
+                      { return t.SourceState == stateName || t.DestinationState == stateName; });
     }
 
     void AnimationStateMachine::SetDefaultState(const std::string& stateName)
@@ -33,17 +51,23 @@ namespace OloEngine
         m_TransitionBlendFactor = 0.0f;
         m_TransitionElapsed = 0.0f;
         m_TargetStateTime = 0.0f;
+        m_Started = true;
     }
 
     void AnimationStateMachine::Update(f32 dt, AnimationParameterSet& params,
                                        sizet boneCount,
                                        std::vector<BoneTransform>& outBoneTransforms)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_CurrentState.empty())
         {
             outBoneTransforms.resize(boneCount);
             return;
         }
+
+        // Cache params for GetCurrentStateNormalizedTime
+        m_LastParams = params;
 
         auto* currentState = GetState(m_CurrentState);
         if (!currentState)
@@ -54,8 +78,8 @@ namespace OloEngine
 
         f32 currentDuration = currentState->GetEffectiveDuration(params);
 
-        // Advance time
-        m_CurrentStateTime += dt * currentState->Speed;
+        // Advance time (Speed is already factored into GetEffectiveDuration)
+        m_CurrentStateTime += dt;
 
         // Handle looping
         if (currentState->Looping && currentDuration > 0.0f)
@@ -76,7 +100,7 @@ namespace OloEngine
             auto* targetState = GetState(m_TransitionTargetState);
             if (targetState)
             {
-                m_TargetStateTime += dt * targetState->Speed;
+                m_TargetStateTime += dt;
                 f32 targetDuration = targetState->GetEffectiveDuration(params);
                 if (targetState->Looping && targetDuration > 0.0f)
                 {
@@ -167,8 +191,7 @@ namespace OloEngine
             return 0.0f;
         }
 
-        AnimationParameterSet emptyParams;
-        f32 duration = state->GetEffectiveDuration(emptyParams);
+        f32 duration = state->GetEffectiveDuration(m_LastParams);
         if (duration > 0.0f)
         {
             return m_CurrentStateTime / duration;

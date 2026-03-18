@@ -1,8 +1,11 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/AnimationTransition.h"
+#include <cmath>
 
 namespace OloEngine
 {
+    static constexpr f32 kFloatEpsilon = 1e-6f;
+
     bool TransitionCondition::Evaluate(const AnimationParameterSet& params) const
     {
         const AnimationParameter* param = params.GetParameter(ParameterName);
@@ -32,7 +35,7 @@ namespace OloEngine
 
             case Comparison::Equal:
                 if (param->ParamType == AnimationParameterType::Float)
-                    return param->FloatValue == FloatThreshold;
+                    return std::abs(param->FloatValue - FloatThreshold) < kFloatEpsilon;
                 if (param->ParamType == AnimationParameterType::Int)
                     return param->IntValue == IntThreshold;
                 if (param->ParamType == AnimationParameterType::Bool)
@@ -41,7 +44,7 @@ namespace OloEngine
 
             case Comparison::NotEqual:
                 if (param->ParamType == AnimationParameterType::Float)
-                    return param->FloatValue != FloatThreshold;
+                    return std::abs(param->FloatValue - FloatThreshold) >= kFloatEpsilon;
                 if (param->ParamType == AnimationParameterType::Int)
                     return param->IntValue != IntThreshold;
                 if (param->ParamType == AnimationParameterType::Bool)

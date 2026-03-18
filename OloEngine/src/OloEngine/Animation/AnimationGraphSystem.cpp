@@ -9,6 +9,8 @@ namespace OloEngine::Animation
         Skeleton& skeleton,
         f32 deltaTime)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!graphComp.RuntimeGraph)
         {
             return;
@@ -25,7 +27,7 @@ namespace OloEngine::Animation
 
         // Evaluate the animation graph to produce local bone matrices
         std::vector<glm::mat4> localBoneMatrices;
-        graphComp.RuntimeGraph->Update(deltaTime, boneCount, localBoneMatrices);
+        graphComp.RuntimeGraph->Update(deltaTime, boneCount, localBoneMatrices, skeleton.m_BoneNames);
 
         // Copy parameters back (triggers may have been consumed)
         graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
@@ -39,7 +41,7 @@ namespace OloEngine::Animation
         // Compute global transforms (forward kinematics)
         for (sizet i = 0; i < skeleton.m_LocalTransforms.size(); ++i)
         {
-            int parent = skeleton.m_ParentIndices[i];
+            i32 parent = skeleton.m_ParentIndices[i];
             if (parent >= 0)
             {
                 skeleton.m_GlobalTransforms[i] = skeleton.m_GlobalTransforms[parent] * skeleton.m_LocalTransforms[i];

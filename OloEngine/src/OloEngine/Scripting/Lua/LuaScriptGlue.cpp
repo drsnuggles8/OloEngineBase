@@ -374,6 +374,18 @@ namespace OloEngine
                                             "hasTriggered", &DialogueComponent::m_HasTriggered,
                                             "triggerOnce", &DialogueComponent::m_TriggerOnce);
 
+        // --- AnimationGraphComponent ---
+        lua.new_usertype<AnimationGraphComponent>("AnimationGraphComponent", "SetFloat", [](AnimationGraphComponent& comp, const std::string& name, f32 value)
+                                                  { comp.Parameters.SetFloat(name, value); }, "SetBool", [](AnimationGraphComponent& comp, const std::string& name, bool value)
+                                                  { comp.Parameters.SetBool(name, value); }, "SetInt", [](AnimationGraphComponent& comp, const std::string& name, i32 value)
+                                                  { comp.Parameters.SetInt(name, value); }, "SetTrigger", [](AnimationGraphComponent& comp, const std::string& name)
+                                                  { comp.Parameters.SetTrigger(name); }, "GetFloat", [](const AnimationGraphComponent& comp, const std::string& name) -> f32
+                                                  { return comp.Parameters.GetFloat(name); }, "GetCurrentState", [](const AnimationGraphComponent& comp, sol::optional<i32> layerIndex) -> std::string
+                                                  {
+                                                       if (!comp.RuntimeGraph)
+                                                           return "";
+                                                       return std::string(comp.RuntimeGraph->GetCurrentStateName(layerIndex.value_or(0))); });
+
         // --- MaterialComponent ---
         lua.new_usertype<MaterialComponent>("MaterialComponent",
                                             "shaderGraphHandle",

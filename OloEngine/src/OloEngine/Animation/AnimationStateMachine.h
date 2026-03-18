@@ -33,6 +33,10 @@ namespace OloEngine
         {
             return m_InTransition;
         }
+        [[nodiscard]] bool HasStarted() const
+        {
+            return m_Started;
+        }
         [[nodiscard]] f32 GetCurrentStateNormalizedTime() const;
         [[nodiscard]] const AnimationState* GetState(const std::string& name) const;
         [[nodiscard]] const std::unordered_map<std::string, AnimationState>& GetStates() const
@@ -58,6 +62,7 @@ namespace OloEngine
         std::string m_DefaultState;
 
         // Transition blending state
+        bool m_Started = false;
         bool m_InTransition = false;
         std::string m_TransitionTargetState;
         f32 m_TransitionBlendFactor = 0.0f;
@@ -65,5 +70,8 @@ namespace OloEngine
         f32 m_TransitionElapsed = 0.0f;
         f32 m_CurrentStateTime = 0.0f;
         f32 m_TargetStateTime = 0.0f;
+
+        // Cached for GetCurrentStateNormalizedTime
+        AnimationParameterSet m_LastParams;
     };
 } // namespace OloEngine

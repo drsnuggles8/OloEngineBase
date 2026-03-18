@@ -147,6 +147,28 @@ TEST(BlendTreeTest, Simple1D_ClampBelowFirst)
     EXPECT_NEAR(result[0].Translation.x, 0.0f, 0.01f);
 }
 
+TEST(BlendTreeTest, Simple1D_ClampAboveLast)
+{
+    auto idleClip = CreateBlendTestClip("Idle", 1.0f, glm::vec3(0.0f), glm::vec3(0.0f));
+    auto walkClip = CreateBlendTestClip("Walk", 1.0f, glm::vec3(2.0f, 0.0f, 0.0f), glm::vec3(2.0f, 0.0f, 0.0f));
+
+    BlendTree tree;
+    tree.Type = BlendTree::BlendType::Simple1D;
+    tree.BlendParameterX = "Speed";
+
+    tree.Children.push_back({ idleClip, 0.0f, {}, 1.0f });
+    tree.Children.push_back({ walkClip, 1.0f, {}, 1.0f });
+
+    AnimationParameterSet params;
+    params.DefineFloat("Speed", 1.5f);
+
+    std::vector<BoneTransform> result;
+    tree.Evaluate(0.0f, params, 1, result);
+    ASSERT_EQ(result.size(), 1u);
+    // Above last threshold, should clamp to walk
+    EXPECT_NEAR(result[0].Translation.x, 2.0f, 0.01f);
+}
+
 //==============================================================================
 // 2D Blend Tree Tests
 //==============================================================================
@@ -215,7 +237,7 @@ TEST(BlendTreeTest, SingleChild)
     EXPECT_NEAR(result[0].Translation.x, 3.0f, 0.01f);
 }
 
-TEST(BlendTreeTest, GetDurationReturnsMaxChildDuration)
+TEST(BlendTreeTest, GetDurationReturnsWeightedAverageDuration)
 {
     auto shortClip = CreateBlendTestClip("Short", 0.5f, glm::vec3(0.0f), glm::vec3(1.0f));
     auto longClip = CreateBlendTestClip("Long", 2.0f, glm::vec3(0.0f), glm::vec3(1.0f));

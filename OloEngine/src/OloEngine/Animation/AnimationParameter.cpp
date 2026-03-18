@@ -86,6 +86,11 @@ namespace OloEngine
     {
         if (auto it = m_Parameters.find(name); it != m_Parameters.end())
         {
+            if (it->second.ParamType != AnimationParameterType::Trigger)
+            {
+                OLO_CORE_WARN("AnimationParameterSet::SetTrigger - parameter '{}' is not a Trigger", name);
+                return;
+            }
             it->second.BoolValue = true;
             it->second.TriggerConsumed = false;
         }
@@ -126,6 +131,10 @@ namespace OloEngine
     {
         if (auto it = m_Parameters.find(name); it != m_Parameters.end())
         {
+            if (it->second.ParamType != AnimationParameterType::Trigger)
+            {
+                return false;
+            }
             return it->second.BoolValue && !it->second.TriggerConsumed;
         }
         return false;
@@ -135,6 +144,10 @@ namespace OloEngine
     {
         if (auto it = m_Parameters.find(name); it != m_Parameters.end())
         {
+            if (it->second.ParamType != AnimationParameterType::Trigger)
+            {
+                return;
+            }
             it->second.TriggerConsumed = true;
             it->second.BoolValue = false;
         }

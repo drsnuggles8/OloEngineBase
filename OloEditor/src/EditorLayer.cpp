@@ -1780,6 +1780,8 @@ namespace OloEngine
         m_SceneHierarchyPanel.SetCommandHistory(nullptr);
         m_AnimationPanel.SetContext(m_ActiveScene);
         m_AnimationPanel.SetCommandHistory(nullptr);
+        m_AnimationGraphEditorPanel.SetContext(m_ActiveScene);
+        m_AnimationGraphEditorPanel.SetCommandHistory(nullptr);
         m_StreamingPanel.SetContext(m_ActiveScene);
         m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
         m_StreamingPanel.SetCommandHistory(nullptr);
@@ -1803,6 +1805,8 @@ namespace OloEngine
         m_SceneHierarchyPanel.SetCommandHistory(nullptr);
         m_AnimationPanel.SetContext(m_ActiveScene);
         m_AnimationPanel.SetCommandHistory(nullptr);
+        m_AnimationGraphEditorPanel.SetContext(m_ActiveScene);
+        m_AnimationGraphEditorPanel.SetCommandHistory(nullptr);
         m_StreamingPanel.SetContext(m_ActiveScene);
         m_StreamingPanel.SetCommandHistory(nullptr);
         m_SceneStatisticsPanel.SetContext(m_ActiveScene);
@@ -1834,6 +1838,8 @@ namespace OloEngine
         m_SceneHierarchyPanel.SetCommandHistory(&m_CommandHistory);
         m_AnimationPanel.SetContext(m_ActiveScene);
         m_AnimationPanel.SetCommandHistory(&m_CommandHistory);
+        m_AnimationGraphEditorPanel.SetContext(m_ActiveScene);
+        m_AnimationGraphEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_StreamingPanel.SetContext(m_ActiveScene);
         m_SaveGamePanel.SetContext(nullptr, nullptr);
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);

@@ -2635,6 +2635,7 @@ namespace OloEngine
             OLO_CORE_ERROR("AnimationGraphAssetSerializer::TryLoadData - Failed to load: {}", metadata.FilePath.string());
             return false;
         }
+        graphAsset->m_Handle = metadata.Handle;
         asset = graphAsset;
         return true;
     }
@@ -2652,14 +2653,12 @@ namespace OloEngine
             return false;
         }
 
-        // Serialize to a temporary file, read it back as string
-        std::filesystem::path tempPath = std::filesystem::temp_directory_path() / "olo_anim_graph_pack.tmp";
-        AnimationGraphSerializer::Serialize(graphAsset->GetGraph(), tempPath.string());
-
-        std::ifstream ifs(tempPath, std::ios::binary);
-        std::string yamlString((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        ifs.close();
-        std::filesystem::remove(tempPath);
+        std::string yamlString = AnimationGraphSerializer::SerializeToString(graphAsset->GetGraph());
+        if (yamlString.empty())
+        {
+            OLO_CORE_ERROR("AnimationGraphAssetSerializer::SerializeToAssetPack - Failed to serialize graph to string");
+            return false;
+        }
 
         outInfo.Offset = stream.GetStreamPosition();
         stream.WriteString(yamlString);
@@ -2673,15 +2672,16 @@ namespace OloEngine
         std::string yamlString;
         stream.ReadString(yamlString);
 
-        // Write to temp file and deserialize
-        std::filesystem::path tempPath = std::filesystem::temp_directory_path() / "olo_anim_graph_unpack.tmp";
+        auto graph = AnimationGraphSerializer::DeserializeFromString(yamlString);
+        if (!graph)
         {
-            std::ofstream ofs(tempPath);
-            ofs << yamlString;
+            OLO_CORE_ERROR("AnimationGraphAssetSerializer::DeserializeFromAssetPack - Failed to deserialize graph from string");
+            return nullptr;
         }
 
-        auto graphAsset = AnimationGraphSerializer::DeserializeAsset(tempPath.string());
-        std::filesystem::remove(tempPath);
+        auto graphAsset = Ref<AnimationGraphAsset>::Create();
+        graphAsset->SetGraph(graph);
+        graphAsset->m_Handle = assetInfo.Handle;
         return graphAsset;
     }
 

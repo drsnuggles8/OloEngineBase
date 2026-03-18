@@ -21,7 +21,8 @@ namespace OloEngine
       public:
         virtual ~BlendNode() = default;
         virtual void Evaluate(f32 normalizedTime, const AnimationParameterSet& params,
+                              sizet boneCount,
                               std::vector<BoneTransform>& outBoneTransforms) const = 0;
-        virtual f32 GetDuration() const = 0;
+        virtual f32 GetDuration(const AnimationParameterSet& params) const = 0;
     };
 } // namespace OloEngine

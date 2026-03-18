@@ -8,17 +8,19 @@ namespace OloEngine
                                   sizet boneCount,
                                   std::vector<BoneTransform>& outBoneTransforms) const
     {
+        OLO_PROFILE_FUNCTION();
+
         switch (Type)
         {
             case MotionType::SingleClip:
             {
                 if (!Clip)
                 {
-                    outBoneTransforms.resize(boneCount);
+                    outBoneTransforms.assign(boneCount, BoneTransform{});
                     return;
                 }
                 f32 time = normalizedTime * Clip->Duration;
-                outBoneTransforms.resize(boneCount);
+                outBoneTransforms.assign(boneCount, BoneTransform{});
                 for (sizet i = 0; i < boneCount; ++i)
                 {
                     if (i < Clip->BoneAnimations.size())
@@ -35,7 +37,7 @@ namespace OloEngine
             {
                 if (!Tree)
                 {
-                    outBoneTransforms.resize(boneCount);
+                    outBoneTransforms.assign(boneCount, BoneTransform{});
                     return;
                 }
                 Tree->Evaluate(normalizedTime, params, boneCount, outBoneTransforms);
@@ -46,7 +48,7 @@ namespace OloEngine
 
     f32 AnimationState::GetClipDuration() const
     {
-        if (Type == MotionType::SingleClip && Clip)
+        if (Type == MotionType::SingleClip && Clip && Speed > 0.0f)
         {
             return Clip->Duration / Speed;
         }
@@ -55,11 +57,11 @@ namespace OloEngine
 
     f32 AnimationState::GetEffectiveDuration(const AnimationParameterSet& params) const
     {
-        if (Type == MotionType::SingleClip && Clip)
+        if (Type == MotionType::SingleClip && Clip && Speed > 0.0f)
         {
             return Clip->Duration / Speed;
         }
-        if (Type == MotionType::BlendTree && Tree)
+        if (Type == MotionType::BlendTree && Tree && Speed > 0.0f)
         {
             return Tree->GetDuration(params) / Speed;
         }

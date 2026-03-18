@@ -11,7 +11,9 @@
 using namespace OloEngine;
 
 // Helper to create a simple animation clip with one bone
-static Ref<AnimationClip> CreateTestClip(const std::string& name, float duration)
+static Ref<AnimationClip> CreateTestClip(const std::string& name, float duration,
+                                         const glm::vec3& startPos = glm::vec3(0.0f),
+                                         const glm::vec3& endPos = glm::vec3(1.0f, 0.0f, 0.0f))
 {
     auto clip = Ref<AnimationClip>::Create();
     clip->Name = name;
@@ -19,8 +21,8 @@ static Ref<AnimationClip> CreateTestClip(const std::string& name, float duration
 
     BoneAnimation boneAnim;
     boneAnim.BoneName = "Bone0";
-    boneAnim.PositionKeys.push_back({ 0.0, glm::vec3(0.0f) });
-    boneAnim.PositionKeys.push_back({ static_cast<f64>(duration), glm::vec3(1.0f, 0.0f, 0.0f) });
+    boneAnim.PositionKeys.push_back({ 0.0, startPos });
+    boneAnim.PositionKeys.push_back({ static_cast<f64>(duration), endPos });
     boneAnim.RotationKeys.push_back({ 0.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
     boneAnim.RotationKeys.push_back({ static_cast<f64>(duration), glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
     boneAnim.ScaleKeys.push_back({ 0.0, glm::vec3(1.0f) });
@@ -315,8 +317,9 @@ TEST(AnimationStateMachineTest, ExitTimeTransition)
 
 TEST(AnimationStateMachineTest, CrossFadeBlending)
 {
-    auto idleClip = CreateTestClip("Idle", 1.0f);
-    auto walkClip = CreateTestClip("Walk", 1.0f);
+    // Idle starts at x=0, Walk starts at x=10 — makes blended result verifiable
+    auto idleClip = CreateTestClip("Idle", 1.0f, glm::vec3(0.0f), glm::vec3(0.0f));
+    auto walkClip = CreateTestClip("Walk", 1.0f, glm::vec3(10.0f, 0.0f, 0.0f), glm::vec3(10.0f, 0.0f, 0.0f));
 
     AnimationStateMachine sm;
 
@@ -359,6 +362,9 @@ TEST(AnimationStateMachineTest, CrossFadeBlending)
     sm.Update(0.25f, params, 1, bones);
     EXPECT_TRUE(sm.IsInTransition());
     EXPECT_EQ(bones.size(), 1u);
+    // Blended between idle (x=0) and walk (x=10) — result should be between 0 and 10
+    EXPECT_GT(bones[0].Translation.x, 0.0f);
+    EXPECT_LT(bones[0].Translation.x, 10.0f);
 
     // Complete transition
     sm.Update(0.5f, params, 1, bones);

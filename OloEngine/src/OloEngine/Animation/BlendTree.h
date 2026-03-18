@@ -33,6 +33,7 @@ namespace OloEngine
             f32 Threshold = 0.0f;          // Position on 1D axis
             glm::vec2 Position = { 0, 0 }; // Position on 2D blend space
             f32 Speed = 1.0f;
+            std::string ClipName; // Persisted name for serialization/linking
         };
 
         std::vector<BlendChild> Children;

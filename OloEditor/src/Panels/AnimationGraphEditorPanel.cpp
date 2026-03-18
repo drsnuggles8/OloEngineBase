@@ -335,6 +335,11 @@ namespace OloEngine
 
             if (ImGui::Button("Create") && strlen(m_NewStateName) > 0)
             {
+                if (!m_NewStateIsBlendTree)
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
+                                       "Note: Single-clip state created without a clip. Assign a clip in the state editor.");
+                }
                 AnimationState newState;
                 newState.Name = m_NewStateName;
                 newState.Type = m_NewStateIsBlendTree
@@ -490,10 +495,38 @@ namespace OloEngine
         ImGui::Separator();
         if (ImGui::Button("Add Transition"))
         {
-            AnimationTransition newTransition;
-            newTransition.SourceState = "";
-            newTransition.DestinationState = "";
-            sm->AddTransition(newTransition);
+            m_ShowNewTransitionDialog = true;
+            memset(m_NewTransitionSource, 0, sizeof(m_NewTransitionSource));
+            memset(m_NewTransitionDest, 0, sizeof(m_NewTransitionDest));
+            m_NewTransitionBlendDuration = 0.2f;
+        }
+
+        if (m_ShowNewTransitionDialog)
+        {
+            ImGui::InputText("Source (empty=Any)", m_NewTransitionSource, sizeof(m_NewTransitionSource));
+            ImGui::InputText("Destination", m_NewTransitionDest, sizeof(m_NewTransitionDest));
+            ImGui::DragFloat("Blend Duration", &m_NewTransitionBlendDuration, 0.01f, 0.0f, 5.0f);
+
+            bool canCreate = strlen(m_NewTransitionDest) > 0;
+            if (!canCreate)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Destination state is required");
+            }
+
+            if (ImGui::Button("Create##Transition") && canCreate)
+            {
+                AnimationTransition newTransition;
+                newTransition.SourceState = m_NewTransitionSource;
+                newTransition.DestinationState = m_NewTransitionDest;
+                newTransition.BlendDuration = m_NewTransitionBlendDuration;
+                sm->AddTransition(newTransition);
+                m_ShowNewTransitionDialog = false;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel##Transition"))
+            {
+                m_ShowNewTransitionDialog = false;
+            }
         }
     }
 

@@ -1360,6 +1360,10 @@ namespace OloEngine
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
+        if (!paramName)
+        {
+            return;
+        }
         if (entity.HasComponent<AnimationGraphComponent>())
         {
             char* name = mono_string_to_utf8(paramName);
@@ -1374,6 +1378,10 @@ namespace OloEngine
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
+        if (!paramName)
+        {
+            return;
+        }
         if (entity.HasComponent<AnimationGraphComponent>())
         {
             char* name = mono_string_to_utf8(paramName);
@@ -1388,6 +1396,10 @@ namespace OloEngine
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
+        if (!paramName)
+        {
+            return;
+        }
         if (entity.HasComponent<AnimationGraphComponent>())
         {
             char* name = mono_string_to_utf8(paramName);
@@ -1402,6 +1414,10 @@ namespace OloEngine
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
+        if (!paramName)
+        {
+            return;
+        }
         if (entity.HasComponent<AnimationGraphComponent>())
         {
             char* name = mono_string_to_utf8(paramName);
@@ -1416,6 +1432,10 @@ namespace OloEngine
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
+        if (!paramName)
+        {
+            return 0.0f;
+        }
         if (entity.HasComponent<AnimationGraphComponent>())
         {
             char* name = mono_string_to_utf8(paramName);
@@ -1424,6 +1444,46 @@ namespace OloEngine
             return result;
         }
         return 0.0f;
+    }
+
+    static bool AnimationGraphComponent_GetBool(UUID entityID, MonoString* paramName)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        if (!paramName)
+        {
+            return false;
+        }
+        if (entity.HasComponent<AnimationGraphComponent>())
+        {
+            char* name = mono_string_to_utf8(paramName);
+            bool result = entity.GetComponent<AnimationGraphComponent>().Parameters.GetBool(name);
+            mono_free(name);
+            return result;
+        }
+        return false;
+    }
+
+    static i32 AnimationGraphComponent_GetInt(UUID entityID, MonoString* paramName)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        OLO_CORE_ASSERT(entity);
+        if (!paramName)
+        {
+            return 0;
+        }
+        if (entity.HasComponent<AnimationGraphComponent>())
+        {
+            char* name = mono_string_to_utf8(paramName);
+            i32 result = entity.GetComponent<AnimationGraphComponent>().Parameters.GetInt(name);
+            mono_free(name);
+            return result;
+        }
+        return 0;
     }
 
     static MonoString* AnimationGraphComponent_GetCurrentState(UUID entityID, i32 layerIndex)
@@ -2422,6 +2482,8 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(AnimationGraphComponent_SetInt);
         OLO_ADD_INTERNAL_CALL(AnimationGraphComponent_SetTrigger);
         OLO_ADD_INTERNAL_CALL(AnimationGraphComponent_GetFloat);
+        OLO_ADD_INTERNAL_CALL(AnimationGraphComponent_GetBool);
+        OLO_ADD_INTERNAL_CALL(AnimationGraphComponent_GetInt);
         OLO_ADD_INTERNAL_CALL(AnimationGraphComponent_GetCurrentState);
 
         ///////////////////////////////////////////////////////////////

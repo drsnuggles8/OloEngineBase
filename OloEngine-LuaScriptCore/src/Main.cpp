@@ -2,8 +2,9 @@
 
 namespace OloEngine
 {
-    // AnimationGraphComponent Lua binding (requires Sol2 integration)
-    // When Sol2 bindings are active, register:
+    // AnimationGraphComponent Lua binding placeholder
+    // Actual Sol2 bindings are registered in LuaScriptGlue.cpp via RegisterAllTypes()
+    // Lua API:
     //   local anim = entity:GetComponent("AnimationGraphComponent")
     //   anim:SetFloat("Speed", value)
     //   anim:SetBool("IsGrounded", value)

@@ -15,6 +15,7 @@
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Animation/AnimationGraphAsset.h"
 #include "OloEngine/Animation/AnimationGraphSystem.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -642,14 +643,43 @@ namespace OloEngine
 
             // Update animation graphs
             {
+                OLO_PROFILE_SCOPE("Animation Graph Update");
                 auto graphView = m_Registry.view<AnimationGraphComponent, SkeletonComponent>();
                 for (auto e : graphView)
                 {
                     auto& graphComp = graphView.get<AnimationGraphComponent>(e);
                     auto& skelComp = graphView.get<SkeletonComponent>(e);
 
-                    if (graphComp.RuntimeGraph && skelComp.m_Skeleton)
+                    if (!skelComp.m_Skeleton)
                     {
+                        continue;
+                    }
+
+                    // Lazy-load RuntimeGraph from asset if not yet initialized
+                    if (!graphComp.RuntimeGraph && graphComp.AnimationGraphAssetHandle != 0)
+                    {
+                        if (auto graphAsset = AssetManager::GetAsset<AnimationGraphAsset>(graphComp.AnimationGraphAssetHandle))
+                        {
+                            graphComp.RuntimeGraph = graphAsset->GetGraph();
+                            if (graphComp.RuntimeGraph)
+                            {
+                                graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
+                                graphComp.RuntimeGraph->Start();
+                            }
+                        }
+                    }
+
+                    if (graphComp.RuntimeGraph)
+                    {
+                        // Ensure the graph has been started
+                        for (auto& layer : graphComp.RuntimeGraph->Layers)
+                        {
+                            if (layer.StateMachine && !layer.StateMachine->HasStarted())
+                            {
+                                graphComp.RuntimeGraph->Start();
+                                break;
+                            }
+                        }
                         Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds());
                     }
                 }

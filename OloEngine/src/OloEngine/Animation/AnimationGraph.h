@@ -20,7 +20,8 @@ namespace OloEngine
         std::vector<AnimationLayer> Layers;
 
         void Start();
-        void Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices);
+        void Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices,
+                    const std::vector<std::string>& boneNames = {});
 
         [[nodiscard]] const std::string& GetCurrentStateName(i32 layerIndex = 0) const;
         [[nodiscard]] bool IsInTransition(i32 layerIndex = 0) const;

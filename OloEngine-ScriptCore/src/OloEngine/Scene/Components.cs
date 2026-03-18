@@ -1183,6 +1183,12 @@ namespace OloEngine
 		public float GetFloat(string paramName)
 			=> InternalCalls.AnimationGraphComponent_GetFloat(Entity.ID, paramName);
 
+		public bool GetBool(string paramName)
+			=> InternalCalls.AnimationGraphComponent_GetBool(Entity.ID, paramName);
+
+		public int GetInt(string paramName)
+			=> InternalCalls.AnimationGraphComponent_GetInt(Entity.ID, paramName);
+
 		public string GetCurrentState(int layerIndex = 0)
 			=> InternalCalls.AnimationGraphComponent_GetCurrentState(Entity.ID, layerIndex);
 	}

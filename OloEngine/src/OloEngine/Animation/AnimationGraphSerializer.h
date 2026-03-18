@@ -11,10 +11,13 @@ namespace OloEngine
     class AnimationGraphSerializer
     {
       public:
-        static bool Serialize(const Ref<AnimationGraph>& graph, const std::string& filepath);
-        static Ref<AnimationGraph> Deserialize(const std::string& filepath);
+        [[nodiscard]] static bool Serialize(const Ref<AnimationGraph>& graph, const std::string& filepath);
+        [[nodiscard]] static Ref<AnimationGraph> Deserialize(const std::string& filepath);
+        [[nodiscard]] static Ref<AnimationGraph> DeserializeFromString(const std::string& yamlString);
 
-        static bool SerializeAsset(const Ref<AnimationGraphAsset>& asset, const std::string& filepath);
-        static Ref<AnimationGraphAsset> DeserializeAsset(const std::string& filepath);
+        [[nodiscard]] static bool SerializeAsset(const Ref<AnimationGraphAsset>& asset, const std::string& filepath);
+        [[nodiscard]] static Ref<AnimationGraphAsset> DeserializeAsset(const std::string& filepath);
+
+        [[nodiscard]] static std::string SerializeToString(const Ref<AnimationGraph>& graph);
     };
 } // namespace OloEngine

@@ -8,6 +8,7 @@ namespace OloEngine
 
     void AnimationGraph::Start()
     {
+        OLO_PROFILE_FUNCTION();
         for (auto& layer : Layers)
         {
             if (layer.StateMachine)
@@ -17,8 +18,10 @@ namespace OloEngine
         }
     }
 
-    void AnimationGraph::Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices)
+    void AnimationGraph::Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices,
+                                const std::vector<std::string>& boneNames)
     {
+        OLO_PROFILE_FUNCTION();
         if (Layers.empty() || boneCount == 0)
         {
             outFinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
@@ -44,11 +47,8 @@ namespace OloEngine
                 layerTransforms.resize(boneCount);
             }
 
-            // Apply layer with weight and bone mask
-            // For now, we use a simple bone name list (empty = all bones affected)
-            // In production, you'd pass bone names from the skeleton
-            std::vector<std::string> emptyBoneNames; // Placeholder - applied to all
-            ApplyLayerTransforms(layer, layerTransforms, emptyBoneNames, accumulatedTransforms);
+            // Apply layer with weight and bone mask using skeleton bone names
+            ApplyLayerTransforms(layer, layerTransforms, boneNames, accumulatedTransforms);
         }
 
         // Convert BoneTransform to matrices
@@ -88,6 +88,7 @@ namespace OloEngine
                                               const std::vector<std::string>& boneNames,
                                               std::vector<BoneTransform>& accumulatedTransforms) const
     {
+        OLO_PROFILE_SCOPE("ApplyLayerTransforms");
         for (sizet i = 0; i < accumulatedTransforms.size() && i < layerTransforms.size(); ++i)
         {
             // Check bone mask

@@ -29,6 +29,7 @@ namespace OloEngine
 
         // For SingleClip
         Ref<AnimationClip> Clip;
+        std::string ClipName; // Persisted name for serialization/linking
 
         // For BlendTree
         Ref<BlendTree> Tree;

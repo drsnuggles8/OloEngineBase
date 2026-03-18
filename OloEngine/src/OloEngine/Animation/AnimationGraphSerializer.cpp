@@ -9,6 +9,7 @@
 
 #include <yaml-cpp/yaml.h>
 #include <fstream>
+#include <sstream>
 
 namespace OloEngine
 {
@@ -211,8 +212,14 @@ namespace OloEngine
         out << YAML::EndMap;
     }
 
-    bool AnimationGraphSerializer::Serialize(const Ref<AnimationGraph>& graph, const std::string& filepath)
+    std::string AnimationGraphSerializer::SerializeToString(const Ref<AnimationGraph>& graph)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!graph)
+        {
+            return {};
+        }
+
         YAML::Emitter out;
         out << YAML::BeginMap;
 
@@ -260,6 +267,11 @@ namespace OloEngine
                 out << YAML::EndSeq;
             }
 
+            if (!layer.AvatarMask.empty())
+            {
+                out << YAML::Key << "avatar_mask" << YAML::Value << layer.AvatarMask;
+            }
+
             if (layer.StateMachine)
             {
                 auto const& sm = layer.StateMachine;
@@ -289,13 +301,26 @@ namespace OloEngine
 
         out << YAML::EndMap;
 
+        return std::string(out.c_str());
+    }
+
+    bool AnimationGraphSerializer::Serialize(const Ref<AnimationGraph>& graph, const std::string& filepath)
+    {
+        OLO_PROFILE_FUNCTION();
+        std::string yamlString = SerializeToString(graph);
+        if (yamlString.empty())
+        {
+            OLO_CORE_ERROR("AnimationGraphSerializer: Failed to serialize graph");
+            return false;
+        }
+
         std::ofstream fout(filepath);
         if (!fout.is_open())
         {
             OLO_CORE_ERROR("AnimationGraphSerializer: Failed to open file '{}'", filepath);
             return false;
         }
-        fout << out.c_str();
+        fout << yamlString;
         return true;
     }
 
@@ -316,13 +341,17 @@ namespace OloEngine
             for (auto const& childNode : children)
             {
                 BlendTree::BlendChild child;
-                // Clip name stored for lookup; actual Ref<AnimationClip> linking is done at load time
                 child.Threshold = childNode["threshold"].as<f32>(0.0f);
                 child.Speed = childNode["speed"].as<f32>(1.0f);
                 if (childNode["position"] && childNode["position"].IsSequence())
                 {
                     child.Position.x = childNode["position"][0].as<f32>(0.0f);
                     child.Position.y = childNode["position"][1].as<f32>(0.0f);
+                }
+                // Read clip name for future asset linking
+                if (childNode["clip"])
+                {
+                    child.ClipName = childNode["clip"].as<std::string>("");
                 }
                 tree->Children.push_back(child);
             }
@@ -346,7 +375,11 @@ namespace OloEngine
         else
         {
             state.Type = AnimationState::MotionType::SingleClip;
-            // Clip is stored by name; linking to actual clip done at asset load time
+            // Read clip name for future asset linking
+            if (node["clip"])
+            {
+                state.ClipName = node["clip"].as<std::string>("");
+            }
         }
 
         return state;
@@ -382,6 +415,7 @@ namespace OloEngine
 
     Ref<AnimationGraph> AnimationGraphSerializer::Deserialize(const std::string& filepath)
     {
+        OLO_PROFILE_FUNCTION();
         std::ifstream fin(filepath);
         if (!fin.is_open())
         {
@@ -389,10 +423,33 @@ namespace OloEngine
             return nullptr;
         }
 
-        YAML::Node root = YAML::Load(fin);
+        std::stringstream buffer;
+        buffer << fin.rdbuf();
+        return DeserializeFromString(buffer.str());
+    }
+
+    Ref<AnimationGraph> AnimationGraphSerializer::DeserializeFromString(const std::string& yamlString)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (yamlString.empty())
+        {
+            return nullptr;
+        }
+
+        YAML::Node root;
+        try
+        {
+            root = YAML::Load(yamlString);
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("AnimationGraphSerializer: YAML parse error: {}", e.what());
+            return nullptr;
+        }
+
         if (!root)
         {
-            OLO_CORE_ERROR("AnimationGraphSerializer: Failed to parse YAML from '{}'", filepath);
+            OLO_CORE_ERROR("AnimationGraphSerializer: Failed to parse YAML from string");
             return nullptr;
         }
 
@@ -437,8 +494,13 @@ namespace OloEngine
                 {
                     for (auto const& boneNode : affectedBones)
                     {
-                        layer.AffectedBones.push_back(boneNode.as<std::string>());
+                        layer.AffectedBones.push_back(boneNode.as<std::string>(""));
                     }
+                }
+
+                if (layerNode["avatar_mask"])
+                {
+                    layer.AvatarMask = layerNode["avatar_mask"].as<std::string>("");
                 }
 
                 auto sm = Ref<AnimationStateMachine>::Create();

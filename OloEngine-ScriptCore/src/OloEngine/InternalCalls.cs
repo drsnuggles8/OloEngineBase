@@ -603,6 +603,10 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float AnimationGraphComponent_GetFloat(ulong entityID, string paramName);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AnimationGraphComponent_GetBool(ulong entityID, string paramName);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int AnimationGraphComponent_GetInt(ulong entityID, string paramName);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern string AnimationGraphComponent_GetCurrentState(ulong entityID, int layerIndex);
 		#endregion
 

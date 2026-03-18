@@ -53,5 +53,11 @@ namespace OloEngine
         bool m_ShowNewStateDialog = false;
         char m_NewStateName[128] = {};
         bool m_NewStateIsBlendTree = false;
+
+        // New transition dialog
+        bool m_ShowNewTransitionDialog = false;
+        char m_NewTransitionSource[128] = {};
+        char m_NewTransitionDest[128] = {};
+        f32 m_NewTransitionBlendDuration = 0.2f;
     };
 } // namespace OloEngine
