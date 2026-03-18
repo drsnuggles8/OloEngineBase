@@ -20,6 +20,7 @@
 #include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Debug/Instrumentor.h"
+#include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
 #include "../UndoRedo/EntityCommands.h"
 #include "../UndoRedo/ComponentCommands.h"
 #include "../UndoRedo/SpecializedCommands.h"
@@ -1638,6 +1639,7 @@ namespace OloEngine
             DisplayAddComponentEntry<AnimationGraphComponent>("Animation Graph");
             DisplayAddComponentEntry<SkeletonComponent>("Skeleton");
             DisplayAddComponentEntry<SubmeshComponent>("Submesh");
+            DisplayAddComponentEntry<MorphTargetComponent>("Morph Targets");
 
             ImGui::Separator();
 
@@ -2817,6 +2819,68 @@ namespace OloEngine
                 component.m_SubmeshIndex = static_cast<u32>(submeshIndex);
             ImGui::Checkbox("Visible##Submesh", &component.m_Visible);
             ImGui::Text("Bone Entities: %zu", component.m_BoneEntityIds.size()); });
+
+        DrawComponent<MorphTargetComponent>("Morph Targets", entity, [](auto& component)
+                                            {
+            if (!component.MorphTargets || component.MorphTargets->GetTargetCount() == 0)
+            {
+                ImGui::TextDisabled("No morph targets loaded");
+                return;
+            }
+
+            ImGui::Text("Targets: %u", component.MorphTargets->GetTargetCount());
+            ImGui::Separator();
+
+            for (const auto& target : component.MorphTargets->Targets)
+            {
+                f32 weight = component.GetWeight(target.Name);
+                if (ImGui::SliderFloat(target.Name.c_str(), &weight, 0.0f, 1.0f))
+                {
+                    component.SetWeight(target.Name, weight);
+                }
+            }
+
+            ImGui::Separator();
+            if (ImGui::Button("Reset All##MorphTargets"))
+            {
+                component.ResetAllWeights();
+            }
+
+            // Expression preset dropdown
+            auto exprNames = FacialExpressionLibrary::GetExpressionNames();
+            if (!exprNames.empty())
+            {
+                ImGui::Separator();
+                ImGui::Text("Expression Presets");
+
+                static int selectedExpr = -1;
+                static f32 blendFactor = 1.0f;
+
+                const char* preview = (selectedExpr >= 0 && selectedExpr < static_cast<int>(exprNames.size()))
+                    ? exprNames[selectedExpr].c_str() : "Select...";
+
+                if (ImGui::BeginCombo("Preset##ExprPreset", preview))
+                {
+                    for (int i = 0; i < static_cast<int>(exprNames.size()); ++i)
+                    {
+                        bool isSelected = (selectedExpr == i);
+                        if (ImGui::Selectable(exprNames[i].c_str(), isSelected))
+                            selectedExpr = i;
+                        if (isSelected) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                ImGui::SliderFloat("Blend##ExprBlend", &blendFactor, 0.0f, 1.0f);
+
+                if (selectedExpr >= 0 && selectedExpr < static_cast<int>(exprNames.size()))
+                {
+                    if (ImGui::Button("Apply Preset##ExprApply"))
+                    {
+                        FacialExpressionLibrary::ApplyExpression(component, exprNames[selectedExpr], blendFactor);
+                    }
+                }
+            } });
 
         // --- UI Components ---
 

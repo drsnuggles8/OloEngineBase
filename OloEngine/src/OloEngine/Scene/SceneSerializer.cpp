@@ -2036,6 +2036,21 @@ namespace OloEngine
             graphComp.AnimationGraphAssetHandle = graphComponent["AssetHandle"].as<u64>(0);
         }
 
+        if (auto morphComponent = entity["MorphTargetComponent"]; morphComponent)
+        {
+            auto& morphComp = deserializedEntity.AddComponent<MorphTargetComponent>();
+            if (auto weightsNode = morphComponent["Weights"]; weightsNode && weightsNode.IsMap())
+            {
+                for (auto it = weightsNode.begin(); it != weightsNode.end(); ++it)
+                {
+                    std::string targetName = it->first.as<std::string>();
+                    f32 weight = it->second.as<f32>(0.0f);
+                    SanitizeFloat(weight, 0.0f, 1.0f, 0.0f);
+                    morphComp.SetWeight(targetName, weight);
+                }
+            }
+        }
+
         if (auto lpComponent = entity["LightProbeComponent"]; lpComponent)
         {
             auto& lp = deserializedEntity.AddComponent<LightProbeComponent>();
@@ -3426,6 +3441,25 @@ namespace OloEngine
             out << YAML::Key << "AssetHandle" << YAML::Value << graphComp.AnimationGraphAssetHandle;
 
             out << YAML::EndMap; // AnimationGraphComponent
+        }
+
+        if (entity.HasComponent<MorphTargetComponent>())
+        {
+            out << YAML::Key << "MorphTargetComponent";
+            out << YAML::BeginMap; // MorphTargetComponent
+
+            auto const& morphComp = entity.GetComponent<MorphTargetComponent>();
+
+            // Serialize weights
+            out << YAML::Key << "Weights";
+            out << YAML::BeginMap;
+            for (const auto& [name, weight] : morphComp.Weights)
+            {
+                out << YAML::Key << name << YAML::Value << weight;
+            }
+            out << YAML::EndMap; // Weights
+
+            out << YAML::EndMap; // MorphTargetComponent
         }
 
         if (entity.HasComponent<LightProbeComponent>())

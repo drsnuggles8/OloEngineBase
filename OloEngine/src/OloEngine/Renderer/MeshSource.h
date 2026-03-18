@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 
@@ -353,6 +354,20 @@ namespace OloEngine
             return m_BoneInfluenceBuffer != nullptr;
         }
 
+        // Morph target support
+        bool HasMorphTargets() const
+        {
+            return m_MorphTargets != nullptr && m_MorphTargets->GetTargetCount() > 0;
+        }
+        const Ref<MorphTargetSet>& GetMorphTargets() const
+        {
+            return m_MorphTargets;
+        }
+        void SetMorphTargets(Ref<MorphTargetSet> morphTargets)
+        {
+            m_MorphTargets = std::move(morphTargets);
+        }
+
         // Bounding volume accessors
         const BoundingBox& GetBoundingBox() const
         {
@@ -395,6 +410,9 @@ namespace OloEngine
         Ref<Skeleton> m_Skeleton;
         TArray<BoneInfo> m_BoneInfo;
         TArray<BoneInfluence> m_BoneInfluences; // One per vertex, separate from vertex data
+
+        // Morph target data
+        Ref<MorphTargetSet> m_MorphTargets;
 
         // GPU resources (similar to current Mesh class)
         Ref<VertexArray> m_VertexArray;

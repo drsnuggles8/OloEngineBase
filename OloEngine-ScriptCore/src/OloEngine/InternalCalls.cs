@@ -610,6 +610,19 @@ namespace OloEngine
 		internal static extern string AnimationGraphComponent_GetCurrentState(ulong entityID, int layerIndex);
 		#endregion
 
+		#region MorphTargetComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void MorphTargetComponent_SetWeight(ulong entityID, string targetName, float weight);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float MorphTargetComponent_GetWeight(ulong entityID, string targetName);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void MorphTargetComponent_ResetAll(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int MorphTargetComponent_GetTargetCount(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void MorphTargetComponent_ApplyExpression(ulong entityID, string expressionName, float blend);
+		#endregion
+
 		#region SaveGame
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern int SaveGame_Save(string slotName, string displayName);

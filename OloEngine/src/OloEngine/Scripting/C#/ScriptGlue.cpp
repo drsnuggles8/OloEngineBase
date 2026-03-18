@@ -19,6 +19,7 @@
 #include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -1521,6 +1522,43 @@ namespace OloEngine
     }
 
     // ==========================================================================
+    // MorphTargetComponent
+    // ==========================================================================
+
+    static void MorphTargetComponent_SetWeight(UUID entityID, MonoString* targetName, f32 weight)
+    {
+        auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
+        std::string name = Utils::MonoStringToString(targetName);
+        component.SetWeight(name, weight);
+    }
+
+    static f32 MorphTargetComponent_GetWeight(UUID entityID, MonoString* targetName)
+    {
+        auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
+        std::string name = Utils::MonoStringToString(targetName);
+        return component.GetWeight(name);
+    }
+
+    static void MorphTargetComponent_ResetAll(UUID entityID)
+    {
+        auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
+        component.ResetAllWeights();
+    }
+
+    static i32 MorphTargetComponent_GetTargetCount(UUID entityID)
+    {
+        auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
+        return component.MorphTargets ? static_cast<i32>(component.MorphTargets->GetTargetCount()) : 0;
+    }
+
+    static void MorphTargetComponent_ApplyExpression(UUID entityID, MonoString* expressionName, f32 blend)
+    {
+        auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
+        std::string name = Utils::MonoStringToString(expressionName);
+        FacialExpressionLibrary::ApplyExpression(component, name, blend);
+    }
+
+    // ==========================================================================
     // SaveGame
     // ==========================================================================
 
@@ -2501,6 +2539,15 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(AnimationGraphComponent_GetBool);
         OLO_ADD_INTERNAL_CALL(AnimationGraphComponent_GetInt);
         OLO_ADD_INTERNAL_CALL(AnimationGraphComponent_GetCurrentState);
+
+        ///////////////////////////////////////////////////////////////
+        // MorphTargetComponent //////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(MorphTargetComponent_SetWeight);
+        OLO_ADD_INTERNAL_CALL(MorphTargetComponent_GetWeight);
+        OLO_ADD_INTERNAL_CALL(MorphTargetComponent_ResetAll);
+        OLO_ADD_INTERNAL_CALL(MorphTargetComponent_GetTargetCount);
+        OLO_ADD_INTERNAL_CALL(MorphTargetComponent_ApplyExpression);
 
         ///////////////////////////////////////////////////////////////
         // SaveGame //////////////////////////////////////////////////

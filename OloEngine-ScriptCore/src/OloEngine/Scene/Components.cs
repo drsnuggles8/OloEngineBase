@@ -1192,4 +1192,21 @@ namespace OloEngine
 		public string GetCurrentState(int layerIndex = 0)
 			=> InternalCalls.AnimationGraphComponent_GetCurrentState(Entity.ID, layerIndex);
 	}
+
+	public class MorphTargetComponent : Component
+	{
+		public void SetWeight(string targetName, float weight)
+			=> InternalCalls.MorphTargetComponent_SetWeight(Entity.ID, targetName, weight);
+
+		public float GetWeight(string targetName)
+			=> InternalCalls.MorphTargetComponent_GetWeight(Entity.ID, targetName);
+
+		public void ResetAll()
+			=> InternalCalls.MorphTargetComponent_ResetAll(Entity.ID);
+
+		public int TargetCount => InternalCalls.MorphTargetComponent_GetTargetCount(Entity.ID);
+
+		public void ApplyExpression(string expressionName, float blend = 1.0f)
+			=> InternalCalls.MorphTargetComponent_ApplyExpression(Entity.ID, expressionName, blend);
+	}
 }

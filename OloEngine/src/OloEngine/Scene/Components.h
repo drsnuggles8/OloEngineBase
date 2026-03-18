@@ -8,6 +8,7 @@
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -1462,5 +1463,6 @@ namespace OloEngine
         DialogueComponent,
         NavMeshBoundsComponent,
         NavAgentComponent,
-        AnimationGraphComponent>;
+        AnimationGraphComponent,
+        MorphTargetComponent>;
 } // namespace OloEngine

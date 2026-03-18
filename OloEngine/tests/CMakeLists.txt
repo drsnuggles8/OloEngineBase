@@ -110,6 +110,8 @@ add_executable(OloEngine-Tests
 		# Animation State Machine & Blend Tree Tests
 		AnimationStateMachineTest.cpp
 		BlendTreeTest.cpp
+		# Morph Target Tests
+		MorphTargetTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

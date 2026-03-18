@@ -38,6 +38,14 @@ namespace OloEngine
         std::vector<BoneScaleKey> ScaleKeys;
     };
 
+    // Morph target animation keyframe
+    struct MorphTargetKeyframe
+    {
+        f32 Time;
+        std::string TargetName;
+        f32 Weight;
+    };
+
     // AnimationClip: a set of bone animations and duration
     class AnimationClip : public RefCounted
     {
@@ -51,6 +59,9 @@ namespace OloEngine
          * you must call InvalidateBoneCache() to maintain cache validity.
          */
         std::vector<BoneAnimation> BoneAnimations;
+
+        // Morph target keyframes for facial animation / blend shape animation
+        std::vector<MorphTargetKeyframe> MorphKeyframes;
 
         // Finds the animation for a given bone name
         const BoneAnimation* FindBoneAnimation(const std::string& boneName) const;

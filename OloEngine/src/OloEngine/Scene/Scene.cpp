@@ -14,6 +14,7 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/AnimationGraphAsset.h"
 #include "OloEngine/Animation/AnimationGraphSystem.h"
@@ -637,6 +638,41 @@ namespace OloEngine
                     if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                     {
                         Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds());
+
+                        // Sample morph target keyframes from the current animation clip
+                        if (!animState.m_CurrentClip->MorphKeyframes.empty())
+                        {
+                            Entity entity = { e, this };
+                            if (entity.HasComponent<MorphTargetComponent>())
+                            {
+                                auto& morphComp = entity.GetComponent<MorphTargetComponent>();
+                                MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Evaluate morph targets for all entities with active weights
+            // This runs after animation update so keyframe-driven weights are applied first.
+            // Morph deformation happens before skeletal skinning (morph first, then skin).
+            {
+                OLO_PROFILE_SCOPE("Morph Target Evaluation");
+                auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
+                for (auto e : morphView)
+                {
+                    auto& morphComp = morphView.get<MorphTargetComponent>(e);
+                    if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
+                        continue;
+
+                    auto& meshComp = morphView.get<MeshComponent>(e);
+                    if (!meshComp.m_MeshSource)
+                        continue;
+
+                    // Auto-populate MorphTargets from MeshSource if not already set
+                    if (!morphComp.MorphTargets && meshComp.m_MeshSource->HasMorphTargets())
+                    {
+                        morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
                     }
                 }
             }
@@ -1255,6 +1291,8 @@ namespace OloEngine
     void Scene::OnComponentAdded<SubmeshComponent>(Entity, SubmeshComponent&) {}
     template<>
     void Scene::OnComponentAdded<AnimationStateComponent>(Entity, AnimationStateComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<MorphTargetComponent>(Entity, MorphTargetComponent&) {}
     template<>
     void Scene::OnComponentAdded<Skeleton>(Entity, Skeleton&) {}
     // If you use SkeletonComponent as a struct, add this too:
