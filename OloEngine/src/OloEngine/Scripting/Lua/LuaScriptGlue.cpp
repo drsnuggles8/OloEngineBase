@@ -380,7 +380,9 @@ namespace OloEngine
                                                   { comp.Parameters.SetBool(name, value); }, "SetInt", [](AnimationGraphComponent& comp, const std::string& name, i32 value)
                                                   { comp.Parameters.SetInt(name, value); }, "SetTrigger", [](AnimationGraphComponent& comp, const std::string& name)
                                                   { comp.Parameters.SetTrigger(name); }, "GetFloat", [](const AnimationGraphComponent& comp, const std::string& name) -> f32
-                                                  { return comp.Parameters.GetFloat(name); }, "GetCurrentState", [](const AnimationGraphComponent& comp, sol::optional<i32> layerIndex) -> std::string
+                                                  { return comp.Parameters.GetFloat(name); }, "GetBool", [](const AnimationGraphComponent& comp, const std::string& name) -> bool
+                                                  { return comp.Parameters.GetBool(name); }, "GetInt", [](const AnimationGraphComponent& comp, const std::string& name) -> i32
+                                                  { return comp.Parameters.GetInt(name); }, "GetCurrentState", [](const AnimationGraphComponent& comp, sol::optional<i32> layerIndex) -> std::string
                                                   {
                                                        if (!comp.RuntimeGraph)
                                                            return "";

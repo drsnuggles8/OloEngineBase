@@ -25,18 +25,11 @@ namespace OloEngine::Animation
         // Sync per-entity parameters into the runtime graph
         graphComp.RuntimeGraph->Parameters = graphComp.Parameters;
 
-        // Evaluate the animation graph to produce local bone matrices
-        std::vector<glm::mat4> localBoneMatrices;
-        graphComp.RuntimeGraph->Update(deltaTime, boneCount, localBoneMatrices, skeleton.m_BoneNames);
+        // Evaluate the animation graph directly into the skeleton's local transform buffer
+        graphComp.RuntimeGraph->Update(deltaTime, boneCount, skeleton.m_LocalTransforms, skeleton.m_BoneNames);
 
         // Copy parameters back (triggers may have been consumed)
         graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
-
-        // Write local transforms to skeleton
-        for (sizet i = 0; i < boneCount && i < localBoneMatrices.size(); ++i)
-        {
-            skeleton.m_LocalTransforms[i] = localBoneMatrices[i];
-        }
 
         // Compute global transforms (forward kinematics)
         for (sizet i = 0; i < skeleton.m_LocalTransforms.size(); ++i)

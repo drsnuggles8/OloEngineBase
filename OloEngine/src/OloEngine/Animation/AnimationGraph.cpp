@@ -59,8 +59,42 @@ namespace OloEngine
         }
     }
 
+    Ref<AnimationGraph> AnimationGraph::Clone() const
+    {
+        auto clone = Ref<AnimationGraph>::Create();
+        clone->Parameters = Parameters;
+        clone->Layers.reserve(Layers.size());
+        for (auto const& layer : Layers)
+        {
+            AnimationLayer clonedLayer;
+            clonedLayer.Name = layer.Name;
+            clonedLayer.Mode = layer.Mode;
+            clonedLayer.Weight = layer.Weight;
+            clonedLayer.AffectedBones = layer.AffectedBones;
+            clonedLayer.AvatarMask = layer.AvatarMask;
+
+            if (layer.StateMachine)
+            {
+                auto sm = Ref<AnimationStateMachine>::Create();
+                for (auto const& [name, state] : layer.StateMachine->GetStates())
+                {
+                    sm->AddState(state);
+                }
+                for (auto const& transition : layer.StateMachine->GetTransitions())
+                {
+                    sm->AddTransition(transition);
+                }
+                sm->SetDefaultState(layer.StateMachine->GetDefaultState());
+                clonedLayer.StateMachine = sm;
+            }
+            clone->Layers.push_back(std::move(clonedLayer));
+        }
+        return clone;
+    }
+
     const std::string& AnimationGraph::GetCurrentStateName(i32 layerIndex) const
     {
+        OLO_PROFILE_FUNCTION();
         if (layerIndex >= 0 && layerIndex < static_cast<i32>(Layers.size()))
         {
             if (Layers[layerIndex].StateMachine)
@@ -73,6 +107,7 @@ namespace OloEngine
 
     bool AnimationGraph::IsInTransition(i32 layerIndex) const
     {
+        OLO_PROFILE_FUNCTION();
         if (layerIndex >= 0 && layerIndex < static_cast<i32>(Layers.size()))
         {
             if (Layers[layerIndex].StateMachine)
@@ -98,7 +133,7 @@ namespace OloEngine
                 continue;
             }
 
-            f32 weight = layer.Weight;
+            f32 weight = glm::clamp(layer.Weight, 0.0f, 1.0f);
             const auto& src = layerTransforms[i];
             auto& dst = accumulatedTransforms[i];
 
@@ -126,16 +161,17 @@ namespace OloEngine
 
     bool AnimationGraph::IsBoneAffected(const AnimationLayer& layer, const std::string& boneName) const
     {
+        OLO_PROFILE_FUNCTION();
         // Empty bone list = all bones affected
         if (layer.AffectedBones.empty())
         {
             return true;
         }
 
-        // Empty bone name (no skeleton info) = affect it
+        // Masked layer with no bone name info — skip to avoid applying to all bones
         if (boneName.empty())
         {
-            return true;
+            return false;
         }
 
         for (auto const& affectedBone : layer.AffectedBones)
@@ -150,6 +186,7 @@ namespace OloEngine
 
     glm::mat4 AnimationGraph::BoneTransformToMatrix(const BoneTransform& transform)
     {
+        OLO_PROFILE_FUNCTION();
         return glm::translate(glm::mat4(1.0f), transform.Translation) * glm::mat4_cast(transform.Rotation) * glm::scale(glm::mat4(1.0f), transform.Scale);
     }
 } // namespace OloEngine

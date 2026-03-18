@@ -2615,6 +2615,8 @@ namespace OloEngine
 
     void AnimationGraphAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
+        OLO_PROFILE_FUNCTION();
+
         auto graphAsset = asset.As<AnimationGraphAsset>();
         if (!graphAsset || !graphAsset->GetGraph())
         {
@@ -2628,6 +2630,8 @@ namespace OloEngine
 
     bool AnimationGraphAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::filesystem::path filepath = Project::GetAssetDirectory() / metadata.FilePath;
         auto graphAsset = AnimationGraphSerializer::DeserializeAsset(filepath.string());
         if (!graphAsset)
@@ -2646,6 +2650,8 @@ namespace OloEngine
 
     bool AnimationGraphAssetSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
+        OLO_PROFILE_FUNCTION();
+
         auto graphAsset = AssetManager::GetAsset<AnimationGraphAsset>(handle);
         if (!graphAsset || !graphAsset->GetGraph())
         {
@@ -2668,6 +2674,8 @@ namespace OloEngine
 
     Ref<Asset> AnimationGraphAssetSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
+        OLO_PROFILE_FUNCTION();
+
         stream.SetStreamPosition(assetInfo.PackedOffset);
         std::string yamlString;
         stream.ReadString(yamlString);

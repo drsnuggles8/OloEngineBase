@@ -1356,6 +1356,8 @@ namespace OloEngine
 
     static void AnimationGraphComponent_SetFloat(UUID entityID, MonoString* paramName, f32 value)
     {
+        OLO_PROFILE_FUNCTION();
+
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1374,6 +1376,8 @@ namespace OloEngine
 
     static void AnimationGraphComponent_SetBool(UUID entityID, MonoString* paramName, bool value)
     {
+        OLO_PROFILE_FUNCTION();
+
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1392,6 +1396,8 @@ namespace OloEngine
 
     static void AnimationGraphComponent_SetInt(UUID entityID, MonoString* paramName, i32 value)
     {
+        OLO_PROFILE_FUNCTION();
+
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1410,6 +1416,8 @@ namespace OloEngine
 
     static void AnimationGraphComponent_SetTrigger(UUID entityID, MonoString* paramName)
     {
+        OLO_PROFILE_FUNCTION();
+
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1428,6 +1436,8 @@ namespace OloEngine
 
     static f32 AnimationGraphComponent_GetFloat(UUID entityID, MonoString* paramName)
     {
+        OLO_PROFILE_FUNCTION();
+
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1448,6 +1458,8 @@ namespace OloEngine
 
     static bool AnimationGraphComponent_GetBool(UUID entityID, MonoString* paramName)
     {
+        OLO_PROFILE_FUNCTION();
+
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1468,6 +1480,8 @@ namespace OloEngine
 
     static i32 AnimationGraphComponent_GetInt(UUID entityID, MonoString* paramName)
     {
+        OLO_PROFILE_FUNCTION();
+
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
@@ -1488,6 +1502,8 @@ namespace OloEngine
 
     static MonoString* AnimationGraphComponent_GetCurrentState(UUID entityID, i32 layerIndex)
     {
+        OLO_PROFILE_FUNCTION();
+
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);

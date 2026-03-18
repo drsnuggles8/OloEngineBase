@@ -137,6 +137,10 @@ namespace OloEngine
             {
                 out << YAML::Key << "clip" << YAML::Value << child.Clip->Name;
             }
+            else if (!child.ClipName.empty())
+            {
+                out << YAML::Key << "clip" << YAML::Value << child.ClipName;
+            }
             out << YAML::Key << "threshold" << YAML::Value << child.Threshold;
             if (tree->Type != BlendTree::BlendType::Simple1D)
             {
@@ -162,6 +166,10 @@ namespace OloEngine
             if (state.Clip)
             {
                 out << YAML::Key << "clip" << YAML::Value << state.Clip->Name;
+            }
+            else if (!state.ClipName.empty())
+            {
+                out << YAML::Key << "clip" << YAML::Value << state.ClipName;
             }
         }
         else if (state.Type == AnimationState::MotionType::BlendTree && state.Tree)
@@ -538,6 +546,8 @@ namespace OloEngine
 
     bool AnimationGraphSerializer::SerializeAsset(const Ref<AnimationGraphAsset>& asset, const std::string& filepath)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!asset || !asset->GetGraph())
         {
             return false;
@@ -547,6 +557,8 @@ namespace OloEngine
 
     Ref<AnimationGraphAsset> AnimationGraphSerializer::DeserializeAsset(const std::string& filepath)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto graph = Deserialize(filepath);
         if (!graph)
         {

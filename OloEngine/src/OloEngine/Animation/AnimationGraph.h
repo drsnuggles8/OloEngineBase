@@ -23,6 +23,7 @@ namespace OloEngine
         void Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices,
                     const std::vector<std::string>& boneNames = {});
 
+        [[nodiscard]] Ref<AnimationGraph> Clone() const;
         [[nodiscard]] const std::string& GetCurrentStateName(i32 layerIndex = 0) const;
         [[nodiscard]] bool IsInTransition(i32 layerIndex = 0) const;
 

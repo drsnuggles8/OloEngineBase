@@ -41,6 +41,8 @@ namespace OloEngine
 
     f32 BlendTree::GetDuration(const AnimationParameterSet& params) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (Children.empty())
         {
             return 0.0f;
@@ -53,7 +55,7 @@ namespace OloEngine
 
             if (Children.size() == 1)
             {
-                return Children[0].Clip ? Children[0].Clip->Duration / Children[0].Speed : 0.0f;
+                return (Children[0].Clip && Children[0].Speed > 0.0f) ? Children[0].Clip->Duration / Children[0].Speed : 0.0f;
             }
 
             // Find the two neighbors
@@ -64,13 +66,41 @@ namespace OloEngine
                     f32 range = Children[i + 1].Threshold - Children[i].Threshold;
                     f32 t = (range > 0.0f) ? (paramValue - Children[i].Threshold) / range : 0.0f;
                     t = glm::clamp(t, 0.0f, 1.0f);
-                    f32 durA = Children[i].Clip ? Children[i].Clip->Duration / Children[i].Speed : 0.0f;
-                    f32 durB = Children[i + 1].Clip ? Children[i + 1].Clip->Duration / Children[i + 1].Speed : 0.0f;
+                    f32 durA = (Children[i].Clip && Children[i].Speed > 0.0f) ? Children[i].Clip->Duration / Children[i].Speed : 0.0f;
+                    f32 durB = (Children[i + 1].Clip && Children[i + 1].Speed > 0.0f) ? Children[i + 1].Clip->Duration / Children[i + 1].Speed : 0.0f;
                     return glm::mix(durA, durB, t);
                 }
             }
             auto& last = Children.back();
-            return last.Clip ? last.Clip->Duration / last.Speed : 0.0f;
+            return (last.Clip && last.Speed > 0.0f) ? last.Clip->Duration / last.Speed : 0.0f;
+        }
+
+        // For 2D types: inverse-distance weighted average matching Evaluate2D
+        if (Type != BlendType::Simple1D)
+        {
+            f32 paramX = params.GetFloat(BlendParameterX);
+            f32 paramY = params.GetFloat(BlendParameterY);
+            glm::vec2 paramPos(paramX, paramY);
+
+            f32 weightedDuration = 0.0f;
+            f32 totalWeight = 0.0f;
+
+            for (auto const& child : Children)
+            {
+                if (!child.Clip || child.Speed <= 0.0f)
+                {
+                    continue;
+                }
+                f32 dist = glm::length(paramPos - child.Position);
+                if (dist < 1e-6f)
+                {
+                    return child.Clip->Duration / child.Speed;
+                }
+                f32 w = 1.0f / (dist * dist);
+                weightedDuration += w * (child.Clip->Duration / child.Speed);
+                totalWeight += w;
+            }
+            return totalWeight > 0.0f ? weightedDuration / totalWeight : 0.0f;
         }
 
         // Fallback: average duration
@@ -78,7 +108,7 @@ namespace OloEngine
         i32 count = 0;
         for (auto const& child : Children)
         {
-            if (child.Clip)
+            if (child.Clip && child.Speed > 0.0f)
             {
                 totalDuration += child.Clip->Duration / child.Speed;
                 ++count;
@@ -90,6 +120,8 @@ namespace OloEngine
     void BlendTree::Evaluate1D(f32 paramValue, f32 normalizedTime, sizet boneCount,
                                std::vector<BoneTransform>& out) const
     {
+        OLO_PROFILE_FUNCTION();
+
         if (Children.size() == 1)
         {
             f32 time = normalizedTime * (Children[0].Clip ? Children[0].Clip->Duration : 0.0f);
@@ -136,6 +168,8 @@ namespace OloEngine
     void BlendTree::Evaluate2D(f32 paramX, f32 paramY, f32 normalizedTime, sizet boneCount,
                                std::vector<BoneTransform>& out) const
     {
+        OLO_PROFILE_FUNCTION();
+
         // Inverse distance weighting for 2D blend
         glm::vec2 paramPos(paramX, paramY);
 
@@ -212,6 +246,8 @@ namespace OloEngine
                                              sizet boneCount,
                                              std::vector<BoneTransform>& out)
     {
+        OLO_PROFILE_FUNCTION();
+
         out.resize(boneCount);
         if (!clip)
         {
@@ -231,6 +267,8 @@ namespace OloEngine
                                         const std::vector<BoneTransform>& b,
                                         f32 weight, std::vector<BoneTransform>& out)
     {
+        OLO_PROFILE_FUNCTION();
+
         sizet count = std::max(a.size(), b.size());
         out.resize(count);
 

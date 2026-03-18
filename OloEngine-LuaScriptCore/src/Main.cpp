@@ -1,5 +1,3 @@
-#pragma once
-
 namespace OloEngine
 {
     // AnimationGraphComponent Lua binding placeholder

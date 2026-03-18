@@ -72,8 +72,6 @@ namespace OloEngine
             return;
         }
 
-        auto& graph = graphComp.RuntimeGraph;
-
         // Tabs for different sections
         if (ImGui::BeginTabBar("AnimGraphTabs"))
         {
@@ -333,13 +331,14 @@ namespace OloEngine
             ImGui::InputText("State Name", m_NewStateName, sizeof(m_NewStateName));
             ImGui::Checkbox("Is Blend Tree", &m_NewStateIsBlendTree);
 
+            if (!m_NewStateIsBlendTree)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
+                                   "Note: Clip must be assigned later in the state editor.");
+            }
+
             if (ImGui::Button("Create") && strlen(m_NewStateName) > 0)
             {
-                if (!m_NewStateIsBlendTree)
-                {
-                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
-                                       "Note: Single-clip state created without a clip. Assign a clip in the state editor.");
-                }
                 AnimationState newState;
                 newState.Name = m_NewStateName;
                 newState.Type = m_NewStateIsBlendTree
@@ -503,14 +502,56 @@ namespace OloEngine
 
         if (m_ShowNewTransitionDialog)
         {
-            ImGui::InputText("Source (empty=Any)", m_NewTransitionSource, sizeof(m_NewTransitionSource));
-            ImGui::InputText("Destination", m_NewTransitionDest, sizeof(m_NewTransitionDest));
+            // Build state name list for dropdowns
+            auto const& states = sm->GetStates();
+            std::vector<std::string> stateNames;
+            stateNames.reserve(states.size());
+            for (auto const& [name, _] : states)
+            {
+                stateNames.push_back(name);
+            }
+            std::sort(stateNames.begin(), stateNames.end());
+
+            // Source: "Any State (*)" plus all state names
+            std::string sourcePreview = strlen(m_NewTransitionSource) > 0 ? m_NewTransitionSource : "Any State (*)";
+            if (ImGui::BeginCombo("Source", sourcePreview.c_str()))
+            {
+                if (ImGui::Selectable("Any State (*)", strlen(m_NewTransitionSource) == 0))
+                {
+                    memset(m_NewTransitionSource, 0, sizeof(m_NewTransitionSource));
+                }
+                for (auto const& name : stateNames)
+                {
+                    if (ImGui::Selectable(name.c_str(), name == m_NewTransitionSource))
+                    {
+                        strcpy_s(m_NewTransitionSource, sizeof(m_NewTransitionSource), name.c_str());
+                    }
+                }
+                ImGui::EndCombo();
+            }
+
+            // Destination: only valid state names
+            std::string destPreview = strlen(m_NewTransitionDest) > 0 ? m_NewTransitionDest : "<select>";
+            if (ImGui::BeginCombo("Destination", destPreview.c_str()))
+            {
+                for (auto const& name : stateNames)
+                {
+                    if (ImGui::Selectable(name.c_str(), name == m_NewTransitionDest))
+                    {
+                        strcpy_s(m_NewTransitionDest, sizeof(m_NewTransitionDest), name.c_str());
+                    }
+                }
+                ImGui::EndCombo();
+            }
+
             ImGui::DragFloat("Blend Duration", &m_NewTransitionBlendDuration, 0.01f, 0.0f, 5.0f);
 
-            bool canCreate = strlen(m_NewTransitionDest) > 0;
-            if (!canCreate)
+            bool destValid = strlen(m_NewTransitionDest) > 0 && sm->GetState(m_NewTransitionDest) != nullptr;
+            bool sourceValid = strlen(m_NewTransitionSource) == 0 || sm->GetState(m_NewTransitionSource) != nullptr;
+            bool canCreate = destValid && sourceValid;
+            if (!destValid)
             {
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Destination state is required");
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Destination must be a valid state");
             }
 
             if (ImGui::Button("Create##Transition") && canCreate)

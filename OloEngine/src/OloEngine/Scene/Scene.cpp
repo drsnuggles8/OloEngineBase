@@ -660,10 +660,40 @@ namespace OloEngine
                     {
                         if (auto graphAsset = AssetManager::GetAsset<AnimationGraphAsset>(graphComp.AnimationGraphAssetHandle))
                         {
-                            graphComp.RuntimeGraph = graphAsset->GetGraph();
-                            if (graphComp.RuntimeGraph)
+                            auto templateGraph = graphAsset->GetGraph();
+                            if (templateGraph)
                             {
-                                graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
+                                graphComp.RuntimeGraph = templateGraph->Clone();
+
+                                // Backfill missing parameters from graph defaults without clobbering existing values
+                                if (graphComp.Parameters.GetAll().empty())
+                                {
+                                    graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
+                                }
+                                else
+                                {
+                                    for (auto const& [name, param] : graphComp.RuntimeGraph->Parameters.GetAll())
+                                    {
+                                        if (!graphComp.Parameters.HasParameter(name))
+                                        {
+                                            switch (param.ParamType)
+                                            {
+                                                case AnimationParameterType::Float:
+                                                    graphComp.Parameters.DefineFloat(name, param.FloatValue);
+                                                    break;
+                                                case AnimationParameterType::Int:
+                                                    graphComp.Parameters.DefineInt(name, param.IntValue);
+                                                    break;
+                                                case AnimationParameterType::Bool:
+                                                    graphComp.Parameters.DefineBool(name, param.BoolValue);
+                                                    break;
+                                                case AnimationParameterType::Trigger:
+                                                    graphComp.Parameters.DefineTrigger(name);
+                                                    break;
+                                            }
+                                        }
+                                    }
+                                }
                                 graphComp.RuntimeGraph->Start();
                             }
                         }
