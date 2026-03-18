@@ -16,6 +16,8 @@ namespace OloEngine
 
     void CrowdManager::Initialize(const Ref<NavMesh>& navMesh, i32 maxAgents)
     {
+        OLO_PROFILE_FUNCTION();
+
         Shutdown();
 
         m_NavMesh = navMesh;
@@ -42,6 +44,8 @@ namespace OloEngine
 
     void CrowdManager::Shutdown()
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Crowd)
         {
             dtFreeCrowd(m_Crowd);
@@ -52,6 +56,8 @@ namespace OloEngine
 
     i32 CrowdManager::AddAgent(const glm::vec3& position, const NavAgentComponent& agent)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Crowd)
             return -1;
 
@@ -79,7 +85,13 @@ namespace OloEngine
 
     void CrowdManager::SetAgentTarget(i32 agentId, const glm::vec3& target)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!m_Crowd || agentId < 0)
+            return;
+
+        const dtCrowdAgent* ag = m_Crowd->getAgent(agentId);
+        if (!ag || !ag->active)
             return;
 
         const f32 targetPos[3] = { target.x, target.y, target.z };
@@ -100,38 +112,59 @@ namespace OloEngine
 
     void CrowdManager::Update(f32 dt)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (m_Crowd)
             m_Crowd->update(dt, nullptr);
     }
 
-    glm::vec3 CrowdManager::GetAgentPosition(i32 agentId) const
+    bool CrowdManager::IsAgentActive(i32 agentId) const
     {
         if (!m_Crowd || agentId < 0)
-            return glm::vec3(0.0f);
+            return false;
 
         const dtCrowdAgent* agent = m_Crowd->getAgent(agentId);
-        if (!agent || !agent->active)
-            return glm::vec3(0.0f);
-
-        return { agent->npos[0], agent->npos[1], agent->npos[2] };
+        return agent && agent->active;
     }
 
-    glm::vec3 CrowdManager::GetAgentVelocity(i32 agentId) const
+    bool CrowdManager::GetAgentPosition(i32 agentId, glm::vec3& outPosition) const
     {
         if (!m_Crowd || agentId < 0)
-            return glm::vec3(0.0f);
+            return false;
 
         const dtCrowdAgent* agent = m_Crowd->getAgent(agentId);
         if (!agent || !agent->active)
-            return glm::vec3(0.0f);
+            return false;
 
-        return { agent->vel[0], agent->vel[1], agent->vel[2] };
+        outPosition = { agent->npos[0], agent->npos[1], agent->npos[2] };
+        return true;
+    }
+
+    bool CrowdManager::GetAgentVelocity(i32 agentId, glm::vec3& outVelocity) const
+    {
+        if (!m_Crowd || agentId < 0)
+            return false;
+
+        const dtCrowdAgent* agent = m_Crowd->getAgent(agentId);
+        if (!agent || !agent->active)
+            return false;
+
+        outVelocity = { agent->vel[0], agent->vel[1], agent->vel[2] };
+        return true;
     }
 
     i32 CrowdManager::GetActiveAgentCount() const
     {
         if (!m_Crowd)
             return 0;
-        return m_Crowd->getAgentCount();
+
+        i32 count = 0;
+        for (i32 i = 0; i < m_Crowd->getAgentCount(); ++i)
+        {
+            const dtCrowdAgent* ag = m_Crowd->getAgent(i);
+            if (ag && ag->active)
+                ++count;
+        }
+        return count;
     }
 } // namespace OloEngine

@@ -4053,7 +4053,12 @@ namespace OloEngine
         DrawComponent<NavMeshBoundsComponent>("NavMesh Bounds", entity, [](auto& component)
                                               {
             ImGui::DragFloat3("Min", &component.m_Min.x, 1.0f);
-            ImGui::DragFloat3("Max", &component.m_Max.x, 1.0f); });
+            ImGui::DragFloat3("Max", &component.m_Max.x, 1.0f);
+            for (int i = 0; i < 3; ++i)
+            {
+                if (component.m_Min[i] > component.m_Max[i])
+                    std::swap(component.m_Min[i], component.m_Max[i]);
+            } });
 
         DrawComponent<NavAgentComponent>("Nav Agent", entity, [](auto& component)
                                          {

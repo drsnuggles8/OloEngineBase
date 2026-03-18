@@ -1,10 +1,6 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Core/Ref.h"
-#include "OloEngine/Navigation/NavMesh.h"
-#include "OloEngine/Navigation/NavMeshQuery.h"
-#include "OloEngine/Navigation/CrowdManager.h"
 
 namespace OloEngine
 {

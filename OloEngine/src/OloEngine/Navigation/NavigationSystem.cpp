@@ -18,6 +18,10 @@ namespace OloEngine
         if (!navQuery || !navQuery->IsValid())
             return;
 
+        // Update crowd first so agents get current-frame positions
+        if (crowdMgr && crowdMgr->IsValid())
+            crowdMgr->Update(dt);
+
         auto view = scene->GetAllEntitiesWith<NavAgentComponent, TransformComponent>();
 
         for (auto e : view)
@@ -29,8 +33,8 @@ namespace OloEngine
             // If using crowd manager, sync from crowd
             if (crowdMgr && crowdMgr->IsValid() && agent.m_CrowdAgentId >= 0)
             {
-                glm::vec3 pos = crowdMgr->GetAgentPosition(agent.m_CrowdAgentId);
-                if (pos != glm::vec3(0.0f))
+                glm::vec3 pos;
+                if (crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos))
                     transform.Translation = pos;
                 continue;
             }
@@ -47,13 +51,13 @@ namespace OloEngine
             if (!agent.m_HasPath || agent.m_PathCorners.empty())
                 continue;
 
-            // Move toward current corner
+            // Move toward current corner (full 3D)
             const glm::vec3& target = agent.m_PathCorners[agent.m_CurrentCornerIndex];
             glm::vec3 toTarget = target - transform.Translation;
-            toTarget.y = 0.0f; // Keep movement on XZ plane
             f32 dist = glm::length(toTarget);
 
-            if (dist < agent.m_StoppingDistance)
+            constexpr f32 EPSILON = 1e-4f;
+            if (dist < std::max(agent.m_StoppingDistance, EPSILON))
             {
                 agent.m_CurrentCornerIndex++;
                 if (agent.m_CurrentCornerIndex >= static_cast<u32>(agent.m_PathCorners.size()))
@@ -71,9 +75,5 @@ namespace OloEngine
                 transform.Translation += direction * speed;
             }
         }
-
-        // Update crowd if active
-        if (crowdMgr && crowdMgr->IsValid())
-            crowdMgr->Update(dt);
     }
 } // namespace OloEngine

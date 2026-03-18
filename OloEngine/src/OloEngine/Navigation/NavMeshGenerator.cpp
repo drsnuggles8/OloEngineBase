@@ -25,6 +25,7 @@ namespace OloEngine
 
     void NavMeshGenerator::CollectSceneGeometry(Scene* scene, std::vector<f32>& outVerts, std::vector<i32>& outTris)
     {
+        OLO_PROFILE_FUNCTION();
         // Collect from MeshComponent entities
         auto meshView = scene->GetAllEntitiesWith<MeshComponent, TransformComponent>();
         for (auto e : meshView)
@@ -104,29 +105,29 @@ namespace OloEngine
         {
             Entity entity = { e, scene };
             auto& box = entity.GetComponent<BoxCollider3DComponent>();
-            auto& tc = entity.GetComponent<TransformComponent>();
 
-            glm::vec3 halfSize = box.m_HalfExtents * tc.Scale;
-            glm::vec3 center = tc.Translation + box.m_Offset;
+            glm::mat4 worldTransform = GetWorldTransform(entity);
+            glm::vec3 halfSize = box.m_HalfExtents;
 
-            // 8 corners of the box
-            glm::vec3 corners[8] = {
-                center + glm::vec3(-halfSize.x, -halfSize.y, -halfSize.z),
-                center + glm::vec3(halfSize.x, -halfSize.y, -halfSize.z),
-                center + glm::vec3(halfSize.x, halfSize.y, -halfSize.z),
-                center + glm::vec3(-halfSize.x, halfSize.y, -halfSize.z),
-                center + glm::vec3(-halfSize.x, -halfSize.y, halfSize.z),
-                center + glm::vec3(halfSize.x, -halfSize.y, halfSize.z),
-                center + glm::vec3(halfSize.x, halfSize.y, halfSize.z),
-                center + glm::vec3(-halfSize.x, halfSize.y, halfSize.z),
+            // 8 local corners of the box (around offset)
+            glm::vec3 localCorners[8] = {
+                box.m_Offset + glm::vec3(-halfSize.x, -halfSize.y, -halfSize.z),
+                box.m_Offset + glm::vec3( halfSize.x, -halfSize.y, -halfSize.z),
+                box.m_Offset + glm::vec3( halfSize.x,  halfSize.y, -halfSize.z),
+                box.m_Offset + glm::vec3(-halfSize.x,  halfSize.y, -halfSize.z),
+                box.m_Offset + glm::vec3(-halfSize.x, -halfSize.y,  halfSize.z),
+                box.m_Offset + glm::vec3( halfSize.x, -halfSize.y,  halfSize.z),
+                box.m_Offset + glm::vec3( halfSize.x,  halfSize.y,  halfSize.z),
+                box.m_Offset + glm::vec3(-halfSize.x,  halfSize.y,  halfSize.z),
             };
 
             const auto baseVertex = static_cast<i32>(outVerts.size() / 3);
-            for (auto& corner : corners)
+            for (auto& corner : localCorners)
             {
-                outVerts.push_back(corner.x);
-                outVerts.push_back(corner.y);
-                outVerts.push_back(corner.z);
+                glm::vec4 worldPos = worldTransform * glm::vec4(corner, 1.0f);
+                outVerts.push_back(worldPos.x);
+                outVerts.push_back(worldPos.y);
+                outVerts.push_back(worldPos.z);
             }
 
             // 12 triangles (2 per face)
@@ -162,6 +163,19 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("NavMeshGenerator: Collected {} vertices, {} triangles", nverts, ntris);
+
+        // Validate settings
+        if (settings.CellSize <= 0.0f || settings.CellHeight <= 0.0f)
+        {
+            OLO_CORE_ERROR("NavMeshGenerator: CellSize ({}) and CellHeight ({}) must be > 0", settings.CellSize, settings.CellHeight);
+            return nullptr;
+        }
+        if (settings.AgentRadius < 0.0f || settings.AgentHeight <= 0.0f || settings.AgentMaxClimb < 0.0f)
+        {
+            OLO_CORE_ERROR("NavMeshGenerator: Invalid agent parameters (Radius={}, Height={}, MaxClimb={})",
+                           settings.AgentRadius, settings.AgentHeight, settings.AgentMaxClimb);
+            return nullptr;
+        }
 
         // Step 1: Initialize Recast config
         rcConfig cfg{};

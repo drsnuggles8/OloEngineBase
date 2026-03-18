@@ -16,7 +16,7 @@ namespace OloEngine
     {
       public:
         NavMeshQuery() = default;
-        explicit NavMeshQuery(const Ref<NavMesh>& navMesh);
+        explicit NavMeshQuery(const Ref<NavMesh>& navMesh, i32 queryBudget = 2048);
         ~NavMeshQuery();
 
         NavMeshQuery(const NavMeshQuery&) = delete;
@@ -24,7 +24,7 @@ namespace OloEngine
         NavMeshQuery(NavMeshQuery&& other) noexcept;
         NavMeshQuery& operator=(NavMeshQuery&& other) noexcept;
 
-        void Initialize(const Ref<NavMesh>& navMesh);
+        void Initialize(const Ref<NavMesh>& navMesh, i32 queryBudget = 2048);
 
         [[nodiscard]] bool FindPath(const glm::vec3& start, const glm::vec3& end, std::vector<glm::vec3>& outPath) const;
         [[nodiscard]] bool FindNearestPoint(const glm::vec3& point, f32 searchRadius, glm::vec3& outNearest) const;
@@ -38,5 +38,6 @@ namespace OloEngine
       private:
         dtNavMeshQuery* m_Query = nullptr;
         Ref<NavMesh> m_NavMesh;
+        i32 m_MaxPolys = 2048;
     };
 } // namespace OloEngine

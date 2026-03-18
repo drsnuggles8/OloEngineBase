@@ -162,6 +162,10 @@ namespace OloEngine
         // Copy components (except IDComponent and TagComponent)
         CopyComponent(AllComponents{}, dstSceneRegistry, srcSceneRegistry, enttMap);
 
+        // Propagate navmesh so NavigationSystem works in the copied scene
+        if (other->m_NavMesh)
+            newScene->SetNavMesh(other->m_NavMesh);
+
         return newScene;
     }
 

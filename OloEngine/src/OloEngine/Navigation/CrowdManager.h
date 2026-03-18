@@ -29,8 +29,9 @@ namespace OloEngine
         void SetAgentTarget(i32 agentId, const glm::vec3& target);
         void Update(f32 dt);
 
-        [[nodiscard]] glm::vec3 GetAgentPosition(i32 agentId) const;
-        [[nodiscard]] glm::vec3 GetAgentVelocity(i32 agentId) const;
+        [[nodiscard]] bool GetAgentPosition(i32 agentId, glm::vec3& outPosition) const;
+        [[nodiscard]] bool GetAgentVelocity(i32 agentId, glm::vec3& outVelocity) const;
+        [[nodiscard]] bool IsAgentActive(i32 agentId) const;
         [[nodiscard]] bool IsValid() const
         {
             return m_Crowd != nullptr;

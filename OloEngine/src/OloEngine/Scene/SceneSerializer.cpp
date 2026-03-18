@@ -2141,6 +2141,14 @@ namespace OloEngine
             auto& nmb = deserializedEntity.AddComponent<NavMeshBoundsComponent>();
             TrySet(nmb.m_Min, navMeshBoundsComponent["Min"]);
             TrySet(nmb.m_Max, navMeshBoundsComponent["Max"]);
+            SanitizeVec3(nmb.m_Min, glm::vec3(-100.0f, -10.0f, -100.0f));
+            SanitizeVec3(nmb.m_Max, glm::vec3(100.0f, 50.0f, 100.0f));
+            // Ensure Min <= Max per axis
+            for (int i = 0; i < 3; ++i)
+            {
+                if (nmb.m_Min[i] > nmb.m_Max[i])
+                    std::swap(nmb.m_Min[i], nmb.m_Max[i]);
+            }
         }
 
         if (auto navAgentComponent = entity["NavAgentComponent"]; navAgentComponent)

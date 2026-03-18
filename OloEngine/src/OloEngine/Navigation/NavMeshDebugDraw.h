@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Navigation/NavMesh.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <DetourNavMesh.h>
 
@@ -16,6 +17,8 @@ namespace OloEngine
       public:
         static void DrawNavMesh(const Ref<NavMesh>& navMesh, const glm::vec3& color = { 0.0f, 0.6f, 1.0f })
         {
+            OLO_PROFILE_FUNCTION();
+
             if (!navMesh || !navMesh->GetDetourNavMesh())
                 return;
 

@@ -1345,6 +1345,50 @@ namespace OloEngine
               m_AvoidancePriority(other.m_AvoidancePriority)
         {
         }
+        NavAgentComponent& operator=(const NavAgentComponent& other)
+        {
+            if (this != &other)
+            {
+                m_Radius = other.m_Radius;
+                m_Height = other.m_Height;
+                m_MaxSpeed = other.m_MaxSpeed;
+                m_Acceleration = other.m_Acceleration;
+                m_StoppingDistance = other.m_StoppingDistance;
+                m_AvoidancePriority = other.m_AvoidancePriority;
+                m_TargetPosition = {};
+                m_HasTarget = false;
+                m_HasPath = false;
+                m_PathCorners.clear();
+                m_CurrentCornerIndex = 0;
+                m_CrowdAgentId = -1;
+            }
+            return *this;
+        }
+        NavAgentComponent(NavAgentComponent&& other) noexcept
+            : m_Radius(other.m_Radius), m_Height(other.m_Height), m_MaxSpeed(other.m_MaxSpeed),
+              m_Acceleration(other.m_Acceleration), m_StoppingDistance(other.m_StoppingDistance),
+              m_AvoidancePriority(other.m_AvoidancePriority)
+        {
+        }
+        NavAgentComponent& operator=(NavAgentComponent&& other) noexcept
+        {
+            if (this != &other)
+            {
+                m_Radius = other.m_Radius;
+                m_Height = other.m_Height;
+                m_MaxSpeed = other.m_MaxSpeed;
+                m_Acceleration = other.m_Acceleration;
+                m_StoppingDistance = other.m_StoppingDistance;
+                m_AvoidancePriority = other.m_AvoidancePriority;
+                m_TargetPosition = {};
+                m_HasTarget = false;
+                m_HasPath = false;
+                m_PathCorners.clear();
+                m_CurrentCornerIndex = 0;
+                m_CrowdAgentId = -1;
+            }
+            return *this;
+        }
     };
 
     template<typename... Component>

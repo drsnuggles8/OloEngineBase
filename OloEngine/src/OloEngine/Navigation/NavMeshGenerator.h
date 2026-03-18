@@ -7,6 +7,8 @@
 
 #include <glm/glm.hpp>
 
+#include <vector>
+
 namespace OloEngine
 {
     class Scene;

@@ -67,13 +67,22 @@ namespace OloEngine
         glm::vec3 boundsMax(100.0f, 50.0f, 100.0f);
 
         auto boundsView = m_Context->GetAllEntitiesWith<NavMeshBoundsComponent>();
+        bool firstBounds = true;
         for (auto e : boundsView)
         {
             Entity entity = { e, m_Context.Raw() };
             auto& bounds = entity.GetComponent<NavMeshBoundsComponent>();
-            boundsMin = bounds.m_Min;
-            boundsMax = bounds.m_Max;
-            break; // Use first bounds component found
+            if (firstBounds)
+            {
+                boundsMin = bounds.m_Min;
+                boundsMax = bounds.m_Max;
+                firstBounds = false;
+            }
+            else
+            {
+                boundsMin = glm::min(boundsMin, bounds.m_Min);
+                boundsMax = glm::max(boundsMax, bounds.m_Max);
+            }
         }
 
         ImGui::Text("Bounds: (%.1f, %.1f, %.1f) to (%.1f, %.1f, %.1f)",
