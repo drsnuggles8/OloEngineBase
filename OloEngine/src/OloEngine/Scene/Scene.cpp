@@ -712,6 +712,20 @@ namespace OloEngine
 
                     if (graphComp.RuntimeGraph)
                     {
+                        // Retry clip resolution if clips became available after graph init
+                        if (graphComp.RuntimeGraph->HasUnresolvedClips())
+                        {
+                            Entity entity = { e, this };
+                            if (entity.HasComponent<AnimationStateComponent>())
+                            {
+                                auto const& animState = entity.GetComponent<AnimationStateComponent>();
+                                if (!animState.m_AvailableClips.empty())
+                                {
+                                    graphComp.RuntimeGraph->ResolveClips(animState.m_AvailableClips);
+                                }
+                            }
+                        }
+
                         // Ensure the graph has been started
                         for (auto& layer : graphComp.RuntimeGraph->Layers)
                         {

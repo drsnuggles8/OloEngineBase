@@ -122,52 +122,72 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (Children.size() == 1)
+        // Collect playable children (valid clip and positive speed)
+        std::vector<sizet> playableIndices;
+        playableIndices.reserve(Children.size());
+        for (sizet i = 0; i < Children.size(); ++i)
         {
-            if (!Children[0].Clip)
+            if (Children[i].Clip && Children[i].Speed > 0.0f)
             {
-                out.resize(boneCount);
-                return;
+                playableIndices.push_back(i);
             }
-            f32 time = normalizedTime * Children[0].Clip->Duration;
-            SampleClipBoneTransforms(Children[0].Clip, time, boneCount, out);
+        }
+
+        if (playableIndices.empty())
+        {
+            out.resize(boneCount);
             return;
         }
 
-        // Clamp param to child range
-        f32 minThreshold = Children.front().Threshold;
-        f32 maxThreshold = Children.back().Threshold;
+        if (playableIndices.size() == 1)
+        {
+            auto const& child = Children[playableIndices[0]];
+            f32 time = normalizedTime * child.Clip->Duration;
+            SampleClipBoneTransforms(child.Clip, time, boneCount, out);
+            return;
+        }
+
+        // Clamp param to playable child range
+        f32 minThreshold = Children[playableIndices.front()].Threshold;
+        f32 maxThreshold = Children[playableIndices.back()].Threshold;
+        for (sizet idx : playableIndices)
+        {
+            minThreshold = std::min(minThreshold, Children[idx].Threshold);
+            maxThreshold = std::max(maxThreshold, Children[idx].Threshold);
+        }
         paramValue = glm::clamp(paramValue, minThreshold, maxThreshold);
 
-        // Find the two neighboring children
-        for (sizet i = 0; i < Children.size() - 1; ++i)
+        // Find the two neighboring playable children
+        for (sizet pi = 0; pi < playableIndices.size() - 1; ++pi)
         {
-            if (paramValue <= Children[i + 1].Threshold)
+            sizet idxA = playableIndices[pi];
+            sizet idxB = playableIndices[pi + 1];
+
+            if (paramValue <= Children[idxB].Threshold)
             {
-                f32 range = Children[i + 1].Threshold - Children[i].Threshold;
-                f32 t = (range > 0.0f) ? (paramValue - Children[i].Threshold) / range : 0.0f;
+                f32 range = Children[idxB].Threshold - Children[idxA].Threshold;
+                f32 t = (range > 0.0f) ? (paramValue - Children[idxA].Threshold) / range : 0.0f;
 
                 std::vector<BoneTransform> transformsA;
                 std::vector<BoneTransform> transformsB;
 
-                // Speed is already factored into GetDuration (and thus normalizedTime)
-                f32 durA = Children[i].Clip ? Children[i].Clip->Duration : 0.0f;
-                f32 durB = Children[i + 1].Clip ? Children[i + 1].Clip->Duration : 0.0f;
+                f32 durA = Children[idxA].Clip->Duration;
+                f32 durB = Children[idxB].Clip->Duration;
                 f32 timeA = normalizedTime * durA;
                 f32 timeB = normalizedTime * durB;
 
-                SampleClipBoneTransforms(Children[i].Clip, timeA, boneCount, transformsA);
-                SampleClipBoneTransforms(Children[i + 1].Clip, timeB, boneCount, transformsB);
+                SampleClipBoneTransforms(Children[idxA].Clip, timeA, boneCount, transformsA);
+                SampleClipBoneTransforms(Children[idxB].Clip, timeB, boneCount, transformsB);
 
                 BlendBoneTransforms(transformsA, transformsB, t, out);
                 return;
             }
         }
 
-        // Past the last child
-        f32 lastDur = Children.back().Clip ? Children.back().Clip->Duration : 0.0f;
-        f32 time = normalizedTime * lastDur;
-        SampleClipBoneTransforms(Children.back().Clip, time, boneCount, out);
+        // Past the last playable child
+        auto const& lastChild = Children[playableIndices.back()];
+        f32 time = normalizedTime * lastChild.Clip->Duration;
+        SampleClipBoneTransforms(lastChild.Clip, time, boneCount, out);
     }
 
     void BlendTree::Evaluate2D(f32 paramX, f32 paramY, f32 normalizedTime, sizet boneCount,

@@ -45,6 +45,7 @@ namespace OloEngine
 
     void AnimationStateMachine::Start(const AnimationParameterSet& /*params*/)
     {
+        OLO_PROFILE_FUNCTION();
         m_CurrentState = m_DefaultState;
         m_CurrentStateTime = 0.0f;
         m_InTransition = false;
@@ -185,6 +186,7 @@ namespace OloEngine
 
     f32 AnimationStateMachine::GetCurrentStateNormalizedTime() const
     {
+        OLO_PROFILE_FUNCTION();
         auto* state = GetState(m_CurrentState);
         if (!state)
         {
@@ -219,6 +221,7 @@ namespace OloEngine
 
     void AnimationStateMachine::CheckTransitions(AnimationParameterSet& params, sizet /*boneCount*/)
     {
+        OLO_PROFILE_FUNCTION();
         if (m_InTransition)
         {
             return;
@@ -270,6 +273,7 @@ namespace OloEngine
 
     void AnimationStateMachine::StartTransition(const AnimationTransition& transition, AnimationParameterSet& params)
     {
+        OLO_PROFILE_FUNCTION();
         m_InTransition = true;
         m_TransitionTargetState = transition.DestinationState;
         m_TransitionDuration = transition.BlendDuration;

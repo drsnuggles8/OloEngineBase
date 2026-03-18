@@ -80,7 +80,18 @@ namespace OloEngine
                 auto sm = Ref<AnimationStateMachine>::Create();
                 for (auto const& [name, state] : layer.StateMachine->GetStates())
                 {
-                    sm->AddState(state);
+                    AnimationState clonedState = state;
+                    // Deep-clone BlendTree so ResolveClips doesn't mutate the template
+                    if (state.Tree)
+                    {
+                        auto treeCopy = Ref<BlendTree>::Create();
+                        treeCopy->Type = state.Tree->Type;
+                        treeCopy->BlendParameterX = state.Tree->BlendParameterX;
+                        treeCopy->BlendParameterY = state.Tree->BlendParameterY;
+                        treeCopy->Children = state.Tree->Children;
+                        clonedState.Tree = treeCopy;
+                    }
+                    sm->AddState(clonedState);
                 }
                 for (auto const& transition : layer.StateMachine->GetTransitions())
                 {
@@ -159,6 +170,35 @@ namespace OloEngine
                 }
             }
         }
+    }
+
+    bool AnimationGraph::HasUnresolvedClips() const
+    {
+        for (auto const& layer : Layers)
+        {
+            if (!layer.StateMachine)
+            {
+                continue;
+            }
+            for (auto const& [stateName, state] : layer.StateMachine->GetStates())
+            {
+                if (state.Type == AnimationState::MotionType::SingleClip && !state.Clip && !state.ClipName.empty())
+                {
+                    return true;
+                }
+                if (state.Type == AnimationState::MotionType::BlendTree && state.Tree)
+                {
+                    for (auto const& child : state.Tree->Children)
+                    {
+                        if (!child.Clip && !child.ClipName.empty())
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     const std::string& AnimationGraph::GetCurrentStateName(i32 layerIndex) const

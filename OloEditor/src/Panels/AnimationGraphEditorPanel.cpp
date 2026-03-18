@@ -613,7 +613,7 @@ namespace OloEngine
 
         // Blend type
         const char* blendTypes[] = { "Simple1D", "SimpleDirectional2D", "FreeformDirectional2D", "FreeformCartesian2D" };
-        int typeIdx = static_cast<int>(tree->Type);
+        int typeIdx = glm::clamp(static_cast<int>(tree->Type), 0, static_cast<int>(sizeof(blendTypes) / sizeof(blendTypes[0])) - 1);
         ImGui::Text("Blend Type: %s", blendTypes[typeIdx]);
         ImGui::Text("Parameter X: %s", tree->BlendParameterX.c_str());
         if (tree->Type != BlendTree::BlendType::Simple1D)
