@@ -245,7 +245,11 @@ static Ref<NavMesh> BuildFlatPlaneNavMesh()
 
     std::vector<u8> triAreas(ntris, 0);
     rcMarkWalkableTriangles(&ctx, cfg.walkableSlopeAngle, verts, nverts, tris, ntris, triAreas.data());
-    rcRasterizeTriangles(&ctx, verts, nverts, tris, triAreas.data(), ntris, *solid, cfg.walkableClimb);
+    if (!rcRasterizeTriangles(&ctx, verts, nverts, tris, triAreas.data(), ntris, *solid, cfg.walkableClimb))
+    {
+        rcFreeHeightField(solid);
+        return nullptr;
+    }
 
     rcFilterLowHangingWalkableObstacles(&ctx, cfg.walkableClimb, *solid);
     rcFilterLedgeSpans(&ctx, cfg.walkableHeight, cfg.walkableClimb, *solid);
@@ -260,9 +264,21 @@ static Ref<NavMesh> BuildFlatPlaneNavMesh()
     }
     rcFreeHeightField(solid);
 
-    rcErodeWalkableArea(&ctx, cfg.walkableRadius, *chf);
-    rcBuildDistanceField(&ctx, *chf);
-    rcBuildRegions(&ctx, *chf, 0, cfg.minRegionArea, cfg.mergeRegionArea);
+    if (!rcErodeWalkableArea(&ctx, cfg.walkableRadius, *chf))
+    {
+        rcFreeCompactHeightfield(chf);
+        return nullptr;
+    }
+    if (!rcBuildDistanceField(&ctx, *chf))
+    {
+        rcFreeCompactHeightfield(chf);
+        return nullptr;
+    }
+    if (!rcBuildRegions(&ctx, *chf, 0, cfg.minRegionArea, cfg.mergeRegionArea))
+    {
+        rcFreeCompactHeightfield(chf);
+        return nullptr;
+    }
 
     auto* cset = rcAllocContourSet();
     if (!cset || !rcBuildContours(&ctx, *chf, cfg.maxSimplificationError, cfg.maxEdgeLen, *cset))

@@ -139,11 +139,17 @@ namespace OloEngine
                 outVerts.push_back(worldPos.z);
             }
 
+            const auto vertexCount = static_cast<i32>(vertices.Num());
             for (i32 i = 0; i + 2 < static_cast<i32>(indices.Num()); i += 3)
             {
-                outTris.push_back(baseVertex + static_cast<i32>(indices[i]));
-                outTris.push_back(baseVertex + static_cast<i32>(indices[i + 1]));
-                outTris.push_back(baseVertex + static_cast<i32>(indices[i + 2]));
+                i32 i0 = static_cast<i32>(indices[i]);
+                i32 i1 = static_cast<i32>(indices[i + 1]);
+                i32 i2 = static_cast<i32>(indices[i + 2]);
+                if (i0 < 0 || i0 >= vertexCount || i1 < 0 || i1 >= vertexCount || i2 < 0 || i2 >= vertexCount)
+                    continue;
+                outTris.push_back(baseVertex + i0);
+                outTris.push_back(baseVertex + i1);
+                outTris.push_back(baseVertex + i2);
             }
         }
 
@@ -180,11 +186,17 @@ namespace OloEngine
                     outVerts.push_back(worldPos.z);
                 }
 
+                const auto vertexCount = static_cast<i32>(vertices.Num());
                 for (i32 i = 0; i + 2 < static_cast<i32>(indices.Num()); i += 3)
                 {
-                    outTris.push_back(baseVertex + static_cast<i32>(indices[i]));
-                    outTris.push_back(baseVertex + static_cast<i32>(indices[i + 1]));
-                    outTris.push_back(baseVertex + static_cast<i32>(indices[i + 2]));
+                    i32 i0 = static_cast<i32>(indices[i]);
+                    i32 i1 = static_cast<i32>(indices[i + 1]);
+                    i32 i2 = static_cast<i32>(indices[i + 2]);
+                    if (i0 < 0 || i0 >= vertexCount || i1 < 0 || i1 >= vertexCount || i2 < 0 || i2 >= vertexCount)
+                        continue;
+                    outTris.push_back(baseVertex + i0);
+                    outTris.push_back(baseVertex + i1);
+                    outTris.push_back(baseVertex + i2);
                 }
             }
         }
@@ -384,11 +396,17 @@ namespace OloEngine
                 outVerts.push_back(worldPos.z);
             }
 
+            const auto vertexCount = static_cast<i32>(vertices.Num());
             for (i32 i = 0; i + 2 < static_cast<i32>(indices.Num()); i += 3)
             {
-                outTris.push_back(baseVertex + static_cast<i32>(indices[i]));
-                outTris.push_back(baseVertex + static_cast<i32>(indices[i + 1]));
-                outTris.push_back(baseVertex + static_cast<i32>(indices[i + 2]));
+                i32 i0 = static_cast<i32>(indices[i]);
+                i32 i1 = static_cast<i32>(indices[i + 1]);
+                i32 i2 = static_cast<i32>(indices[i + 2]);
+                if (i0 < 0 || i0 >= vertexCount || i1 < 0 || i1 >= vertexCount || i2 < 0 || i2 >= vertexCount)
+                    continue;
+                outTris.push_back(baseVertex + i0);
+                outTris.push_back(baseVertex + i1);
+                outTris.push_back(baseVertex + i2);
             }
         }
 
