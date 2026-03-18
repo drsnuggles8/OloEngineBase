@@ -79,9 +79,18 @@ namespace OloEngine
          */
         void InvalidateBoneCache();
 
+        // Precomputed per-target morph tracks: target name -> sorted (time, weight) pairs
+        // Built lazily on first access; invalidated when MorphKeyframes changes.
+        const std::unordered_map<std::string, std::vector<std::pair<f64, f32>>>& GetMorphTracks() const;
+        void InvalidateMorphTrackCache();
+
       private:
         // Cache for O(1) bone animation lookups
         mutable std::unordered_map<std::string, const BoneAnimation*> m_BoneCache;
         mutable bool m_CacheInitialized = false;
+
+        // Precomputed morph tracks for efficient sampling
+        mutable std::unordered_map<std::string, std::vector<std::pair<f64, f32>>> m_MorphTrackCache;
+        mutable bool m_MorphTrackCacheInitialized = false;
     };
 } // namespace OloEngine

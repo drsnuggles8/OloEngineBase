@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Ref.h"
 
 #include <algorithm>
+#include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -18,6 +19,10 @@ namespace OloEngine
 
         // Per-target weights (target name -> weight 0.0 to 1.0)
         std::unordered_map<std::string, f32> Weights;
+
+        // Cached base mesh data for CPU morph evaluation (populated once from MeshSource)
+        std::vector<glm::vec3> BasePositions;
+        std::vector<glm::vec3> BaseNormals;
 
         MorphTargetComponent() = default;
         MorphTargetComponent(const MorphTargetComponent&) = default;
@@ -61,7 +66,7 @@ namespace OloEngine
             std::vector<f32> ordered(MorphTargets->GetTargetCount(), 0.0f);
             for (const auto& [name, weight] : Weights)
             {
-                i32 idx = MorphTargets->FindTarget(name);
+                i32 idx = MorphTargets->FindTargetCached(name);
                 if (idx >= 0)
                     ordered[idx] = weight;
             }

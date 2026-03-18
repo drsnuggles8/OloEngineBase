@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Ref.h"
 
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -44,15 +45,37 @@ namespace OloEngine
             return FindTarget(name) >= 0;
         }
 
-        void AddTarget(MorphTarget target)
+        bool AddTarget(MorphTarget target)
         {
             if (!Targets.empty() && !target.Vertices.empty() && target.Vertices.size() != Targets[0].Vertices.size())
             {
-                OLO_CORE_WARN("MorphTargetSet::AddTarget: vertex count mismatch "
-                              "(expected {}, got {}) for target '{}'",
-                              Targets[0].Vertices.size(), target.Vertices.size(), target.Name);
+                OLO_CORE_ERROR("MorphTargetSet::AddTarget: vertex count mismatch "
+                               "(expected {}, got {}) for target '{}' — target rejected",
+                               Targets[0].Vertices.size(), target.Vertices.size(), target.Name);
+                return false;
             }
+            m_NameIndexCache.clear(); // Invalidate cache
             Targets.push_back(std::move(target));
+            return true;
         }
+
+        // O(1) name-to-index lookup via cached map
+        [[nodiscard]] i32 FindTargetCached(const std::string& name) const
+        {
+            BuildNameIndexCache();
+            auto it = m_NameIndexCache.find(name);
+            return (it != m_NameIndexCache.end()) ? it->second : -1;
+        }
+
+      private:
+        void BuildNameIndexCache() const
+        {
+            if (!m_NameIndexCache.empty() || Targets.empty())
+                return;
+            for (i32 i = 0; i < static_cast<i32>(Targets.size()); ++i)
+                m_NameIndexCache[Targets[i].Name] = i;
+        }
+
+        mutable std::unordered_map<std::string, i32> m_NameIndexCache;
     };
 } // namespace OloEngine

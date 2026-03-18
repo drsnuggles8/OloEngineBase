@@ -33,6 +33,9 @@ namespace OloEngine
             if (it == GetExpressions().end())
                 return;
 
+            // Zero out all current weights so stale targets from a previous expression are cleared
+            morphComp.ResetAllWeights();
+
             for (const auto& [targetName, weight] : it->second.TargetWeights)
             {
                 morphComp.SetWeight(targetName, weight * blend);
@@ -50,6 +53,9 @@ namespace OloEngine
 
             if (fromIt == exprs.end() || toIt == exprs.end())
                 return;
+
+            // Zero out all current weights so stale targets from a previous expression are cleared
+            morphComp.ResetAllWeights();
 
             // Collect all unique target names from both expressions
             std::unordered_map<std::string, f32> blended;
@@ -70,20 +76,26 @@ namespace OloEngine
 
         static bool HasExpression(const std::string& name)
         {
+            OLO_PROFILE_FUNCTION();
             return GetExpressions().contains(name);
         }
 
         static const std::unordered_map<std::string, FacialExpression>& GetAllExpressions()
         {
+            OLO_PROFILE_FUNCTION();
             return GetExpressions();
         }
 
         static std::vector<std::string> GetExpressionNames()
         {
+            OLO_PROFILE_FUNCTION();
             std::vector<std::string> names;
-            for (const auto& [name, _] : GetExpressions())
-                names.push_back(name);
-            std::sort(names.begin(), names.end());
+            {
+                OLO_PROFILE_SCOPE("GetExpressionNames::CollectAndSort");
+                for (const auto& [name, _] : GetExpressions())
+                    names.push_back(name);
+                std::sort(names.begin(), names.end());
+            }
             return names;
         }
 

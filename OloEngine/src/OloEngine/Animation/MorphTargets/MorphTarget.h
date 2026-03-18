@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Log.h"
 
 #include <glm/glm.hpp>
 #include <string>
@@ -70,6 +71,12 @@ namespace OloEngine
                 if (entry.VertexIndex < vertexCount)
                 {
                     Vertices[entry.VertexIndex] = entry.Delta;
+                }
+                else
+                {
+                    OLO_CORE_WARN("MorphTarget::ConvertToDense: sparse entry index {} "
+                                  "out of range (vertexCount={}), skipping",
+                                  entry.VertexIndex, vertexCount);
                 }
             }
             IsSparse = false;

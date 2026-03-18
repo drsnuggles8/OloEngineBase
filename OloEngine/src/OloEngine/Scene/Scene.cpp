@@ -698,6 +698,44 @@ namespace OloEngine
 
                     if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
                         continue;
+
+                    auto& meshSource = meshComp.m_MeshSource;
+                    auto& vertices = meshSource->GetVertices();
+
+                    // Cache base vertex data on first evaluation
+                    if (morphComp.BasePositions.empty() && vertices.Num() > 0)
+                    {
+                        morphComp.BasePositions.resize(vertices.Num());
+                        morphComp.BaseNormals.resize(vertices.Num());
+                        for (u32 i = 0; i < static_cast<u32>(vertices.Num()); ++i)
+                        {
+                            morphComp.BasePositions[i] = vertices[i].Position;
+                            morphComp.BaseNormals[i] = vertices[i].Normal;
+                        }
+                    }
+
+                    if (morphComp.BasePositions.empty())
+                        continue;
+
+                    // Evaluate morph deformation
+                    std::vector<glm::vec3> outPositions;
+                    std::vector<glm::vec3> outNormals;
+                    if (MorphTargetSystem::EvaluateMorphTargets(morphComp,
+                                                                morphComp.BasePositions, morphComp.BaseNormals,
+                                                                outPositions, outNormals))
+                    {
+                        // Write deformed data back into MeshSource vertices
+                        auto& mutableVerts = meshSource->GetVertices();
+                        for (u32 i = 0; i < static_cast<u32>(outPositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+                        {
+                            mutableVerts[i].Position = outPositions[i];
+                            mutableVerts[i].Normal = outNormals[i];
+                        }
+
+                        // Re-upload vertex data to the GPU
+                        auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+                        vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+                    }
                 }
             }
 

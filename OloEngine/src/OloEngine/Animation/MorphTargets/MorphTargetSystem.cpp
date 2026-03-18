@@ -2,6 +2,8 @@
 #include "MorphTargetSystem.h"
 #include "OloEngine/Core/Log.h"
 
+#include <algorithm>
+
 namespace OloEngine
 {
     void MorphTargetSystem::SampleMorphKeyframes(
@@ -14,53 +16,42 @@ namespace OloEngine
         if (!clip || clip->MorphKeyframes.empty())
             return;
 
-        const auto& keyframes = clip->MorphKeyframes;
+        const auto& tracks = clip->GetMorphTracks();
 
-        // Group keyframes by target name, find the two surrounding keyframes, and lerp
-        // Since keyframes are stored flat, we iterate and pick the closest pair per target
-        std::unordered_map<std::string, std::pair<const MorphTargetKeyframe*, const MorphTargetKeyframe*>> bracketMap;
-
-        for (const auto& kf : keyframes)
+        for (const auto& [targetName, keys] : tracks)
         {
-            auto& bracket = bracketMap[kf.TargetName];
+            if (keys.empty())
+                continue;
 
-            // Find the last keyframe at or before 'time' (lower bracket)
-            if (kf.Time <= time)
-            {
-                if (!bracket.first || kf.Time > bracket.first->Time)
-                    bracket.first = &kf;
-            }
+            // Binary search for the first key with time >= 'time'
+            auto it = std::lower_bound(keys.begin(), keys.end(), time,
+                                       [](const std::pair<f64, f32>& key, f64 t)
+                                       { return key.first < t; });
 
-            // Find the first keyframe at or after 'time' (upper bracket)
-            if (kf.Time >= time)
-            {
-                if (!bracket.second || kf.Time < bracket.second->Time)
-                    bracket.second = &kf;
-            }
-        }
-
-        for (const auto& [targetName, bracket] : bracketMap)
-        {
             f32 weight = 0.0f;
-            if (bracket.first && bracket.second)
+            if (it == keys.end())
             {
-                if (bracket.first == bracket.second || std::abs(bracket.second->Time - bracket.first->Time) < 1e-6)
+                // Past all keyframes — use last value
+                weight = keys.back().second;
+            }
+            else if (it == keys.begin())
+            {
+                // Before first keyframe — use first value
+                weight = it->second;
+            }
+            else
+            {
+                auto prev = std::prev(it);
+                f64 dt = it->first - prev->first;
+                if (dt < 1e-6)
                 {
-                    weight = bracket.first->Weight;
+                    weight = prev->second;
                 }
                 else
                 {
-                    f32 t = static_cast<f32>((time - bracket.first->Time) / (bracket.second->Time - bracket.first->Time));
-                    weight = bracket.first->Weight + t * (bracket.second->Weight - bracket.first->Weight);
+                    f32 t = static_cast<f32>((time - prev->first) / dt);
+                    weight = prev->second + t * (it->second - prev->second);
                 }
-            }
-            else if (bracket.first)
-            {
-                weight = bracket.first->Weight;
-            }
-            else if (bracket.second)
-            {
-                weight = bracket.second->Weight;
             }
 
             morphComp.SetWeight(targetName, weight);

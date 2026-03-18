@@ -241,9 +241,9 @@ namespace OloEngine
             {
                 const aiAnimMesh* animMesh = mesh->mAnimMeshes[i];
                 MorphTarget target;
-                target.Name = animMesh->mName.C_Str();
-                if (target.Name.empty())
-                    target.Name = "MorphTarget_" + std::to_string(i);
+                // Use index-based naming to match morph mesh channel keyframes
+                // from ProcessAnimations which uses "MorphTarget_<index>"
+                target.Name = "MorphTarget_" + std::to_string(i);
 
                 target.Vertices.resize(animMesh->mNumVertices);
                 for (u32 v = 0; v < animMesh->mNumVertices; ++v)
