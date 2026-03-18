@@ -26,7 +26,7 @@ namespace OloEngine
 
         void Start(Entity entity, BTBlackboard& blackboard);
         void Update(Entity entity, BTBlackboard& blackboard, f32 dt);
-        void ForceTransition(const StateID& stateId, Entity entity, BTBlackboard& blackboard);
+        bool ForceTransition(const StateID& stateId, Entity entity, BTBlackboard& blackboard);
 
         [[nodiscard]] const StateID& GetCurrentStateID() const
         {

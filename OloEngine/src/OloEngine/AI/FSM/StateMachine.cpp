@@ -7,6 +7,8 @@ namespace OloEngine
 {
     void StateMachine::AddState(Ref<FSMState> state)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!state)
         {
             OLO_CORE_WARN("[FSM] Attempted to add null state");
@@ -17,6 +19,8 @@ namespace OloEngine
 
     void StateMachine::AddState(const StateID& id, Ref<FSMState> state)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!state)
         {
             OLO_CORE_WARN("[FSM] Attempted to add null state for ID '{}'", id);
@@ -28,11 +32,15 @@ namespace OloEngine
 
     void StateMachine::AddTransition(const FSMTransition& transition)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_Transitions.push_back(transition);
     }
 
     void StateMachine::SetInitialState(const StateID& stateId)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_InitialState = stateId;
     }
 
@@ -76,8 +84,10 @@ namespace OloEngine
             }
             if (transition.Condition && transition.Condition(entity, blackboard))
             {
-                ForceTransition(transition.ToState, entity, blackboard);
-                return;
+                if (ForceTransition(transition.ToState, entity, blackboard))
+                {
+                    return;
+                }
             }
         }
 
@@ -89,20 +99,20 @@ namespace OloEngine
         }
     }
 
-    void StateMachine::ForceTransition(const StateID& stateId, Entity entity, BTBlackboard& blackboard)
+    bool StateMachine::ForceTransition(const StateID& stateId, Entity entity, BTBlackboard& blackboard)
     {
         OLO_PROFILE_FUNCTION();
 
         if (stateId == m_CurrentState)
         {
-            return;
+            return false;
         }
 
         auto newIt = m_States.find(stateId);
         if (newIt == m_States.end())
         {
             OLO_CORE_WARN("[FSM] Target state '{}' not found", stateId);
-            return;
+            return false;
         }
 
         // Exit current state
@@ -118,5 +128,6 @@ namespace OloEngine
         m_CurrentState = stateId;
         m_IsStarted = true;
         newIt->second->OnEnter(entity, blackboard);
+        return true;
     }
 } // namespace OloEngine

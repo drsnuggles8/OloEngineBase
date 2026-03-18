@@ -2235,6 +2235,11 @@ namespace OloEngine
 
     static void BehaviorTreeComponent_SetBlackboardBool(UUID entityID, MonoString* key, bool value)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         entity.GetComponent<BehaviorTreeComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
@@ -2242,6 +2247,11 @@ namespace OloEngine
 
     static bool BehaviorTreeComponent_GetBlackboardBool(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return false;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         return entity.GetComponent<BehaviorTreeComponent>().Blackboard.Get<bool>(Utils::MonoStringToString(key));
@@ -2249,6 +2259,11 @@ namespace OloEngine
 
     static void BehaviorTreeComponent_SetBlackboardInt(UUID entityID, MonoString* key, i32 value)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         entity.GetComponent<BehaviorTreeComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
@@ -2256,6 +2271,11 @@ namespace OloEngine
 
     static i32 BehaviorTreeComponent_GetBlackboardInt(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return 0;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         return entity.GetComponent<BehaviorTreeComponent>().Blackboard.Get<i32>(Utils::MonoStringToString(key));
@@ -2263,6 +2283,11 @@ namespace OloEngine
 
     static void BehaviorTreeComponent_SetBlackboardFloat(UUID entityID, MonoString* key, f32 value)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         entity.GetComponent<BehaviorTreeComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
@@ -2270,6 +2295,11 @@ namespace OloEngine
 
     static f32 BehaviorTreeComponent_GetBlackboardFloat(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return 0.0f;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         return entity.GetComponent<BehaviorTreeComponent>().Blackboard.Get<f32>(Utils::MonoStringToString(key));
@@ -2277,6 +2307,11 @@ namespace OloEngine
 
     static void BehaviorTreeComponent_SetBlackboardString(UUID entityID, MonoString* key, MonoString* value)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key || !value)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         entity.GetComponent<BehaviorTreeComponent>().Blackboard.Set(
@@ -2285,6 +2320,11 @@ namespace OloEngine
 
     static MonoString* BehaviorTreeComponent_GetBlackboardString(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return ScriptEngine::CreateString("");
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         auto val = entity.GetComponent<BehaviorTreeComponent>().Blackboard.Get<std::string>(Utils::MonoStringToString(key));
@@ -2293,6 +2333,11 @@ namespace OloEngine
 
     static void BehaviorTreeComponent_SetBlackboardVec3(UUID entityID, MonoString* key, glm::vec3 const* value)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         entity.GetComponent<BehaviorTreeComponent>().Blackboard.Set(Utils::MonoStringToString(key), *value);
@@ -2300,6 +2345,12 @@ namespace OloEngine
 
     static void BehaviorTreeComponent_GetBlackboardVec3(UUID entityID, MonoString* key, glm::vec3* outResult)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            *outResult = {};
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         *outResult = entity.GetComponent<BehaviorTreeComponent>().Blackboard.Get<glm::vec3>(Utils::MonoStringToString(key));
@@ -2307,6 +2358,11 @@ namespace OloEngine
 
     static void BehaviorTreeComponent_RemoveBlackboardKey(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         entity.GetComponent<BehaviorTreeComponent>().Blackboard.Remove(Utils::MonoStringToString(key));
@@ -2314,6 +2370,11 @@ namespace OloEngine
 
     static bool BehaviorTreeComponent_HasBlackboardKey(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return false;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         return entity.GetComponent<BehaviorTreeComponent>().Blackboard.Has(Utils::MonoStringToString(key));
@@ -2321,6 +2382,7 @@ namespace OloEngine
 
     static bool BehaviorTreeComponent_IsRunning(UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
         return entity.GetComponent<BehaviorTreeComponent>().IsRunning;
@@ -2332,6 +2394,11 @@ namespace OloEngine
 
     static void StateMachineComponent_SetBlackboardBool(UUID entityID, MonoString* key, bool value)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         entity.GetComponent<StateMachineComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
@@ -2339,6 +2406,11 @@ namespace OloEngine
 
     static bool StateMachineComponent_GetBlackboardBool(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return false;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         return entity.GetComponent<StateMachineComponent>().Blackboard.Get<bool>(Utils::MonoStringToString(key));
@@ -2346,6 +2418,11 @@ namespace OloEngine
 
     static void StateMachineComponent_SetBlackboardInt(UUID entityID, MonoString* key, i32 value)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         entity.GetComponent<StateMachineComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
@@ -2353,6 +2430,11 @@ namespace OloEngine
 
     static i32 StateMachineComponent_GetBlackboardInt(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return 0;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         return entity.GetComponent<StateMachineComponent>().Blackboard.Get<i32>(Utils::MonoStringToString(key));
@@ -2360,6 +2442,11 @@ namespace OloEngine
 
     static void StateMachineComponent_SetBlackboardFloat(UUID entityID, MonoString* key, f32 value)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         entity.GetComponent<StateMachineComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
@@ -2367,6 +2454,11 @@ namespace OloEngine
 
     static f32 StateMachineComponent_GetBlackboardFloat(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return 0.0f;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         return entity.GetComponent<StateMachineComponent>().Blackboard.Get<f32>(Utils::MonoStringToString(key));
@@ -2374,6 +2466,11 @@ namespace OloEngine
 
     static void StateMachineComponent_SetBlackboardString(UUID entityID, MonoString* key, MonoString* value)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key || !value)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         entity.GetComponent<StateMachineComponent>().Blackboard.Set(
@@ -2382,6 +2479,11 @@ namespace OloEngine
 
     static MonoString* StateMachineComponent_GetBlackboardString(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return ScriptEngine::CreateString("");
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         auto val = entity.GetComponent<StateMachineComponent>().Blackboard.Get<std::string>(Utils::MonoStringToString(key));
@@ -2390,6 +2492,11 @@ namespace OloEngine
 
     static void StateMachineComponent_SetBlackboardVec3(UUID entityID, MonoString* key, glm::vec3 const* value)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         entity.GetComponent<StateMachineComponent>().Blackboard.Set(Utils::MonoStringToString(key), *value);
@@ -2397,6 +2504,12 @@ namespace OloEngine
 
     static void StateMachineComponent_GetBlackboardVec3(UUID entityID, MonoString* key, glm::vec3* outResult)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            *outResult = {};
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         *outResult = entity.GetComponent<StateMachineComponent>().Blackboard.Get<glm::vec3>(Utils::MonoStringToString(key));
@@ -2404,6 +2517,11 @@ namespace OloEngine
 
     static void StateMachineComponent_RemoveBlackboardKey(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         entity.GetComponent<StateMachineComponent>().Blackboard.Remove(Utils::MonoStringToString(key));
@@ -2411,6 +2529,11 @@ namespace OloEngine
 
     static bool StateMachineComponent_HasBlackboardKey(UUID entityID, MonoString* key)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return false;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         return entity.GetComponent<StateMachineComponent>().Blackboard.Has(Utils::MonoStringToString(key));
@@ -2418,6 +2541,7 @@ namespace OloEngine
 
     static MonoString* StateMachineComponent_GetCurrentState(UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         auto& smc = entity.GetComponent<StateMachineComponent>();
@@ -2430,6 +2554,11 @@ namespace OloEngine
 
     static void StateMachineComponent_ForceTransition(UUID entityID, MonoString* stateId)
     {
+        OLO_PROFILE_FUNCTION();
+        if (!stateId)
+        {
+            return;
+        }
         auto entity = GetEntity(entityID);
         OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
         auto& smc = entity.GetComponent<StateMachineComponent>();

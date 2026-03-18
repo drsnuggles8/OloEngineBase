@@ -21,7 +21,8 @@ namespace OloEngine
             auto& factories = GetFactories();
             if (factories.contains(typeName))
             {
-                OLO_CORE_WARN("[BTNodeRegistry] Overwriting existing type: {}", typeName);
+                OLO_CORE_ERROR("[BTNodeRegistry] Duplicate registration rejected for type: {}", typeName);
+                return;
             }
             factories[typeName] = std::move(factory);
         }
@@ -66,7 +67,8 @@ namespace OloEngine
             auto& factories = GetFactories();
             if (factories.contains(typeName))
             {
-                OLO_CORE_WARN("[FSMStateRegistry] Overwriting existing type: {}", typeName);
+                OLO_CORE_ERROR("[FSMStateRegistry] Duplicate registration rejected for type: {}", typeName);
+                return;
             }
             factories[typeName] = std::move(factory);
         }

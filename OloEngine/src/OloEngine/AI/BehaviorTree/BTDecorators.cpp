@@ -31,6 +31,8 @@ namespace OloEngine
 
     void BTInverter::Reset()
     {
+        OLO_PROFILE_FUNCTION();
+
         for (auto& child : Children)
         {
             child->Reset();
@@ -77,6 +79,8 @@ namespace OloEngine
 
     void BTRepeater::Reset()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_CurrentIteration = 0;
         for (auto& child : Children)
         {
@@ -117,6 +121,8 @@ namespace OloEngine
 
     void BTCooldown::Reset()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_TimeRemaining = 0.0f;
         m_IsOnCooldown = false;
         for (auto& child : Children)
@@ -133,6 +139,10 @@ namespace OloEngine
 
         if (!blackboard.Has(BlackboardKey))
         {
+            if (!Children.empty())
+            {
+                Children[0]->Reset();
+            }
             return BTStatus::Failure;
         }
 
@@ -141,6 +151,10 @@ namespace OloEngine
         auto it = allData.find(BlackboardKey);
         if (it == allData.end() || it->second != ExpectedValue)
         {
+            if (!Children.empty())
+            {
+                Children[0]->Reset();
+            }
             return BTStatus::Failure;
         }
 
@@ -154,6 +168,8 @@ namespace OloEngine
 
     void BTConditionalGuard::Reset()
     {
+        OLO_PROFILE_FUNCTION();
+
         for (auto& child : Children)
         {
             child->Reset();

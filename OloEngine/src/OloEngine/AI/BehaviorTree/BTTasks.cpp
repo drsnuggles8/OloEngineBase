@@ -80,18 +80,24 @@ namespace OloEngine
             return BTStatus::Failure;
         }
 
+        if (!entity.HasComponent<TransformComponent>())
+        {
+            OLO_CORE_WARN("[BehaviorTree] BTMoveTo: Entity has no TransformComponent");
+            return BTStatus::Failure;
+        }
+
         auto& nav = entity.GetComponent<NavAgentComponent>();
 
         // Set target from blackboard if we don't have one yet
         if (!nav.m_HasTarget)
         {
-            if (!blackboard.Has(TargetBlackboardKey))
+            auto raw = blackboard.GetRaw(TargetBlackboardKey);
+            if (!raw.has_value() || !std::holds_alternative<glm::vec3>(raw.value()))
             {
                 return BTStatus::Failure;
             }
 
-            auto target = blackboard.Get<glm::vec3>(TargetBlackboardKey);
-            nav.m_TargetPosition = target;
+            nav.m_TargetPosition = std::get<glm::vec3>(raw.value());
             nav.m_HasTarget = true;
         }
 

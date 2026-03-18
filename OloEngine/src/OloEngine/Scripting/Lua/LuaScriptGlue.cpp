@@ -636,6 +636,7 @@ namespace OloEngine
         };
 
         // --- BehaviorTreeComponent ---
+        OLO_PROFILE_SCOPE("Lua::RegisterAITypes");
         lua.new_usertype<BehaviorTreeComponent>("BehaviorTreeComponent", "SetBlackboardBool", [](BehaviorTreeComponent& comp, const std::string& key, bool value)
                                                 { comp.Blackboard.Set(key, value); }, "GetBlackboardBool", [](const BehaviorTreeComponent& comp, const std::string& key) -> bool
                                                 { return comp.Blackboard.Get<bool>(key); }, "SetBlackboardInt", [](BehaviorTreeComponent& comp, const std::string& key, i32 value)
@@ -646,7 +647,9 @@ namespace OloEngine
                                                 { comp.Blackboard.Set(key, value); }, "GetBlackboardString", [](const BehaviorTreeComponent& comp, const std::string& key) -> std::string
                                                 { return comp.Blackboard.Get<std::string>(key); }, "SetBlackboardVec3", [](BehaviorTreeComponent& comp, const std::string& key, const glm::vec3& value)
                                                 { comp.Blackboard.Set(key, value); }, "GetBlackboardVec3", [](const BehaviorTreeComponent& comp, const std::string& key) -> glm::vec3
-                                                { return comp.Blackboard.Get<glm::vec3>(key); }, "RemoveBlackboardKey", [](BehaviorTreeComponent& comp, const std::string& key)
+                                                { return comp.Blackboard.Get<glm::vec3>(key); }, "SetBlackboardUUID", [](BehaviorTreeComponent& comp, const std::string& key, u64 value)
+                                                { comp.Blackboard.Set(key, UUID(value)); }, "GetBlackboardUUID", [](const BehaviorTreeComponent& comp, const std::string& key) -> u64
+                                                { return static_cast<u64>(comp.Blackboard.Get<UUID>(key)); }, "RemoveBlackboardKey", [](BehaviorTreeComponent& comp, const std::string& key)
                                                 { comp.Blackboard.Remove(key); }, "HasBlackboardKey", [](const BehaviorTreeComponent& comp, const std::string& key) -> bool
                                                 { return comp.Blackboard.Has(key); }, "IsRunning", sol::readonly(&BehaviorTreeComponent::IsRunning));
 
@@ -661,7 +664,9 @@ namespace OloEngine
                                                 { comp.Blackboard.Set(key, value); }, "GetBlackboardString", [](const StateMachineComponent& comp, const std::string& key) -> std::string
                                                 { return comp.Blackboard.Get<std::string>(key); }, "SetBlackboardVec3", [](StateMachineComponent& comp, const std::string& key, const glm::vec3& value)
                                                 { comp.Blackboard.Set(key, value); }, "GetBlackboardVec3", [](const StateMachineComponent& comp, const std::string& key) -> glm::vec3
-                                                { return comp.Blackboard.Get<glm::vec3>(key); }, "RemoveBlackboardKey", [](StateMachineComponent& comp, const std::string& key)
+                                                { return comp.Blackboard.Get<glm::vec3>(key); }, "SetBlackboardUUID", [](StateMachineComponent& comp, const std::string& key, u64 value)
+                                                { comp.Blackboard.Set(key, UUID(value)); }, "GetBlackboardUUID", [](const StateMachineComponent& comp, const std::string& key) -> u64
+                                                { return static_cast<u64>(comp.Blackboard.Get<UUID>(key)); }, "RemoveBlackboardKey", [](StateMachineComponent& comp, const std::string& key)
                                                 { comp.Blackboard.Remove(key); }, "HasBlackboardKey", [](const StateMachineComponent& comp, const std::string& key) -> bool
                                                 { return comp.Blackboard.Has(key); }, "GetCurrentState", [](const StateMachineComponent& comp) -> std::string
                                                 {

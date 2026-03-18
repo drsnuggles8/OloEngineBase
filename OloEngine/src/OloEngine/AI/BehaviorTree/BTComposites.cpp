@@ -29,6 +29,8 @@ namespace OloEngine
 
     void BTSequence::Reset()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_CurrentChild = 0;
         for (auto& child : Children)
         {
@@ -61,6 +63,8 @@ namespace OloEngine
 
     void BTSelector::Reset()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_CurrentChild = 0;
         for (auto& child : Children)
         {
@@ -92,18 +96,22 @@ namespace OloEngine
 
         if (FailurePolicy == Policy::RequireOne && failureCount > 0)
         {
+            Reset();
             return BTStatus::Failure;
         }
         if (FailurePolicy == Policy::RequireAll && failureCount == static_cast<u32>(Children.size()))
         {
+            Reset();
             return BTStatus::Failure;
         }
         if (SuccessPolicy == Policy::RequireOne && successCount > 0)
         {
+            Reset();
             return BTStatus::Success;
         }
         if (SuccessPolicy == Policy::RequireAll && successCount == static_cast<u32>(Children.size()))
         {
+            Reset();
             return BTStatus::Success;
         }
 
@@ -112,6 +120,8 @@ namespace OloEngine
 
     void BTParallel::Reset()
     {
+        OLO_PROFILE_FUNCTION();
+
         for (auto& child : Children)
         {
             child->Reset();
