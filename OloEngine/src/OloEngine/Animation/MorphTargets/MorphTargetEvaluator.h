@@ -10,7 +10,7 @@ namespace OloEngine
 {
     class MorphTargetEvaluator
     {
-    public:
+      public:
         // Apply weighted morph targets to base mesh vertices (CPU path)
         static void EvaluateCPU(
             const std::vector<glm::vec3>& basePositions,
@@ -24,7 +24,7 @@ namespace OloEngine
         static void EvaluateGPU(
             u32 baseVertexSSBO,
             u32 morphDeltaSSBO,
-            u32 weightsUBO,
+            u32 weightsSSBO,
             u32 outputVertexSSBO,
             u32 vertexCount,
             u32 targetCount);

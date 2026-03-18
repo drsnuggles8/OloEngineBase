@@ -651,6 +651,29 @@ namespace OloEngine
                         }
                     }
                 }
+
+                // Handle morph-only animation (entities with AnimationState but no Skeleton)
+                auto morphAnimView = m_Registry.view<AnimationStateComponent, MorphTargetComponent>(entt::exclude<SkeletonComponent>);
+                for (auto e : morphAnimView)
+                {
+                    auto& animState = morphAnimView.get<AnimationStateComponent>(e);
+                    if (!animState.m_IsPlaying || !animState.m_CurrentClip)
+                        continue;
+
+                    // Advance time for morph-only entities
+                    animState.m_CurrentTime += ts.GetSeconds();
+                    const float duration = animState.m_CurrentClip->Duration;
+                    if (duration > 0.0f && animState.m_CurrentTime > duration)
+                    {
+                        animState.m_CurrentTime -= static_cast<int>(animState.m_CurrentTime / duration) * duration;
+                    }
+
+                    if (!animState.m_CurrentClip->MorphKeyframes.empty())
+                    {
+                        auto& morphComp = morphAnimView.get<MorphTargetComponent>(e);
+                        MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
+                    }
+                }
             }
 
             // Evaluate morph targets for all entities with active weights
@@ -662,8 +685,6 @@ namespace OloEngine
                 for (auto e : morphView)
                 {
                     auto& morphComp = morphView.get<MorphTargetComponent>(e);
-                    if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
-                        continue;
 
                     auto& meshComp = morphView.get<MeshComponent>(e);
                     if (!meshComp.m_MeshSource)
@@ -674,6 +695,9 @@ namespace OloEngine
                     {
                         morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
                     }
+
+                    if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
+                        continue;
                 }
             }
 

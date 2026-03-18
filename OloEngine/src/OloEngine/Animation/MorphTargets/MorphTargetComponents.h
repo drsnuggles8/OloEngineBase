@@ -4,8 +4,10 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 
+#include <algorithm>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace OloEngine
 {

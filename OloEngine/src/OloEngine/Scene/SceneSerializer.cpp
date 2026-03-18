@@ -3450,12 +3450,17 @@ namespace OloEngine
 
             auto const& morphComp = entity.GetComponent<MorphTargetComponent>();
 
-            // Serialize weights
+            // Serialize weights (sorted by name for deterministic output)
             out << YAML::Key << "Weights";
             out << YAML::BeginMap;
+            std::vector<std::string> sortedNames;
+            sortedNames.reserve(morphComp.Weights.size());
             for (const auto& [name, weight] : morphComp.Weights)
+                sortedNames.push_back(name);
+            std::sort(sortedNames.begin(), sortedNames.end());
+            for (const auto& name : sortedNames)
             {
-                out << YAML::Key << name << YAML::Value << weight;
+                out << YAML::Key << name << YAML::Value << morphComp.Weights.at(name);
             }
             out << YAML::EndMap; // Weights
 

@@ -41,7 +41,7 @@ namespace OloEngine
     // Morph target animation keyframe
     struct MorphTargetKeyframe
     {
-        f32 Time;
+        f64 Time;
         std::string TargetName;
         f32 Weight;
     };

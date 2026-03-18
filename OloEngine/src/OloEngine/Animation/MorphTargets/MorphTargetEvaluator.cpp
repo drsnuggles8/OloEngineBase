@@ -19,6 +19,9 @@ namespace OloEngine
 
         const u32 vertexCount = static_cast<u32>(basePositions.size());
 
+        OLO_CORE_ASSERT(basePositions.size() == baseNormals.size(),
+                        "MorphTargetEvaluator::EvaluateCPU: basePositions and baseNormals size mismatch");
+
         outPositions.resize(vertexCount);
         outNormals.resize(vertexCount);
 
@@ -73,7 +76,7 @@ namespace OloEngine
     void MorphTargetEvaluator::EvaluateGPU(
         u32 baseVertexSSBO,
         u32 morphDeltaSSBO,
-        u32 weightsUBO,
+        u32 weightsSSBO,
         u32 outputVertexSSBO,
         u32 vertexCount,
         u32 targetCount)
@@ -90,7 +93,7 @@ namespace OloEngine
 
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, baseVertexSSBO);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, morphDeltaSSBO);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, weightsUBO);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, weightsSSBO);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, outputVertexSSBO);
 
         // Dispatch compute shader with enough work groups to cover all vertices

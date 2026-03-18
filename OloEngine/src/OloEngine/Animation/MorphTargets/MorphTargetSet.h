@@ -1,16 +1,18 @@
 #pragma once
 
 #include "MorphTarget.h"
+#include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Ref.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
 {
     class MorphTargetSet : public RefCounted
     {
-    public:
+      public:
         std::vector<MorphTarget> Targets;
 
         MorphTargetSet() = default;
@@ -44,6 +46,12 @@ namespace OloEngine
 
         void AddTarget(MorphTarget target)
         {
+            if (!Targets.empty() && !target.Vertices.empty() && target.Vertices.size() != Targets[0].Vertices.size())
+            {
+                OLO_CORE_WARN("MorphTargetSet::AddTarget: vertex count mismatch "
+                              "(expected {}, got {}) for target '{}'",
+                              Targets[0].Vertices.size(), target.Vertices.size(), target.Name);
+            }
             Targets.push_back(std::move(target));
         }
     };

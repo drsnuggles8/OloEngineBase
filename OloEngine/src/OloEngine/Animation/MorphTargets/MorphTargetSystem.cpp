@@ -6,7 +6,7 @@ namespace OloEngine
 {
     void MorphTargetSystem::SampleMorphKeyframes(
         const Ref<AnimationClip>& clip,
-        f32 time,
+        f64 time,
         MorphTargetComponent& morphComp)
     {
         OLO_PROFILE_FUNCTION();
@@ -44,13 +44,13 @@ namespace OloEngine
             f32 weight = 0.0f;
             if (bracket.first && bracket.second)
             {
-                if (bracket.first == bracket.second || std::abs(bracket.second->Time - bracket.first->Time) < 1e-6f)
+                if (bracket.first == bracket.second || std::abs(bracket.second->Time - bracket.first->Time) < 1e-6)
                 {
                     weight = bracket.first->Weight;
                 }
                 else
                 {
-                    f32 t = (time - bracket.first->Time) / (bracket.second->Time - bracket.first->Time);
+                    f32 t = static_cast<f32>((time - bracket.first->Time) / (bracket.second->Time - bracket.first->Time));
                     weight = bracket.first->Weight + t * (bracket.second->Weight - bracket.first->Weight);
                 }
             }

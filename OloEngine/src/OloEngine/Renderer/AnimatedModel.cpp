@@ -249,10 +249,13 @@ namespace OloEngine
                 for (u32 v = 0; v < animMesh->mNumVertices; ++v)
                 {
                     MorphTargetVertex delta;
-                    delta.DeltaPosition = glm::vec3(
-                        animMesh->mVertices[v].x - mesh->mVertices[v].x,
-                        animMesh->mVertices[v].y - mesh->mVertices[v].y,
-                        animMesh->mVertices[v].z - mesh->mVertices[v].z);
+                    if (animMesh->mVertices && mesh->mVertices)
+                    {
+                        delta.DeltaPosition = glm::vec3(
+                            animMesh->mVertices[v].x - mesh->mVertices[v].x,
+                            animMesh->mVertices[v].y - mesh->mVertices[v].y,
+                            animMesh->mVertices[v].z - mesh->mVertices[v].z);
+                    }
 
                     if (animMesh->mNormals && mesh->mNormals)
                     {
@@ -690,6 +693,25 @@ namespace OloEngine
                 }
 
                 animClip->BoneAnimations.push_back(boneAnim);
+            }
+
+            // Import morph mesh channels as morph target keyframes
+            for (u32 j = 0; j < anim->mNumMorphMeshChannels; ++j)
+            {
+                const aiMeshMorphAnim* morphChannel = anim->mMorphMeshChannels[j];
+                for (u32 k = 0; k < morphChannel->mNumKeys; ++k)
+                {
+                    const aiMeshMorphKey& key = morphChannel->mKeys[k];
+                    f64 timeInSeconds = key.mTime / anim->mTicksPerSecond;
+                    for (u32 w = 0; w < key.mNumValuesAndWeights; ++w)
+                    {
+                        MorphTargetKeyframe kf;
+                        kf.Time = timeInSeconds;
+                        kf.TargetName = "MorphTarget_" + std::to_string(key.mValues[w]);
+                        kf.Weight = static_cast<f32>(key.mWeights[w]);
+                        animClip->MorphKeyframes.push_back(kf);
+                    }
+                }
             }
 
             m_Animations.push_back(animClip);

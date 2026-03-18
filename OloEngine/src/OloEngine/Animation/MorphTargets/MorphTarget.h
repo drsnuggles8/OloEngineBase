@@ -17,7 +17,7 @@ namespace OloEngine
 
     class MorphTarget
     {
-    public:
+      public:
         std::string Name;
         std::vector<MorphTargetVertex> Vertices;
 
@@ -48,7 +48,8 @@ namespace OloEngine
             {
                 const auto& v = Vertices[i];
                 if (glm::length(v.DeltaPosition) > epsilon ||
-                    glm::length(v.DeltaNormal) > epsilon)
+                    glm::length(v.DeltaNormal) > epsilon ||
+                    glm::length(v.DeltaTangent) > epsilon)
                 {
                     SparseVertices.push_back({ i, v });
                 }

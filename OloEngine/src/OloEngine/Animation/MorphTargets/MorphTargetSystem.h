@@ -11,12 +11,12 @@ namespace OloEngine
 {
     class MorphTargetSystem
     {
-    public:
+      public:
         // Sample morph target keyframes from an animation clip at the given time
         // and apply the resulting weights to the MorphTargetComponent
         static void SampleMorphKeyframes(
             const Ref<AnimationClip>& clip,
-            f32 time,
+            f64 time,
             MorphTargetComponent& morphComp);
 
         // Evaluate morph targets for an entity that has active weights.

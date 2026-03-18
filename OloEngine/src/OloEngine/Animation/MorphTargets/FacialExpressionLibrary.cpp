@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "FacialExpressionLibrary.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <yaml-cpp/yaml.h>
 
@@ -10,6 +11,8 @@ namespace OloEngine
 {
     bool FacialExpressionLibrary::SaveExpression(const std::string& filePath, const FacialExpression& expr)
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "FacialExpression" << YAML::BeginMap;
@@ -23,6 +26,12 @@ namespace OloEngine
         out << YAML::EndMap; // FacialExpression
         out << YAML::EndMap;
 
+        if (!out.good())
+        {
+            OLO_CORE_ERROR("FacialExpressionLibrary: YAML emitter error for '{}': {}", filePath, out.GetLastError());
+            return false;
+        }
+
         std::ofstream fout(filePath);
         if (!fout)
         {
@@ -30,11 +39,18 @@ namespace OloEngine
             return false;
         }
         fout << out.c_str();
+        if (!fout.good())
+        {
+            OLO_CORE_ERROR("FacialExpressionLibrary: I/O error writing '{}'", filePath);
+            return false;
+        }
         return true;
     }
 
     bool FacialExpressionLibrary::LoadExpression(const std::string& filePath)
     {
+        OLO_PROFILE_FUNCTION();
+
         YAML::Node root;
         try
         {

@@ -1527,6 +1527,10 @@ namespace OloEngine
 
     static void MorphTargetComponent_SetWeight(UUID entityID, MonoString* targetName, f32 weight)
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (!targetName)
+            return;
         auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
         std::string name = Utils::MonoStringToString(targetName);
         component.SetWeight(name, weight);
@@ -1534,6 +1538,10 @@ namespace OloEngine
 
     static f32 MorphTargetComponent_GetWeight(UUID entityID, MonoString* targetName)
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (!targetName)
+            return 0.0f;
         auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
         std::string name = Utils::MonoStringToString(targetName);
         return component.GetWeight(name);
@@ -1541,18 +1549,26 @@ namespace OloEngine
 
     static void MorphTargetComponent_ResetAll(UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
         component.ResetAllWeights();
     }
 
     static i32 MorphTargetComponent_GetTargetCount(UUID entityID)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
         return component.MorphTargets ? static_cast<i32>(component.MorphTargets->GetTargetCount()) : 0;
     }
 
     static void MorphTargetComponent_ApplyExpression(UUID entityID, MonoString* expressionName, f32 blend)
     {
+        OLO_PROFILE_FUNCTION();
+
+        if (!expressionName)
+            return;
         auto& component = GetEntity(entityID).GetComponent<MorphTargetComponent>();
         std::string name = Utils::MonoStringToString(expressionName);
         FacialExpressionLibrary::ApplyExpression(component, name, blend);
