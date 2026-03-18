@@ -25,6 +25,7 @@
 #include "OloEngine/Renderer/SphericalHarmonics.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Dialogue/DialogueTypes.h"
+#include "OloEngine/AI/AIComponents.h"
 
 #include <box2d/id.h>
 
@@ -1464,5 +1465,7 @@ namespace OloEngine
         NavMeshBoundsComponent,
         NavAgentComponent,
         AnimationGraphComponent,
-        MorphTargetComponent>;
+        MorphTargetComponent,
+        BehaviorTreeComponent,
+        StateMachineComponent>;
 } // namespace OloEngine

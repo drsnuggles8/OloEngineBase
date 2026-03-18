@@ -535,6 +535,8 @@ namespace OloEngine
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
             ImGui::MenuItem("NavMesh Panel", nullptr, &m_ShowNavMeshPanel);
+            ImGui::MenuItem("Behavior Tree Editor", nullptr, &m_ShowBehaviorTreeEditor);
+            ImGui::MenuItem("State Machine Editor", nullptr, &m_ShowFSMEditor);
             ImGui::MenuItem("Shader Graph Editor", nullptr, &m_ShowShaderGraphEditor);
             ImGui::MenuItem("Animation Graph Editor", nullptr, &m_ShowAnimationGraphEditor);
             ImGui::MenuItem("Save Game Panel", nullptr, &m_ShowSaveGamePanel);
@@ -988,6 +990,18 @@ namespace OloEngine
         if (m_ShowNavMeshPanel)
         {
             m_NavMeshPanel.OnImGuiRender();
+        }
+
+        // Behavior Tree Editor Panel
+        if (m_ShowBehaviorTreeEditor)
+        {
+            m_BehaviorTreeEditorPanel.OnImGuiRender();
+        }
+
+        // FSM Editor Panel
+        if (m_ShowFSMEditor)
+        {
+            m_FSMEditorPanel.OnImGuiRender();
         }
 
         // Gamepad Debug Panel
@@ -1787,6 +1801,8 @@ namespace OloEngine
         m_StreamingPanel.SetCommandHistory(nullptr);
         m_SceneStatisticsPanel.SetContext(m_ActiveScene);
         m_NavMeshPanel.SetContext(m_ActiveScene);
+        m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
+        m_FSMEditorPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneSimulate()
@@ -1811,6 +1827,8 @@ namespace OloEngine
         m_StreamingPanel.SetCommandHistory(nullptr);
         m_SceneStatisticsPanel.SetContext(m_ActiveScene);
         m_NavMeshPanel.SetContext(m_ActiveScene);
+        m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
+        m_FSMEditorPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::OnSceneStop()
@@ -1845,6 +1863,8 @@ namespace OloEngine
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
         m_SceneStatisticsPanel.SetContext(m_ActiveScene);
         m_NavMeshPanel.SetContext(m_ActiveScene);
+        m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
+        m_FSMEditorPanel.SetContext(m_ActiveScene);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
@@ -1866,6 +1886,8 @@ namespace OloEngine
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
         m_SceneStatisticsPanel.SetContext(m_EditorScene);
         m_NavMeshPanel.SetContext(m_EditorScene);
+        m_BehaviorTreeEditorPanel.SetContext(m_EditorScene);
+        m_FSMEditorPanel.SetContext(m_EditorScene);
         m_DialogueEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_AnimationGraphEditorPanel.SetContext(m_EditorScene);
         m_AnimationGraphEditorPanel.SetCommandHistory(&m_CommandHistory);

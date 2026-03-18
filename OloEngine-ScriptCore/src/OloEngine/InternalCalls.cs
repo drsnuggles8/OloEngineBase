@@ -637,5 +637,65 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool SaveGame_ValidateSave(string slotName);
 		#endregion
+
+		#region BehaviorTreeComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BehaviorTreeComponent_SetBlackboardBool(ulong entityID, string key, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool BehaviorTreeComponent_GetBlackboardBool(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BehaviorTreeComponent_SetBlackboardInt(ulong entityID, string key, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int BehaviorTreeComponent_GetBlackboardInt(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BehaviorTreeComponent_SetBlackboardFloat(ulong entityID, string key, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BehaviorTreeComponent_GetBlackboardFloat(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BehaviorTreeComponent_SetBlackboardString(ulong entityID, string key, string value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string BehaviorTreeComponent_GetBlackboardString(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BehaviorTreeComponent_SetBlackboardVec3(ulong entityID, string key, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BehaviorTreeComponent_GetBlackboardVec3(ulong entityID, string key, out Vector3 result);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BehaviorTreeComponent_RemoveBlackboardKey(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool BehaviorTreeComponent_HasBlackboardKey(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool BehaviorTreeComponent_IsRunning(ulong entityID);
+		#endregion
+
+		#region StateMachineComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StateMachineComponent_SetBlackboardBool(ulong entityID, string key, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool StateMachineComponent_GetBlackboardBool(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StateMachineComponent_SetBlackboardInt(ulong entityID, string key, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int StateMachineComponent_GetBlackboardInt(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StateMachineComponent_SetBlackboardFloat(ulong entityID, string key, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StateMachineComponent_GetBlackboardFloat(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StateMachineComponent_SetBlackboardString(ulong entityID, string key, string value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string StateMachineComponent_GetBlackboardString(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StateMachineComponent_SetBlackboardVec3(ulong entityID, string key, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StateMachineComponent_GetBlackboardVec3(ulong entityID, string key, out Vector3 result);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StateMachineComponent_RemoveBlackboardKey(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool StateMachineComponent_HasBlackboardKey(ulong entityID, string key);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string StateMachineComponent_GetCurrentState(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StateMachineComponent_ForceTransition(ulong entityID, string stateId);
+		#endregion
 	}
 }

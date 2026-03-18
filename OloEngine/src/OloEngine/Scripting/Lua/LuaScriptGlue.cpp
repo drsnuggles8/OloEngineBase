@@ -20,6 +20,7 @@
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
+#include "OloEngine/AI/AIComponents.h"
 
 namespace OloEngine
 {
@@ -633,5 +634,47 @@ namespace OloEngine
             OLO_PROFILE_SCOPE("Lua::SaveGame::SetAutoSaveInterval");
             SaveGameManager::SetAutoSaveInterval(interval);
         };
+
+        // --- BehaviorTreeComponent ---
+        OLO_PROFILE_SCOPE("Lua::RegisterAITypes");
+        lua.new_usertype<BehaviorTreeComponent>("BehaviorTreeComponent", "SetBlackboardBool", [](BehaviorTreeComponent& comp, const std::string& key, bool value)
+                                                { comp.Blackboard.Set(key, value); }, "GetBlackboardBool", [](const BehaviorTreeComponent& comp, const std::string& key) -> bool
+                                                { return comp.Blackboard.Get<bool>(key); }, "SetBlackboardInt", [](BehaviorTreeComponent& comp, const std::string& key, i32 value)
+                                                { comp.Blackboard.Set(key, value); }, "GetBlackboardInt", [](const BehaviorTreeComponent& comp, const std::string& key) -> i32
+                                                { return comp.Blackboard.Get<i32>(key); }, "SetBlackboardFloat", [](BehaviorTreeComponent& comp, const std::string& key, f32 value)
+                                                { comp.Blackboard.Set(key, value); }, "GetBlackboardFloat", [](const BehaviorTreeComponent& comp, const std::string& key) -> f32
+                                                { return comp.Blackboard.Get<f32>(key); }, "SetBlackboardString", [](BehaviorTreeComponent& comp, const std::string& key, const std::string& value)
+                                                { comp.Blackboard.Set(key, value); }, "GetBlackboardString", [](const BehaviorTreeComponent& comp, const std::string& key) -> std::string
+                                                { return comp.Blackboard.Get<std::string>(key); }, "SetBlackboardVec3", [](BehaviorTreeComponent& comp, const std::string& key, const glm::vec3& value)
+                                                { comp.Blackboard.Set(key, value); }, "GetBlackboardVec3", [](const BehaviorTreeComponent& comp, const std::string& key) -> glm::vec3
+                                                { return comp.Blackboard.Get<glm::vec3>(key); }, "SetBlackboardUUID", [](BehaviorTreeComponent& comp, const std::string& key, u64 value)
+                                                { comp.Blackboard.Set(key, UUID(value)); }, "GetBlackboardUUID", [](const BehaviorTreeComponent& comp, const std::string& key) -> u64
+                                                { return static_cast<u64>(comp.Blackboard.Get<UUID>(key)); }, "RemoveBlackboardKey", [](BehaviorTreeComponent& comp, const std::string& key)
+                                                { comp.Blackboard.Remove(key); }, "HasBlackboardKey", [](const BehaviorTreeComponent& comp, const std::string& key) -> bool
+                                                { return comp.Blackboard.Has(key); }, "IsRunning", sol::readonly(&BehaviorTreeComponent::IsRunning));
+
+        // --- StateMachineComponent ---
+        lua.new_usertype<StateMachineComponent>("StateMachineComponent", "SetBlackboardBool", [](StateMachineComponent& comp, const std::string& key, bool value)
+                                                { comp.Blackboard.Set(key, value); }, "GetBlackboardBool", [](const StateMachineComponent& comp, const std::string& key) -> bool
+                                                { return comp.Blackboard.Get<bool>(key); }, "SetBlackboardInt", [](StateMachineComponent& comp, const std::string& key, i32 value)
+                                                { comp.Blackboard.Set(key, value); }, "GetBlackboardInt", [](const StateMachineComponent& comp, const std::string& key) -> i32
+                                                { return comp.Blackboard.Get<i32>(key); }, "SetBlackboardFloat", [](StateMachineComponent& comp, const std::string& key, f32 value)
+                                                { comp.Blackboard.Set(key, value); }, "GetBlackboardFloat", [](const StateMachineComponent& comp, const std::string& key) -> f32
+                                                { return comp.Blackboard.Get<f32>(key); }, "SetBlackboardString", [](StateMachineComponent& comp, const std::string& key, const std::string& value)
+                                                { comp.Blackboard.Set(key, value); }, "GetBlackboardString", [](const StateMachineComponent& comp, const std::string& key) -> std::string
+                                                { return comp.Blackboard.Get<std::string>(key); }, "SetBlackboardVec3", [](StateMachineComponent& comp, const std::string& key, const glm::vec3& value)
+                                                { comp.Blackboard.Set(key, value); }, "GetBlackboardVec3", [](const StateMachineComponent& comp, const std::string& key) -> glm::vec3
+                                                { return comp.Blackboard.Get<glm::vec3>(key); }, "SetBlackboardUUID", [](StateMachineComponent& comp, const std::string& key, u64 value)
+                                                { comp.Blackboard.Set(key, UUID(value)); }, "GetBlackboardUUID", [](const StateMachineComponent& comp, const std::string& key) -> u64
+                                                { return static_cast<u64>(comp.Blackboard.Get<UUID>(key)); }, "RemoveBlackboardKey", [](StateMachineComponent& comp, const std::string& key)
+                                                { comp.Blackboard.Remove(key); }, "HasBlackboardKey", [](const StateMachineComponent& comp, const std::string& key) -> bool
+                                                { return comp.Blackboard.Has(key); }, "GetCurrentState", [](const StateMachineComponent& comp) -> std::string
+                                                {
+                if (comp.RuntimeFSM && comp.RuntimeFSM->IsStarted())
+                    return comp.RuntimeFSM->GetCurrentStateID();
+                return ""; }, "ForceTransition", [](StateMachineComponent& comp, Entity entity, const std::string& stateId)
+                                                {
+                if (comp.RuntimeFSM)
+                    comp.RuntimeFSM->ForceTransition(stateId, entity, comp.Blackboard); });
     }
 } // namespace OloEngine

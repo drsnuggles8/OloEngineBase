@@ -55,6 +55,7 @@
 #include "OloEngine/Snow/SnowEjectaSystem.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Navigation/NavigationSystem.h"
+#include "OloEngine/AI/AISystem.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -891,6 +892,9 @@ namespace OloEngine
             // Update navigation / pathfinding
             NavigationSystem::OnUpdate(this, ts.GetSeconds());
 
+            // Update AI (behavior trees and state machines)
+            AISystem::OnUpdate(this, ts.GetSeconds());
+
             auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
             for (auto&& [e, ac, tc] : listenerView.each())
             {
@@ -1398,6 +1402,10 @@ namespace OloEngine
     void Scene::OnComponentAdded<NavAgentComponent>(Entity, NavAgentComponent&) {}
     template<>
     void Scene::OnComponentAdded<AnimationGraphComponent>(Entity, AnimationGraphComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<BehaviorTreeComponent>(Entity, BehaviorTreeComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<StateMachineComponent>(Entity, StateMachineComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {

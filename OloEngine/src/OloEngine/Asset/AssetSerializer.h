@@ -32,6 +32,8 @@ namespace OloEngine
     class LightProbeVolumeAsset;
     class ParticleSystemAsset;
     class DialogueTreeAsset;
+    class BehaviorTreeAsset;
+    class StateMachineAsset;
 
     struct AssetSerializationInfo
     {
@@ -379,6 +381,34 @@ namespace OloEngine
       private:
         std::string SerializeToYAML(const Ref<DialogueTreeAsset>& dialogueAsset) const;
         [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<DialogueTreeAsset>& dialogueAsset) const;
+    };
+
+    class BehaviorTreeSerializer : public AssetSerializer
+    {
+      public:
+        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
+      private:
+        std::string SerializeToYAML(const Ref<BehaviorTreeAsset>& btAsset) const;
+        [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<BehaviorTreeAsset>& btAsset) const;
+    };
+
+    class StateMachineSerializer : public AssetSerializer
+    {
+      public:
+        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
+      private:
+        std::string SerializeToYAML(const Ref<StateMachineAsset>& fsmAsset) const;
+        [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<StateMachineAsset>& fsmAsset) const;
     };
 
     class ShaderGraphAsset; // Forward declaration

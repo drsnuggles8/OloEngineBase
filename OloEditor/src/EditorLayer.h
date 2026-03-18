@@ -12,6 +12,8 @@
 #include "Panels/ConsolePanel.h"
 #include "Panels/DialogueEditorPanel.h"
 #include "Panels/NavMeshPanel.h"
+#include "Panels/BehaviorTreeEditorPanel.h"
+#include "Panels/FSMEditorPanel.h"
 #include "Panels/ShaderGraphEditorPanel.h"
 #include "Panels/AnimationGraphEditorPanel.h"
 #include "Panels/SaveGamePanel.h"
@@ -202,6 +204,10 @@ namespace OloEngine
         bool m_ShowDialogueEditor = false;
         NavMeshPanel m_NavMeshPanel;
         bool m_ShowNavMeshPanel = false;
+        BehaviorTreeEditorPanel m_BehaviorTreeEditorPanel;
+        bool m_ShowBehaviorTreeEditor = false;
+        FSMEditorPanel m_FSMEditorPanel;
+        bool m_ShowFSMEditor = false;
         bool m_ShowShaderGraphEditor = false;
         bool m_ShowAnimationGraphEditor = false;
         SaveGamePanel m_SaveGamePanel;

@@ -2187,6 +2187,18 @@ namespace OloEngine
             SanitizeFloat(nac.m_StoppingDistance, 0.0f, 100.0f, 0.1f);
             TrySet(nac.m_AvoidancePriority, navAgentComponent["AvoidancePriority"]);
         }
+
+        if (auto behaviorTreeComponent = entity["BehaviorTreeComponent"]; behaviorTreeComponent)
+        {
+            auto& btc = deserializedEntity.AddComponent<BehaviorTreeComponent>();
+            TrySet(btc.BehaviorTreeAssetHandle, behaviorTreeComponent["BehaviorTreeAsset"]);
+        }
+
+        if (auto stateMachineComponent = entity["StateMachineComponent"]; stateMachineComponent)
+        {
+            auto& smc = deserializedEntity.AddComponent<StateMachineComponent>();
+            TrySet(smc.StateMachineAssetHandle, stateMachineComponent["StateMachineAsset"]);
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -3584,6 +3596,28 @@ namespace OloEngine
             out << YAML::Key << "AvoidancePriority" << YAML::Value << nac.m_AvoidancePriority;
 
             out << YAML::EndMap; // NavAgentComponent
+        }
+
+        if (entity.HasComponent<BehaviorTreeComponent>())
+        {
+            out << YAML::Key << "BehaviorTreeComponent";
+            out << YAML::BeginMap;
+
+            auto const& btc = entity.GetComponent<BehaviorTreeComponent>();
+            out << YAML::Key << "BehaviorTreeAsset" << YAML::Value << btc.BehaviorTreeAssetHandle;
+
+            out << YAML::EndMap; // BehaviorTreeComponent
+        }
+
+        if (entity.HasComponent<StateMachineComponent>())
+        {
+            out << YAML::Key << "StateMachineComponent";
+            out << YAML::BeginMap;
+
+            auto const& smc = entity.GetComponent<StateMachineComponent>();
+            out << YAML::Key << "StateMachineAsset" << YAML::Value << smc.StateMachineAssetHandle;
+
+            out << YAML::EndMap; // StateMachineComponent
         }
 
         out << YAML::EndMap; // Entity

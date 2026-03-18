@@ -20,6 +20,7 @@
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/MorphTargets/FacialExpressionLibrary.h"
+#include "OloEngine/AI/AIComponents.h"
 
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
@@ -2228,6 +2229,345 @@ namespace OloEngine
         RegisterComponent<Component...>();
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // BehaviorTreeComponent //////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static void BehaviorTreeComponent_SetBlackboardBool(UUID entityID, MonoString* key, bool value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        entity.GetComponent<BehaviorTreeComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
+    }
+
+    static bool BehaviorTreeComponent_GetBlackboardBool(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        return entity.GetComponent<BehaviorTreeComponent>().Blackboard.Get<bool>(Utils::MonoStringToString(key));
+    }
+
+    static void BehaviorTreeComponent_SetBlackboardInt(UUID entityID, MonoString* key, i32 value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        entity.GetComponent<BehaviorTreeComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
+    }
+
+    static i32 BehaviorTreeComponent_GetBlackboardInt(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return 0;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        return entity.GetComponent<BehaviorTreeComponent>().Blackboard.Get<i32>(Utils::MonoStringToString(key));
+    }
+
+    static void BehaviorTreeComponent_SetBlackboardFloat(UUID entityID, MonoString* key, f32 value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        entity.GetComponent<BehaviorTreeComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
+    }
+
+    static f32 BehaviorTreeComponent_GetBlackboardFloat(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return 0.0f;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        return entity.GetComponent<BehaviorTreeComponent>().Blackboard.Get<f32>(Utils::MonoStringToString(key));
+    }
+
+    static void BehaviorTreeComponent_SetBlackboardString(UUID entityID, MonoString* key, MonoString* value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key || !value)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        entity.GetComponent<BehaviorTreeComponent>().Blackboard.Set(
+            Utils::MonoStringToString(key), Utils::MonoStringToString(value));
+    }
+
+    static MonoString* BehaviorTreeComponent_GetBlackboardString(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return ScriptEngine::CreateString("");
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        auto val = entity.GetComponent<BehaviorTreeComponent>().Blackboard.Get<std::string>(Utils::MonoStringToString(key));
+        return ScriptEngine::CreateString(val.c_str());
+    }
+
+    static void BehaviorTreeComponent_SetBlackboardVec3(UUID entityID, MonoString* key, glm::vec3 const* value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        entity.GetComponent<BehaviorTreeComponent>().Blackboard.Set(Utils::MonoStringToString(key), *value);
+    }
+
+    static void BehaviorTreeComponent_GetBlackboardVec3(UUID entityID, MonoString* key, glm::vec3* outResult)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            *outResult = {};
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        *outResult = entity.GetComponent<BehaviorTreeComponent>().Blackboard.Get<glm::vec3>(Utils::MonoStringToString(key));
+    }
+
+    static void BehaviorTreeComponent_RemoveBlackboardKey(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        entity.GetComponent<BehaviorTreeComponent>().Blackboard.Remove(Utils::MonoStringToString(key));
+    }
+
+    static bool BehaviorTreeComponent_HasBlackboardKey(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        return entity.GetComponent<BehaviorTreeComponent>().Blackboard.Has(Utils::MonoStringToString(key));
+    }
+
+    static bool BehaviorTreeComponent_IsRunning(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<BehaviorTreeComponent>());
+        return entity.GetComponent<BehaviorTreeComponent>().IsRunning;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // StateMachineComponent //////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static void StateMachineComponent_SetBlackboardBool(UUID entityID, MonoString* key, bool value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        entity.GetComponent<StateMachineComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
+    }
+
+    static bool StateMachineComponent_GetBlackboardBool(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        return entity.GetComponent<StateMachineComponent>().Blackboard.Get<bool>(Utils::MonoStringToString(key));
+    }
+
+    static void StateMachineComponent_SetBlackboardInt(UUID entityID, MonoString* key, i32 value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        entity.GetComponent<StateMachineComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
+    }
+
+    static i32 StateMachineComponent_GetBlackboardInt(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return 0;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        return entity.GetComponent<StateMachineComponent>().Blackboard.Get<i32>(Utils::MonoStringToString(key));
+    }
+
+    static void StateMachineComponent_SetBlackboardFloat(UUID entityID, MonoString* key, f32 value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        entity.GetComponent<StateMachineComponent>().Blackboard.Set(Utils::MonoStringToString(key), value);
+    }
+
+    static f32 StateMachineComponent_GetBlackboardFloat(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return 0.0f;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        return entity.GetComponent<StateMachineComponent>().Blackboard.Get<f32>(Utils::MonoStringToString(key));
+    }
+
+    static void StateMachineComponent_SetBlackboardString(UUID entityID, MonoString* key, MonoString* value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key || !value)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        entity.GetComponent<StateMachineComponent>().Blackboard.Set(
+            Utils::MonoStringToString(key), Utils::MonoStringToString(value));
+    }
+
+    static MonoString* StateMachineComponent_GetBlackboardString(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return ScriptEngine::CreateString("");
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        auto val = entity.GetComponent<StateMachineComponent>().Blackboard.Get<std::string>(Utils::MonoStringToString(key));
+        return ScriptEngine::CreateString(val.c_str());
+    }
+
+    static void StateMachineComponent_SetBlackboardVec3(UUID entityID, MonoString* key, glm::vec3 const* value)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        entity.GetComponent<StateMachineComponent>().Blackboard.Set(Utils::MonoStringToString(key), *value);
+    }
+
+    static void StateMachineComponent_GetBlackboardVec3(UUID entityID, MonoString* key, glm::vec3* outResult)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            *outResult = {};
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        *outResult = entity.GetComponent<StateMachineComponent>().Blackboard.Get<glm::vec3>(Utils::MonoStringToString(key));
+    }
+
+    static void StateMachineComponent_RemoveBlackboardKey(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        entity.GetComponent<StateMachineComponent>().Blackboard.Remove(Utils::MonoStringToString(key));
+    }
+
+    static bool StateMachineComponent_HasBlackboardKey(UUID entityID, MonoString* key)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!key)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        return entity.GetComponent<StateMachineComponent>().Blackboard.Has(Utils::MonoStringToString(key));
+    }
+
+    static MonoString* StateMachineComponent_GetCurrentState(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        auto& smc = entity.GetComponent<StateMachineComponent>();
+        if (smc.RuntimeFSM && smc.RuntimeFSM->IsStarted())
+        {
+            return ScriptEngine::CreateString(smc.RuntimeFSM->GetCurrentStateID().c_str());
+        }
+        return ScriptEngine::CreateString("");
+    }
+
+    static void StateMachineComponent_ForceTransition(UUID entityID, MonoString* stateId)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!stateId)
+        {
+            return;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<StateMachineComponent>());
+        auto& smc = entity.GetComponent<StateMachineComponent>();
+        if (smc.RuntimeFSM)
+        {
+            smc.RuntimeFSM->ForceTransition(Utils::MonoStringToString(stateId), entity, smc.Blackboard);
+        }
+    }
+
     void ScriptGlue::RegisterComponents()
     {
         RegisterComponent(AllComponents{});
@@ -2574,6 +2914,37 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(SaveGame_QuickLoad);
         OLO_ADD_INTERNAL_CALL(SaveGame_DeleteSave);
         OLO_ADD_INTERNAL_CALL(SaveGame_ValidateSave);
+
+        // BehaviorTreeComponent
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_SetBlackboardBool);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_GetBlackboardBool);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_SetBlackboardInt);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_GetBlackboardInt);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_SetBlackboardFloat);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_GetBlackboardFloat);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_SetBlackboardString);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_GetBlackboardString);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_SetBlackboardVec3);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_GetBlackboardVec3);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_RemoveBlackboardKey);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_HasBlackboardKey);
+        OLO_ADD_INTERNAL_CALL(BehaviorTreeComponent_IsRunning);
+
+        // StateMachineComponent
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_SetBlackboardBool);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_GetBlackboardBool);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_SetBlackboardInt);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_GetBlackboardInt);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_SetBlackboardFloat);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_GetBlackboardFloat);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_SetBlackboardString);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_GetBlackboardString);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_SetBlackboardVec3);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_GetBlackboardVec3);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_RemoveBlackboardKey);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_HasBlackboardKey);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_GetCurrentState);
+        OLO_ADD_INTERNAL_CALL(StateMachineComponent_ForceTransition);
     }
 
 } // namespace OloEngine
