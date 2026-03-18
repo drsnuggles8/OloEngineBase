@@ -418,13 +418,12 @@ namespace OloEngine
                                                 agent.m_HasTarget = false;
                                                 agent.m_HasPath = false;
                                                 agent.m_PathCorners.clear();
-                                                agent.m_CurrentCornerIndex = 0;
-                                            });
+                                                agent.m_CurrentCornerIndex = 0; });
 
         // --- NavMeshBoundsComponent ---
         lua.new_usertype<NavMeshBoundsComponent>("NavMeshBoundsComponent",
-                                                  "min", &NavMeshBoundsComponent::m_Min,
-                                                  "max", &NavMeshBoundsComponent::m_Max);
+                                                 "min", &NavMeshBoundsComponent::m_Min,
+                                                 "max", &NavMeshBoundsComponent::m_Max);
 
         // --- Dialogue system functions ---
         auto dialogueTable = lua.create_named_table("dialogue");

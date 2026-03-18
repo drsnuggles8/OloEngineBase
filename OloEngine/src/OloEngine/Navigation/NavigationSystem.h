@@ -12,7 +12,7 @@ namespace OloEngine
 
     class NavigationSystem
     {
-    public:
+      public:
         static void OnUpdate(Scene* scene, f32 dt);
     };
 } // namespace OloEngine

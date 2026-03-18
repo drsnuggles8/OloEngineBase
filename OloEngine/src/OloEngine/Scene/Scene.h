@@ -319,9 +319,18 @@ namespace OloEngine
 
         // Navigation
         void SetNavMesh(const Ref<NavMesh>& navMesh);
-        [[nodiscard]] Ref<NavMesh> GetNavMesh() const { return m_NavMesh; }
-        [[nodiscard]] NavMeshQuery* GetNavMeshQuery() { return m_NavMeshQuery.get(); }
-        [[nodiscard]] CrowdManager* GetCrowdManager() { return m_CrowdManager.get(); }
+        [[nodiscard]] Ref<NavMesh> GetNavMesh() const
+        {
+            return m_NavMesh;
+        }
+        [[nodiscard]] NavMeshQuery* GetNavMeshQuery()
+        {
+            return m_NavMeshQuery.get();
+        }
+        [[nodiscard]] CrowdManager* GetCrowdManager()
+        {
+            return m_CrowdManager.get();
+        }
 
         // Editor-mode streamer management (allows streaming preview without entering Play mode)
         void InitializeEditorStreamer();

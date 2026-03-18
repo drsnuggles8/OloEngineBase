@@ -14,7 +14,7 @@ namespace OloEngine
 {
     class NavMeshQuery
     {
-    public:
+      public:
         NavMeshQuery() = default;
         explicit NavMeshQuery(const Ref<NavMesh>& navMesh);
         ~NavMeshQuery();
@@ -30,9 +30,12 @@ namespace OloEngine
         [[nodiscard]] bool FindNearestPoint(const glm::vec3& point, f32 searchRadius, glm::vec3& outNearest) const;
         [[nodiscard]] bool Raycast(const glm::vec3& start, const glm::vec3& end, glm::vec3& outHitPoint) const;
         [[nodiscard]] bool IsPointOnNavMesh(const glm::vec3& point, f32 tolerance = 0.5f) const;
-        [[nodiscard]] bool IsValid() const { return m_Query != nullptr; }
+        [[nodiscard]] bool IsValid() const
+        {
+            return m_Query != nullptr;
+        }
 
-    private:
+      private:
         dtNavMeshQuery* m_Query = nullptr;
         Ref<NavMesh> m_NavMesh;
     };

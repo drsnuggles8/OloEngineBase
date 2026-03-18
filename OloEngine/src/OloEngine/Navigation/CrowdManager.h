@@ -14,7 +14,7 @@ namespace OloEngine
 
     class CrowdManager
     {
-    public:
+      public:
         CrowdManager() = default;
         ~CrowdManager();
 
@@ -31,10 +31,13 @@ namespace OloEngine
 
         [[nodiscard]] glm::vec3 GetAgentPosition(i32 agentId) const;
         [[nodiscard]] glm::vec3 GetAgentVelocity(i32 agentId) const;
-        [[nodiscard]] bool IsValid() const { return m_Crowd != nullptr; }
+        [[nodiscard]] bool IsValid() const
+        {
+            return m_Crowd != nullptr;
+        }
         [[nodiscard]] i32 GetActiveAgentCount() const;
 
-    private:
+      private:
         dtCrowd* m_Crowd = nullptr;
         Ref<NavMesh> m_NavMesh;
     };

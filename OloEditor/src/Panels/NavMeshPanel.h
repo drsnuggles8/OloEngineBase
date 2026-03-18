@@ -9,14 +9,14 @@ namespace OloEngine
 
     class NavMeshPanel
     {
-    public:
+      public:
         NavMeshPanel() = default;
         explicit NavMeshPanel(const Ref<Scene>& context);
 
         void SetContext(const Ref<Scene>& context);
         void OnImGuiRender();
 
-    private:
+      private:
         Ref<Scene> m_Context;
         NavMeshSettings m_Settings;
         bool m_ShowDebugDraw = false;

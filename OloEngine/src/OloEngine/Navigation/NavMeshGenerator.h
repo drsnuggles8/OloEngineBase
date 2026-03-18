@@ -13,11 +13,11 @@ namespace OloEngine
 
     class NavMeshGenerator
     {
-    public:
+      public:
         // Generate navmesh from all MeshComponents + TerrainComponents + Collider3DComponents in scene
         static Ref<NavMesh> Generate(Scene* scene, const NavMeshSettings& settings, const glm::vec3& boundsMin, const glm::vec3& boundsMax);
 
-    private:
+      private:
         // Collect world-space triangles from scene geometry
         static void CollectSceneGeometry(Scene* scene, std::vector<f32>& outVerts, std::vector<i32>& outTris);
     };

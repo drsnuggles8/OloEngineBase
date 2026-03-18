@@ -77,8 +77,8 @@ namespace OloEngine
         }
 
         ImGui::Text("Bounds: (%.1f, %.1f, %.1f) to (%.1f, %.1f, %.1f)",
-                     boundsMin.x, boundsMin.y, boundsMin.z,
-                     boundsMax.x, boundsMax.y, boundsMax.z);
+                    boundsMin.x, boundsMin.y, boundsMin.z,
+                    boundsMax.x, boundsMax.y, boundsMax.z);
 
         if (ImGui::Button("Bake NavMesh"))
         {

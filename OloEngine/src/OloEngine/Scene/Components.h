@@ -1315,7 +1315,7 @@ namespace OloEngine
     struct NavMeshBoundsComponent
     {
         glm::vec3 m_Min = { -100.0f, -10.0f, -100.0f };
-        glm::vec3 m_Max = {  100.0f,  50.0f,  100.0f };
+        glm::vec3 m_Max = { 100.0f, 50.0f, 100.0f };
 
         NavMeshBoundsComponent() = default;
         NavMeshBoundsComponent(const NavMeshBoundsComponent&) = default;

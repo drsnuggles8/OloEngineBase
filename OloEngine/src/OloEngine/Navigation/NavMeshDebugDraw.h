@@ -13,7 +13,7 @@ namespace OloEngine
 {
     class NavMeshDebugDraw
     {
-    public:
+      public:
         static void DrawNavMesh(const Ref<NavMesh>& navMesh, const glm::vec3& color = { 0.0f, 0.6f, 1.0f })
         {
             if (!navMesh || !navMesh->GetDetourNavMesh())
@@ -70,7 +70,7 @@ namespace OloEngine
                         for (i32 m = 0; m < 3; ++m)
                         {
                             Renderer3D::DrawLine(triangleVerts[m], triangleVerts[(m + 1) % 3],
-                                               glm::vec3(0.0f, 0.4f, 0.8f), 0.5f);
+                                                 glm::vec3(0.0f, 0.4f, 0.8f), 0.5f);
                         }
                     }
                 }

@@ -20,9 +20,7 @@ namespace OloEngine
     static glm::mat4 GetWorldTransform(Entity entity)
     {
         auto& tc = entity.GetComponent<TransformComponent>();
-        return glm::translate(glm::mat4(1.0f), tc.Translation)
-             * glm::toMat4(glm::quat(tc.Rotation))
-             * glm::scale(glm::mat4(1.0f), tc.Scale);
+        return glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(glm::quat(tc.Rotation)) * glm::scale(glm::mat4(1.0f), tc.Scale);
     }
 
     void NavMeshGenerator::CollectSceneGeometry(Scene* scene, std::vector<f32>& outVerts, std::vector<i32>& outTris)
@@ -114,13 +112,13 @@ namespace OloEngine
             // 8 corners of the box
             glm::vec3 corners[8] = {
                 center + glm::vec3(-halfSize.x, -halfSize.y, -halfSize.z),
-                center + glm::vec3( halfSize.x, -halfSize.y, -halfSize.z),
-                center + glm::vec3( halfSize.x,  halfSize.y, -halfSize.z),
-                center + glm::vec3(-halfSize.x,  halfSize.y, -halfSize.z),
-                center + glm::vec3(-halfSize.x, -halfSize.y,  halfSize.z),
-                center + glm::vec3( halfSize.x, -halfSize.y,  halfSize.z),
-                center + glm::vec3( halfSize.x,  halfSize.y,  halfSize.z),
-                center + glm::vec3(-halfSize.x,  halfSize.y,  halfSize.z),
+                center + glm::vec3(halfSize.x, -halfSize.y, -halfSize.z),
+                center + glm::vec3(halfSize.x, halfSize.y, -halfSize.z),
+                center + glm::vec3(-halfSize.x, halfSize.y, -halfSize.z),
+                center + glm::vec3(-halfSize.x, -halfSize.y, halfSize.z),
+                center + glm::vec3(halfSize.x, -halfSize.y, halfSize.z),
+                center + glm::vec3(halfSize.x, halfSize.y, halfSize.z),
+                center + glm::vec3(-halfSize.x, halfSize.y, halfSize.z),
             };
 
             const auto baseVertex = static_cast<i32>(outVerts.size() / 3);
@@ -133,12 +131,12 @@ namespace OloEngine
 
             // 12 triangles (2 per face)
             static constexpr i32 boxIndices[] = {
-                0,1,2, 0,2,3, // front
-                4,6,5, 4,7,6, // back
-                0,4,5, 0,5,1, // bottom
-                2,6,7, 2,7,3, // top
-                0,7,4, 0,3,7, // left
-                1,5,6, 1,6,2  // right
+                0, 1, 2, 0, 2, 3, // front
+                4, 6, 5, 4, 7, 6, // back
+                0, 4, 5, 0, 5, 1, // bottom
+                2, 6, 7, 2, 7, 3, // top
+                0, 7, 4, 0, 3, 7, // left
+                1, 5, 6, 1, 6, 2  // right
             };
             for (i32 idx : boxIndices)
                 outTris.push_back(baseVertex + idx);
