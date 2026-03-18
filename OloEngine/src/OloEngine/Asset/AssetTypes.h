@@ -38,6 +38,7 @@ namespace OloEngine
         LightProbeVolume = 27,
         DialogueTree = 28,
         ShaderGraph = 29,
+        NavMesh = 30,
     };
 
     enum class AssetFlag : u16
@@ -160,6 +161,8 @@ namespace OloEngine
                     return "DialogueTree";
                 case AssetType::ShaderGraph:
                     return "ShaderGraph";
+                case AssetType::NavMesh:
+                    return "NavMesh";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -235,6 +238,8 @@ namespace OloEngine
                 return AssetType::DialogueTree;
             if (assetType == "ShaderGraph")
                 return AssetType::ShaderGraph;
+            if (assetType == "NavMesh")
+                return AssetType::NavMesh;
 
             return AssetType::None;
         }

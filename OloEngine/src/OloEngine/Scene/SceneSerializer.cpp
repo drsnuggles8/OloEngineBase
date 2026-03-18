@@ -2135,6 +2135,29 @@ namespace OloEngine
             SanitizeFloat(dc.m_TriggerRadius, 0.0f, 1e6f, 3.0f);
             TrySet(dc.m_TriggerOnce, dialogueComponent["TriggerOnce"]);
         }
+
+        if (auto navMeshBoundsComponent = entity["NavMeshBoundsComponent"]; navMeshBoundsComponent)
+        {
+            auto& nmb = deserializedEntity.AddComponent<NavMeshBoundsComponent>();
+            TrySet(nmb.m_Min, navMeshBoundsComponent["Min"]);
+            TrySet(nmb.m_Max, navMeshBoundsComponent["Max"]);
+        }
+
+        if (auto navAgentComponent = entity["NavAgentComponent"]; navAgentComponent)
+        {
+            auto& nac = deserializedEntity.AddComponent<NavAgentComponent>();
+            TrySet(nac.m_Radius, navAgentComponent["Radius"]);
+            SanitizeFloat(nac.m_Radius, 0.01f, 100.0f, 0.5f);
+            TrySet(nac.m_Height, navAgentComponent["Height"]);
+            SanitizeFloat(nac.m_Height, 0.01f, 100.0f, 2.0f);
+            TrySet(nac.m_MaxSpeed, navAgentComponent["MaxSpeed"]);
+            SanitizeFloat(nac.m_MaxSpeed, 0.0f, 1000.0f, 3.5f);
+            TrySet(nac.m_Acceleration, navAgentComponent["Acceleration"]);
+            SanitizeFloat(nac.m_Acceleration, 0.0f, 1000.0f, 8.0f);
+            TrySet(nac.m_StoppingDistance, navAgentComponent["StoppingDistance"]);
+            SanitizeFloat(nac.m_StoppingDistance, 0.0f, 100.0f, 0.1f);
+            TrySet(nac.m_AvoidancePriority, navAgentComponent["AvoidancePriority"]);
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -3469,6 +3492,34 @@ namespace OloEngine
             out << YAML::Key << "TriggerOnce" << YAML::Value << dc.m_TriggerOnce;
 
             out << YAML::EndMap; // DialogueComponent
+        }
+
+        if (entity.HasComponent<NavMeshBoundsComponent>())
+        {
+            out << YAML::Key << "NavMeshBoundsComponent";
+            out << YAML::BeginMap;
+
+            auto const& nmb = entity.GetComponent<NavMeshBoundsComponent>();
+            out << YAML::Key << "Min" << YAML::Value << nmb.m_Min;
+            out << YAML::Key << "Max" << YAML::Value << nmb.m_Max;
+
+            out << YAML::EndMap; // NavMeshBoundsComponent
+        }
+
+        if (entity.HasComponent<NavAgentComponent>())
+        {
+            out << YAML::Key << "NavAgentComponent";
+            out << YAML::BeginMap;
+
+            auto const& nac = entity.GetComponent<NavAgentComponent>();
+            out << YAML::Key << "Radius" << YAML::Value << nac.m_Radius;
+            out << YAML::Key << "Height" << YAML::Value << nac.m_Height;
+            out << YAML::Key << "MaxSpeed" << YAML::Value << nac.m_MaxSpeed;
+            out << YAML::Key << "Acceleration" << YAML::Value << nac.m_Acceleration;
+            out << YAML::Key << "StoppingDistance" << YAML::Value << nac.m_StoppingDistance;
+            out << YAML::Key << "AvoidancePriority" << YAML::Value << nac.m_AvoidancePriority;
+
+            out << YAML::EndMap; // NavAgentComponent
         }
 
         out << YAML::EndMap; // Entity

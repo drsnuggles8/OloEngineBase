@@ -50,6 +50,7 @@
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
+#include "OloEngine/Navigation/NavigationSystem.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -459,6 +460,22 @@ namespace OloEngine
         OnPhysics3DStop();
     }
 
+    void Scene::SetNavMesh(const Ref<NavMesh>& navMesh)
+    {
+        m_NavMesh = navMesh;
+        if (navMesh && navMesh->IsValid())
+        {
+            m_NavMeshQuery = std::make_unique<NavMeshQuery>(navMesh);
+            m_CrowdManager = std::make_unique<CrowdManager>();
+            m_CrowdManager->Initialize(navMesh);
+        }
+        else
+        {
+            m_NavMeshQuery.reset();
+            m_CrowdManager.reset();
+        }
+    }
+
     // Process sub-emitter triggers that reference child systems.
     // For triggers with a valid ChildSystemIndex, emit into the corresponding child system's pool.
     static void ProcessChildSubEmitters(ParticleSystemComponent& psc, f32 dt, const glm::vec3& emitterPos)
@@ -654,6 +671,9 @@ namespace OloEngine
                     }
                 }
             }
+
+            // Update navigation / pathfinding
+            NavigationSystem::OnUpdate(this, ts.GetSeconds());
 
             auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
             for (auto&& [e, ac, tc] : listenerView.each())
@@ -1154,6 +1174,10 @@ namespace OloEngine
     void Scene::OnComponentAdded<DialogueComponent>(Entity, DialogueComponent&) {}
     template<>
     void Scene::OnComponentAdded<DialogueStateComponent>(Entity, DialogueStateComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<NavMeshBoundsComponent>(Entity, NavMeshBoundsComponent&) {}
+    template<>
+    void Scene::OnComponentAdded<NavAgentComponent>(Entity, NavAgentComponent&) {}
 
     [[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
     {

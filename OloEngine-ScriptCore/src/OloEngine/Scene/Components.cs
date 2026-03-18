@@ -1118,4 +1118,51 @@ namespace OloEngine
 			set => InternalCalls.MaterialComponent_SetShaderGraphHandle(Entity.ID, value);
 		}
 	}
+
+	public class NavAgentComponent : Component
+	{
+		public Vector3 TargetPosition
+		{
+			get
+			{
+				InternalCalls.NavAgentComponent_GetTargetPosition(Entity.ID, out Vector3 target);
+				return target;
+			}
+			set => InternalCalls.NavAgentComponent_SetTargetPosition(Entity.ID, ref value);
+		}
+
+		public float MaxSpeed
+		{
+			get
+			{
+				InternalCalls.NavAgentComponent_GetMaxSpeed(Entity.ID, out float speed);
+				return speed;
+			}
+			set => InternalCalls.NavAgentComponent_SetMaxSpeed(Entity.ID, ref value);
+		}
+
+		public float Acceleration
+		{
+			get
+			{
+				InternalCalls.NavAgentComponent_GetAcceleration(Entity.ID, out float accel);
+				return accel;
+			}
+			set => InternalCalls.NavAgentComponent_SetAcceleration(Entity.ID, ref value);
+		}
+
+		public float StoppingDistance
+		{
+			get
+			{
+				InternalCalls.NavAgentComponent_GetStoppingDistance(Entity.ID, out float dist);
+				return dist;
+			}
+			set => InternalCalls.NavAgentComponent_SetStoppingDistance(Entity.ID, ref value);
+		}
+
+		public bool HasPath => InternalCalls.NavAgentComponent_HasPath(Entity.ID);
+
+		public void ClearTarget() => InternalCalls.NavAgentComponent_ClearTarget(Entity.ID);
+	}
 }

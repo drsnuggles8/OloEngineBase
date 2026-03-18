@@ -11,6 +11,7 @@
 #include "Panels/NetworkDebugPanel.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/DialogueEditorPanel.h"
+#include "Panels/NavMeshPanel.h"
 #include "Panels/ShaderGraphEditorPanel.h"
 #include "Panels/SaveGamePanel.h"
 #include "Panels/SceneStatisticsPanel.h"
@@ -197,6 +198,8 @@ namespace OloEngine
         bool m_ShowInputSettings = false;
         bool m_ShowNetworkDebug = false;
         bool m_ShowDialogueEditor = false;
+        NavMeshPanel m_NavMeshPanel;
+        bool m_ShowNavMeshPanel = false;
         bool m_ShowShaderGraphEditor = false;
         SaveGamePanel m_SaveGamePanel;
         bool m_ShowSaveGamePanel = false;

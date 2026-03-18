@@ -9,6 +9,9 @@
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
+#include "OloEngine/Navigation/NavMesh.h"
+#include "OloEngine/Navigation/NavMeshQuery.h"
+#include "OloEngine/Navigation/CrowdManager.h"
 
 #include <optional>
 #include <vector>
@@ -314,6 +317,12 @@ namespace OloEngine
             return m_DialogueSystem.get();
         }
 
+        // Navigation
+        void SetNavMesh(const Ref<NavMesh>& navMesh);
+        [[nodiscard]] Ref<NavMesh> GetNavMesh() const { return m_NavMesh; }
+        [[nodiscard]] NavMeshQuery* GetNavMeshQuery() { return m_NavMeshQuery.get(); }
+        [[nodiscard]] CrowdManager* GetCrowdManager() { return m_CrowdManager.get(); }
+
         // Editor-mode streamer management (allows streaming preview without entering Play mode)
         void InitializeEditorStreamer();
         void ShutdownEditorStreamer();
@@ -380,6 +389,11 @@ namespace OloEngine
         std::unique_ptr<SceneStreamer> m_SceneStreamer;
         std::unique_ptr<DialogueSystem> m_DialogueSystem;
         DialogueVariables m_DialogueVariables;
+
+        // Navigation
+        Ref<NavMesh> m_NavMesh;
+        std::unique_ptr<NavMeshQuery> m_NavMeshQuery;
+        std::unique_ptr<CrowdManager> m_CrowdManager;
 
         // Entity UUID -> entt::entity lookup map
         // Using TMap for O(1) lookup with better cache locality

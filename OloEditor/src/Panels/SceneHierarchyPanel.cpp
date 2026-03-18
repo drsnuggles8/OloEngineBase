@@ -1669,6 +1669,12 @@ namespace OloEngine
             // Dialogue
             DisplayAddComponentEntry<DialogueComponent>("Dialogue");
 
+            ImGui::Separator();
+
+            // Navigation
+            DisplayAddComponentEntry<NavMeshBoundsComponent>("NavMesh Bounds");
+            DisplayAddComponentEntry<NavAgentComponent>("Nav Agent");
+
             ImGui::EndPopup();
         }
 
@@ -4042,6 +4048,29 @@ namespace OloEngine
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Reset"))
                     component.m_HasTriggered = false;
+            } });
+
+        DrawComponent<NavMeshBoundsComponent>("NavMesh Bounds", entity, [](auto& component)
+                                              {
+            ImGui::DragFloat3("Min", &component.m_Min.x, 1.0f);
+            ImGui::DragFloat3("Max", &component.m_Max.x, 1.0f); });
+
+        DrawComponent<NavAgentComponent>("Nav Agent", entity, [](auto& component)
+                                         {
+            ImGui::DragFloat("Radius", &component.m_Radius, 0.01f, 0.01f, 100.0f);
+            ImGui::DragFloat("Height", &component.m_Height, 0.01f, 0.01f, 100.0f);
+            ImGui::DragFloat("Max Speed", &component.m_MaxSpeed, 0.1f, 0.0f, 1000.0f);
+            ImGui::DragFloat("Acceleration", &component.m_Acceleration, 0.1f, 0.0f, 1000.0f);
+            ImGui::DragFloat("Stopping Distance", &component.m_StoppingDistance, 0.01f, 0.0f, 100.0f);
+            ImGui::DragInt("Avoidance Priority", &component.m_AvoidancePriority, 1, 0, 100);
+
+            if (component.m_HasPath)
+            {
+                ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Has path (%d corners)", static_cast<int>(component.m_PathCorners.size()));
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No active path");
             } });
     }
 

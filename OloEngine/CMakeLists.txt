@@ -91,6 +91,10 @@ target_include_directories(OloEngine PUBLIC
 	vendor/tracy-src/public
 	vendor/sol2-src/include
 	vendor/stb_image-build/include
+	vendor/recastnavigation-src/Recast/Include
+	vendor/recastnavigation-src/Detour/Include
+	vendor/recastnavigation-src/DetourCrowd/Include
+	vendor/recastnavigation-src/DetourTileCache/Include
 	mono/include
 	${Vulkan_INCLUDE_DIRS}
 	vendor/GameNetworkingSockets-src/include
@@ -105,6 +109,8 @@ target_link_libraries(OloEngine
 	assimp
 	box2d
 	choc
+	Detour
+	DetourCrowd
 	glad
 	glfw
 	imgui
@@ -113,6 +119,7 @@ target_link_libraries(OloEngine
 	msdf-atlas-gen
 	nlohmann_json::nlohmann_json
 	opengl32.lib
+	Recast
 	sol2
 	stb_image
 	TracyClient

@@ -1310,6 +1310,43 @@ namespace OloEngine
         DialogueStateComponent() = default;
     };
 
+    // ----- Navigation -----
+
+    struct NavMeshBoundsComponent
+    {
+        glm::vec3 m_Min = { -100.0f, -10.0f, -100.0f };
+        glm::vec3 m_Max = {  100.0f,  50.0f,  100.0f };
+
+        NavMeshBoundsComponent() = default;
+        NavMeshBoundsComponent(const NavMeshBoundsComponent&) = default;
+    };
+
+    struct NavAgentComponent
+    {
+        f32 m_Radius = 0.5f;
+        f32 m_Height = 2.0f;
+        f32 m_MaxSpeed = 3.5f;
+        f32 m_Acceleration = 8.0f;
+        f32 m_StoppingDistance = 0.1f;
+        i32 m_AvoidancePriority = 50;
+
+        // Runtime state (not serialized)
+        glm::vec3 m_TargetPosition = { 0.0f, 0.0f, 0.0f };
+        bool m_HasTarget = false;
+        bool m_HasPath = false;
+        std::vector<glm::vec3> m_PathCorners;
+        u32 m_CurrentCornerIndex = 0;
+        i32 m_CrowdAgentId = -1;
+
+        NavAgentComponent() = default;
+        NavAgentComponent(const NavAgentComponent& other)
+            : m_Radius(other.m_Radius), m_Height(other.m_Height), m_MaxSpeed(other.m_MaxSpeed),
+              m_Acceleration(other.m_Acceleration), m_StoppingDistance(other.m_StoppingDistance),
+              m_AvoidancePriority(other.m_AvoidancePriority)
+        {
+        }
+    };
+
     template<typename... Component>
     struct ComponentGroup
     {
@@ -1377,5 +1414,7 @@ namespace OloEngine
         PhaseComponent,
         InstancePortalComponent,
         NetworkLODComponent,
-        DialogueComponent>;
+        DialogueComponent,
+        NavMeshBoundsComponent,
+        NavAgentComponent>;
 } // namespace OloEngine

@@ -568,6 +568,29 @@ namespace OloEngine
 		internal static extern void MaterialComponent_SetShaderGraphHandle(ulong entityID, ulong handle);
 		#endregion
 
+		#region NavAgentComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_GetTargetPosition(ulong entityID, out Vector3 target);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_SetTargetPosition(ulong entityID, ref Vector3 target);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_GetMaxSpeed(ulong entityID, out float speed);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_SetMaxSpeed(ulong entityID, ref float speed);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_GetAcceleration(ulong entityID, out float accel);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_SetAcceleration(ulong entityID, ref float accel);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_GetStoppingDistance(ulong entityID, out float dist);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_SetStoppingDistance(ulong entityID, ref float dist);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NavAgentComponent_HasPath(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_ClearTarget(ulong entityID);
+		#endregion
+
 		#region SaveGame
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern int SaveGame_Save(string slotName, string displayName);
