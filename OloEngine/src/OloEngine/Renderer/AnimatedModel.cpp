@@ -390,54 +390,73 @@ namespace OloEngine
         // Create skeleton with the correct number of bones
         m_Skeleton = Ref<Skeleton>::Create(uniqueBoneNames.size());
 
-        // Create ordered list of bone names and build name-to-index mapping
-        std::vector<std::string> orderedBoneNames(uniqueBoneNames.begin(), uniqueBoneNames.end());
+        // Build bone hierarchy by traversing the node tree (DFS order).
+        // Assigning indices during DFS guarantees topological ordering:
+        // every parent bone receives a lower index than its children,
+        // which is required by the iterative global-transform computation.
+        // Non-bone nodes between bones have constant transforms that we
+        // accumulate into m_BonePreTransforms for animation playback.
         std::unordered_map<std::string, u32> boneNameToIndex;
-        for (u32 i = 0; i < orderedBoneNames.size(); ++i)
-        {
-            boneNameToIndex[orderedBoneNames[i]] = i;
-            m_Skeleton->m_BoneNames[i] = orderedBoneNames[i];
-            m_Skeleton->m_ParentIndices[i] = -1; // Initialize to no parent
-            m_Skeleton->m_LocalTransforms[i] = glm::mat4(1.0f);
-            m_Skeleton->m_GlobalTransforms[i] = glm::mat4(1.0f);
-            m_Skeleton->m_FinalBoneMatrices[i] = glm::mat4(1.0f);
-        }
+        u32 nextBoneIndex = 0;
 
-        // Build proper bone hierarchy by traversing the node tree
-        std::function<void(const aiNode*, i32)> traverseNode = [&](const aiNode* node, i32 parentBoneIndex)
+        std::function<void(const aiNode*, i32, const glm::mat4&)> traverseNode =
+            [&](const aiNode* node, i32 parentBoneIndex, const glm::mat4& accumulatedNonBoneTransform)
         {
             std::string nodeName = node->mName.data;
 
-            // Check if this node is a bone
-            auto it = boneNameToIndex.find(nodeName);
             i32 currentBoneIndex = -1;
-            if (it != boneNameToIndex.end())
-            {
-                currentBoneIndex = static_cast<i32>(it->second);
-                m_Skeleton->m_ParentIndices[currentBoneIndex] = parentBoneIndex;
+            glm::mat4 nextAccumulated = glm::mat4(1.0f);
 
-                // Set the node's transformation as the local transform
-                m_Skeleton->m_LocalTransforms[currentBoneIndex] = AssimpMatrixToGLM(node->mTransformation);
+            // Is this node a bone that hasn't been assigned an index yet?
+            if (uniqueBoneNames.count(nodeName) && !boneNameToIndex.count(nodeName))
+            {
+                currentBoneIndex = static_cast<i32>(nextBoneIndex);
+                boneNameToIndex[nodeName] = nextBoneIndex;
+
+                m_Skeleton->m_BoneNames[nextBoneIndex] = nodeName;
+                m_Skeleton->m_ParentIndices[nextBoneIndex] = parentBoneIndex;
+                m_Skeleton->m_LocalTransforms[nextBoneIndex] = AssimpMatrixToGLM(node->mTransformation);
+                m_Skeleton->m_BonePreTransforms[nextBoneIndex] = accumulatedNonBoneTransform;
+                m_Skeleton->m_GlobalTransforms[nextBoneIndex] = glm::mat4(1.0f);
+                m_Skeleton->m_FinalBoneMatrices[nextBoneIndex] = glm::mat4(1.0f);
+
+                ++nextBoneIndex;
+                // Reset accumulation — child bones start fresh relative to this bone
+                nextAccumulated = glm::mat4(1.0f);
+            }
+            else if (!uniqueBoneNames.count(nodeName))
+            {
+                // Non-bone node: accumulate its transform for descendant bones
+                nextAccumulated = accumulatedNonBoneTransform * AssimpMatrixToGLM(node->mTransformation);
+            }
+            else
+            {
+                // Bone already visited (DAG guard) — just propagate as parent
+                currentBoneIndex = static_cast<i32>(boneNameToIndex[nodeName]);
+                nextAccumulated = glm::mat4(1.0f);
             }
 
             // Recursively process children
             for (u32 i = 0; i < node->mNumChildren; ++i)
             {
-                traverseNode(node->mChildren[i], (currentBoneIndex != -1) ? currentBoneIndex : parentBoneIndex);
+                traverseNode(node->mChildren[i],
+                             (currentBoneIndex != -1) ? currentBoneIndex : parentBoneIndex,
+                             nextAccumulated);
             }
         };
 
-        // Start traversal from root node
-        traverseNode(scene->mRootNode, -1);
+        // Start traversal from root node with identity accumulation
+        traverseNode(scene->mRootNode, -1, glm::mat4(1.0f));
 
         // Compute initial global transforms based on hierarchy
+        // Pre-transforms account for non-bone intermediate nodes
         for (sizet i = 0; i < m_Skeleton->m_LocalTransforms.size(); ++i)
         {
             i32 parent = m_Skeleton->m_ParentIndices[i];
             if (parent >= 0)
-                m_Skeleton->m_GlobalTransforms[i] = m_Skeleton->m_GlobalTransforms[parent] * m_Skeleton->m_LocalTransforms[i];
+                m_Skeleton->m_GlobalTransforms[i] = m_Skeleton->m_GlobalTransforms[parent] * m_Skeleton->m_BonePreTransforms[i] * m_Skeleton->m_LocalTransforms[i];
             else
-                m_Skeleton->m_GlobalTransforms[i] = m_Skeleton->m_LocalTransforms[i];
+                m_Skeleton->m_GlobalTransforms[i] = m_Skeleton->m_BonePreTransforms[i] * m_Skeleton->m_LocalTransforms[i];
         }
 
         // Set up inverse bind poses and bone info map from bone offset matrices

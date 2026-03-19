@@ -61,7 +61,10 @@ layout(binding = 0) uniform sampler2D u_DepthTexture;
 shared uint s_MinDepthBits;
 shared uint s_MaxDepthBits;
 shared uint s_TileLightCount;
-shared uint s_TileLightIndices[256]; // Max lights per tile
+
+const uint MAX_SHARED_LIGHTS = 256;
+shared uint s_TileLightIndices[MAX_SHARED_LIGHTS];
+
 shared uint s_GlobalOffset;
 
 // ---------------------------------------------------------------------------
@@ -202,7 +205,7 @@ void main()
         if (sphereInTileFrustum(viewPos, radius, frustumPlanes, nearZ, farZ))
         {
             uint slot = atomicAdd(s_TileLightCount, 1u);
-            if (slot < u_MaxLightsPerTile)
+            if (slot < min(u_MaxLightsPerTile, MAX_SHARED_LIGHTS))
             {
                 s_TileLightIndices[slot] = i;
             }
@@ -220,7 +223,7 @@ void main()
         if (sphereInTileFrustum(viewPos, range, frustumPlanes, nearZ, farZ))
         {
             uint slot = atomicAdd(s_TileLightCount, 1u);
-            if (slot < u_MaxLightsPerTile)
+            if (slot < min(u_MaxLightsPerTile, MAX_SHARED_LIGHTS))
             {
                 // High bit marks spot lights
                 s_TileLightIndices[slot] = i | 0x80000000u;
@@ -232,7 +235,7 @@ void main()
     // -----------------------------------------------------------------------
     // Phase 5: Allocate global index space and write results
     // -----------------------------------------------------------------------
-    uint count = min(s_TileLightCount, u_MaxLightsPerTile);
+    uint count = min(s_TileLightCount, min(u_MaxLightsPerTile, MAX_SHARED_LIGHTS));
 
     // Thread 0 does the single global atomic allocation
     if (localIndex == 0)

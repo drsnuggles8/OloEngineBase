@@ -29,6 +29,13 @@ namespace OloEngine
         std::vector<glm::mat4> m_BindPoseMatrices; // Original bind pose global transforms
         std::vector<glm::mat4> m_InverseBindPoses; // Inverse bind pose matrices for skinning
 
+        // Accumulated non-bone ancestor transforms per bone.
+        // Between a bone and its parent bone (or scene root for root bones),
+        // there may be non-bone nodes whose transforms are constant and not
+        // affected by animation. This vector accumulates those transforms
+        // so they can be applied when computing GlobalTransforms.
+        std::vector<glm::mat4> m_BonePreTransforms;
+
         SkeletonData() = default;
 
         SkeletonData(sizet boneCount)
@@ -40,6 +47,7 @@ namespace OloEngine
             m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
             m_BindPoseMatrices.resize(boneCount, glm::mat4(1.0f));
             m_InverseBindPoses.resize(boneCount, glm::mat4(1.0f));
+            m_BonePreTransforms.resize(boneCount, glm::mat4(1.0f));
         }
 
         /**

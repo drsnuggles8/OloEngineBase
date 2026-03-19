@@ -578,6 +578,10 @@ namespace OloEngine
     void CommandDispatch::SetDepthPrepassActive(bool active)
     {
         s_Data.DepthPrepassActive = active;
+        if (active)
+        {
+            s_Data.DepthPrepassColorPassActive = false;
+        }
         // Invalidate cache so the next command re-applies state
         InvalidateRenderStateCache();
     }
@@ -585,6 +589,10 @@ namespace OloEngine
     void CommandDispatch::SetDepthPrepassColorPassActive(bool active)
     {
         s_Data.DepthPrepassColorPassActive = active;
+        if (active)
+        {
+            s_Data.DepthPrepassActive = false;
+        }
         // Invalidate cache so the next command re-applies state
         InvalidateRenderStateCache();
     }
@@ -959,6 +967,12 @@ namespace OloEngine
         // (vertex transform). Skip material, textures, normal matrix, and light UBOs.
         if (s_Data.DepthPrepassActive)
         {
+            // Camera UBO is still needed for vertex transform (u_ViewProjection)
+            if (s_Data.CameraUBO)
+            {
+                BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+            }
+
             if (s_Data.ModelMatrixUBO)
             {
                 ShaderBindingLayout::ModelUBO modelData;

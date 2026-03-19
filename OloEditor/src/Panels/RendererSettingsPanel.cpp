@@ -142,6 +142,11 @@ namespace OloEngine
                 settings.ForwardPlusTileSize = tileSizeValues[tileSizeIdx];
                 Renderer3D::ApplyRendererSettings();
             }
+            if (settings.ForwardPlusTileSize != 16)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                                   "Compute shader workgroup is 16x16; other tile sizes partially sample depth.");
+            }
 
             if (ImGui::Checkbox("Debug Heatmap Overlay", &settings.ForwardPlusDebugHeatmap))
             {

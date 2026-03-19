@@ -73,7 +73,7 @@ namespace OloEngine
         bool m_ShowSkeleton = false;
         bool m_ShowBones = true;
         bool m_ShowJoints = true;
-        f32 m_JointSize = 0.02f;
-        f32 m_BoneThickness = 2.0f;
+        f32 m_JointSize = 1.0f;
+        f32 m_BoneThickness = 1.0f;
     };
 } // namespace OloEngine

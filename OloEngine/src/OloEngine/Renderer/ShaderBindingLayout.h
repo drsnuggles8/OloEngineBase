@@ -557,6 +557,8 @@ namespace OloEngine
                     return name.contains("Water") || name.contains("water");
                 case UBO_SHADER_GRAPH:
                     return name.contains("ShaderGraph") || name.contains("shaderGraph");
+                case UBO_FORWARD_PLUS:
+                    return name.contains("ForwardPlus") || name.contains("forwardPlus");
                 default:
                     return false;
             }
@@ -662,7 +664,7 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
     int u_LightCount;
     int u_MaxLights;
     int u_ShadowCasterCount;
-    int _padding;
+    int u_DirectionalLightCount;
     LightData u_Lights[)") +
                    std::to_string(UBOStructures::MultiLightUBO::MAX_LIGHTS) + R"(];
 };)";

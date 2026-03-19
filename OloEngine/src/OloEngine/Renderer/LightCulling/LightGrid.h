@@ -25,8 +25,13 @@ namespace OloEngine
       public:
         LightGrid() = default;
         ~LightGrid() = default;
+        LightGrid(const LightGrid&) = delete;
+        LightGrid& operator=(const LightGrid&) = delete;
+        LightGrid(LightGrid&&) = delete;
+        LightGrid& operator=(LightGrid&&) = delete;
 
         void Initialize(u32 screenWidth, u32 screenHeight, const LightGridConfig& config);
+        void Shutdown();
         void Resize(u32 screenWidth, u32 screenHeight);
 
         // Bind all grid SSBOs to their shader binding points

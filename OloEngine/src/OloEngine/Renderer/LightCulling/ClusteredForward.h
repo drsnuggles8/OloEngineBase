@@ -33,6 +33,10 @@ namespace OloEngine
       public:
         ClusteredForward() = default;
         ~ClusteredForward() = default;
+        ClusteredForward(const ClusteredForward&) = delete;
+        ClusteredForward& operator=(const ClusteredForward&) = delete;
+        ClusteredForward(ClusteredForward&&) = delete;
+        ClusteredForward& operator=(ClusteredForward&&) = delete;
 
         void Initialize(u32 screenWidth, u32 screenHeight);
         void Shutdown();
@@ -95,7 +99,7 @@ namespace OloEngine
         {
             return m_LightBuffer.GetSpotLightCount();
         }
-        [[nodiscard]] u32 GetTotalCulledLightCount() const
+        [[nodiscard]] u32 GetTotalLightCount() const
         {
             return m_LightBuffer.GetPointLightCount() + m_LightBuffer.GetSpotLightCount();
         }

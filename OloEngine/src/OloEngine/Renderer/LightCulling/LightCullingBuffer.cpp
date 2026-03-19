@@ -31,6 +31,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (!m_Initialized)
+        {
+            return;
+        }
+
         m_PointLightCount = static_cast<u32>(pointLights.size());
         m_SpotLightCount = static_cast<u32>(spotLights.size());
 

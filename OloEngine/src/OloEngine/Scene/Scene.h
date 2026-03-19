@@ -186,8 +186,8 @@ namespace OloEngine
             bool ShowSkeleton = false;
             bool ShowBones = true;
             bool ShowJoints = true;
-            f32 JointSize = 0.02f;
-            f32 BoneThickness = 2.0f;
+            f32 JointSize = 1.0f;
+            f32 BoneThickness = 1.0f;
         };
 
         void SetSkeletonVisualization(const SkeletonVisualizationSettings& settings)

@@ -27,7 +27,7 @@ Tests live in `OloEngine/tests/` (GoogleTest). Use `run-tests-debug` task after 
 Wrong working dir → missing shaders/mono assemblies.
 Editing vendor code → lost on next configure.
 Forgetting serialization/component binding leads to scenes not persisting or scripts failing.
-Forgetting to run `pre-commit run --all-files` once you're finished with making changes (no need to run it twice, and no need to recompile afterwards just to see if it still works, they're just formatting changes).
+Forgetting to run `pre-commit run --all-files` once you're finished with making changes. No need to run it twice, and no need to recompile afterwards — they're just formatting changes.
 
 ## 9. Update Policy
 Keep this file synced with major architecture shifts (render backend changes, scripting API additions, asset pipeline adjustments). Remove stale sections; avoid aspirational features.

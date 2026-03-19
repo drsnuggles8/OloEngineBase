@@ -37,16 +37,20 @@ namespace OloEngine::Animation
         skeleton.m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
 
         // Compute global transforms (forward kinematics)
+        // Pre-transforms account for non-bone intermediate nodes in the hierarchy
         for (sizet i = 0; i < skeleton.m_LocalTransforms.size(); ++i)
         {
+            const glm::mat4& preTransform = (i < skeleton.m_BonePreTransforms.size())
+                                                ? skeleton.m_BonePreTransforms[i]
+                                                : glm::mat4(1.0f);
             i32 parent = skeleton.m_ParentIndices[i];
             if (parent >= 0)
             {
-                skeleton.m_GlobalTransforms[i] = skeleton.m_GlobalTransforms[parent] * skeleton.m_LocalTransforms[i];
+                skeleton.m_GlobalTransforms[i] = skeleton.m_GlobalTransforms[parent] * preTransform * skeleton.m_LocalTransforms[i];
             }
             else
             {
-                skeleton.m_GlobalTransforms[i] = skeleton.m_LocalTransforms[i];
+                skeleton.m_GlobalTransforms[i] = preTransform * skeleton.m_LocalTransforms[i];
             }
         }
 

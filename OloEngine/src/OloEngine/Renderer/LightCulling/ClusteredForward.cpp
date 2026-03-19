@@ -32,6 +32,8 @@ namespace OloEngine
 
     void ClusteredForward::Shutdown()
     {
+        m_ForwardPlusUBO.Reset();
+        m_LightGrid.Shutdown();
         m_Initialized = false;
     }
 
@@ -46,6 +48,11 @@ namespace OloEngine
     void ClusteredForward::GatherLights(const Scene& scene)
     {
         OLO_PROFILE_FUNCTION();
+
+        if (!m_Initialized)
+        {
+            return;
+        }
 
         std::vector<GPUPointLight> pointLights;
         std::vector<GPUSpotLight> spotLights;
@@ -204,7 +211,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_DebugVisualization || !m_Initialized || !debugShader)
+        if (!m_DebugVisualization || !m_Initialized || !m_ActiveThisFrame || !debugShader)
         {
             return;
         }

@@ -53,6 +53,9 @@ namespace OloEngine
         const u32 spotLightCount = lightBuffer.GetSpotLightCount();
         if (pointLightCount == 0 && spotLightCount == 0)
         {
+            // Clear stale grid data from the previous frame
+            grid.GetLightGridSSBO()->ClearData();
+            grid.ResetAtomicCounter();
             return;
         }
 

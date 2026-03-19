@@ -22,6 +22,14 @@ namespace OloEngine
                       config.DepthSlices, GetTotalClusters());
     }
 
+    void LightGrid::Shutdown()
+    {
+        m_LightIndexSSBO.Reset();
+        m_LightGridSSBO.Reset();
+        m_GlobalIndexSSBO.Reset();
+        m_Initialized = false;
+    }
+
     void LightGrid::Resize(u32 screenWidth, u32 screenHeight)
     {
         OLO_PROFILE_FUNCTION();
