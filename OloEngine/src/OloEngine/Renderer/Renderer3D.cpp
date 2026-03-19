@@ -1699,13 +1699,16 @@ namespace OloEngine
         s_Data.CameraFarClip = farClip;
     }
 
-    void Renderer3D::UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data)
+    void Renderer3D::UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data, i32 activeLightCount)
     {
         OLO_PROFILE_FUNCTION();
 
         if (s_Data.MultiLightBuffer)
         {
-            s_Data.MultiLightBuffer->SetData(&data, UBOStructures::MultiLightUBO::GetSize());
+            // Only upload header (16 bytes) + active lights to minimize CPU→GPU transfer
+            constexpr u32 headerSize = 4 * sizeof(i32); // LightCount, MaxLights, ShadowCasterCount, DirectionalLightCount
+            const u32 uploadSize = headerSize + static_cast<u32>(activeLightCount) * static_cast<u32>(sizeof(UBOStructures::MultiLightData));
+            s_Data.MultiLightBuffer->SetData(&data, uploadSize);
         }
     }
 

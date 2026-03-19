@@ -6,7 +6,11 @@ EditorPreferences:
   ScaleSnap: 0.5
   CameraFlySpeed: 5
   ShowPhysicsColliders: false
+  ShowLightGizmos: false
   Is3DMode: true
   CapturePhysicsOnPlay: false
+  ThrottleEditMode: true
+  ThrottlePlayMode: false
+  RenderBudgetMs: 33.3
   Bookmarks:
     []

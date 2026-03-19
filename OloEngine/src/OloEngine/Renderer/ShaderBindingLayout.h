@@ -66,12 +66,12 @@ namespace OloEngine
 
         struct MultiLightUBO
         {
-            static constexpr u32 MAX_LIGHTS = 32; // Maximum supported lights in the array
+            static constexpr u32 MAX_LIGHTS = 256; // Maximum supported lights in the array
 
             i32 LightCount;                    // Number of active lights
             i32 MaxLights;                     // Maximum supported lights
             i32 ShadowCasterCount;             // Number of shadow-casting lights
-            i32 Reserved;                      // Reserved for future use (16-byte alignment)
+            i32 DirectionalLightCount;         // Number of directional lights (always at start of array)
             MultiLightData Lights[MAX_LIGHTS]; // Array of light data
 
             static constexpr u32 GetSize()

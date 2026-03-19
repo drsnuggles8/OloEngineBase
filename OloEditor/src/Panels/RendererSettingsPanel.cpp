@@ -150,7 +150,7 @@ namespace OloEngine
             if (settings.ForwardPlusDebugHeatmap && !fplus.IsActive())
             {
                 ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
-                    "Heatmap requires active Forward+ (add point/spot lights).");
+                                   "Heatmap requires active Forward+ (add point/spot lights).");
             }
 
             // Runtime stats

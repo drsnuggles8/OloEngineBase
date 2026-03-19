@@ -104,8 +104,8 @@ namespace OloEngine
     }
 
     void ClusteredForward::DispatchCulling(const glm::mat4& viewMatrix,
-                                            const glm::mat4& projectionMatrix,
-                                            u32 depthTextureID)
+                                           const glm::mat4& projectionMatrix,
+                                           u32 depthTextureID)
     {
         OLO_PROFILE_FUNCTION();
 

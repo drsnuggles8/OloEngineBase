@@ -2019,6 +2019,9 @@ namespace OloEngine
                 ++lightIndex;
             }
 
+            // Record how many directional lights were collected (at the start of the array)
+            const i32 directionalLightCount = lightIndex;
+
             // Collect point lights
             u32 pointShadowIndex = 0;
             auto pointLightView = m_Registry.view<TransformComponent, PointLightComponent>();
@@ -2090,7 +2093,8 @@ namespace OloEngine
 
             multiLightData.LightCount = lightIndex;
             multiLightData.MaxLights = static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
-            Renderer3D::UploadMultiLightUBO(multiLightData);
+            multiLightData.DirectionalLightCount = directionalLightCount;
+            Renderer3D::UploadMultiLightUBO(multiLightData, lightIndex);
 
             // Gather lights for Forward+ tile-based culling
             Renderer3D::GetForwardPlus().GatherLights(*this);

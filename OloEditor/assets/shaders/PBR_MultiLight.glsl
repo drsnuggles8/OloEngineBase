@@ -66,7 +66,7 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
     int u_LightCount;
     int u_MaxLights;
     int u_ShadowCasterCount;
-    int _padding;
+    int u_DirectionalLightCount;
     LightData u_Lights[MAX_LIGHTS];
 };
 
@@ -213,14 +213,12 @@ void main()
     }
 
     // UBO light loop: when Forward+ is active, only evaluate directional lights
-    // (which bypass tile culling). When Forward+ is off, evaluate all lights.
-    for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
+    // (stored at the start of the array). When Forward+ is off, evaluate all lights.
+    int loopCount = fplusActive ? min(u_DirectionalLightCount, MAX_LIGHTS)
+                                : min(u_LightCount, MAX_LIGHTS);
+    for (int i = 0; i < loopCount; ++i)
     {
         int lightType = int(u_Lights[i].position.w);
-
-        // Skip point/spot lights when Forward+ handles them
-        if (fplusActive && lightType != DIRECTIONAL_LIGHT)
-            continue;
 
         vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
         if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)

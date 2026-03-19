@@ -38,7 +38,7 @@
 // =============================================================================
 #define GAMMA 2.2
 #define INV_GAMMA 0.45454545455
-#define MAX_LIGHTS 32
+#define MAX_LIGHTS 256
 #define MAX_BONES 100
 
 // Tone mapping constants

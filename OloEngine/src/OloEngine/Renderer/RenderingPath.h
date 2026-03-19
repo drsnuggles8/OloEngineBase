@@ -12,8 +12,8 @@ namespace OloEngine
     // without restructuring the existing pipeline.
     enum class RenderingPath : u8
     {
-        Forward,      // Classic forward: all lights via UBO loop (low overhead, < ~8 lights)
-        ForwardPlus,  // Tiled Forward+: compute-culled per-tile light lists (scales to 256+ lights)
+        Forward,     // Classic forward: all lights via UBO loop (low overhead, < ~8 lights)
+        ForwardPlus, // Tiled Forward+: compute-culled per-tile light lists (scales to 256+ lights)
 
         // ----- Future paths (reserved, not yet implemented) -----
         // Deferred,         // G-buffer + fullscreen lighting pass
@@ -40,8 +40,8 @@ namespace OloEngine
 
         // --- Forward+ tuning (when Path == ForwardPlus or Auto) ---
         bool ForwardPlusAutoSwitch = true; // Auto-switch from Forward to Forward+ at threshold
-        u32  ForwardPlusLightThreshold = 8;
-        u32  ForwardPlusTileSize = 16;     // 8, 16, or 32
+        u32 ForwardPlusLightThreshold = 8;
+        u32 ForwardPlusTileSize = 16; // 8, 16, or 32
         bool ForwardPlusDebugHeatmap = false;
 
         // --- Debug overlays ---

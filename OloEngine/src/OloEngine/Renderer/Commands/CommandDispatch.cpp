@@ -50,6 +50,7 @@ namespace OloEngine
         glm::vec3 ViewPos = glm::vec3(0.0f);
 
         u32 CurrentBoundShaderID = 0;
+        u32 CurrentBoundVAO = 0;
         u16 LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
         u16 LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         std::array<u32, 32> BoundTextureIDs = { 0 };
@@ -96,6 +97,16 @@ namespace OloEngine
             s_Data.BoundUBOIDs[bindingPoint] = rendererID;
         }
         glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint, rendererID);
+    }
+
+    // Conditionally bind a VAO only when it differs from the currently bound one.
+    static void BindVAOIfNeeded(u32 vaoID)
+    {
+        if (s_Data.CurrentBoundVAO != vaoID)
+        {
+            glBindVertexArray(vaoID);
+            s_Data.CurrentBoundVAO = vaoID;
+        }
     }
 
     // Helper to apply POD render state to the renderer API (skips if same index as last)
@@ -545,6 +556,7 @@ namespace OloEngine
     void CommandDispatch::ResetState()
     {
         s_Data.CurrentBoundShaderID = 0;
+        s_Data.CurrentBoundVAO = 0;
         s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
         s_Data.LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         s_Data.BoundTextureIDs.fill(0);
@@ -867,8 +879,8 @@ namespace OloEngine
             return;
         }
 
-        // Bind VAO directly using renderer ID
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw
+        BindVAOIfNeeded(cmd->vertexArrayID);
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), cmd->indexType, nullptr);
     }
 
@@ -882,8 +894,8 @@ namespace OloEngine
             return;
         }
 
-        // Bind VAO directly using renderer ID
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw instanced
+        BindVAOIfNeeded(cmd->vertexArrayID);
         glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), cmd->indexType, nullptr, static_cast<GLsizei>(cmd->instanceCount));
     }
 
@@ -897,8 +909,8 @@ namespace OloEngine
             return;
         }
 
-        // Bind VAO directly using renderer ID
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw arrays
+        BindVAOIfNeeded(cmd->vertexArrayID);
         glDrawArrays(cmd->primitiveType, 0, static_cast<GLsizei>(cmd->vertexCount));
     }
 
@@ -912,8 +924,8 @@ namespace OloEngine
             return;
         }
 
-        // Bind VAO directly using renderer ID
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw lines
+        BindVAOIfNeeded(cmd->vertexArrayID);
         glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(cmd->vertexCount));
     }
 
@@ -943,48 +955,73 @@ namespace OloEngine
             ++s_Data.Stats.ShaderBinds;
         }
 
-        // Camera and Light UBO data is uploaded once per frame in BeginSceneCommon
-        // (via UpdateCameraMatricesUBO / UpdateLightPropertiesUBO), but their
-        // binding points may be overwritten by other subsystem UBOs (e.g.
-        // ShadowMap creates its own Camera UBO at the same binding point).
-        // Re-establish the binding so shaders read the correct scene-camera buffer.
-        if (s_Data.CameraUBO)
+        // During depth prepass, only the model matrix and bones are needed
+        // (vertex transform). Skip material, textures, normal matrix, and light UBOs.
+        if (s_Data.DepthPrepassActive)
         {
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
-        }
+            if (s_Data.ModelMatrixUBO)
+            {
+                ShaderBindingLayout::ModelUBO modelData;
+                modelData.Model = cmd->transform;
+                modelData.Normal = glm::mat4(1.0f); // Not used in depth-only pass
+                modelData.EntityID = cmd->entityID;
+                modelData._paddingEntity[0] = 0;
+                modelData._paddingEntity[1] = 0;
+                modelData._paddingEntity[2] = 0;
 
-        if (s_Data.LightUBO)
+                constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
+                s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
+                BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            }
+
+            // Bone matrices are still needed for skinned mesh vertex positions
+            UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount);
+        }
+        else
         {
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
+            // Camera and Light UBO data is uploaded once per frame in BeginSceneCommon
+            // (via UpdateCameraMatricesUBO / UpdateLightPropertiesUBO), but their
+            // binding points may be overwritten by other subsystem UBOs (e.g.
+            // ShadowMap creates its own Camera UBO at the same binding point).
+            // Re-establish the binding so shaders read the correct scene-camera buffer.
+            if (s_Data.CameraUBO)
+            {
+                BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+            }
+
+            if (s_Data.LightUBO)
+            {
+                BindUBOIfNeeded(ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
+            }
+
+            // Update model matrix UBO
+            if (s_Data.ModelMatrixUBO)
+            {
+                ShaderBindingLayout::ModelUBO modelData;
+                modelData.Model = cmd->transform;
+                modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
+                modelData.EntityID = cmd->entityID;
+                modelData._paddingEntity[0] = 0;
+                modelData._paddingEntity[1] = 0;
+                modelData._paddingEntity[2] = 0;
+
+                constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
+                static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
+
+                s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
+                BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+            }
+
+            // Material UBO + texture bindings (skipped when material unchanged)
+            UploadMaterialState(mat, cmd->materialDataIndex);
+
+            // Shadow/snow textures (per-frame, outside material diffing)
+            if (mat.enablePBR)
+                BindShadowTextures();
+
+            // Bone matrices
+            UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount);
         }
-
-        // Update model matrix UBO
-        if (s_Data.ModelMatrixUBO)
-        {
-            ShaderBindingLayout::ModelUBO modelData;
-            modelData.Model = cmd->transform;
-            modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
-            modelData.EntityID = cmd->entityID;
-            modelData._paddingEntity[0] = 0;
-            modelData._paddingEntity[1] = 0;
-            modelData._paddingEntity[2] = 0;
-
-            constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
-            static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
-
-            s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
-        }
-
-        // Material UBO + texture bindings (skipped when material unchanged)
-        UploadMaterialState(mat, cmd->materialDataIndex);
-
-        // Shadow/snow textures (per-frame, outside material diffing)
-        if (mat.enablePBR)
-            BindShadowTextures();
-
-        // Bone matrices
-        UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount);
 
         if (cmd->indexCount == 0)
         {
@@ -992,8 +1029,8 @@ namespace OloEngine
             return;
         }
 
-        // Bind VAO and draw using renderer ID directly
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw
+        BindVAOIfNeeded(cmd->vertexArrayID);
 
         // Conditional rendering: GPU skips draw if occlusion query indicates fully occluded
         bool startedConditionalRender = false;
@@ -1089,8 +1126,8 @@ namespace OloEngine
             return;
         }
 
-        // Bind VAO and draw using renderer ID directly
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw instanced
+        BindVAOIfNeeded(cmd->vertexArrayID);
         ++s_Data.Stats.DrawCalls;
         glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(instanceCount));
     }
@@ -1134,8 +1171,8 @@ namespace OloEngine
             ++s_Data.Stats.TextureBinds;
         }
 
-        // Bind vertex array and draw using renderer ID directly
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw
+        BindVAOIfNeeded(cmd->vertexArrayID);
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
 
         // Update statistics
@@ -1199,8 +1236,8 @@ namespace OloEngine
             ++s_Data.Stats.TextureBinds;
         }
 
-        // Bind VAO and draw using renderer ID directly
-        glBindVertexArray(cmd->quadVAID);
+        // Bind VAO (cached) and draw quad
+        BindVAOIfNeeded(cmd->quadVAID);
         ++s_Data.Stats.DrawCalls;
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
     }
@@ -1243,8 +1280,8 @@ namespace OloEngine
             glUniform1f(gridScaleLoc, cmd->gridScale);
         }
 
-        // Bind fullscreen quad VAO and draw
-        glBindVertexArray(cmd->quadVAOID);
+        // Bind fullscreen quad VAO (cached) and draw
+        BindVAOIfNeeded(cmd->quadVAOID);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
         ++s_Data.Stats.DrawCalls;
@@ -1382,8 +1419,8 @@ namespace OloEngine
             }
         }
 
-        // Draw with GL_PATCHES for tessellation
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw with GL_PATCHES
+        BindVAOIfNeeded(cmd->vertexArrayID);
         glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(cmd->patchVertexCount));
         glDrawElements(GL_PATCHES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
         ++s_Data.Stats.DrawCalls;
@@ -1470,8 +1507,8 @@ namespace OloEngine
             glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
         }
 
-        // Draw with GL_TRIANGLES
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw
+        BindVAOIfNeeded(cmd->vertexArrayID);
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
         ++s_Data.Stats.DrawCalls;
     }
@@ -1534,8 +1571,8 @@ namespace OloEngine
             }
         }
 
-        // Draw the decal projection cube
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw decal cube
+        BindVAOIfNeeded(cmd->vertexArrayID);
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
         ++s_Data.Stats.DrawCalls;
     }
@@ -1602,8 +1639,8 @@ namespace OloEngine
             }
         }
 
-        // Draw instanced foliage quads
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw instanced foliage
+        BindVAOIfNeeded(cmd->vertexArrayID);
         glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(cmd->instanceCount));
         ++s_Data.Stats.DrawCalls;
     }
@@ -1657,8 +1694,8 @@ namespace OloEngine
             glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_WATER, waterUBO->GetRendererID());
         }
 
-        // Draw water mesh
-        glBindVertexArray(cmd->vertexArrayID);
+        // Bind VAO (cached) and draw water
+        BindVAOIfNeeded(cmd->vertexArrayID);
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
         ++s_Data.Stats.DrawCalls;
     }

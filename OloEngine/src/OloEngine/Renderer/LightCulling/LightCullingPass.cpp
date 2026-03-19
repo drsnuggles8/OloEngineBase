@@ -32,10 +32,10 @@ namespace OloEngine
     }
 
     void LightCullingPass::Dispatch(LightGrid& grid,
-                                     const LightCullingBuffer& lightBuffer,
-                                     const glm::mat4& viewMatrix,
-                                     const glm::mat4& projectionMatrix,
-                                     u32 depthTextureID)
+                                    const LightCullingBuffer& lightBuffer,
+                                    const glm::mat4& viewMatrix,
+                                    const glm::mat4& projectionMatrix,
+                                    u32 depthTextureID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -72,7 +72,7 @@ namespace OloEngine
         // Bind and set uniforms on the compute shader
         m_CullingShader->Bind();
         m_CullingShader->SetMat4("u_ViewMatrix", viewMatrix);
-        m_CullingShader->SetMat4("u_ProjectionMatrix", projectionMatrix);
+        m_CullingShader->SetMat4("u_InverseProjectionMatrix", glm::inverse(projectionMatrix));
         m_CullingShader->SetUint("u_ScreenWidth", grid.GetScreenWidth());
         m_CullingShader->SetUint("u_ScreenHeight", grid.GetScreenHeight());
         m_CullingShader->SetUint("u_PointLightCount", pointLightCount);

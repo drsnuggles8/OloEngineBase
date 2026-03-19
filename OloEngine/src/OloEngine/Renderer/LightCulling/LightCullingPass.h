@@ -16,7 +16,7 @@ namespace OloEngine
     // the color pass within SceneRenderPass::Execute().
     class LightCullingPass
     {
-    public:
+      public:
         LightCullingPass() = default;
         ~LightCullingPass() = default;
 
@@ -32,7 +32,7 @@ namespace OloEngine
 
         [[nodiscard]] bool IsValid() const;
 
-    private:
+      private:
         Ref<ComputeShader> m_CullingShader;
     };
 } // namespace OloEngine

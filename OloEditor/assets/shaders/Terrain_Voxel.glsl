@@ -59,7 +59,7 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
     int u_LightCount;
     int u_MaxLights;
     int u_ShadowCasterCount;
-    int _padding;
+    int u_DirectionalLightCount;
     LightData u_Lights[MAX_LIGHTS];
 };
 

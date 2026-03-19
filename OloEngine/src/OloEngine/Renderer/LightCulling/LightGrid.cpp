@@ -48,16 +48,22 @@ namespace OloEngine
 
     void LightGrid::Bind() const
     {
-        if (m_LightIndexSSBO) m_LightIndexSSBO->Bind();
-        if (m_LightGridSSBO) m_LightGridSSBO->Bind();
-        if (m_GlobalIndexSSBO) m_GlobalIndexSSBO->Bind();
+        if (m_LightIndexSSBO)
+            m_LightIndexSSBO->Bind();
+        if (m_LightGridSSBO)
+            m_LightGridSSBO->Bind();
+        if (m_GlobalIndexSSBO)
+            m_GlobalIndexSSBO->Bind();
     }
 
     void LightGrid::Unbind() const
     {
-        if (m_LightIndexSSBO) m_LightIndexSSBO->Unbind();
-        if (m_LightGridSSBO) m_LightGridSSBO->Unbind();
-        if (m_GlobalIndexSSBO) m_GlobalIndexSSBO->Unbind();
+        if (m_LightIndexSSBO)
+            m_LightIndexSSBO->Unbind();
+        if (m_LightGridSSBO)
+            m_LightGridSSBO->Unbind();
+        if (m_GlobalIndexSSBO)
+            m_GlobalIndexSSBO->Unbind();
     }
 
     void LightGrid::ResetAtomicCounter()

@@ -438,8 +438,8 @@ namespace OloEngine
         // Scene light collection (collects light components from scene)
         static void SetSceneLights(const Ref<Scene>& scene);
 
-        // Upload multi-light UBO data for the current frame
-        static void UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data);
+        // Upload multi-light UBO data for the current frame (partial: only header + activeLightCount lights)
+        static void UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data, i32 activeLightCount);
 
         // Upload light probe volume parameters and SH coefficient data
         static void UploadLightProbeData(const ShaderBindingLayout::LightProbeVolumeUBO& uboData,

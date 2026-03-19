@@ -147,7 +147,7 @@ TEST(ForwardPlus, SpotLightPacking)
     sl.ColorAndIntensity = glm::vec4(1.0f, 1.0f, 1.0f, 3.0f);
     sl.SpotParams = glm::vec4(0.95f, 2.0f, 0.0f, 0.0f);
 
-    EXPECT_FLOAT_EQ(sl.DirectionAndAngle.w, 0.9f);  // cos(outerAngle)
-    EXPECT_FLOAT_EQ(sl.SpotParams.x, 0.95f);         // cos(innerAngle)
-    EXPECT_FLOAT_EQ(sl.SpotParams.y, 2.0f);           // falloff
+    EXPECT_FLOAT_EQ(sl.DirectionAndAngle.w, 0.9f); // cos(outerAngle)
+    EXPECT_FLOAT_EQ(sl.SpotParams.x, 0.95f);       // cos(innerAngle)
+    EXPECT_FLOAT_EQ(sl.SpotParams.y, 2.0f);        // falloff
 }

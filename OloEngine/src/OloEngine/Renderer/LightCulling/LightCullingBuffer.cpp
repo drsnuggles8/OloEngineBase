@@ -27,7 +27,7 @@ namespace OloEngine
     }
 
     void LightCullingBuffer::Update(const std::vector<GPUPointLight>& pointLights,
-                                     const std::vector<GPUSpotLight>& spotLights)
+                                    const std::vector<GPUSpotLight>& spotLights)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -58,13 +58,17 @@ namespace OloEngine
 
     void LightCullingBuffer::Bind() const
     {
-        if (m_PointLightSSBO) m_PointLightSSBO->Bind();
-        if (m_SpotLightSSBO) m_SpotLightSSBO->Bind();
+        if (m_PointLightSSBO)
+            m_PointLightSSBO->Bind();
+        if (m_SpotLightSSBO)
+            m_SpotLightSSBO->Bind();
     }
 
     void LightCullingBuffer::Unbind() const
     {
-        if (m_PointLightSSBO) m_PointLightSSBO->Unbind();
-        if (m_SpotLightSSBO) m_SpotLightSSBO->Unbind();
+        if (m_PointLightSSBO)
+            m_PointLightSSBO->Unbind();
+        if (m_SpotLightSSBO)
+            m_SpotLightSSBO->Unbind();
     }
 } // namespace OloEngine

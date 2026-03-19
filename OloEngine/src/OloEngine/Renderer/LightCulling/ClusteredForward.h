@@ -17,9 +17,9 @@ namespace OloEngine
     // @brief Forward+ rendering mode
     enum class ForwardPlusMode : u8
     {
-        Auto,      // Use Forward+ when light count exceeds threshold
-        Always,    // Always use Forward+ (even with few lights)
-        Never      // Disabled — always use simple forward
+        Auto,   // Use Forward+ when light count exceeds threshold
+        Always, // Always use Forward+ (even with few lights)
+        Never   // Disabled — always use simple forward
     };
 
     // @brief High-level Forward+ integration for SceneRenderPass.
@@ -30,7 +30,7 @@ namespace OloEngine
     // before the color pass.
     class ClusteredForward
     {
-    public:
+      public:
         ClusteredForward() = default;
         ~ClusteredForward() = default;
 
@@ -59,31 +59,70 @@ namespace OloEngine
         [[nodiscard]] bool ShouldUseForwardPlus() const;
 
         // Configuration
-        void SetMode(ForwardPlusMode mode) { m_Mode = mode; }
-        [[nodiscard]] ForwardPlusMode GetMode() const { return m_Mode; }
+        void SetMode(ForwardPlusMode mode)
+        {
+            m_Mode = mode;
+        }
+        [[nodiscard]] ForwardPlusMode GetMode() const
+        {
+            return m_Mode;
+        }
 
         void SetTileSize(u32 tileSize);
         void SetDepthSlices(u32 slices);
-        void SetLightCountThreshold(u32 threshold) { m_LightCountThreshold = threshold; }
+        void SetLightCountThreshold(u32 threshold)
+        {
+            m_LightCountThreshold = threshold;
+        }
 
         // Debug
-        void SetDebugVisualization(bool enabled) { m_DebugVisualization = enabled; }
-        [[nodiscard]] bool IsDebugVisualization() const { return m_DebugVisualization; }
+        void SetDebugVisualization(bool enabled)
+        {
+            m_DebugVisualization = enabled;
+        }
+        [[nodiscard]] bool IsDebugVisualization() const
+        {
+            return m_DebugVisualization;
+        }
         void RenderDebugOverlay(u32 fullscreenQuadVAO, const Ref<Shader>& debugShader);
 
         // Stats
-        [[nodiscard]] u32 GetPointLightCount() const { return m_LightBuffer.GetPointLightCount(); }
-        [[nodiscard]] u32 GetSpotLightCount() const { return m_LightBuffer.GetSpotLightCount(); }
-        [[nodiscard]] u32 GetTotalCulledLightCount() const { return m_LightBuffer.GetPointLightCount() + m_LightBuffer.GetSpotLightCount(); }
-        [[nodiscard]] u32 GetTileCountX() const { return m_LightGrid.GetTileCountX(); }
-        [[nodiscard]] u32 GetTileCountY() const { return m_LightGrid.GetTileCountY(); }
-        [[nodiscard]] bool IsInitialized() const { return m_Initialized; }
-        [[nodiscard]] bool IsActive() const { return m_ActiveThisFrame; }
+        [[nodiscard]] u32 GetPointLightCount() const
+        {
+            return m_LightBuffer.GetPointLightCount();
+        }
+        [[nodiscard]] u32 GetSpotLightCount() const
+        {
+            return m_LightBuffer.GetSpotLightCount();
+        }
+        [[nodiscard]] u32 GetTotalCulledLightCount() const
+        {
+            return m_LightBuffer.GetPointLightCount() + m_LightBuffer.GetSpotLightCount();
+        }
+        [[nodiscard]] u32 GetTileCountX() const
+        {
+            return m_LightGrid.GetTileCountX();
+        }
+        [[nodiscard]] u32 GetTileCountY() const
+        {
+            return m_LightGrid.GetTileCountY();
+        }
+        [[nodiscard]] bool IsInitialized() const
+        {
+            return m_Initialized;
+        }
+        [[nodiscard]] bool IsActive() const
+        {
+            return m_ActiveThisFrame;
+        }
 
         // Access grid for debug visualization
-        [[nodiscard]] const LightGrid& GetLightGrid() const { return m_LightGrid; }
+        [[nodiscard]] const LightGrid& GetLightGrid() const
+        {
+            return m_LightGrid;
+        }
 
-    private:
+      private:
         LightGrid m_LightGrid;
         LightCullingBuffer m_LightBuffer;
         LightCullingPass m_CullingPass;

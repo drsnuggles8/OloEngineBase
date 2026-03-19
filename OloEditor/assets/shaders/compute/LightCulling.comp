@@ -1,14 +1,14 @@
 #version 460 core
 
 // =============================================================================
-// LightCulling.comp — Forward+ tile-based light culling
+// LightCulling.comp — Forward+ tile-based light culling (parallel)
 //
-// Each workgroup handles one screen-space tile (1 invocation per tile).
-// We use a single invocation per tile (local_size = 1,1,1) for simplicity;
-// the dispatch grid dimensions equal the tile grid dimensions.
+// Each workgroup handles one 16x16 screen-space tile with 256 threads.
+// Threads cooperatively sample depth, cull lights in parallel, and write
+// the per-tile light list using shared memory.
 // =============================================================================
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 // ---------------------------------------------------------------------------
 // GPU light structures (must match C++ GPUPointLight / GPUSpotLight)
@@ -43,7 +43,7 @@ layout(std430, binding = 13) buffer GlobalIndexBuf          { uint globalIndex; 
 // ---------------------------------------------------------------------------
 
 uniform mat4  u_ViewMatrix;
-uniform mat4  u_ProjectionMatrix;
+uniform mat4  u_InverseProjectionMatrix;
 uniform uint  u_ScreenWidth;
 uniform uint  u_ScreenHeight;
 uniform uint  u_PointLightCount;
@@ -55,6 +55,16 @@ uniform uint  u_MaxLightsPerTile;
 layout(binding = 0) uniform sampler2D u_DepthTexture;
 
 // ---------------------------------------------------------------------------
+// Shared memory for parallel depth reduction and light list accumulation
+// ---------------------------------------------------------------------------
+
+shared uint s_MinDepthBits;
+shared uint s_MaxDepthBits;
+shared uint s_TileLightCount;
+shared uint s_TileLightIndices[256]; // Max lights per tile
+shared uint s_GlobalOffset;
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -62,7 +72,7 @@ layout(binding = 0) uniform sampler2D u_DepthTexture;
 vec3 screenToView(vec2 uv, float depth)
 {
     vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-    vec4 view = inverse(u_ProjectionMatrix) * clip;
+    vec4 view = u_InverseProjectionMatrix * clip;
     return view.xyz / view.w;
 }
 
@@ -93,9 +103,6 @@ void buildTileFrustumPlanes(uvec2 tileMin, uvec2 tileMax,
     vec2 ndcMin = vec2(tileMin) / vec2(u_ScreenWidth, u_ScreenHeight) * 2.0 - 1.0;
     vec2 ndcMax = vec2(tileMax) / vec2(u_ScreenWidth, u_ScreenHeight) * 2.0 - 1.0;
 
-    // Eye position (origin in view space)
-    vec3 eye = vec3(0.0);
-
     // Corner positions at near plane in view space
     vec3 topLeft     = screenToView(vec2(ndcMin.x * 0.5 + 0.5, ndcMax.y * 0.5 + 0.5), 0.0);
     vec3 topRight    = screenToView(vec2(ndcMax.x * 0.5 + 0.5, ndcMax.y * 0.5 + 0.5), 0.0);
@@ -125,84 +132,125 @@ void main()
 {
     uvec2 tileID = gl_WorkGroupID.xy;
     uint tileIndex = tileID.y * gl_NumWorkGroups.x + tileID.x;
+    uint localIndex = gl_LocalInvocationIndex; // 0..255
 
-    // Tile pixel bounds
-    uvec2 tileMin = tileID * u_TileSizePixels;
-    uvec2 tileMax = min(tileMin + u_TileSizePixels, uvec2(u_ScreenWidth, u_ScreenHeight));
-
-    // Compute min/max depth for this tile by sampling the depth buffer
-    float minDepth = 1.0;
-    float maxDepth = 0.0;
-
-    // Sample at tile center for coarse depth (more samples = better culling but slower)
-    uint stepSize = max(u_TileSizePixels / 4u, 1u);
-    for (uint y = tileMin.y; y < tileMax.y; y += stepSize)
+    // -----------------------------------------------------------------------
+    // Phase 1: Initialize shared memory
+    // -----------------------------------------------------------------------
+    if (localIndex == 0)
     {
-        for (uint x = tileMin.x; x < tileMax.x; x += stepSize)
-        {
-            vec2 uv = (vec2(x, y) + 0.5) / vec2(u_ScreenWidth, u_ScreenHeight);
-            float d = texture(u_DepthTexture, uv).r;
-            minDepth = min(minDepth, d);
-            maxDepth = max(maxDepth, d);
-        }
+        s_MinDepthBits = 0xFFFFFFFFu;
+        s_MaxDepthBits = 0u;
+        s_TileLightCount = 0u;
+    }
+    barrier();
+
+    // -----------------------------------------------------------------------
+    // Phase 2: Parallel depth reduction — each thread samples one pixel
+    // -----------------------------------------------------------------------
+    uvec2 tileMin = tileID * u_TileSizePixels;
+    uvec2 pixelCoord = tileMin + gl_LocalInvocationID.xy;
+
+    if (pixelCoord.x < u_ScreenWidth && pixelCoord.y < u_ScreenHeight)
+    {
+        vec2 uv = (vec2(pixelCoord) + 0.5) / vec2(u_ScreenWidth, u_ScreenHeight);
+        float depth = texture(u_DepthTexture, uv).r;
+
+        // floatBitsToUint preserves ordering for non-negative floats
+        uint depthBits = floatBitsToUint(depth);
+        atomicMin(s_MinDepthBits, depthBits);
+        atomicMax(s_MaxDepthBits, depthBits);
+    }
+    barrier();
+
+    // -----------------------------------------------------------------------
+    // Phase 3: Build tile frustum (all threads compute the same result —
+    //          redundant but avoids a broadcast and is fast)
+    // -----------------------------------------------------------------------
+    float minDepth = uintBitsToFloat(s_MinDepthBits);
+    float maxDepth = uintBitsToFloat(s_MaxDepthBits);
+
+    // Handle empty tiles (no geometry)
+    if (minDepth >= maxDepth)
+    {
+        minDepth = 0.0;
+        maxDepth = 1.0;
     }
 
-    // Convert depth to view-space Z
     vec3 nearPoint = screenToView(vec2(0.5), minDepth);
     vec3 farPoint  = screenToView(vec2(0.5), maxDepth);
     float nearZ = nearPoint.z;  // Less negative = nearer
     float farZ  = farPoint.z;   // More negative = farther
 
-    // Build tile frustum planes
+    uvec2 tileMax = min(tileMin + u_TileSizePixels, uvec2(u_ScreenWidth, u_ScreenHeight));
     vec4 frustumPlanes[4];
     buildTileFrustumPlanes(tileMin, tileMax, nearZ, farZ, frustumPlanes);
 
-    // Cull point lights
-    uint localCount = 0;
-    uint localIndices[256]; // Stack-local, limited by u_MaxLightsPerTile
+    // -----------------------------------------------------------------------
+    // Phase 4: Parallel light culling — threads stride across all lights
+    // -----------------------------------------------------------------------
+    uint threadCount = gl_WorkGroupSize.x * gl_WorkGroupSize.y; // 256
 
-    for (uint i = 0; i < u_PointLightCount && localCount < u_MaxLightsPerTile; ++i)
+    // Point lights
+    for (uint i = localIndex; i < u_PointLightCount; i += threadCount)
     {
         vec3 worldPos = pointLights[i].PositionAndRadius.xyz;
         float radius  = pointLights[i].PositionAndRadius.w;
 
-        // Transform to view space
         vec3 viewPos = (u_ViewMatrix * vec4(worldPos, 1.0)).xyz;
 
         if (sphereInTileFrustum(viewPos, radius, frustumPlanes, nearZ, farZ))
         {
-            localIndices[localCount] = i;
-            localCount++;
+            uint slot = atomicAdd(s_TileLightCount, 1u);
+            if (slot < u_MaxLightsPerTile)
+            {
+                s_TileLightIndices[slot] = i;
+            }
         }
     }
 
-    // Cull spot lights (bounding sphere approximation)
-    // Spot light index starts after point lights in the global index list
-    for (uint i = 0; i < u_SpotLightCount && localCount < u_MaxLightsPerTile; ++i)
+    // Spot lights (bounding sphere approximation)
+    for (uint i = localIndex; i < u_SpotLightCount; i += threadCount)
     {
         vec3 worldPos = spotLights[i].PositionAndRadius.xyz;
         float range   = spotLights[i].PositionAndRadius.w;
 
         vec3 viewPos = (u_ViewMatrix * vec4(worldPos, 1.0)).xyz;
 
-        // Use range as bounding sphere radius (conservative)
         if (sphereInTileFrustum(viewPos, range, frustumPlanes, nearZ, farZ))
         {
-            // Encode spot lights with high bit set to distinguish from point lights
-            localIndices[localCount] = i | 0x80000000u;
-            localCount++;
+            uint slot = atomicAdd(s_TileLightCount, 1u);
+            if (slot < u_MaxLightsPerTile)
+            {
+                // High bit marks spot lights
+                s_TileLightIndices[slot] = i | 0x80000000u;
+            }
         }
     }
+    barrier();
 
-    // Atomic append to global light index list
-    uint globalOffset = atomicAdd(globalIndex, localCount);
+    // -----------------------------------------------------------------------
+    // Phase 5: Allocate global index space and write results
+    // -----------------------------------------------------------------------
+    uint count = min(s_TileLightCount, u_MaxLightsPerTile);
 
-    // Write to global arrays
-    for (uint i = 0; i < localCount; ++i)
+    // Thread 0 does the single global atomic allocation
+    if (localIndex == 0)
     {
-        lightIndices[globalOffset + i] = localIndices[i];
+        s_GlobalOffset = atomicAdd(globalIndex, count);
+    }
+    barrier();
+
+    // All threads cooperatively copy from shared to global
+    uint offset = s_GlobalOffset;
+    for (uint i = localIndex; i < count; i += threadCount)
+    {
+        lightIndices[offset + i] = s_TileLightIndices[i];
     }
 
-    // Write tile grid entry
-    grid[tileIndex] = uvec2(globalOffset, localCount);
+    // Thread 0 writes the grid entry
+    if (localIndex == 0)
+    {
+        grid[tileIndex] = uvec2(offset, count);
+    }
 }

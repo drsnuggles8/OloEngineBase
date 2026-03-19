@@ -15,7 +15,7 @@ namespace OloEngine
     // bypass culling and are still handled via UBO (they affect all tiles).
     class LightCullingBuffer
     {
-    public:
+      public:
         LightCullingBuffer() = default;
         ~LightCullingBuffer() = default;
 
@@ -28,13 +28,28 @@ namespace OloEngine
         void Bind() const;
         void Unbind() const;
 
-        [[nodiscard]] u32 GetPointLightCount() const { return m_PointLightCount; }
-        [[nodiscard]] u32 GetSpotLightCount() const { return m_SpotLightCount; }
-        [[nodiscard]] const Ref<StorageBuffer>& GetPointLightSSBO() const { return m_PointLightSSBO; }
-        [[nodiscard]] const Ref<StorageBuffer>& GetSpotLightSSBO() const { return m_SpotLightSSBO; }
-        [[nodiscard]] bool IsInitialized() const { return m_Initialized; }
+        [[nodiscard]] u32 GetPointLightCount() const
+        {
+            return m_PointLightCount;
+        }
+        [[nodiscard]] u32 GetSpotLightCount() const
+        {
+            return m_SpotLightCount;
+        }
+        [[nodiscard]] const Ref<StorageBuffer>& GetPointLightSSBO() const
+        {
+            return m_PointLightSSBO;
+        }
+        [[nodiscard]] const Ref<StorageBuffer>& GetSpotLightSSBO() const
+        {
+            return m_SpotLightSSBO;
+        }
+        [[nodiscard]] bool IsInitialized() const
+        {
+            return m_Initialized;
+        }
 
-    private:
+      private:
         Ref<StorageBuffer> m_PointLightSSBO;
         Ref<StorageBuffer> m_SpotLightSSBO;
         u32 m_PointLightCount = 0;
