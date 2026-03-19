@@ -1,0 +1,208 @@
+#version 460 core
+
+// =============================================================================
+// LightCulling.comp — Forward+ tile-based light culling
+//
+// Each workgroup handles one screen-space tile (1 invocation per tile).
+// We use a single invocation per tile (local_size = 1,1,1) for simplicity;
+// the dispatch grid dimensions equal the tile grid dimensions.
+// =============================================================================
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+// ---------------------------------------------------------------------------
+// GPU light structures (must match C++ GPUPointLight / GPUSpotLight)
+// ---------------------------------------------------------------------------
+
+struct GPUPointLight
+{
+    vec4 PositionAndRadius;    // xyz = world pos, w = range
+    vec4 ColorAndIntensity;    // xyz = color, w = intensity
+};
+
+struct GPUSpotLight
+{
+    vec4 PositionAndRadius;    // xyz = world pos, w = range
+    vec4 DirectionAndAngle;    // xyz = dir, w = cos(outerAngle)
+    vec4 ColorAndIntensity;    // xyz = color, w = intensity
+    vec4 SpotParams;           // x = cos(innerAngle), y = falloff, zw = 0
+};
+
+// ---------------------------------------------------------------------------
+// SSBOs — bindings match ShaderBindingLayout constants
+// ---------------------------------------------------------------------------
+
+layout(std430, binding = 9)  readonly buffer PointLightBuf  { GPUPointLight pointLights[]; };
+layout(std430, binding = 10) readonly buffer SpotLightBuf   { GPUSpotLight  spotLights[];  };
+layout(std430, binding = 11) writeonly buffer LightIndexBuf  { uint lightIndices[];         };
+layout(std430, binding = 12) buffer LightGridBuf            { uvec2 grid[];                }; // (offset, count)
+layout(std430, binding = 13) buffer GlobalIndexBuf          { uint globalIndex;            };
+
+// ---------------------------------------------------------------------------
+// Uniforms
+// ---------------------------------------------------------------------------
+
+uniform mat4  u_ViewMatrix;
+uniform mat4  u_ProjectionMatrix;
+uniform uint  u_ScreenWidth;
+uniform uint  u_ScreenHeight;
+uniform uint  u_PointLightCount;
+uniform uint  u_SpotLightCount;
+uniform uint  u_TileSizePixels;
+uniform uint  u_MaxLightsPerTile;
+
+// Depth buffer for min/max depth per tile
+layout(binding = 0) uniform sampler2D u_DepthTexture;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// Convert screen-space UV + depth to view-space position
+vec3 screenToView(vec2 uv, float depth)
+{
+    vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 view = inverse(u_ProjectionMatrix) * clip;
+    return view.xyz / view.w;
+}
+
+// Test whether a sphere (view space) intersects a frustum defined by 4 planes + near/far
+bool sphereInTileFrustum(vec3 center, float radius,
+                          vec4 planes[4], float nearZ, float farZ)
+{
+    // Near/far test (view-space Z is negative, pointing into the screen)
+    if (center.z + radius < farZ || center.z - radius > nearZ)
+        return false;
+
+    // Side planes
+    for (int i = 0; i < 4; ++i)
+    {
+        float d = dot(planes[i].xyz, center) + planes[i].w;
+        if (d < -radius)
+            return false;
+    }
+    return true;
+}
+
+// Build 4 tile frustum planes from tile pixel bounds in view space
+void buildTileFrustumPlanes(uvec2 tileMin, uvec2 tileMax,
+                             float nearZ, float farZ,
+                             out vec4 planes[4])
+{
+    // Tile corners in NDC
+    vec2 ndcMin = vec2(tileMin) / vec2(u_ScreenWidth, u_ScreenHeight) * 2.0 - 1.0;
+    vec2 ndcMax = vec2(tileMax) / vec2(u_ScreenWidth, u_ScreenHeight) * 2.0 - 1.0;
+
+    // Eye position (origin in view space)
+    vec3 eye = vec3(0.0);
+
+    // Corner positions at near plane in view space
+    vec3 topLeft     = screenToView(vec2(ndcMin.x * 0.5 + 0.5, ndcMax.y * 0.5 + 0.5), 0.0);
+    vec3 topRight    = screenToView(vec2(ndcMax.x * 0.5 + 0.5, ndcMax.y * 0.5 + 0.5), 0.0);
+    vec3 bottomLeft  = screenToView(vec2(ndcMin.x * 0.5 + 0.5, ndcMin.y * 0.5 + 0.5), 0.0);
+    vec3 bottomRight = screenToView(vec2(ndcMax.x * 0.5 + 0.5, ndcMin.y * 0.5 + 0.5), 0.0);
+
+    // Frustum planes (normals pointing inward)
+    // Left
+    vec3 n = cross(topLeft, bottomLeft);
+    planes[0] = vec4(normalize(n), 0.0);
+    // Right
+    n = cross(bottomRight, topRight);
+    planes[1] = vec4(normalize(n), 0.0);
+    // Bottom
+    n = cross(bottomLeft, bottomRight);
+    planes[2] = vec4(normalize(n), 0.0);
+    // Top
+    n = cross(topRight, topLeft);
+    planes[3] = vec4(normalize(n), 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+void main()
+{
+    uvec2 tileID = gl_WorkGroupID.xy;
+    uint tileIndex = tileID.y * gl_NumWorkGroups.x + tileID.x;
+
+    // Tile pixel bounds
+    uvec2 tileMin = tileID * u_TileSizePixels;
+    uvec2 tileMax = min(tileMin + u_TileSizePixels, uvec2(u_ScreenWidth, u_ScreenHeight));
+
+    // Compute min/max depth for this tile by sampling the depth buffer
+    float minDepth = 1.0;
+    float maxDepth = 0.0;
+
+    // Sample at tile center for coarse depth (more samples = better culling but slower)
+    uint stepSize = max(u_TileSizePixels / 4u, 1u);
+    for (uint y = tileMin.y; y < tileMax.y; y += stepSize)
+    {
+        for (uint x = tileMin.x; x < tileMax.x; x += stepSize)
+        {
+            vec2 uv = (vec2(x, y) + 0.5) / vec2(u_ScreenWidth, u_ScreenHeight);
+            float d = texture(u_DepthTexture, uv).r;
+            minDepth = min(minDepth, d);
+            maxDepth = max(maxDepth, d);
+        }
+    }
+
+    // Convert depth to view-space Z
+    vec3 nearPoint = screenToView(vec2(0.5), minDepth);
+    vec3 farPoint  = screenToView(vec2(0.5), maxDepth);
+    float nearZ = nearPoint.z;  // Less negative = nearer
+    float farZ  = farPoint.z;   // More negative = farther
+
+    // Build tile frustum planes
+    vec4 frustumPlanes[4];
+    buildTileFrustumPlanes(tileMin, tileMax, nearZ, farZ, frustumPlanes);
+
+    // Cull point lights
+    uint localCount = 0;
+    uint localIndices[256]; // Stack-local, limited by u_MaxLightsPerTile
+
+    for (uint i = 0; i < u_PointLightCount && localCount < u_MaxLightsPerTile; ++i)
+    {
+        vec3 worldPos = pointLights[i].PositionAndRadius.xyz;
+        float radius  = pointLights[i].PositionAndRadius.w;
+
+        // Transform to view space
+        vec3 viewPos = (u_ViewMatrix * vec4(worldPos, 1.0)).xyz;
+
+        if (sphereInTileFrustum(viewPos, radius, frustumPlanes, nearZ, farZ))
+        {
+            localIndices[localCount] = i;
+            localCount++;
+        }
+    }
+
+    // Cull spot lights (bounding sphere approximation)
+    // Spot light index starts after point lights in the global index list
+    for (uint i = 0; i < u_SpotLightCount && localCount < u_MaxLightsPerTile; ++i)
+    {
+        vec3 worldPos = spotLights[i].PositionAndRadius.xyz;
+        float range   = spotLights[i].PositionAndRadius.w;
+
+        vec3 viewPos = (u_ViewMatrix * vec4(worldPos, 1.0)).xyz;
+
+        // Use range as bounding sphere radius (conservative)
+        if (sphereInTileFrustum(viewPos, range, frustumPlanes, nearZ, farZ))
+        {
+            // Encode spot lights with high bit set to distinguish from point lights
+            localIndices[localCount] = i | 0x80000000u;
+            localCount++;
+        }
+    }
+
+    // Atomic append to global light index list
+    uint globalOffset = atomicAdd(globalIndex, localCount);
+
+    // Write to global arrays
+    for (uint i = 0; i < localCount; ++i)
+    {
+        lightIndices[globalOffset + i] = localIndices[i];
+    }
+
+    // Write tile grid entry
+    grid[tileIndex] = uvec2(globalOffset, localCount);
+}

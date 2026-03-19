@@ -107,6 +107,7 @@ namespace OloEngine
         ImGui::Separator();
         ImGui::Checkbox("3D Mode", &m_Draft.Is3DMode);
         ImGui::Checkbox("Show Physics Colliders", &m_Draft.ShowPhysicsColliders);
+        ImGui::Checkbox("Show Light Gizmos", &m_Draft.ShowLightGizmos);
 
         ImGui::Spacing();
         ImGui::Text("Transform Snapping");
@@ -223,6 +224,7 @@ namespace OloEngine
         out << YAML::Key << "ScaleSnap" << YAML::Value << prefs.ScaleSnap;
         out << YAML::Key << "CameraFlySpeed" << YAML::Value << prefs.CameraFlySpeed;
         out << YAML::Key << "ShowPhysicsColliders" << YAML::Value << prefs.ShowPhysicsColliders;
+        out << YAML::Key << "ShowLightGizmos" << YAML::Value << prefs.ShowLightGizmos;
         out << YAML::Key << "Is3DMode" << YAML::Value << prefs.Is3DMode;
         out << YAML::Key << "CapturePhysicsOnPlay" << YAML::Value << prefs.CapturePhysicsOnPlay;
         out << YAML::Key << "ThrottleEditMode" << YAML::Value << prefs.ThrottleEditMode;
@@ -308,6 +310,8 @@ namespace OloEngine
                 prefs.CameraFlySpeed = std::clamp(node["CameraFlySpeed"].as<f32>(), 0.1f, 100.0f);
             if (node["ShowPhysicsColliders"])
                 prefs.ShowPhysicsColliders = node["ShowPhysicsColliders"].as<bool>();
+            if (node["ShowLightGizmos"])
+                prefs.ShowLightGizmos = node["ShowLightGizmos"].as<bool>();
             if (node["Is3DMode"])
                 prefs.Is3DMode = node["Is3DMode"].as<bool>();
             if (node["CapturePhysicsOnPlay"])

@@ -31,6 +31,7 @@
 
 #include <imgui.h>
 #include <ImGuizmo.h>
+#include <glad/gl.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -107,6 +108,9 @@ namespace OloEngine
         // Create brush preview UBO (binding 11, 32 bytes = 2 vec4s)
         m_BrushPreviewUBO = UniformBuffer::Create(ShaderBindingLayout::BrushPreviewUBO::GetSize(), ShaderBindingLayout::UBO_BRUSH_PREVIEW);
 
+        // Create PBOs for async entity picking
+        InitEntityPicking();
+
         // Initialize save game system
         SaveGameManager::Initialize();
     }
@@ -114,7 +118,32 @@ namespace OloEngine
     void EditorLayer::OnDetach()
     {
         OLO_PROFILE_FUNCTION();
+        ShutdownEntityPicking();
         SaveGameManager::Shutdown();
+    }
+
+    void EditorLayer::InitEntityPicking()
+    {
+        glCreateBuffers(2, m_PickingPBOs);
+        for (auto pbo : m_PickingPBOs)
+        {
+            glNamedBufferStorage(pbo, sizeof(int), nullptr, GL_MAP_READ_BIT | GL_CLIENT_STORAGE_BIT);
+        }
+        m_PickingPBOIndex = 0;
+        m_PickingReadPending = false;
+        m_PickingPBOInitialized = true;
+    }
+
+    void EditorLayer::ShutdownEntityPicking()
+    {
+        if (m_PickingPBOInitialized)
+        {
+            glDeleteBuffers(2, m_PickingPBOs);
+            m_PickingPBOs[0] = 0;
+            m_PickingPBOs[1] = 0;
+            m_PickingPBOInitialized = false;
+            m_PickingReadPending = false;
+        }
     }
 
     void EditorLayer::OnUpdate(Timestep const ts)
@@ -225,6 +254,7 @@ namespace OloEngine
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
                 m_ActiveScene->SetGridVisible(m_ShowGrid);
                 m_ActiveScene->SetGridSpacing(m_GridSpacing);
+                m_ActiveScene->SetLightGizmosVisible(m_ShowLightGizmos);
                 m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
                 break;
             }
@@ -235,6 +265,7 @@ namespace OloEngine
                 m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
                 m_ActiveScene->SetGridVisible(m_ShowGrid);
                 m_ActiveScene->SetGridSpacing(m_GridSpacing);
+                m_ActiveScene->SetLightGizmosVisible(m_ShowLightGizmos);
                 m_ActiveScene->OnUpdateSimulation(ts, m_EditorCamera);
                 break;
             }
@@ -261,14 +292,47 @@ namespace OloEngine
 
             if (const auto mouseY = static_cast<int>(my * pickDpiScale); (mouseX >= 0) && (mouseY >= 0) && (mouseX < static_cast<int>(viewportSize.x * pickDpiScale)) && (mouseY < static_cast<int>(viewportSize.y * pickDpiScale)))
             {
-                // Read entity ID from appropriate framebuffer based on mode
+                // Async entity picking via PBO double-buffering:
+                // 1) Read back previous frame's result (no stall — data is ready)
+                // 2) Issue new async read into the other PBO
                 int pixelData = -1;
-                if (m_Is3DMode)
+                if (m_Is3DMode && m_PickingPBOInitialized)
                 {
-                    pixelData = Renderer3D::ReadEntityIDFromFramebuffer(mouseX, mouseY);
+                    const u32 readPBO = m_PickingPBOs[1 - m_PickingPBOIndex]; // Previous frame's PBO
+                    const u32 writePBO = m_PickingPBOs[m_PickingPBOIndex];    // This frame's PBO
+
+                    // Step 1: Read back previous frame's result (only if we issued a read last frame)
+                    if (m_PickingReadPending)
+                    {
+                        glBindBuffer(GL_PIXEL_PACK_BUFFER, readPBO);
+                        const auto* mapped = static_cast<const int*>(glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY));
+                        if (mapped)
+                        {
+                            pixelData = *mapped;
+                            glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+                        }
+                        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+                    }
+
+                    // Step 2: Issue async read for this frame into the write PBO
+                    auto framebuffer = Renderer3D::GetSceneFramebuffer();
+                    if (framebuffer)
+                    {
+                        glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->GetRendererID());
+                        glReadBuffer(GL_COLOR_ATTACHMENT0 + 1); // Entity ID attachment
+                        glBindBuffer(GL_PIXEL_PACK_BUFFER, writePBO);
+                        glReadPixels(mouseX, mouseY, 1, 1, GL_RED_INTEGER, GL_INT, nullptr);
+                        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+                        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+                        m_PickingReadPending = true;
+                    }
+
+                    // Swap PBO index for next frame
+                    m_PickingPBOIndex = 1 - m_PickingPBOIndex;
                 }
-                else
+                else if (!m_Is3DMode)
                 {
+                    // 2D mode: synchronous read (not performance critical)
                     pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
                 }
                 m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
@@ -529,6 +593,7 @@ namespace OloEngine
             ImGui::MenuItem("Scene Statistics", nullptr, &m_ShowSceneStatistics);
             ImGui::MenuItem("Animation Panel", nullptr, &m_ShowAnimationPanel);
             ImGui::MenuItem("Post Process Settings", nullptr, &m_ShowPostProcessSettings);
+            ImGui::MenuItem("Renderer Settings", nullptr, &m_ShowRendererSettings);
             ImGui::MenuItem("Terrain Editor", nullptr, &m_ShowTerrainEditor);
             ImGui::MenuItem("Scene Streaming", nullptr, &m_ShowStreamingPanel);
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
@@ -932,6 +997,12 @@ namespace OloEngine
             m_PostProcessSettingsPanel.OnImGuiRender(&m_ShowPostProcessSettings);
         }
 
+        // Renderer Settings Panel
+        if (m_ShowRendererSettings)
+        {
+            m_RendererSettingsPanel.OnImGuiRender(&m_ShowRendererSettings);
+        }
+
         // Terrain Editor Panel
         if (m_ShowTerrainEditor)
         {
@@ -1075,6 +1146,7 @@ namespace OloEngine
         m_RotateSnap = m_Prefs.RotateSnap;
         m_ScaleSnap = m_Prefs.ScaleSnap;
         m_ShowPhysicsColliders = m_Prefs.ShowPhysicsColliders;
+        m_ShowLightGizmos = m_Prefs.ShowLightGizmos;
         m_Is3DMode = m_Prefs.Is3DMode;
         m_EditorCamera.SetFlySpeed(m_Prefs.CameraFlySpeed);
         m_ThrottleEditMode = m_Prefs.ThrottleEditMode;
@@ -1098,6 +1170,7 @@ namespace OloEngine
         m_Prefs.RotateSnap = m_RotateSnap;
         m_Prefs.ScaleSnap = m_ScaleSnap;
         m_Prefs.ShowPhysicsColliders = m_ShowPhysicsColliders;
+        m_Prefs.ShowLightGizmos = m_ShowLightGizmos;
         m_Prefs.Is3DMode = m_Is3DMode;
         m_Prefs.CameraFlySpeed = m_EditorCamera.GetFlySpeed();
         m_Prefs.CapturePhysicsOnPlay = Physics3DSystem::GetSettings().m_CaptureOnPlay;

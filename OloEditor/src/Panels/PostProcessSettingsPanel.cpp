@@ -39,6 +39,8 @@ namespace OloEngine
         DrawDOFSection();
         DrawMotionBlurSection();
 
+        // Forward+ controls moved to RendererSettingsPanel
+
         // Undo tracking: detect changes and push command when editing ends
         if (m_CommandHistory && m_Snapshot)
         {

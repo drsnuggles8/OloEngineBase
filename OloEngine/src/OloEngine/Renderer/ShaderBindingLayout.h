@@ -320,7 +320,41 @@ namespace OloEngine
                 return static_cast<u32>(sizeof(WaterUBO));
             }
         };
+
+        // @brief Forward+ tile-based light culling parameters UBO
+        struct ForwardPlusUBO
+        {
+            glm::uvec4 Params; // x = TileSizePixels, y = TileCountX, z = Enabled (0/1), w = reserved
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(ForwardPlusUBO));
+            }
+        };
     } // namespace UBOStructures
+
+    // =============================================================================
+    // FORWARD+ LIGHT CULLING GPU STRUCTURES
+    // =============================================================================
+
+    // @brief GPU-packed point light for Forward+ SSBO (matches GLSL std430 layout)
+    struct GPUPointLight
+    {
+        glm::vec4 PositionAndRadius; // xyz = world position, w = range/radius
+        glm::vec4 ColorAndIntensity; // xyz = color, w = intensity
+    };
+
+    // @brief GPU-packed spot light for Forward+ SSBO (matches GLSL std430 layout)
+    struct GPUSpotLight
+    {
+        glm::vec4 PositionAndRadius; // xyz = world position, w = range/radius
+        glm::vec4 DirectionAndAngle; // xyz = direction, w = cos(outerAngle)
+        glm::vec4 ColorAndIntensity; // xyz = color, w = intensity
+        glm::vec4 SpotParams;        // x = cos(innerAngle), y = falloff, z = 0, w = 0
+    };
+
+    static_assert(sizeof(GPUPointLight) == 32, "GPUPointLight must be 32 bytes for std430");
+    static_assert(sizeof(GPUSpotLight) == 64, "GPUSpotLight must be 64 bytes for std430");
 
     // Alignment/size checks for terrain UBO structs (must match GLSL std140 layout)
     static_assert(sizeof(UBOStructures::TerrainUBO) % 16 == 0, "TerrainUBO size must be 16-byte aligned for std140");
@@ -335,6 +369,8 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) == 80, "LightProbeVolumeUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::WaterUBO) == 96, "WaterUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::ForwardPlusUBO) % 16 == 0, "ForwardPlusUBO size must be 16-byte aligned for std140");
+    static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 16, "ForwardPlusUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 96, "PBRMaterialUBO unexpected size — update GLSL layout");
 
@@ -373,6 +409,7 @@ namespace OloEngine
         static constexpr u32 UBO_LIGHT_PROBES = 22;         // Light probe volume parameters
         static constexpr u32 UBO_WATER = 23;                // Water surface rendering parameters
         static constexpr u32 UBO_SHADER_GRAPH = 24;         // Shader graph user parameters
+        static constexpr u32 UBO_FORWARD_PLUS = 25;         // Forward+ tile-based culling parameters
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -428,6 +465,13 @@ namespace OloEngine
         static constexpr u32 SSBO_FOLIAGE_INSTANCES = 6; // Foliage instance data (reserved for GPU-driven path)
         static constexpr u32 SSBO_SNOW_DEFORMERS = 7;    // Snow deformer stamp data (pos, radius, depth)
         static constexpr u32 SSBO_LIGHT_PROBES = 8;      // Light probe SH coefficient data
+
+        // Forward+ light culling SSBOs
+        static constexpr u32 SSBO_FPLUS_POINT_LIGHTS = 9;   // Forward+ point light data array
+        static constexpr u32 SSBO_FPLUS_SPOT_LIGHTS = 10;   // Forward+ spot light data array
+        static constexpr u32 SSBO_FPLUS_LIGHT_INDICES = 11; // Forward+ per-tile light index list
+        static constexpr u32 SSBO_FPLUS_LIGHT_GRID = 12;    // Forward+ per-tile (offset, count) pairs
+        static constexpr u32 SSBO_FPLUS_GLOBAL_INDEX = 13;  // Forward+ atomic counter for light index append
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE

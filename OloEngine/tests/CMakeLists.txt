@@ -18,6 +18,7 @@ add_executable(OloEngine-Tests
 		ShadowMapTest.cpp
 		PostProcessTest.cpp
 		ComputeShaderAndSSBOTest.cpp
+		LightCullingTest.cpp
 		SoundGraphBasicTest.cpp
 		AudioEventQueueTest.cpp
 		SphericalHarmonicsTest.cpp

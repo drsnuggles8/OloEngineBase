@@ -69,6 +69,8 @@ namespace OloEngine
 
         // Depth prepass override: when true, ApplyPODRenderState forces depth-only state
         bool DepthPrepassActive = false;
+        // Color pass of depth prepass: override depth func to GL_LEQUAL + depth mask false
+        bool DepthPrepassColorPassActive = false;
 
         CommandDispatch::Statistics Stats;
     };
@@ -131,6 +133,12 @@ namespace OloEngine
                 api.SetDepthMask(true);
                 api.SetDepthFunc(GL_LESS);
                 api.SetBlendState(false);
+            }
+            // During color pass of depth prepass, override depth to GL_LEQUAL + no writes
+            else if (s_Data.DepthPrepassColorPassActive)
+            {
+                api.SetDepthFunc(GL_LEQUAL);
+                api.SetDepthMask(false);
             }
             return;
         }
@@ -210,6 +218,12 @@ namespace OloEngine
             api.SetDepthMask(true);
             api.SetDepthFunc(GL_LESS);
             api.SetBlendState(false);
+        }
+        // During color pass of depth prepass, override depth to GL_LEQUAL + no writes
+        else if (s_Data.DepthPrepassColorPassActive)
+        {
+            api.SetDepthFunc(GL_LEQUAL);
+            api.SetDepthMask(false);
         }
     }
 
@@ -540,6 +554,7 @@ namespace OloEngine
         s_Data.PointShadowTextureIDs.fill(0);
         s_Data.SnowDepthTextureID = 0;
         s_Data.DepthPrepassActive = false;
+        s_Data.DepthPrepassColorPassActive = false;
         s_Data.Stats.Reset();
     }
 
@@ -551,6 +566,13 @@ namespace OloEngine
     void CommandDispatch::SetDepthPrepassActive(bool active)
     {
         s_Data.DepthPrepassActive = active;
+        // Invalidate cache so the next command re-applies state
+        InvalidateRenderStateCache();
+    }
+
+    void CommandDispatch::SetDepthPrepassColorPassActive(bool active)
+    {
+        s_Data.DepthPrepassColorPassActive = active;
         // Invalidate cache so the next command re-applies state
         InvalidateRenderStateCache();
     }

@@ -2092,6 +2092,9 @@ namespace OloEngine
             multiLightData.MaxLights = static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
             Renderer3D::UploadMultiLightUBO(multiLightData);
 
+            // Gather lights for Forward+ tile-based culling
+            Renderer3D::GetForwardPlus().GatherLights(*this);
+
             // Upload light probe volume data if present and dirty
             {
                 auto probeVolumeView = m_Registry.view<LightProbeVolumeComponent>();
@@ -3096,49 +3099,52 @@ namespace OloEngine
         Renderer3D::DrawWorldAxisHelper(3.0f);
 
         // Draw light visualization gizmos
+        if (m_ShowLightGizmos)
         {
-            auto view = m_Registry.view<TransformComponent, DirectionalLightComponent>();
-            for (auto entity : view)
             {
-                const auto& [tc, dirLight] = view.get<TransformComponent, DirectionalLightComponent>(entity);
+                auto view = m_Registry.view<TransformComponent, DirectionalLightComponent>();
+                for (auto entity : view)
+                {
+                    const auto& [tc, dirLight] = view.get<TransformComponent, DirectionalLightComponent>(entity);
 
-                // Draw the directional light gizmo with arrow and sun icon
-                Renderer3D::DrawDirectionalLightGizmo(
-                    tc.Translation,
-                    dirLight.m_Direction,
-                    dirLight.m_Color,
-                    dirLight.m_Intensity);
+                    // Draw the directional light gizmo with arrow and sun icon
+                    Renderer3D::DrawDirectionalLightGizmo(
+                        tc.Translation,
+                        dirLight.m_Direction,
+                        dirLight.m_Color,
+                        dirLight.m_Intensity);
+                }
             }
-        }
-        {
-            auto view = m_Registry.view<TransformComponent, PointLightComponent>();
-            for (auto entity : view)
             {
-                const auto& [tc, pointLight] = view.get<TransformComponent, PointLightComponent>(entity);
+                auto view = m_Registry.view<TransformComponent, PointLightComponent>();
+                for (auto entity : view)
+                {
+                    const auto& [tc, pointLight] = view.get<TransformComponent, PointLightComponent>(entity);
 
-                // Draw the point light gizmo with range sphere
-                Renderer3D::DrawPointLightGizmo(
-                    tc.Translation,
-                    pointLight.m_Range,
-                    pointLight.m_Color,
-                    true // Show range sphere
-                );
+                    // Draw the point light gizmo with range sphere
+                    Renderer3D::DrawPointLightGizmo(
+                        tc.Translation,
+                        pointLight.m_Range,
+                        pointLight.m_Color,
+                        true // Show range sphere
+                    );
+                }
             }
-        }
-        {
-            auto view = m_Registry.view<TransformComponent, SpotLightComponent>();
-            for (auto entity : view)
             {
-                const auto& [tc, spotLight] = view.get<TransformComponent, SpotLightComponent>(entity);
+                auto view = m_Registry.view<TransformComponent, SpotLightComponent>();
+                for (auto entity : view)
+                {
+                    const auto& [tc, spotLight] = view.get<TransformComponent, SpotLightComponent>(entity);
 
-                // Draw the spot light gizmo with cone visualization
-                Renderer3D::DrawSpotLightGizmo(
-                    tc.Translation,
-                    spotLight.m_Direction,
-                    spotLight.m_Range,
-                    spotLight.m_InnerCutoff,
-                    spotLight.m_OuterCutoff,
-                    spotLight.m_Color);
+                    // Draw the spot light gizmo with cone visualization
+                    Renderer3D::DrawSpotLightGizmo(
+                        tc.Translation,
+                        spotLight.m_Direction,
+                        spotLight.m_Range,
+                        spotLight.m_InnerCutoff,
+                        spotLight.m_OuterCutoff,
+                        spotLight.m_Color);
+                }
             }
         }
 

@@ -160,6 +160,14 @@ namespace OloEngine
         {
             return m_ShowGrid;
         }
+        void SetLightGizmosVisible(bool visible)
+        {
+            m_ShowLightGizmos = visible;
+        }
+        [[nodiscard("Store this!")]] bool AreLightGizmosVisible() const
+        {
+            return m_ShowLightGizmos;
+        }
         void SetGridSpacing(f32 spacing)
         {
             if (spacing > 0.0f)
@@ -376,6 +384,7 @@ namespace OloEngine
         bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
         bool m_RenderingEnabled = true;                        // Skip rendering when throttled
         bool m_ShowGrid = true;                                // Viewport grid visibility
+        bool m_ShowLightGizmos = true;                         // Light gizmo visibility
         f32 m_GridSpacing = 1.0f;                              // Viewport grid spacing
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
         glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };      // FPS fly-camera mouse tracking

@@ -1,0 +1,443 @@
+Scene: ForwardPlusTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+Entities:
+  # ── Camera ──
+  - Entity: 800000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 8, 20]
+      Rotation: [-0.35, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+
+  # ── Skybox ──
+  - Entity: 800000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.3
+      Tint: [1, 1, 1]
+
+  # ── Directional Light (dim, so point/spot lights dominate) ──
+  - Entity: 800000000000003
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.2, -1, -0.3]
+      Color: [0.8, 0.85, 1]
+      Intensity: 0.3
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+
+  # ── Ground Plane ──
+  - Entity: 800000000000004
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [30, 1, 30]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.4, 0.4, 0.4]
+      Metallic: 0
+      Roughness: 0.8
+
+  # ── Center Sphere ──
+  - Entity: 800000000000005
+    TagComponent:
+      Tag: Center Sphere
+    TransformComponent:
+      Translation: [0, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2, 2]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.9]
+      Metallic: 0.8
+      Roughness: 0.2
+
+  # ── Pillars (cubes arranged in a circle) ──
+  - Entity: 800000000000006
+    TagComponent:
+      Tag: Pillar NE
+    TransformComponent:
+      Translation: [5, 1.5, 5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 3, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.7, 0.7]
+      Metallic: 0
+      Roughness: 0.5
+
+  - Entity: 800000000000007
+    TagComponent:
+      Tag: Pillar NW
+    TransformComponent:
+      Translation: [-5, 1.5, 5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 3, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.7, 0.7]
+      Metallic: 0
+      Roughness: 0.5
+
+  - Entity: 800000000000008
+    TagComponent:
+      Tag: Pillar SE
+    TransformComponent:
+      Translation: [5, 1.5, -5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 3, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.7, 0.7]
+      Metallic: 0
+      Roughness: 0.5
+
+  - Entity: 800000000000009
+    TagComponent:
+      Tag: Pillar SW
+    TransformComponent:
+      Translation: [-5, 1.5, -5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 3, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.7, 0.7]
+      Metallic: 0
+      Roughness: 0.5
+
+  # ── Ring of Point Lights (12 lights, radius 8) ──
+  - Entity: 800000000000010
+    TagComponent:
+      Tag: PLight Red 0
+    TransformComponent:
+      Translation: [8, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.1]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000011
+    TagComponent:
+      Tag: PLight Orange 1
+    TransformComponent:
+      Translation: [6.93, 2, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.6, 0.1]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000012
+    TagComponent:
+      Tag: PLight Yellow 2
+    TransformComponent:
+      Translation: [4, 2, 6.93]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 0.2]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000013
+    TagComponent:
+      Tag: PLight Green 3
+    TransformComponent:
+      Translation: [0, 2, 8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000014
+    TagComponent:
+      Tag: PLight Teal 4
+    TransformComponent:
+      Translation: [-4, 2, 6.93]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.8, 0.8]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000015
+    TagComponent:
+      Tag: PLight Cyan 5
+    TransformComponent:
+      Translation: [-6.93, 2, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.1, 0.5, 1]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000016
+    TagComponent:
+      Tag: PLight Blue 6
+    TransformComponent:
+      Translation: [-8, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000017
+    TagComponent:
+      Tag: PLight Purple 7
+    TransformComponent:
+      Translation: [-6.93, 2, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.6, 0.2, 1]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000018
+    TagComponent:
+      Tag: PLight Magenta 8
+    TransformComponent:
+      Translation: [-4, 2, -6.93]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.8]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000019
+    TagComponent:
+      Tag: PLight Pink 9
+    TransformComponent:
+      Translation: [0, 2, -8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.4, 0.6]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000020
+    TagComponent:
+      Tag: PLight Warm 10
+    TransformComponent:
+      Translation: [4, 2, -6.93]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.4]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000021
+    TagComponent:
+      Tag: PLight Coral 11
+    TransformComponent:
+      Translation: [6.93, 2, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.3]
+      Intensity: 5
+      Range: 12
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  # ── Spot Lights (4 corners, pointing at center) ──
+  - Entity: 800000000000022
+    TagComponent:
+      Tag: Spot NE Down
+    TransformComponent:
+      Translation: [6, 6, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.577, -0.577, -0.577]
+      Color: [1, 0.9, 0.7]
+      Intensity: 8
+      Range: 20
+      InnerCutoff: 15
+      OuterCutoff: 30
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000023
+    TagComponent:
+      Tag: Spot NW Down
+    TransformComponent:
+      Translation: [-6, 6, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.577, -0.577, -0.577]
+      Color: [0.7, 0.9, 1]
+      Intensity: 8
+      Range: 20
+      InnerCutoff: 15
+      OuterCutoff: 30
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000024
+    TagComponent:
+      Tag: Spot SE Down
+    TransformComponent:
+      Translation: [6, 6, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.577, -0.577, 0.577]
+      Color: [0.9, 1, 0.7]
+      Intensity: 8
+      Range: 20
+      InnerCutoff: 15
+      OuterCutoff: 30
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+
+  - Entity: 800000000000025
+    TagComponent:
+      Tag: Spot SW Down
+    TransformComponent:
+      Translation: [-6, 6, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.577, -0.577, 0.577]
+      Color: [1, 0.7, 1]
+      Intensity: 8
+      Range: 20
+      InnerCutoff: 15
+      OuterCutoff: 30
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1

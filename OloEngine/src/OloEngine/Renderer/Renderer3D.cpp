@@ -311,6 +311,7 @@ namespace OloEngine
         m_ShaderLibrary.Load("assets/shaders/Water.glsl");
         m_ShaderLibrary.Load("assets/shaders/Decal.glsl");
         m_ShaderLibrary.Load("assets/shaders/OcclusionProxy.glsl");
+        m_ShaderLibrary.Load("assets/shaders/ForwardPlusDebug.glsl");
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
         s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
@@ -322,6 +323,7 @@ namespace OloEngine
         s_Data.PBRMultiLightSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
         s_Data.SkyboxShader = m_ShaderLibrary.Get("Skybox");
         s_Data.InfiniteGridShader = m_ShaderLibrary.Get("InfiniteGrid");
+        s_Data.ForwardPlusDebugShader = m_ShaderLibrary.Get("ForwardPlusDebug");
         s_Data.ShadowDepthShader = m_ShaderLibrary.Get("ShadowDepth");
         s_Data.ShadowDepthSkinnedShader = m_ShaderLibrary.Get("ShadowDepthSkinned");
         s_Data.ShadowDepthPointSkinnedShader = m_ShaderLibrary.Get("ShadowDepthPointSkinned");
@@ -421,6 +423,9 @@ namespace OloEngine
         s_Data.FogLastTime = std::chrono::steady_clock::now();
         s_Data.FogTime = 0.0f;
 
+        // Initialize Forward+ light culling system
+        s_Data.ForwardPlus.Initialize(window.GetFramebufferWidth(), window.GetFramebufferHeight());
+
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
 
@@ -451,6 +456,9 @@ namespace OloEngine
         // Shutdown snow systems
         SnowEjectaSystem::Shutdown();
         SnowAccumulationSystem::Shutdown();
+
+        // Shutdown Forward+ system
+        s_Data.ForwardPlus.Shutdown();
 
         // Shutdown shadow mapping
         s_Data.Shadow.Shutdown();
@@ -1892,6 +1900,44 @@ namespace OloEngine
         s_Data.Stats.Reset();
     }
 
+    void Renderer3D::ApplyRendererSettings()
+    {
+        OLO_PROFILE_FUNCTION();
+        auto& settings = s_Data.Settings;
+
+        // Sync culling toggles
+        EnableFrustumCulling(settings.FrustumCullingEnabled);
+        EnableOcclusionCulling(settings.OcclusionCullingEnabled);
+
+        // Sync Forward+ settings
+        auto& fplus = s_Data.ForwardPlus;
+        switch (settings.Path)
+        {
+            case RenderingPath::Forward:
+                if (settings.ForwardPlusAutoSwitch)
+                {
+                    fplus.SetMode(ForwardPlusMode::Auto);
+                    fplus.SetLightCountThreshold(settings.ForwardPlusLightThreshold);
+                }
+                else
+                {
+                    fplus.SetMode(ForwardPlusMode::Never);
+                }
+                break;
+            case RenderingPath::ForwardPlus:
+                fplus.SetMode(ForwardPlusMode::Always);
+                // Forward+ compute culling requires the depth pre-pass
+                settings.DepthPrepassEnabled = true;
+                break;
+        }
+
+        // Apply depth prepass (potentially forced by Forward+)
+        EnableDepthPrepass(settings.DepthPrepassEnabled);
+
+        fplus.SetTileSize(settings.ForwardPlusTileSize);
+        fplus.SetDebugVisualization(settings.ForwardPlusDebugHeatmap);
+    }
+
     bool Renderer3D::IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform)
     {
         if (!s_Data.FrustumCullingEnabled)
@@ -2482,6 +2528,9 @@ namespace OloEngine
         {
             OLO_CORE_WARN("Renderer3D::OnWindowResize: No render graph available!");
         }
+
+        // Resize Forward+ light grid
+        s_Data.ForwardPlus.Resize(width, height);
     }
 
     CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic, i32 entityID)
@@ -2663,6 +2712,10 @@ namespace OloEngine
             s_Data.CameraUBO->Bind();
         if (s_Data.LightPropertiesUBO)
             s_Data.LightPropertiesUBO->Bind();
+
+        // Ensure Forward+ UBO is always bound (with Enabled=0 when inactive)
+        // so fragment shaders can always read fplus_Params.z
+        s_Data.ForwardPlus.UploadDisabledUBO();
     }
 
     void Renderer3D::ApplyGlobalResources()

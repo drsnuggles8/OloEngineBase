@@ -40,6 +40,7 @@ namespace OloEngine
         static void InvalidateRenderStateCache();
         static void InvalidateUBOCache(u32 bindingPoint);
         static void SetDepthPrepassActive(bool active);
+        static void SetDepthPrepassColorPassActive(bool active);
         static void SetViewProjectionMatrix(const glm::mat4& vp);
         static void SetViewMatrix(const glm::mat4& view);
         static void SetProjectionMatrix(const glm::mat4& projection);
