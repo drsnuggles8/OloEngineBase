@@ -91,9 +91,9 @@ namespace OloEngine
                     // Roll affixes if the entry specifies them
                     if (entry.MaxAffixes > 0 && !entry.PossibleAffixPoolIDs.empty())
                     {
-                        i32 numAffixes = RandomUtils::Int32(
-                            std::max(entry.MinAffixes, 0),
-                            std::max(entry.MaxAffixes, 0));
+                        i32 lo = std::max(std::min(entry.MinAffixes, entry.MaxAffixes), 0);
+                        i32 hi = std::max(std::max(entry.MinAffixes, entry.MaxAffixes), 0);
+                        i32 numAffixes = RandomUtils::Int32(lo, hi);
                         for (i32 a = 0; a < numAffixes; ++a)
                         {
                             i32 poolIdx = RandomUtils::Int32(0, static_cast<i32>(entry.PossibleAffixPoolIDs.size()) - 1);

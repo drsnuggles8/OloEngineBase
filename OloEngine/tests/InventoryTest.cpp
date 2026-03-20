@@ -530,19 +530,32 @@ TEST_F(InventoryTestFixture, LootTable_BasicRoll)
 
 TEST_F(InventoryTestFixture, LootTable_NothingWeight)
 {
+    LootTableEntry entry;
+    entry.ItemDefinitionID = "sword_iron";
+    entry.Weight = 1.0f;
+
+    // Control table: NothingWeight = 0 → every roll yields an item
+    LootTable control;
+    control.TableID = "control";
+    control.MinDrops = 100;
+    control.MaxDrops = 100;
+    control.NothingWeight = 0.0f;
+    control.Entries.push_back(entry);
+
+    auto controlResults = control.Roll();
+    EXPECT_EQ(static_cast<i32>(controlResults.size()), 100);
+
+    // Test table: extremely high NothingWeight → most rolls produce nothing
     LootTable table;
     table.TableID = "nothing_loot";
     table.MinDrops = 100;
     table.MaxDrops = 100;
-    table.NothingWeight = 1000000.0f; // Extremely high chance of nothing
-
-    LootTableEntry entry;
-    entry.ItemDefinitionID = "sword_iron";
-    entry.Weight = 0.00001f; // Near-zero chance
+    table.NothingWeight = 1000000.0f;
+    entry.Weight = 0.00001f;
     table.Entries.push_back(entry);
 
     auto results = table.Roll();
-    // With such a high nothing weight, virtually all drops should be nothing
+    EXPECT_LT(static_cast<i32>(results.size()), static_cast<i32>(controlResults.size()));
     EXPECT_LE(static_cast<i32>(results.size()), 5);
 }
 

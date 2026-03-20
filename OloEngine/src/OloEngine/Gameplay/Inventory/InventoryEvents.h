@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 
 #include <string>

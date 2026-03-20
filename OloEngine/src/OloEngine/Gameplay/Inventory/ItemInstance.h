@@ -30,6 +30,13 @@ namespace OloEngine
         std::vector<ItemAffix> Affixes;
         std::unordered_map<std::string, std::string> CustomData;
 
+        // Returns true when two instances can be merged into one stack
+        // (same definition, no per-instance state differences)
+        [[nodiscard]] bool IsStackCompatible(const ItemInstance& other) const
+        {
+            return ItemDefinitionID == other.ItemDefinitionID && Durability == other.Durability && MaxDurability == other.MaxDurability && Affixes == other.Affixes && CustomData == other.CustomData;
+        }
+
         bool operator==(const ItemInstance& other) const
         {
             return static_cast<u64>(InstanceID) == static_cast<u64>(other.InstanceID) && ItemDefinitionID == other.ItemDefinitionID && StackCount == other.StackCount && Durability == other.Durability && MaxDurability == other.MaxDurability && Affixes == other.Affixes && CustomData == other.CustomData;

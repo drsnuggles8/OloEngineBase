@@ -2232,13 +2232,27 @@ namespace OloEngine
                         }
                     }
 
+                    if (auto customData = itemNode["CustomData"]; customData && customData.IsMap())
+                    {
+                        for (auto const& kv : customData)
+                        {
+                            item.CustomData[kv.first.as<std::string>()] = kv.second.as<std::string>("");
+                        }
+                    }
+
                     if (auto slotNode = itemNode["Slot"]; slotNode)
                     {
-                        ic.PlayerInventory.AddItemToSlot(slotNode.as<i32>(0), item);
+                        if (!ic.PlayerInventory.AddItemToSlot(slotNode.as<i32>(0), item))
+                        {
+                            OLO_CORE_WARN("[SceneSerializer] Failed to add item '{}' to slot {}", item.ItemDefinitionID, slotNode.as<i32>(0));
+                        }
                     }
                     else
                     {
-                        ic.PlayerInventory.AddItem(item);
+                        if (!ic.PlayerInventory.AddItem(item))
+                        {
+                            OLO_CORE_WARN("[SceneSerializer] Failed to add item '{}' to inventory", item.ItemDefinitionID);
+                        }
                     }
                 }
             }
@@ -2266,7 +2280,18 @@ namespace OloEngine
                         }
                     }
 
-                    auto slotStr = eqNode["Slot"].as<std::string>("Head");
+                    auto slotNode = eqNode["Slot"];
+                    if (!slotNode || !slotNode.IsScalar())
+                    {
+                        OLO_CORE_WARN("[SceneSerializer] Equipment entry missing 'Slot' field — skipping (item: {})", item.ItemDefinitionID);
+                        continue;
+                    }
+                    auto slotStr = slotNode.as<std::string>("");
+                    if (slotStr.empty())
+                    {
+                        OLO_CORE_WARN("[SceneSerializer] Equipment entry has empty 'Slot' — skipping (item: {})", item.ItemDefinitionID);
+                        continue;
+                    }
                     auto slot = EquipmentSlots::SlotFromString(slotStr);
                     if (slot == EquipmentSlots::Slot::Count)
                     {
@@ -2336,13 +2361,27 @@ namespace OloEngine
                         }
                     }
 
+                    if (auto customData = itemNode["CustomData"]; customData && customData.IsMap())
+                    {
+                        for (auto const& kv : customData)
+                        {
+                            item.CustomData[kv.first.as<std::string>()] = kv.second.as<std::string>("");
+                        }
+                    }
+
                     if (auto slotNode = itemNode["Slot"]; slotNode)
                     {
-                        cc.Contents.AddItemToSlot(slotNode.as<i32>(0), item);
+                        if (!cc.Contents.AddItemToSlot(slotNode.as<i32>(0), item))
+                        {
+                            OLO_CORE_WARN("[SceneSerializer] Failed to add item '{}' to container slot {}", item.ItemDefinitionID, slotNode.as<i32>(0));
+                        }
                     }
                     else
                     {
-                        cc.Contents.AddItem(item);
+                        if (!cc.Contents.AddItem(item))
+                        {
+                            OLO_CORE_WARN("[SceneSerializer] Failed to add item '{}' to container", item.ItemDefinitionID);
+                        }
                     }
                 }
             }
@@ -3806,6 +3845,15 @@ namespace OloEngine
                         }
                         out << YAML::EndSeq;
                     }
+                    if (!item->CustomData.empty())
+                    {
+                        out << YAML::Key << "CustomData" << YAML::Value << YAML::BeginMap;
+                        for (auto const& [key, value] : item->CustomData)
+                        {
+                            out << YAML::Key << key << YAML::Value << value;
+                        }
+                        out << YAML::EndMap;
+                    }
                     out << YAML::EndMap;
                 }
             }
@@ -3839,6 +3887,15 @@ namespace OloEngine
                             out << YAML::EndMap;
                         }
                         out << YAML::EndSeq;
+                    }
+                    if (!item->CustomData.empty())
+                    {
+                        out << YAML::Key << "CustomData" << YAML::Value << YAML::BeginMap;
+                        for (auto const& [key, value] : item->CustomData)
+                        {
+                            out << YAML::Key << key << YAML::Value << value;
+                        }
+                        out << YAML::EndMap;
                     }
                     out << YAML::EndMap;
                 }
@@ -3875,6 +3932,15 @@ namespace OloEngine
                     out << YAML::EndMap;
                 }
                 out << YAML::EndSeq;
+            }
+            if (!pc.Item.CustomData.empty())
+            {
+                out << YAML::Key << "CustomData" << YAML::Value << YAML::BeginMap;
+                for (auto const& [key, value] : pc.Item.CustomData)
+                {
+                    out << YAML::Key << key << YAML::Value << value;
+                }
+                out << YAML::EndMap;
             }
 
             out << YAML::EndMap; // ItemPickupComponent
@@ -3917,6 +3983,15 @@ namespace OloEngine
                             out << YAML::EndMap;
                         }
                         out << YAML::EndSeq;
+                    }
+                    if (!item->CustomData.empty())
+                    {
+                        out << YAML::Key << "CustomData" << YAML::Value << YAML::BeginMap;
+                        for (auto const& [key, value] : item->CustomData)
+                        {
+                            out << YAML::Key << key << YAML::Value << value;
+                        }
+                        out << YAML::EndMap;
                     }
                     out << YAML::EndMap;
                 }

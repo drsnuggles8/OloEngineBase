@@ -1209,6 +1209,7 @@ namespace OloEngine
                     struct EditState
                     {
                         bool isEditing = false;
+                        bool snapshotValid = false;
                         T snapshot{};
                         // Byte-level copy of the snapshot, populated via memcpy so that
                         // padding bytes match those of the live component.  Avoids false
@@ -1218,14 +1219,15 @@ namespace OloEngine
                     static std::unordered_map<u64, EditState> s_editStates;
                     auto& editState = s_editStates[static_cast<u64>(entity.GetUUID()) ^ typeid(T).hash_code()];
 
-                    // Maintain a stable snapshot of the component before any edit session
-                    if (!editState.isEditing)
+                    // Take a snapshot once per idle→edit cycle (not every frame)
+                    if (!editState.isEditing && !editState.snapshotValid)
                     {
                         editState.snapshot = component;
                         if constexpr (std::is_trivially_copyable_v<T>)
                         {
                             std::memcpy(editState.snapshotBytes, &component, sizeof(T));
                         }
+                        editState.snapshotValid = true;
                     }
 
                     // Prefab-aware undo push — shared by both tracking strategies
@@ -1289,6 +1291,7 @@ namespace OloEngine
                                 pushUndoCommand();
                             }
                             editState.isEditing = false;
+                            editState.snapshotValid = false;
                         }
                     }
                     else if constexpr (std::equality_comparable<T>)
@@ -1311,6 +1314,7 @@ namespace OloEngine
                                 pushUndoCommand();
                             }
                             editState.isEditing = false;
+                            editState.snapshotValid = false;
                         }
                     }
                     else
@@ -4387,10 +4391,7 @@ namespace OloEngine
 
         DrawComponent<ItemPickupComponent>("Item Pickup", entity, [](auto& component)
                                            {
-            char buffer[128];
-            ::strcpy_s(buffer, sizeof(buffer), component.Item.ItemDefinitionID.c_str());
-            if (ImGui::InputText("Item ID", buffer, sizeof(buffer)))
-                component.Item.ItemDefinitionID = buffer;
+            ImGui::InputText("Item ID", &component.Item.ItemDefinitionID);
 
             ImGui::DragInt("Stack Count", &component.Item.StackCount, 1, 1, 9999);
             ImGui::DragFloat("Pickup Radius", &component.PickupRadius, 0.1f, 0.0f, 100.0f);
@@ -4407,10 +4408,7 @@ namespace OloEngine
 
             ImGui::Checkbox("Is Shop", &component.IsShop);
 
-            char buffer[128];
-            ::strcpy_s(buffer, sizeof(buffer), component.LootTableID.c_str());
-            if (ImGui::InputText("Loot Table ID", buffer, sizeof(buffer)))
-                component.LootTableID = buffer;
+            ImGui::InputText("Loot Table ID", &component.LootTableID);
 
             ImGui::Separator();
             ImGui::Text("Used: %d / %d", component.Contents.GetUsedSlots(), component.Contents.GetCapacity());

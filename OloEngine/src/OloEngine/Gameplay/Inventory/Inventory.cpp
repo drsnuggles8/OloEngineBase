@@ -48,7 +48,7 @@ namespace OloEngine
         {
             for (auto& slot : m_Slots)
             {
-                if (slot.has_value() && slot->ItemDefinitionID == item.ItemDefinitionID)
+                if (slot.has_value() && slot->IsStackCompatible(item))
                 {
                     i32 canAdd = maxStack - slot->StackCount;
                     if (canAdd >= item.StackCount)
@@ -86,7 +86,12 @@ namespace OloEngine
         }
 
         const ItemDefinition* def = ItemDatabase::Get(item.ItemDefinitionID);
-        i32 maxStack = def ? def->MaxStackSize : 1;
+        if (!def)
+        {
+            return false;
+        }
+
+        i32 maxStack = def->MaxStackSize;
 
         if (item.StackCount > maxStack)
         {
@@ -94,7 +99,7 @@ namespace OloEngine
         }
 
         // Weight check
-        if (MaxWeight > 0.0f && def)
+        if (MaxWeight > 0.0f)
         {
             f32 addedWeight = def->Weight * static_cast<f32>(item.StackCount);
             if (GetTotalWeight() + addedWeight > MaxWeight)
@@ -107,7 +112,7 @@ namespace OloEngine
         if (slot.has_value())
         {
             // Try stacking
-            if (slot->ItemDefinitionID == item.ItemDefinitionID)
+            if (slot->IsStackCompatible(item))
             {
                 if (slot->StackCount + item.StackCount <= maxStack)
                 {
@@ -220,7 +225,7 @@ namespace OloEngine
         }
 
         // Try stacking
-        if (from->ItemDefinitionID == to->ItemDefinitionID)
+        if (from->IsStackCompatible(*to))
         {
             const ItemDefinition* def = ItemDatabase::Get(from->ItemDefinitionID);
             i32 maxStack = def ? def->MaxStackSize : 1;

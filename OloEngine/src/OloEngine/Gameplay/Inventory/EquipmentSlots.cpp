@@ -12,19 +12,21 @@ namespace OloEngine
             return false;
         }
 
+        // Remove from source inventory first; fail if not found
+        if (!sourceInventory.RemoveItem(item.InstanceID, item.StackCount))
+        {
+            return false;
+        }
+
         // If slot is occupied, unequip first
         if (m_Equipped[slotIdx].has_value())
         {
             if (!Unequip(slot, sourceInventory))
             {
+                // Rollback: re-add the removed item
+                sourceInventory.AddItem(item);
                 return false;
             }
-        }
-
-        // Remove from source inventory; fail if not found (gameplay path)
-        if (!sourceInventory.RemoveItem(item.InstanceID, item.StackCount))
-        {
-            return false;
         }
 
         m_Equipped[slotIdx] = item;

@@ -6,6 +6,7 @@
 #include "OloEngine/Scene/Components.h"
 
 #include <glm/glm.hpp>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -13,7 +14,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<entt::entity> entitiesToDestroy;
+        std::unordered_set<entt::entity> entitiesToDestroy;
 
         // Process pickup despawn timers
         auto pickupView = scene->GetAllEntitiesWith<ItemPickupComponent, TransformComponent>();
@@ -27,7 +28,7 @@ namespace OloEngine
                 pickup.DespawnTimer -= dt;
                 if (pickup.DespawnTimer <= 0.0f)
                 {
-                    entitiesToDestroy.push_back(e);
+                    entitiesToDestroy.insert(e);
                     continue;
                 }
             }
@@ -45,7 +46,7 @@ namespace OloEngine
             for (auto pickupEntity : pickupView2)
             {
                 // Skip pickups already claimed this frame
-                if (std::ranges::find(entitiesToDestroy, pickupEntity) != entitiesToDestroy.end())
+                if (entitiesToDestroy.contains(pickupEntity))
                 {
                     continue;
                 }
@@ -63,13 +64,15 @@ namespace OloEngine
                 }
 
                 auto& pickupTransform = pickupEnt.GetComponent<TransformComponent>();
-                f32 distance = glm::length(invTransform.Translation - pickupTransform.Translation);
+                glm::vec3 diff = invTransform.Translation - pickupTransform.Translation;
+                f32 distSq = glm::dot(diff, diff);
+                f32 radiusSq = pickupComp.PickupRadius * pickupComp.PickupRadius;
 
-                if (distance <= pickupComp.PickupRadius)
+                if (distSq <= radiusSq)
                 {
                     if (invComp.PlayerInventory.AddItem(pickupComp.Item))
                     {
-                        entitiesToDestroy.push_back(pickupEntity);
+                        entitiesToDestroy.insert(pickupEntity);
                     }
                 }
             }

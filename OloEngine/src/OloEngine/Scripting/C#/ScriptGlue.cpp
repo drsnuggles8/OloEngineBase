@@ -2576,7 +2576,7 @@ namespace OloEngine
 
     static bool InventoryComponent_AddItem(UUID entityID, MonoString* itemId, i32 count)
     {
-        if (!itemId)
+        if (!itemId || count <= 0)
         {
             return false;
         }
@@ -2586,7 +2586,11 @@ namespace OloEngine
         std::string id = Utils::MonoStringToString(itemId);
 
         const auto* def = ItemDatabase::Get(id);
-        i32 maxStack = def ? def->MaxStackSize : 1;
+        if (!def)
+        {
+            return false;
+        }
+        i32 maxStack = std::max(def->MaxStackSize, 1);
 
         // Split count into multiple instances respecting MaxStackSize
         i32 remaining = count;
