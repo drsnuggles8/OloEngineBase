@@ -45,10 +45,10 @@ namespace OloEngine
     // An authored affix template — one per distinct affix idea (e.g., "fire_damage", "increased_life")
     struct AffixDefinition
     {
-        std::string AffixID;      // Unique identifier, e.g., "fire_damage"
+        std::string AffixID; // Unique identifier, e.g., "fire_damage"
         AffixType Type = AffixType::Prefix;
-        std::string Attribute;    // The stat it modifies, e.g., "FireDamage"
-        std::string Description;  // Tooltip text
+        std::string Attribute;   // The stat it modifies, e.g., "FireDamage"
+        std::string Description; // Tooltip text
 
         // Tiers ordered from lowest to highest (tier 1 = weakest)
         std::vector<AffixTier> Tiers;
@@ -60,7 +60,7 @@ namespace OloEngine
     // A named pool of affix definitions that loot table entries reference
     struct AffixPool
     {
-        std::string PoolID; // e.g., "weapon_prefixes", "armor_suffixes"
+        std::string PoolID;                // e.g., "weapon_prefixes", "armor_suffixes"
         std::vector<std::string> AffixIDs; // References to AffixDefinition::AffixID
     };
 
