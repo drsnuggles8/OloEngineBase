@@ -89,6 +89,9 @@ namespace OloEngine
         bool colorMaskB = true;
         bool colorMaskA = true;
 
+        // Per-attachment color write mask (bit N = attachment N writable, default: all enabled)
+        u8 colorAttachmentWriteMask = 0xFF;
+
         // Multisampling
         bool multisamplingEnabled = true;
 
@@ -98,7 +101,7 @@ namespace OloEngine
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODRenderState& o) const
         {
-            return blendEnabled == o.blendEnabled && blendSrcFactor == o.blendSrcFactor && blendDstFactor == o.blendDstFactor && blendEquation == o.blendEquation && depthTestEnabled == o.depthTestEnabled && depthWriteMask == o.depthWriteMask && depthFunction == o.depthFunction && stencilEnabled == o.stencilEnabled && stencilFunction == o.stencilFunction && stencilReference == o.stencilReference && stencilReadMask == o.stencilReadMask && stencilWriteMask == o.stencilWriteMask && stencilFail == o.stencilFail && stencilDepthFail == o.stencilDepthFail && stencilDepthPass == o.stencilDepthPass && cullingEnabled == o.cullingEnabled && cullFace == o.cullFace && polygonFace == o.polygonFace && polygonMode == o.polygonMode && polygonOffsetEnabled == o.polygonOffsetEnabled && polygonOffsetFactor == o.polygonOffsetFactor && polygonOffsetUnits == o.polygonOffsetUnits && scissorEnabled == o.scissorEnabled && scissorX == o.scissorX && scissorY == o.scissorY && scissorWidth == o.scissorWidth && scissorHeight == o.scissorHeight && colorMaskR == o.colorMaskR && colorMaskG == o.colorMaskG && colorMaskB == o.colorMaskB && colorMaskA == o.colorMaskA && multisamplingEnabled == o.multisamplingEnabled && lineWidth == o.lineWidth;
+            return blendEnabled == o.blendEnabled && blendSrcFactor == o.blendSrcFactor && blendDstFactor == o.blendDstFactor && blendEquation == o.blendEquation && depthTestEnabled == o.depthTestEnabled && depthWriteMask == o.depthWriteMask && depthFunction == o.depthFunction && stencilEnabled == o.stencilEnabled && stencilFunction == o.stencilFunction && stencilReference == o.stencilReference && stencilReadMask == o.stencilReadMask && stencilWriteMask == o.stencilWriteMask && stencilFail == o.stencilFail && stencilDepthFail == o.stencilDepthFail && stencilDepthPass == o.stencilDepthPass && cullingEnabled == o.cullingEnabled && cullFace == o.cullFace && polygonFace == o.polygonFace && polygonMode == o.polygonMode && polygonOffsetEnabled == o.polygonOffsetEnabled && polygonOffsetFactor == o.polygonOffsetFactor && polygonOffsetUnits == o.polygonOffsetUnits && scissorEnabled == o.scissorEnabled && scissorX == o.scissorX && scissorY == o.scissorY && scissorWidth == o.scissorWidth && scissorHeight == o.scissorHeight && colorMaskR == o.colorMaskR && colorMaskG == o.colorMaskG && colorMaskB == o.colorMaskB && colorMaskA == o.colorMaskA && colorAttachmentWriteMask == o.colorAttachmentWriteMask && multisamplingEnabled == o.multisamplingEnabled && lineWidth == o.lineWidth;
         }
     };
 

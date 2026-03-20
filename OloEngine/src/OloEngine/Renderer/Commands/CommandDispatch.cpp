@@ -210,6 +210,19 @@ namespace OloEngine
 
         api.SetColorMask(state.colorMaskR, state.colorMaskG, state.colorMaskB, state.colorMaskA);
 
+        // Apply per-attachment color write mask (for MRT: e.g. disable writes to entity-ID/normal attachments)
+        // glColorMask above resets all buffers, then glColorMaski selectively disables masked-out ones
+        if (state.colorAttachmentWriteMask != 0xFF)
+        {
+            for (u32 i = 0; i < 8; ++i)
+            {
+                if (!(state.colorAttachmentWriteMask & (1u << i)))
+                {
+                    api.SetColorMaskForAttachment(i, false, false, false, false);
+                }
+            }
+        }
+
         if (state.polygonOffsetEnabled)
             api.SetPolygonOffset(state.polygonOffsetFactor, state.polygonOffsetUnits);
         else

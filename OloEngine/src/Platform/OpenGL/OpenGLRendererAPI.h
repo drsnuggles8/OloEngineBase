@@ -53,6 +53,7 @@ namespace OloEngine
         void EnableMultisampling() override;
         void DisableMultisampling() override;
         void SetColorMask(bool red, bool green, bool blue, bool alpha) override;
+        void SetColorMaskForAttachment(u32 attachment, bool red, bool green, bool blue, bool alpha) override;
 
         void EnableScissorTest() override;
         void DisableScissorTest() override;

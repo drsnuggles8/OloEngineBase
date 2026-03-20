@@ -3191,6 +3191,8 @@ namespace OloEngine
                 // Depth off so lines always pass depth test
                 PODRenderState skelState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
                 skelState.depthTestEnabled = false;
+                // Only write to color attachment (0); skip entity-ID (1) and normals (2)
+                skelState.colorAttachmentWriteMask = 0x01;
                 drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(skelState);
             }
 
@@ -3245,6 +3247,8 @@ namespace OloEngine
                 // Depth off so joints always pass depth test
                 PODRenderState jointState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
                 jointState.depthTestEnabled = false;
+                // Only write to color attachment (0); skip entity-ID (1) and normals (2)
+                jointState.colorAttachmentWriteMask = 0x01;
                 drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(jointState);
             }
 

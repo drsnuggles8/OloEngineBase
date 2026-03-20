@@ -605,6 +605,13 @@ namespace OloEngine
         glColorMask(red, green, blue, alpha);
     }
 
+    void OpenGLRendererAPI::SetColorMaskForAttachment(u32 attachment, bool red, bool green, bool blue, bool alpha)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glColorMaski(attachment, red, green, blue, alpha);
+    }
+
     void OpenGLRendererAPI::SetBlendStateForAttachment(u32 attachment, bool enabled)
     {
         OLO_PROFILE_FUNCTION();
