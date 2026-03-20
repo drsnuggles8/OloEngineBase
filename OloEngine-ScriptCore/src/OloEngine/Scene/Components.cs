@@ -1336,4 +1336,139 @@ namespace OloEngine
 
 	public class ItemPickupComponent : Component { }
 	public class ItemContainerComponent : Component { }
+
+	public class QuestJournalComponent : Component
+	{
+		public bool AcceptQuest(string questId)
+		{
+			if (string.IsNullOrWhiteSpace(questId)) return false;
+			return InternalCalls.QuestJournalComponent_AcceptQuest(Entity.ID, questId);
+		}
+
+		public bool AbandonQuest(string questId)
+		{
+			if (string.IsNullOrWhiteSpace(questId)) return false;
+			return InternalCalls.QuestJournalComponent_AbandonQuest(Entity.ID, questId);
+		}
+
+		public bool CompleteQuest(string questId, string branchChoice = "")
+		{
+			if (string.IsNullOrWhiteSpace(questId)) return false;
+			return InternalCalls.QuestJournalComponent_CompleteQuest(Entity.ID, questId, branchChoice ?? "");
+		}
+
+		public bool IsQuestActive(string questId)
+		{
+			if (string.IsNullOrWhiteSpace(questId)) return false;
+			return InternalCalls.QuestJournalComponent_IsQuestActive(Entity.ID, questId);
+		}
+
+		public bool HasCompletedQuest(string questId)
+		{
+			if (string.IsNullOrWhiteSpace(questId)) return false;
+			return InternalCalls.QuestJournalComponent_HasCompletedQuest(Entity.ID, questId);
+		}
+
+		public void IncrementObjective(string questId, string objectiveId, int amount = 1)
+		{
+			if (string.IsNullOrWhiteSpace(questId) || string.IsNullOrWhiteSpace(objectiveId)) return;
+			if (amount <= 0) return;
+			InternalCalls.QuestJournalComponent_IncrementObjective(Entity.ID, questId, objectiveId, amount);
+		}
+
+		public void NotifyKill(string targetTag)
+		{
+			if (string.IsNullOrWhiteSpace(targetTag)) return;
+			InternalCalls.QuestJournalComponent_NotifyKill(Entity.ID, targetTag);
+		}
+
+		public void NotifyCollect(string itemId, int count = 1)
+		{
+			if (string.IsNullOrWhiteSpace(itemId)) return;
+			if (count <= 0) return;
+			InternalCalls.QuestJournalComponent_NotifyCollect(Entity.ID, itemId, count);
+		}
+
+		public void NotifyInteract(string interactableId)
+		{
+			if (string.IsNullOrWhiteSpace(interactableId)) return;
+			InternalCalls.QuestJournalComponent_NotifyInteract(Entity.ID, interactableId);
+		}
+
+		public void NotifyReachLocation(string locationId)
+		{
+			if (string.IsNullOrWhiteSpace(locationId)) return;
+			InternalCalls.QuestJournalComponent_NotifyReachLocation(Entity.ID, locationId);
+		}
+
+		public void SetPlayerLevel(int level)
+		{
+			InternalCalls.QuestJournalComponent_SetPlayerLevel(Entity.ID, level);
+		}
+
+		public int GetPlayerLevel()
+		{
+			return InternalCalls.QuestJournalComponent_GetPlayerLevel(Entity.ID);
+		}
+
+		public void SetReputation(string factionId, int value)
+		{
+			if (string.IsNullOrWhiteSpace(factionId)) return;
+			InternalCalls.QuestJournalComponent_SetReputation(Entity.ID, factionId, value);
+		}
+
+		public int GetReputation(string factionId)
+		{
+			if (string.IsNullOrWhiteSpace(factionId)) return 0;
+			return InternalCalls.QuestJournalComponent_GetReputation(Entity.ID, factionId);
+		}
+
+		public void SetItemCount(string itemId, int count)
+		{
+			if (string.IsNullOrWhiteSpace(itemId)) return;
+			InternalCalls.QuestJournalComponent_SetItemCount(Entity.ID, itemId, count);
+		}
+
+		public int GetItemCount(string itemId)
+		{
+			if (string.IsNullOrWhiteSpace(itemId)) return 0;
+			return InternalCalls.QuestJournalComponent_GetItemCount(Entity.ID, itemId);
+		}
+
+		public void SetStat(string statName, int value)
+		{
+			if (string.IsNullOrWhiteSpace(statName)) return;
+			InternalCalls.QuestJournalComponent_SetStat(Entity.ID, statName, value);
+		}
+
+		public int GetStat(string statName)
+		{
+			if (string.IsNullOrWhiteSpace(statName)) return 0;
+			return InternalCalls.QuestJournalComponent_GetStat(Entity.ID, statName);
+		}
+
+		public void SetPlayerClass(string className)
+		{
+			if (string.IsNullOrWhiteSpace(className)) return;
+			InternalCalls.QuestJournalComponent_SetPlayerClass(Entity.ID, className);
+		}
+
+		public string GetPlayerClass()
+		{
+			return InternalCalls.QuestJournalComponent_GetPlayerClass(Entity.ID);
+		}
+
+		public void SetPlayerFaction(string factionName)
+		{
+			if (string.IsNullOrWhiteSpace(factionName)) return;
+			InternalCalls.QuestJournalComponent_SetPlayerFaction(Entity.ID, factionName);
+		}
+
+		public string GetPlayerFaction()
+		{
+			return InternalCalls.QuestJournalComponent_GetPlayerFaction(Entity.ID);
+		}
+	}
+
+	public class QuestGiverComponent : Component { }
 }

@@ -23,6 +23,8 @@
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
+#include "OloEngine/Gameplay/Quest/QuestComponents.h"
+#include "OloEngine/Gameplay/Quest/QuestDatabase.h"
 
 namespace OloEngine
 {
@@ -719,5 +721,38 @@ namespace OloEngine
                                                  "isShop", &ItemContainerComponent::IsShop,
                                                  "lootTableID", &ItemContainerComponent::LootTableID,
                                                  "hasBeenLooted", &ItemContainerComponent::HasBeenLooted);
+
+        // --- QuestJournalComponent ---
+        lua.new_usertype<QuestJournalComponent>("QuestJournalComponent", "AcceptQuest", [](QuestJournalComponent& comp, const std::string& questId) -> bool
+                                                {
+                const auto* def = QuestDatabase::Get(questId);
+                if (!def)
+                    return false;
+                return comp.Journal.AcceptQuest(questId, *def); }, "AbandonQuest", [](QuestJournalComponent& comp, const std::string& questId) -> bool
+                                                { return comp.Journal.AbandonQuest(questId); }, "CompleteQuest", [](QuestJournalComponent& comp, const std::string& questId, sol::optional<std::string> branch) -> bool
+                                                { return comp.Journal.CompleteQuest(questId, branch.value_or("")).has_value(); }, "IsQuestActive", [](const QuestJournalComponent& comp, const std::string& questId) -> bool
+                                                { return comp.Journal.IsQuestActive(questId); }, "HasCompletedQuest", [](const QuestJournalComponent& comp, const std::string& questId) -> bool
+                                                { return comp.Journal.HasCompletedQuest(questId); }, "IncrementObjective", [](QuestJournalComponent& comp, const std::string& questId, const std::string& objId, sol::optional<i32> amount)
+                                                { i32 amt = amount.value_or(1); if (amt <= 0) return; comp.Journal.IncrementObjective(questId, objId, amt); }, "NotifyKill", [](QuestJournalComponent& comp, const std::string& targetTag)
+                                                { comp.Journal.NotifyKill(targetTag); }, "NotifyCollect", [](QuestJournalComponent& comp, const std::string& itemId, sol::optional<i32> count)
+                                                { i32 cnt = count.value_or(1); if (cnt <= 0) return; comp.Journal.NotifyCollect(itemId, cnt); }, "NotifyInteract", [](QuestJournalComponent& comp, const std::string& id)
+                                                { comp.Journal.NotifyInteract(id); }, "NotifyReachLocation", [](QuestJournalComponent& comp, const std::string& locId)
+                                                { comp.Journal.NotifyReachLocation(locId); }, "HasTag", [](const QuestJournalComponent& comp, const std::string& tag) -> bool
+                                                { return comp.Journal.HasTag(tag); }, "AddTag", [](QuestJournalComponent& comp, const std::string& tag)
+                                                { comp.Journal.AddTag(tag); }, "SetPlayerLevel", [](QuestJournalComponent& comp, i32 level)
+                                                { if (level < 0) return; comp.Journal.SetPlayerLevel(level); }, "GetPlayerLevel", [](const QuestJournalComponent& comp) -> i32
+                                                { return comp.Journal.GetPlayerLevel(); }, "SetReputation", [](QuestJournalComponent& comp, const std::string& factionId, i32 value)
+                                                { comp.Journal.SetReputation(factionId, value); }, "GetReputation", [](const QuestJournalComponent& comp, const std::string& factionId) -> i32
+                                                { return comp.Journal.GetReputation(factionId); }, "SetItemCount", [](QuestJournalComponent& comp, const std::string& itemId, i32 count)
+                                                { if (count < 0) return; comp.Journal.SetItemCount(itemId, count); }, "SetStat", [](QuestJournalComponent& comp, const std::string& statName, i32 value)
+                                                { comp.Journal.SetStat(statName, value); }, "SetPlayerClass", [](QuestJournalComponent& comp, const std::string& className)
+                                                { comp.Journal.SetPlayerClass(className); }, "SetPlayerFaction", [](QuestJournalComponent& comp, const std::string& factionName)
+                                                { comp.Journal.SetPlayerFaction(factionName); });
+
+        // --- QuestGiverComponent ---
+        lua.new_usertype<QuestGiverComponent>("QuestGiverComponent",
+                                              "questMarkerIcon", &QuestGiverComponent::QuestMarkerIcon,
+                                              "offeredQuestIDs", &QuestGiverComponent::OfferedQuestIDs,
+                                              "turnInQuestIDs", &QuestGiverComponent::TurnInQuestIDs);
     }
 } // namespace OloEngine

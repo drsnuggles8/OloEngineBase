@@ -57,6 +57,7 @@
 #include "OloEngine/Navigation/NavigationSystem.h"
 #include "OloEngine/AI/AISystem.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
+#include "OloEngine/Gameplay/Quest/QuestSystem.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -898,6 +899,9 @@ namespace OloEngine
 
             // Update inventory system (pickups, despawn)
             InventorySystem::OnUpdate(this, ts.GetSeconds());
+
+            // Update quest system (timers, conditions)
+            QuestSystem::OnUpdate(this, ts.GetSeconds());
 
             auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
             for (auto&& [e, ac, tc] : listenerView.each())
@@ -3810,5 +3814,15 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::ItemPickupComponent>([[maybe_
 
 template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::ItemContainerComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ItemContainerComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::QuestJournalComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::QuestJournalComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::QuestGiverComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::QuestGiverComponent& component)
 {
 }

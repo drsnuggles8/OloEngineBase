@@ -27,6 +27,7 @@
 #include "OloEngine/Dialogue/DialogueTypes.h"
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Quest/QuestComponents.h"
 
 #include <box2d/id.h>
 
@@ -1471,5 +1472,7 @@ namespace OloEngine
         StateMachineComponent,
         InventoryComponent,
         ItemPickupComponent,
-        ItemContainerComponent>;
+        ItemContainerComponent,
+        QuestJournalComponent,
+        QuestGiverComponent>;
 } // namespace OloEngine

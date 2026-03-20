@@ -119,6 +119,8 @@ add_executable(OloEngine-Tests
 		StateMachineTest.cpp
 		# Inventory Tests
 		InventoryTest.cpp
+		# Quest Tests
+		QuestSystemTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

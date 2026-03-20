@@ -1,0 +1,56 @@
+QuestID: the_crossroads
+Title: The Crossroads Decision
+Description: A traveler asks for help. Your choice will shape your reputation.
+Category: Main
+CanFail: false
+TimeLimit: -1
+IsRepeatable: false
+
+Requirements:
+  - Type: QuestCompleted
+    Target: wolf_hunt
+    Description: Must have completed the Wolf Hunt
+  - Type: Level
+    Value: 2
+    Comparison: GreaterThanOrEqual
+    Description: Must be at least level 2
+  - Type: DoesNotHaveTag
+    Target: villain_path
+    Description: Must not have chosen the villain path
+
+Stages:
+  - StageID: stage_1
+    Description: Investigate the crossroads
+    RequireAllObjectives: true
+    Objectives:
+      - ObjectiveID: reach_crossroads
+        Description: Reach the Crossroads
+        Type: Reach
+        TargetID: crossroads
+        RequiredCount: 1
+        IsOptional: false
+        IsHidden: false
+      - ObjectiveID: talk_traveler
+        Description: Talk to the Mysterious Traveler
+        Type: Interact
+        TargetID: mysterious_traveler
+        RequiredCount: 1
+        IsOptional: false
+        IsHidden: false
+
+CompletionChoices:
+  - ChoiceID: help_traveler
+    Description: Help the traveler on their journey
+    NextQuestID: escort_traveler
+    GrantedTags:
+      - hero_path
+      - traveler_ally
+  - ChoiceID: rob_traveler
+    Description: Take the traveler's belongings
+    GrantedTags:
+      - villain_path
+      - traveler_enemy
+
+CompletionRewards:
+  ExperiencePoints: 150
+  Currency: 0

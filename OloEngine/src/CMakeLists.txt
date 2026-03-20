@@ -868,6 +868,18 @@
 		"OloEngine/Gameplay/Inventory/InventorySystem.h"
 		"OloEngine/Gameplay/Inventory/InventorySystem.cpp"
 
+		"OloEngine/Gameplay/Quest/QuestObjective.h"
+		"OloEngine/Gameplay/Quest/QuestRequirement.h"
+		"OloEngine/Gameplay/Quest/Quest.h"
+		"OloEngine/Gameplay/Quest/QuestJournal.h"
+		"OloEngine/Gameplay/Quest/QuestJournal.cpp"
+		"OloEngine/Gameplay/Quest/QuestDatabase.h"
+		"OloEngine/Gameplay/Quest/QuestDatabase.cpp"
+		"OloEngine/Gameplay/Quest/QuestEvents.h"
+		"OloEngine/Gameplay/Quest/QuestComponents.h"
+		"OloEngine/Gameplay/Quest/QuestSystem.h"
+		"OloEngine/Gameplay/Quest/QuestSystem.cpp"
+
 		"OloEngine/Navigation/NavMeshSettings.h"
 		"OloEngine/Navigation/NavMesh.h"
 		"OloEngine/Navigation/NavMesh.cpp"

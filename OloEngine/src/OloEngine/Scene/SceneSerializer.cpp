@@ -16,6 +16,8 @@
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Quest/QuestComponents.h"
+#include "OloEngine/Gameplay/Quest/QuestDatabase.h"
 
 #include <fstream>
 #include <cmath>
@@ -2411,6 +2413,163 @@ namespace OloEngine
                 }
             }
         }
+
+        if (auto questJournalComponent = entity["QuestJournalComponent"]; questJournalComponent)
+        {
+            auto& qjc = deserializedEntity.AddComponent<QuestJournalComponent>();
+
+            if (auto tags = questJournalComponent["Tags"]; tags && tags.IsSequence())
+            {
+                for (auto const& tagNode : tags)
+                {
+                    qjc.Journal.AddTag(tagNode.as<std::string>(""));
+                }
+            }
+
+            // Player state for requirement evaluation
+            if (auto level = questJournalComponent["PlayerLevel"]; level)
+            {
+                qjc.Journal.SetPlayerLevel(std::max(level.as<i32>(0), 0));
+            }
+            if (auto playerClass = questJournalComponent["PlayerClass"]; playerClass)
+            {
+                qjc.Journal.SetPlayerClass(playerClass.as<std::string>(""));
+            }
+            if (auto playerFaction = questJournalComponent["PlayerFaction"]; playerFaction)
+            {
+                qjc.Journal.SetPlayerFaction(playerFaction.as<std::string>(""));
+            }
+            if (auto reputations = questJournalComponent["Reputations"]; reputations && reputations.IsMap())
+            {
+                for (auto it = reputations.begin(); it != reputations.end(); ++it)
+                {
+                    qjc.Journal.SetReputation(it->first.as<std::string>(""), it->second.as<i32>(0));
+                }
+            }
+            if (auto items = questJournalComponent["Items"]; items && items.IsMap())
+            {
+                for (auto it = items.begin(); it != items.end(); ++it)
+                {
+                    qjc.Journal.SetItemCount(it->first.as<std::string>(""), std::max(it->second.as<i32>(0), 0));
+                }
+            }
+            if (auto stats = questJournalComponent["Stats"]; stats && stats.IsMap())
+            {
+                for (auto it = stats.begin(); it != stats.end(); ++it)
+                {
+                    qjc.Journal.SetStat(it->first.as<std::string>(""), it->second.as<i32>(0));
+                }
+            }
+
+            if (auto completed = questJournalComponent["CompletedQuests"]; completed && completed.IsSequence())
+            {
+                for (auto const& node : completed)
+                {
+                    if (node.IsMap())
+                    {
+                        auto questID = node["QuestID"].as<std::string>("");
+                        auto branchID = node["BranchID"].as<std::string>("");
+                        qjc.Journal.AddCompletedQuestID(questID, branchID);
+                    }
+                    else
+                    {
+                        qjc.Journal.AddCompletedQuestID(node.as<std::string>(""));
+                    }
+                }
+            }
+
+            if (auto failed = questJournalComponent["FailedQuests"]; failed && failed.IsSequence())
+            {
+                for (auto const& node : failed)
+                {
+                    qjc.Journal.AddFailedQuestID(node.as<std::string>(""));
+                }
+            }
+
+            if (auto activeQuests = questJournalComponent["ActiveQuests"]; activeQuests && activeQuests.IsSequence())
+            {
+                for (auto const& questNode : activeQuests)
+                {
+                    QuestJournal::ActiveQuestState state;
+                    state.QuestID = questNode["QuestID"].as<std::string>("");
+                    state.Status = QuestStatusFromString(questNode["Status"].as<std::string>("Active"));
+                    state.CurrentStageIndex = std::max(questNode["CurrentStageIndex"].as<i32>(0), 0);
+                    state.ElapsedTime = questNode["ElapsedTime"].as<f32>(0.0f);
+                    if (!std::isfinite(state.ElapsedTime) || state.ElapsedTime < 0.0f)
+                    {
+                        state.ElapsedTime = 0.0f;
+                    }
+
+                    // Try to load the definition from database
+                    const auto* def = QuestDatabase::Get(state.QuestID);
+                    if (def)
+                    {
+                        state.Definition = *def;
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("[SceneSerializer] Active quest '{}': definition not found in QuestDatabase, preserving state with stub", state.QuestID);
+                        state.Definition.QuestID = state.QuestID;
+                    }
+
+                    // Clamp stage index to valid range
+                    if (!state.Definition.Stages.empty())
+                    {
+                        state.CurrentStageIndex = std::min(state.CurrentStageIndex, static_cast<i32>(state.Definition.Stages.size()) - 1);
+                    }
+
+                    if (auto objectives = questNode["Objectives"]; objectives && objectives.IsSequence())
+                    {
+                        for (auto const& objNode : objectives)
+                        {
+                            QuestObjective obj;
+                            obj.ObjectiveID = objNode["ObjectiveID"].as<std::string>("");
+                            obj.Description = objNode["Description"].as<std::string>("");
+                            obj.ObjectiveType = ObjectiveTypeFromString(objNode["Type"].as<std::string>("Custom"));
+                            obj.TargetID = objNode["TargetID"].as<std::string>("");
+                            obj.RequiredCount = std::max(objNode["RequiredCount"].as<i32>(1), 1);
+                            obj.CurrentCount = std::clamp(objNode["CurrentCount"].as<i32>(0), 0, obj.RequiredCount);
+                            obj.IsOptional = objNode["IsOptional"].as<bool>(false);
+                            obj.IsHidden = objNode["IsHidden"].as<bool>(false);
+                            obj.IsCompleted = (obj.CurrentCount >= obj.RequiredCount);
+                            state.ObjectiveStates.push_back(std::move(obj));
+                        }
+                    }
+
+                    qjc.Journal.SetActiveQuestState(state.QuestID, std::move(state));
+                }
+            }
+
+            if (auto cooldowns = questJournalComponent["QuestCooldowns"]; cooldowns && cooldowns.IsMap())
+            {
+                for (auto it = cooldowns.begin(); it != cooldowns.end(); ++it)
+                {
+                    qjc.Journal.SetQuestCooldown(it->first.as<std::string>(""), it->second.as<f32>(0.0f));
+                }
+            }
+        }
+
+        if (auto questGiverComponent = entity["QuestGiverComponent"]; questGiverComponent)
+        {
+            auto& qgc = deserializedEntity.AddComponent<QuestGiverComponent>();
+            TrySet(qgc.QuestMarkerIcon, questGiverComponent["QuestMarkerIcon"]);
+
+            if (auto offered = questGiverComponent["OfferedQuestIDs"]; offered && offered.IsSequence())
+            {
+                for (auto const& node : offered)
+                {
+                    qgc.OfferedQuestIDs.push_back(node.as<std::string>(""));
+                }
+            }
+
+            if (auto turnIn = questGiverComponent["TurnInQuestIDs"]; turnIn && turnIn.IsSequence())
+            {
+                for (auto const& node : turnIn)
+                {
+                    qgc.TurnInQuestIDs.push_back(node.as<std::string>(""));
+                }
+            }
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -4036,6 +4195,177 @@ namespace OloEngine
             out << YAML::EndSeq;
 
             out << YAML::EndMap; // ItemContainerComponent
+        }
+
+        if (entity.HasComponent<QuestJournalComponent>())
+        {
+            out << YAML::Key << "QuestJournalComponent";
+            out << YAML::BeginMap;
+
+            auto const& qjc = entity.GetComponent<QuestJournalComponent>();
+
+            // Serialize tags (sorted for deterministic output)
+            {
+                out << YAML::Key << "Tags" << YAML::Value << YAML::BeginSeq;
+                std::vector<std::string> sortedTags(qjc.Journal.GetTags().begin(), qjc.Journal.GetTags().end());
+                std::sort(sortedTags.begin(), sortedTags.end());
+                for (auto const& tag : sortedTags)
+                {
+                    out << tag;
+                }
+                out << YAML::EndSeq;
+            }
+
+            // Serialize player state for requirement evaluation
+            out << YAML::Key << "PlayerLevel" << YAML::Value << qjc.Journal.GetPlayerLevel();
+            if (!qjc.Journal.GetPlayerClass().empty())
+            {
+                out << YAML::Key << "PlayerClass" << YAML::Value << qjc.Journal.GetPlayerClass();
+            }
+            if (!qjc.Journal.GetPlayerFaction().empty())
+            {
+                out << YAML::Key << "PlayerFaction" << YAML::Value << qjc.Journal.GetPlayerFaction();
+            }
+            if (!qjc.Journal.GetReputations().empty())
+            {
+                out << YAML::Key << "Reputations" << YAML::Value << YAML::BeginMap;
+                std::vector<std::pair<std::string, i32>> sortedReps(qjc.Journal.GetReputations().begin(), qjc.Journal.GetReputations().end());
+                std::sort(sortedReps.begin(), sortedReps.end());
+                for (auto const& [factionId, value] : sortedReps)
+                {
+                    out << YAML::Key << factionId << YAML::Value << value;
+                }
+                out << YAML::EndMap;
+            }
+            if (!qjc.Journal.GetItems().empty())
+            {
+                out << YAML::Key << "Items" << YAML::Value << YAML::BeginMap;
+                std::vector<std::pair<std::string, i32>> sortedItems(qjc.Journal.GetItems().begin(), qjc.Journal.GetItems().end());
+                std::sort(sortedItems.begin(), sortedItems.end());
+                for (auto const& [itemId, count] : sortedItems)
+                {
+                    out << YAML::Key << itemId << YAML::Value << count;
+                }
+                out << YAML::EndMap;
+            }
+            if (!qjc.Journal.GetStats().empty())
+            {
+                out << YAML::Key << "Stats" << YAML::Value << YAML::BeginMap;
+                std::vector<std::pair<std::string, i32>> sortedStats(qjc.Journal.GetStats().begin(), qjc.Journal.GetStats().end());
+                std::sort(sortedStats.begin(), sortedStats.end());
+                for (auto const& [statName, value] : sortedStats)
+                {
+                    out << YAML::Key << statName << YAML::Value << value;
+                }
+                out << YAML::EndMap;
+            }
+
+            // Serialize completed quests (sorted for deterministic output)
+            {
+                out << YAML::Key << "CompletedQuests" << YAML::Value << YAML::BeginSeq;
+                std::vector<std::string> sortedCompleted(qjc.Journal.GetCompletedQuestIDs().begin(), qjc.Journal.GetCompletedQuestIDs().end());
+                std::sort(sortedCompleted.begin(), sortedCompleted.end());
+                for (auto const& id : sortedCompleted)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "QuestID" << YAML::Value << id;
+                    out << YAML::Key << "BranchID" << YAML::Value << qjc.Journal.GetCompletedQuestBranch(id);
+                    out << YAML::EndMap;
+                }
+                out << YAML::EndSeq;
+            }
+
+            // Serialize failed quests (sorted for deterministic output)
+            {
+                out << YAML::Key << "FailedQuests" << YAML::Value << YAML::BeginSeq;
+                std::vector<std::string> sortedFailed(qjc.Journal.GetFailedQuestIDs().begin(), qjc.Journal.GetFailedQuestIDs().end());
+                std::sort(sortedFailed.begin(), sortedFailed.end());
+                for (auto const& id : sortedFailed)
+                {
+                    out << id;
+                }
+                out << YAML::EndSeq;
+            }
+
+            // Serialize active quests (sorted for deterministic output)
+            {
+                out << YAML::Key << "ActiveQuests" << YAML::Value << YAML::BeginSeq;
+                std::vector<std::string> sortedActiveIds;
+                for (auto const& [questId, state] : qjc.Journal.GetActiveQuestStates())
+                {
+                    sortedActiveIds.push_back(questId);
+                }
+                std::sort(sortedActiveIds.begin(), sortedActiveIds.end());
+                for (auto const& questId : sortedActiveIds)
+                {
+                    auto const& state = qjc.Journal.GetActiveQuestStates().at(questId);
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "QuestID" << YAML::Value << state.QuestID;
+                    out << YAML::Key << "Status" << YAML::Value << QuestStatusToString(state.Status);
+                    out << YAML::Key << "CurrentStageIndex" << YAML::Value << state.CurrentStageIndex;
+                    out << YAML::Key << "ElapsedTime" << YAML::Value << state.ElapsedTime;
+
+                    out << YAML::Key << "Objectives" << YAML::Value << YAML::BeginSeq;
+                    for (auto const& obj : state.ObjectiveStates)
+                    {
+                        out << YAML::BeginMap;
+                        out << YAML::Key << "ObjectiveID" << YAML::Value << obj.ObjectiveID;
+                        out << YAML::Key << "Description" << YAML::Value << obj.Description;
+                        out << YAML::Key << "Type" << YAML::Value << ObjectiveTypeToString(obj.ObjectiveType);
+                        out << YAML::Key << "TargetID" << YAML::Value << obj.TargetID;
+                        out << YAML::Key << "RequiredCount" << YAML::Value << obj.RequiredCount;
+                        out << YAML::Key << "CurrentCount" << YAML::Value << obj.CurrentCount;
+                        out << YAML::Key << "IsOptional" << YAML::Value << obj.IsOptional;
+                        out << YAML::Key << "IsHidden" << YAML::Value << obj.IsHidden;
+                        out << YAML::Key << "IsCompleted" << YAML::Value << obj.IsCompleted;
+                        out << YAML::EndMap;
+                    }
+                    out << YAML::EndSeq;
+
+                    out << YAML::EndMap;
+                }
+                out << YAML::EndSeq;
+            }
+
+            // Serialize cooldowns for repeatable quests
+            if (!qjc.Journal.GetQuestCooldowns().empty())
+            {
+                out << YAML::Key << "QuestCooldowns" << YAML::Value << YAML::BeginMap;
+                std::vector<std::pair<std::string, f32>> sortedCooldowns(qjc.Journal.GetQuestCooldowns().begin(), qjc.Journal.GetQuestCooldowns().end());
+                std::sort(sortedCooldowns.begin(), sortedCooldowns.end());
+                for (auto const& [questId, remaining] : sortedCooldowns)
+                {
+                    out << YAML::Key << questId << YAML::Value << remaining;
+                }
+                out << YAML::EndMap;
+            }
+
+            out << YAML::EndMap; // QuestJournalComponent
+        }
+
+        if (entity.HasComponent<QuestGiverComponent>())
+        {
+            out << YAML::Key << "QuestGiverComponent";
+            out << YAML::BeginMap;
+
+            auto const& qgc = entity.GetComponent<QuestGiverComponent>();
+            out << YAML::Key << "QuestMarkerIcon" << YAML::Value << qgc.QuestMarkerIcon;
+
+            out << YAML::Key << "OfferedQuestIDs" << YAML::Value << YAML::BeginSeq;
+            for (auto const& id : qgc.OfferedQuestIDs)
+            {
+                out << id;
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::Key << "TurnInQuestIDs" << YAML::Value << YAML::BeginSeq;
+            for (auto const& id : qgc.TurnInQuestIDs)
+            {
+                out << id;
+            }
+            out << YAML::EndSeq;
+
+            out << YAML::EndMap; // QuestGiverComponent
         }
 
         out << YAML::EndMap; // Entity

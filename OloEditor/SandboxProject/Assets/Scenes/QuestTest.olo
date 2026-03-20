@@ -1,0 +1,120 @@
+Scene: QuestTest.olo
+Entities:
+  - Entity: 9900000000000001
+    TagComponent:
+      Tag: Main Camera
+    TransformComponent:
+      Translation: [0, 5, 15]
+      Rotation: [-0.3, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 1
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.00999999978
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 9900000000000002
+    TagComponent:
+      Tag: Player
+    TransformComponent:
+      Translation: [0, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.2, 0.6, 1, 1]
+    QuestJournalComponent:
+      Tags: []
+      CompletedQuests: []
+      ActiveQuests: []
+  - Entity: 9900000000000003
+    TagComponent:
+      Tag: Village Elder (Quest Giver)
+    TransformComponent:
+      Translation: [3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.8, 0.7, 0.2, 1]
+    QuestGiverComponent:
+      QuestMarkerIcon: "!"
+      OfferedQuestIDs:
+        - wolf_hunt
+        - herb_gathering
+      TurnInQuestIDs:
+        - wolf_hunt
+  - Entity: 9900000000000004
+    TagComponent:
+      Tag: Mysterious Traveler (Quest Giver)
+    TransformComponent:
+      Translation: [-3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.5, 0.2, 0.8, 1]
+    QuestGiverComponent:
+      QuestMarkerIcon: "!"
+      OfferedQuestIDs:
+        - the_crossroads
+      TurnInQuestIDs:
+        - the_crossroads
+  - Entity: 9900000000000005
+    TagComponent:
+      Tag: Wolf 1
+    TransformComponent:
+      Translation: [-5, 0.5, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.8, 0.8]
+    SpriteRendererComponent:
+      Color: [0.5, 0.5, 0.5, 1]
+  - Entity: 9900000000000006
+    TagComponent:
+      Tag: Wolf 2
+    TransformComponent:
+      Translation: [-6, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.8, 0.8]
+    SpriteRendererComponent:
+      Color: [0.5, 0.5, 0.5, 1]
+  - Entity: 9900000000000007
+    TagComponent:
+      Tag: Wolf 3
+    TransformComponent:
+      Translation: [-4, 0.5, -7]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.8, 0.8]
+    SpriteRendererComponent:
+      Color: [0.5, 0.5, 0.5, 1]
+  - Entity: 9900000000000008
+    TagComponent:
+      Tag: Healing Herb 1
+    TransformComponent:
+      Translation: [5, 0.25, -3]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 0.4, 0.4]
+    SpriteRendererComponent:
+      Color: [0.1, 0.8, 0.1, 1]
+  - Entity: 9900000000000009
+    TagComponent:
+      Tag: Healing Herb 2
+    TransformComponent:
+      Translation: [6, 0.25, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 0.4, 0.4]
+    SpriteRendererComponent:
+      Color: [0.1, 0.8, 0.1, 1]
+  - Entity: 9900000000000010
+    TagComponent:
+      Tag: Sun Light
+    TransformComponent:
+      Translation: [0, 10, 0]
+      Rotation: [-0.785, 0.5, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Color: [1, 0.95, 0.85]
+      Intensity: 1.5
+      CastShadows: true
