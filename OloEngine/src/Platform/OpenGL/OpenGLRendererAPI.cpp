@@ -605,6 +605,13 @@ namespace OloEngine
         glColorMask(red, green, blue, alpha);
     }
 
+    void OpenGLRendererAPI::SetColorMaskForAttachment(u32 attachment, bool red, bool green, bool blue, bool alpha)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glColorMaski(attachment, red, green, blue, alpha);
+    }
+
     void OpenGLRendererAPI::SetBlendStateForAttachment(u32 attachment, bool enabled)
     {
         OLO_PROFILE_FUNCTION();
@@ -802,5 +809,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         glEndConditionalRender();
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+    }
+
+    u32 OpenGLRendererAPI::GetMaxUniformBlockSize() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLint size = 0;
+        glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &size);
+        return static_cast<u32>(size);
     }
 } // namespace OloEngine

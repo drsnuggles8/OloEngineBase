@@ -113,13 +113,25 @@ namespace OloEngine
             OcclusionCuller::GetInstance().FlushQueuedQueries();
         }
 
+        // Forward+ light culling: dispatch compute after depth is available
+        auto& forwardPlus = Renderer3D::GetForwardPlus();
+        if (forwardPlus.ShouldUseForwardPlus() && depthPrepass)
+        {
+            const u32 depthTexID = m_Target->GetDepthAttachmentRendererID();
+            forwardPlus.DispatchCulling(
+                Renderer3D::GetViewMatrix(),
+                Renderer3D::GetProjectionMatrix(),
+                depthTexID);
+            forwardPlus.BindForShading();
+        }
+
         // Set up color pass state AFTER occlusion flush (which mutates GL state)
         if (depthPrepass)
         {
-            // Pass 2: color — enable color writes, depth func GL_EQUAL (no new depth writes)
-            rendererAPI.SetColorMask(true, true, true, true);
-            rendererAPI.SetDepthMask(false);
-            rendererAPI.SetDepthFunc(GL_EQUAL);
+            // Pass 2: color — CommandDispatch overrides per-command depth state
+            // to GL_LEQUAL + depth mask false so fragments at the same depth as
+            // the prepass pass the test while preventing new depth writes.
+            CommandDispatch::SetDepthPrepassColorPassActive(true);
         }
 
         if (capturing)
@@ -130,8 +142,25 @@ namespace OloEngine
         // Restore depth state after prepass
         if (depthPrepass)
         {
+            CommandDispatch::SetDepthPrepassColorPassActive(false);
             rendererAPI.SetDepthMask(true);
             rendererAPI.SetDepthFunc(GL_LESS);
+        }
+
+        // Unbind Forward+ SSBOs after the color pass
+        if (forwardPlus.ShouldUseForwardPlus() && depthPrepass)
+        {
+            // Render debug heatmap overlay before unbinding (needs grid SSBO + UBO)
+            if (forwardPlus.IsDebugVisualization())
+            {
+                auto quadVAO = Renderer3D::GetFullscreenQuadVAO();
+                auto debugShader = Renderer3D::GetForwardPlusDebugShader();
+                if (quadVAO && debugShader)
+                {
+                    forwardPlus.RenderDebugOverlay(quadVAO->GetRendererID(), debugShader);
+                }
+            }
+            forwardPlus.UnbindAfterShading();
         }
 
         static u32 s_FrameCounter = 0;

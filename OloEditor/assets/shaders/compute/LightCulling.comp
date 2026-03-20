@@ -1,0 +1,259 @@
+#version 460 core
+
+// =============================================================================
+// LightCulling.comp — Forward+ tile-based light culling (parallel)
+//
+// Each workgroup handles one 16x16 screen-space tile with 256 threads.
+// Threads cooperatively sample depth, cull lights in parallel, and write
+// the per-tile light list using shared memory.
+// =============================================================================
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+// ---------------------------------------------------------------------------
+// GPU light structures (must match C++ GPUPointLight / GPUSpotLight)
+// ---------------------------------------------------------------------------
+
+struct GPUPointLight
+{
+    vec4 PositionAndRadius;    // xyz = world pos, w = range
+    vec4 ColorAndIntensity;    // xyz = color, w = intensity
+};
+
+struct GPUSpotLight
+{
+    vec4 PositionAndRadius;    // xyz = world pos, w = range
+    vec4 DirectionAndAngle;    // xyz = dir, w = cos(outerAngle)
+    vec4 ColorAndIntensity;    // xyz = color, w = intensity
+    vec4 SpotParams;           // x = cos(innerAngle), y = falloff, zw = 0
+};
+
+// ---------------------------------------------------------------------------
+// SSBOs — bindings match ShaderBindingLayout constants
+// ---------------------------------------------------------------------------
+
+layout(std430, binding = 9)  readonly buffer PointLightBuf  { GPUPointLight pointLights[]; };
+layout(std430, binding = 10) readonly buffer SpotLightBuf   { GPUSpotLight  spotLights[];  };
+layout(std430, binding = 11) writeonly buffer LightIndexBuf  { uint lightIndices[];         };
+layout(std430, binding = 12) buffer LightGridBuf            { uvec2 grid[];                }; // (offset, count)
+layout(std430, binding = 13) buffer GlobalIndexBuf          { uint globalIndex;            };
+
+// ---------------------------------------------------------------------------
+// Uniforms
+// ---------------------------------------------------------------------------
+
+uniform mat4  u_ViewMatrix;
+uniform mat4  u_InverseProjectionMatrix;
+uniform uint  u_ScreenWidth;
+uniform uint  u_ScreenHeight;
+uniform uint  u_PointLightCount;
+uniform uint  u_SpotLightCount;
+uniform uint  u_TileSizePixels;
+uniform uint  u_MaxLightsPerTile;
+
+// Depth buffer for min/max depth per tile
+layout(binding = 0) uniform sampler2D u_DepthTexture;
+
+// ---------------------------------------------------------------------------
+// Shared memory for parallel depth reduction and light list accumulation
+// ---------------------------------------------------------------------------
+
+shared uint s_MinDepthBits;
+shared uint s_MaxDepthBits;
+shared uint s_TileLightCount;
+
+const uint MAX_SHARED_LIGHTS = 256;
+shared uint s_TileLightIndices[MAX_SHARED_LIGHTS];
+
+shared uint s_GlobalOffset;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// Convert screen-space UV + depth to view-space position
+vec3 screenToView(vec2 uv, float depth)
+{
+    vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 view = u_InverseProjectionMatrix * clip;
+    return view.xyz / view.w;
+}
+
+// Test whether a sphere (view space) intersects a frustum defined by 4 planes + near/far
+bool sphereInTileFrustum(vec3 center, float radius,
+                          vec4 planes[4], float nearZ, float farZ)
+{
+    // Near/far test (view-space Z is negative, pointing into the screen)
+    if (center.z + radius < farZ || center.z - radius > nearZ)
+        return false;
+
+    // Side planes
+    for (int i = 0; i < 4; ++i)
+    {
+        float d = dot(planes[i].xyz, center) + planes[i].w;
+        if (d < -radius)
+            return false;
+    }
+    return true;
+}
+
+// Build 4 tile frustum planes from tile pixel bounds in view space
+void buildTileFrustumPlanes(uvec2 tileMin, uvec2 tileMax,
+                             float nearZ, float farZ,
+                             out vec4 planes[4])
+{
+    // Tile corners in NDC
+    vec2 ndcMin = vec2(tileMin) / vec2(u_ScreenWidth, u_ScreenHeight) * 2.0 - 1.0;
+    vec2 ndcMax = vec2(tileMax) / vec2(u_ScreenWidth, u_ScreenHeight) * 2.0 - 1.0;
+
+    // Corner positions at near plane in view space
+    vec3 topLeft     = screenToView(vec2(ndcMin.x * 0.5 + 0.5, ndcMax.y * 0.5 + 0.5), 0.0);
+    vec3 topRight    = screenToView(vec2(ndcMax.x * 0.5 + 0.5, ndcMax.y * 0.5 + 0.5), 0.0);
+    vec3 bottomLeft  = screenToView(vec2(ndcMin.x * 0.5 + 0.5, ndcMin.y * 0.5 + 0.5), 0.0);
+    vec3 bottomRight = screenToView(vec2(ndcMax.x * 0.5 + 0.5, ndcMin.y * 0.5 + 0.5), 0.0);
+
+    // Frustum planes (normals pointing inward toward tile center)
+    // Left
+    vec3 n = cross(bottomLeft, topLeft);
+    planes[0] = vec4(normalize(n), 0.0);
+    // Right
+    n = cross(topRight, bottomRight);
+    planes[1] = vec4(normalize(n), 0.0);
+    // Bottom
+    n = cross(bottomRight, bottomLeft);
+    planes[2] = vec4(normalize(n), 0.0);
+    // Top
+    n = cross(topLeft, topRight);
+    planes[3] = vec4(normalize(n), 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+void main()
+{
+    uvec2 tileID = gl_WorkGroupID.xy;
+    uint tileIndex = tileID.y * gl_NumWorkGroups.x + tileID.x;
+    uint localIndex = gl_LocalInvocationIndex; // 0..255
+
+    // -----------------------------------------------------------------------
+    // Phase 1: Initialize shared memory
+    // -----------------------------------------------------------------------
+    if (localIndex == 0)
+    {
+        s_MinDepthBits = 0xFFFFFFFFu;
+        s_MaxDepthBits = 0u;
+        s_TileLightCount = 0u;
+    }
+    barrier();
+
+    // -----------------------------------------------------------------------
+    // Phase 2: Parallel depth reduction — each thread samples one pixel
+    // -----------------------------------------------------------------------
+    uvec2 tileMin = tileID * u_TileSizePixels;
+    uvec2 pixelCoord = tileMin + gl_LocalInvocationID.xy;
+
+    if (pixelCoord.x < u_ScreenWidth && pixelCoord.y < u_ScreenHeight)
+    {
+        vec2 uv = (vec2(pixelCoord) + 0.5) / vec2(u_ScreenWidth, u_ScreenHeight);
+        float depth = texture(u_DepthTexture, uv).r;
+
+        // floatBitsToUint preserves ordering for non-negative floats
+        uint depthBits = floatBitsToUint(depth);
+        atomicMin(s_MinDepthBits, depthBits);
+        atomicMax(s_MaxDepthBits, depthBits);
+    }
+    barrier();
+
+    // -----------------------------------------------------------------------
+    // Phase 3: Build tile frustum (all threads compute the same result —
+    //          redundant but avoids a broadcast and is fast)
+    // -----------------------------------------------------------------------
+    float minDepth = uintBitsToFloat(s_MinDepthBits);
+    float maxDepth = uintBitsToFloat(s_MaxDepthBits);
+
+    // Handle empty tiles (no geometry — min stayed at 0xFFFFFFFF, max at 0)
+    if (minDepth > maxDepth)
+    {
+        minDepth = 0.0;
+        maxDepth = 1.0;
+    }
+
+    vec3 nearPoint = screenToView(vec2(0.5), minDepth);
+    vec3 farPoint  = screenToView(vec2(0.5), maxDepth);
+    float nearZ = nearPoint.z;  // Less negative = nearer
+    float farZ  = farPoint.z;   // More negative = farther
+
+    uvec2 tileMax = min(tileMin + u_TileSizePixels, uvec2(u_ScreenWidth, u_ScreenHeight));
+    vec4 frustumPlanes[4];
+    buildTileFrustumPlanes(tileMin, tileMax, nearZ, farZ, frustumPlanes);
+
+    // -----------------------------------------------------------------------
+    // Phase 4: Parallel light culling — threads stride across all lights
+    // -----------------------------------------------------------------------
+    uint threadCount = gl_WorkGroupSize.x * gl_WorkGroupSize.y; // 256
+
+    // Point lights
+    for (uint i = localIndex; i < u_PointLightCount; i += threadCount)
+    {
+        vec3 worldPos = pointLights[i].PositionAndRadius.xyz;
+        float radius  = pointLights[i].PositionAndRadius.w;
+
+        vec3 viewPos = (u_ViewMatrix * vec4(worldPos, 1.0)).xyz;
+
+        if (sphereInTileFrustum(viewPos, radius, frustumPlanes, nearZ, farZ))
+        {
+            uint slot = atomicAdd(s_TileLightCount, 1u);
+            if (slot < min(u_MaxLightsPerTile, MAX_SHARED_LIGHTS))
+            {
+                s_TileLightIndices[slot] = i;
+            }
+        }
+    }
+
+    // Spot lights (bounding sphere approximation)
+    for (uint i = localIndex; i < u_SpotLightCount; i += threadCount)
+    {
+        vec3 worldPos = spotLights[i].PositionAndRadius.xyz;
+        float range   = spotLights[i].PositionAndRadius.w;
+
+        vec3 viewPos = (u_ViewMatrix * vec4(worldPos, 1.0)).xyz;
+
+        if (sphereInTileFrustum(viewPos, range, frustumPlanes, nearZ, farZ))
+        {
+            uint slot = atomicAdd(s_TileLightCount, 1u);
+            if (slot < min(u_MaxLightsPerTile, MAX_SHARED_LIGHTS))
+            {
+                // High bit marks spot lights
+                s_TileLightIndices[slot] = i | 0x80000000u;
+            }
+        }
+    }
+    barrier();
+
+    // -----------------------------------------------------------------------
+    // Phase 5: Allocate global index space and write results
+    // -----------------------------------------------------------------------
+    uint count = min(s_TileLightCount, min(u_MaxLightsPerTile, MAX_SHARED_LIGHTS));
+
+    // Thread 0 does the single global atomic allocation
+    if (localIndex == 0)
+    {
+        s_GlobalOffset = atomicAdd(globalIndex, count);
+    }
+    barrier();
+
+    // All threads cooperatively copy from shared to global
+    uint offset = s_GlobalOffset;
+    for (uint i = localIndex; i < count; i += threadCount)
+    {
+        lightIndices[offset + i] = s_TileLightIndices[i];
+    }
+
+    // Thread 0 writes the grid entry
+    if (localIndex == 0)
+    {
+        grid[tileIndex] = uvec2(offset, count);
+    }
+}

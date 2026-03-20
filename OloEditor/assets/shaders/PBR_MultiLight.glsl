@@ -50,6 +50,7 @@ void main()
 #include "include/PBRCommon.glsl"
 #include "include/SnowCommon.glsl"
 #include "include/LightProbeSampling.glsl"
+#include "include/ForwardPlusCommon.glsl"
 
 // Camera UBO (binding 0) - for view position
 layout(std140, binding = 0) uniform CameraMatrices {
@@ -65,7 +66,7 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
     int u_LightCount;
     int u_MaxLights;
     int u_ShadowCasterCount;
-    int _padding;
+    int u_DirectionalLightCount;
     LightData u_Lights[MAX_LIGHTS];
 };
 
@@ -203,12 +204,23 @@ void main()
 
     // Calculate direct lighting from all lights
     vec3 Lo = vec3(0.0);
-    for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
-    {
-        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
 
-        // Apply shadow factor for directional lights (type 0)
+    // Forward+ path: use per-tile culled light lists for point/spot lights
+    bool fplusActive = (fplus_Params.z != 0u);
+    if (fplusActive)
+    {
+        Lo += fplusEvaluateTileLights(N, V, v_WorldPos, albedo, metallic, roughness);
+    }
+
+    // UBO light loop: when Forward+ is active, only evaluate directional lights
+    // (stored at the start of the array). When Forward+ is off, evaluate all lights.
+    int loopCount = fplusActive ? min(u_DirectionalLightCount, MAX_LIGHTS)
+                                : min(u_LightCount, MAX_LIGHTS);
+    for (int i = 0; i < loopCount; ++i)
+    {
         int lightType = int(u_Lights[i].position.w);
+
+        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
         if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
             // Compute view-space depth for cascade selection

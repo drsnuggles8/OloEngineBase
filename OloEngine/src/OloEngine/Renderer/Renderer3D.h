@@ -26,6 +26,8 @@
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
+#include "OloEngine/Renderer/LightCulling/ClusteredForward.h"
+#include "OloEngine/Renderer/RenderingPath.h"
 
 #include <chrono>
 
@@ -436,8 +438,8 @@ namespace OloEngine
         // Scene light collection (collects light components from scene)
         static void SetSceneLights(const Ref<Scene>& scene);
 
-        // Upload multi-light UBO data for the current frame
-        static void UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data);
+        // Upload multi-light UBO data for the current frame (partial: only header + activeLightCount lights)
+        static void UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data, i32 activeLightCount);
 
         // Upload light probe volume parameters and SH coefficient data
         static void UploadLightProbeData(const ShaderBindingLayout::LightProbeVolumeUBO& uboData,
@@ -491,6 +493,39 @@ namespace OloEngine
         // Occlusion culling control
         static void EnableOcclusionCulling(bool enable);
         static bool IsOcclusionCullingEnabled();
+
+        // Forward+ light culling control
+        static ClusteredForward& GetForwardPlus()
+        {
+            return s_Data.ForwardPlus;
+        }
+        static bool IsForwardPlusActive()
+        {
+            return s_Data.ForwardPlus.IsActive();
+        }
+        static Ref<VertexArray> GetFullscreenQuadVAO()
+        {
+            return s_Data.FullscreenQuadVAO;
+        }
+        static Ref<Shader> GetForwardPlusDebugShader()
+        {
+            return s_Data.ForwardPlusDebugShader;
+        }
+        static const glm::mat4& GetViewMatrix()
+        {
+            return s_Data.ViewMatrix;
+        }
+        static const glm::mat4& GetProjectionMatrix()
+        {
+            return s_Data.ProjectionMatrix;
+        }
+
+        // Global renderer settings (rendering path, culling, debug overlays)
+        static RendererSettings& GetRendererSettings()
+        {
+            return s_Data.Settings;
+        }
+        static void ApplyRendererSettings();
 
         // Statistics and debug methods
         static Statistics& GetStats();
@@ -558,6 +593,15 @@ namespace OloEngine
             }
             // Entity ID is stored in attachment index 1 (RED_INTEGER format)
             return framebuffer->ReadPixel(1, x, y);
+        }
+
+        static Ref<Framebuffer> GetSceneFramebuffer()
+        {
+            if (!s_Data.ScenePass)
+            {
+                return nullptr;
+            }
+            return s_Data.ScenePass->GetTarget();
         }
 
         // Window resize handling
@@ -859,6 +903,7 @@ namespace OloEngine
             Ref<Shader> PBRMultiLightSkinnedShader;
             Ref<Shader> SkyboxShader;
             Ref<Shader> InfiniteGridShader;
+            Ref<Shader> ForwardPlusDebugShader;
             Ref<VertexArray> FullscreenQuadVAO; // Fullscreen quad for grid and post-processing
             Ref<UniformBuffer> CameraUBO;
             Ref<UniformBuffer> MaterialUBO;
@@ -970,6 +1015,12 @@ namespace OloEngine
             // Parallel submission state
             ParallelSceneContext ParallelContext;
             bool ParallelSubmissionActive = false;
+
+            // Forward+ light culling
+            ClusteredForward ForwardPlus;
+
+            // Global renderer settings (path selection, culling toggles, etc.)
+            RendererSettings Settings;
         };
 
         static Renderer3DData s_Data;

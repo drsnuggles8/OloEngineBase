@@ -18,6 +18,7 @@ add_executable(OloEngine-Tests
 		ShadowMapTest.cpp
 		PostProcessTest.cpp
 		ComputeShaderAndSSBOTest.cpp
+		LightCullingTest.cpp
 		SoundGraphBasicTest.cpp
 		AudioEventQueueTest.cpp
 		SphericalHarmonicsTest.cpp
@@ -109,6 +110,7 @@ add_executable(OloEngine-Tests
 		HeadlessTest.cpp
 		# Animation State Machine & Blend Tree Tests
 		AnimationStateMachineTest.cpp
+		AnimationSystemTest.cpp
 		BlendTreeTest.cpp
 		# Morph Target Tests
 		MorphTargetTest.cpp

@@ -5,6 +5,7 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/AnimationPanel.h"
 #include "Panels/PostProcessSettingsPanel.h"
+#include "Panels/RendererSettingsPanel.h"
 #include "Panels/TerrainEditorPanel.h"
 #include "Panels/StreamingPanel.h"
 #include "Panels/InputSettingsPanel.h"
@@ -121,6 +122,10 @@ namespace OloEngine
         // Terrain editing: screen-to-world raycast against heightmap
         bool TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;
 
+        // Async entity picking (PBO double-buffered readback)
+        void InitEntityPicking();
+        void ShutdownEntityPicking();
+
       private:
         OloEngine::OrthographicCameraController m_CameraController;
 
@@ -142,6 +147,7 @@ namespace OloEngine
 
         int m_GizmoType = 0; // Default to Translate (ImGuizmo::TRANSLATE) for immediate usability
         bool m_ShowPhysicsColliders = false;
+        bool m_ShowLightGizmos = true;
         bool m_Is3DMode = true; // Toggle for 2D/3D rendering
         bool m_ShowGrid = true;
         f32 m_GridSpacing = 1.0f;
@@ -182,6 +188,7 @@ namespace OloEngine
         Scope<AssetPackBuilderPanel> m_AssetPackBuilderPanel;
         AnimationPanel m_AnimationPanel;
         PostProcessSettingsPanel m_PostProcessSettingsPanel;
+        RendererSettingsPanel m_RendererSettingsPanel;
         TerrainEditorPanel m_TerrainEditorPanel;
         StreamingPanel m_StreamingPanel;
         InputSettingsPanel m_InputSettingsPanel;
@@ -197,6 +204,7 @@ namespace OloEngine
         bool m_ShowSceneStatistics = true;
         bool m_ShowAnimationPanel = true;
         bool m_ShowPostProcessSettings = true;
+        bool m_ShowRendererSettings = false;
         bool m_ShowTerrainEditor = false;
         bool m_ShowStreamingPanel = false;
         bool m_ShowInputSettings = false;
@@ -225,6 +233,12 @@ namespace OloEngine
 
         // Terrain brush preview UBO (binding 11)
         Ref<UniformBuffer> m_BrushPreviewUBO;
+
+        // Async entity picking via PBO double-buffering
+        u32 m_PickingPBOs[2] = { 0, 0 };
+        u32 m_PickingPBOIndex = 0; // Which PBO to write into this frame
+        bool m_PickingPBOInitialized = false;
+        bool m_PickingReadPending = false; // True after first frame's async read is issued
 
         // Viewport render throttling — skip expensive scene rendering when
         // frame time exceeds the budget so the editor UI stays responsive.

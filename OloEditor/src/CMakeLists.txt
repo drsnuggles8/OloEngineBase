@@ -26,6 +26,8 @@
 		"Panels/InputSettingsPanel.h"
 		"Panels/PostProcessSettingsPanel.cpp"
 		"Panels/PostProcessSettingsPanel.h"
+		"Panels/RendererSettingsPanel.cpp"
+		"Panels/RendererSettingsPanel.h"
 		"Panels/SceneHierarchyPanel.cpp"
 		"Panels/SceneHierarchyPanel.h"
 		"Panels/TerrainEditorPanel.cpp"

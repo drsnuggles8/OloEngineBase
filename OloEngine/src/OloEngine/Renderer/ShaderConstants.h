@@ -41,7 +41,7 @@ namespace OloEngine
         // =============================================================================
 
         // Maximum number of lights supported
-        constexpr int MAX_LIGHTS = 32;
+        constexpr int MAX_LIGHTS = 256;
 
         // Maximum number of bones for skeletal animation - centralized from ShaderBindingLayout
         constexpr int MAX_BONES = UBOStructures::AnimationConstants::MAX_BONES;
@@ -102,7 +102,7 @@ const float DEFAULT_OCCLUSION_STRENGTH = 1.0;
 const float MAX_REFLECTION_LOD = 4.0;
 
 // Rendering constants
-const int MAX_LIGHTS = 32;
+const int MAX_LIGHTS = 256;
 const int MAX_BONES = UBOStructures::AnimationConstants::MAX_BONES;
 
 // Shadow mapping constants
@@ -136,7 +136,7 @@ const int TONEMAP_UNCHARTED2 = 3;
 #define EPSILON 0.0001
 #define DEFAULT_DIELECTRIC_F0 0.04
 #define MAX_REFLECTION_LOD 4.0
-#define MAX_LIGHTS 32
+#define MAX_LIGHTS 256
 #define MAX_BONES )") +
                    std::to_string(UBOStructures::AnimationConstants::MAX_BONES) + R"(
 #define GAMMA 2.2

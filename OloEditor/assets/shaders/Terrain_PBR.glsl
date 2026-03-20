@@ -236,6 +236,7 @@ void main()
 
 #include "include/PBRCommon.glsl"
 #include "include/SnowCommon.glsl"
+#include "include/ForwardPlusCommon.glsl"
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
     mat4 u_View;
@@ -249,7 +250,7 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
     int u_LightCount;
     int u_MaxLights;
     int u_ShadowCasterCount;
-    int _padding;
+    int u_DirectionalLightCount;
     LightData u_Lights[MAX_LIGHTS];
 };
 
@@ -589,11 +590,22 @@ void main()
 
     // Calculate direct lighting from all lights
     vec3 Lo = vec3(0.0);
-    for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
-    {
-        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
 
+    // Forward+ path: per-tile culled point/spot lights
+    bool fplusActive = (fplus_Params.z != 0u);
+    if (fplusActive)
+    {
+        Lo += fplusEvaluateTileLights(N, V, v_WorldPos, albedo, metallic, roughness);
+    }
+
+    // UBO light loop: when Forward+ is active, only directional lights (at array start).
+    int loopCount = fplusActive ? min(u_DirectionalLightCount, MAX_LIGHTS)
+                                : min(u_LightCount, MAX_LIGHTS);
+    for (int i = 0; i < loopCount; ++i)
+    {
         int lightType = int(u_Lights[i].position.w);
+
+        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
         if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
             vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);

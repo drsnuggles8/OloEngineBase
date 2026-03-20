@@ -1,0 +1,6128 @@
+Scene: ForwardPlusStressTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.3
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 16
+  SSAODebugView: false
+SnowSettings:
+  Enabled: false
+  HeightStart: -5
+  HeightFull: 5
+  SlopeStart: 0.7
+  SlopeFull: 0.3
+  Albedo: [0.92, 0.93, 0.98]
+  Roughness: 0.65
+  SSSColor: [0.4, 0.6, 0.9]
+  SSSIntensity: 0.6
+  SparkleIntensity: 0.8
+  SparkleDensity: 80
+  SparkleScale: 1
+  NormalPerturbStrength: 0.25
+  WindDriftFactor: 0
+  SSSBlurEnabled: false
+  SSSBlurRadius: 2
+  SSSBlurFalloff: 1
+FogSettings:
+  Enabled: false
+  Mode: 2
+  Color: [0.5, 0.6, 0.7]
+  Density: 0.02
+  Start: 10
+  End: 300
+  HeightFalloff: 0.1
+  HeightOffset: 0
+  MaxOpacity: 1
+  EnableScattering: false
+  RayleighStrength: 1
+  MieStrength: 0.005
+  MieDirectionality: 0.76
+  RayleighColor: [0.27, 0.51, 0.83]
+  SunIntensity: 22
+  EnableVolumetric: false
+  VolumetricSamples: 32
+  AbsorptionCoefficient: 0.02
+  EnableNoise: false
+  NoiseScale: 0.01
+  NoiseSpeed: 0.1
+  NoiseIntensity: 0.3
+  EnableLightShafts: false
+  LightShaftIntensity: 1
+WindSettings:
+  Enabled: false
+  Direction: [1, 0, 0]
+  Speed: 5
+  GustStrength: 0.3
+  GustFrequency: 0.5
+  TurbulenceIntensity: 0.5
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+SnowAccumulationSettings:
+  Enabled: false
+  AccumulationRate: 0.02
+  MaxDepth: 0.5
+  MeltRate: 0.005
+  RestorationRate: 0.01
+  DisplacementScale: 1
+  ClipmapResolution: 2048
+  ClipmapExtent: 128
+  NumClipmapRings: 3
+  SnowDensity: 0.3
+SnowEjectaSettings:
+  Enabled: false
+  ParticlesPerDeform: 8
+  EjectaSpeed: 2.5
+  SpeedVariance: 0.8
+  UpwardBias: 0.6
+  LifetimeMin: 0.4
+  LifetimeMax: 1.2
+  InitialSize: 0.04
+  SizeVariance: 0.02
+  GravityScale: 0.3
+  DragCoefficient: 2
+  Color: [0.95, 0.97, 1, 0.7]
+  VelocityThreshold: 0.1
+  MaxParticles: 8192
+  WindInfluence: 0.5
+  NoiseStrength: 0.3
+  NoiseFrequency: 2
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+PrecipitationSettings:
+  Enabled: false
+  Type: 0
+  Intensity: 0.5
+  TransitionSpeed: 1
+  BaseEmissionRate: 4000
+  MaxParticlesNearField: 100000
+  MaxParticlesFarField: 200000
+  NearFieldExtent: [15, 20, 15]
+  NearFieldParticleSize: 0.04
+  NearFieldSizeVariance: 0.02
+  NearFieldSpeedMin: 0.8
+  NearFieldSpeedMax: 2
+  NearFieldLifetime: 10
+  FarFieldExtent: [60, 30, 60]
+  FarFieldParticleSize: 0.025
+  FarFieldSpeedMin: 0.5
+  FarFieldSpeedMax: 1.5
+  FarFieldLifetime: 15
+  FarFieldAlphaMultiplier: 0.5
+  GravityScale: 0.8
+  WindInfluence: 1
+  DragCoefficient: 0.3
+  TurbulenceStrength: 0.8
+  TurbulenceFrequency: 0.5
+  GroundCollisionEnabled: true
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+  FeedAccumulation: true
+  AccumulationFeedRate: 0.0001
+  ScreenStreaksEnabled: true
+  ScreenStreakIntensity: 0.3
+  ScreenStreakLength: 0.15
+  LensImpactsEnabled: true
+  LensImpactRate: 3
+  LensImpactLifetime: 1.5
+  LensImpactSize: 0.03
+  LODNearDistance: 30
+  LODFarDistance: 120
+  FrameBudgetMs: 1
+  ParticleColor: [0.95, 0.97, 1, 0.85]
+  ColorVariance: 0.05
+  RotationSpeed: 30
+StreamingSettings:
+  Enabled: false
+  DefaultLoadRadius: 200
+  DefaultUnloadRadius: 250
+  MaxLoadedRegions: 16
+  RegionDirectory: ""
+Entities:
+  - Entity: 648518346341351836
+    TagComponent:
+      Tag: Spot 15
+    TransformComponent:
+      Translation: [25.87, 6, -10.72]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.885, -0.287, 0.367]
+      Color: [1, 0.3, 0.7]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351835
+    TagComponent:
+      Tag: Spot 14
+    TransformComponent:
+      Translation: [19.8, 6, -19.8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.677, -0.287, 0.677]
+      Color: [0.7, 0.2, 1]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351834
+    TagComponent:
+      Tag: Spot 13
+    TransformComponent:
+      Translation: [10.72, 6, -25.87]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.367, -0.287, 0.885]
+      Color: [0.2, 0.3, 1]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351833
+    TagComponent:
+      Tag: Spot 12
+    TransformComponent:
+      Translation: [-0, 6, -28]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0, -0.287, 0.958]
+      Color: [0.2, 0.8, 1]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351832
+    TagComponent:
+      Tag: Spot 11
+    TransformComponent:
+      Translation: [-10.72, 6, -25.87]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.367, -0.287, 0.885]
+      Color: [0.2, 1, 0.3]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351831
+    TagComponent:
+      Tag: Spot 10
+    TransformComponent:
+      Translation: [-19.8, 6, -19.8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.677, -0.287, 0.677]
+      Color: [1, 0.9, 0.2]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351830
+    TagComponent:
+      Tag: Spot 09
+    TransformComponent:
+      Translation: [-25.87, 6, -10.72]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.885, -0.287, 0.367]
+      Color: [1, 0.5, 0.1]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351829
+    TagComponent:
+      Tag: Spot 08
+    TransformComponent:
+      Translation: [-28, 6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.958, -0.287, -0]
+      Color: [1, 0.15, 0.1]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351828
+    TagComponent:
+      Tag: Spot 07
+    TransformComponent:
+      Translation: [-25.87, 6, 10.72]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.885, -0.287, -0.367]
+      Color: [1, 0.3, 0.7]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351827
+    TagComponent:
+      Tag: Spot 06
+    TransformComponent:
+      Translation: [-19.8, 6, 19.8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.677, -0.287, -0.677]
+      Color: [0.7, 0.2, 1]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351826
+    TagComponent:
+      Tag: Spot 05
+    TransformComponent:
+      Translation: [-10.72, 6, 25.87]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.367, -0.287, -0.885]
+      Color: [0.2, 0.3, 1]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351825
+    TagComponent:
+      Tag: Spot 04
+    TransformComponent:
+      Translation: [0, 6, 28]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0, -0.287, -0.958]
+      Color: [0.2, 0.8, 1]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351824
+    TagComponent:
+      Tag: Spot 03
+    TransformComponent:
+      Translation: [10.72, 6, 25.87]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.367, -0.287, -0.885]
+      Color: [0.2, 1, 0.3]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351823
+    TagComponent:
+      Tag: Spot 02
+    TransformComponent:
+      Translation: [19.8, 6, 19.8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.677, -0.287, -0.677]
+      Color: [1, 0.9, 0.2]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351822
+    TagComponent:
+      Tag: Spot 01
+    TransformComponent:
+      Translation: [25.87, 6, 10.72]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.885, -0.287, -0.367]
+      Color: [1, 0.5, 0.1]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351821
+    TagComponent:
+      Tag: Spot 00
+    TransformComponent:
+      Translation: [28, 6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [-0.958, -0.287, -0]
+      Color: [1, 0.15, 0.1]
+      Intensity: 5
+      Range: 15
+      InnerCutoff: 20
+      OuterCutoff: 35
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351820
+    TagComponent:
+      Tag: PL 255
+    TransformComponent:
+      Translation: [30, 1.85, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351819
+    TagComponent:
+      Tag: PL 254
+    TransformComponent:
+      Translation: [26, 1.67, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351818
+    TagComponent:
+      Tag: PL 253
+    TransformComponent:
+      Translation: [22, 1.57, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351817
+    TagComponent:
+      Tag: PL 252
+    TransformComponent:
+      Translation: [18, 1.58, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351816
+    TagComponent:
+      Tag: PL 251
+    TransformComponent:
+      Translation: [14, 1.69, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351815
+    TagComponent:
+      Tag: PL 250
+    TransformComponent:
+      Translation: [10, 1.88, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351814
+    TagComponent:
+      Tag: PL 249
+    TransformComponent:
+      Translation: [6, 2.09, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351813
+    TagComponent:
+      Tag: PL 248
+    TransformComponent:
+      Translation: [2, 2.29, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351812
+    TagComponent:
+      Tag: PL 247
+    TransformComponent:
+      Translation: [-2, 2.41, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351811
+    TagComponent:
+      Tag: PL 246
+    TransformComponent:
+      Translation: [-6, 2.44, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351810
+    TagComponent:
+      Tag: PL 245
+    TransformComponent:
+      Translation: [-10, 2.35, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351809
+    TagComponent:
+      Tag: PL 244
+    TransformComponent:
+      Translation: [-14, 2.18, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351808
+    TagComponent:
+      Tag: PL 243
+    TransformComponent:
+      Translation: [-18, 1.97, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351807
+    TagComponent:
+      Tag: PL 242
+    TransformComponent:
+      Translation: [-22, 1.76, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351806
+    TagComponent:
+      Tag: PL 241
+    TransformComponent:
+      Translation: [-26, 1.61, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351805
+    TagComponent:
+      Tag: PL 240
+    TransformComponent:
+      Translation: [-30, 1.56, 30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351804
+    TagComponent:
+      Tag: PL 239
+    TransformComponent:
+      Translation: [30, 1.94, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351803
+    TagComponent:
+      Tag: PL 238
+    TransformComponent:
+      Translation: [26, 1.86, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351802
+    TagComponent:
+      Tag: PL 237
+    TransformComponent:
+      Translation: [22, 1.82, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351801
+    TagComponent:
+      Tag: PL 236
+    TransformComponent:
+      Translation: [18, 1.82, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351800
+    TagComponent:
+      Tag: PL 235
+    TransformComponent:
+      Translation: [14, 1.87, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351799
+    TagComponent:
+      Tag: PL 234
+    TransformComponent:
+      Translation: [10, 1.95, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351798
+    TagComponent:
+      Tag: PL 233
+    TransformComponent:
+      Translation: [6, 2.04, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351797
+    TagComponent:
+      Tag: PL 232
+    TransformComponent:
+      Translation: [2, 2.12, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351796
+    TagComponent:
+      Tag: PL 231
+    TransformComponent:
+      Translation: [-2, 2.17, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351795
+    TagComponent:
+      Tag: PL 230
+    TransformComponent:
+      Translation: [-6, 2.18, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351794
+    TagComponent:
+      Tag: PL 229
+    TransformComponent:
+      Translation: [-10, 2.15, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351793
+    TagComponent:
+      Tag: PL 228
+    TransformComponent:
+      Translation: [-14, 2.08, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351792
+    TagComponent:
+      Tag: PL 227
+    TransformComponent:
+      Translation: [-18, 1.99, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351791
+    TagComponent:
+      Tag: PL 226
+    TransformComponent:
+      Translation: [-22, 1.9, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351790
+    TagComponent:
+      Tag: PL 225
+    TransformComponent:
+      Translation: [-26, 1.84, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351789
+    TagComponent:
+      Tag: PL 224
+    TransformComponent:
+      Translation: [-30, 1.82, 26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351788
+    TagComponent:
+      Tag: PL 223
+    TransformComponent:
+      Translation: [30, 2.06, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351787
+    TagComponent:
+      Tag: PL 222
+    TransformComponent:
+      Translation: [26, 2.12, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351786
+    TagComponent:
+      Tag: PL 221
+    TransformComponent:
+      Translation: [22, 2.16, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351785
+    TagComponent:
+      Tag: PL 220
+    TransformComponent:
+      Translation: [18, 2.15, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351784
+    TagComponent:
+      Tag: PL 219
+    TransformComponent:
+      Translation: [14, 2.11, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351783
+    TagComponent:
+      Tag: PL 218
+    TransformComponent:
+      Translation: [10, 2.05, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351782
+    TagComponent:
+      Tag: PL 217
+    TransformComponent:
+      Translation: [6, 1.97, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351781
+    TagComponent:
+      Tag: PL 216
+    TransformComponent:
+      Translation: [2, 1.9, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351780
+    TagComponent:
+      Tag: PL 215
+    TransformComponent:
+      Translation: [-2, 1.85, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351779
+    TagComponent:
+      Tag: PL 214
+    TransformComponent:
+      Translation: [-6, 1.84, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351778
+    TagComponent:
+      Tag: PL 213
+    TransformComponent:
+      Translation: [-10, 1.87, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351777
+    TagComponent:
+      Tag: PL 212
+    TransformComponent:
+      Translation: [-14, 1.93, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351776
+    TagComponent:
+      Tag: PL 211
+    TransformComponent:
+      Translation: [-18, 2.01, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351775
+    TagComponent:
+      Tag: PL 210
+    TransformComponent:
+      Translation: [-22, 2.09, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351774
+    TagComponent:
+      Tag: PL 209
+    TransformComponent:
+      Translation: [-26, 2.14, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351773
+    TagComponent:
+      Tag: PL 208
+    TransformComponent:
+      Translation: [-30, 2.16, 22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351772
+    TagComponent:
+      Tag: PL 207
+    TransformComponent:
+      Translation: [30, 2.15, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351771
+    TagComponent:
+      Tag: PL 206
+    TransformComponent:
+      Translation: [26, 2.32, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351770
+    TagComponent:
+      Tag: PL 205
+    TransformComponent:
+      Translation: [22, 2.42, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351769
+    TagComponent:
+      Tag: PL 204
+    TransformComponent:
+      Translation: [18, 2.41, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351768
+    TagComponent:
+      Tag: PL 203
+    TransformComponent:
+      Translation: [14, 2.3, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351767
+    TagComponent:
+      Tag: PL 202
+    TransformComponent:
+      Translation: [10, 2.12, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351766
+    TagComponent:
+      Tag: PL 201
+    TransformComponent:
+      Translation: [6, 1.91, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351765
+    TagComponent:
+      Tag: PL 200
+    TransformComponent:
+      Translation: [2, 1.72, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351764
+    TagComponent:
+      Tag: PL 199
+    TransformComponent:
+      Translation: [-2, 1.6, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351763
+    TagComponent:
+      Tag: PL 198
+    TransformComponent:
+      Translation: [-6, 1.58, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351762
+    TagComponent:
+      Tag: PL 197
+    TransformComponent:
+      Translation: [-10, 1.66, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351761
+    TagComponent:
+      Tag: PL 196
+    TransformComponent:
+      Translation: [-14, 1.82, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351760
+    TagComponent:
+      Tag: PL 195
+    TransformComponent:
+      Translation: [-18, 2.03, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351759
+    TagComponent:
+      Tag: PL 194
+    TransformComponent:
+      Translation: [-22, 2.23, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351758
+    TagComponent:
+      Tag: PL 193
+    TransformComponent:
+      Translation: [-26, 2.37, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351757
+    TagComponent:
+      Tag: PL 192
+    TransformComponent:
+      Translation: [-30, 2.43, 18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351756
+    TagComponent:
+      Tag: PL 191
+    TransformComponent:
+      Translation: [30, 2.17, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351755
+    TagComponent:
+      Tag: PL 190
+    TransformComponent:
+      Translation: [26, 2.37, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351754
+    TagComponent:
+      Tag: PL 189
+    TransformComponent:
+      Translation: [22, 2.48, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351753
+    TagComponent:
+      Tag: PL 188
+    TransformComponent:
+      Translation: [18, 2.47, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351752
+    TagComponent:
+      Tag: PL 187
+    TransformComponent:
+      Translation: [14, 2.35, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351751
+    TagComponent:
+      Tag: PL 186
+    TransformComponent:
+      Translation: [10, 2.14, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351750
+    TagComponent:
+      Tag: PL 185
+    TransformComponent:
+      Translation: [6, 1.9, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351749
+    TagComponent:
+      Tag: PL 184
+    TransformComponent:
+      Translation: [2, 1.68, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351748
+    TagComponent:
+      Tag: PL 183
+    TransformComponent:
+      Translation: [-2, 1.54, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351747
+    TagComponent:
+      Tag: PL 182
+    TransformComponent:
+      Translation: [-6, 1.51, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351746
+    TagComponent:
+      Tag: PL 181
+    TransformComponent:
+      Translation: [-10, 1.6, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351745
+    TagComponent:
+      Tag: PL 180
+    TransformComponent:
+      Translation: [-14, 1.79, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351744
+    TagComponent:
+      Tag: PL 179
+    TransformComponent:
+      Translation: [-18, 2.03, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351743
+    TagComponent:
+      Tag: PL 178
+    TransformComponent:
+      Translation: [-22, 2.27, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351742
+    TagComponent:
+      Tag: PL 177
+    TransformComponent:
+      Translation: [-26, 2.43, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351741
+    TagComponent:
+      Tag: PL 176
+    TransformComponent:
+      Translation: [-30, 2.49, 14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351740
+    TagComponent:
+      Tag: PL 175
+    TransformComponent:
+      Translation: [30, 2.11, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351739
+    TagComponent:
+      Tag: PL 174
+    TransformComponent:
+      Translation: [26, 2.25, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351738
+    TagComponent:
+      Tag: PL 173
+    TransformComponent:
+      Translation: [22, 2.32, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351737
+    TagComponent:
+      Tag: PL 172
+    TransformComponent:
+      Translation: [18, 2.32, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351736
+    TagComponent:
+      Tag: PL 171
+    TransformComponent:
+      Translation: [14, 2.23, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351735
+    TagComponent:
+      Tag: PL 170
+    TransformComponent:
+      Translation: [10, 2.09, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351734
+    TagComponent:
+      Tag: PL 169
+    TransformComponent:
+      Translation: [6, 1.93, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351733
+    TagComponent:
+      Tag: PL 168
+    TransformComponent:
+      Translation: [2, 1.79, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351732
+    TagComponent:
+      Tag: PL 167
+    TransformComponent:
+      Translation: [-2, 1.69, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351731
+    TagComponent:
+      Tag: PL 166
+    TransformComponent:
+      Translation: [-6, 1.67, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351730
+    TagComponent:
+      Tag: PL 165
+    TransformComponent:
+      Translation: [-10, 1.74, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351729
+    TagComponent:
+      Tag: PL 164
+    TransformComponent:
+      Translation: [-14, 1.86, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351728
+    TagComponent:
+      Tag: PL 163
+    TransformComponent:
+      Translation: [-18, 2.02, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351727
+    TagComponent:
+      Tag: PL 162
+    TransformComponent:
+      Translation: [-22, 2.18, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351726
+    TagComponent:
+      Tag: PL 161
+    TransformComponent:
+      Translation: [-26, 2.29, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351725
+    TagComponent:
+      Tag: PL 160
+    TransformComponent:
+      Translation: [-30, 2.33, 10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351724
+    TagComponent:
+      Tag: PL 159
+    TransformComponent:
+      Translation: [30, 2, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351723
+    TagComponent:
+      Tag: PL 158
+    TransformComponent:
+      Translation: [26, 2.01, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351722
+    TagComponent:
+      Tag: PL 157
+    TransformComponent:
+      Translation: [22, 2.01, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351721
+    TagComponent:
+      Tag: PL 156
+    TransformComponent:
+      Translation: [18, 2.01, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351720
+    TagComponent:
+      Tag: PL 155
+    TransformComponent:
+      Translation: [14, 2.01, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351719
+    TagComponent:
+      Tag: PL 154
+    TransformComponent:
+      Translation: [10, 2, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351718
+    TagComponent:
+      Tag: PL 153
+    TransformComponent:
+      Translation: [6, 2, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351717
+    TagComponent:
+      Tag: PL 152
+    TransformComponent:
+      Translation: [2, 1.99, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351716
+    TagComponent:
+      Tag: PL 151
+    TransformComponent:
+      Translation: [-2, 1.99, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351715
+    TagComponent:
+      Tag: PL 150
+    TransformComponent:
+      Translation: [-6, 1.99, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351714
+    TagComponent:
+      Tag: PL 149
+    TransformComponent:
+      Translation: [-10, 1.99, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351713
+    TagComponent:
+      Tag: PL 148
+    TransformComponent:
+      Translation: [-14, 2, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351712
+    TagComponent:
+      Tag: PL 147
+    TransformComponent:
+      Translation: [-18, 2, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351711
+    TagComponent:
+      Tag: PL 146
+    TransformComponent:
+      Translation: [-22, 2, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351710
+    TagComponent:
+      Tag: PL 145
+    TransformComponent:
+      Translation: [-26, 2.01, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351709
+    TagComponent:
+      Tag: PL 144
+    TransformComponent:
+      Translation: [-30, 2.01, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351708
+    TagComponent:
+      Tag: PL 143
+    TransformComponent:
+      Translation: [30, 1.89, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351707
+    TagComponent:
+      Tag: PL 142
+    TransformComponent:
+      Translation: [26, 1.76, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351706
+    TagComponent:
+      Tag: PL 141
+    TransformComponent:
+      Translation: [22, 1.69, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351705
+    TagComponent:
+      Tag: PL 140
+    TransformComponent:
+      Translation: [18, 1.7, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351704
+    TagComponent:
+      Tag: PL 139
+    TransformComponent:
+      Translation: [14, 1.78, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351703
+    TagComponent:
+      Tag: PL 138
+    TransformComponent:
+      Translation: [10, 1.91, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351702
+    TagComponent:
+      Tag: PL 137
+    TransformComponent:
+      Translation: [6, 2.07, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351701
+    TagComponent:
+      Tag: PL 136
+    TransformComponent:
+      Translation: [2, 2.21, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351700
+    TagComponent:
+      Tag: PL 135
+    TransformComponent:
+      Translation: [-2, 2.3, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351699
+    TagComponent:
+      Tag: PL 134
+    TransformComponent:
+      Translation: [-6, 2.31, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351698
+    TagComponent:
+      Tag: PL 133
+    TransformComponent:
+      Translation: [-10, 2.25, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351697
+    TagComponent:
+      Tag: PL 132
+    TransformComponent:
+      Translation: [-14, 2.13, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351696
+    TagComponent:
+      Tag: PL 131
+    TransformComponent:
+      Translation: [-18, 1.98, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351695
+    TagComponent:
+      Tag: PL 130
+    TransformComponent:
+      Translation: [-22, 1.83, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351694
+    TagComponent:
+      Tag: PL 129
+    TransformComponent:
+      Translation: [-26, 1.72, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351693
+    TagComponent:
+      Tag: PL 128
+    TransformComponent:
+      Translation: [-30, 1.68, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351692
+    TagComponent:
+      Tag: PL 127
+    TransformComponent:
+      Translation: [30, 1.83, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351691
+    TagComponent:
+      Tag: PL 126
+    TransformComponent:
+      Translation: [26, 1.63, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351690
+    TagComponent:
+      Tag: PL 125
+    TransformComponent:
+      Translation: [22, 1.52, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351689
+    TagComponent:
+      Tag: PL 124
+    TransformComponent:
+      Translation: [18, 1.53, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351688
+    TagComponent:
+      Tag: PL 123
+    TransformComponent:
+      Translation: [14, 1.65, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351687
+    TagComponent:
+      Tag: PL 122
+    TransformComponent:
+      Translation: [10, 1.86, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351686
+    TagComponent:
+      Tag: PL 121
+    TransformComponent:
+      Translation: [6, 2.1, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351685
+    TagComponent:
+      Tag: PL 120
+    TransformComponent:
+      Translation: [2, 2.32, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351684
+    TagComponent:
+      Tag: PL 119
+    TransformComponent:
+      Translation: [-2, 2.46, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351683
+    TagComponent:
+      Tag: PL 118
+    TransformComponent:
+      Translation: [-6, 2.49, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351682
+    TagComponent:
+      Tag: PL 117
+    TransformComponent:
+      Translation: [-10, 2.39, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351681
+    TagComponent:
+      Tag: PL 116
+    TransformComponent:
+      Translation: [-14, 2.2, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351680
+    TagComponent:
+      Tag: PL 115
+    TransformComponent:
+      Translation: [-18, 1.97, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351679
+    TagComponent:
+      Tag: PL 114
+    TransformComponent:
+      Translation: [-22, 1.73, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351678
+    TagComponent:
+      Tag: PL 113
+    TransformComponent:
+      Translation: [-26, 1.57, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351677
+    TagComponent:
+      Tag: PL 112
+    TransformComponent:
+      Translation: [-30, 1.51, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351676
+    TagComponent:
+      Tag: PL 111
+    TransformComponent:
+      Translation: [30, 1.85, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351675
+    TagComponent:
+      Tag: PL 110
+    TransformComponent:
+      Translation: [26, 1.67, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351674
+    TagComponent:
+      Tag: PL 109
+    TransformComponent:
+      Translation: [22, 1.57, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351673
+    TagComponent:
+      Tag: PL 108
+    TransformComponent:
+      Translation: [18, 1.58, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351672
+    TagComponent:
+      Tag: PL 107
+    TransformComponent:
+      Translation: [14, 1.69, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351671
+    TagComponent:
+      Tag: PL 106
+    TransformComponent:
+      Translation: [10, 1.88, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351670
+    TagComponent:
+      Tag: PL 105
+    TransformComponent:
+      Translation: [6, 2.09, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351669
+    TagComponent:
+      Tag: PL 104
+    TransformComponent:
+      Translation: [2, 2.28, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351668
+    TagComponent:
+      Tag: PL 103
+    TransformComponent:
+      Translation: [-2, 2.41, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351667
+    TagComponent:
+      Tag: PL 102
+    TransformComponent:
+      Translation: [-6, 2.43, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351666
+    TagComponent:
+      Tag: PL 101
+    TransformComponent:
+      Translation: [-10, 2.35, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351665
+    TagComponent:
+      Tag: PL 100
+    TransformComponent:
+      Translation: [-14, 2.18, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351664
+    TagComponent:
+      Tag: PL 099
+    TransformComponent:
+      Translation: [-18, 1.97, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351663
+    TagComponent:
+      Tag: PL 098
+    TransformComponent:
+      Translation: [-22, 1.76, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351662
+    TagComponent:
+      Tag: PL 097
+    TransformComponent:
+      Translation: [-26, 1.62, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351661
+    TagComponent:
+      Tag: PL 096
+    TransformComponent:
+      Translation: [-30, 1.56, -6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351660
+    TagComponent:
+      Tag: PL 095
+    TransformComponent:
+      Translation: [30, 1.94, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351659
+    TagComponent:
+      Tag: PL 094
+    TransformComponent:
+      Translation: [26, 1.87, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351658
+    TagComponent:
+      Tag: PL 093
+    TransformComponent:
+      Translation: [22, 1.83, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351657
+    TagComponent:
+      Tag: PL 092
+    TransformComponent:
+      Translation: [18, 1.83, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351656
+    TagComponent:
+      Tag: PL 091
+    TransformComponent:
+      Translation: [14, 1.88, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351655
+    TagComponent:
+      Tag: PL 090
+    TransformComponent:
+      Translation: [10, 1.95, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351654
+    TagComponent:
+      Tag: PL 089
+    TransformComponent:
+      Translation: [6, 2.04, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351653
+    TagComponent:
+      Tag: PL 088
+    TransformComponent:
+      Translation: [2, 2.11, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351652
+    TagComponent:
+      Tag: PL 087
+    TransformComponent:
+      Translation: [-2, 2.16, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351651
+    TagComponent:
+      Tag: PL 086
+    TransformComponent:
+      Translation: [-6, 2.17, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351650
+    TagComponent:
+      Tag: PL 085
+    TransformComponent:
+      Translation: [-10, 2.14, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351649
+    TagComponent:
+      Tag: PL 084
+    TransformComponent:
+      Translation: [-14, 2.07, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351648
+    TagComponent:
+      Tag: PL 083
+    TransformComponent:
+      Translation: [-18, 1.99, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351647
+    TagComponent:
+      Tag: PL 082
+    TransformComponent:
+      Translation: [-22, 1.91, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351646
+    TagComponent:
+      Tag: PL 081
+    TransformComponent:
+      Translation: [-26, 1.85, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351645
+    TagComponent:
+      Tag: PL 080
+    TransformComponent:
+      Translation: [-30, 1.82, -10]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351644
+    TagComponent:
+      Tag: PL 079
+    TransformComponent:
+      Translation: [30, 2.06, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351643
+    TagComponent:
+      Tag: PL 078
+    TransformComponent:
+      Translation: [26, 2.13, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351642
+    TagComponent:
+      Tag: PL 077
+    TransformComponent:
+      Translation: [22, 2.16, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351641
+    TagComponent:
+      Tag: PL 076
+    TransformComponent:
+      Translation: [18, 2.16, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351640
+    TagComponent:
+      Tag: PL 075
+    TransformComponent:
+      Translation: [14, 2.12, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351639
+    TagComponent:
+      Tag: PL 074
+    TransformComponent:
+      Translation: [10, 2.05, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351638
+    TagComponent:
+      Tag: PL 073
+    TransformComponent:
+      Translation: [6, 1.96, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351637
+    TagComponent:
+      Tag: PL 072
+    TransformComponent:
+      Translation: [2, 1.89, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351636
+    TagComponent:
+      Tag: PL 071
+    TransformComponent:
+      Translation: [-2, 1.84, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351635
+    TagComponent:
+      Tag: PL 070
+    TransformComponent:
+      Translation: [-6, 1.83, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351634
+    TagComponent:
+      Tag: PL 069
+    TransformComponent:
+      Translation: [-10, 1.87, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351633
+    TagComponent:
+      Tag: PL 068
+    TransformComponent:
+      Translation: [-14, 1.93, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351632
+    TagComponent:
+      Tag: PL 067
+    TransformComponent:
+      Translation: [-18, 2.01, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351631
+    TagComponent:
+      Tag: PL 066
+    TransformComponent:
+      Translation: [-22, 2.09, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351630
+    TagComponent:
+      Tag: PL 065
+    TransformComponent:
+      Translation: [-26, 2.15, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351629
+    TagComponent:
+      Tag: PL 064
+    TransformComponent:
+      Translation: [-30, 2.17, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351628
+    TagComponent:
+      Tag: PL 063
+    TransformComponent:
+      Translation: [30, 2.15, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351627
+    TagComponent:
+      Tag: PL 062
+    TransformComponent:
+      Translation: [26, 2.33, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351626
+    TagComponent:
+      Tag: PL 061
+    TransformComponent:
+      Translation: [22, 2.42, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351625
+    TagComponent:
+      Tag: PL 060
+    TransformComponent:
+      Translation: [18, 2.41, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351624
+    TagComponent:
+      Tag: PL 059
+    TransformComponent:
+      Translation: [14, 2.31, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351623
+    TagComponent:
+      Tag: PL 058
+    TransformComponent:
+      Translation: [10, 2.12, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351622
+    TagComponent:
+      Tag: PL 057
+    TransformComponent:
+      Translation: [6, 1.91, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351621
+    TagComponent:
+      Tag: PL 056
+    TransformComponent:
+      Translation: [2, 1.72, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351620
+    TagComponent:
+      Tag: PL 055
+    TransformComponent:
+      Translation: [-2, 1.6, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351619
+    TagComponent:
+      Tag: PL 054
+    TransformComponent:
+      Translation: [-6, 1.57, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351618
+    TagComponent:
+      Tag: PL 053
+    TransformComponent:
+      Translation: [-10, 1.65, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351617
+    TagComponent:
+      Tag: PL 052
+    TransformComponent:
+      Translation: [-14, 1.82, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351616
+    TagComponent:
+      Tag: PL 051
+    TransformComponent:
+      Translation: [-18, 2.03, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351615
+    TagComponent:
+      Tag: PL 050
+    TransformComponent:
+      Translation: [-22, 2.23, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351614
+    TagComponent:
+      Tag: PL 049
+    TransformComponent:
+      Translation: [-26, 2.38, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351613
+    TagComponent:
+      Tag: PL 048
+    TransformComponent:
+      Translation: [-30, 2.43, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351612
+    TagComponent:
+      Tag: PL 047
+    TransformComponent:
+      Translation: [30, 2.17, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351611
+    TagComponent:
+      Tag: PL 046
+    TransformComponent:
+      Translation: [26, 2.37, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351610
+    TagComponent:
+      Tag: PL 045
+    TransformComponent:
+      Translation: [22, 2.48, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351609
+    TagComponent:
+      Tag: PL 044
+    TransformComponent:
+      Translation: [18, 2.47, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351608
+    TagComponent:
+      Tag: PL 043
+    TransformComponent:
+      Translation: [14, 2.35, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351607
+    TagComponent:
+      Tag: PL 042
+    TransformComponent:
+      Translation: [10, 2.14, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351606
+    TagComponent:
+      Tag: PL 041
+    TransformComponent:
+      Translation: [6, 1.9, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351605
+    TagComponent:
+      Tag: PL 040
+    TransformComponent:
+      Translation: [2, 1.68, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351604
+    TagComponent:
+      Tag: PL 039
+    TransformComponent:
+      Translation: [-2, 1.54, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351603
+    TagComponent:
+      Tag: PL 038
+    TransformComponent:
+      Translation: [-6, 1.51, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351602
+    TagComponent:
+      Tag: PL 037
+    TransformComponent:
+      Translation: [-10, 1.61, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351601
+    TagComponent:
+      Tag: PL 036
+    TransformComponent:
+      Translation: [-14, 1.79, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351600
+    TagComponent:
+      Tag: PL 035
+    TransformComponent:
+      Translation: [-18, 2.03, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351599
+    TagComponent:
+      Tag: PL 034
+    TransformComponent:
+      Translation: [-22, 2.27, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351598
+    TagComponent:
+      Tag: PL 033
+    TransformComponent:
+      Translation: [-26, 2.43, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351597
+    TagComponent:
+      Tag: PL 032
+    TransformComponent:
+      Translation: [-30, 2.49, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351596
+    TagComponent:
+      Tag: PL 031
+    TransformComponent:
+      Translation: [30, 2.11, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351595
+    TagComponent:
+      Tag: PL 030
+    TransformComponent:
+      Translation: [26, 2.24, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351594
+    TagComponent:
+      Tag: PL 029
+    TransformComponent:
+      Translation: [22, 2.31, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351593
+    TagComponent:
+      Tag: PL 028
+    TransformComponent:
+      Translation: [18, 2.31, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351592
+    TagComponent:
+      Tag: PL 027
+    TransformComponent:
+      Translation: [14, 2.23, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351591
+    TagComponent:
+      Tag: PL 026
+    TransformComponent:
+      Translation: [10, 2.09, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351590
+    TagComponent:
+      Tag: PL 025
+    TransformComponent:
+      Translation: [6, 1.93, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351589
+    TagComponent:
+      Tag: PL 024
+    TransformComponent:
+      Translation: [2, 1.79, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351588
+    TagComponent:
+      Tag: PL 023
+    TransformComponent:
+      Translation: [-2, 1.7, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351587
+    TagComponent:
+      Tag: PL 022
+    TransformComponent:
+      Translation: [-6, 1.68, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351586
+    TagComponent:
+      Tag: PL 021
+    TransformComponent:
+      Translation: [-10, 1.74, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351585
+    TagComponent:
+      Tag: PL 020
+    TransformComponent:
+      Translation: [-14, 1.87, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351584
+    TagComponent:
+      Tag: PL 019
+    TransformComponent:
+      Translation: [-18, 2.02, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351583
+    TagComponent:
+      Tag: PL 018
+    TransformComponent:
+      Translation: [-22, 2.17, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351582
+    TagComponent:
+      Tag: PL 017
+    TransformComponent:
+      Translation: [-26, 2.28, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351581
+    TagComponent:
+      Tag: PL 016
+    TransformComponent:
+      Translation: [-30, 2.32, -26]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351580
+    TagComponent:
+      Tag: PL 015
+    TransformComponent:
+      Translation: [30, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351579
+    TagComponent:
+      Tag: PL 014
+    TransformComponent:
+      Translation: [26, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351578
+    TagComponent:
+      Tag: PL 013
+    TransformComponent:
+      Translation: [22, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351577
+    TagComponent:
+      Tag: PL 012
+    TransformComponent:
+      Translation: [18, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351576
+    TagComponent:
+      Tag: PL 011
+    TransformComponent:
+      Translation: [14, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351575
+    TagComponent:
+      Tag: PL 010
+    TransformComponent:
+      Translation: [10, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351574
+    TagComponent:
+      Tag: PL 009
+    TransformComponent:
+      Translation: [6, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351573
+    TagComponent:
+      Tag: PL 008
+    TransformComponent:
+      Translation: [2, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351572
+    TagComponent:
+      Tag: PL 007
+    TransformComponent:
+      Translation: [-2, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.3, 0.7]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351571
+    TagComponent:
+      Tag: PL 006
+    TransformComponent:
+      Translation: [-6, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 0.2, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351570
+    TagComponent:
+      Tag: PL 005
+    TransformComponent:
+      Translation: [-10, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.3, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351569
+    TagComponent:
+      Tag: PL 004
+    TransformComponent:
+      Translation: [-14, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.8, 1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351568
+    TagComponent:
+      Tag: PL 003
+    TransformComponent:
+      Translation: [-18, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 1, 0.3]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351567
+    TagComponent:
+      Tag: PL 002
+    TransformComponent:
+      Translation: [-22, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.9, 0.2]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351566
+    TagComponent:
+      Tag: PL 001
+    TransformComponent:
+      Translation: [-26, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.5, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351565
+    TagComponent:
+      Tag: PL 000
+    TransformComponent:
+      Translation: [-30, 2, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.15, 0.1]
+      Intensity: 3
+      Range: 6
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 648518346341351564
+    TagComponent:
+      Tag: Pillar R5 C5
+    TransformComponent:
+      Translation: [25, 2.5, 25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351563
+    TagComponent:
+      Tag: Pillar R5 C4
+    TransformComponent:
+      Translation: [15, 2.5, 25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351562
+    TagComponent:
+      Tag: Pillar R5 C3
+    TransformComponent:
+      Translation: [5, 2.5, 25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351561
+    TagComponent:
+      Tag: Pillar R5 C2
+    TransformComponent:
+      Translation: [-5, 2.5, 25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351560
+    TagComponent:
+      Tag: Pillar R5 C1
+    TransformComponent:
+      Translation: [-15, 2.5, 25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351559
+    TagComponent:
+      Tag: Pillar R5 C0
+    TransformComponent:
+      Translation: [-25, 2.5, 25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351558
+    TagComponent:
+      Tag: Pillar R4 C5
+    TransformComponent:
+      Translation: [25, 2.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351557
+    TagComponent:
+      Tag: Pillar R4 C4
+    TransformComponent:
+      Translation: [15, 2.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351556
+    TagComponent:
+      Tag: Pillar R4 C3
+    TransformComponent:
+      Translation: [5, 2.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351555
+    TagComponent:
+      Tag: Pillar R4 C2
+    TransformComponent:
+      Translation: [-5, 2.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351554
+    TagComponent:
+      Tag: Pillar R4 C1
+    TransformComponent:
+      Translation: [-15, 2.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351553
+    TagComponent:
+      Tag: Pillar R4 C0
+    TransformComponent:
+      Translation: [-25, 2.5, 15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351552
+    TagComponent:
+      Tag: Pillar R3 C5
+    TransformComponent:
+      Translation: [25, 2.5, 5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351551
+    TagComponent:
+      Tag: Pillar R3 C4
+    TransformComponent:
+      Translation: [15, 2.5, 5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351550
+    TagComponent:
+      Tag: Pillar R3 C3
+    TransformComponent:
+      Translation: [5, 2.5, 5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351549
+    TagComponent:
+      Tag: Pillar R3 C2
+    TransformComponent:
+      Translation: [-5, 2.5, 5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351548
+    TagComponent:
+      Tag: Pillar R3 C1
+    TransformComponent:
+      Translation: [-15, 2.5, 5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351547
+    TagComponent:
+      Tag: Pillar R3 C0
+    TransformComponent:
+      Translation: [-25, 2.5, 5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351546
+    TagComponent:
+      Tag: Pillar R2 C5
+    TransformComponent:
+      Translation: [25, 2.5, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351545
+    TagComponent:
+      Tag: Pillar R2 C4
+    TransformComponent:
+      Translation: [15, 2.5, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351544
+    TagComponent:
+      Tag: Pillar R2 C3
+    TransformComponent:
+      Translation: [5, 2.5, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351543
+    TagComponent:
+      Tag: Pillar R2 C2
+    TransformComponent:
+      Translation: [-5, 2.5, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351542
+    TagComponent:
+      Tag: Pillar R2 C1
+    TransformComponent:
+      Translation: [-15, 2.5, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351541
+    TagComponent:
+      Tag: Pillar R2 C0
+    TransformComponent:
+      Translation: [-25, 2.5, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351540
+    TagComponent:
+      Tag: Pillar R1 C5
+    TransformComponent:
+      Translation: [25, 2.5, -15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351539
+    TagComponent:
+      Tag: Pillar R1 C4
+    TransformComponent:
+      Translation: [15, 2.5, -15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351538
+    TagComponent:
+      Tag: Pillar R1 C3
+    TransformComponent:
+      Translation: [5, 2.5, -15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351537
+    TagComponent:
+      Tag: Pillar R1 C2
+    TransformComponent:
+      Translation: [-5, 2.5, -15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351536
+    TagComponent:
+      Tag: Pillar R1 C1
+    TransformComponent:
+      Translation: [-15, 2.5, -15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351535
+    TagComponent:
+      Tag: Pillar R1 C0
+    TransformComponent:
+      Translation: [-25, 2.5, -15]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351534
+    TagComponent:
+      Tag: Pillar R0 C5
+    TransformComponent:
+      Translation: [25, 2.5, -25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351533
+    TagComponent:
+      Tag: Pillar R0 C4
+    TransformComponent:
+      Translation: [15, 2.5, -25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351532
+    TagComponent:
+      Tag: Pillar R0 C3
+    TransformComponent:
+      Translation: [5, 2.5, -25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351531
+    TagComponent:
+      Tag: Pillar R0 C2
+    TransformComponent:
+      Translation: [-5, 2.5, -25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351530
+    TagComponent:
+      Tag: Pillar R0 C1
+    TransformComponent:
+      Translation: [-15, 2.5, -25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351529
+    TagComponent:
+      Tag: Pillar R0 C0
+    TransformComponent:
+      Translation: [-25, 2.5, -25]
+      Rotation: [0, 0, 0]
+      Scale: [0.6, 5, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.65]
+      Metallic: 0
+      Roughness: 0.7
+  - Entity: 648518346341351528
+    TagComponent:
+      Tag: Sphere R9 C9
+    TransformComponent:
+      Translation: [28.8, 1.2, 28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.9
+      Roughness: 0.8
+  - Entity: 648518346341351527
+    TagComponent:
+      Tag: Sphere R9 C8
+    TransformComponent:
+      Translation: [22.4, 1.2, 28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.9
+      Roughness: 0.72
+  - Entity: 648518346341351526
+    TagComponent:
+      Tag: Sphere R9 C7
+    TransformComponent:
+      Translation: [16, 1.2, 28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.9
+      Roughness: 0.64
+  - Entity: 648518346341351525
+    TagComponent:
+      Tag: Sphere R9 C6
+    TransformComponent:
+      Translation: [9.6, 1.2, 28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.9
+      Roughness: 0.57
+  - Entity: 648518346341351524
+    TagComponent:
+      Tag: Sphere R9 C5
+    TransformComponent:
+      Translation: [3.2, 1.2, 28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.9
+      Roughness: 0.49
+  - Entity: 648518346341351523
+    TagComponent:
+      Tag: Sphere R9 C4
+    TransformComponent:
+      Translation: [-3.2, 1.2, 28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.9
+      Roughness: 0.41
+  - Entity: 648518346341351522
+    TagComponent:
+      Tag: Sphere R9 C3
+    TransformComponent:
+      Translation: [-9.6, 1.2, 28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.9
+      Roughness: 0.33
+  - Entity: 648518346341351521
+    TagComponent:
+      Tag: Sphere R9 C2
+    TransformComponent:
+      Translation: [-16, 1.2, 28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.9
+      Roughness: 0.26
+  - Entity: 648518346341351520
+    TagComponent:
+      Tag: Sphere R9 C1
+    TransformComponent:
+      Translation: [-22.4, 1.2, 28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.9
+      Roughness: 0.18
+  - Entity: 648518346341351519
+    TagComponent:
+      Tag: Sphere R9 C0
+    TransformComponent:
+      Translation: [-28.8, 1.2, 28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.9
+      Roughness: 0.1
+  - Entity: 648518346341351518
+    TagComponent:
+      Tag: Sphere R8 C9
+    TransformComponent:
+      Translation: [28.8, 1.2, 22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.81
+      Roughness: 0.8
+  - Entity: 648518346341351517
+    TagComponent:
+      Tag: Sphere R8 C8
+    TransformComponent:
+      Translation: [22.4, 1.2, 22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.81
+      Roughness: 0.72
+  - Entity: 648518346341351516
+    TagComponent:
+      Tag: Sphere R8 C7
+    TransformComponent:
+      Translation: [16, 1.2, 22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.81
+      Roughness: 0.64
+  - Entity: 648518346341351515
+    TagComponent:
+      Tag: Sphere R8 C6
+    TransformComponent:
+      Translation: [9.6, 1.2, 22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.81
+      Roughness: 0.57
+  - Entity: 648518346341351514
+    TagComponent:
+      Tag: Sphere R8 C5
+    TransformComponent:
+      Translation: [3.2, 1.2, 22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.81
+      Roughness: 0.49
+  - Entity: 648518346341351513
+    TagComponent:
+      Tag: Sphere R8 C4
+    TransformComponent:
+      Translation: [-3.2, 1.2, 22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.81
+      Roughness: 0.41
+  - Entity: 648518346341351512
+    TagComponent:
+      Tag: Sphere R8 C3
+    TransformComponent:
+      Translation: [-9.6, 1.2, 22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.81
+      Roughness: 0.33
+  - Entity: 648518346341351511
+    TagComponent:
+      Tag: Sphere R8 C2
+    TransformComponent:
+      Translation: [-16, 1.2, 22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.81
+      Roughness: 0.26
+  - Entity: 648518346341351510
+    TagComponent:
+      Tag: Sphere R8 C1
+    TransformComponent:
+      Translation: [-22.4, 1.2, 22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.81
+      Roughness: 0.18
+  - Entity: 648518346341351509
+    TagComponent:
+      Tag: Sphere R8 C0
+    TransformComponent:
+      Translation: [-28.8, 1.2, 22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.81
+      Roughness: 0.1
+  - Entity: 648518346341351508
+    TagComponent:
+      Tag: Sphere R7 C9
+    TransformComponent:
+      Translation: [28.8, 1.2, 16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.72
+      Roughness: 0.8
+  - Entity: 648518346341351507
+    TagComponent:
+      Tag: Sphere R7 C8
+    TransformComponent:
+      Translation: [22.4, 1.2, 16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.72
+      Roughness: 0.72
+  - Entity: 648518346341351506
+    TagComponent:
+      Tag: Sphere R7 C7
+    TransformComponent:
+      Translation: [16, 1.2, 16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.72
+      Roughness: 0.64
+  - Entity: 648518346341351505
+    TagComponent:
+      Tag: Sphere R7 C6
+    TransformComponent:
+      Translation: [9.6, 1.2, 16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.72
+      Roughness: 0.57
+  - Entity: 648518346341351504
+    TagComponent:
+      Tag: Sphere R7 C5
+    TransformComponent:
+      Translation: [3.2, 1.2, 16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.72
+      Roughness: 0.49
+  - Entity: 648518346341351503
+    TagComponent:
+      Tag: Sphere R7 C4
+    TransformComponent:
+      Translation: [-3.2, 1.2, 16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.72
+      Roughness: 0.41
+  - Entity: 648518346341351502
+    TagComponent:
+      Tag: Sphere R7 C3
+    TransformComponent:
+      Translation: [-9.6, 1.2, 16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.72
+      Roughness: 0.33
+  - Entity: 648518346341351501
+    TagComponent:
+      Tag: Sphere R7 C2
+    TransformComponent:
+      Translation: [-16, 1.2, 16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.72
+      Roughness: 0.26
+  - Entity: 648518346341351500
+    TagComponent:
+      Tag: Sphere R7 C1
+    TransformComponent:
+      Translation: [-22.4, 1.2, 16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.72
+      Roughness: 0.18
+  - Entity: 648518346341351499
+    TagComponent:
+      Tag: Sphere R7 C0
+    TransformComponent:
+      Translation: [-28.8, 1.2, 16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.72
+      Roughness: 0.1
+  - Entity: 648518346341351498
+    TagComponent:
+      Tag: Sphere R6 C9
+    TransformComponent:
+      Translation: [28.8, 1.2, 9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.63
+      Roughness: 0.8
+  - Entity: 648518346341351497
+    TagComponent:
+      Tag: Sphere R6 C8
+    TransformComponent:
+      Translation: [22.4, 1.2, 9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.63
+      Roughness: 0.72
+  - Entity: 648518346341351496
+    TagComponent:
+      Tag: Sphere R6 C7
+    TransformComponent:
+      Translation: [16, 1.2, 9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.63
+      Roughness: 0.64
+  - Entity: 648518346341351495
+    TagComponent:
+      Tag: Sphere R6 C6
+    TransformComponent:
+      Translation: [9.6, 1.2, 9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.63
+      Roughness: 0.57
+  - Entity: 648518346341351494
+    TagComponent:
+      Tag: Sphere R6 C5
+    TransformComponent:
+      Translation: [3.2, 1.2, 9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.63
+      Roughness: 0.49
+  - Entity: 648518346341351493
+    TagComponent:
+      Tag: Sphere R6 C4
+    TransformComponent:
+      Translation: [-3.2, 1.2, 9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.63
+      Roughness: 0.41
+  - Entity: 648518346341351492
+    TagComponent:
+      Tag: Sphere R6 C3
+    TransformComponent:
+      Translation: [-9.6, 1.2, 9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.63
+      Roughness: 0.33
+  - Entity: 648518346341351491
+    TagComponent:
+      Tag: Sphere R6 C2
+    TransformComponent:
+      Translation: [-16, 1.2, 9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.63
+      Roughness: 0.26
+  - Entity: 648518346341351490
+    TagComponent:
+      Tag: Sphere R6 C1
+    TransformComponent:
+      Translation: [-22.4, 1.2, 9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.63
+      Roughness: 0.18
+  - Entity: 648518346341351489
+    TagComponent:
+      Tag: Sphere R6 C0
+    TransformComponent:
+      Translation: [-28.8, 1.2, 9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.63
+      Roughness: 0.1
+  - Entity: 648518346341351488
+    TagComponent:
+      Tag: Sphere R5 C9
+    TransformComponent:
+      Translation: [28.8, 1.2, 3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.54
+      Roughness: 0.8
+  - Entity: 648518346341351487
+    TagComponent:
+      Tag: Sphere R5 C8
+    TransformComponent:
+      Translation: [22.4, 1.2, 3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.54
+      Roughness: 0.72
+  - Entity: 648518346341351486
+    TagComponent:
+      Tag: Sphere R5 C7
+    TransformComponent:
+      Translation: [16, 1.2, 3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.54
+      Roughness: 0.64
+  - Entity: 648518346341351485
+    TagComponent:
+      Tag: Sphere R5 C6
+    TransformComponent:
+      Translation: [9.6, 1.2, 3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.54
+      Roughness: 0.57
+  - Entity: 648518346341351484
+    TagComponent:
+      Tag: Sphere R5 C5
+    TransformComponent:
+      Translation: [3.2, 1.2, 3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.54
+      Roughness: 0.49
+  - Entity: 648518346341351483
+    TagComponent:
+      Tag: Sphere R5 C4
+    TransformComponent:
+      Translation: [-3.2, 1.2, 3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.54
+      Roughness: 0.41
+  - Entity: 648518346341351482
+    TagComponent:
+      Tag: Sphere R5 C3
+    TransformComponent:
+      Translation: [-9.6, 1.2, 3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.54
+      Roughness: 0.33
+  - Entity: 648518346341351481
+    TagComponent:
+      Tag: Sphere R5 C2
+    TransformComponent:
+      Translation: [-16, 1.2, 3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.54
+      Roughness: 0.26
+  - Entity: 648518346341351480
+    TagComponent:
+      Tag: Sphere R5 C1
+    TransformComponent:
+      Translation: [-22.4, 1.2, 3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.54
+      Roughness: 0.18
+  - Entity: 648518346341351479
+    TagComponent:
+      Tag: Sphere R5 C0
+    TransformComponent:
+      Translation: [-28.8, 1.2, 3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.54
+      Roughness: 0.1
+  - Entity: 648518346341351478
+    TagComponent:
+      Tag: Sphere R4 C9
+    TransformComponent:
+      Translation: [28.8, 1.2, -3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.46
+      Roughness: 0.8
+  - Entity: 648518346341351477
+    TagComponent:
+      Tag: Sphere R4 C8
+    TransformComponent:
+      Translation: [22.4, 1.2, -3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.46
+      Roughness: 0.72
+  - Entity: 648518346341351476
+    TagComponent:
+      Tag: Sphere R4 C7
+    TransformComponent:
+      Translation: [16, 1.2, -3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.46
+      Roughness: 0.64
+  - Entity: 648518346341351475
+    TagComponent:
+      Tag: Sphere R4 C6
+    TransformComponent:
+      Translation: [9.6, 1.2, -3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.46
+      Roughness: 0.57
+  - Entity: 648518346341351474
+    TagComponent:
+      Tag: Sphere R4 C5
+    TransformComponent:
+      Translation: [3.2, 1.2, -3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.46
+      Roughness: 0.49
+  - Entity: 648518346341351473
+    TagComponent:
+      Tag: Sphere R4 C4
+    TransformComponent:
+      Translation: [-3.2, 1.2, -3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.46
+      Roughness: 0.41
+  - Entity: 648518346341351472
+    TagComponent:
+      Tag: Sphere R4 C3
+    TransformComponent:
+      Translation: [-9.6, 1.2, -3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.46
+      Roughness: 0.33
+  - Entity: 648518346341351471
+    TagComponent:
+      Tag: Sphere R4 C2
+    TransformComponent:
+      Translation: [-16, 1.2, -3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.46
+      Roughness: 0.26
+  - Entity: 648518346341351470
+    TagComponent:
+      Tag: Sphere R4 C1
+    TransformComponent:
+      Translation: [-22.4, 1.2, -3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.46
+      Roughness: 0.18
+  - Entity: 648518346341351469
+    TagComponent:
+      Tag: Sphere R4 C0
+    TransformComponent:
+      Translation: [-28.8, 1.2, -3.2]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.46
+      Roughness: 0.1
+  - Entity: 648518346341351468
+    TagComponent:
+      Tag: Sphere R3 C9
+    TransformComponent:
+      Translation: [28.8, 1.2, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.37
+      Roughness: 0.8
+  - Entity: 648518346341351467
+    TagComponent:
+      Tag: Sphere R3 C8
+    TransformComponent:
+      Translation: [22.4, 1.2, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.37
+      Roughness: 0.72
+  - Entity: 648518346341351466
+    TagComponent:
+      Tag: Sphere R3 C7
+    TransformComponent:
+      Translation: [16, 1.2, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.37
+      Roughness: 0.64
+  - Entity: 648518346341351465
+    TagComponent:
+      Tag: Sphere R3 C6
+    TransformComponent:
+      Translation: [9.6, 1.2, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.37
+      Roughness: 0.57
+  - Entity: 648518346341351464
+    TagComponent:
+      Tag: Sphere R3 C5
+    TransformComponent:
+      Translation: [3.2, 1.2, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.37
+      Roughness: 0.49
+  - Entity: 648518346341351463
+    TagComponent:
+      Tag: Sphere R3 C4
+    TransformComponent:
+      Translation: [-3.2, 1.2, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.37
+      Roughness: 0.41
+  - Entity: 648518346341351462
+    TagComponent:
+      Tag: Sphere R3 C3
+    TransformComponent:
+      Translation: [-9.6, 1.2, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.37
+      Roughness: 0.33
+  - Entity: 648518346341351461
+    TagComponent:
+      Tag: Sphere R3 C2
+    TransformComponent:
+      Translation: [-16, 1.2, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.37
+      Roughness: 0.26
+  - Entity: 648518346341351460
+    TagComponent:
+      Tag: Sphere R3 C1
+    TransformComponent:
+      Translation: [-22.4, 1.2, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.37
+      Roughness: 0.18
+  - Entity: 648518346341351459
+    TagComponent:
+      Tag: Sphere R3 C0
+    TransformComponent:
+      Translation: [-28.8, 1.2, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.37
+      Roughness: 0.1
+  - Entity: 648518346341351458
+    TagComponent:
+      Tag: Sphere R2 C9
+    TransformComponent:
+      Translation: [28.8, 1.2, -16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.28
+      Roughness: 0.8
+  - Entity: 648518346341351457
+    TagComponent:
+      Tag: Sphere R2 C8
+    TransformComponent:
+      Translation: [22.4, 1.2, -16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.28
+      Roughness: 0.72
+  - Entity: 648518346341351456
+    TagComponent:
+      Tag: Sphere R2 C7
+    TransformComponent:
+      Translation: [16, 1.2, -16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.28
+      Roughness: 0.64
+  - Entity: 648518346341351455
+    TagComponent:
+      Tag: Sphere R2 C6
+    TransformComponent:
+      Translation: [9.6, 1.2, -16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.28
+      Roughness: 0.57
+  - Entity: 648518346341351454
+    TagComponent:
+      Tag: Sphere R2 C5
+    TransformComponent:
+      Translation: [3.2, 1.2, -16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.28
+      Roughness: 0.49
+  - Entity: 648518346341351453
+    TagComponent:
+      Tag: Sphere R2 C4
+    TransformComponent:
+      Translation: [-3.2, 1.2, -16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.28
+      Roughness: 0.41
+  - Entity: 648518346341351452
+    TagComponent:
+      Tag: Sphere R2 C3
+    TransformComponent:
+      Translation: [-9.6, 1.2, -16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.28
+      Roughness: 0.33
+  - Entity: 648518346341351451
+    TagComponent:
+      Tag: Sphere R2 C2
+    TransformComponent:
+      Translation: [-16, 1.2, -16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.28
+      Roughness: 0.26
+  - Entity: 648518346341351450
+    TagComponent:
+      Tag: Sphere R2 C1
+    TransformComponent:
+      Translation: [-22.4, 1.2, -16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.28
+      Roughness: 0.18
+  - Entity: 648518346341351449
+    TagComponent:
+      Tag: Sphere R2 C0
+    TransformComponent:
+      Translation: [-28.8, 1.2, -16]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.28
+      Roughness: 0.1
+  - Entity: 648518346341351448
+    TagComponent:
+      Tag: Sphere R1 C9
+    TransformComponent:
+      Translation: [28.8, 1.2, -22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.19
+      Roughness: 0.8
+  - Entity: 648518346341351447
+    TagComponent:
+      Tag: Sphere R1 C8
+    TransformComponent:
+      Translation: [22.4, 1.2, -22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.19
+      Roughness: 0.72
+  - Entity: 648518346341351446
+    TagComponent:
+      Tag: Sphere R1 C7
+    TransformComponent:
+      Translation: [16, 1.2, -22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.19
+      Roughness: 0.64
+  - Entity: 648518346341351445
+    TagComponent:
+      Tag: Sphere R1 C6
+    TransformComponent:
+      Translation: [9.6, 1.2, -22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.19
+      Roughness: 0.57
+  - Entity: 648518346341351444
+    TagComponent:
+      Tag: Sphere R1 C5
+    TransformComponent:
+      Translation: [3.2, 1.2, -22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.19
+      Roughness: 0.49
+  - Entity: 648518346341351443
+    TagComponent:
+      Tag: Sphere R1 C4
+    TransformComponent:
+      Translation: [-3.2, 1.2, -22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.19
+      Roughness: 0.41
+  - Entity: 648518346341351442
+    TagComponent:
+      Tag: Sphere R1 C3
+    TransformComponent:
+      Translation: [-9.6, 1.2, -22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.19
+      Roughness: 0.33
+  - Entity: 648518346341351441
+    TagComponent:
+      Tag: Sphere R1 C2
+    TransformComponent:
+      Translation: [-16, 1.2, -22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.19
+      Roughness: 0.26
+  - Entity: 648518346341351440
+    TagComponent:
+      Tag: Sphere R1 C1
+    TransformComponent:
+      Translation: [-22.4, 1.2, -22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.19
+      Roughness: 0.18
+  - Entity: 648518346341351439
+    TagComponent:
+      Tag: Sphere R1 C0
+    TransformComponent:
+      Translation: [-28.8, 1.2, -22.4]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.19
+      Roughness: 0.1
+  - Entity: 648518346341351438
+    TagComponent:
+      Tag: Sphere R0 C9
+    TransformComponent:
+      Translation: [28.8, 1.2, -28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.1
+      Roughness: 0.8
+  - Entity: 648518346341351437
+    TagComponent:
+      Tag: Sphere R0 C8
+    TransformComponent:
+      Translation: [22.4, 1.2, -28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.1
+      Roughness: 0.72
+  - Entity: 648518346341351436
+    TagComponent:
+      Tag: Sphere R0 C7
+    TransformComponent:
+      Translation: [16, 1.2, -28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.1
+      Roughness: 0.64
+  - Entity: 648518346341351435
+    TagComponent:
+      Tag: Sphere R0 C6
+    TransformComponent:
+      Translation: [9.6, 1.2, -28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.1
+      Roughness: 0.57
+  - Entity: 648518346341351434
+    TagComponent:
+      Tag: Sphere R0 C5
+    TransformComponent:
+      Translation: [3.2, 1.2, -28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.1
+      Roughness: 0.49
+  - Entity: 648518346341351433
+    TagComponent:
+      Tag: Sphere R0 C4
+    TransformComponent:
+      Translation: [-3.2, 1.2, -28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.62, 0.88]
+      Metallic: 0.1
+      Roughness: 0.41
+  - Entity: 648518346341351432
+    TagComponent:
+      Tag: Sphere R0 C3
+    TransformComponent:
+      Translation: [-9.6, 1.2, -28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.88, 0.5, 0.75]
+      Metallic: 0.1
+      Roughness: 0.33
+  - Entity: 648518346341351431
+    TagComponent:
+      Tag: Sphere R0 C2
+    TransformComponent:
+      Translation: [-16, 1.2, -28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.75, 1, 0.62]
+      Metallic: 0.1
+      Roughness: 0.26
+  - Entity: 648518346341351430
+    TagComponent:
+      Tag: Sphere R0 C1
+    TransformComponent:
+      Translation: [-22.4, 1.2, -28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.88, 0.5]
+      Metallic: 0.1
+      Roughness: 0.18
+  - Entity: 648518346341351429
+    TagComponent:
+      Tag: Sphere R0 C0
+    TransformComponent:
+      Translation: [-28.8, 1.2, -28.8]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 1.8, 1.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.75, 1]
+      Metallic: 0.1
+      Roughness: 0.1
+  - Entity: 648518346341351428
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [40, 1, 40]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.3, 0.3]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 648518346341351427
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.2, -1, -0.3]
+      Color: [0.8, 0.85, 1]
+      Intensity: 0.1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+      CascadeDebugVisualization: false
+  - Entity: 648518346341351426
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.15
+      Tint: [1, 1, 1]
+  - Entity: 648518346341351425
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 25, 40]
+      Rotation: [-0.5, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: true
+      FlySpeed: 5

@@ -311,6 +311,7 @@ namespace OloEngine
         m_ShaderLibrary.Load("assets/shaders/Water.glsl");
         m_ShaderLibrary.Load("assets/shaders/Decal.glsl");
         m_ShaderLibrary.Load("assets/shaders/OcclusionProxy.glsl");
+        m_ShaderLibrary.Load("assets/shaders/ForwardPlusDebug.glsl");
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
         s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
@@ -322,6 +323,7 @@ namespace OloEngine
         s_Data.PBRMultiLightSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
         s_Data.SkyboxShader = m_ShaderLibrary.Get("Skybox");
         s_Data.InfiniteGridShader = m_ShaderLibrary.Get("InfiniteGrid");
+        s_Data.ForwardPlusDebugShader = m_ShaderLibrary.Get("ForwardPlusDebug");
         s_Data.ShadowDepthShader = m_ShaderLibrary.Get("ShadowDepth");
         s_Data.ShadowDepthSkinnedShader = m_ShaderLibrary.Get("ShadowDepthSkinned");
         s_Data.ShadowDepthPointSkinnedShader = m_ShaderLibrary.Get("ShadowDepthPointSkinned");
@@ -343,7 +345,24 @@ namespace OloEngine
         // Allocate enough for the larger PBR layout (PBRMaterialUBO > MaterialUBO)
         constexpr u32 materialBufferSize = std::max(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::PBRMaterialUBO::GetSize());
         s_Data.MaterialUBO = UniformBuffer::Create(materialBufferSize, ShaderBindingLayout::UBO_MATERIAL);
-        s_Data.MultiLightBuffer = UniformBuffer::Create(ShaderBindingLayout::MultiLightUBO::GetSize(), ShaderBindingLayout::UBO_MULTI_LIGHTS);
+        // Validate the MultiLightUBO fits within the GPU's uniform block size limit.
+        // MAX_LIGHTS=256 produces ~20 KB which exceeds the GL spec minimum of 16 KB
+        // but is within typical desktop GPU limits (64 KB+).
+        {
+            const u32 maxUBOSize = RenderCommand::GetMaxUniformBlockSize();
+            constexpr u32 multiLightSize = ShaderBindingLayout::MultiLightUBO::GetSize();
+            if (multiLightSize > maxUBOSize)
+            {
+                OLO_CORE_ERROR("MultiLightUBO size ({} bytes) exceeds GL_MAX_UNIFORM_BLOCK_SIZE ({} bytes). "
+                               "Reduce MAX_LIGHTS or migrate to an SSBO. Multi-light path disabled.",
+                               multiLightSize, maxUBOSize);
+            }
+            else
+            {
+                s_Data.MultiLightBuffer = UniformBuffer::Create(multiLightSize, ShaderBindingLayout::UBO_MULTI_LIGHTS);
+            }
+        }
+
         s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
         s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
         s_Data.TerrainUBO = UniformBuffer::Create(ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
@@ -421,6 +440,9 @@ namespace OloEngine
         s_Data.FogLastTime = std::chrono::steady_clock::now();
         s_Data.FogTime = 0.0f;
 
+        // Initialize Forward+ light culling system
+        s_Data.ForwardPlus.Initialize(window.GetFramebufferWidth(), window.GetFramebufferHeight());
+
         OLO_CORE_INFO("Renderer3D initialization complete.");
     }
 
@@ -451,6 +473,9 @@ namespace OloEngine
         // Shutdown snow systems
         SnowEjectaSystem::Shutdown();
         SnowAccumulationSystem::Shutdown();
+
+        // Shutdown Forward+ system
+        s_Data.ForwardPlus.Shutdown();
 
         // Shutdown shadow mapping
         s_Data.Shadow.Shutdown();
@@ -1691,13 +1716,31 @@ namespace OloEngine
         s_Data.CameraFarClip = farClip;
     }
 
-    void Renderer3D::UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data)
+    void Renderer3D::UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data, i32 activeLightCount)
     {
         OLO_PROFILE_FUNCTION();
 
         if (s_Data.MultiLightBuffer)
         {
-            s_Data.MultiLightBuffer->SetData(&data, UBOStructures::MultiLightUBO::GetSize());
+            // Clamp to valid range to prevent buffer overrun
+            activeLightCount = std::clamp(activeLightCount, 0, static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS));
+
+            // Only upload header (16 bytes) + active lights to minimize CPU→GPU transfer
+            constexpr u32 headerSize = 4 * sizeof(i32); // LightCount, MaxLights, ShadowCasterCount, DirectionalLightCount
+            const u32 uploadSize = headerSize + static_cast<u32>(activeLightCount) * static_cast<u32>(sizeof(UBOStructures::MultiLightData));
+
+            // Ensure the GPU header reflects the clamped count (the caller may
+            // have set data.LightCount to a value exceeding MAX_LIGHTS).
+            if (data.LightCount != activeLightCount)
+            {
+                UBOStructures::MultiLightUBO temp = data;
+                temp.LightCount = activeLightCount;
+                s_Data.MultiLightBuffer->SetData(&temp, uploadSize);
+            }
+            else
+            {
+                s_Data.MultiLightBuffer->SetData(&data, uploadSize);
+            }
         }
     }
 
@@ -1890,6 +1933,45 @@ namespace OloEngine
     void Renderer3D::ResetStats()
     {
         s_Data.Stats.Reset();
+    }
+
+    void Renderer3D::ApplyRendererSettings()
+    {
+        OLO_PROFILE_FUNCTION();
+        auto& settings = s_Data.Settings;
+
+        // Sync culling toggles
+        EnableFrustumCulling(settings.FrustumCullingEnabled);
+        EnableOcclusionCulling(settings.OcclusionCullingEnabled);
+
+        // Sync Forward+ settings
+        auto& fplus = s_Data.ForwardPlus;
+        switch (settings.Path)
+        {
+            case RenderingPath::Forward:
+                if (settings.ForwardPlusAutoSwitch)
+                {
+                    fplus.SetMode(ForwardPlusMode::Auto);
+                    fplus.SetLightCountThreshold(settings.ForwardPlusLightThreshold);
+                }
+                else
+                {
+                    fplus.SetMode(ForwardPlusMode::Never);
+                }
+                break;
+            case RenderingPath::ForwardPlus:
+                fplus.SetMode(ForwardPlusMode::Always);
+                break;
+        }
+
+        // Forward+ compute culling requires the depth pre-pass.
+        // Include the Auto case: when Forward+ can dynamically activate,
+        // the depth buffer must already be available for the culling dispatch.
+        bool effectiveDepthPrepass = settings.DepthPrepassEnabled || (settings.Path == RenderingPath::ForwardPlus) || (settings.Path == RenderingPath::Forward && settings.ForwardPlusAutoSwitch);
+        EnableDepthPrepass(effectiveDepthPrepass);
+
+        fplus.SetTileSize(settings.ForwardPlusTileSize);
+        fplus.SetDebugVisualization(settings.ForwardPlusDebugHeatmap);
     }
 
     bool Renderer3D::IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform)
@@ -2482,6 +2564,9 @@ namespace OloEngine
         {
             OLO_CORE_WARN("Renderer3D::OnWindowResize: No render graph available!");
         }
+
+        // Resize Forward+ light grid
+        s_Data.ForwardPlus.Resize(width, height);
     }
 
     CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic, i32 entityID)
@@ -2663,6 +2748,10 @@ namespace OloEngine
             s_Data.CameraUBO->Bind();
         if (s_Data.LightPropertiesUBO)
             s_Data.LightPropertiesUBO->Bind();
+
+        // Ensure Forward+ UBO is always bound (with Enabled=0 when inactive)
+        // so fragment shaders can always read fplus_Params.z
+        s_Data.ForwardPlus.UploadDisabledUBO();
     }
 
     void Renderer3D::ApplyGlobalResources()
@@ -3093,20 +3182,24 @@ namespace OloEngine
 
         auto* packet = DrawMesh(s_Data.LineQuadMesh, transform, material);
 
-        // Modify render state to ensure skeleton visibility
+        // Modify render state and sort key to ensure skeleton visibility through geometry
         if (packet)
         {
             auto* drawCmd = packet->GetCommandData<DrawMeshCommand>();
             if (drawCmd)
             {
-                // Build modified state: depth off, polygon offset for skeleton visibility
+                // Depth off so lines always pass depth test
                 PODRenderState skelState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
                 skelState.depthTestEnabled = false;
-                skelState.polygonOffsetEnabled = true;
-                skelState.polygonOffsetFactor = -2.0f;
-                skelState.polygonOffsetUnits = -2.0f;
+                // Only write to color attachment (0); skip entity-ID (1) and normals (2)
+                skelState.colorAttachmentWriteMask = 0x01;
                 drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(skelState);
             }
+
+            // Move to UI layer so these draw AFTER all 3D geometry
+            PacketMetadata meta = packet->GetMetadata();
+            meta.m_SortKey.SetViewLayer(ViewLayerType::UI);
+            packet->SetMetadata(meta);
         }
 
         return packet;
@@ -3145,20 +3238,24 @@ namespace OloEngine
             return nullptr;
         }
 
-        // Modify render state to ensure skeleton joint visibility
+        // Modify render state and sort key to ensure joint visibility through geometry
         if (packet)
         {
             auto* drawCmd = packet->GetCommandData<DrawMeshCommand>();
             if (drawCmd)
             {
-                // Build modified state: depth off, polygon offset for joint visibility
+                // Depth off so joints always pass depth test
                 PODRenderState jointState = FrameDataBufferManager::Get().GetRenderState(drawCmd->renderStateIndex);
                 jointState.depthTestEnabled = false;
-                jointState.polygonOffsetEnabled = true;
-                jointState.polygonOffsetFactor = -2.0f;
-                jointState.polygonOffsetUnits = -2.0f;
+                // Only write to color attachment (0); skip entity-ID (1) and normals (2)
+                jointState.colorAttachmentWriteMask = 0x01;
                 drawCmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(jointState);
             }
+
+            // Move to UI layer so these draw AFTER all 3D geometry
+            PacketMetadata meta = packet->GetMetadata();
+            meta.m_SortKey.SetViewLayer(ViewLayerType::UI);
+            packet->SetMetadata(meta);
         }
 
         return packet;
@@ -4215,47 +4312,51 @@ namespace OloEngine
             return;
         }
 
+        // Compute world-space joint positions
+        std::vector<glm::vec3> worldPositions(skeleton.m_GlobalTransforms.size());
+        for (sizet i = 0; i < skeleton.m_GlobalTransforms.size(); ++i)
+        {
+            worldPositions[i] = glm::vec3(modelMatrix * skeleton.m_GlobalTransforms[i] * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+        }
+
+        // Compute average bone length to auto-scale visualization.
+        // jointSize and boneThickness are treated as fractions of this extent
+        // so the skeleton is visible regardless of the model's unit system.
+        f32 totalBoneLength = 0.0f;
+        i32 boneCount = 0;
+        for (sizet i = 0; i < skeleton.m_GlobalTransforms.size(); ++i)
+        {
+            i32 parentIndex = skeleton.m_ParentIndices[i];
+            if (parentIndex >= 0 && parentIndex < static_cast<i32>(skeleton.m_GlobalTransforms.size()))
+            {
+                f32 len = glm::length(worldPositions[i] - worldPositions[parentIndex]);
+                if (len > 0.001f)
+                {
+                    totalBoneLength += len;
+                    ++boneCount;
+                }
+            }
+        }
+        f32 avgBoneLength = (boneCount > 0) ? (totalBoneLength / static_cast<f32>(boneCount)) : 1.0f;
+
+        // Scale factors: jointSize=1.0 means joint radius = 10% of average bone length
+        f32 scaledJointRadius = jointSize * avgBoneLength * 0.1f;
+        // DrawLine internally multiplies thickness by 0.005, so divide to compensate
+        f32 scaledBoneThickness = (boneThickness * avgBoneLength * 0.02f) / 0.005f;
+
         // Colors for visualization
         const glm::vec3 boneColor(1.0f, 0.5f, 0.0f);  // Bright orange for bones
         const glm::vec3 jointColor(0.0f, 1.0f, 0.0f); // Bright green for joints
 
-        // Debug: Log skeleton rendering attempt
-        static int debugCount = 0;
-        if (debugCount < 5) // Only log first 5 attempts to avoid spam
-        {
-            OLO_CORE_INFO("DrawSkeleton Debug #{}: showJoints={}, showBones={}, jointSize={}, boneThickness={}",
-                          debugCount, showJoints, showBones, jointSize, boneThickness);
-            OLO_CORE_INFO("  Skeleton size: {}, SkyboxMesh available: {}",
-                          skeleton.m_GlobalTransforms.size(), (s_Data.SkyboxMesh != nullptr));
-            debugCount++;
-        }
-
         // Draw joints
         if (showJoints)
         {
-            for (sizet i = 0; i < skeleton.m_GlobalTransforms.size(); ++i)
+            for (sizet i = 0; i < worldPositions.size(); ++i)
             {
-                glm::vec3 jointPosition = glm::vec3(modelMatrix * skeleton.m_GlobalTransforms[i] * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-
-                // Debug: Log first few joint positions
-                if (debugCount <= 5 && i < 3)
-                {
-                    OLO_CORE_INFO("  Joint {}: world position ({:.2f}, {:.2f}, {:.2f})",
-                                  i, jointPosition.x, jointPosition.y, jointPosition.z);
-                }
-
-                auto* spherePacket = DrawSphere(jointPosition, jointSize, jointColor);
+                auto* spherePacket = DrawSphere(worldPositions[i], scaledJointRadius, jointColor);
                 if (spherePacket)
                 {
                     SubmitPacket(spherePacket);
-                    if (debugCount <= 5 && i < 3)
-                    {
-                        OLO_CORE_INFO("  Joint {} sphere packet submitted successfully", i);
-                    }
-                }
-                else if (debugCount <= 5 && i < 3)
-                {
-                    OLO_CORE_WARN("  Joint {} sphere packet failed to create", i);
                 }
             }
         }
@@ -4268,18 +4369,10 @@ namespace OloEngine
                 i32 parentIndex = skeleton.m_ParentIndices[i];
                 if (parentIndex >= 0 && parentIndex < static_cast<i32>(skeleton.m_GlobalTransforms.size()))
                 {
-                    glm::vec3 childPosition = glm::vec3(modelMatrix * skeleton.m_GlobalTransforms[i] * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-                    glm::vec3 parentPosition = glm::vec3(modelMatrix * skeleton.m_GlobalTransforms[parentIndex] * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-
-                    // Calculate bone length to filter out unreasonable connections
-                    f32 boneLength = glm::length(childPosition - parentPosition);
-
-                    // Only draw bones that are reasonable length (filter out very long connections)
-                    // For a human-sized model, bones longer than 2 units are probably incorrect connections
-                    const f32 maxReasonableBoneLength = 2.0f;
-                    if (boneLength > 0.001f && boneLength < maxReasonableBoneLength)
+                    f32 boneLength = glm::length(worldPositions[i] - worldPositions[parentIndex]);
+                    if (boneLength > 0.001f)
                     {
-                        auto* linePacket = DrawLine(parentPosition, childPosition, boneColor, boneThickness);
+                        auto* linePacket = DrawLine(worldPositions[parentIndex], worldPositions[i], boneColor, scaledBoneThickness);
                         if (linePacket)
                         {
                             SubmitPacket(linePacket);

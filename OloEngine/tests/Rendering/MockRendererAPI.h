@@ -32,6 +32,11 @@ namespace OloEngine::Testing
         MockRendererAPI() = default;
         ~MockRendererAPI() override = default;
 
+        void SetMaxUniformBlockSize(u32 size)
+        {
+            m_MaxUniformBlockSize = size;
+        }
+
         // ----------------------------------------------------------------
         // Recording accessors
         // ----------------------------------------------------------------
@@ -330,6 +335,10 @@ namespace OloEngine::Testing
         {
             Record("SetColorMask");
         }
+        void SetColorMaskForAttachment(u32 /*attachment*/, bool /*r*/, bool /*g*/, bool /*b*/, bool /*a*/) override
+        {
+            Record("SetColorMaskForAttachment");
+        }
         void BeginConditionalRender(u32 queryID) override
         {
             RecordedCall c{ "BeginConditionalRender" };
@@ -339,6 +348,10 @@ namespace OloEngine::Testing
         void EndConditionalRender() override
         {
             Record("EndConditionalRender");
+        }
+        [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override
+        {
+            return m_MaxUniformBlockSize;
         }
         void SetBlendStateForAttachment(u32 /*attachment*/, bool /*enabled*/) override
         {
@@ -404,6 +417,7 @@ namespace OloEngine::Testing
         u32 m_BindCount = 0;
         u32 m_DrawCallCount = 0;
         u32 m_NextTextureID = 1;
+        u32 m_MaxUniformBlockSize = 65536u;
         Viewport m_Viewport{ 0, 0, 1920, 1080 };
         bool m_StencilEnabled = false;
     };

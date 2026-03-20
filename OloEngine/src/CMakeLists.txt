@@ -398,6 +398,7 @@
 		"OloEngine/Renderer/Renderer2D.h"
 		"OloEngine/Renderer/Renderer3D.cpp"
 		"OloEngine/Renderer/Renderer3D.h"
+		"OloEngine/Renderer/RenderingPath.h"
 		"OloEngine/Renderer/SphericalHarmonics.h"
 		"OloEngine/Renderer/LightProbeVolumeAsset.h"
 		"OloEngine/Renderer/LightProbeBaker.h"
@@ -497,6 +498,15 @@
 		"OloEngine/Renderer/Occlusion/OcclusionState.cpp"
 		"OloEngine/Renderer/Occlusion/OcclusionCuller.h"
 		"OloEngine/Renderer/Occlusion/OcclusionCuller.cpp"
+
+		"OloEngine/Renderer/LightCulling/LightGrid.h"
+		"OloEngine/Renderer/LightCulling/LightGrid.cpp"
+		"OloEngine/Renderer/LightCulling/LightCullingBuffer.h"
+		"OloEngine/Renderer/LightCulling/LightCullingBuffer.cpp"
+		"OloEngine/Renderer/LightCulling/LightCullingPass.h"
+		"OloEngine/Renderer/LightCulling/LightCullingPass.cpp"
+		"OloEngine/Renderer/LightCulling/ClusteredForward.h"
+		"OloEngine/Renderer/LightCulling/ClusteredForward.cpp"
 		
 		"OloEngine/Renderer/Passes/RenderPass.h"
 		"OloEngine/Renderer/Passes/CommandBufferRenderPass.h"

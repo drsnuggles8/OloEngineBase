@@ -105,6 +105,7 @@ namespace OloEngine
         virtual void EnableMultisampling() = 0;
         virtual void DisableMultisampling() = 0;
         virtual void SetColorMask(bool red, bool green, bool blue, bool alpha) = 0;
+        virtual void SetColorMaskForAttachment(u32 attachment, bool red, bool green, bool blue, bool alpha) = 0;
 
         // Per-attachment blend control (needed for mixed integer/float framebuffer attachments)
         virtual void SetBlendStateForAttachment(u32 attachment, bool enabled) = 0;
@@ -135,6 +136,9 @@ namespace OloEngine
         // Occlusion / conditional rendering
         virtual void BeginConditionalRender(u32 queryID) = 0;
         virtual void EndConditionalRender() = 0;
+
+        // GPU capability queries
+        [[nodiscard("Store this!")]] virtual u32 GetMaxUniformBlockSize() const = 0;
 
         [[nodiscard("Store this!")]] static API GetAPI()
         {

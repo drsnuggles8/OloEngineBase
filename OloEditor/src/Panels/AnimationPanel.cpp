@@ -538,11 +538,11 @@ namespace OloEngine
                 }
 
                 // Size controls
-                if (ImGui::DragFloat("Joint Size", &m_JointSize, 0.001f, 0.005f, 0.1f, "%.3f"))
+                if (ImGui::DragFloat("Joint Size", &m_JointSize, 0.05f, 0.1f, 5.0f, "%.2f"))
                 {
                     settingsChanged = true;
                 }
-                if (ImGui::DragFloat("Bone Thickness", &m_BoneThickness, 0.1f, 0.5f, 5.0f, "%.1f"))
+                if (ImGui::DragFloat("Bone Thickness", &m_BoneThickness, 0.05f, 0.1f, 5.0f, "%.2f"))
                 {
                     settingsChanged = true;
                 }

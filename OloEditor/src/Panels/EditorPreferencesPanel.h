@@ -38,6 +38,7 @@ namespace OloEngine
 
         // Visuals
         bool ShowPhysicsColliders = false;
+        bool ShowLightGizmos = true;
         bool Is3DMode = true;
 
         // Performance — viewport render throttling

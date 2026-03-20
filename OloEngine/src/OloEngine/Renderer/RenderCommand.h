@@ -243,6 +243,11 @@ namespace OloEngine
             s_RendererAPI->SetColorMask(red, green, blue, alpha);
         }
 
+        static void SetColorMaskForAttachment(u32 attachment, bool red, bool green, bool blue, bool alpha)
+        {
+            s_RendererAPI->SetColorMaskForAttachment(attachment, red, green, blue, alpha);
+        }
+
         // Indirect draw calls (GPU-driven rendering)
         static void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID)
         {
@@ -341,6 +346,11 @@ namespace OloEngine
         static void EndConditionalRender()
         {
             s_RendererAPI->EndConditionalRender();
+        }
+
+        [[nodiscard("Store this!")]] static u32 GetMaxUniformBlockSize()
+        {
+            return s_RendererAPI->GetMaxUniformBlockSize();
         }
 
         static RendererAPI& GetRendererAPI()
